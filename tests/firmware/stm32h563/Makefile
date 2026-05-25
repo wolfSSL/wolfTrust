@@ -43,6 +43,8 @@ CFLAGS_COMMON += -DWT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_ORIGIN)u
 CFLAGS_COMMON += -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_ORIGIN)u
 CFLAGS_COMMON += -DWT_GUEST_FLASH_SIZE=$(WT_GUEST_FLASH_SIZE)u
 
+WT_WOLFHAL_CFG += -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING
+
 SECURE_CFLAGS := $(CFLAGS_COMMON) -mcmse
 NONSECURE_CFLAGS := $(CFLAGS_COMMON) -mno-unaligned-access
 
@@ -146,6 +148,7 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ) \
     -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ) \
     -mcmse \
+    $(WT_WOLFHAL_CFG) \
     $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE)
 NONSECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -Wall -Wextra \
@@ -254,7 +257,6 @@ WT_SECURE_EXTRA_SRCS += $(wildcard $(PORT_DIR)/rng_entropy.c)
 WT_SECURE_EXTRA_SRCS += $(wildcard $(PORT_DIR)/hsm_flash.c)
 WT_SECURE_EXTRA_SRCS += \
     $(WOLFHAL_DIR)/src/reg.c \
-    $(WOLFHAL_DIR)/src/rng/rng.c \
     $(WOLFHAL_DIR)/src/rng/stm32h5_rng.c
 
 # libc stubs (memcpy/memset/memmove/memcmp/strlen/etc) — wolfCrypt needs them

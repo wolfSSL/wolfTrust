@@ -27,6 +27,7 @@
 #include <wolfHAL/rng/rng.h>
 #include <wolfHAL/rng/stm32h5_rng.h>
 #include <wolfHAL/timeout.h>
+#include "board.h"
 
 /* Prototype matches the declaration in user_settings.h (CUSTOM_RAND_GENERATE_BLOCK). */
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
@@ -68,14 +69,12 @@ static int wt_insecure_test_rng_generate(unsigned char *output, unsigned int sz)
 
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
 {
-    whal_Rng *rng = (whal_Rng *)&whal_Stm32h5_Rng_Dev;
-
     if (output == NULL && sz != 0u) {
         return -1;
     }
 
     if (!s_rng_ready) {
-        if (whal_Rng_Init(rng) != WHAL_SUCCESS) {
+        if (whal_Rng_Init(BOARD_RNG_DEV) != WHAL_SUCCESS) {
 #ifdef WT_INSECURE_TEST_RNG
             return wt_insecure_test_rng_generate(output, sz);
 #else
@@ -89,7 +88,7 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
         return 0;
     }
 
-    if (whal_Rng_Generate(rng, output, (size_t)sz) == WHAL_SUCCESS) {
+    if (whal_Rng_Generate(BOARD_RNG_DEV, output, (size_t)sz) == WHAL_SUCCESS) {
         return 0;
     }
 

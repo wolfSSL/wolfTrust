@@ -209,6 +209,9 @@ worked examples above give a concrete map for each board.
   two build fragments, tests, docs, and workflows.
 - Run `tools/check-docs-no-internal-links.sh`; `docs/` is published to the
   wiki and must not reference internal ledgers or developer paths.
+- On an AArch64 port, run `tools/check-el3-symbols.sh <libwt_el3.a>`: the
+  EL3 monitor archive may leave unresolved only the hooks listed in
+  `tools/el3-symbols.allow` and must define no SPM, service, or crypto code.
 - Cross-build the Secure image with warnings enabled.
 - On the current Armv8-M port, inspect `nm` output and confirm only the five
   FF-M veneers are Non-secure-callable.

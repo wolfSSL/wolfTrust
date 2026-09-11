@@ -30,6 +30,7 @@ jobs:
           tools/check-core-port-split.sh --selftest
           tools/check-port-only-diff.sh --selftest
           tools/check-docs-no-internal-links.sh --selftest
+          tools/check-el3-symbols.sh --selftest
           tests/target/lib/expect.sh --selftest
 
       - name: Enforce the core/port split (strict)

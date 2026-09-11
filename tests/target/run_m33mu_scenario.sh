@@ -72,6 +72,7 @@ esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
+. "$repo/tests/target/lib/expect.sh"
 
 # Manifest guest restart_limit (port/stm32h563/manifest.json domain id 1).
 RESTART_LIMIT=3
@@ -400,18 +401,12 @@ echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
 guest0_log="$repo/ci-m33mu-$scenario-guest0.log"
 python3 "$repo/tests/target/lib/m33mu_console.py" "$log" > "$guest0_log"
 
-# Per-assertion reporting so make test-target surfaces what each scenario
-# actually checks, not just a single PASS. The Makefile greps these tagged
-# lines out of the log; the full boot log stays underneath.
-check_pass() { printf '  [check] PASS  %s\n' "$1"; }
-check_fail() { printf '  [check] FAIL  %s  (%s)\n' "$1" "$2"; exit 1; }
-expect()     { if grep -Fq "$2" "$log"; then check_pass "$1"; \
-               else check_fail "$1" "missing: $2"; fi; }
+# Per-assertion reporting (tests/target/lib/expect.sh) so make test-target
+# surfaces what each scenario actually checks, not just a single PASS.
+WT_EXPECT_LOG="$log"
 # Shared-UART tolerant match against the same guest0 view used by CI.
 expect_flat() { if grep -Fq "$2" "$guest0_log"; then check_pass "$1"; \
                 else check_fail "$1" "missing: $2"; fi; }
-refute_re()  { if grep -Eq "$2" "$log"; then check_fail "$1" "unexpected: $2"; \
-               else check_pass "$1"; fi; }
 
 case "$scenario" in
   positive|deputyneg|hsmpinneg|periphneg|bandneg[1-6]|restartneg[1-3])

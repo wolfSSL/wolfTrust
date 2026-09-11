@@ -1,0 +1,8 @@
+# Symbols the EL3 monitor archive may leave unresolved (one ERE per line).
+# Anything else pulls SPM, service, or crypto code into EL3 (WT-PORT-0012).
+^wt_gic_
+^wt_esr_
+^wt_platform_(console_putc|console_flush|panic|system_reset|sip_smc|board_[a-z_]+)$
+^g_wt_monitor_event$
+^(memset|memcpy)$
+^__(el3|stack|bss)_[a-z_]+$

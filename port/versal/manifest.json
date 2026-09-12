@@ -152,7 +152,7 @@
         },
         {
           "base": 2133852160,
-          "size": 81920,
+          "size": 262144,
           "attributes": 35,
           "share_id": 1
         }
@@ -193,7 +193,7 @@
         },
         {
           "base": 2133852160,
-          "size": 81920,
+          "size": 262144,
           "attributes": 35,
           "share_id": 1
         }
@@ -234,7 +234,7 @@
         },
         {
           "base": 2133852160,
-          "size": 81920,
+          "size": 262144,
           "attributes": 35,
           "share_id": 1
         }

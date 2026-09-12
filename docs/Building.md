@@ -87,12 +87,21 @@ make ARCH=aarch64 TARGET=qemuvirt WT_GIC_VERSION=2 WT_CPU=cortex-a35
 make ARCH=aarch64 TARGET=versal                              # WT_VERSAL_VIRT=1 today
 ```
 
-Until the Secure Partition Manager runs at Secure EL1, the AArch64 default
-goal is `el3-image`: the monitor archive `build/libwt_el3.a` (audited by
-`tools/check-el3-symbols.sh` at link time) linked with the Secure EL1 stub
-into `build/wolftrust_el3.elf` and `build/wolftrust_el3.bin`. The
-`ghcr.io/wolfssl/wolfboot-ci-aarch64` container carries the toolchain and
-QEMU; `make test-target-a` boots the result.
+The AArch64 build produces two images. `el3-image` is the monitor: the
+archive `build/libwt_el3.a` (audited by `tools/check-el3-symbols.sh` at link
+time) linked whole into `build/wolftrust_el3.elf` and `build/wolftrust_el3.bin`.
+`secure-image` is the Secure EL1 SPMC, `build/wolftrust.elf` and
+`build/wolftrust.bin`: the neutral core, the services, wolfCrypt and wolfHSM,
+the AArch64 Secure EL1 layer, and the port, linked by
+`src/arch/aarch64/spm/wolftrust.ld` into the SPM image, RAM, and keystore
+bands that `mk/target-<soc>.mk` defines. On QEMU virt the runner places the
+SPMC image behind the monitor in the pflash image (`WT_SPM_FLASH_OFFSET`)
+and the monitor copies it to its band; on versal-virt the QEMU loader places
+the ELF. The QEMU ports share `port/common/aarch64/` (platform operations,
+partition tables, a RAM-backed wolfHSM NVM, and a test entropy source that
+silicon ports must replace). The `ghcr.io/wolfssl/wolfboot-ci-aarch64`
+container carries the toolchain and QEMU; `make test-target-a` boots the
+result.
 
 ## Manifest generation
 

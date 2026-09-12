@@ -39,15 +39,39 @@
     b       wt_spm_fiq_entry
     .endm
 
+/* Copy [x10, x11) from x9 and zero [x12, x13), 16 bytes at a time; the
+ * linker script aligns every band edge to 16. */
+    .macro WT_SPM_INIT_BAND lma, start, end, bss_start, bss_end
+    ldr     x9, =\lma
+    ldr     x10, =\start
+    ldr     x11, =\end
+1:  cmp     x10, x11
+    b.hs    2f
+    ldp     x14, x15, [x9], #16
+    stp     x14, x15, [x10], #16
+    b       1b
+2:  ldr     x12, =\bss_start
+    ldr     x13, =\bss_end
+3:  cmp     x12, x13
+    b.hs    4f
+    stp     xzr, xzr, [x12], #16
+    b       3b
+4:
+    .endm
+
     .section .text.wt_spm_entry, "ax"
     .globl wt_spm_entry
 wt_spm_entry:
+    mov     x19, x0
     ldr     x9, =wt_spm_vectors
     msr     VBAR_EL1, x9
     ldr     x9, =__spm_stack_top
     mov     sp, x9
     msr     TPIDRRO_EL0, xzr
     isb
+    WT_SPM_INIT_BAND __data_lma, __data_start, __data_end, __bss_start, __bss_end
+    WT_SPM_INIT_BAND _si_keystore, _s_keystore, _e_keystore_data, _s_keystore_bss, _e_keystore
+    mov     x0, x19
     bl      wt_spm_main
 2:  wfi
     b       2b

@@ -136,6 +136,7 @@ case "$scenario" in
     expect "SPMD built the FF-A boot information blob" "[EL3] boot info at 0x"
     expect "monitor dropped into Secure EL1" "[SPM] spmc entered at S-EL1"
     expect "SPMC consumed the boot information blob" "[SPM] boot info ok descs="
+    expect "SPMC turned its stage-1 MMU on and still prints" "[SPM] mmu on ttbr0=0x"
     expect "FF-A version negotiated with the SPMD" "[SPM] ffa version 1.2 negotiated"
     expect "FF-A discovery at the Secure physical instance" "[SPM] ffa discovery ok id=0x8000 spmd=0x8001"
     expect "SPMC initialization completed with FFA_MSG_WAIT" "[EL3] spmc ready"

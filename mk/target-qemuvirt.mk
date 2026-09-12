@@ -12,8 +12,11 @@ MANIFEST_INPUT := $(PORT_DIR)/manifest.json
 WT_EL3_TEXT_BASE ?= 0x00000000
 WT_EL3_RAM_BASE ?= 0x0E000000
 WT_EL3_RAM_SIZE ?= 0x00040000
-# First page of the SPM band carries the FF-A boot information blob.
+# First page of the SPM band carries the FF-A boot information blob, the
+# translation-table pool follows it.
 WT_SPM_BOOT_INFO_PA ?= 0x0E040000
+WT_SPM_TABLE_POOL_PA ?= 0x0E041000
+WT_SPM_TABLE_POOL_PAGES ?= 16
 WT_UART_SKIP_INIT ?= 0
 # QEMU presets CNTFRQ_EL0; leave it alone like a boot ROM would.
 WT_PORT_CNTFRQ_KEEP ?= 1
@@ -23,6 +26,8 @@ TARGET_CFLAGS := \
     -DWT_EL3_RAM_BASE=$(WT_EL3_RAM_BASE)u \
     -DWT_EL3_RAM_SIZE=$(WT_EL3_RAM_SIZE)u \
     -DWT_SPM_BOOT_INFO_PA=$(WT_SPM_BOOT_INFO_PA)u \
+    -DWT_SPM_TABLE_POOL_PA=$(WT_SPM_TABLE_POOL_PA)u \
+    -DWT_SPM_TABLE_POOL_PAGES=$(WT_SPM_TABLE_POOL_PAGES)u \
     -DWT_PORT_BOOT_CPUS=$(WT_PORT_BOOT_CPUS)u \
     -DWT_UART_SKIP_INIT=$(WT_UART_SKIP_INIT) \
     -DWT_PORT_CNTFRQ_KEEP=$(WT_PORT_CNTFRQ_KEEP)

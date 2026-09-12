@@ -31,7 +31,13 @@ _start:
     mrs     x0, MPIDR_EL1
     and     x1, x0, #0xffffff
     cbz     x1, primary
-    and     x1, x0, #3
+    /* Report only after core 0 has cleared .bss, or the flag would be wiped. */
+    ldr     x2, =g_ready
+5:  ldr     w3, [x2]
+    cbnz    w3, 6f
+    wfe
+    b       5b
+6:  and     x1, x0, #3
     ldr     x2, =g_parked
     mov     w3, #1
     strb    w3, [x2, x1]
@@ -49,7 +55,12 @@ primary:
     b.hs    3f
     str     xzr, [x0], #8
     b       2b
-3:  bl      smoke_main
+3:  ldr     x0, =g_ready
+    mov     w1, #1
+    str     w1, [x0]
+    dsb     sy
+    sev
+    bl      smoke_main
     mov     x0, #0
     b       smoke_exit
 

@@ -32,16 +32,20 @@ QEMU="${QEMU:-qemu-system-aarch64}"
 QEMU_TIMEOUT="${QEMU_TIMEOUT:-60}"
 TOOLPREFIX="${TOOLPREFIX:-aarch64-none-elf-}"
 
-# versal-virt models 2 A72 + 2 R5 and QEMU refuses fewer than 4 CPUs there.
+# versal-virt models 2 A72 + 2 R5 and QEMU refuses fewer than 4 CPUs there;
+# A72 core 1 stays held in reset until firmware releases it (a loader entry
+# with cpu-num=1 does not start it), so the smoke runs on core 0 alone.
 case "$MACHINE" in
-  virt) tag="virt-gicv$GIC-$CPU"; SMP="${SMP:-2}" ;;
-  versal-virt) tag="versal-virt"; SMP="${SMP:-4}" ;;
+  virt) tag="virt-gicv$GIC-$CPU"; SMP="${SMP:-2}"; cpus="$SMP" ;;
+  versal-virt) tag="versal-virt"; SMP="${SMP:-4}"; cpus=1 ;;
   *) echo "unsupported MACHINE=$MACHINE (virt or versal-virt)" >&2; exit 2 ;;
 esac
+expected_mask=$(printf '0x%x' $(( (1 << cpus) - 2 )))
 
 fw="$repo/tests/firmware/aarch64-smoke"
 build="$fw/build/$tag"
-make -C "$fw" MACHINE="$MACHINE" TOOLPREFIX="$TOOLPREFIX" BUILD_DIR="build/$tag"
+make -C "$fw" MACHINE="$MACHINE" TOOLPREFIX="$TOOLPREFIX" BUILD_DIR="build/$tag" \
+  WT_SMOKE_CPUS="$cpus"
 
 log="$repo/ci-qemu-a-$scenario-$tag.log"
 ns_log="$repo/ci-qemu-a-$scenario-$tag-ns.log"
@@ -81,7 +85,7 @@ case "$scenario" in
   smoke)
     expect "code runs at EL3 on $MACHINE" "[SMOKE] EL3 machine=$MACHINE"
     expect "generic timer frequency reported" " cntfrq="
-    expect "secondary cores accounted for (PF-Q1)" " parked_mask=0x"
+    expect "secondary cores parked (PF-Q1, $cpus cores)" " parked_mask=$expected_mask"
     refute_re "no smoke failure marker" '\[SMOKE\] FAIL'
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;

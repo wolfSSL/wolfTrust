@@ -43,9 +43,11 @@ jobs:
       - name: Self-test the EL3 symbol guard
         run: tools/check-el3-symbols.sh --selftest
 
-      - name: Boot the EL3 smoke
-        run: tests/target/run_suite.sh qemu-a smoke
+      - name: Boot the EL3 smoke and the wolfTrust EL3 monitor
+        run: tests/target/run_suite.sh qemu-a smoke boot
 
-      - name: Show the boot log
+      - name: Show the boot logs
         if: always()
-        run: cat logs/target-smoke.log || true
+        run: |
+          cat logs/target-smoke.log || true
+          cat logs/target-boot.log || true

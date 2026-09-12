@@ -361,10 +361,13 @@ tests/target/run_qemu_a_scenario.sh smoke
 
 It auto-detects `qemu-system-aarch64` and the `aarch64-none-elf` toolchain
 and skips explicitly otherwise; CI runs it inside
-`ghcr.io/wolfssl/wolfboot-ci-aarch64`. The only scenario today is `smoke`:
-the EL3 image in `tests/firmware/aarch64-smoke/` proves the machine starts
+`ghcr.io/wolfssl/wolfboot-ci-aarch64`. Scenarios today: `smoke` (the EL3
+image in `tests/firmware/aarch64-smoke/` proves the machine starts
 wolfTrust-built code at EL3, prints on the secure console, reports which
-secondary cores parked, and exits through semihosting. Both emulator runners
+secondary cores parked, and exits through semihosting) and `boot` (the
+wolfTrust EL3 monitor from `make ARCH=aarch64` parks the secondary cores,
+prints its banner, drops into Secure EL1, and exits through its monitor
+call). Both emulator runners
 share `tests/target/run_suite.sh` (the per-scenario report and
 `logs/target-<scenario>.log`) and assert through `tests/target/lib/expect.sh`.
 

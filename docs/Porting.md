@@ -196,6 +196,17 @@ worked examples above give a concrete map for each board.
 8. Add safe provisioning tooling for the target's security attribution,
    application-image write protection, debug policy, and product lifecycle.
 
+## AArch64 targets
+
+An AArch64 SoC port adds `mk/target-<soc>.mk` (the EL3 text and RAM bands,
+the boot CPU count, whether the loader already configured the UART and the
+counter frequency) and `port/<soc>/memory_map.h`, `el3_board.c`, and
+`uart.c`. The EL3 monitor archive `libwt_el3.a` may reference only the port
+hooks listed in `tools/el3-symbols.allow` (`wt_platform_board_init`, the
+console pair) and must define no SPM, service, or crypto code; the link rule
+runs `tools/check-el3-symbols.sh` on every build. The Secure EL1 side of the
+port arrives with the SPM bring-up.
+
 ## Validation checklist
 
 - Run `make test` for common policy and service behavior.

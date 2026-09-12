@@ -5,9 +5,14 @@
 # ghcr.io/wolfssl/wolfboot-ci-aarch64 (the image CI uses) or anywhere
 # qemu-system-aarch64 and aarch64-none-elf-gcc are on PATH.
 #
-#   run_qemu_a_scenario.sh smoke   our code runs at EL3 on the machine, prints
-#                                  on the secure console, reports which
-#                                  secondary cores parked, exits via semihosting
+#   run_qemu_a_scenario.sh smoke   the tests/firmware/aarch64-smoke image runs
+#                                  at EL3, prints on the secure console,
+#                                  reports the parked secondary cores, exits
+#                                  through semihosting
+#   run_qemu_a_scenario.sh boot    the wolfTrust EL3 monitor (make ARCH=aarch64
+#                                  TARGET=qemuvirt|versal) boots, parks the
+#                                  secondaries, prints its banner, drops into
+#                                  Secure EL1, and exits through the monitor
 #
 #   MACHINE=virt|versal-virt (default virt)   GIC=2|3 (virt, default 3)
 #   CPU=cortex-a35|cortex-a72 (virt, default cortex-a72)
@@ -17,8 +22,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke) ;;
-  *) echo "usage: $0 smoke" >&2; exit 2 ;;
+  smoke|boot) ;;
+  *) echo "usage: $0 smoke|boot" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -36,16 +41,28 @@ TOOLPREFIX="${TOOLPREFIX:-aarch64-none-elf-}"
 # A72 core 1 stays held in reset until firmware releases it (a loader entry
 # with cpu-num=1 does not start it), so the smoke runs on core 0 alone.
 case "$MACHINE" in
-  virt) tag="virt-gicv$GIC-$CPU"; SMP="${SMP:-2}"; cpus="$SMP" ;;
-  versal-virt) tag="versal-virt"; SMP="${SMP:-4}"; cpus=1 ;;
+  virt) tag="virt-gicv$GIC-$CPU"; SMP="${SMP:-2}"; cpus="$SMP"; target=qemuvirt ;;
+  versal-virt) tag="versal-virt"; SMP="${SMP:-4}"; cpus=1; target=versal ;;
   *) echo "unsupported MACHINE=$MACHINE (virt or versal-virt)" >&2; exit 2 ;;
 esac
 expected_mask=$(printf '0x%x' $(( (1 << cpus) - 2 )))
+el3_base=0xFFFC0000
 
-fw="$repo/tests/firmware/aarch64-smoke"
-build="$fw/build/$tag"
-make -C "$fw" MACHINE="$MACHINE" TOOLPREFIX="$TOOLPREFIX" BUILD_DIR="build/$tag" \
-  WT_SMOKE_CPUS="$cpus"
+# --- Build the image for this scenario. ---
+if [ "$scenario" = smoke ]; then
+  fw="$repo/tests/firmware/aarch64-smoke"
+  build="$fw/build/$tag"
+  make -C "$fw" MACHINE="$MACHINE" TOOLPREFIX="$TOOLPREFIX" BUILD_DIR="build/$tag" \
+    WT_SMOKE_CPUS="$cpus"
+  image_bin="$build/smoke.bin"
+  image_elf="$build/smoke.elf"
+else
+  build="$repo/build-aarch64-$tag"
+  make ARCH=aarch64 TARGET="$target" TOOLPREFIX="$TOOLPREFIX" WT_GIC_VERSION="$GIC" \
+    WT_CPU="$CPU" WT_PORT_BOOT_CPUS="$cpus" BUILD_DIR="build-aarch64-$tag"
+  image_bin="$build/wolftrust_el3.bin"
+  image_elf="$build/wolftrust_el3.elf"
+fi
 
 log="$repo/ci-qemu-a-$scenario-$tag.log"
 ns_log="$repo/ci-qemu-a-$scenario-$tag-ns.log"
@@ -53,18 +70,18 @@ sec_log="$repo/ci-qemu-a-$scenario-$tag-secure.log"
 qemu_out="$repo/ci-qemu-a-$scenario-$tag-qemu.log"
 : > "$ns_log"; : > "$sec_log"
 
-# virt: the first -serial is the Non-secure PL011, the second the secure one.
-# versal-virt: UART0 (PL011) only; the image is placed in OCM by the loader
-# and core 0 is pointed at it.
+# virt: the first -serial is the Non-secure PL011, the second the secure one;
+# the image boots from flash0 at 0. versal-virt: the loader places the ELF in
+# OCM and points core 0 at it; UART0 is the NS console, UART1 the secure one.
 if [ "$MACHINE" = virt ]; then
   args=(-M "virt,secure=on,gic-version=$GIC" -cpu "$CPU" -smp "$SMP" -m 1G
-        -bios "$build/smoke.bin"
+        -bios "$image_bin"
         -serial "file:$ns_log" -serial "file:$sec_log")
 else
   args=(-M xlnx-versal-virt -smp "$SMP" -m 2G
-        -device "loader,file=$build/smoke.elf"
-        -device "loader,addr=0xFFFC0000,cpu-num=0"
-        -serial "file:$sec_log")
+        -device "loader,file=$image_elf"
+        -device "loader,addr=$el3_base,cpu-num=0"
+        -serial "file:$ns_log" -serial "file:$sec_log")
 fi
 args+=(-nographic -monitor none -no-reboot
        -semihosting-config "enable=on,target=native")
@@ -87,6 +104,16 @@ case "$scenario" in
     expect "generic timer frequency reported" " cntfrq="
     expect "secondary cores parked (PF-Q1, $cpus cores)" " parked_mask=$expected_mask"
     refute_re "no smoke failure marker" '\[SMOKE\] FAIL'
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  boot)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    expect "EL3 monitor banner on $MACHINE" "[EL3] wolfTrust monitor cntfrq="
+    expect "secondary cores parked ($cpus cores)" " secondaries parked mask=$expected_mask"
+    expect "monitor dropped into Secure EL1" "[SPM] stub entered at S-EL1"
+    expect "monitor exit call reached EL3" "[BKPT] imm=0x7f"
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
 esac

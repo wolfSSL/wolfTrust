@@ -79,6 +79,21 @@ tuning variables (`WT_VNET_POOL_SLOTS`, `WT_VNET_FRAME_MAX`,
 `WT_CONF_DIAG_TRAP` variables. Use a fresh `BUILD_DIR` or clean the active
 output directory before changing an option that the recipe does not record.
 
+## AArch64 EL3 monitor image
+
+```sh
+make ARCH=aarch64 TARGET=qemuvirt                            # virt, GICv3, cortex-a72
+make ARCH=aarch64 TARGET=qemuvirt WT_GIC_VERSION=2 WT_CPU=cortex-a35
+make ARCH=aarch64 TARGET=versal                              # WT_VERSAL_VIRT=1 today
+```
+
+Until the Secure Partition Manager runs at Secure EL1, the AArch64 default
+goal is `el3-image`: the monitor archive `build/libwt_el3.a` (audited by
+`tools/check-el3-symbols.sh` at link time) linked with the Secure EL1 stub
+into `build/wolftrust_el3.elf` and `build/wolftrust_el3.bin`. The
+`ghcr.io/wolfssl/wolfboot-ci-aarch64` container carries the toolchain and
+QEMU; `make test-target-a` boots the result.
+
 ## Manifest generation
 
 The default input is `port/stm32h563/manifest.json`.

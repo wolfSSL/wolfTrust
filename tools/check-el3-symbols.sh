@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # EL3 image guard (WT-PORT-0012). The AArch64 monitor archive may leave
 # unresolved only the symbols allowed by tools/el3-symbols.allow, and may not
-# define anything that belongs to the SPM, the services, or a crypto library.
-# References resolved inside the archive itself are fine.
+# define anything, global or local, that belongs to the SPM, the services, or
+# a crypto library. References resolved inside the archive itself are fine.
 #
 #   tools/check-el3-symbols.sh <libwt_el3.a> [--nm <nm>]
-#   tools/check-el3-symbols.sh --nm-file <listing>     (output of nm -g)
+#   tools/check-el3-symbols.sh --nm-file <listing>     (output of plain nm)
 #   tools/check-el3-symbols.sh --selftest
 set -u
 
@@ -18,8 +18,8 @@ audit() {
   local allow="$1" pats defined undefined bad=0 hit
   pats="$(grep -vE '^[[:space:]]*(#|$)' "$allow")"
   listing="$(cat)"
-  defined="$(printf '%s\n' "$listing" | awk 'NF==3 && $2!="U" {print $3}' | sort -u)"
-  undefined="$(printf '%s\n' "$listing" | awk 'NF==2 && $1=="U" {print $2}' | sort -u)"
+  defined="$(printf '%s\n' "$listing" | awk 'NF==3 && $2!="U" && $2!="w" {print $3}' | sort -u)"
+  undefined="$(printf '%s\n' "$listing" | awk 'NF==2 && ($1=="U" || $1=="w") {print $2}' | sort -u)"
   if [ -n "$defined" ]; then
     undefined="$(printf '%s\n' "$undefined" | grep -vxF -f <(printf '%s\n' "$defined") || true)"
   fi
@@ -40,10 +40,11 @@ selftest() {
   local fails=0 out
   out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n                 U wt_gic_init_secure\n                 U wt_platform_console_putc\n                 U wt_esr_classify\n                 U memset\n                 U __el3_stack_top\n\nesr.o:\n0000000000000000 T wt_esr_classify\n' \
     | audit "$ALLOW")" || { echo "SELFTEST FAIL: clean listing rejected:"; echo "$out"; fails=$((fails + 1)); }
-  out="$(printf 'smc.o:\n0000000000000000 T wt_smc_dispatch\n                 U wt_ffm_call\n0000000000000040 T wt_spm_init\n' \
+  out="$(printf 'smc.o:\n0000000000000000 T wt_smc_dispatch\n                 U wt_ffm_call\n0000000000000040 T wt_spm_init\n0000000000000080 t wt_hsm_helper\n' \
     | audit "$ALLOW")" && { echo "SELFTEST FAIL: bad listing accepted"; fails=$((fails + 1)); }
   case "$out" in *"allow-list: wt_ffm_call"*) ;; *) echo "SELFTEST FAIL: wt_ffm_call not flagged"; fails=$((fails + 1)) ;; esac
   case "$out" in *"EL3 archive: wt_spm_init"*) ;; *) echo "SELFTEST FAIL: wt_spm_init not flagged"; fails=$((fails + 1)) ;; esac
+  case "$out" in *"EL3 archive: wt_hsm_helper"*) ;; *) echo "SELFTEST FAIL: local wt_hsm_helper not flagged"; fails=$((fails + 1)) ;; esac
   if [ "$fails" -ne 0 ]; then echo "SELFTEST: $fails failure(s)"; exit 1; fi
   echo "SELFTEST: ok"
   exit 0
@@ -69,7 +70,7 @@ if [ -n "$listing_file" ]; then
   listing="$(cat "$listing_file")" || exit 2
 elif [ -n "$archive" ]; then
   source_desc="$archive"
-  listing="$("$NM" -g "$archive")" || { echo "FAIL: $NM -g $archive failed" >&2; exit 2; }
+  listing="$("$NM" "$archive")" || { echo "FAIL: $NM $archive failed" >&2; exit 2; }
 else
   echo "usage: $0 <libwt_el3.a> [--nm <nm>] | --nm-file <listing> | --selftest" >&2
   exit 2

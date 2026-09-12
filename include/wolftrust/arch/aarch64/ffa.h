@@ -28,7 +28,9 @@ typedef struct wt_ffa_regs {
     uint64_t x[8];
 } wt_ffa_regs_t;
 
-/* SMC conduit (S-EL1 -> EL3, NS EL1 -> EL3). x8-x17 are caller-saved. */
+/* SMC conduit (S-EL1 -> EL3, NS EL1 -> EL3). x8-x17 are caller-saved. Only
+ * the target has the conduit; host suites drive the dispatchers directly. */
+#if defined(__aarch64__)
 static inline void wt_ffa_smc(wt_ffa_regs_t* r)
 {
     register uint64_t x0 __asm__("x0") = r->x[0];
@@ -55,10 +57,14 @@ static inline void wt_ffa_smc(wt_ffa_regs_t* r)
     r->x[6] = x6;
     r->x[7] = x7;
 }
+#endif /* __aarch64__ */
 
 /* EL3 (SPMD) handling of one FF-A call taken at the Secure physical
  * instance; fills r with the FFA_SUCCESS/FFA_ERROR reply. */
 void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r);
 unsigned int wt_ffa_spmd_spmc_ready(void);
+/* FFA_CONSOLE_LOG over x[0..7] (SMC32) or x[0..17] (SMC64); the reply lands
+ * in x[0..7]. The caller hands the saved register frame directly. */
+void wt_ffa_spmd_console_call(uint64_t* x, unsigned int is64);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_H */

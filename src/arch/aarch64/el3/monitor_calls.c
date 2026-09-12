@@ -79,6 +79,11 @@ static void secure_smc(wt_el3_frame_t* frame)
     uint32_t fid = (uint32_t)frame->x[0];
     unsigned int i;
 
+    if (fid == WT_FFA_CONSOLE_LOG64) {
+        /* Characters span x2-x17: use the saved frame, not the 8-register copy. */
+        wt_ffa_spmd_console_call(frame->x, 1u);
+        return;
+    }
     if (wt_ffa_fid_in_range(fid)) {
         for (i = 0u; i < 8u; i++) {
             regs.x[i] = frame->x[i];

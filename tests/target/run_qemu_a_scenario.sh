@@ -140,6 +140,8 @@ case "$scenario" in
     expect "secure timer tick reached the SPMC as a Group 0 FIQ at S-EL1" "[SPM] tick ok intid=29"
     expect "FF-A version negotiated with the SPMD" "[SPM] ffa version 1.2 negotiated"
     expect "FF-A discovery at the Secure physical instance" "[SPM] ffa discovery ok id=0x8000 spmd=0x8001"
+    expect "FFA_CONSOLE_LOG SMC32 logged through the SPMD" "[SPM] console32 ok"
+    expect "FFA_CONSOLE_LOG SMC64 logged through the SPMD" "[SPM] console64 ok"
     expect "SPMC initialization completed with FFA_MSG_WAIT" "[EL3] spmc ready"
     expect "monitor exit call reached EL3" "[BKPT] imm=0x7f"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"

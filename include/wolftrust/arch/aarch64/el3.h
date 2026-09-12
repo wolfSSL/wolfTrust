@@ -61,8 +61,10 @@ void wt_el3_puthex(uint64_t value, unsigned int digits);
 void wt_el3_putdec(uint64_t value);
 
 void wt_el3_semihost_exit(uint64_t code) __attribute__((noreturn));
-void wt_el3_enter_secure_el1(void (*entry)(void), uintptr_t stack_top)
-    __attribute__((noreturn));
+void wt_el3_enter_secure_el1(void (*entry)(void), uintptr_t stack_top,
+                             uint64_t x0_arg) __attribute__((noreturn));
+/* The SPMC signalled initialization complete with FFA_MSG_WAIT. */
+void wt_el3_spmc_ready(void) __attribute__((noreturn));
 void wt_el3_fault(uint64_t kind, uint64_t esr, uint64_t far, uint64_t elr)
     __attribute__((noreturn));
 uint64_t wt_el3_monitor_call(uint32_t fid, uint64_t arg);

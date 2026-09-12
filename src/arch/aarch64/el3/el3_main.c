@@ -23,12 +23,25 @@
  * the banner, and drop into the Secure EL1 entry. */
 
 #include "wolftrust/arch/aarch64/el3.h"
+#include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/ffa_boot_info.h"
 #include "wolftrust/arch/aarch64/gic.h"
+#include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
 
 #ifndef WT_PORT_BOOT_CPUS
 #define WT_PORT_BOOT_CPUS 1u
 #endif
+#ifndef WT_SPM_BOOT_INFO_PA
+#error "the target fragment must place the FF-A boot information page"
+#endif
+#ifndef WT_PORT_HANDOFF_PA
+#define WT_PORT_HANDOFF_PA 0u
+#endif
+#ifndef WT_PORT_HANDOFF_SIZE
+#define WT_PORT_HANDOFF_SIZE 0u
+#endif
+#define WT_SPM_BOOT_INFO_LIMIT 4096u
 #define WT_EL3_PARK_WAIT_MS 200u
 #define WT_EL3_TICK_PERIOD_MS 10u
 #define WT_EL3_TICK_WAIT_MS 100u
@@ -94,9 +107,56 @@ static void prove_tick(void)
     }
 }
 
+/* 5.4: one 4K page at the start of the SPM band; the wolfBoot handoff record
+ * rides an IMPDEF descriptor when the port has one (WT-PORT-0020). */
+static uint64_t build_boot_info(void)
+{
+    uint8_t* blob = (uint8_t*)(uintptr_t)WT_SPM_BOOT_INFO_PA;
+    wt_ffa_boot_info_item_t item;
+    uint32_t count = 0u;
+    uint32_t size = 0u;
+    int ret;
+
+    item.source = (const void*)(uintptr_t)WT_PORT_HANDOFF_PA;
+    item.value = 0u;
+    item.name = WT_FFA_BOOT_INFO_NAME_WT_HANDOFF;
+    item.size = WT_PORT_HANDOFF_SIZE;
+    item.type = WT_FFA_BOOT_INFO_TYPE_WT_HANDOFF;
+    item.name_format = WT_FFA_BOOT_INFO_NAME_STRING;
+    item.contents_format = WT_FFA_BOOT_INFO_CONTENTS_ADDRESS;
+    if ((WT_PORT_HANDOFF_PA != 0u) && (WT_PORT_HANDOFF_SIZE != 0u)) {
+        count = 1u;
+    }
+    ret = wt_ffa_boot_info_build(blob, WT_SPM_BOOT_INFO_PA, WT_SPM_BOOT_INFO_LIMIT,
+                                 WT_FFA_VERSION_1_2, &item, count, &size);
+    if (ret != WT_FFA_BOOT_INFO_OK) {
+        wt_el3_puts("[EL3] boot info build failed\r\n");
+        (void)wt_el3_monitor_call(WT_MON_FID_PANIC, 0xB1u);
+    }
+    wt_el3_puts("[EL3] boot info at 0x");
+    wt_el3_puthex(WT_SPM_BOOT_INFO_PA, 8u);
+    wt_el3_puts(" size=");
+    wt_el3_putdec(size);
+    wt_el3_puts(" descs=");
+    wt_el3_putdec(count);
+    wt_el3_puts("\r\n");
+    return WT_SPM_BOOT_INFO_PA;
+}
+
+void wt_el3_spmc_ready(void)
+{
+    wt_el3_puts("[EL3] spmc ready\r\n");
+    wt_platform_console_flush();
+    /* No Normal world before the NS gateway lands: the boot proof ends here. */
+    (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);
+    for (;;) {
+    }
+}
+
 void wt_el3_main(void)
 {
     uint32_t mask;
+    uint64_t boot_info;
 
     wt_platform_board_init();
     wt_gic->init_secure();
@@ -113,7 +173,8 @@ void wt_el3_main(void)
     wt_el3_puts("\r\n");
 
     prove_tick();
+    boot_info = build_boot_info();
 
     wt_write_sctlr_el1(WT_SCTLR_EL1_RES1);
-    wt_el3_enter_secure_el1(wt_spm_entry, (uintptr_t)__spm_stack_top);
+    wt_el3_enter_secure_el1(wt_spm_entry, (uintptr_t)__spm_stack_top, boot_info);
 }

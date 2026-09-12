@@ -59,5 +59,6 @@ static inline void wt_ffa_smc(wt_ffa_regs_t* r)
 /* EL3 (SPMD) handling of one FF-A call taken at the Secure physical
  * instance; fills r with the FFA_SUCCESS/FFA_ERROR reply. */
 void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r);
+unsigned int wt_ffa_spmd_spmc_ready(void);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_H */

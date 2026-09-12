@@ -21,8 +21,11 @@
 /* SPMD: FF-A calls arriving at the Secure physical instance (from the SPMC).
  * Every reply zeroes the unused result registers (11.2). */
 
+#include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa.h"
+
+static unsigned int g_spmc_ready;
 
 static void reply_error(wt_ffa_regs_t* r, int32_t code)
 {
@@ -57,10 +60,16 @@ static int spmd_implements(uint32_t fid)
         case WT_FFA_FEATURES:
         case WT_FFA_ID_GET:
         case WT_FFA_SPM_ID_GET:
+        case WT_FFA_MSG_WAIT:
             return 1;
         default:
             return 0;
     }
+}
+
+unsigned int wt_ffa_spmd_spmc_ready(void)
+{
+    return g_spmc_ready;
 }
 
 void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
@@ -90,6 +99,14 @@ void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
             break;
         case WT_FFA_SPM_ID_GET:
             reply_success(r, WT_FFA_ID_SPMD, 0u);
+            break;
+        case WT_FFA_MSG_WAIT:
+            /* 5.5: the first MSG_WAIT from the SPMC ends its initialization. */
+            if (g_spmc_ready == 0u) {
+                g_spmc_ready = 1u;
+                wt_el3_spmc_ready();
+            }
+            reply_error(r, WT_FFA_DENIED);
             break;
         default:
             reply_error(r, WT_FFA_NOT_SUPPORTED);

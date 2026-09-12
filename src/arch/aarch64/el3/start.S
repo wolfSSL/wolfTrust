@@ -154,15 +154,20 @@ wt_el3_semihost_exit:
     hlt     #0xf000
     b       halt
 
-/* void wt_el3_enter_secure_el1(void (*entry)(void), uintptr_t stack_top) */
+/* void wt_el3_enter_secure_el1(void (*entry)(void), uintptr_t stack_top,
+ *                              uint64_t x0_arg): x0_arg reaches S-EL1 in x0. */
     .globl wt_el3_enter_secure_el1
 wt_el3_enter_secure_el1:
     msr     SP_EL1, x1
     msr     ELR_EL3, x0
-    mov     x2, #0x3c5
-    msr     SPSR_EL3, x2
-    mov     x2, #0xc08
-    msr     SCR_EL3, x2
+    mov     x3, #0x3c5
+    msr     SPSR_EL3, x3
+    mov     x3, #0xc08
+    msr     SCR_EL3, x3
+    mov     x0, x2
+    mov     x1, #0
+    mov     x2, #0
+    mov     x3, #0
     isb
     eret
 

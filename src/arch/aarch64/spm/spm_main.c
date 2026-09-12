@@ -33,11 +33,12 @@
 
 #define WT_SPMC_UNKNOWN_FID (WT_FFA_FID32_LAST - 0xFu)
 #define WT_SPMC_BOOT_INFO_LIMIT 4096u
-#define WT_SPMC_MAX_FILL 8u
+#define WT_SPMC_MAX_FILL 12u
 
 extern uint8_t __data_lma[];
 
 void wt_spm_main(uint64_t boot_info_pa);
+int wt_spm_prove_tick(void);
 
 /* The fill list outlives init: every partition table maps it EL1-only. */
 static wt_memory_region_t g_fill[WT_SPMC_MAX_FILL];
@@ -182,6 +183,12 @@ void wt_spm_main(uint64_t boot_info_pa)
     wt_el3_puts("[SPM] spmc entered at S-EL1\r\n");
     consume_boot_info(boot_info_pa);
     enable_mmu(boot_info_pa);
+    if (wt_spm_prove_tick()) {
+        wt_el3_puts("[SPM] tick ok intid=29\r\n");
+    }
+    else {
+        wt_el3_puts("[SPM] tick TIMEOUT\r\n");
+    }
     discover_spmd();
     wt_platform_console_flush();
 

@@ -26,8 +26,14 @@
 #include "wolftrust/arch/aarch64/pl011.h"
 #include "wolftrust/arch/aarch64/tables.h"
 
+/* The SPMC owns the GIC: distributor and the redistributor frames of the
+ * two APU cores beside the console. */
 static const wt_memory_region_t g_device_regions[] = {
     { WT_UART_S_BASE, 0x1000u,
+      WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE },
+    { WT_GICD_BASE, 0x10000u,
+      WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE },
+    { WT_GICR_BASE, 0x80000u,
       WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE }
 };
 

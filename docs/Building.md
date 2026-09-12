@@ -96,7 +96,8 @@ QEMU; `make test-target-a` boots the result.
 
 ## Manifest generation
 
-The default input is `port/stm32h563/manifest.json`.
+The default input is `port/stm32h563/manifest.json`; AArch64 targets use
+`port/qemuvirt/manifest.json` and `port/versal/manifest.json`.
 `CONFIG_VNET=y` selects `manifest-vnet.json`, and
 `WT_CONFORMANCE=1` selects `manifest-conformance.json`.
 

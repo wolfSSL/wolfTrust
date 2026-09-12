@@ -1,0 +1,567 @@
+{
+  "format_version": 1,
+  "generator_version": "WOLFTRUST_GEN_1",
+  "features": 1,
+  "isolation_profile": 3,
+  "profile_capabilities": {
+    "capabilities": 127,
+    "max_domains": 9,
+    "max_memory_resources_per_domain": 3,
+    "max_interrupts_per_domain": 0
+  },
+  "domains": [
+    {
+      "id": 0,
+      "domain_class": 0,
+      "rot_role": 1,
+      "security_state": 0,
+      "privilege_state": 0,
+      "initial_lifecycle": 1,
+      "entry_point": 2131755008,
+      "stack_base": 2132803584,
+      "stack_size": 4096,
+      "memory_resources": [
+        {
+          "base": 2131755008,
+          "size": 1048576,
+          "attributes": 37,
+          "share_id": 3
+        },
+        {
+          "base": 2132803584,
+          "size": 4096,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 2,
+        "restart_limit": 0,
+        "restart_window_ticks": 0,
+        "initial_delay_ticks": 0
+      },
+      "required_capabilities": 127,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 1,
+      "domain_class": 2,
+      "rot_role": 0,
+      "security_state": 1,
+      "privilege_state": 1,
+      "initial_lifecycle": 1,
+      "entry_point": 268435456,
+      "stack_base": 285212672,
+      "stack_size": 65536,
+      "memory_resources": [
+        {
+          "base": 268435456,
+          "size": 1048576,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 285212672,
+          "size": 1048576,
+          "attributes": 19,
+          "share_id": 0
+        },
+        {
+          "base": 4278190080,
+          "size": 4096,
+          "attributes": 43,
+          "share_id": 2
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 1,
+      "launch_min_version": 1
+    },
+    {
+      "id": 2,
+      "domain_class": 2,
+      "rot_role": 0,
+      "security_state": 1,
+      "privilege_state": 1,
+      "initial_lifecycle": 1,
+      "entry_point": 301989888,
+      "stack_base": 318767104,
+      "stack_size": 65536,
+      "memory_resources": [
+        {
+          "base": 301989888,
+          "size": 1048576,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 318767104,
+          "size": 1048576,
+          "attributes": 19,
+          "share_id": 0
+        },
+        {
+          "base": 4278190080,
+          "size": 4096,
+          "attributes": 43,
+          "share_id": 2
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 1,
+      "launch_min_version": 1
+    },
+    {
+      "id": 3,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 2131755008,
+      "stack_base": 2133065728,
+      "stack_size": 16384,
+      "memory_resources": [
+        {
+          "base": 2131755008,
+          "size": 1048576,
+          "attributes": 37,
+          "share_id": 3
+        },
+        {
+          "base": 2133065728,
+          "size": 16384,
+          "attributes": 19,
+          "share_id": 0
+        },
+        {
+          "base": 2133852160,
+          "size": 81920,
+          "attributes": 35,
+          "share_id": 1
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 4,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 2131755008,
+      "stack_base": 2133131264,
+      "stack_size": 16384,
+      "memory_resources": [
+        {
+          "base": 2131755008,
+          "size": 1048576,
+          "attributes": 37,
+          "share_id": 3
+        },
+        {
+          "base": 2133131264,
+          "size": 16384,
+          "attributes": 19,
+          "share_id": 0
+        },
+        {
+          "base": 2133852160,
+          "size": 81920,
+          "attributes": 35,
+          "share_id": 1
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 5,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 0,
+      "initial_lifecycle": 0,
+      "entry_point": 2131755008,
+      "stack_base": 2133196800,
+      "stack_size": 16384,
+      "memory_resources": [
+        {
+          "base": 2131755008,
+          "size": 1048576,
+          "attributes": 37,
+          "share_id": 3
+        },
+        {
+          "base": 2133196800,
+          "size": 16384,
+          "attributes": 19,
+          "share_id": 0
+        },
+        {
+          "base": 2133852160,
+          "size": 81920,
+          "attributes": 35,
+          "share_id": 1
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 6,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 2131755008,
+      "stack_base": 2133262336,
+      "stack_size": 16384,
+      "memory_resources": [
+        {
+          "base": 2131755008,
+          "size": 1048576,
+          "attributes": 37,
+          "share_id": 3
+        },
+        {
+          "base": 2133262336,
+          "size": 16384,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 7,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 2131755008,
+      "stack_base": 2133327872,
+      "stack_size": 16384,
+      "memory_resources": [
+        {
+          "base": 2131755008,
+          "size": 1048576,
+          "attributes": 37,
+          "share_id": 3
+        },
+        {
+          "base": 2133327872,
+          "size": 16384,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 8,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 0,
+      "initial_lifecycle": 0,
+      "entry_point": 2131755008,
+      "stack_base": 2133393408,
+      "stack_size": 16384,
+      "memory_resources": [
+        {
+          "base": 2131755008,
+          "size": 1048576,
+          "attributes": 37,
+          "share_id": 3
+        },
+        {
+          "base": 2133393408,
+          "size": 16384,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    }
+  ],
+  "partitions": [
+    {
+      "name": "PARTITION_ATTEST",
+      "domain_id": 3,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 2,
+      "services": [
+        {
+          "name": "SERVICE_ATTEST",
+          "sid": 4096,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [],
+      "interrupts": []
+    },
+    {
+      "name": "PARTITION_HSM",
+      "domain_id": 4,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVICE_HSM",
+          "sid": 4102,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 32,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [],
+      "interrupts": []
+    },
+    {
+      "name": "PARTITION_VAULT",
+      "domain_id": 5,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVICE_VAULT",
+          "sid": 4098,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": false,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [],
+      "interrupts": []
+    },
+    {
+      "name": "PARTITION_ITS",
+      "domain_id": 6,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVICE_ITS",
+          "sid": 4099,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [
+        4098
+      ],
+      "interrupts": []
+    },
+    {
+      "name": "PARTITION_PS",
+      "domain_id": 7,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVICE_PS",
+          "sid": 4100,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [
+        4098
+      ],
+      "interrupts": []
+    },
+    {
+      "name": "PARTITION_FWU",
+      "domain_id": 8,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVICE_FWU",
+          "sid": 4101,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [],
+      "interrupts": []
+    }
+  ],
+  "limits": {
+    "max_partitions": 6,
+    "max_services_per_partition": 1,
+    "max_dependencies_per_partition": 1,
+    "max_stateless_handles": 32
+  },
+  "ffa": {
+    "partitions": [
+      {
+        "domain_id": 3,
+        "uuids": [
+          "b606f19b-be86-561c-b866-4178d43941c1"
+        ],
+        "execution_contexts": 1,
+        "runtime_el": "S-EL0",
+        "messaging": "direct",
+        "ns_interrupt_action": "signaled",
+        "boot_info_register": 0
+      },
+      {
+        "domain_id": 4,
+        "uuids": [
+          "4fd3da63-102c-5ef8-9ead-376bd722c337"
+        ],
+        "execution_contexts": 1,
+        "runtime_el": "S-EL0",
+        "messaging": "direct",
+        "ns_interrupt_action": "signaled",
+        "boot_info_register": 0
+      },
+      {
+        "domain_id": 5,
+        "uuids": [
+          "bbc056fc-6657-5d2b-84c3-6fa550da0a93"
+        ],
+        "execution_contexts": 1,
+        "runtime_el": "S-EL0",
+        "messaging": "direct",
+        "ns_interrupt_action": "signaled",
+        "boot_info_register": 0
+      },
+      {
+        "domain_id": 6,
+        "uuids": [
+          "83237edb-31a7-589e-bc5d-0db08b5130d9"
+        ],
+        "execution_contexts": 1,
+        "runtime_el": "S-EL0",
+        "messaging": "direct",
+        "ns_interrupt_action": "signaled",
+        "boot_info_register": 0
+      },
+      {
+        "domain_id": 7,
+        "uuids": [
+          "1bed069d-b139-53b9-94e4-d331a18571ae"
+        ],
+        "execution_contexts": 1,
+        "runtime_el": "S-EL0",
+        "messaging": "direct",
+        "ns_interrupt_action": "signaled",
+        "boot_info_register": 0
+      },
+      {
+        "domain_id": 8,
+        "uuids": [
+          "181c2d9a-3595-5761-93d7-ab39cea21360"
+        ],
+        "execution_contexts": 1,
+        "runtime_el": "S-EL0",
+        "messaging": "direct",
+        "ns_interrupt_action": "signaled",
+        "boot_info_register": 0
+      }
+    ]
+  }
+}

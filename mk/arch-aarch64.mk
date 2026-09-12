@@ -23,6 +23,7 @@ EL3_C_SRCS := \
     $(ARCH_DIR)/el3/timer.c \
     $(ARCH_DIR)/el3/el3_main.c \
     $(ARCH_DIR)/ffa/ffa_spmd.c \
+    $(ARCH_DIR)/ffa/ffa_boot_info.c \
     $(ARCH_DIR)/gic/gicv$(WT_GIC_VERSION).c \
     $(ARCH_DIR)/common/libc_min.c \
     $(ARCH_DIR)/drivers/pl011.c \
@@ -30,7 +31,7 @@ EL3_C_SRCS := \
 EL3_ASM_SRCS := \
     $(ARCH_DIR)/el3/start.S \
     $(ARCH_DIR)/el3/vectors.S
-SPM_STUB_C_SRCS := $(ARCH_DIR)/spm/spm_main_stub.c
+SPM_STUB_C_SRCS := $(ARCH_DIR)/spm/spm_main.c
 SPM_STUB_ASM_SRCS := $(ARCH_DIR)/spm/spm_entry.S
 ARCH_TREE_SRCS := $(EL3_C_SRCS) $(SPM_STUB_C_SRCS)
 ARCH_ASM_SRCS := $(EL3_ASM_SRCS) $(SPM_STUB_ASM_SRCS)

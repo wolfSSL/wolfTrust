@@ -35,6 +35,7 @@
 #endif
 #define WT_RAM_S_BASE         0x0E040000u
 #define WT_RAM_S_SIZE         0x00FC0000u
+#define WT_SPM_BOOT_INFO_PA   0x0E040000u
 
 #define WT_GICD_BASE          0x08000000u
 #define WT_GICC_BASE          0x08010000u

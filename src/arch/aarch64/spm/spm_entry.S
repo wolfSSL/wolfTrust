@@ -18,8 +18,9 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Secure EL1 entry the monitor drops into: point VBAR_EL1 at a table that
- * reports every exception to EL3, take the SPM stack, call wt_spm_main. */
+/* Secure EL1 entry the monitor drops into with x0 = FF-A boot information
+ * blob: point VBAR_EL1 at a table that reports every exception to EL3, take
+ * the SPM stack, call wt_spm_main(blob). */
 
 #define WT_MON_FID_PANIC 0xC3800002
 #define WT_SPM_PANIC_EXCEPTION 0xEE
@@ -36,10 +37,10 @@
     .section .text.wt_spm_entry, "ax"
     .globl wt_spm_entry
 wt_spm_entry:
-    ldr     x0, =wt_spm_vectors
-    msr     VBAR_EL1, x0
-    ldr     x0, =__spm_stack_top
-    mov     sp, x0
+    ldr     x9, =wt_spm_vectors
+    msr     VBAR_EL1, x9
+    ldr     x9, =__spm_stack_top
+    mov     sp, x9
     msr     TPIDRRO_EL0, xzr
     isb
     bl      wt_spm_main

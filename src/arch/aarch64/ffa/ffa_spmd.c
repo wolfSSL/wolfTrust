@@ -61,6 +61,8 @@ static int spmd_implements(uint32_t fid)
         case WT_FFA_ID_GET:
         case WT_FFA_SPM_ID_GET:
         case WT_FFA_MSG_WAIT:
+        case WT_FFA_CONSOLE_LOG32:
+        case WT_FFA_CONSOLE_LOG64:
             return 1;
         default:
             return 0;
@@ -70,6 +72,27 @@ static int spmd_implements(uint32_t fid)
 unsigned int wt_ffa_spmd_spmc_ready(void)
 {
     return g_spmc_ready;
+}
+
+/* 13.12: w1 = count (bits 31:8 SBZ), characters tightly packed from w2/x2
+ * upward; 1..24 characters over w2-w7, 1..128 over x2-x17. */
+void wt_ffa_spmd_console_call(uint64_t* x, unsigned int is64)
+{
+    uint32_t count = (uint32_t)x[1];
+    unsigned int per_reg = (is64 != 0u) ? 8u : 4u;
+    unsigned int max = (is64 != 0u) ? 128u : 24u;
+    unsigned int i;
+    uint64_t reg;
+
+    if (((count & 0xFFFFFF00u) != 0u) || (count < 1u) || (count > max)) {
+        reply_error((wt_ffa_regs_t*)x, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
+    for (i = 0u; i < count; i++) {
+        reg = x[2u + (i / per_reg)];
+        wt_platform_console_putc((char)((reg >> (8u * (i % per_reg))) & 0xFFu));
+    }
+    reply_success((wt_ffa_regs_t*)x, 0u, 0u);
 }
 
 void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
@@ -99,6 +122,9 @@ void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
             break;
         case WT_FFA_SPM_ID_GET:
             reply_success(r, WT_FFA_ID_SPMD, 0u);
+            break;
+        case WT_FFA_CONSOLE_LOG32:
+            wt_ffa_spmd_console_call(r->x, 0u);
             break;
         case WT_FFA_MSG_WAIT:
             /* 5.5: the first MSG_WAIT from the SPMC ends its initialization. */

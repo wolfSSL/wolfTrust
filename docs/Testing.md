@@ -372,7 +372,8 @@ drops into Secure EL1 with it, where the SPMC consumes the blob, turns
 its stage-1 MMU on with the SPM-only translation table (W^X, execute-never
 data, device console and GIC frames), takes one secure timer tick as a
 Group 0 FIQ through its own S-EL1 vector table, negotiates the FF-A
-version, discovers the SPMC and SPMD ids at the
+version, logs through `FFA_CONSOLE_LOG` in both conventions, discovers the
+SPMC and SPMD ids at the
 Secure physical instance, and completes its initialization with
 `FFA_MSG_WAIT`; the monitor then exits through its test call), and
 `boot-smp2` (the same

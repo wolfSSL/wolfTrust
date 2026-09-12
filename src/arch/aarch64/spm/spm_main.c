@@ -119,6 +119,53 @@ static void discover_spmd(void)
     wt_el3_puts("[SPM] ffa discovery ok id=0x8000 spmd=0x8001\r\n");
 }
 
+static void pack_chars(wt_ffa_regs_t* r, const char* text, unsigned int count,
+                       unsigned int per_reg)
+{
+    unsigned int i;
+
+    for (i = 0u; i < 8u; i++) {
+        r->x[i] = 0u;
+    }
+    for (i = 0u; i < count; i++) {
+        r->x[2u + (i / per_reg)] |= (uint64_t)(uint8_t)text[i]
+                                    << (8u * (i % per_reg));
+    }
+    r->x[1] = count;
+}
+
+/* 13.12 at the Secure physical instance: both conventions log through the
+ * SPMD, and the count rules are enforced. */
+static void prove_console_log(void)
+{
+    static const char msg32[] = "[SPM] console32 ok\r\n";
+    static const char msg64[] = "[SPM] console64 ok\r\n";
+    wt_ffa_regs_t r;
+
+    ffa_call(&r, WT_FFA_CONSOLE_LOG32, 0u);
+    if ((uint32_t)r.x[0] != WT_FFA_ERROR ||
+        (int32_t)(uint32_t)r.x[2] != WT_FFA_INVALID_PARAMETERS) {
+        spmc_fail("console_log count 0", r.x[0]);
+    }
+    ffa_call(&r, WT_FFA_CONSOLE_LOG32, 25u);
+    if ((uint32_t)r.x[0] != WT_FFA_ERROR ||
+        (int32_t)(uint32_t)r.x[2] != WT_FFA_INVALID_PARAMETERS) {
+        spmc_fail("console_log count 25", r.x[0]);
+    }
+    pack_chars(&r, msg32, (unsigned int)(sizeof(msg32) - 1u), 4u);
+    r.x[0] = WT_FFA_CONSOLE_LOG32;
+    wt_ffa_smc(&r);
+    if ((uint32_t)r.x[0] != WT_FFA_SUCCESS32) {
+        spmc_fail("console_log32", r.x[0]);
+    }
+    pack_chars(&r, msg64, (unsigned int)(sizeof(msg64) - 1u), 8u);
+    r.x[0] = WT_FFA_CONSOLE_LOG64;
+    wt_ffa_smc(&r);
+    if ((uint32_t)r.x[0] != WT_FFA_SUCCESS32) {
+        spmc_fail("console_log64", r.x[0]);
+    }
+}
+
 static uintptr_t page_up(uintptr_t v)
 {
     return (v + WT_TABLES_PAGE_SIZE - 1u) & ~(uintptr_t)(WT_TABLES_PAGE_SIZE - 1u);
@@ -190,6 +237,7 @@ void wt_spm_main(uint64_t boot_info_pa)
         wt_el3_puts("[SPM] tick TIMEOUT\r\n");
     }
     discover_spmd();
+    prove_console_log();
     wt_platform_console_flush();
 
     /* Initialization complete; the SPMD owns the CPU until the first event. */

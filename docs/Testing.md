@@ -348,6 +348,25 @@ the run.
 These are emulator results. They prove the SAU attribution and the monitor's
 containment on a faithful core model; the silicon `ahbscneg` run on the EVK is
 recorded separately.
+## QEMU AArch64 scenarios
+
+The AArch64 twin of the M33MU runner boots images under `qemu-system-aarch64`
+on `virt` (`secure=on`, GICv2 or GICv3) and `xlnx-versal-virt`:
+
+```sh
+make test-target-a                     # MACHINE=virt GIC=3 CPU=cortex-a72
+make test-target-a MACHINE=versal-virt
+tests/target/run_qemu_a_scenario.sh smoke
+```
+
+It auto-detects `qemu-system-aarch64` and the `aarch64-none-elf` toolchain
+and skips explicitly otherwise; CI runs it inside
+`ghcr.io/wolfssl/wolfboot-ci-aarch64`. The only scenario today is `smoke`:
+the EL3 image in `tests/firmware/aarch64-smoke/` proves the machine starts
+wolfTrust-built code at EL3, prints on the secure console, reports which
+secondary cores parked, and exits through semihosting. Both emulator runners
+share `tests/target/run_suite.sh` (the per-scenario report and
+`logs/target-<scenario>.log`) and assert through `tests/target/lib/expect.sh`.
 
 ## STM32H563 hardware
 
@@ -441,6 +460,8 @@ The workflows under `.github/workflows/` separately run:
 - host unit tests;
 - compiler variants, sanitizers, and Valgrind;
 - Cortex-M33 cross-compilation of both crypto engines;
+- AArch64 cross-compilation with the EL3 smoke on QEMU (`virt` GICv2 and
+  GICv3, `xlnx-versal-virt`);
 - dependency integration;
 - the core/port split guard and the docs guard (no internal-ledger or
   home-directory references in the published docs);
@@ -450,8 +471,9 @@ The workflows under `.github/workflows/` separately run:
 
 ### Trigger routing
 
-The host, compiler, sanitizer, Valgrind, cross-compilation, integration, and
-core/port split checks run on every pull request, including drafts. The fuzz
+The host, compiler, sanitizer, Valgrind, cross-compilation (Cortex-M33 and
+AArch64), integration, and core/port split checks run on every pull request,
+including drafts. The fuzz
 target also runs on pull requests as a 60-second libFuzzer smoke pass; the
 nightly schedule and manual dispatch run the 600-second soak instead.
 

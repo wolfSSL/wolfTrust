@@ -1,0 +1,51 @@
+name: AArch64 cross compilation
+
+on:
+  push:
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev, wolfTrust-dev2]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  qemu-a-smoke:
+    name: EL3 smoke on ${{ matrix.cell.name }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-aarch64:v1.15
+    strategy:
+      fail-fast: false
+      matrix:
+        cell:
+          - { name: virt-gicv2-a35, machine: virt, gic: 2, cpu: cortex-a35, smp: 2 }
+          - { name: virt-gicv3-a72, machine: virt, gic: 3, cpu: cortex-a72, smp: 2 }
+          - { name: versal-virt, machine: versal-virt, gic: 3, cpu: cortex-a72, smp: 4 }
+    env:
+      MACHINE: ${{ matrix.cell.machine }}
+      GIC: ${{ matrix.cell.gic }}
+      CPU: ${{ matrix.cell.cpu }}
+      SMP: ${{ matrix.cell.smp }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Toolchain and emulator versions
+        run: |
+          aarch64-none-elf-gcc --version | head -1
+          qemu-system-aarch64 --version | head -1
+
+      - name: Self-test the EL3 symbol guard
+        run: tools/check-el3-symbols.sh --selftest
+
+      - name: Boot the EL3 smoke
+        run: tests/target/run_suite.sh qemu-a smoke
+
+      - name: Show the boot log
+        if: always()
+        run: cat logs/target-smoke.log || true

@@ -23,15 +23,20 @@
  * the SPM stack, call wt_spm_main(blob). */
 
 #define WT_MON_FID_PANIC 0xC3800002
-#define WT_SPM_PANIC_EXCEPTION 0xEE
 
-    .macro WT_SPM_VECTOR
+/* Panic code 0xE0 + slot names the vector that fired. */
+    .macro WT_SPM_VECTOR_PANIC slot
     .balign 0x80
     ldr     x0, =WT_MON_FID_PANIC
-    mov     x1, #WT_SPM_PANIC_EXCEPTION
+    mov     x1, #(0xE0 + \slot)
     smc     #0
 1:  wfi
     b       1b
+    .endm
+
+    .macro WT_SPM_VECTOR_FIQ
+    .balign 0x80
+    b       wt_spm_fiq_entry
     .endm
 
     .section .text.wt_spm_entry, "ax"
@@ -47,10 +52,60 @@ wt_spm_entry:
 2:  wfi
     b       2b
 
+/* Current-EL SPx FIQ (slot 6): Group 0 interrupts reach the SPMC while the
+ * Secure world runs; save the caller-saved state and run wt_spm_fiq. */
+    .section .text.wt_spm_fiq_entry, "ax"
+wt_spm_fiq_entry:
+    sub     sp, sp, #192
+    stp     x0, x1, [sp, #0]
+    stp     x2, x3, [sp, #16]
+    stp     x4, x5, [sp, #32]
+    stp     x6, x7, [sp, #48]
+    stp     x8, x9, [sp, #64]
+    stp     x10, x11, [sp, #80]
+    stp     x12, x13, [sp, #96]
+    stp     x14, x15, [sp, #112]
+    stp     x16, x17, [sp, #128]
+    stp     x18, x29, [sp, #144]
+    mrs     x0, ELR_EL1
+    mrs     x1, SPSR_EL1
+    stp     x30, x0, [sp, #160]
+    str     x1, [sp, #176]
+    bl      wt_spm_fiq
+    ldr     x1, [sp, #176]
+    ldp     x30, x0, [sp, #160]
+    msr     ELR_EL1, x0
+    msr     SPSR_EL1, x1
+    ldp     x18, x29, [sp, #144]
+    ldp     x16, x17, [sp, #128]
+    ldp     x14, x15, [sp, #112]
+    ldp     x12, x13, [sp, #96]
+    ldp     x10, x11, [sp, #80]
+    ldp     x8, x9, [sp, #64]
+    ldp     x6, x7, [sp, #48]
+    ldp     x4, x5, [sp, #32]
+    ldp     x2, x3, [sp, #16]
+    ldp     x0, x1, [sp, #0]
+    add     sp, sp, #192
+    eret
+
     .section .text.wt_spm_vectors, "ax"
     .balign 0x800
     .globl wt_spm_vectors
 wt_spm_vectors:
-    .rept 16
-    WT_SPM_VECTOR
-    .endr
+    WT_SPM_VECTOR_PANIC 0
+    WT_SPM_VECTOR_PANIC 1
+    WT_SPM_VECTOR_PANIC 2
+    WT_SPM_VECTOR_PANIC 3
+    WT_SPM_VECTOR_PANIC 4
+    WT_SPM_VECTOR_PANIC 5
+    WT_SPM_VECTOR_FIQ
+    WT_SPM_VECTOR_PANIC 7
+    WT_SPM_VECTOR_PANIC 8
+    WT_SPM_VECTOR_PANIC 9
+    WT_SPM_VECTOR_PANIC 10
+    WT_SPM_VECTOR_PANIC 11
+    WT_SPM_VECTOR_PANIC 12
+    WT_SPM_VECTOR_PANIC 13
+    WT_SPM_VECTOR_PANIC 14
+    WT_SPM_VECTOR_PANIC 15

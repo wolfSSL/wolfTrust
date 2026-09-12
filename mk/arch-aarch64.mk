@@ -32,7 +32,7 @@ EL3_ASM_SRCS := \
     $(ARCH_DIR)/el3/start.S \
     $(ARCH_DIR)/el3/vectors.S
 SPM_STUB_C_SRCS := $(ARCH_DIR)/spm/spm_main.c $(ARCH_DIR)/spm/tables.c \
-    $(ARCH_DIR)/spm/domain.c
+    $(ARCH_DIR)/spm/domain.c $(ARCH_DIR)/spm/spm_irq.c
 SPM_STUB_ASM_SRCS := $(ARCH_DIR)/spm/spm_entry.S $(ARCH_DIR)/spm/mmu.S
 ARCH_TREE_SRCS := $(EL3_C_SRCS) $(SPM_STUB_C_SRCS)
 ARCH_ASM_SRCS := $(EL3_ASM_SRCS) $(SPM_STUB_ASM_SRCS)

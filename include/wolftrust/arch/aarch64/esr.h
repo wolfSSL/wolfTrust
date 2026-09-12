@@ -31,8 +31,8 @@
 wt_fault_reason_t wt_esr_classify(uint64_t esr, uint64_t far, int from_ns,
                                   uint64_t guard_base, uint64_t guard_size);
 
-/* Writes "[SYNC EL=<n> EC=0x.. ISS=0x...... FAR=0x................]" and
- * returns the length written (the string is always NUL-terminated). */
+/* Writes "[SYNC EL=<n> EC=0x.. ISS=0x....... FAR=0x................]" (all
+ * 25 ISS bits) and returns the length written (always NUL-terminated). */
 size_t wt_esr_format(char* out, size_t out_size, uint32_t el, uint64_t esr,
                      uint64_t far);
 

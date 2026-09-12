@@ -21,9 +21,9 @@ jobs:
       fail-fast: false
       matrix:
         cell:
-          - { name: virt-gicv2-a35, machine: virt, gic: 2, cpu: cortex-a35, smp: 2 }
-          - { name: virt-gicv3-a72, machine: virt, gic: 3, cpu: cortex-a72, smp: 2 }
-          - { name: versal-virt, machine: versal-virt, gic: 3, cpu: cortex-a72, smp: 4 }
+          - { name: virt-gicv2-a35, machine: virt, target: qemuvirt, gic: 2, cpu: cortex-a35, smp: 2 }
+          - { name: virt-gicv3-a72, machine: virt, target: qemuvirt, gic: 3, cpu: cortex-a72, smp: 2 }
+          - { name: versal-virt, machine: versal-virt, target: versal, gic: 3, cpu: cortex-a72, smp: 4 }
     env:
       MACHINE: ${{ matrix.cell.machine }}
       GIC: ${{ matrix.cell.gic }}
@@ -42,6 +42,9 @@ jobs:
 
       - name: Self-test the EL3 symbol guard
         run: tools/check-el3-symbols.sh --selftest
+
+      - name: Cross-build the EL3 image (the symbol guard runs at link)
+        run: make ARCH=aarch64 TARGET=${{ matrix.cell.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" BUILD_DIR=build-aarch64-guard
 
       - name: Boot the EL3 smoke and the wolfTrust EL3 monitor
         run: tests/target/run_suite.sh qemu-a smoke boot boot-smp2

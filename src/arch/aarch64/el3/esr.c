@@ -99,7 +99,7 @@ size_t wt_esr_format(char* out, size_t out_size, uint32_t el, uint64_t esr,
     pos = put_text(out, out_size, pos, " EC=0x");
     pos = put_hex(out, out_size, pos, WT_ESR_EC(esr), 2u);
     pos = put_text(out, out_size, pos, " ISS=0x");
-    pos = put_hex(out, out_size, pos, WT_ESR_ISS(esr), 6u);
+    pos = put_hex(out, out_size, pos, WT_ESR_ISS(esr), 7u);
     pos = put_text(out, out_size, pos, " FAR=0x");
     pos = put_hex(out, out_size, pos, far, 16u);
     pos = put_text(out, out_size, pos, "]");

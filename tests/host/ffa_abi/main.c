@@ -89,9 +89,13 @@ int main(void)
           (WT_FFA_SUCCESS32 & 0x40000000u) == 0u &&
           (WT_FFA_SUCCESS64 & 0xFFFFu) == (WT_FFA_SUCCESS32 & 0xFFFFu),
           "SMC64 variants differ from SMC32 only in bit 30");
-    check(!wt_ffa_fid_in_range(0x8400005Fu) && !wt_ffa_fid_in_range(0x84000100u) &&
-          !wt_ffa_fid_in_range(0xC3800004u) && wt_ffa_fid_in_range(0x840000FFu) &&
-          wt_ffa_fid_in_range(0xC4000060u),
+    check(!wt_ffa_fid_in_range(WT_FFA_FID32_FIRST - 1u) &&
+          !wt_ffa_fid_in_range(WT_FFA_FID32_LAST + 1u) &&
+          !wt_ffa_fid_in_range(WT_FFA_FID64_FIRST - 1u) &&
+          !wt_ffa_fid_in_range(WT_FFA_FID64_LAST + 1u) &&
+          !wt_ffa_fid_in_range(0xC3800004u) &&
+          wt_ffa_fid_in_range(WT_FFA_FID32_LAST) &&
+          wt_ffa_fid_in_range(WT_FFA_FID64_FIRST),
           "range check excludes neighbours and the OEM test calls");
 
     ok = 1;

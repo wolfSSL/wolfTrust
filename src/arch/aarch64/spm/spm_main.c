@@ -27,6 +27,7 @@
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_boot_info.h"
+#include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/tables.h"
 
@@ -38,8 +39,8 @@ extern uint8_t __data_lma[];
 
 void wt_spm_main(uint64_t boot_info_pa);
 
-static wt_tables_pool_t g_pool;
-static wt_tables_t g_spm_table;
+/* The fill list outlives init: every partition table maps it EL1-only. */
+static wt_memory_region_t g_fill[WT_SPMC_MAX_FILL];
 
 static void spmc_fail(const char* what, uint64_t value)
 {
@@ -124,14 +125,19 @@ static uintptr_t page_up(uintptr_t v)
 
 /* SPM-only table (ASID 0): image text, the EL3 RAM band (data, bss,
  * stacks), the boot information page, the table pool, the board devices. */
+void wt_domain_fail(int code)
+{
+    spmc_fail("domain", (uint64_t)(uint32_t)code);
+}
+
 static void enable_mmu(uint64_t boot_info_pa)
 {
-    wt_memory_region_t fill[WT_SPMC_MAX_FILL];
+    wt_memory_region_t* fill = g_fill;
     const wt_memory_region_t* devices;
     size_t device_count = 0u;
     size_t n = 0u;
     size_t i;
-    int ret;
+    uint64_t ttbr0;
 
     fill[n].base = (uintptr_t)WT_EL3_TEXT_BASE;
     fill[n].size = page_up((uintptr_t)__data_lma) - (uintptr_t)WT_EL3_TEXT_BASE;
@@ -155,19 +161,17 @@ static void enable_mmu(uint64_t boot_info_pa)
         n++;
     }
 
-    wt_tables_pool_init(&g_pool, (uint8_t*)(uintptr_t)WT_SPM_TABLE_POOL_PA,
-                        WT_SPM_TABLE_POOL_PA,
-                        (size_t)WT_SPM_TABLE_POOL_PAGES * WT_TABLES_PAGE_SIZE);
-    ret = wt_tables_build(&g_spm_table, 0u, NULL, 0u, fill, n, &g_pool);
-    if (ret != WT_TABLES_OK) {
-        spmc_fail("spm table", (uint64_t)(uint32_t)ret);
+    ttbr0 = wt_domain_init(fill, n, (uint8_t*)(uintptr_t)WT_SPM_TABLE_POOL_PA,
+                           WT_SPM_TABLE_POOL_PA,
+                           (size_t)WT_SPM_TABLE_POOL_PAGES * WT_TABLES_PAGE_SIZE);
+    if (ttbr0 == 0u) {
+        spmc_fail("spm table", 0u);
     }
-    wt_mmu_enable(wt_tables_ttbr0(&g_spm_table), WT_TABLES_MAIR_EL1,
-                  WT_TABLES_TCR_EL1);
+    wt_mmu_enable(ttbr0, WT_TABLES_MAIR_EL1, WT_TABLES_TCR_EL1);
     wt_el3_puts("[SPM] mmu on ttbr0=0x");
-    wt_el3_puthex(wt_tables_ttbr0(&g_spm_table), 16u);
+    wt_el3_puthex(ttbr0, 16u);
     wt_el3_puts(" pool_pages=");
-    wt_el3_putdec(wt_tables_pool_pages_used(&g_pool));
+    wt_el3_putdec(wt_domain_pool_pages_used());
     wt_el3_puts("\r\n");
 }
 

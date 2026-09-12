@@ -85,6 +85,22 @@ static size_t align8(size_t v)
     return (v + 7u) & ~(size_t)7u;
 }
 
+/* Table 5.8: standard types are FDT (0) and HOB (1) only; a value-form
+ * descriptor carries 1 to 8 bytes in its Contents field. */
+static int type_and_size_ok(uint8_t type, uint8_t contents_format,
+                            uint32_t size)
+{
+    if (((type & WT_FFA_BOOT_INFO_TYPE_IMPDEF) == 0u) &&
+        (type > WT_FFA_BOOT_INFO_TYPE_HOB)) {
+        return 0;
+    }
+    if ((contents_format == WT_FFA_BOOT_INFO_CONTENTS_VALUE) &&
+        ((size < 1u) || (size > 8u))) {
+        return 0;
+    }
+    return 1;
+}
+
 size_t wt_ffa_boot_info_array_end(uint32_t desc_count)
 {
     return WT_FFA_BOOT_INFO_HEADER_SIZE +
@@ -177,7 +193,9 @@ int wt_ffa_boot_info_build(uint8_t* blob, uint64_t blob_pa, size_t blob_limit,
     for (i = 0u; (i < count) && (ret == WT_FFA_BOOT_INFO_OK); i++) {
         desc = blob + WT_FFA_BOOT_INFO_HEADER_SIZE + (i * WT_FFA_BOOT_INFO_DESC_SIZE);
         if ((items[i].name_format > WT_FFA_BOOT_INFO_NAME_UUID) ||
-            (items[i].contents_format > WT_FFA_BOOT_INFO_CONTENTS_VALUE)) {
+            (items[i].contents_format > WT_FFA_BOOT_INFO_CONTENTS_VALUE) ||
+            !type_and_size_ok(items[i].type, items[i].contents_format,
+                              items[i].size)) {
             ret = WT_FFA_BOOT_INFO_ERROR_DESC;
             break;
         }
@@ -235,6 +253,12 @@ static int desc_ok(const uint8_t* desc, const wt_ffa_boot_info_t* info)
         return WT_FFA_BOOT_INFO_ERROR_DESC;
     }
     if (!name_ok(desc + DESC_NAME, flags)) {
+        return WT_FFA_BOOT_INFO_ERROR_DESC;
+    }
+    if (!type_and_size_ok(desc[DESC_TYPE],
+                          (uint8_t)((flags & FLAGS_CONTENTS_MASK) >>
+                                    FLAGS_CONTENTS_SHIFT),
+                          rd32(desc + DESC_SIZE))) {
         return WT_FFA_BOOT_INFO_ERROR_DESC;
     }
     if (((flags & FLAGS_CONTENTS_MASK) >> FLAGS_CONTENTS_SHIFT) ==

@@ -125,7 +125,7 @@ int main(void)
     items[0].type = WT_FFA_BOOT_INFO_TYPE_FDT;
     items[0].contents_format = WT_FFA_BOOT_INFO_CONTENTS_VALUE;
     items[0].value = 0x4000000000ull;
-    items[0].size = 0x2000u;
+    items[0].size = 8u;
     items[1].name = (const char*)g_uuid;
     items[1].name_format = WT_FFA_BOOT_INFO_NAME_UUID;
     items[1].type = WT_FFA_BOOT_INFO_TYPE_IMPDEF | 0x7Fu;
@@ -144,8 +144,22 @@ int main(void)
     check(parse_now(&info) == WT_FFA_BOOT_INFO_OK && info.desc_count == 3u,
           "the three-descriptor blob parses");
     check(wt_ffa_boot_info_desc(g_blob, &info, 0u, &desc) == WT_FFA_BOOT_INFO_OK &&
-          desc.flags == 0x4u && desc.contents == 0x4000000000ull && desc.size == 0x2000u,
+          desc.flags == 0x4u && desc.contents == 0x4000000000ull && desc.size == 8u,
           "value form keeps the value in Contents with flags bits 3:2 = 1");
+    items[0].size = 0u;
+    check(wt_ffa_boot_info_build(g_blob, BLOB_PA, BLOB_LIMIT, WT_FFA_VERSION_1_2, items, 1u,
+                                 &size) == WT_FFA_BOOT_INFO_ERROR_DESC,
+          "a value-form descriptor with size 0 is refused");
+    items[0].size = 9u;
+    check(wt_ffa_boot_info_build(g_blob, BLOB_PA, BLOB_LIMIT, WT_FFA_VERSION_1_2, items, 1u,
+                                 &size) == WT_FFA_BOOT_INFO_ERROR_DESC,
+          "a value-form descriptor with size 9 is refused");
+    items[0].size = 8u;
+    items[0].type = 0x02u;
+    check(wt_ffa_boot_info_build(g_blob, BLOB_PA, BLOB_LIMIT, WT_FFA_VERSION_1_2, items, 1u,
+                                 &size) == WT_FFA_BOOT_INFO_ERROR_DESC,
+          "a reserved standard type (not FDT or HOB) is refused");
+    items[0].type = WT_FFA_BOOT_INFO_TYPE_FDT;
     check(wt_ffa_boot_info_desc(g_blob, &info, 1u, &desc) == WT_FFA_BOOT_INFO_OK &&
           desc.flags == 0x1u && memcmp(desc.name, g_uuid, 16) == 0 &&
           desc.contents == BLOB_PA + 128u && desc.size == 3u,
@@ -216,6 +230,14 @@ int main(void)
     memset(g_blob + 32u, 'x', 16u);
     check(parse_now(&info) == WT_FFA_BOOT_INFO_ERROR_DESC,
           "a string name without a NUL inside 16 bytes");
+    size = build_handoff(WT_FFA_VERSION_1_2);
+    g_blob[32u + 18u] = 0x04u;
+    check(parse_now(&info) == WT_FFA_BOOT_INFO_ERROR_DESC,
+          "the consumer refuses a value-form descriptor whose size is not 1 to 8");
+    size = build_handoff(WT_FFA_VERSION_1_2);
+    g_blob[32u + 16u] = 0x02u;
+    check(parse_now(&info) == WT_FFA_BOOT_INFO_ERROR_DESC,
+          "the consumer refuses a reserved standard type");
     size = build_handoff(WT_FFA_VERSION_1_2);
     put32(32u + 24u, (uint32_t)(BLOB_PA + 80u));
     check(parse_now(&info) == WT_FFA_BOOT_INFO_ERROR_LAYOUT,

@@ -38,10 +38,11 @@ expect_flat() {
 }
 
 # expect_once <label> <fixed-string>: the marker must appear exactly once
-# (a second copy means a core or a guest ran a path it must not have).
+# (a second copy means a core or a guest ran a path it must not have);
+# occurrences are counted, not lines, so two copies on one line still fail.
 expect_once() {
   local n
-  n=$(grep -Fc "$2" "$WT_EXPECT_LOG")
+  n=$(grep -Fao -- "$2" "$WT_EXPECT_LOG" | wc -l | tr -d ' ')
   if [ "$n" -eq 1 ]; then
     check_pass "$1"
   else
@@ -61,7 +62,7 @@ refute_re() {
 selftest() {
   local dir fails=0 out
   dir="$(mktemp -d)"
-  printf 'wolfTrust TEE client initialized\r\nTOTAL SKfreertos_guest1: hb\r\nIPPED   : 4\r\nguest0_psa freertos_guest1: hb\r\ndone marker\r\n' \
+  printf 'wolfTrust TEE client initialized\r\nTOTAL SKfreertos_guest1: hb\r\nIPPED   : 4\r\nguest0_psa freertos_guest1: hb\r\ndone marker\r\n[EL3] twice [EL3] twice\r\n' \
     > "$dir/log"
   export WT_EXPECT_LOG="$dir/log"
   want() { # label expected-output command...
@@ -89,6 +90,7 @@ selftest() {
   want_fail "refute hit" refute_re nofault 'IPPED'
   want "once hit" '  [check] PASS  single' expect_once single 'done marker'
   want_fail "once twice" expect_once single 'freertos_guest1: hb'
+  want_fail "once twice on one line" expect_once single '[EL3] twice'
   want_fail "once miss" expect_once single 'never printed'
   want_fail "gap off" expect finish 'guest0_psa done marker'
   # The gap fallback relies on GNU grep -z; the runners only run where it is.

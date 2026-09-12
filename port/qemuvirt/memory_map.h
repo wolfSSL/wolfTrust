@@ -36,6 +36,24 @@
 #define WT_RAM_S_BASE         0x0E040000u
 #define WT_RAM_S_SIZE         0x00FC0000u
 #define WT_SPM_BOOT_INFO_PA   0x0E040000u
+#ifndef WT_SPM_IMAGE_PA
+#define WT_SPM_IMAGE_PA       0x0E100000u
+#endif
+#ifndef WT_SPM_IMAGE_SIZE
+#define WT_SPM_IMAGE_SIZE     0x00100000u
+#endif
+#ifndef WT_SPM_RAM_PA
+#define WT_SPM_RAM_PA         0x0E200000u
+#endif
+#ifndef WT_SPM_RAM_SIZE
+#define WT_SPM_RAM_SIZE       0x00040000u
+#endif
+#ifndef WT_SPM_KEYSTORE_PA
+#define WT_SPM_KEYSTORE_PA    0x0E300000u
+#endif
+#ifndef WT_SPM_KEYSTORE_SIZE
+#define WT_SPM_KEYSTORE_SIZE  0x00040000u
+#endif
 
 #define WT_GICD_BASE          0x08000000u
 #define WT_GICC_BASE          0x08010000u

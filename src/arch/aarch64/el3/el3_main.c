@@ -29,6 +29,8 @@
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
 
+#include <string.h>
+
 #ifndef WT_PORT_BOOT_CPUS
 #define WT_PORT_BOOT_CPUS 1u
 #endif
@@ -176,5 +178,16 @@ void wt_el3_main(void)
     boot_info = build_boot_info();
 
     wt_write_sctlr_el1(WT_SCTLR_EL1_RES1);
-    wt_el3_enter_secure_el1(wt_spm_entry, (uintptr_t)__spm_stack_top, boot_info);
+#if defined(WT_SPM_FLASH_OFFSET)
+    /* The SPMC image sits behind the monitor in flash; a boot loader does
+     * this copy on silicon. */
+    (void)memcpy((void*)(uintptr_t)WT_SPM_IMAGE_PA,
+                 (const void*)(uintptr_t)(WT_EL3_TEXT_BASE + WT_SPM_FLASH_OFFSET),
+                 (size_t)WT_SPM_IMAGE_SIZE);
+#endif
+    wt_el3_puts("[EL3] spmc image at 0x");
+    wt_el3_puthex((uint64_t)WT_SPM_IMAGE_PA, 8u);
+    wt_el3_puts("\r\n");
+    wt_el3_enter_secure_el1((void (*)(void))(uintptr_t)WT_SPM_IMAGE_PA, 0u,
+                            boot_info);
 }

@@ -301,6 +301,7 @@ ifeq ($(WT_ENGINE),native)
 WOLFHSM_SECURE_SRCS := $(filter %/wh_nvm.c %/wh_nvm_flash.c %/wh_flash_unit.c \
     %/wh_lock.c %/wh_utils.c %/wh_keyid.c,$(WOLFHSM_SECURE_SRCS))
 endif
+WOLFHSM_SECURE_SRCS += $(ARCH_WOLFHSM_SRCS)
 
 WOLFCRYPT_SECURE_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/aes.c \
@@ -395,13 +396,14 @@ MANIFEST_OBJ := $(BUILD_DIR)/wt_sec_wolftrust_manifest_generated.o
 ARCH_TREE_SRCS ?=
 ARCH_ASM_SRCS ?=
 ARCH_TREE_OBJS := $(foreach s,$(ARCH_TREE_SRCS) $(ARCH_ASM_SRCS),$(BUILD_DIR)/wt_sec_$(notdir $(basename $(s))).o)
+ARCH_SECURE_OBJS ?= $(ARCH_TREE_OBJS)
 
 ALL_SECURE_OBJS := $(strip \
     $(HSM_SECURE_BASE_OBJS) \
     $(HSM_WOLFHSM_SEC_OBJS) \
     $(HSM_WOLFCRYPT_SEC_OBJS) \
     $(HSM_WT_EXTRA_OBJS) \
-    $(ARCH_TREE_OBJS) \
+    $(ARCH_SECURE_OBJS) \
     $(MANIFEST_OBJ))
 
 # LTO cannot safely rewrite objects whose symbols are consumed by inline
@@ -1506,6 +1508,9 @@ $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sync/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAM
 $(BUILD_DIR)/wt_sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/port/common/$(ARCH)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
 $(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
@@ -1554,6 +1559,9 @@ $(BUILD_DIR)/sec_$(notdir $(TARGET_PLATFORM_SRC:.c=.o)): $(TARGET_PLATFORM_SRC) 
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/sec_%.o: $(ROOT)/port/common/$(ARCH)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)

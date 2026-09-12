@@ -77,8 +77,14 @@ else
   build="$repo/build-aarch64-$tag"
   make ARCH=aarch64 TARGET="$target" TOOLPREFIX="$TOOLPREFIX" WT_GIC_VERSION="$GIC" \
     WT_CPU="$CPU" WT_PORT_BOOT_CPUS="$cpus" BUILD_DIR="build-aarch64-$tag"
-  image_bin="$build/wolftrust_el3.bin"
   image_elf="$build/wolftrust_el3.elf"
+  spm_elf="$build/wolftrust.elf"
+  # virt boots one pflash image: the monitor at 0, the SPMC image behind it
+  # at WT_SPM_FLASH_OFFSET (mk/target-qemuvirt.mk), copied to RAM by EL3.
+  image_bin="$build/pflash.bin"
+  cp "$build/wolftrust_el3.bin" "$image_bin"
+  truncate -s $((0x100000)) "$image_bin"
+  cat "$build/wolftrust.bin" >> "$image_bin"
 fi
 
 log="$repo/ci-qemu-a-$scenario-$tag.log"
@@ -96,9 +102,12 @@ if [ "$MACHINE" = virt ]; then
         -serial "file:$ns_log" -serial "file:$sec_log")
 else
   args=(-M xlnx-versal-virt -smp "$SMP" -m 2G
-        -device "loader,file=$image_elf"
-        -device "loader,addr=$el3_base,cpu-num=0"
-        -serial "file:$ns_log" -serial "file:$sec_log")
+        -device "loader,file=$image_elf")
+  if [ "$scenario" != smoke ]; then
+    args+=(-device "loader,file=$spm_elf")
+  fi
+  args+=(-device "loader,addr=$el3_base,cpu-num=0"
+         -serial "file:$ns_log" -serial "file:$sec_log")
 fi
 args+=(-nographic -monitor none -no-reboot
        -semihosting-config "enable=on,target=native")
@@ -134,6 +143,7 @@ case "$scenario" in
     expect "secondary cores parked ($cpus cores)" " secondaries parked mask=$expected_mask"
     expect "secure timer tick reached EL3 as a Group 0 FIQ" "[EL3] tick ok intid=29"
     expect "SPMD built the FF-A boot information blob" "[EL3] boot info at 0x"
+    expect "SPMC image placed in its band" "[EL3] spmc image at 0x"
     expect "monitor dropped into Secure EL1" "[SPM] spmc entered at S-EL1"
     expect "SPMC consumed the boot information blob" "[SPM] boot info ok descs="
     expect "SPMC turned its stage-1 MMU on and still prints" "[SPM] mmu on ttbr0=0x"

@@ -29,13 +29,17 @@
 #include "wolftrust/arch/aarch64/ffa_boot_info.h"
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
+#include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/tables.h"
 
 #define WT_SPMC_UNKNOWN_FID (WT_FFA_FID32_LAST - 0xFu)
 #define WT_SPMC_BOOT_INFO_LIMIT 4096u
 #define WT_SPMC_MAX_FILL 12u
 
-extern uint8_t __data_lma[];
+extern uint8_t _e_secure_text[];
+extern uint8_t __image_end[];
+extern uint8_t __spm_ram_end[];
+extern uint8_t _e_keystore[];
 
 void wt_spm_main(uint64_t boot_info_pa);
 int wt_spm_prove_tick(void);
@@ -171,8 +175,9 @@ static uintptr_t page_up(uintptr_t v)
     return (v + WT_TABLES_PAGE_SIZE - 1u) & ~(uintptr_t)(WT_TABLES_PAGE_SIZE - 1u);
 }
 
-/* SPM-only table (ASID 0): image text, the EL3 RAM band (data, bss,
- * stacks), the boot information page, the table pool, the board devices. */
+/* SPM-only table (ASID 0): image text, constant data, the SPM RAM band
+ * (data, bss, stacks), the keystore band, the boot information page, the
+ * table pool, the board devices. */
 void wt_domain_fail(int code)
 {
     spmc_fail("domain", (uint64_t)(uint32_t)code);
@@ -187,12 +192,20 @@ static void enable_mmu(uint64_t boot_info_pa)
     size_t i;
     uint64_t ttbr0;
 
-    fill[n].base = (uintptr_t)WT_EL3_TEXT_BASE;
-    fill[n].size = page_up((uintptr_t)__data_lma) - (uintptr_t)WT_EL3_TEXT_BASE;
+    fill[n].base = (uintptr_t)WT_SPM_IMAGE_PA;
+    fill[n].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
     n++;
-    fill[n].base = (uintptr_t)WT_EL3_RAM_BASE;
-    fill[n].size = (size_t)WT_EL3_RAM_SIZE;
+    fill[n].base = (uintptr_t)_e_secure_text;
+    fill[n].size = page_up((uintptr_t)__image_end) - (uintptr_t)_e_secure_text;
+    fill[n].attributes = WT_MEM_ATTR_READ;
+    n++;
+    fill[n].base = (uintptr_t)WT_SPM_RAM_PA;
+    fill[n].size = page_up((uintptr_t)__spm_ram_end) - (uintptr_t)WT_SPM_RAM_PA;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    n++;
+    fill[n].base = (uintptr_t)WT_SPM_KEYSTORE_PA;
+    fill[n].size = page_up((uintptr_t)_e_keystore) - (uintptr_t)WT_SPM_KEYSTORE_PA;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     n++;
     fill[n].base = (uintptr_t)boot_info_pa;
@@ -243,4 +256,20 @@ void wt_spm_main(uint64_t boot_info_pa)
     /* Initialization complete; the SPMD owns the CPU until the first event. */
     ffa_call(&r, WT_FFA_MSG_WAIT, 0u);
     spmc_fail("msg_wait returned", r.x[0]);
+}
+
+/* Nothing to run on the Secure side: every event the SPMD delivers is
+ * reported until the Secure virtual instance dispatches them. */
+void wt_spm_idle(void)
+{
+    wt_ffa_regs_t r;
+
+    wt_platform_console_flush();
+    ffa_call(&r, WT_FFA_MSG_WAIT, 0u);
+    for (;;) {
+        wt_el3_puts("[SPM] unexpected event x0=0x");
+        wt_el3_puthex(r.x[0], 8u);
+        wt_el3_puts("\r\n");
+        ffa_call(&r, WT_FFA_MSG_WAIT, 0u);
+    }
 }

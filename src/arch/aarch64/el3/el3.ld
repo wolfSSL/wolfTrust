@@ -38,8 +38,6 @@ SECTIONS
     . = ALIGN(16);
     . += 0x4000;
     __el3_stack_top = .;
-    . += 0x2000;
-    __spm_stack_top = .;
     __el3_ram_end = .;
 
     /DISCARD/ : {

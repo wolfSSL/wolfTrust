@@ -12,6 +12,9 @@ cross-compiles a freestanding Cortex-M33 image.
 - Git and initialized submodules
 - GNU Arm Embedded tools with the `arm-none-eabi-` prefix
 - a native C compiler for host tests
+- for the AArch64 QEMU scenarios, `qemu-system-aarch64` and a toolchain with
+  the `aarch64-none-elf-` prefix; CI uses `ghcr.io/wolfssl/wolfboot-ci-aarch64`,
+  which also runs locally through Docker
 
 Some submodule URLs use GitHub SSH. Configure GitHub SSH access or an
 equivalent Git URL rewrite before initializing them.

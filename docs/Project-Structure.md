@@ -20,8 +20,8 @@
 | `tools/measure/` | Guest-measurement record patching before image signing |
 | `tools/handoff/` | Boot-handoff record generation and validation for emulator runs and host tests |
 | `tests/host/` | Native unit and integration suites |
-| `tests/target/` | M33MU and STM32H563 build, flash, provisioning, and scenario runners |
-| `tests/firmware/` | Bare-metal, Zephyr, FreeRTOS, conformance, and VNET guest images |
+| `tests/target/` | M33MU, QEMU AArch64, and STM32H563 build, flash, provisioning, and scenario runners, with the shared assertion library and suite driver |
+| `tests/firmware/` | Bare-metal, Zephyr, FreeRTOS, conformance, VNET, and AArch64 EL3 smoke images |
 | `tests/upstream/` | Fetch and integration helpers for pinned external validation suites |
 | `lib/` | Git submodules for wolfSSL, wolfPSA, wolfHSM, wolfCOSE, wolfHAL, and wolfIP |
 | `.github/workflows/` | Build, test, dependency, fuzz, and wiki synchronization workflows |

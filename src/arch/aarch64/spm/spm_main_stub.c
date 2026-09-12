@@ -27,7 +27,7 @@
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 
-#define WT_STUB_UNKNOWN_FID 0x840000F0u
+#define WT_STUB_UNKNOWN_FID (WT_FFA_FID32_LAST - 0xFu)
 
 void wt_spm_main(void);
 

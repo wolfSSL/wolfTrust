@@ -40,8 +40,10 @@ jobs:
           aarch64-none-elf-gcc --version | head -1
           qemu-system-aarch64 --version | head -1
 
-      - name: Self-test the EL3 symbol guard
-        run: tools/check-el3-symbols.sh --selftest
+      - name: Self-test the EL3 symbol guard and the expect library
+        run: |
+          tools/check-el3-symbols.sh --selftest
+          tests/target/lib/expect.sh --selftest
 
       - name: Cross-build the EL3 image (the symbol guard runs at link)
         run: make ARCH=aarch64 TARGET=${{ matrix.cell.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" BUILD_DIR=build-aarch64-guard

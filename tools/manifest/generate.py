@@ -123,6 +123,26 @@ MANIFEST_SCHEMA = {
     "partitions": [PARTITION_SCHEMA],
     "limits": LIMITS_SCHEMA,
 }
+# Optional top-level "ffa" section (AArch64 targets): FF-A partition
+# properties per DEN0077A 1.2 Table 5.1, emitted as a separate table so the
+# wolfTrust domain and partition structures are untouched.
+FFA_PARTITION_SCHEMA = {
+    "domain_id": UINT,
+    "uuids": [STRING],
+    "execution_contexts": UINT,
+    "runtime_el": STRING,
+    "messaging": STRING,
+    "ns_interrupt_action": STRING,
+    "boot_info_register": UINT,
+}
+FFA_SCHEMA = {
+    "partitions": [FFA_PARTITION_SCHEMA],
+}
+FFA_RUNTIME_EL = {"S-EL0": 0, "S-EL1": 1}
+FFA_MESSAGING = {"direct": 1, "indirect": 2}
+FFA_NS_INTERRUPT_ACTION = {"signaled": 0, "queued": 1}
+FFA_MAX_UUIDS = 4
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 FILE_HEADER = """/* {name}
  *
@@ -776,10 +796,78 @@ def emit_partition(lines, partition, index):
     return c_struct(fields)
 
 
-def generate_source(manifest, digest):
+def validate_ffa(ffa, manifest):
+    domain_ids = {domain["id"] for domain in manifest["domains"]}
+    partition_domains = {partition["domain_id"]
+                         for partition in manifest["partitions"]}
+    seen = set()
+    for index, entry in enumerate(ffa["partitions"]):
+        path = "manifest.ffa.partitions[{}]".format(index)
+        if entry["domain_id"] not in domain_ids:
+            policy_error(path + " names an unknown domain")
+        if entry["domain_id"] not in partition_domains:
+            policy_error(path + " names a domain without a partition")
+        if entry["domain_id"] in seen:
+            policy_error(path + " repeats a domain")
+        seen.add(entry["domain_id"])
+        if not entry["uuids"] or len(entry["uuids"]) > FFA_MAX_UUIDS:
+            policy_error(path + " needs 1 to {} UUIDs".format(FFA_MAX_UUIDS))
+        for uuid in entry["uuids"]:
+            if not UUID_RE.match(uuid):
+                policy_error(path + " UUID is not canonical lowercase")
+        if entry["execution_contexts"] != 1:
+            policy_error(path + " supports one execution context only")
+        if entry["runtime_el"] not in FFA_RUNTIME_EL:
+            policy_error(path + " runtime_el must be S-EL0 or S-EL1")
+        if entry["messaging"] not in FFA_MESSAGING:
+            policy_error(path + " messaging must be direct or indirect")
+        if entry["ns_interrupt_action"] not in FFA_NS_INTERRUPT_ACTION:
+            policy_error(path + " ns_interrupt_action must be signaled or queued")
+        if entry["boot_info_register"] > 3:
+            policy_error(path + " boot_info_register must be 0 to 3")
+
+
+def uuid_bytes(uuid):
+    return bytes.fromhex(uuid.replace("-", ""))
+
+
+def emit_ffa(lines, ffa):
+    entries = []
+    for index, entry in enumerate(ffa["partitions"]):
+        uuids = emit_array(lines,
+            "wt_ffa_uuid_t wt_generated_ffa_uuids_{}[{}]".format(
+                index, len(entry["uuids"])),
+            ["{ { " + ", ".join("0x{:02x}U".format(byte)
+                                 for byte in uuid_bytes(uuid)) + " } }"
+             for uuid in entry["uuids"]])
+        entries.append(c_struct((
+            ("uuids", uuids),
+            ("domain_id", c_uint(entry["domain_id"])),
+            ("uuid_count", c_uint(len(entry["uuids"]))),
+            ("execution_contexts", c_uint(entry["execution_contexts"])),
+            ("runtime_el", c_uint(FFA_RUNTIME_EL[entry["runtime_el"]])),
+            ("messaging", c_uint(FFA_MESSAGING[entry["messaging"]])),
+            ("ns_interrupt_action",
+             c_uint(FFA_NS_INTERRUPT_ACTION[entry["ns_interrupt_action"]])),
+            ("boot_info_register", c_uint(entry["boot_info_register"])),
+        )))
+    table = emit_array(lines,
+        "wt_ffa_partition_manifest_t wt_generated_ffa_partitions[{}]".format(
+            len(entries)), entries)
+    lines.extend((
+        "const wt_ffa_partition_manifest_t* wt_generated_ffa_partitions_get("
+        "size_t* count)",
+        "{", "    *count = {}U;".format(len(entries)),
+        "    return {};".format(table), "}", ""))
+
+
+def generate_source(manifest, digest, ffa=None):
     lines = [FILE_HEADER.format(name="wolftrust_manifest_generated.c"),
              "/* Normalized manifest SHA-256: {} */".format(digest.hex()),
              "#include \"wolftrust_manifest_generated.h\"", ""]
+    if ffa is not None:
+        lines[-2:] = ["#include \"wolftrust_manifest_generated.h\"",
+                      "#include \"wolftrust/arch/aarch64/ffa_manifest.h\"", ""]
     digest_values = ["0x{:02x}U".format(value) for value in digest]
     emit_array(lines, "uint8_t wt_generated_digest[32]", digest_values)
     domain_values = [emit_domain(lines, domain, index)
@@ -816,6 +904,8 @@ def generate_source(manifest, digest):
         system + ";", "",
         "const wt_system_manifest_t* wt_generated_manifest_get(void)",
         "{", "    return &wt_generated_manifest;", "}", ""))
+    if ffa is not None:
+        emit_ffa(lines, ffa)
     return "\n".join(lines)
 
 
@@ -942,10 +1032,17 @@ def main():
         manifest = json.loads(input_bytes.decode("utf-8"),
                               object_pairs_hook=reject_duplicate_keys)
         word_max = (1 << int(args.address_bits)) - 1
+        ffa = manifest.pop("ffa", None) if isinstance(manifest, dict) else None
         validate(manifest, MANIFEST_SCHEMA, "manifest", word_max)
         validate_policy(manifest, args.supported_features, word_max,
                         args.supported_framework_version, args.mpu_granule)
-        source = generate_source(manifest, hashlib.sha256(input_bytes).digest())
+        if ffa is not None:
+            if args.address_bits != "64":
+                raise ManifestError("manifest.ffa needs --address-bits 64")
+            validate(ffa, FFA_SCHEMA, "manifest.ffa", word_max)
+            validate_ffa(ffa, manifest)
+        source = generate_source(manifest, hashlib.sha256(input_bytes).digest(),
+                                 ffa)
         args.output.mkdir(parents=True, exist_ok=True)
         psa_manifest = args.output / "psa_manifest"
         psa_manifest.mkdir(parents=True, exist_ok=True)

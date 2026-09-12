@@ -109,6 +109,15 @@ The generator is constrained to FF-M framework version `0x0100`,
 feature mask `0x1` (connection-based IPC), and 32-bit addresses.
 Unsupported capabilities or an invalid resource layout stop the build.
 
+AArch64 manifests (`--address-bits 64`) may add an optional top-level
+`ffa` section with one entry per Secure Partition domain: the FF-A
+partition properties of DEN0077A Table 5.1 (`uuids`, `execution_contexts`,
+`runtime_el`, `messaging`, `ns_interrupt_action`, `boot_info_register`).
+The generator emits them as a separate `wt_generated_ffa_partitions` table
+declared by `wolftrust/arch/aarch64/ffa_manifest.h`; manifests without the
+section generate exactly what they did before, and a 32-bit target rejects
+the section.
+
 ## Build controls
 
 Examples:

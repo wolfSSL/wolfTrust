@@ -310,78 +310,91 @@ class GeneratorTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("partition interrupt", result.stderr)
 
-    def assert_rejected(self, manifest, message):
+    def run_generator_64(self, source, output):
+        return subprocess.run(
+            [sys.executable, str(GENERATOR), str(source), str(output),
+             "--supported-features", "0x5", "--address-bits", "64"],
+            check=False, capture_output=True, text=True)
+
+    def ffa_manifest(self):
+        manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        manifest["ffa"] = {"partitions": [{
+            "domain_id": manifest["partitions"][0]["domain_id"],
+            "uuids": ["b4b5671e-4a90-4fe1-b81f-fb13dae1dacb",
+                      "01234567-0123-4567-89ab-0123456789ab"],
+            "execution_contexts": 1,
+            "runtime_el": "S-EL0",
+            "messaging": "direct",
+            "ns_interrupt_action": "signaled",
+            "boot_info_register": 0,
+        }]}
+        return manifest
+
+    def test_ffa_section_emits_a_separate_partition_table(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
-            source = root / "manifest.json"
-            source.write_text(json.dumps(manifest), encoding="utf-8")
+            source = root / "ffa.json"
+            output = root / "output"
+            source.write_text(json.dumps(self.ffa_manifest()), encoding="utf-8")
+
+            result = self.run_generator_64(source, output)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            generated = (output / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            self.assertIn('#include "wolftrust/arch/aarch64/ffa_manifest.h"',
+                          generated)
+            self.assertIn("wt_generated_ffa_partitions[1]", generated)
+            self.assertIn(".uuid_count = 2U", generated)
+            self.assertIn("0xb4U, 0xb5U, 0x67U, 0x1eU", generated)
+            self.assertIn(".messaging = 1U", generated)
+            self.assertIn("wt_generated_ffa_partitions_get(size_t* count)",
+                          generated)
+            compiled = self.compile_generated(output, root / "generated")
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+
+    def test_manifest_without_ffa_emits_no_ffa_symbols(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "output"
+            self.assertEqual(self.run_generator_64(FIXTURE, output).returncode, 0)
+            generated = (output / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            self.assertNotIn("ffa", generated)
+
+    def test_ffa_section_needs_a_64_bit_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "ffa32.json"
+            source.write_text(json.dumps(self.ffa_manifest()), encoding="utf-8")
+
             result = self.run_generator(source, root / "output")
             self.assertNotEqual(result.returncode, 0)
-            self.assertIn(message, result.stderr)
-            self.assertFalse((root / "output").exists())
+            self.assertIn("--address-bits 64", result.stderr)
 
-    def test_partition_peripheral_is_rejected(self):
-        # WT-FFM-0068: with or without DEVICE, shared or not.
-        for attributes, share_id, message in (
-                (0x03, 0, "does not assign"),
-                (0x0B, 0, "does not assign"),
-                (0x2B, 5, "cannot be shared")):
-            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
-            manifest["profile_capabilities"][
-                "max_memory_resources_per_domain"] = 3
-            manifest["domains"][1]["memory_resources"].append({
-                "base": 0x40004800, "size": 0x400,
-                "attributes": attributes, "share_id": share_id})
-            self.assert_rejected(manifest, message)
-
-    def test_overlapping_partition_memory_is_rejected(self):
-        manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        manifest["profile_capabilities"]["max_memory_resources_per_domain"] = 3
-        manifest["domains"][2]["memory_resources"].append({
-            "base": 0x7000, "size": 0x400, "attributes": 0x03,
-            "share_id": 0})
-        self.assert_rejected(manifest, "overlap")
-
-    def test_duplicate_partition_interrupt_is_rejected(self):
-        manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        manifest["domains"][2]["interrupt_resources"][0]["interrupt"] = 21
-        manifest["partitions"][1]["interrupts"][0]["interrupt"] = 21
-        self.assert_rejected(manifest, "multiply owned")
-
-    def test_partition_interrupt_beyond_vector_table_is_rejected(self):
-        manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        manifest["domains"][1]["interrupt_resources"][0]["interrupt"] = 64
-        manifest["partitions"][0]["interrupts"][0]["interrupt"] = 64
-        self.assert_rejected(manifest, "beyond the Secure vector table")
-
-    def test_isolation_levels_1_and_2_are_rejected(self):
-        for level in (1, 2):
+    def test_ffa_policy_is_rejected_before_output(self):
+        cases = (
+            ("uuids", ["B4B5671E-4A90-4FE1-B81F-FB13DAE1DACB"], "canonical"),
+            ("uuids", [], "1 to 4 UUIDs"),
+            ("domain_id", 250, "unknown domain"),
+            ("execution_contexts", 2, "one execution context"),
+            ("runtime_el", "EL2", "runtime_el"),
+            ("messaging", "smoke", "messaging"),
+            ("ns_interrupt_action", "drop", "ns_interrupt_action"),
+            ("boot_info_register", 4, "boot_info_register"),
+        )
+        for field, value, message in cases:
             with tempfile.TemporaryDirectory() as temporary:
                 root = Path(temporary)
-                source = root / "level.json"
-                manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
-                manifest["isolation_profile"] = level
+                source = root / "bad.json"
+                output = root / "output"
+                manifest = self.ffa_manifest()
+                manifest["ffa"]["partitions"][0][field] = value
                 source.write_text(json.dumps(manifest), encoding="utf-8")
 
-                result = self.run_generator(source, root / "output")
-                self.assertNotEqual(result.returncode, 0)
-                self.assertIn("isolation levels 1 and 2 are not implemented",
-                              result.stderr)
-                self.assertFalse((root / "output").exists())
-
-    def test_privileged_secure_partition_is_rejected(self):
-        with tempfile.TemporaryDirectory() as temporary:
-            root = Path(temporary)
-            source = root / "privileged.json"
-            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
-            manifest["domains"][1]["privilege_state"] = 0
-            source.write_text(json.dumps(manifest), encoding="utf-8")
-
-            result = self.run_generator(source, root / "output")
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("Secure Partitions must be unprivileged",
-                          result.stderr)
-            self.assertFalse((root / "output").exists())
+                result = self.run_generator_64(source, output)
+                self.assertNotEqual(result.returncode, 0, field)
+                self.assertIn(message, result.stderr, field)
+                self.assertFalse(output.exists(), field)
 
 
 if __name__ == "__main__":

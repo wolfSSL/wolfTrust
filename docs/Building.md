@@ -116,7 +116,10 @@ partition properties of DEN0077A Table 5.1 (`uuids`, `execution_contexts`,
 The generator emits them as a separate `wt_generated_ffa_partitions` table
 declared by `wolftrust/arch/aarch64/ffa_manifest.h`; manifests without the
 section generate exactly what they did before, and a 32-bit target rejects
-the section.
+the section. 64-bit targets also get `WT_GENERATED_TABLE_POOL_PAGES` in the
+generated header: the 4 KB pages the stage-1 tables need (one table per
+partition, sized from its memory resources and stack, plus the SPMC's own
+table pages from `--spm-table-pages` and a spare set).
 
 ## Build controls
 

@@ -310,11 +310,38 @@ class GeneratorTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("partition interrupt", result.stderr)
 
-    def run_generator_64(self, source, output):
+    def run_generator_64(self, source, output, extra=()):
         return subprocess.run(
             [sys.executable, str(GENERATOR), str(source), str(output),
-             "--supported-features", "0x5", "--address-bits", "64"],
+             "--supported-features", "0x5", "--address-bits", "64", *extra],
             check=False, capture_output=True, text=True)
+
+    def test_64_bit_header_sizes_the_table_pool(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "pool.json"
+            output = root / "output"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            domain = manifest["domains"][2]
+            domain["memory_resources"][1].update(base=0x1FF000, size=0x2000)
+            domain["stack_base"] = 0x1FF800
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator_64(source, output,
+                                           ("--spm-table-pages", "4"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            header = (output / "wolftrust_manifest_generated.h").read_text(
+                encoding="utf-8")
+            self.assertIn("#define WT_GENERATED_TABLE_POOL_PAGES 14U", header)
+
+    def test_32_bit_header_has_no_table_pool(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "output"
+            self.assertEqual(self.run_generator(FIXTURE, output).returncode, 0)
+            header = (output / "wolftrust_manifest_generated.h").read_text(
+                encoding="utf-8")
+            self.assertNotIn("TABLE_POOL", header)
 
     def ffa_manifest(self):
         manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))

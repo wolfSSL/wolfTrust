@@ -1393,7 +1393,8 @@ $(MANIFEST_DIR):
 
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.
-MANIFEST_MODE := MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --supported-framework-version 0x100 --address-bits 32
+MANIFEST_ARCH_OPTS ?= --address-bits 32
+MANIFEST_MODE := MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --supported-framework-version 0x100 $(MANIFEST_ARCH_OPTS)
 
 $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		FORCE | $(MANIFEST_DIR)
@@ -1404,7 +1405,7 @@ $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 	else \
 		python3 $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 			$(MANIFEST_DIR) --supported-features 0x1 \
-			--supported-framework-version 0x100 --address-bits 32 \
+			--supported-framework-version 0x100 $(MANIFEST_ARCH_OPTS) \
 			&& printf '%s\n' '$(MANIFEST_MODE)' > "$@"; \
 	fi
 

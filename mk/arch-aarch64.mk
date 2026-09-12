@@ -14,6 +14,9 @@ ARCH_WOLFCRYPT_SP_SRCS :=
 ARCH_WOLFCRYPT_ASM_SRCS :=
 ARCH_START_SRCS :=
 ARCH_SRCS :=
+WT_SPM_TABLE_PAGES ?= 8
+MANIFEST_ARCH_OPTS := --address-bits 64 --mpu-granule 4096 \
+    --spm-table-pages $(WT_SPM_TABLE_PAGES)
 
 ARCH_DIR := $(ROOT)/src/arch/aarch64
 EL3_C_SRCS := \

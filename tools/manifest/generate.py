@@ -253,6 +253,9 @@ MAX_SERVICES = 28
 MAX_DEPENDENCIES = 32
 MAX_SIGNALS = 28
 MAX_NAME = 63
+TABLE_L2_SHIFT = 30
+TABLE_L3_SHIFT = 21
+TABLE_SPARE_PAGES = 3
 
 
 def policy_range_end(base, size, word_max, description):
@@ -909,7 +912,36 @@ def generate_source(manifest, digest, ffa=None):
     return "\n".join(lines)
 
 
-def generate_header(manifest):
+def count_blocks(regions, shift):
+    intervals = sorted((base >> shift, (base + size - 1) >> shift)
+                       for base, size in regions if size > 0)
+    total = 0
+    end = -1
+    for first, last in intervals:
+        if first > end:
+            total += last - first + 1
+        elif last > end:
+            total += last - end
+        end = max(end, last)
+    return total
+
+
+def table_pool_pages(manifest, spm_table_pages):
+    """Pages for one 4 KB-granule stage-1 table per partition (L1 + one L2 per
+    GB + one L3 per 2 MB of its regions), the SPMC's own table, and a spare set."""
+    domains = {domain["id"]: domain for domain in manifest["domains"]}
+    pages = spm_table_pages + TABLE_SPARE_PAGES
+    for partition in manifest["partitions"]:
+        domain = domains[partition["domain_id"]]
+        regions = [(memory["base"], memory["size"])
+                   for memory in domain["memory_resources"]]
+        regions.append((domain["stack_base"], domain["stack_size"]))
+        pages += (1 + count_blocks(regions, TABLE_L2_SHIFT)
+                  + count_blocks(regions, TABLE_L3_SHIFT))
+    return pages
+
+
+def generate_header(manifest, pool_pages=None):
     lines = [FILE_HEADER.format(name="wolftrust_manifest_generated.h"),
              "#ifndef WOLFTRUST_MANIFEST_GENERATED_H",
              "#define WOLFTRUST_MANIFEST_GENERATED_H", "",
@@ -955,6 +987,10 @@ def generate_header(manifest):
             lines.append("#define {}_SIGNAL {}U".format(
                 interrupt_prefix, interrupt["signal"]))
         lines.append("")
+    if pool_pages is not None:
+        add_symbol("WT_GENERATED_TABLE_POOL_PAGES")
+        lines.extend(("#define WT_GENERATED_TABLE_POOL_PAGES {}U".format(
+            pool_pages), ""))
     lines.extend((
         "const wt_system_manifest_t* wt_generated_manifest_get(void);", "",
         "#endif", ""))
@@ -1025,7 +1061,10 @@ def main():
     parser.add_argument("--mpu-granule", default="32",
                         type=lambda value: int(value, 0))
     parser.add_argument("--address-bits", choices=("32", "64"), default="32")
+    parser.add_argument("--spm-table-pages", default="0",
+                        type=lambda value: int(value, 0))
     args = parser.parse_args()
+    pool_pages = None
 
     try:
         input_bytes = args.input.read_bytes()
@@ -1041,6 +1080,8 @@ def main():
                 raise ManifestError("manifest.ffa needs --address-bits 64")
             validate(ffa, FFA_SCHEMA, "manifest.ffa", word_max)
             validate_ffa(ffa, manifest)
+        if args.address_bits == "64":
+            pool_pages = table_pool_pages(manifest, args.spm_table_pages)
         source = generate_source(manifest, hashlib.sha256(input_bytes).digest(),
                                  ffa)
         args.output.mkdir(parents=True, exist_ok=True)
@@ -1049,7 +1090,7 @@ def main():
         (args.output / "wolftrust_manifest_generated.c").write_text(
             source, encoding="utf-8")
         (args.output / "wolftrust_manifest_generated.h").write_text(
-            generate_header(manifest), encoding="utf-8")
+            generate_header(manifest, pool_pages), encoding="utf-8")
         (psa_manifest / "pid.h").write_text(
             generate_pid_header(manifest), encoding="utf-8")
         (psa_manifest / "sid.h").write_text(

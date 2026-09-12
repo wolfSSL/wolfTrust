@@ -10,20 +10,25 @@
 #                                  reports the parked secondary cores, exits
 #                                  through semihosting
 #   run_qemu_a_scenario.sh boot    the wolfTrust EL3 monitor (make ARCH=aarch64
-#                                  TARGET=qemuvirt|versal) boots, parks the
-#                                  secondaries, prints its banner, drops into
-#                                  Secure EL1, and exits through the monitor
+#                                  TARGET=qemuvirt|versal) boots on the boot
+#                                  core, prints its banner, drops into Secure
+#                                  EL1, and exits through the monitor
+#   run_qemu_a_scenario.sh boot-smp2  the same image with a second core: the
+#                                  secondary parks at EL3 inside the timed
+#                                  handshake and only the boot core runs the
+#                                  monitor (virt only; see the SKIP below)
 #
 #   MACHINE=virt|versal-virt (default virt)   GIC=2|3 (virt, default 3)
 #   CPU=cortex-a35|cortex-a72 (virt, default cortex-a72)
-#   SMP=<n> (default 2 on virt, 4 on versal-virt)
+#   SMP=<n> (virt: default 2 for smoke, 1 for boot, fixed 2 for boot-smp2;
+#            versal-virt: default 4)
 #   QEMU_TIMEOUT=<s> (default 60)   TOOLPREFIX (default aarch64-none-elf-)
 set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot) ;;
-  *) echo "usage: $0 smoke|boot" >&2; exit 2 ;;
+  smoke|boot|boot-smp2) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -37,13 +42,25 @@ QEMU="${QEMU:-qemu-system-aarch64}"
 QEMU_TIMEOUT="${QEMU_TIMEOUT:-60}"
 TOOLPREFIX="${TOOLPREFIX:-aarch64-none-elf-}"
 
-# versal-virt models 2 A72 + 2 R5 and QEMU refuses fewer than 4 CPUs there;
-# A72 core 1 stays held in reset until firmware releases it (a loader entry
-# with cpu-num=1 does not start it), so the smoke runs on core 0 alone.
 case "$MACHINE" in
-  virt) tag="virt-gicv$GIC-$CPU"; SMP="${SMP:-2}"; cpus="$SMP"; target=qemuvirt ;;
-  versal-virt) tag="versal-virt"; SMP="${SMP:-4}"; cpus=1; target=versal ;;
+  virt) tag="virt-gicv$GIC-$CPU"; target=qemuvirt ;;
+  versal-virt) tag="versal-virt"; target=versal ;;
   *) echo "unsupported MACHINE=$MACHINE (virt or versal-virt)" >&2; exit 2 ;;
+esac
+
+# cpus = cores the image expects to see (boot core + parked secondaries).
+# versal-virt models 2 A72 + 2 R5 and QEMU refuses fewer than 4 CPUs there;
+# its APU core 1 is created powered off and the CRF/APU control blocks that
+# release it on silicon are unimplemented stubs in QEMU 11, so no firmware
+# write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
+case "$scenario:$MACHINE" in
+  smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
+  boot:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot-smp2:virt) SMP=2; cpus=2 ;;
+  boot-smp2:versal-virt)
+    echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
+    exit 0 ;;
+  *) SMP="${SMP:-4}"; cpus=1 ;;
 esac
 expected_mask=$(printf '0x%x' $(( (1 << cpus) - 2 )))
 el3_base=0xFFFC0000
@@ -106,7 +123,7 @@ case "$scenario" in
     refute_re "no smoke failure marker" '\[SMOKE\] FAIL'
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
-  boot)
+  boot|boot-smp2)
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "EL3 monitor banner on $MACHINE" "[EL3] wolfTrust monitor cntfrq="
@@ -122,6 +139,11 @@ case "$scenario" in
     expect "monitor exit call reached EL3" "[BKPT] imm=0x7f"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    if [ "$scenario" = boot-smp2 ]; then
+      expect_once "exactly one EL3 banner (the secondary parked before main)" "[EL3] wolfTrust monitor cntfrq="
+      expect_once "exactly one Secure EL1 entry" "[SPM] stub entered at S-EL1"
+      expect_once "exactly one monitor exit" "[BKPT] imm=0x7f"
+    fi
     ;;
 esac
 

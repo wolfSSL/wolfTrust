@@ -37,6 +37,18 @@ expect_flat() {
   fi
 }
 
+# expect_once <label> <fixed-string>: the marker must appear exactly once
+# (a second copy means a core or a guest ran a path it must not have).
+expect_once() {
+  local n
+  n=$(grep -Fc "$2" "$WT_EXPECT_LOG")
+  if [ "$n" -eq 1 ]; then
+    check_pass "$1"
+  else
+    check_fail "$1" "expected once, found $n: $2"
+  fi
+}
+
 # refute_re <label> <ERE>
 refute_re() {
   if grep -Eq "$2" "$WT_EXPECT_LOG"; then
@@ -75,6 +87,9 @@ selftest() {
   want_fail "flat miss" expect_flat skipped 'TOTAL SKIPPED   : 5'
   want "refute clean" '  [check] PASS  nofault' refute_re nofault '^\[MEMFAULT\]'
   want_fail "refute hit" refute_re nofault 'IPPED'
+  want "once hit" '  [check] PASS  single' expect_once single 'done marker'
+  want_fail "once twice" expect_once single 'freertos_guest1: hb'
+  want_fail "once miss" expect_once single 'never printed'
   want_fail "gap off" expect finish 'guest0_psa done marker'
   # The gap fallback relies on GNU grep -z; the runners only run where it is.
   if grep --version 2>/dev/null | head -1 | grep -q '(GNU grep)'; then

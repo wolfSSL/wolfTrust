@@ -364,14 +364,20 @@ and skips explicitly otherwise; CI runs it inside
 `ghcr.io/wolfssl/wolfboot-ci-aarch64`. Scenarios today: `smoke` (the EL3
 image in `tests/firmware/aarch64-smoke/` proves the machine starts
 wolfTrust-built code at EL3, prints on the secure console, reports which
-secondary cores parked, and exits through semihosting) and `boot` (the
-wolfTrust EL3 monitor from `make ARCH=aarch64` parks the secondary cores,
+secondary cores parked, and exits through semihosting), `boot` (the
+wolfTrust EL3 monitor from `make ARCH=aarch64` boots on the boot core,
 initializes the GIC (v2 or v3), takes one secure timer tick as a Group 0
 FIQ at EL3, prints its banner, drops into Secure EL1, negotiates the FF-A
 version and discovers the SPMC and SPMD ids at the Secure physical
-instance, and exits through its monitor call). Both emulator runners
-share `tests/target/run_suite.sh` (the per-scenario report and
-`logs/target-<scenario>.log`) and assert through `tests/target/lib/expect.sh`.
+instance, and exits through its monitor call), and `boot-smp2` (the same
+image on two `virt` cores: the secondary parks at EL3 inside the timed
+handshake, the banner reports it, and exactly one core runs the monitor).
+`boot-smp2` reports a SKIP on `xlnx-versal-virt`: QEMU creates APU core 1
+powered off and models the reset and control blocks that release it on
+silicon as unimplemented stubs, so firmware cannot start it there. Both
+emulator runners share `tests/target/run_suite.sh` (the per-scenario
+report, `SKIP` lines, and `logs/target-<scenario>.log`) and assert through
+`tests/target/lib/expect.sh`.
 
 ## STM32H563 hardware
 

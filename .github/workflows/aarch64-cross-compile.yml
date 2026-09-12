@@ -44,10 +44,11 @@ jobs:
         run: tools/check-el3-symbols.sh --selftest
 
       - name: Boot the EL3 smoke and the wolfTrust EL3 monitor
-        run: tests/target/run_suite.sh qemu-a smoke boot
+        run: tests/target/run_suite.sh qemu-a smoke boot boot-smp2
 
       - name: Show the boot logs
         if: always()
         run: |
           cat logs/target-smoke.log || true
           cat logs/target-boot.log || true
+          cat logs/target-boot-smp2.log || true

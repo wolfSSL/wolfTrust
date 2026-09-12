@@ -22,6 +22,7 @@
 # load address, the RAM band, and the console the emulated machine exposes.
 TOOLPREFIX ?= aarch64-none-elf-
 MACHINE ?= virt
+WT_SMOKE_CPUS ?= 1
 BUILD_DIR ?= build/$(MACHINE)
 
 CC := $(TOOLPREFIX)gcc
@@ -42,7 +43,8 @@ endif
 CFLAGS := -mcpu=generic -mgeneral-regs-only -mstrict-align -ffreestanding \
     -fno-builtin -fno-pic -fno-stack-protector -nostdlib -O2 -g \
     -Wall -Wextra -Werror \
-    -DWT_SMOKE_UART=$(UART)u -DWT_SMOKE_MACHINE=\"$(MACHINE)\"
+    -DWT_SMOKE_UART=$(UART)u -DWT_SMOKE_MACHINE=\"$(MACHINE)\" \
+    -DWT_SMOKE_CPUS=$(WT_SMOKE_CPUS)u
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T smoke.ld \
     -Wl,--defsym=WT_SMOKE_BASE=$(BASE) -Wl,--defsym=WT_SMOKE_RAM=$(RAM)
 

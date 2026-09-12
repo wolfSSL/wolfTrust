@@ -28,9 +28,10 @@
 #define UART_FR       0x18u
 #define UART_FR_TXFF  (1u << 5)
 #define PARK_SLOTS    4u
-#define PARK_WAIT     1000000u
+#define PARK_WAIT_MS  200u
 
 volatile uint8_t g_parked[PARK_SLOTS];
+volatile uint32_t g_ready;
 
 static volatile uint32_t* uart_reg(uint32_t offset)
 {
@@ -82,27 +83,42 @@ static void put_dec(uint64_t value)
     put_str(&buf[i]);
 }
 
-void smoke_main(void)
+static uint64_t cntpct(void)
 {
-    uint64_t current_el;
-    uint64_t cntfrq;
+    uint64_t value;
+
+    __asm__ volatile("isb; mrs %0, CNTPCT_EL0" : "=r"(value));
+    return value;
+}
+
+static uint32_t parked_mask(void)
+{
     uint32_t mask = 0u;
-    uint32_t spin;
     uint32_t i;
 
-    __asm__ volatile("mrs %0, CurrentEL" : "=r"(current_el));
-    __asm__ volatile("mrs %0, CNTFRQ_EL0" : "=r"(cntfrq));
-
-    for (spin = 0u; spin < PARK_WAIT; spin++) {
-        if (g_parked[1] != 0u) {
-            break;
-        }
-    }
     for (i = 0u; i < PARK_SLOTS; i++) {
         if (g_parked[i] != 0u) {
             mask |= (1u << i);
         }
     }
+    return mask;
+}
+
+void smoke_main(void)
+{
+    uint64_t current_el;
+    uint64_t cntfrq;
+    uint64_t deadline;
+    uint32_t expected = (uint32_t)((1u << WT_SMOKE_CPUS) - 2u);
+    uint32_t mask;
+
+    __asm__ volatile("mrs %0, CurrentEL" : "=r"(current_el));
+    __asm__ volatile("mrs %0, CNTFRQ_EL0" : "=r"(cntfrq));
+
+    deadline = cntpct() + ((cntfrq * PARK_WAIT_MS) / 1000u);
+    do {
+        mask = parked_mask();
+    } while (mask != expected && cntpct() < deadline);
 
     put_str("[SMOKE] EL");
     put_dec(current_el >> 2);

@@ -35,6 +35,11 @@ jobs:
       - name: Trust the checked-out workspace
         run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
+      - name: Initialize wolfTrust dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE
+
       - name: Toolchain and emulator versions
         run: |
           aarch64-none-elf-gcc --version | head -1
@@ -45,8 +50,8 @@ jobs:
           tools/check-el3-symbols.sh --selftest
           tests/target/lib/expect.sh --selftest
 
-      - name: Cross-build the EL3 image (the symbol guard runs at link)
-        run: make ARCH=aarch64 TARGET=${{ matrix.cell.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" BUILD_DIR=build-aarch64-guard
+      - name: Cross-build the EL3 monitor image (the symbol guard runs at link)
+        run: make ARCH=aarch64 TARGET=${{ matrix.cell.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" BUILD_DIR=build-aarch64-guard el3-image
 
       - name: Boot the EL3 smoke and the wolfTrust EL3 monitor
         run: tests/target/run_suite.sh qemu-a smoke boot boot-smp2

@@ -54,11 +54,11 @@
 #define WT_TABLES_MAIR_EL1 \
     (0x00ull | (0x04ull << 8) | (0xFFull << 16) | (0x44ull << 24))
 
-/* TCR_EL1: T0SZ 25, IRGN0/ORGN0 WBWA, SH0 inner, TG0 4K, EPD1 (no TTBR1
- * walks until the NS window lands), IPS 40-bit, 8-bit ASIDs. */
+/* TCR_EL1: T0SZ 25, IRGN0/ORGN0 WBWA, SH0 inner, TG0 4K, T1SZ 25 with EPD1
+ * (no TTBR1 walks until the NS window lands), IPS 40-bit, 8-bit ASIDs. */
 #define WT_TABLES_TCR_EL1 \
     (25ull | (1ull << 8) | (1ull << 10) | (3ull << 12) | (0ull << 14) | \
-     (1ull << 23) | (2ull << 32))
+     (25ull << 16) | (1ull << 23) | (2ull << 32))
 
 /* Access permission field values (AP[2:1]). */
 #define WT_TABLES_AP_EL1_RW      0u
@@ -108,5 +108,13 @@ int wt_tables_walk(const wt_tables_t* t, const wt_tables_pool_t* pool,
                    uint64_t va, wt_tables_walk_t* out);
 
 uint64_t wt_tables_ttbr0(const wt_tables_t* t);
+
+/* mmu.S: stage 1 on at S-EL1 (M|C|I|SA|SA0|WXN, EL0 wfi/wfe trapping) and
+ * the per-domain TTBR0 switch (distinct ASIDs, no TLBI). */
+void wt_mmu_enable(uint64_t ttbr0, uint64_t mair, uint64_t tcr);
+void wt_mmu_switch_ttbr0(uint64_t ttbr0);
+
+/* Port hook: device pages the SPM itself needs mapped (the secure console). */
+const wt_memory_region_t* wt_platform_board_device_regions(size_t* count);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_TABLES_H */

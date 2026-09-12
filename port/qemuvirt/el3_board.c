@@ -23,10 +23,22 @@
 #include "memory_map.h"
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/pl011.h"
+#include "wolftrust/arch/aarch64/tables.h"
+
+static const wt_memory_region_t g_device_regions[] = {
+    { WT_UART_S_BASE, 0x1000u,
+      WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE }
+};
 
 void wt_platform_board_init(void)
 {
 #if !defined(WT_UART_SKIP_INIT) || (WT_UART_SKIP_INIT == 0)
     wt_pl011_init(WT_UART_S_BASE, WT_UART_CLOCK_HZ, WT_UART_BAUD);
 #endif
+}
+
+const wt_memory_region_t* wt_platform_board_device_regions(size_t* count)
+{
+    *count = sizeof(g_device_regions) / sizeof(g_device_regions[0]);
+    return g_device_regions;
 }

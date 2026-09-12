@@ -368,8 +368,9 @@ secondary cores parked, and exits through semihosting), `boot` (the
 wolfTrust EL3 monitor from `make ARCH=aarch64` boots on the boot core,
 initializes the GIC (v2 or v3), takes one secure timer tick as a Group 0
 FIQ at EL3, prints its banner, builds the FF-A boot information blob and
-drops into Secure EL1 with it, where the SPMC consumes the blob,
-negotiates the FF-A version, discovers the SPMC and SPMD ids at the
+drops into Secure EL1 with it, where the SPMC consumes the blob, turns
+its stage-1 MMU on with the SPM-only translation table (W^X, execute-never
+data, device console), negotiates the FF-A version, discovers the SPMC and SPMD ids at the
 Secure physical instance, and completes its initialization with
 `FFA_MSG_WAIT`; the monitor then exits through its test call), and
 `boot-smp2` (the same

@@ -42,8 +42,19 @@
 #define WT_EL3_VEC_LOWER64_SERROR  11u
 #define WT_EL3_VEC_LOWER32_SYNC    12u
 
+/* Register frame the vector table saves; layout is shared with vectors.S. */
+typedef struct wt_el3_frame {
+    uint64_t x[19];
+    uint64_t x29;
+    uint64_t x30;
+    uint64_t elr;
+    uint64_t spsr;
+    uint64_t pad;
+} wt_el3_frame_t;
+
 extern volatile uint8_t g_wt_el3_parked[WT_EL3_MAX_CPUS];
 extern volatile uint32_t g_wt_el3_ready;
+extern volatile uint32_t g_wt_el3_tick_intid;
 
 void wt_el3_puts(const char* text);
 void wt_el3_puthex(uint64_t value, unsigned int digits);
@@ -55,8 +66,11 @@ void wt_el3_enter_secure_el1(void (*entry)(void), uintptr_t stack_top)
 void wt_el3_fault(uint64_t kind, uint64_t esr, uint64_t far, uint64_t elr)
     __attribute__((noreturn));
 uint64_t wt_el3_monitor_call(uint32_t fid, uint64_t arg);
-uint64_t wt_el3_exception(uint64_t kind, uint64_t x0, uint64_t x1);
+void wt_el3_exception(uint64_t kind, wt_el3_frame_t* frame);
 void wt_el3_main(void) __attribute__((noreturn));
+
+void wt_el3_timer_arm_ms(uint32_t ms);
+void wt_el3_timer_disable(void);
 
 /* Port hooks the EL3 image needs (the tools/el3-symbols.allow set). */
 void wt_platform_board_init(void);

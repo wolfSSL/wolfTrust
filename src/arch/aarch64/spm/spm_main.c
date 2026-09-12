@@ -31,6 +31,7 @@
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/tables.h"
+#include "wolftrust/sched/coroutine.h"
 
 #define WT_SPMC_UNKNOWN_FID (WT_FFA_FID32_LAST - 0xFu)
 #define WT_SPMC_BOOT_INFO_LIMIT 4096u
@@ -236,6 +237,40 @@ static void enable_mmu(uint64_t boot_info_pa)
     wt_el3_puts("\r\n");
 }
 
+/* Prove the S-EL1 coroutine switch: run a privileged coroutine that yields
+ * back, resumes, and yields again, checking its progress each time. */
+static uint8_t g_prove_co_stack[4096] __attribute__((aligned(16)));
+static volatile int g_prove_co_step;
+
+static void prove_co_body(void* arg)
+{
+    g_prove_co_step = (int)(intptr_t)arg;
+    wt_co_block();
+    g_prove_co_step = 99;
+    wt_co_block();
+}
+
+static int prove_coroutine(void)
+{
+    wt_co_t* co;
+
+    wt_co_init();
+    co = wt_co_create_blocked_ex(g_prove_co_stack, sizeof(g_prove_co_stack),
+                                 prove_co_body, (void*)(intptr_t)7);
+    if (co == NULL) {
+        return 0;
+    }
+    wt_co_wake(co);
+    if (wt_co_run(co) != 1u || g_prove_co_step != 7) {
+        return 0;
+    }
+    wt_co_wake(co);
+    if (wt_co_run(co) != 1u || g_prove_co_step != 99) {
+        return 0;
+    }
+    return 1;
+}
+
 void wt_spm_main(uint64_t boot_info_pa)
 {
     wt_ffa_regs_t r;
@@ -248,6 +283,12 @@ void wt_spm_main(uint64_t boot_info_pa)
     }
     else {
         wt_el3_puts("[SPM] tick TIMEOUT\r\n");
+    }
+    if (prove_coroutine()) {
+        wt_el3_puts("[SPM] coroutine ok\r\n");
+    }
+    else {
+        wt_el3_puts("[SPM] coroutine FAIL\r\n");
     }
     discover_spmd();
     prove_console_log();

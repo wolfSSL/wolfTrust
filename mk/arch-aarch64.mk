@@ -20,7 +20,10 @@ EL3_C_SRCS := \
     $(ARCH_DIR)/el3/console.c \
     $(ARCH_DIR)/el3/esr.c \
     $(ARCH_DIR)/el3/monitor_calls.c \
+    $(ARCH_DIR)/el3/timer.c \
     $(ARCH_DIR)/el3/el3_main.c \
+    $(ARCH_DIR)/ffa/ffa_spmd.c \
+    $(ARCH_DIR)/gic/gicv$(WT_GIC_VERSION).c \
     $(ARCH_DIR)/common/libc_min.c \
     $(ARCH_DIR)/drivers/pl011.c \
     $(EL3_PORT_SRCS)

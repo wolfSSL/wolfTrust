@@ -23,6 +23,9 @@
 
 #define SCTLR_EL3_INIT  (0x30C50830 | (1 << 12) | (1 << 3))
 #define CNTHCTL_EL2_INIT 0x3
+/* RW | ST | EA | FIQ: Group 0 interrupts come to EL3 until the Secure world
+ * runs (an FIQ whose target EL is below the current EL stays pending). */
+#define SCR_EL3_INIT    0xC0C
 
     .section .el3.text.entry, "ax"
     .globl wt_el3_start
@@ -85,6 +88,8 @@ primary:
     msr     DAIFSet, #0xf
     ldr     x0, =wt_el3_vectors
     msr     VBAR_EL3, x0
+    mov     x0, #SCR_EL3_INIT
+    msr     SCR_EL3, x0
     msr     SPSel, #1
     ldr     x0, =__el3_stack_top
     mov     sp, x0

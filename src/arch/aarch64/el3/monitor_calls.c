@@ -18,11 +18,18 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* S-EL1 -> EL3 calls and the EL3 vector dispatch. */
+/* EL3 vector dispatch: FF-A calls from the Secure world go to the SPMD
+ * handlers, the OEM-range test calls to the monitor calls, the secure timer
+ * FIQ to the tick handler; everything else is a fault. */
 
 #include "wolftrust/arch/aarch64/el3.h"
+#include "wolftrust/arch/aarch64/ffa.h"
+#include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
+
+volatile uint32_t g_wt_el3_tick_intid;
 
 uint64_t wt_el3_monitor_call(uint32_t fid, uint64_t arg)
 {
@@ -53,16 +60,58 @@ uint64_t wt_el3_monitor_call(uint32_t fid, uint64_t arg)
     return result;
 }
 
-uint64_t wt_el3_exception(uint64_t kind, uint64_t x0, uint64_t x1)
+static void wt_el3_fiq(void)
 {
-    uint64_t esr = wt_read_esr_el3();
+    uint32_t intid = wt_gic->ack_group0();
 
-    if ((kind == WT_EL3_VEC_LOWER64_SYNC) &&
-        (WT_ESR_EC(esr) == WT_ESR_EC_SMC64)) {
-        if ((wt_read_scr_el3() & WT_SCR_NS) != 0u) {
-            return WT_MON_NOT_SUPPORTED;
+    if (intid == WT_GIC_INTID_SECURE_TIMER) {
+        wt_el3_timer_disable();
+    }
+    if (intid != WT_GIC_INTID_SPURIOUS) {
+        g_wt_el3_tick_intid = intid;
+        wt_gic->eoi_group0(intid);
+    }
+}
+
+static void secure_smc(wt_el3_frame_t* frame)
+{
+    wt_ffa_regs_t regs;
+    uint32_t fid = (uint32_t)frame->x[0];
+    unsigned int i;
+
+    if (wt_ffa_fid_in_range(fid)) {
+        for (i = 0u; i < 8u; i++) {
+            regs.x[i] = frame->x[i];
         }
-        return wt_el3_monitor_call((uint32_t)x0, x1);
+        wt_ffa_spmd_secure_call(&regs);
+        for (i = 0u; i < 8u; i++) {
+            frame->x[i] = regs.x[i];
+        }
+        return;
+    }
+    frame->x[0] = wt_el3_monitor_call(fid, frame->x[1]);
+}
+
+void wt_el3_exception(uint64_t kind, wt_el3_frame_t* frame)
+{
+    uint64_t esr;
+    uint32_t ec;
+
+    if (kind == WT_EL3_VEC_CUR_SPX_FIQ) {
+        wt_el3_fiq();
+        return;
+    }
+    esr = wt_read_esr_el3();
+    ec = WT_ESR_EC(esr);
+    if ((kind == WT_EL3_VEC_LOWER64_SYNC) &&
+        ((ec == WT_ESR_EC_SMC64) || (ec == WT_ESR_EC_SMC32))) {
+        if ((wt_read_scr_el3() & WT_SCR_NS) != 0u) {
+            /* No Normal world exists yet; SMCCC unknown-function reply. */
+            frame->x[0] = WT_MON_NOT_SUPPORTED;
+            return;
+        }
+        secure_smc(frame);
+        return;
     }
     wt_el3_fault(kind, esr, wt_read_far_el3(), wt_read_elr_el3());
 }

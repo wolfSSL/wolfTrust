@@ -18,8 +18,9 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* EL3 vector table: every slot saves the caller-visible registers and hands
- * its slot index to wt_el3_exception; the return value becomes x0. */
+/* EL3 vector table: every slot saves x0-x18, x29, x30, ELR, SPSR into a
+ * wt_el3_frame_t on the EL3 stack and hands its slot index plus the frame to
+ * wt_el3_exception, which edits the frame in place; the frame is restored. */
 
     .macro WT_VECTOR index
     .balign 0x80
@@ -65,9 +66,8 @@ wt_el3_vectors:
 
     .section .el3.text, "ax"
 wt_el3_vector_common:
-    ldp     x1, x2, [sp, #0]
+    mov     x1, sp
     bl      wt_el3_exception
-    str     x0, [sp, #0]
     ldr     x1, [sp, #176]
     ldp     x30, x0, [sp, #160]
     msr     ELR_EL3, x0

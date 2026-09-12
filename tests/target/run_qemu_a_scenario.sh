@@ -110,8 +110,15 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "EL3 monitor banner on $MACHINE" "[EL3] wolfTrust monitor cntfrq="
+    expect "GIC initialized as v$GIC" " gic=v$GIC "
+    if [ "$GIC" = 3 ]; then
+      expect "GICv3 redistributor woken" " rdist_woken=1 "
+    fi
     expect "secondary cores parked ($cpus cores)" " secondaries parked mask=$expected_mask"
+    expect "secure timer tick reached EL3 as a Group 0 FIQ" "[EL3] tick ok intid=29"
     expect "monitor dropped into Secure EL1" "[SPM] stub entered at S-EL1"
+    expect "FF-A version negotiated with the SPMD" "[SPM] ffa version 1.2 negotiated"
+    expect "FF-A discovery at the Secure physical instance" "[SPM] ffa discovery ok id=0x8000 spmd=0x8001"
     expect "monitor exit call reached EL3" "[BKPT] imm=0x7f"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"

@@ -108,6 +108,7 @@ static inline uint64_t wt_current_el(void)
 #define WT_ESR_EC_UNKNOWN        0x00u
 #define WT_ESR_EC_FP_ACCESS      0x07u
 #define WT_ESR_EC_ILLEGAL_STATE  0x0Eu
+#define WT_ESR_EC_SMC32          0x13u
 #define WT_ESR_EC_SVC64          0x15u
 #define WT_ESR_EC_SMC64          0x17u
 #define WT_ESR_EC_SYSREG         0x18u

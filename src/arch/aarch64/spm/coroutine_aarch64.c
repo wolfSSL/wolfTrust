@@ -26,6 +26,7 @@
 
 #include "wolftrust/sched/coroutine_internal.h"
 #include "wolftrust/arch/aarch64/el3.h"
+#include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/ffm_domain.h"
 #include "wolftrust/arch.h"
@@ -137,6 +138,40 @@ static wt_sp_arch_t* sp_arch(const struct wt_co *co)
         wt_platform_panic();
     }
     return &g_sp_arch[co->id - 1u];
+}
+
+/* The waiting partition's saved frame holds the registers its FFA_MSG_WAIT
+ * returns with, so the request is written there and the partition resumed;
+ * the gate captures its response and blocks it again before we return. */
+int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
+                              uint64_t* resp)
+{
+    wt_sp_arch_t* a;
+    unsigned int i;
+
+    if ((co == NULL) || (req == NULL) || (resp == NULL) || (co->unprivileged == 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (wt_co_state((wt_co_t*)co) != WT_CO_BLOCKED) {
+        return WT_FFA_BUSY;
+    }
+    a = sp_arch(co);
+    for (i = 0u; i < 8u; i++) {
+        a->frame.x[i] = req[i];
+    }
+    g_wt_ffa_direct_resp_ready = 0u;
+    wt_co_wake((wt_co_t*)co);
+    (void)wt_co_run((wt_co_t*)co);
+    if (wt_co_state((wt_co_t*)co) == WT_CO_FAULTED) {
+        return WT_FFA_ABORTED;
+    }
+    if (g_wt_ffa_direct_resp_ready == 0u) {
+        return WT_FFA_DENIED;
+    }
+    for (i = 0u; i < 8u; i++) {
+        resp[i] = g_wt_ffa_direct_resp[i];
+    }
+    return 0;
 }
 
 static void write_tpidrro(uint64_t value)

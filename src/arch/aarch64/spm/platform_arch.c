@@ -96,6 +96,7 @@ void wt_arch_guest_context_capture(wt_guest_context_t* context,
 void wt_arch_guest_context_restore(wt_guest_context_t* context)
 {
     (void)context;
+    wt_spm_init_partitions();
     wt_spm_idle();
 }
 

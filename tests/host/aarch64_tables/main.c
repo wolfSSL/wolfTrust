@@ -54,7 +54,7 @@ static void check(int ok, const char* what)
 
 static const wt_memory_region_t g_el1[] = {
     { 0x0E041000u, 0x4000u, RX },
-    { 0x0E045000u, 0x2000u, RW },
+    { 0x0E045000u, 0x2000u, RW | WT_TABLES_ATTR_NG },
     { (uintptr_t)POOL_PA, POOL_PAGES * WT_TABLES_PAGE_SIZE, RW }
 };
 
@@ -130,10 +130,11 @@ int main(void)
                   WT_TABLES_AP_EL1_RO, 1u, 0u, 0u),
           "SPM code: EL1-only RO, PXN clear, UXN set, global");
     check(walk_is(&t, &pool, 0x0E045000u, WT_TABLES_ATTR_NORMAL_WBWA,
-                  WT_TABLES_AP_EL1_RW, 1u, 1u, 0u) &&
-          walk_is(&t, &pool, (uint64_t)POOL_PA, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
+          "SPM data flagged shareable: EL1-only RW, XN, non-global (the NG hint)");
+    check(walk_is(&t, &pool, (uint64_t)POOL_PA, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_EL1_RW, 1u, 1u, 0u),
-          "SPM data and the table pool: EL1-only RW, never EL0, global");
+          "the table pool: EL1-only RW, never EL0, global");
     check(wt_tables_walk(&t, &pool, 0x0E204000u, &w) == WT_TABLES_ERROR_UNMAPPED &&
           wt_tables_walk(&t, &pool, 0x0E207000u, &w) == WT_TABLES_ERROR_UNMAPPED &&
           wt_tables_walk(&t, &pool, 0x0E040000u, &w) == WT_TABLES_ERROR_UNMAPPED &&

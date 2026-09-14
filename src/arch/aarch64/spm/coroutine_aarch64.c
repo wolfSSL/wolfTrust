@@ -25,6 +25,7 @@
  * or fault handler unwinds to the bootstrap through wt_sp_el0_leave. */
 
 #include "wolftrust/sched/coroutine_internal.h"
+#include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/ffm_domain.h"
 #include "wolftrust/arch.h"
@@ -33,6 +34,17 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+/* FF-A ids: SPMC 0x8000, SPMD 0x8001, partitions follow in creation order. */
+#define WT_SP_FFA_ID_BASE 0x8001u
+
+volatile uint32_t g_wt_spm_partitions_live;
+static uint32_t g_sp_init_count;
+
+uint32_t wt_spm_sp_init_count(void)
+{
+    return g_sp_init_count;
+}
 
 void wt_co_arch_switch(uintptr_t* save_from_sp, uintptr_t to_sp);
 void wt_co_trampoline(void);
@@ -46,6 +58,32 @@ void wt_co_trampoline(void);
 #define WT_SP_SPSR_EL0T 0x1C0u
 
 static wt_sp_arch_t g_sp_arch[WT_CO_MAX];
+static uint8_t g_init_seen[WT_CO_MAX];
+static struct wt_co* g_created[WT_CO_MAX];
+static uint32_t g_partitions_initialized;
+
+/* FF-A init model (5.3, 8.5): before the SPMC waits for events, every
+ * partition runs once from its entry until it blocks, which is its
+ * initialization complete; wakes it caused on the way are drained. */
+void wt_spm_init_partitions(void)
+{
+    unsigned int i;
+
+    if (g_partitions_initialized != 0u || g_wt_spm_partitions_live == 0u) {
+        return;
+    }
+    g_partitions_initialized = 1u;
+    for (i = 0u; i < WT_CO_MAX; i++) {
+        struct wt_co* co = g_created[i];
+
+        if (co != NULL && co->unprivileged != 0u && co->state == WT_CO_BLOCKED) {
+            wt_co_wake((wt_co_t*)co);
+            (void)wt_co_run((wt_co_t*)co);
+        }
+    }
+    while (wt_co_tick(8u) != 0u) {
+    }
+}
 
 static wt_sp_arch_t* sp_arch(const struct wt_co *co)
 {
@@ -77,6 +115,8 @@ void wt_co_arch_init_stack(struct wt_co *co, wt_co_entry_fn entry, void *arg)
     co->sp = (uintptr_t)frame;
 
     /* The S-EL0 form of the same start: the domain flag arrives later. */
+    g_init_seen[co->id - 1u] = 0u;
+    g_created[co->id - 1u] = co;
     (void)memset(&a->frame, 0, sizeof(a->frame));
     a->frame.x[0] = (uint64_t)(uintptr_t)arg;
     a->frame.elr = (uint64_t)(uintptr_t)entry;
@@ -117,6 +157,13 @@ void wt_co_arch_leave(void)
         sp_arch(current)->frame = *g_wt_spm_live_frame;
         g_wt_spm_live_frame = NULL;
         g_wt_spm_handler_depth = 0u;
+        if (g_wt_spm_partitions_live != 0u && g_init_seen[current->id - 1u] == 0u) {
+            g_init_seen[current->id - 1u] = 1u;
+            g_sp_init_count++;
+            wt_el3_puts("[SP] init id=0x");
+            wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + current->id, 4u);
+            wt_el3_puts("\r\n");
+        }
         wt_sp_el0_leave();
     }
     wt_co_arch_switch(&current->sp, g_wt_co_bootstrap.sp);

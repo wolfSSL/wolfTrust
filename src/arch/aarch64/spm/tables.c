@@ -121,6 +121,11 @@ static int64_t encode(uint32_t attributes, int el1_only)
     else {
         pte |= (uint64_t)(writable ? WT_TABLES_AP_ALL_RW : WT_TABLES_AP_ALL_RO)
                << PTE_AP_SHIFT;
+    }
+    /* A range any table maps at EL0 must never be a global entry: global
+     * TLB entries match under every ASID and would serve a partition's
+     * EL0 fetch with the EL1-only permissions cached by the SPM. */
+    if (!el1_only || (attributes & WT_TABLES_ATTR_NG) != 0u) {
         pte |= PTE_NG;
     }
     return (int64_t)pte;

@@ -31,12 +31,16 @@
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/tables.h"
+#include "wolftrust/boot.h"
 #include "wolftrust/ffm_domain.h"
+#include "wolftrust/manifest.h"
 #include "wolftrust/sched/coroutine.h"
+
+const wt_system_manifest_t* wt_generated_manifest_get(void);
 
 #define WT_SPMC_UNKNOWN_FID (WT_FFA_FID32_LAST - 0xFu)
 #define WT_SPMC_BOOT_INFO_LIMIT 4096u
-#define WT_SPMC_MAX_FILL 12u
+#define WT_SPMC_MAX_FILL 24u
 
 extern uint8_t _e_secure_text[];
 extern uint8_t __image_end[];
@@ -187,6 +191,7 @@ void wt_domain_fail(int code)
 
 static void enable_mmu(uint64_t boot_info_pa)
 {
+    const wt_system_manifest_t* manifest = wt_generated_manifest_get();
     wt_memory_region_t* fill = g_fill;
     const wt_memory_region_t* devices;
     size_t device_count = 0u;
@@ -213,12 +218,19 @@ static void enable_mmu(uint64_t boot_info_pa)
     fill[n].size = page_up((uintptr_t)_e_keystore) - (uintptr_t)WT_SPM_KEYSTORE_PA;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
     n++;
-    /* First partition band (manifest layout): the SPMC seeds and scrubs
-     * partition stacks from EL1, the owning partition maps it at EL0. */
-    fill[n].base = (uintptr_t)WT_SPM_RAM_PA + (uintptr_t)WT_SPM_RAM_SIZE;
-    fill[n].size = WT_TABLES_PAGE_SIZE;
-    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
-    n++;
+    /* Partition stack bands from the manifest: the SPMC seeds and scrubs
+     * them from EL1, the owning partition maps its own at EL0. */
+    for (i = 0u; (i < manifest->domain_count) && (n < WT_SPMC_MAX_FILL); i++) {
+        const wt_domain_descriptor_t* d = &manifest->domains[i];
+
+        if (d->domain_class != WT_DOMAIN_CLASS_SECURE_PARTITION) {
+            continue;
+        }
+        fill[n].base = d->stack_base & ~(uintptr_t)(WT_TABLES_PAGE_SIZE - 1u);
+        fill[n].size = page_up(d->stack_base + d->stack_size) - fill[n].base;
+        fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
+        n++;
+    }
     fill[n].base = (uintptr_t)boot_info_pa;
     fill[n].size = WT_TABLES_PAGE_SIZE;
     fill[n].attributes = WT_MEM_ATTR_READ;
@@ -287,19 +299,37 @@ static int prove_coroutine(void)
 extern void wt_sp_el0_probe(void);
 static wt_secure_domain_t g_el0_domain;
 
+static const wt_domain_descriptor_t* first_partition_domain(void)
+{
+    const wt_system_manifest_t* manifest = wt_generated_manifest_get();
+    size_t i;
+
+    for (i = 0u; i < manifest->domain_count; i++) {
+        if (manifest->domains[i].domain_class == WT_DOMAIN_CLASS_SECURE_PARTITION) {
+            return &manifest->domains[i];
+        }
+    }
+    return NULL;
+}
+
 static int prove_el0(void)
 {
-    uint8_t* stack = (uint8_t*)((uintptr_t)WT_SPM_RAM_PA + (uintptr_t)WT_SPM_RAM_SIZE);
+    const wt_domain_descriptor_t* d = first_partition_domain();
+    uint8_t* stack;
     wt_co_t* co;
 
+    if (d == NULL) {
+        return 0;
+    }
+    stack = (uint8_t*)(uintptr_t)d->stack_base;
     g_el0_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
     g_el0_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
     g_el0_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
     g_el0_domain.regions[1].base = (uintptr_t)stack;
-    g_el0_domain.regions[1].size = WT_TABLES_PAGE_SIZE;
+    g_el0_domain.regions[1].size = (size_t)d->stack_size;
     g_el0_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     g_el0_domain.region_count = 2u;
-    co = wt_co_create_blocked_ex(stack, WT_TABLES_PAGE_SIZE,
+    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
                                  (wt_co_entry_fn)wt_sp_el0_probe, (void*)0x11);
     if (co == NULL) {
         return 0;
@@ -345,9 +375,13 @@ void wt_spm_main(uint64_t boot_info_pa)
     prove_console_log();
     wt_platform_console_flush();
 
-    /* Initialization complete; the SPMD owns the CPU until the first event. */
+    /* The neutral core takes over: partitions, services, then the FF-A
+     * idle through wt_spm_idle when no Normal world is runnable. */
+    g_wt_spm_partitions_live = 1u;
+    wt_boot_run();
+
     ffa_call(&r, WT_FFA_MSG_WAIT, 0u);
-    spmc_fail("msg_wait returned", r.x[0]);
+    spmc_fail("boot_run returned", r.x[0]);
 }
 
 /* Nothing to run on the Secure side: every event the SPMD delivers is

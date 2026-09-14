@@ -22,13 +22,19 @@
 #   CPU=cortex-a35|cortex-a72 (virt, default cortex-a72)
 #   SMP=<n> (virt: default 2 for smoke, 1 for boot, fixed 2 for boot-smp2;
 #            versal-virt: default 4)
-#   QEMU_TIMEOUT=<s> (default 60)   TOOLPREFIX (default aarch64-none-elf-)
+#   run_qemu_a_scenario.sh positive-secure  the same image; the neutral core
+#                                  boots at Secure EL1 and every Secure
+#                                  Partition initializes at Secure EL0
+#                                  through the SVC gate before the SPMC
+#                                  idles on FFA_MSG_WAIT
+#
+#   QEMU_TIMEOUT=<s> (default 120)  TOOLPREFIX (default aarch64-none-elf-)
 set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -39,7 +45,7 @@ MACHINE="${MACHINE:-virt}"
 GIC="${GIC:-3}"
 CPU="${CPU:-cortex-a72}"
 QEMU="${QEMU:-qemu-system-aarch64}"
-QEMU_TIMEOUT="${QEMU_TIMEOUT:-60}"
+QEMU_TIMEOUT="${QEMU_TIMEOUT:-120}"
 TOOLPREFIX="${TOOLPREFIX:-aarch64-none-elf-}"
 
 case "$MACHINE" in
@@ -55,7 +61,7 @@ esac
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
@@ -163,6 +169,20 @@ case "$scenario" in
       expect_once "exactly one Secure EL1 entry" "[SPM] spmc entered at S-EL1"
       expect_once "exactly one monitor exit" "[BKPT] imm=0x7f"
     fi
+    ;;
+  positive-secure)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no partition fault" '\[SYNC EL=0'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no SPMC panic" '\[SPM\] panic'
+    expect "monitor dropped into Secure EL1" "[SPM] spmc entered at S-EL1"
+    for id in 8002 8003 8004 8005 8006 8007; do
+      expect "partition 0x$id initialized through the SVC gate" "[SP] init id=0x$id"
+    done
+    expect "every partition initialized" "[SPM] partitions ready n=6"
+    expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
+    expect "monitor exit call reached EL3" "[BKPT] imm=0x7f"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
 esac
 

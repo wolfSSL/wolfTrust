@@ -73,7 +73,6 @@ static size_t partition_fill(wt_domain_entry_t* e,
         }
         if (!replaced) {
             e->fill[n] = g_fill[i];
-            e->fill[n].attributes &= ~(uint32_t)WT_DOMAIN_FILL_SHARED;
             n++;
         }
     }

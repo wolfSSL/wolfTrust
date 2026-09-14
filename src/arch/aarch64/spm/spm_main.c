@@ -27,6 +27,7 @@
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_boot_info.h"
+#include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
@@ -351,6 +352,74 @@ static int prove_el0(void)
     return 1;
 }
 
+/* Prove FF-A direct messaging at the Secure virtual instance: an S-EL0 echo
+ * partition parks in FFA_MSG_WAIT, is delivered two direct requests in turn
+ * through its saved frame, and answers each by FFA_MSG_SEND_DIRECT_RESP32
+ * with the ids swapped and the payload word complemented. */
+static wt_secure_domain_t g_echo_domain;
+
+static int prove_ffa_direct(void)
+{
+    static const uint32_t first[WT_FFA_DIRECT_PAYLOAD_WORDS] = {
+        0x5A5A00FFu, 0u, 0u, 0u, 0u
+    };
+    static const uint32_t second[WT_FFA_DIRECT_PAYLOAD_WORDS] = {
+        0x0000C3C3u, 0u, 0u, 0u, 0u
+    };
+    const wt_domain_descriptor_t* d = first_partition_domain();
+    uint64_t req[8];
+    uint64_t resp[8];
+    uint8_t* stack;
+    wt_co_t* co;
+
+    if (d == NULL) {
+        return 0;
+    }
+    stack = (uint8_t*)(uintptr_t)d->stack_base;
+    g_echo_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
+    g_echo_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
+    g_echo_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+    g_echo_domain.regions[1].base = (uintptr_t)stack;
+    g_echo_domain.regions[1].size = (size_t)d->stack_size;
+    g_echo_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_echo_domain.region_count = 2u;
+    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+                                 (wt_co_entry_fn)wt_sp_ffa_echo, (void*)0);
+    if (co == NULL) {
+        return 0;
+    }
+    wt_co_set_domain(co, &g_echo_domain, 1u);
+    wt_co_wake(co);
+    if (wt_co_run(co) != 1u || wt_co_state(co) != WT_CO_BLOCKED) {
+        return 0;
+    }
+
+    wt_ffa_direct_build(req, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_SP_FIRST, first);
+    if (wt_spm_ffa_direct_deliver((struct wt_co*)co, req, resp) != 0) {
+        return 0;
+    }
+    if (((uint32_t)resp[0] != WT_FFA_MSG_SEND_DIRECT_RESP32) ||
+        (wt_ffa_direct_sender(resp[1]) != WT_FFA_ID_SP_FIRST) ||
+        (wt_ffa_direct_receiver(resp[1]) != WT_FFA_ID_NS_PRIMARY) ||
+        ((uint32_t)resp[2] != 0u) ||
+        ((uint32_t)resp[3] != (uint32_t)~first[0])) {
+        return 0;
+    }
+
+    wt_ffa_direct_build(req, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_SP_FIRST, second);
+    if (wt_spm_ffa_direct_deliver((struct wt_co*)co, req, resp) != 0) {
+        return 0;
+    }
+    if (((uint32_t)resp[0] != WT_FFA_MSG_SEND_DIRECT_RESP32) ||
+        ((uint32_t)resp[3] != (uint32_t)~second[0]) ||
+        (wt_co_state(co) != WT_CO_BLOCKED)) {
+        return 0;
+    }
+    return 1;
+}
+
 void wt_spm_main(uint64_t boot_info_pa)
 {
     wt_ffa_regs_t r;
@@ -375,6 +444,12 @@ void wt_spm_main(uint64_t boot_info_pa)
     }
     else {
         wt_el3_puts("[SPM] el0 svc FAIL\r\n");
+    }
+    if (prove_ffa_direct()) {
+        wt_el3_puts("[SPM] ffa direct ok\r\n");
+    }
+    else {
+        wt_el3_puts("[SPM] ffa direct FAIL\r\n");
     }
     discover_spmd();
     prove_console_log();

@@ -26,6 +26,7 @@
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/esr.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/platform.h"
@@ -40,10 +41,38 @@
 
 wt_trap_frame_t* volatile g_wt_spm_live_frame;
 static uint64_t g_yield_token;
+uint64_t g_wt_ffa_direct_resp[8];
+volatile uint32_t g_wt_ffa_direct_resp_ready;
 
 uint64_t wt_spm_yield_token(void)
 {
     return g_yield_token;
+}
+
+static void ffa_error(wt_trap_frame_t* frame, int32_t code)
+{
+    frame->x[0] = WT_FFA_ERROR;
+    frame->x[1] = 0u;
+    frame->x[2] = (uint64_t)(uint32_t)code;
+}
+
+/* A partition's direct response: validate it at the Secure virtual instance,
+ * keep it for the deliverer, and park the partition back in waiting. A
+ * malformed response is returned to the partition as an error instead. */
+static void ffa_direct_resp(wt_trap_frame_t* frame)
+{
+    unsigned int i;
+    int ret = wt_ffa_direct_resp_check(frame->x, WT_FFA_INSTANCE_SECURE_VIRTUAL);
+
+    if (ret != 0) {
+        ffa_error(frame, (int32_t)ret);
+        return;
+    }
+    for (i = 0u; i < 8u; i++) {
+        g_wt_ffa_direct_resp[i] = frame->x[i];
+    }
+    g_wt_ffa_direct_resp_ready = 1u;
+    wt_co_block();
 }
 
 static void report_partition_fault(const wt_trap_frame_t* frame)
@@ -93,6 +122,15 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         g_yield_token = frame->x[1];
         frame->x[0] = 0u;
         wt_co_block();
+    }
+    else if (fid == WT_FFA_MSG_WAIT) {
+        /* 8.2/8.5: the partition enters the waiting state; the next direct
+         * request is delivered as this call's return registers. */
+        wt_co_block();
+    }
+    else if ((fid == WT_FFA_MSG_SEND_DIRECT_RESP32) ||
+             (fid == WT_FFA_MSG_SEND_DIRECT_RESP64)) {
+        ffa_direct_resp(frame);
     }
     else {
         ffa_not_supported(frame);

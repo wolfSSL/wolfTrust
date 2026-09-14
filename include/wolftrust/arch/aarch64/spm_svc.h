@@ -61,4 +61,23 @@ extern volatile uint32_t g_wt_spm_partitions_live;
 uint32_t wt_spm_sp_init_count(void);
 void wt_spm_init_partitions(void);
 
+/* FF-A direct messaging at the Secure virtual instance. A partition that has
+ * blocked in FFA_MSG_WAIT is delivered a request by loading it into the saved
+ * x0-x7 of its frame and resuming it; its FFA_MSG_SEND_DIRECT_RESP is captured
+ * here by the gate before the partition blocks again. */
+extern uint64_t g_wt_ffa_direct_resp[8];
+extern volatile uint32_t g_wt_ffa_direct_resp_ready;
+
+/* S-EL0 echo partition (sp_entry.S): replies to each direct request with the
+ * ids swapped and the first payload word complemented. */
+void wt_sp_ffa_echo(void);
+
+/* Deliver req (x0..x7 as at FFA_MSG_WAIT's return) to a waiting partition,
+ * run it until it responds, and copy the response into resp. 0 on success;
+ * BUSY if it is not waiting, ABORTED if it faulted, DENIED if it blocked
+ * without responding. */
+struct wt_co;
+int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
+                              uint64_t* resp);
+
 #endif /* WOLFTRUST_ARCH_AARCH64_SPM_SVC_H */

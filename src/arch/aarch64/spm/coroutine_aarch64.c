@@ -30,6 +30,7 @@
 #include "wolftrust/ffm_domain.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/platform.h"
+#include "wolftrust/spm_transport.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -40,6 +41,10 @@
 
 volatile uint32_t g_wt_spm_partitions_live;
 static uint32_t g_sp_init_count;
+
+/* The core clears this on a partition fault; the AArch64 switch is
+ * synchronous and never consults it, but the symbol must resolve. */
+struct wt_co* g_wt_co_pendsv_target;
 
 uint32_t wt_spm_sp_init_count(void)
 {
@@ -57,28 +62,69 @@ void wt_co_trampoline(void);
 /* EL0t with D, A, I masked; FIQ stays open so the tick can reach S-EL1. */
 #define WT_SP_SPSR_EL0T 0x1C0u
 
+#define WT_SP_INIT_MAX_PASSES 16u
+
 static wt_sp_arch_t g_sp_arch[WT_CO_MAX];
 static uint8_t g_init_seen[WT_CO_MAX];
+static uint8_t g_faulted_once[WT_CO_MAX];
 static struct wt_co* g_created[WT_CO_MAX];
 static uint32_t g_partitions_initialized;
 
+/* Run one partition from its entry (or its recovery re-arm) until it blocks
+ * or faults, once; returns non-zero if it ran. A partition that faulted on
+ * an earlier pass and has been re-armed since prints its restart marker. */
+static int run_pending_partition(unsigned int i)
+{
+    struct wt_co* co = g_created[i];
+
+    if (co == NULL || co->unprivileged == 0u || g_init_seen[i] != 0u) {
+        return 0;
+    }
+    if (wt_co_state((wt_co_t*)co) != WT_CO_BLOCKED) {
+        return 0; /* FAULTED (restart budget spent) or otherwise not runnable */
+    }
+    if (g_faulted_once[i] != 0u) {
+        g_faulted_once[i] = 0u;
+        wt_el3_puts("[SP] restarted id=0x");
+        wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + co->id, 4u);
+        wt_el3_puts("\r\n");
+    }
+    wt_co_wake((wt_co_t*)co);
+    (void)wt_co_run((wt_co_t*)co);
+    if (wt_co_state((wt_co_t*)co) == WT_CO_FAULTED) {
+        g_faulted_once[i] = 1u;
+    }
+    return 1;
+}
+
 /* FF-A init model (5.3, 8.5): before the SPMC waits for events, every
  * partition runs once from its entry until it blocks, which is its
- * initialization complete; wakes it caused on the way are drained. */
+ * initialization complete. A partition that faults during init is routed
+ * through the core's restart policy (wt_spm_recover_faulted re-arms it) and
+ * re-run, bounded so one that faults every time stays quarantined. */
 void wt_spm_init_partitions(void)
 {
     unsigned int i;
+    unsigned int pass;
+    int progressed;
 
     if (g_partitions_initialized != 0u || g_wt_spm_partitions_live == 0u) {
         return;
     }
     g_partitions_initialized = 1u;
     for (i = 0u; i < WT_CO_MAX; i++) {
-        struct wt_co* co = g_created[i];
-
-        if (co != NULL && co->unprivileged != 0u && co->state == WT_CO_BLOCKED) {
-            wt_co_wake((wt_co_t*)co);
-            (void)wt_co_run((wt_co_t*)co);
+        (void)run_pending_partition(i);
+    }
+    for (pass = 0u; pass < WT_SP_INIT_MAX_PASSES; pass++) {
+        wt_spm_recover_faulted();
+        progressed = 0;
+        for (i = 0u; i < WT_CO_MAX; i++) {
+            if (run_pending_partition(i) != 0) {
+                progressed = 1;
+            }
+        }
+        if (progressed == 0) {
+            break;
         }
     }
     while (wt_co_tick(8u) != 0u) {

@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -61,7 +61,7 @@ esac
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
@@ -80,9 +80,15 @@ if [ "$scenario" = smoke ]; then
   image_bin="$build/smoke.bin"
   image_elf="$build/smoke.elf"
 else
-  build="$repo/build-aarch64-$tag"
+  build="$repo/build-aarch64-$tag-$scenario"
+  probe=()
+  case "$scenario" in
+    crossdomain) probe=(WT_FFM_NEGATIVE_PROBE=1) ;;
+    spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
+  esac
   make ARCH=aarch64 TARGET="$target" TOOLPREFIX="$TOOLPREFIX" WT_GIC_VERSION="$GIC" \
-    WT_CPU="$CPU" WT_PORT_BOOT_CPUS="$cpus" BUILD_DIR="build-aarch64-$tag"
+    WT_CPU="$CPU" WT_PORT_BOOT_CPUS="$cpus" BUILD_DIR="build-aarch64-$tag-$scenario" \
+    "${probe[@]}"
   image_elf="$build/wolftrust_el3.elf"
   spm_elf="$build/wolftrust.elf"
   # virt boots one pflash image: the monitor at 0, the SPMC image behind it
@@ -182,6 +188,24 @@ case "$scenario" in
     expect "every partition initialized" "[SPM] partitions ready n=6"
     expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
     expect "monitor exit call reached EL3" "[BKPT] imm=0x7f"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  crossdomain)
+    refute_re "the fault never escalated to a Secure EL1 exception" '^\[SYNC EL=1'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    expect "a partition read outside its domain and took a data abort at S-EL0" "[SYNC EL=0 EC=0x24"
+    expect "the offending partition was restarted under its manifest policy" "[SP] restarted id=0x"
+    expect "the persistently-faulting partition was quarantined, the rest initialized" "[SPM] partitions ready n=5"
+    expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  spfaultneg)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    expect "a partition faulted at S-EL0 during init" "[SYNC EL=0 EC=0x00"
+    expect "the faulted partition was restarted under its manifest policy" "[SP] restarted id=0x"
+    expect "every partition still reached initialization" "[SPM] partitions ready n=6"
+    expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
 esac

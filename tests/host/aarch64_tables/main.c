@@ -87,6 +87,120 @@ static int walk_is(const wt_tables_t* t, const wt_tables_pool_t* pool,
            (w.uxn == uxn) && (w.pxn == pxn) && (w.ng == ng) && (w.ns == 0u);
 }
 
+/* Full-RAM scan window covering the fill code/data, the whole table pool, and
+ * the partition regions, with unmapped gaps between them. */
+#define SCAN_LO 0x0E040000ull
+#define SCAN_HI 0x0E208000ull
+
+static int va_in(const wt_memory_region_t* r, size_t n, uint64_t va)
+{
+    size_t i;
+
+    for (i = 0u; i < n; i++) {
+        if ((r[i].size != 0u) && (va >= r[i].base) &&
+            (va < (uint64_t)r[i].base + r[i].size)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* No page may be both writable and executable at either exception level. */
+static int wx_ok(const wt_tables_walk_t* w)
+{
+    int el0_w = (w->ap == WT_TABLES_AP_ALL_RW);
+    int el0_x = (w->uxn == 0u) && ((w->ap & 1u) != 0u);
+    int el1_w = (w->ap == WT_TABLES_AP_EL1_RW) || (w->ap == WT_TABLES_AP_ALL_RW);
+    int el1_x = (w->pxn == 0u);
+
+    return !(el0_w && el0_x) && !(el1_w && el1_x);
+}
+
+/* Walk every 4 KB of the RAM window in the SPM-only table and one partition
+ * table and assert the isolation invariants hold at every page: exact region
+ * coverage, NS=0, W^X, EL0 access only inside the partition's own regions and
+ * always non-global, the pool never EL0, and the SPM-only table free of EL0. */
+static void run_scan(void)
+{
+    wt_tables_pool_t pool;
+    wt_tables_t spmt;
+    wt_tables_t part;
+    wt_tables_walk_t w;
+    uint64_t va;
+    uint64_t pool_hi = POOL_PA + (uint64_t)POOL_PAGES * WT_TABLES_PAGE_SIZE;
+    size_t nsp = sizeof(g_sp) / sizeof(g_sp[0]);
+    size_t nel1 = sizeof(g_el1) / sizeof(g_el1[0]);
+    int cover_bad = 0;
+    int ns_bad = 0;
+    int wx_bad = 0;
+    int el0_out = 0;
+    int ng_bad = 0;
+    int pool_el0 = 0;
+    int spm_el0 = 0;
+    int spm_sp = 0;
+    int spm_pool = 0;
+    int in_sp;
+    int in_el1;
+    int in_pool;
+    int mapped;
+
+    wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, sizeof(g_pool_mem));
+    if ((wt_tables_build(&spmt, 0u, NULL, 0u, g_el1, nel1, &pool) != WT_TABLES_OK) ||
+        (wt_tables_build(&part, 3u, g_sp, nsp, g_el1, nel1, &pool) != WT_TABLES_OK)) {
+        check(0, "the scan tables build");
+        return;
+    }
+    for (va = SCAN_LO; va < SCAN_HI; va += WT_TABLES_PAGE_SIZE) {
+        in_sp = va_in(g_sp, nsp, va);
+        in_el1 = va_in(g_el1, nel1, va);
+        in_pool = (va >= POOL_PA) && (va < pool_hi);
+
+        mapped = (wt_tables_walk(&part, &pool, va, &w) == WT_TABLES_OK);
+        if (mapped != (in_sp || in_el1)) {
+            cover_bad++;
+        }
+        if (mapped) {
+            if (w.ns != 0u) {
+                ns_bad++;
+            }
+            if (!wx_ok(&w)) {
+                wx_bad++;
+            }
+            if ((w.ap & 1u) != 0u) {
+                if (!in_sp) {
+                    el0_out++;
+                }
+                if (w.ng != 1u) {
+                    ng_bad++;
+                }
+                if (in_pool) {
+                    pool_el0++;
+                }
+            }
+        }
+
+        mapped = (wt_tables_walk(&spmt, &pool, va, &w) == WT_TABLES_OK);
+        if (mapped && ((w.ap & 1u) != 0u)) {
+            spm_el0++;
+        }
+        if (in_sp && !in_el1 && mapped) {
+            spm_sp++;
+        }
+        if (in_pool && !mapped) {
+            spm_pool++;
+        }
+    }
+    check(cover_bad == 0, "partition table maps exactly the fill and SP regions, gaps unmapped");
+    check(ns_bad == 0, "every mapped secure page has NS=0");
+    check(wx_bad == 0, "no page is both writable and executable across the RAM window");
+    check(el0_out == 0, "EL0 access appears only inside the partition's own regions");
+    check(ng_bad == 0, "every EL0-accessible page is non-global");
+    check(pool_el0 == 0, "the table pool is never EL0-accessible in a partition table");
+    check(spm_el0 == 0, "the SPM-only table grants no EL0 access anywhere");
+    check(spm_sp == 0, "the SPM-only table does not map the partition's EL0 bands");
+    check(spm_pool == 0, "the SPM-only table maps the whole table pool");
+}
+
 int main(void)
 {
     wt_tables_pool_t pool;
@@ -200,6 +314,8 @@ int main(void)
           (WT_TABLES_TCR_EL1 & 0x3Fu) == 25u && ((WT_TABLES_TCR_EL1 >> 32) & 7u) == 2u &&
           ((WT_TABLES_TCR_EL1 >> 23) & 1u) == 1u,
           "MAIR indexes and TCR (T0SZ 25, IPS 40-bit, EPD1) match the design");
+
+    run_scan();
 
     printf("aarch64_tables: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

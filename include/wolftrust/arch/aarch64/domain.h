@@ -31,6 +31,13 @@
  * domain operations; ASID 0 is the SPM-only table, partitions get 1.. */
 
 #define WT_DOMAIN_MAX_TABLES 8u
+/* Fill entries a partition table keeps EL1-only unless the partition's own
+ * regions cover one flagged WT_DOMAIN_FILL_SHARED entirely, in which case
+ * the partition's mapping (EL0 + EL1) replaces it. Partial cover still
+ * fails. The flag lives above the region attribute bits and never reaches
+ * the table builder. */
+#define WT_DOMAIN_MAX_FILL   12u
+#define WT_DOMAIN_FILL_SHARED 0x40000000u
 
 #define WT_DOMAIN_FAIL_INIT   1
 #define WT_DOMAIN_FAIL_BUILD  2

@@ -34,9 +34,9 @@
     b       1b
     .endm
 
-    .macro WT_SPM_VECTOR_FIQ
+    .macro WT_SPM_VECTOR_BRANCH target
     .balign 0x80
-    b       wt_spm_fiq_entry
+    b       \target
     .endm
 
 /* Copy [x10, x11) from x9 and zero [x12, x13), 16 bytes at a time; the
@@ -123,11 +123,11 @@ wt_spm_vectors:
     WT_SPM_VECTOR_PANIC 3
     WT_SPM_VECTOR_PANIC 4
     WT_SPM_VECTOR_PANIC 5
-    WT_SPM_VECTOR_FIQ
+    WT_SPM_VECTOR_BRANCH wt_spm_fiq_entry
     WT_SPM_VECTOR_PANIC 7
-    WT_SPM_VECTOR_PANIC 8
+    WT_SPM_VECTOR_BRANCH wt_sp_lower_sync_entry
     WT_SPM_VECTOR_PANIC 9
-    WT_SPM_VECTOR_PANIC 10
+    WT_SPM_VECTOR_BRANCH wt_spm_fiq_entry
     WT_SPM_VECTOR_PANIC 11
     WT_SPM_VECTOR_PANIC 12
     WT_SPM_VECTOR_PANIC 13

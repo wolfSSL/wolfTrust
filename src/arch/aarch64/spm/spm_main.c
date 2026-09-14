@@ -31,6 +31,7 @@
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/tables.h"
+#include "wolftrust/ffm_domain.h"
 #include "wolftrust/sched/coroutine.h"
 
 #define WT_SPMC_UNKNOWN_FID (WT_FFA_FID32_LAST - 0xFu)
@@ -193,13 +194,16 @@ static void enable_mmu(uint64_t boot_info_pa)
     size_t i;
     uint64_t ttbr0;
 
+    /* Shareable entries: a partition whose manifest region covers one takes
+     * it over (EL0 + EL1); the SPM RAM band, boot page, pool, and devices
+     * stay EL1-only in every table. */
     fill[n].base = (uintptr_t)WT_SPM_IMAGE_PA;
     fill[n].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
-    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC | WT_DOMAIN_FILL_SHARED;
     n++;
     fill[n].base = (uintptr_t)_e_secure_text;
     fill[n].size = page_up((uintptr_t)__image_end) - (uintptr_t)_e_secure_text;
-    fill[n].attributes = WT_MEM_ATTR_READ;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_DOMAIN_FILL_SHARED;
     n++;
     fill[n].base = (uintptr_t)WT_SPM_RAM_PA;
     fill[n].size = page_up((uintptr_t)__spm_ram_end) - (uintptr_t)WT_SPM_RAM_PA;
@@ -207,7 +211,13 @@ static void enable_mmu(uint64_t boot_info_pa)
     n++;
     fill[n].base = (uintptr_t)WT_SPM_KEYSTORE_PA;
     fill[n].size = page_up((uintptr_t)_e_keystore) - (uintptr_t)WT_SPM_KEYSTORE_PA;
-    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
+    n++;
+    /* First partition band (manifest layout): the SPMC seeds and scrubs
+     * partition stacks from EL1, the owning partition maps it at EL0. */
+    fill[n].base = (uintptr_t)WT_SPM_RAM_PA + (uintptr_t)WT_SPM_RAM_SIZE;
+    fill[n].size = WT_TABLES_PAGE_SIZE;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
     n++;
     fill[n].base = (uintptr_t)boot_info_pa;
     fill[n].size = WT_TABLES_PAGE_SIZE;
@@ -271,6 +281,41 @@ static int prove_coroutine(void)
     return 1;
 }
 
+/* Prove the S-EL0 path: an unprivileged coroutine confined to the shared
+ * text band and one partition band runs at EL0, yields through SVC with a
+ * token, resumes after the SVC, and yields again. */
+extern void wt_sp_el0_probe(void);
+static wt_secure_domain_t g_el0_domain;
+
+static int prove_el0(void)
+{
+    uint8_t* stack = (uint8_t*)((uintptr_t)WT_SPM_RAM_PA + (uintptr_t)WT_SPM_RAM_SIZE);
+    wt_co_t* co;
+
+    g_el0_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
+    g_el0_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
+    g_el0_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+    g_el0_domain.regions[1].base = (uintptr_t)stack;
+    g_el0_domain.regions[1].size = WT_TABLES_PAGE_SIZE;
+    g_el0_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_el0_domain.region_count = 2u;
+    co = wt_co_create_blocked_ex(stack, WT_TABLES_PAGE_SIZE,
+                                 (wt_co_entry_fn)wt_sp_el0_probe, (void*)0x11);
+    if (co == NULL) {
+        return 0;
+    }
+    wt_co_set_domain(co, &g_el0_domain, 1u);
+    wt_co_wake(co);
+    if (wt_co_run(co) != 1u || wt_spm_yield_token() != 0x5Au) {
+        return 0;
+    }
+    wt_co_wake(co);
+    if (wt_co_run(co) != 1u || wt_spm_yield_token() != 0xA5u) {
+        return 0;
+    }
+    return 1;
+}
+
 void wt_spm_main(uint64_t boot_info_pa)
 {
     wt_ffa_regs_t r;
@@ -289,6 +334,12 @@ void wt_spm_main(uint64_t boot_info_pa)
     }
     else {
         wt_el3_puts("[SPM] coroutine FAIL\r\n");
+    }
+    if (prove_el0()) {
+        wt_el3_puts("[SPM] el0 svc ok\r\n");
+    }
+    else {
+        wt_el3_puts("[SPM] el0 svc FAIL\r\n");
     }
     discover_spmd();
     prove_console_log();

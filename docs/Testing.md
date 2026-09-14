@@ -371,7 +371,9 @@ FIQ at EL3, prints its banner, builds the FF-A boot information blob and
 drops into Secure EL1 with it, where the SPMC consumes the blob, turns
 its stage-1 MMU on with the SPM-only translation table (W^X, execute-never
 data, device console and GIC frames), takes one secure timer tick as a
-Group 0 FIQ through its own S-EL1 vector table, negotiates the FF-A
+Group 0 FIQ through its own S-EL1 vector table, switches to a privileged
+coroutine and back, runs an unprivileged coroutine at S-EL0 under its own
+translation table and takes its SVC yields back at S-EL1, negotiates the FF-A
 version, logs through `FFA_CONSOLE_LOG` in both conventions, discovers the
 SPMC and SPMD ids at the
 Secure physical instance, and completes its initialization with

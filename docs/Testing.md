@@ -395,6 +395,15 @@ emulator runners share `tests/target/run_suite.sh` (the per-scenario
 report, `SKIP` lines, and `logs/target-<scenario>.log`) and assert through
 `tests/target/lib/expect.sh`.
 
+Three negative scenarios build the same image with a probe flag and prove the
+isolation and validation guarantees. `crossdomain` (a partition reads outside
+its domain and takes a data abort at Secure EL0, exhausts its restart budget,
+and is quarantined while the rest initialize) and `spfaultneg` (a partition
+faults once and recovers on restart) are the AArch64 twins of the M33MU
+scenarios of the same names. `tablesneg` proves the stage-1 table builder
+refuses a writable-and-executable region (W^X): the SPMC panics through the
+monitor before it turns its MMU on, so no partition ever initializes.
+
 ## STM32H563 hardware
 
 The published hardware run requires:

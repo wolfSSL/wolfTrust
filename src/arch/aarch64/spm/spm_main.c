@@ -213,6 +213,11 @@ static void enable_mmu(uint64_t boot_info_pa)
     fill[n].base = (uintptr_t)WT_SPM_RAM_PA;
     fill[n].size = page_up((uintptr_t)__spm_ram_end) - (uintptr_t)WT_SPM_RAM_PA;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+#if defined(WT_TABLES_NEGATIVE) && (WT_TABLES_NEGATIVE == 1)
+    /* A writable+executable region must be refused at build (W^X), panicking
+     * through wt_domain_fail before any partition initializes. */
+    fill[n].attributes |= WT_MEM_ATTR_EXEC;
+#endif
     n++;
     fill[n].base = (uintptr_t)WT_SPM_KEYSTORE_PA;
     fill[n].size = page_up((uintptr_t)_e_keystore) - (uintptr_t)WT_SPM_KEYSTORE_PA;

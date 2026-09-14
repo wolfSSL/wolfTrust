@@ -94,6 +94,7 @@ WT_VNET_NEG_PROBE ?= 0
 WT_MANIFEST_NEG_PROBE ?= 0
 WT_REMEASURE_PROBE ?= 0
 WT_BOOTUPDATE_PROBE ?= 0
+WT_TABLES_NEGATIVE ?= 0
 WT_CONFORMANCE ?= 0
 
 # Virtual-Ethernet (VNET) subsystem. Off until Wave 2 lands a working
@@ -221,6 +222,9 @@ SECURE_CFLAGS += -DWT_REMEASURE_PROBE=1
 endif
 ifeq ($(WT_BOOTUPDATE_PROBE),1)
 SECURE_CFLAGS += -DWT_BOOTUPDATE_PROBE=1
+endif
+ifeq ($(WT_TABLES_NEGATIVE),1)
+SECURE_CFLAGS += -DWT_TABLES_NEGATIVE=1
 endif
 # Hardware guest-flash write protection: refuse to launch a guest whose image
 # sectors are not WRP-protected, so a peer Non-secure guest cannot reprogram a

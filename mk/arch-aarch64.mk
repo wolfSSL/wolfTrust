@@ -48,9 +48,11 @@ SPM_C_SRCS := \
     $(ARCH_DIR)/spm/spm_irq.c \
     $(ARCH_DIR)/spm/platform_arch.c \
     $(ARCH_DIR)/spm/coroutine_aarch64.c \
-    $(ARCH_DIR)/spm/sp_trap.c
+    $(ARCH_DIR)/spm/sp_trap.c \
+    $(ARCH_DIR)/spm/spm_svc_glue.c \
+    $(ARCH_DIR)/el3/esr.c
 SPM_ASM_SRCS := $(ARCH_DIR)/spm/spm_entry.S $(ARCH_DIR)/spm/mmu.S \
-    $(ARCH_DIR)/spm/spm_switch.S
+    $(ARCH_DIR)/spm/spm_switch.S $(ARCH_DIR)/spm/sp_entry.S
 ARCH_TREE_SRCS := $(sort $(EL3_C_SRCS) $(SPM_C_SRCS))
 ARCH_ASM_SRCS := $(EL3_ASM_SRCS) $(SPM_ASM_SRCS)
 

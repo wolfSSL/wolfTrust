@@ -70,10 +70,22 @@ static void check(int ok, const char* what)
 #define RX (WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC)
 
 static const wt_memory_region_t g_fill[] = {
-    { 0x00000000u, 0x20000u, RX },
+    { 0x00000000u, 0x20000u, RX | WT_DOMAIN_FILL_SHARED },
     { 0x0E000000u, 0x40000u, RW },
     { (uintptr_t)POOL_PA, POOL_PAGES * WT_TABLES_PAGE_SIZE, RW },
     { 0x09040000u, 0x1000u, RW | WT_MEM_ATTR_DEVICE }
+};
+
+/* Covers the shared text fill entry exactly: allowed, replaces it. */
+static const wt_memory_region_t g_sp_shared[] = {
+    { 0x00000000u, 0x20000u, RX },
+    { 0x0E600000u, 0x1000u, RW }
+};
+
+/* Covers only part of the shared text fill entry: still an overlap. */
+static const wt_memory_region_t g_sp_partial[] = {
+    { 0x00000000u, 0x10000u, RX },
+    { 0x0E601000u, 0x1000u, RW }
 };
 
 static const wt_memory_region_t g_sp0[] = {
@@ -139,6 +151,18 @@ int main(void)
     check(g_fails == 2u && g_last_fail == WT_DOMAIN_FAIL_BUILD &&
           g_switches == switches && wt_domain_tables_built() == 2u,
           "regions over the SPM fill fail the build and leave TTBR0 alone");
+
+    switches = g_switches;
+    wt_arch_program_sp_thread_domain(g_sp_shared, 2u);
+    check(g_fails == 2u && g_switches == switches + 1u &&
+          (wt_domain_current_ttbr0() >> 48) == 3u && wt_domain_tables_built() == 3u,
+          "a partition region covering a shareable fill entry replaces it (ASID 3)");
+
+    switches = g_switches;
+    wt_arch_program_sp_thread_domain(g_sp_partial, 2u);
+    check(g_fails == 3u && g_last_fail == WT_DOMAIN_FAIL_BUILD &&
+          g_switches == switches && wt_domain_tables_built() == 3u,
+          "partial cover of a shareable fill entry still fails the build");
 
     check(wt_domain_pool_pages_used() <= POOL_PAGES, "pool accounting stays inside the pool");
 

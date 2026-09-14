@@ -74,7 +74,11 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
 
     if (ec != WT_ESR_EC_SVC64) {
         report_partition_fault(frame);
-        wt_co_mark_faulted(co);
+        /* Route a partition fault through the core's restart policy; if it is
+         * not a scheduled SP (e.g. the boot self-test) quarantine it here. */
+        if (wt_spm_sp_fault(co) != WT_FFM_SUCCESS) {
+            wt_co_mark_faulted(co);
+        }
         g_wt_spm_live_frame = NULL;
         g_wt_spm_handler_depth = 0u;
         wt_sp_el0_leave();

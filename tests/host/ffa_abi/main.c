@@ -22,6 +22,7 @@
  * spaces, and the version negotiation rules of DEN0077A 13.2. */
 
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/ffa_msg.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -60,6 +61,72 @@ static const int32_t g_codes[] = {
     WT_FFA_BUSY, WT_FFA_INTERRUPTED, WT_FFA_DENIED, WT_FFA_RETRY,
     WT_FFA_ABORTED, WT_FFA_NO_DATA, WT_FFA_NOT_READY
 };
+
+/* WT-FFA-0005: direct-message register encodings (15.2/15.3) and the relayer
+ * checks of 7.4.2. */
+static void direct_message_rows(void)
+{
+    static const uint32_t payload[WT_FFA_DIRECT_PAYLOAD_WORDS] = {
+        0x11111111u, 0x22222222u, 0x33333333u, 0x44444444u, 0x55555555u
+    };
+    uint64_t x[8];
+    unsigned int i;
+    int ok;
+
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_SP_FIRST, payload);
+    ok = ((uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32) &&
+         (wt_ffa_direct_sender(x[1]) == WT_FFA_ID_NS_PRIMARY) &&
+         (wt_ffa_direct_receiver(x[1]) == WT_FFA_ID_SP_FIRST) && (x[2] == 0u);
+    for (i = 0u; i < WT_FFA_DIRECT_PAYLOAD_WORDS; i++) {
+        ok = ok && ((uint32_t)x[3u + i] == payload[i]);
+    }
+    check(ok, "a direct request packs ids in w1, keeps w2 zero, and carries the payload in x3-x7");
+
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0,
+          "the SPMD relays a Normal-world request to a Secure partition");
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) == WT_FFA_DENIED,
+          "the SPMC does not relay a Normal-world sender between partitions");
+
+    x[2] = WT_FFA_DIRECT_FRAMEWORK_BIT;
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a partition request with a non-zero w2 is INVALID_PARAMETERS");
+    x[2] = 0u;
+
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_SP_FIRST,
+                        WT_FFA_ID_SP_FIRST, payload);
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a request whose sender equals its receiver is INVALID_PARAMETERS");
+
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        0x0001u, payload);
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == WT_FFA_DENIED,
+          "a Normal-world request to a Normal-world receiver is DENIED");
+
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ32,
+                        (uint16_t)(WT_FFA_ID_SP_FIRST + 1u), WT_FFA_ID_SP_FIRST,
+                        payload);
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) == 0,
+          "the SPMC relays a request between two Secure partitions");
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == WT_FFA_DENIED,
+          "the SPMD does not relay a Secure sender as a Normal-world request");
+
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP32, WT_FFA_ID_SP_FIRST,
+                        WT_FFA_ID_NS_PRIMARY, payload);
+    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) == 0 &&
+          wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0,
+          "a Secure partition's response returns to the Normal-world requester");
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a response frame is not accepted as a request");
+
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP32, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_SP_FIRST, payload);
+    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) == WT_FFA_DENIED,
+          "a response whose sender is not Secure is DENIED");
+}
 
 int main(void)
 {
@@ -133,6 +200,8 @@ int main(void)
           "SPM-allocated ids carry bit 15, the primary NS endpoint is id 0");
     check(WT_FFA_FEATURES_IS_FID(WT_FFA_VERSION) && !WT_FFA_FEATURES_IS_FID(0x3u),
           "FFA_FEATURES tells function ids from feature ids by bit 31");
+
+    direct_message_rows();
 
     printf("ffa_abi: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

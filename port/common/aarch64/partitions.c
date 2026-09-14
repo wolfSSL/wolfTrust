@@ -23,6 +23,7 @@
  * NS gateway lands, and launch verification fails closed meanwhile. */
 
 #include "wolftrust/arch/aarch64/context.h"
+#include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/guest_verify.h"
 #include "wolftrust/partition.h"
 #include "memory_map.h"
@@ -32,6 +33,11 @@
 #ifndef WT_TIMESLICE_MS
 #define WT_TIMESLICE_MS 2U
 #endif
+
+/* No Normal world yet: the NS gateway (B3) enforces guest domains and
+ * turns these endpoints on; until then the port offers none, so the core
+ * schedules only Secure Partitions and idles on FF-A. */
+#define WT_PORT_NS_GUESTS 0u
 
 static wt_guest_config_t g_partition_configs[WT_MAX_GUESTS];
 static wt_guest_runtime_t g_partition_runtime[WT_MAX_GUESTS];
@@ -79,7 +85,7 @@ const wt_guest_config_t* wt_partitions_config_table(size_t* count)
 {
     wt_partitions_wire();
     if (count != NULL) {
-        *count = WT_MAX_GUESTS;
+        *count = WT_PORT_NS_GUESTS;
     }
     return g_partition_configs;
 }
@@ -88,7 +94,7 @@ wt_guest_runtime_t* wt_partitions_runtime_table(size_t* count)
 {
     wt_partitions_wire();
     if (count != NULL) {
-        *count = WT_MAX_GUESTS;
+        *count = WT_PORT_NS_GUESTS;
     }
     return g_partition_runtime;
 }
@@ -111,6 +117,14 @@ static const wt_domain_descriptor_t* wt_partition_manifest_domain(
     return NULL;
 }
 
+static int bind_fail(const char* why)
+{
+    wt_el3_puts("[SPM] guest bind failed: ");
+    wt_el3_puts(why);
+    wt_el3_puts("\r\n");
+    return -1;
+}
+
 int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
 {
     size_t i;
@@ -119,11 +133,11 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
     size_t region_count;
 
     if (manifest == NULL || manifest->domains == NULL) {
-        return -1;
+        return bind_fail("manifest");
     }
     wt_partitions_wire();
 
-    for (i = 0U; i < WT_MAX_GUESTS; ++i) {
+    for (i = 0U; i < WT_PORT_NS_GUESTS; ++i) {
         wt_guest_config_t* config = &g_partition_configs[i];
         const wt_domain_descriptor_t* domain;
 
@@ -137,11 +151,11 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
                 domain->restart_policy.action != WT_RESTART_ACTION_DOMAIN ||
                 domain->entry_point == 0U ||
                 domain->memory_resource_count > WT_MAX_MEMORY_REGIONS) {
-            return -1;
+            return bind_fail("guest domain shape");
         }
         if (wt_partition_validate_port_binding(config, domain) !=
                 WT_PORT_VALID) {
-            return -1;
+            return bind_fail("port binding");
         }
 
         config->restart_policy.restart_limit =

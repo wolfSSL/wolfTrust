@@ -55,4 +55,10 @@ void wt_sp_el0_leave(void) __attribute__((noreturn));
 void wt_spm_lower_sync(wt_trap_frame_t* frame);
 uint64_t wt_spm_yield_token(void);
 
+/* Set once the core owns the partitions: the first block of each S-EL0
+ * coroutine then counts as that partition's initialization. */
+extern volatile uint32_t g_wt_spm_partitions_live;
+uint32_t wt_spm_sp_init_count(void);
+void wt_spm_init_partitions(void);
+
 #endif /* WOLFTRUST_ARCH_AARCH64_SPM_SVC_H */

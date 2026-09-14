@@ -86,7 +86,7 @@ endif
 # AArch64 twin of test-target on QEMU (virt GICv2/GICv3, xlnx-versal-virt);
 # auto-detect qemu-system-aarch64 + aarch64-none-elf (or WT_TARGET_SCENARIOS=1),
 # skip explicitly otherwise. MACHINE/GIC/CPU/SMP pass through to the runner.
-WT_QEMU_A_SCENARIOS ?= smoke boot boot-smp2
+WT_QEMU_A_SCENARIOS ?= smoke boot boot-smp2 positive-secure
 test-target-a:
 	@if ! tests/target/detect_qemu_a.sh >/dev/null 2>&1; then \
 		echo "SKIP: AArch64 QEMU scenarios ($$(tests/target/detect_qemu_a.sh 2>&1))"; \

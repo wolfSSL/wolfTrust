@@ -383,7 +383,14 @@ image on two `virt` cores: the secondary parks at EL3 inside the timed
 handshake, the banner reports it, and exactly one core runs the monitor).
 `boot-smp2` reports a SKIP on `xlnx-versal-virt`: QEMU creates APU core 1
 powered off and models the reset and control blocks that release it on
-silicon as unimplemented stubs, so firmware cannot start it there. Both
+silicon as unimplemented stubs, so firmware cannot start it there.
+`positive-secure` runs the same image and is the AArch64 twin of the
+Secure half of the M33MU `positive` scenario: the neutral core boots at
+Secure EL1 (manifest, wolfHSM, services, scheduler), every Secure Partition
+runs its initialization at Secure EL0 under its own translation table and
+signals completion through the SVC gate (`[SP] init id=0x8002` through
+`0x8007`, `[SPM] partitions ready n=6`), no partition faults, and with no
+Normal world to run the SPMC idles on `FFA_MSG_WAIT`. Both
 emulator runners share `tests/target/run_suite.sh` (the per-scenario
 report, `SKIP` lines, and `logs/target-<scenario>.log`) and assert through
 `tests/target/lib/expect.sh`.

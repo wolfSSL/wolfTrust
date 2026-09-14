@@ -61,6 +61,10 @@
      (25ull << 16) | (1ull << 23) | (2ull << 32))
 
 /* Access permission field values (AP[2:1]). */
+/* Region attribute hint above the access bits: map an EL1-only region
+ * non-global because another table maps the same range at EL0. */
+#define WT_TABLES_ATTR_NG        0x40000000u
+
 #define WT_TABLES_AP_EL1_RW      0u
 #define WT_TABLES_AP_ALL_RW      1u
 #define WT_TABLES_AP_EL1_RO      2u

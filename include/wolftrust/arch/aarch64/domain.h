@@ -22,6 +22,7 @@
 #define WOLFTRUST_ARCH_AARCH64_DOMAIN_H
 
 #include "wolftrust/types.h"
+#include "wolftrust/arch/aarch64/tables.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -34,10 +35,10 @@
 /* Fill entries a partition table keeps EL1-only unless the partition's own
  * regions cover one flagged WT_DOMAIN_FILL_SHARED entirely, in which case
  * the partition's mapping (EL0 + EL1) replaces it. Partial cover still
- * fails. The flag lives above the region attribute bits and never reaches
- * the table builder. */
-#define WT_DOMAIN_MAX_FILL   12u
-#define WT_DOMAIN_FILL_SHARED 0x40000000u
+ * fails. A shareable range is mapped non-global in every table (it is the
+ * builder's WT_TABLES_ATTR_NG hint) so no ASID inherits another's entry. */
+#define WT_DOMAIN_MAX_FILL   24u
+#define WT_DOMAIN_FILL_SHARED WT_TABLES_ATTR_NG
 
 #define WT_DOMAIN_FAIL_INIT   1
 #define WT_DOMAIN_FAIL_BUILD  2

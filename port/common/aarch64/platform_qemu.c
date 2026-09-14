@@ -27,6 +27,7 @@
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
+#include "wolftrust/arch/aarch64/tables.h"
 #include "wolftrust/platform.h"
 #include "memory_map.h"
 
@@ -73,13 +74,18 @@ int wt_platform_guest_flash_wrp_ok(uintptr_t window_base, size_t window_size)
 /* No Normal world to run: the SPMC waits for FF-A events instead. */
 void wt_platform_all_guests_faulted(void)
 {
-    wt_el3_puts("[SPM] no runnable guest, waiting for FF-A events\r\n");
+    wt_spm_init_partitions();
+    wt_el3_puts("[SPM] partitions ready n=");
+    wt_el3_putdec(wt_spm_sp_init_count());
+    wt_el3_puts("\r\n[SPM] no runnable guest, waiting for FF-A events\r\n");
     wt_spm_idle();
 }
 
 void wt_platform_panic(void)
 {
-    wt_el3_puts("[SPM] panic\r\n");
+    wt_el3_puts("[SPM] panic from 0x");
+    wt_el3_puthex((uint64_t)(uintptr_t)__builtin_return_address(0), 16u);
+    wt_el3_puts("\r\n");
     wt_platform_console_flush();
     (void)wt_mon_call(WT_MON_FID_PANIC, 0xF2u);
     for (;;) {
@@ -118,16 +124,24 @@ volatile void* wt_platform_boot_handoff_region(size_t* size)
     return NULL;
 }
 
+/* The code every partition executes: the SPMC image text (RX) and its
+ * constant data (RO), shaped exactly like the SPMC's shareable fill entries
+ * so the partition mapping replaces them (the manifest's executable
+ * resource is policy only; the scheduler maps code from here). */
 size_t wt_platform_sp_shared_regions(wt_memory_region_t* regions, size_t max)
 {
+    uintptr_t text_end = (uintptr_t)_e_secure_text;
+    uintptr_t image_end = ((uintptr_t)__image_end + WT_TABLES_PAGE_SIZE - 1u) &
+                          ~(uintptr_t)(WT_TABLES_PAGE_SIZE - 1u);
+
     if (regions == NULL || max < 2u) {
         return 0u;
     }
     regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
-    regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
+    regions[0].size = text_end - (uintptr_t)WT_SPM_IMAGE_PA;
     regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
-    regions[1].base = (uintptr_t)_e_secure_text;
-    regions[1].size = (uintptr_t)__image_end - (uintptr_t)_e_secure_text;
+    regions[1].base = text_end;
+    regions[1].size = image_end - text_end;
     regions[1].attributes = WT_MEM_ATTR_READ;
     return 2u;
 }

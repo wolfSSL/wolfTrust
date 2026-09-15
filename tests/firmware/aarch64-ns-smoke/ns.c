@@ -22,14 +22,13 @@
  * level on the NS console, negotiate FF-A with an SMC to the SPMD, and report
  * the version. It proves the world switch and the SPMD NS physical instance. */
 
+#include "wolftrust/arch/aarch64/ffa_abi.h"
+
 #include <stdint.h>
 
 #define UART_DR         0x00u
 #define UART_FR         0x18u
 #define UART_FR_TXFF    (1u << 5)
-
-#define FFA_VERSION     0x84000063u
-#define FFA_VERSION_1_2 0x00010002u
 
 static volatile uint32_t* uart_reg(uint32_t offset)
 {
@@ -68,8 +67,8 @@ static void put_hex(uint32_t value)
 
 static uint32_t ffa_version(void)
 {
-    register uint64_t r0 __asm__("x0") = FFA_VERSION;
-    register uint64_t r1 __asm__("x1") = FFA_VERSION_1_2;
+    register uint64_t r0 __asm__("x0") = WT_FFA_VERSION;
+    register uint64_t r1 __asm__("x1") = WT_FFA_VERSION_1_2;
 
     __asm__ volatile("smc #0"
                      : "+r"(r0), "+r"(r1)
@@ -90,7 +89,7 @@ void ns_main(void)
     put_str("\r\n");
 
     version = ffa_version();
-    if (version == FFA_VERSION_1_2) {
+    if (version == WT_FFA_VERSION_1_2) {
         put_str("[NS] ffa version 1.2\r\n");
     }
     else {

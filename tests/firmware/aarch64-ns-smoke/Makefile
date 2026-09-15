@@ -20,6 +20,7 @@
 
 # Normal-world payload for tests/target/run_qemu_a_scenario.sh (ns-smoke).
 # MACHINE picks the NS console; the run address is NS DRAM (WT_NS_BASE).
+ROOT ?= ../../..
 TOOLPREFIX ?= aarch64-none-elf-
 MACHINE ?= virt
 WT_NS_BASE ?= 0x40000000
@@ -38,7 +39,7 @@ endif
 
 CFLAGS := -mcpu=generic -mgeneral-regs-only -mstrict-align -ffreestanding \
     -fno-builtin -fno-pic -fno-stack-protector -nostdlib -O2 -g \
-    -Wall -Wextra -Werror -DWT_NS_UART=$(UART)u
+    -Wall -Wextra -Werror -I$(ROOT)/include -DWT_NS_UART=$(UART)u
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
 

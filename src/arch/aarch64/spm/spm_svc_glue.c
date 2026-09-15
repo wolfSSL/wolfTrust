@@ -26,7 +26,9 @@
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/esr.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/ffa_manifest.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
+#include "wolftrust/arch/aarch64/ffa_partinfo.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/platform.h"
@@ -91,6 +93,76 @@ static void ffa_not_supported(wt_trap_frame_t* frame)
     frame->x[2] = (uint64_t)(uint32_t)WT_FFA_NOT_SUPPORTED;
 }
 
+static void ffa_success(wt_trap_frame_t* frame, uint64_t w2, uint64_t w3)
+{
+    unsigned int i;
+
+    for (i = 0u; i < 8u; i++) {
+        frame->x[i] = 0u;
+    }
+    frame->x[0] = WT_FFA_SUCCESS32;
+    frame->x[2] = w2;
+    frame->x[3] = w3;
+}
+
+/* The configured partitions as FFA_PARTITION_INFO_GET source records: the FF-A
+ * id follows creation order (0x8002 up), matching the ids the SPMC assigns. */
+static wt_ffa_partinfo_entry_t g_partinfo[16];
+
+/* FFA_PARTITION_INFO_GET (6.1): write a Table 6.1 descriptor for every
+ * configured partition matching the UUID in w1-w4 into the RX buffer, and
+ * return the match count in w2 and the descriptor size in w3. A Nil UUID lists
+ * every partition (WT-FFA-0003). */
+static void ffa_partition_info_get(wt_trap_frame_t* frame)
+{
+    const wt_ffa_partition_manifest_t* parts;
+    size_t n;
+    size_t i;
+    unsigned int j;
+    uint8_t uuid[16];
+    uint32_t word;
+    uint32_t count = 0u;
+    uint32_t size = 0u;
+    int ret;
+
+    parts = wt_generated_ffa_partitions_get(&n);
+    if ((parts == NULL) || (n > (sizeof(g_partinfo) / sizeof(g_partinfo[0])))) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
+    for (i = 0u; i < n; i++) {
+        g_partinfo[i].id = (uint16_t)(WT_FFA_ID_SP_FIRST + i);
+        g_partinfo[i].exec_contexts = (uint16_t)parts[i].execution_contexts;
+        g_partinfo[i].properties = wt_ffa_partinfo_props(parts[i].messaging);
+        for (j = 0u; j < 16u; j++) {
+            g_partinfo[i].uuid[j] = (parts[i].uuid_count > 0u) ?
+                                    parts[i].uuids[0].bytes[j] : 0u;
+        }
+    }
+    for (i = 0u; i < 4u; i++) {
+        word = (uint32_t)frame->x[1u + i];
+        uuid[4u * i + 0u] = (uint8_t)(word & 0xFFu);
+        uuid[4u * i + 1u] = (uint8_t)((word >> 8) & 0xFFu);
+        uuid[4u * i + 2u] = (uint8_t)((word >> 16) & 0xFFu);
+        uuid[4u * i + 3u] = (uint8_t)((word >> 24) & 0xFFu);
+    }
+    ret = wt_ffa_partinfo_write((uint8_t*)(uintptr_t)WT_SPM_RXTX_PA,
+                                (size_t)WT_SPM_RXTX_SIZE, WT_FFA_VERSION_1_2,
+                                g_partinfo, n, uuid, (uint32_t)frame->x[5],
+                                &count, &size);
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    ffa_success(frame, count, size);
+}
+
+/* FFA_RX_RELEASE (7.2.2.4): ownership of the RX buffer returns to the SPMC. */
+static void ffa_rx_release(wt_trap_frame_t* frame)
+{
+    ffa_success(frame, 0u, 0u);
+}
+
 void wt_spm_lower_sync(wt_trap_frame_t* frame)
 {
     uint32_t ec = (uint32_t)(frame->esr >> 26) & 0x3Fu;
@@ -145,6 +217,12 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     else if ((fid == WT_FFA_MSG_SEND_DIRECT_RESP32) ||
              (fid == WT_FFA_MSG_SEND_DIRECT_RESP64)) {
         ffa_direct_resp(frame);
+    }
+    else if (fid == WT_FFA_PARTITION_INFO_GET) {
+        ffa_partition_info_get(frame);
+    }
+    else if (fid == WT_FFA_RX_RELEASE) {
+        ffa_rx_release(frame);
     }
     else {
         ffa_not_supported(frame);

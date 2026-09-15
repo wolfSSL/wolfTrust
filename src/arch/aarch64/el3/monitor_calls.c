@@ -73,6 +73,28 @@ static void wt_el3_fiq(void)
     }
 }
 
+/* An SMC taken at the NS physical instance (SCR_EL3.NS was set): FF-A calls go
+ * to the SPMD NS dispatch, everything else is an SMCCC unknown function for
+ * now (PSCI lands in a later B3 slice). */
+static void ns_smc(wt_el3_frame_t* frame)
+{
+    wt_ffa_regs_t regs;
+    uint32_t fid = (uint32_t)frame->x[0];
+    unsigned int i;
+
+    if (wt_ffa_fid_in_range(fid)) {
+        for (i = 0u; i < 8u; i++) {
+            regs.x[i] = frame->x[i];
+        }
+        wt_ffa_spmd_ns_call(&regs);
+        for (i = 0u; i < 8u; i++) {
+            frame->x[i] = regs.x[i];
+        }
+        return;
+    }
+    frame->x[0] = WT_MON_NOT_SUPPORTED;
+}
+
 static void secure_smc(wt_el3_frame_t* frame)
 {
     wt_ffa_regs_t regs;
@@ -111,8 +133,7 @@ void wt_el3_exception(uint64_t kind, wt_el3_frame_t* frame)
     if ((kind == WT_EL3_VEC_LOWER64_SYNC) &&
         ((ec == WT_ESR_EC_SMC64) || (ec == WT_ESR_EC_SMC32))) {
         if ((wt_read_scr_el3() & WT_SCR_NS) != 0u) {
-            /* No Normal world exists yet; SMCCC unknown-function reply. */
-            frame->x[0] = WT_MON_NOT_SUPPORTED;
+            ns_smc(frame);
             return;
         }
         secure_smc(frame);

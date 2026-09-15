@@ -171,6 +171,31 @@ wt_el3_enter_secure_el1:
     isb
     eret
 
+/* void wt_el3_enter_ns(void (*entry)(void), uintptr_t sp, uint64_t x0_arg):
+ * drop to NS-EL1. SCR_EL3 = NS|FIQ|EA|RW|ST (0xc0d): a Secure interrupt taken
+ * while the Normal world runs traps to the SPMD, so it can preempt NS (Ch.9).
+ * EL2 is implemented on these machines, so HCR_EL2.RW selects the EL1 register
+ * width; set it for AArch64 or the ERET is an illegal state change. */
+    .globl wt_el3_enter_ns
+wt_el3_enter_ns:
+    mrs     x4, HCR_EL2
+    mov     x5, #1
+    lsl     x5, x5, #31
+    orr     x4, x4, x5
+    msr     HCR_EL2, x4
+    msr     SP_EL1, x1
+    msr     ELR_EL3, x0
+    mov     x3, #0x3c5
+    msr     SPSR_EL3, x3
+    mov     x3, #0xc0d
+    msr     SCR_EL3, x3
+    mov     x0, x2
+    mov     x1, #0
+    mov     x2, #0
+    mov     x3, #0
+    isb
+    eret
+
     .bss
     .balign 16
 g_wt_el3_exit_block:

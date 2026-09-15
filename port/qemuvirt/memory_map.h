@@ -60,6 +60,11 @@
 #ifndef WT_SPM_RXTX_SIZE
 #define WT_SPM_RXTX_SIZE      0x00002000u
 #endif
+/* Normal-world payload load/run address: NS DRAM, well clear of the secure
+ * SRAM window (virt DRAM starts at 0x40000000). */
+#ifndef WT_NS_IMAGE_PA
+#define WT_NS_IMAGE_PA        0x44000000u
+#endif
 
 #define WT_GICD_BASE          0x08000000u
 #define WT_GICC_BASE          0x08010000u

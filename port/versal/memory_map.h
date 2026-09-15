@@ -61,6 +61,10 @@
 #ifndef WT_SPM_RXTX_SIZE
 #define WT_SPM_RXTX_SIZE      0x00002000u
 #endif
+/* Normal-world payload load/run address in low DDR, below the secure window. */
+#ifndef WT_NS_IMAGE_PA
+#define WT_NS_IMAGE_PA        0x44000000u
+#endif
 
 #define WT_GICD_BASE          0xF9000000u
 #define WT_GICR_BASE          0xF9080000u

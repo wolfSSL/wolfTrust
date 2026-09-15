@@ -16,7 +16,7 @@ WT_EL3_RAM_SIZE ?= 0x00040000
 # translation-table pool follows it.
 WT_SPM_BOOT_INFO_PA ?= 0x0E040000
 WT_SPM_TABLE_POOL_PA ?= 0x0E041000
-WT_SPM_TABLE_POOL_PAGES ?= 64
+WT_SPM_TABLE_POOL_PAGES ?= 96
 # S-EL1 SPMC image band (code + constant data, copied from flash by EL3),
 # its RAM band, and the wolfHSM keystore band; the flash offset is where the
 # runner places wolftrust.bin inside the pflash image behind the monitor.

@@ -36,6 +36,7 @@ EL3_C_SRCS := \
     $(ARCH_DIR)/el3/monitor_calls.c \
     $(ARCH_DIR)/el3/el3_main.c \
     $(ARCH_DIR)/ffa/ffa_spmd.c \
+    $(ARCH_DIR)/ffa/ffa_msg.c \
     $(ARCH_DIR)/common/libc_min.c
 EL3_ASM_SRCS := \
     $(ARCH_DIR)/el3/start.S \

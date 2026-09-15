@@ -31,7 +31,7 @@
  * keyed by the stable regions pointer the core hands to the wt_arch_*
  * domain operations; ASID 0 is the SPM-only table, partitions get 1.. */
 
-#define WT_DOMAIN_MAX_TABLES 8u
+#define WT_DOMAIN_MAX_TABLES 12u
 /* Fill entries a partition table keeps EL1-only unless the partition's own
  * regions cover one flagged WT_DOMAIN_FILL_SHARED entirely, in which case
  * the partition's mapping (EL0 + EL1) replaces it. Partial cover still

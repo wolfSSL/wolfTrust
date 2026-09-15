@@ -37,6 +37,7 @@ struct wt_gic_ops {
     void (*set_priority)(uint32_t intid, uint8_t priority);
     uint32_t (*ack_group0)(void);
     void (*eoi_group0)(uint32_t intid);
+    void (*set_pending)(uint32_t intid);
     unsigned int version;
 };
 

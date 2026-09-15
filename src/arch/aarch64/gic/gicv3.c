@@ -29,6 +29,7 @@
 #define GICD_TYPER        0x0004u
 #define GICD_IGROUPR      0x0080u
 #define GICD_ISENABLER    0x0100u
+#define GICD_ISPENDR      0x0200u
 #define GICD_ICENABLER    0x0180u
 #define GICD_IPRIORITYR   0x0400u
 #define GICD_IGRPMODR     0x0D00u
@@ -205,6 +206,13 @@ static void gicv3_init_secure(void)
     wt_isb();
 }
 
+/* Make an interrupt pending in software (SPIs, id >= 32) so a test driver can
+ * raise a Secure interrupt without external hardware. */
+static void gicv3_set_pending(uint32_t intid)
+{
+    *gicd(GICD_ISPENDR + (intid / 32u) * 4u) = 1u << (intid % 32u);
+}
+
 static const struct wt_gic_ops gicv3_ops = {
     gicv3_init_secure,
     gicv3_set_group0,
@@ -213,6 +221,7 @@ static const struct wt_gic_ops gicv3_ops = {
     gicv3_set_priority,
     gicv3_ack_group0,
     gicv3_eoi_group0,
+    gicv3_set_pending,
     3u
 };
 

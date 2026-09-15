@@ -29,12 +29,15 @@
 
 #define WT_SPM_TICK_PERIOD_MS 10u
 #define WT_SPM_TICK_WAIT_MS 100u
+/* A shared-peripheral interrupt id used only by the secure-interrupt tests. */
+#define WT_SPM_TEST_SPI 40u
 
 volatile uint32_t g_wt_spm_tick_intid;
 
 void wt_spm_fiq(void);
 void wt_spm_lower_fiq(wt_trap_frame_t* frame);
 int wt_spm_prove_tick(void);
+uint32_t wt_spm_prove_sint(void);
 
 static void ack_group0_tick(void)
 {
@@ -79,6 +82,28 @@ void wt_spm_preempt_timer_stop(void)
 {
     wt_el3_timer_disable();
     wt_gic->disable(WT_GIC_INTID_SECURE_TIMER);
+}
+
+/* Raise a Secure shared-peripheral interrupt in software and confirm it
+ * reaches the SPMC as a Group 0 FIQ, so the GIC path a manifest-declared
+ * Secure interrupt uses is proven before it is routed to a partition.
+ * Returns the received interrupt id, or 0 if it did not arrive. */
+uint32_t wt_spm_prove_sint(void)
+{
+    uint64_t deadline = wt_read_cntpct_el0() +
+                        ((wt_read_cntfrq_el0() * WT_SPM_TICK_WAIT_MS) / 1000u);
+
+    g_wt_spm_tick_intid = 0u;
+    wt_gic->set_group0(WT_SPM_TEST_SPI);
+    wt_gic->set_priority(WT_SPM_TEST_SPI, 0x00u);
+    wt_gic->enable(WT_SPM_TEST_SPI);
+    wt_gic->set_pending(WT_SPM_TEST_SPI);
+    wt_daif_clear_fiq();
+    while ((g_wt_spm_tick_intid == 0u) && (wt_read_cntpct_el0() < deadline)) {
+    }
+    wt_daif_set_fiq();
+    wt_gic->disable(WT_SPM_TEST_SPI);
+    return (g_wt_spm_tick_intid == WT_SPM_TEST_SPI) ? WT_SPM_TEST_SPI : 0u;
 }
 
 /* One secure timer period with FIQ unmasked at S-EL1: the tick must arrive

@@ -498,9 +498,12 @@ static int prove_preempt(void)
     return preempted;
 }
 
+uint32_t wt_spm_prove_sint(void);
+
 void wt_spm_main(uint64_t boot_info_pa)
 {
     wt_ffa_regs_t r;
+    uint32_t sint_id;
 
     wt_el3_puts("[SPM] spmc entered at S-EL1\r\n");
     consume_boot_info(boot_info_pa);
@@ -534,6 +537,15 @@ void wt_spm_main(uint64_t boot_info_pa)
     }
     else {
         wt_el3_puts("[SPM] preempt FAIL\r\n");
+    }
+    sint_id = wt_spm_prove_sint();
+    if (sint_id != 0u) {
+        wt_el3_puts("[SPM] sint gic ok intid=0x");
+        wt_el3_puthex(sint_id, 2u);
+        wt_el3_puts("\r\n");
+    }
+    else {
+        wt_el3_puts("[SPM] sint gic FAIL\r\n");
     }
     discover_spmd();
     prove_console_log();

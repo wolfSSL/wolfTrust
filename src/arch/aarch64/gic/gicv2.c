@@ -28,6 +28,8 @@
 #define GICD_TYPER       0x004u
 #define GICD_IGROUPR     0x080u
 #define GICD_ISENABLER   0x100u
+#define GICD_ISPENDR     0x200u
+#define GICD_ITARGETSR   0x800u
 #define GICD_ICENABLER   0x180u
 #define GICD_IPRIORITYR  0x400u
 #define GICD_CTLR_ENABLE_GRP0 (1u << 0)
@@ -65,6 +67,11 @@ static void gicv2_set_group0(uint32_t intid)
 
 static void gicv2_enable(uint32_t intid)
 {
+    if (intid >= 32u) {
+        /* A GICv2 SPI is delivered only to a targeted CPU interface; route it
+         * to CPU 0. SGIs and PPIs are per-CPU and need no target. */
+        ((volatile uint8_t*)gicd(GICD_ITARGETSR))[intid] = 0x01u;
+    }
     *gicd(GICD_ISENABLER + (intid / 32u) * 4u) = 1u << (intid % 32u);
 }
 
@@ -109,6 +116,13 @@ static void gicv2_init_secure(void)
                        GICC_CTLR_FIQ_EN;
 }
 
+/* Make an interrupt pending in software (SPIs, id >= 32) so a test driver can
+ * raise a Secure interrupt without external hardware. */
+static void gicv2_set_pending(uint32_t intid)
+{
+    *gicd(GICD_ISPENDR + (intid / 32u) * 4u) = 1u << (intid % 32u);
+}
+
 static const struct wt_gic_ops gicv2_ops = {
     gicv2_init_secure,
     gicv2_set_group0,
@@ -117,6 +131,7 @@ static const struct wt_gic_ops gicv2_ops = {
     gicv2_set_priority,
     gicv2_ack_group0,
     gicv2_eoi_group0,
+    gicv2_set_pending,
     2u
 };
 

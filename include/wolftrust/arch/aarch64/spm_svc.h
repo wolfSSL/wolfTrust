@@ -89,6 +89,15 @@ struct wt_co;
 int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
                               uint64_t* resp);
 
+/* Secure interrupt routing to a partition (Ch.9, Table 9.1): a declared Secure
+ * interrupt is signalled to its owner with FFA_INTERRUPT while the owner waits,
+ * or queued while it runs and delivered on its next FFA_MSG_WAIT. */
+int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid);
+void wt_spm_sint_queue(uint32_t intid);
+uint32_t wt_spm_sint_take_pending(const struct wt_co* co);
+extern volatile uint32_t g_wt_spm_sint_queued;
+void wt_spm_prove_sint_route(struct wt_co* co);
+
 /* The test echo partition (WT_FFA_ID_ECHO), NULL unless WT_EL3_TEST_DRIVER=1.
  * enable_mmu publishes its stack band (the slot after the last manifest
  * partition stack) and the init pass builds the partition on it. */

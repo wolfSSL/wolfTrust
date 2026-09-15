@@ -232,6 +232,65 @@ int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
     return 0;
 }
 
+/* A Secure interrupt taken while its owner runs at S-EL0 is queued here and
+ * delivered as FFA_INTERRUPT on the owner's next FFA_MSG_WAIT (Table 9.1). */
+static uint32_t g_sp_sint_pending[WT_CO_MAX];
+volatile uint32_t g_wt_spm_sint_queued;
+
+void wt_spm_sint_queue(uint32_t intid)
+{
+    struct wt_co* current = g_wt_co_current;
+
+    if ((current == &g_wt_co_bootstrap) || (current->unprivileged == 0u)) {
+        return;
+    }
+    g_sp_sint_pending[current->id - 1u] = intid;
+    g_wt_spm_sint_queued = intid;
+}
+
+uint32_t wt_spm_sint_take_pending(const struct wt_co* co)
+{
+    uint32_t intid;
+
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return 0u;
+    }
+    intid = g_sp_sint_pending[co->id - 1u];
+    g_sp_sint_pending[co->id - 1u] = 0u;
+    return intid;
+}
+
+/* Signal a waiting partition: write an FFA_INTERRUPT message into its saved
+ * frame and resume it. It acknowledges by returning to waiting, so there is no
+ * response to capture; the call returns once it blocks again. Used both to
+ * signal a waiting owner directly and, with the owned interrupt already made
+ * pending in the GIC, to drive the queued path (the partition takes it as a
+ * lower-EL FIQ on entry, then the gate delivers the queued interrupt). */
+int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid)
+{
+    wt_sp_arch_t* a;
+    unsigned int i;
+
+    if ((co == NULL) || (co->unprivileged == 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (wt_co_state((wt_co_t*)co) != WT_CO_BLOCKED) {
+        return WT_FFA_BUSY;
+    }
+    a = sp_arch(co);
+    for (i = 0u; i < 8u; i++) {
+        a->frame.x[i] = 0u;
+    }
+    a->frame.x[0] = WT_FFA_INTERRUPT;
+    a->frame.x[1] = (uint64_t)intid;
+    wt_co_wake((wt_co_t*)co);
+    (void)wt_co_run((wt_co_t*)co);
+    if (wt_co_state((wt_co_t*)co) == WT_CO_FAULTED) {
+        return WT_FFA_ABORTED;
+    }
+    return 0;
+}
+
 static void write_tpidrro(uint64_t value)
 {
     __asm__ volatile("msr TPIDRRO_EL0, %0\n\tisb" : : "r"(value));

@@ -231,15 +231,20 @@ wt_sp_el0_probe:
 /* S-EL0 FF-A echo partition: FFA_MSG_WAIT to signal init and wait, then for
  * each delivered direct request (x0=REQ fid, x1=sender/receiver ids, x3=first
  * payload word) reply with FFA_MSG_SEND_DIRECT_RESP32, swapping the ids and
- * complementing the payload word. The response SVC also waits for the next
- * request, so control resumes at label 1 with the new request in registers. */
+ * complementing the payload word. A delivered FFA_INTERRUPT (x0) is a Secure
+ * interrupt: acknowledge it by returning to waiting. The response SVC also
+ * waits for the next request, so control resumes at label 1 with it. */
     .section .text.wt_sp_ffa_echo, "ax"
     .globl wt_sp_ffa_echo
 wt_sp_ffa_echo:
-    movz    w0, #0x006B                 /* FFA_MSG_WAIT (0x8400006B) */
+0:  movz    w0, #0x006B                 /* FFA_MSG_WAIT (0x8400006B) */
     movk    w0, #0x8400, lsl #16
     svc     #0
-1:  lsr     x2, x1, #16                 /* original sender */
+1:  movz    w4, #0x0062                 /* FFA_INTERRUPT (0x84000062) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.eq    0b                          /* interrupt: acknowledge and re-wait */
+    lsr     x2, x1, #16                 /* original sender */
     ubfx    x1, x1, #0, #16             /* original receiver = our id */
     orr     x1, x2, x1, lsl #16         /* reply w1 = our_id<<16 | sender */
     mvn     x3, x3                      /* echo ~payload */

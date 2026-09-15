@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -61,7 +61,7 @@ esac
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
@@ -87,7 +87,7 @@ else
     spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
     tablesneg)   probe=(WT_TABLES_NEGATIVE=1) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
-    ns-smoke)    probe=(WT_EL3_NS_SMOKE=1) ;;
+    ns-smoke|ffa-discovery) probe=(WT_EL3_NS_SMOKE=1) ;;
   esac
   make ARCH=aarch64 TARGET="$target" TOOLPREFIX="$TOOLPREFIX" WT_GIC_VERSION="$GIC" \
     WT_CPU="$CPU" WT_PORT_BOOT_CPUS="$cpus" BUILD_DIR="build-aarch64-$tag-$scenario" \
@@ -98,7 +98,7 @@ else
   # into NS DRAM at WT_NS_IMAGE_PA, above the virt DTB at the RAM base
   # (0x40000000-0x40100000) so QEMU does not reject an overlapping ROM region.
   ns_base=0x44000000
-  if [ "$scenario" = ns-smoke ]; then
+  if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ]; then
     nsfw="$repo/tests/firmware/aarch64-ns-smoke"
     make -C "$nsfw" MACHINE="$MACHINE" TOOLPREFIX="$TOOLPREFIX" \
       BUILD_DIR="build/$tag" WT_NS_BASE="$ns_base"
@@ -134,7 +134,7 @@ else
   args+=(-device "loader,addr=$el3_base,cpu-num=0"
          -serial "file:$ns_log" -serial "file:$sec_log")
 fi
-if [ "$scenario" = ns-smoke ]; then
+if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ]; then
   args+=(-device "loader,file=$ns_bin,addr=$ns_base")
 fi
 args+=(-nographic -monitor none -no-reboot
@@ -263,6 +263,14 @@ case "$scenario" in
     expect "the SPMD launched the Normal world" "[EL3] ns launch pc=0x44000000"
     expect "the Normal-world payload ran at NS-EL1" "[NS] hello el=1"
     expect "the Normal world negotiated FF-A 1.2 with the SPMD" "[NS] ffa version 1.2"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  ffa-discovery)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "the Normal world did not misread discovery" '\[NS\] discovery BAD'
+    expect "the Normal world negotiated FF-A 1.2 with the SPMD" "[NS] ffa version 1.2"
+    expect "the Normal world walked FEATURES, ID_GET, and SPM_ID_GET" "[NS] discovery ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
 esac

@@ -165,6 +165,7 @@ case "$scenario" in
     expect "coroutine switch works at Secure EL1" "[SPM] coroutine ok"
     expect "unprivileged partition ran at S-EL0 and yielded through SVC" "[SPM] el0 svc ok"
     expect "a direct request was delivered to a waiting S-EL0 partition and echoed back" "[SPM] ffa direct ok"
+    expect "a spinning S-EL0 partition was preempted by the secure timer tick" "[SPM] preempt ok"
     expect "FF-A version negotiated with the SPMD" "[SPM] ffa version 1.2 negotiated"
     expect "FF-A discovery at the Secure physical instance" "[SPM] ffa discovery ok id=0x8000 spmd=0x8001"
     expect "FFA_CONSOLE_LOG SMC32 logged through the SPMD" "[SPM] console32 ok"

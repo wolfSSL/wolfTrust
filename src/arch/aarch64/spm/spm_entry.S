@@ -127,7 +127,7 @@ wt_spm_vectors:
     WT_SPM_VECTOR_PANIC 7
     WT_SPM_VECTOR_BRANCH wt_sp_lower_sync_entry
     WT_SPM_VECTOR_PANIC 9
-    WT_SPM_VECTOR_BRANCH wt_spm_fiq_entry
+    WT_SPM_VECTOR_BRANCH wt_sp_lower_fiq_entry
     WT_SPM_VECTOR_PANIC 11
     WT_SPM_VECTOR_PANIC 12
     WT_SPM_VECTOR_PANIC 13

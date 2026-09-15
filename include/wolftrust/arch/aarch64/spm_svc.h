@@ -72,6 +72,15 @@ extern volatile uint32_t g_wt_ffa_direct_resp_ready;
  * ids swapped and the first payload word complemented. */
 void wt_sp_ffa_echo(void);
 
+/* Preemption of a running S-EL0 partition by the scheduling tick: the lower-EL
+ * FIQ handler saves the partition's frame, marks it runnable, and unwinds to
+ * the scheduler. wt_sp_spin is an S-EL0 partition that never blocks, used by
+ * the boot self-test to prove a spinning partition is preempted. */
+void wt_spm_preempt_from_fiq(wt_trap_frame_t* frame);
+void wt_spm_preempt_timer_arm(void);
+void wt_spm_preempt_timer_stop(void);
+void wt_sp_spin(void);
+
 /* Deliver req (x0..x7 as at FFA_MSG_WAIT's return) to a waiting partition,
  * run it until it responds, and copy the response into resp. 0 on success;
  * BUSY if it is not waiting, ABORTED if it faulted, DENIED if it blocked

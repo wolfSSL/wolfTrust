@@ -67,8 +67,9 @@ void wt_co_trampoline(void);
 #define WT_CO_SLOT_X19 0u
 #define WT_CO_SLOT_X20 1u
 #define WT_CO_SLOT_X30 11u
-/* EL0t with D, A, I masked; FIQ stays open so the tick can reach S-EL1. */
-#define WT_SP_SPSR_EL0T 0x1C0u
+/* EL0t with A and I masked and FIQ open (bit 6 clear), so the scheduling tick
+ * preempts a running partition and reaches the SPMC at S-EL1. */
+#define WT_SP_SPSR_EL0T 0x180u
 
 #define WT_SP_INIT_MAX_PASSES 16u
 
@@ -307,8 +308,31 @@ void wt_co_arch_leave(void)
     wt_co_arch_switch(&current->sp, g_wt_co_bootstrap.sp);
 }
 
-/* Cooperative on AArch64: the tick FIQ requests a switch through the
- * scheduler, so no asynchronous trigger is needed here. */
+/* No deferred trigger: AArch64 has no PendSV, so a preempting tick unwinds
+ * synchronously from the FIQ handler (wt_spm_preempt_from_fiq) instead. */
 void wt_co_arch_request_preempt(void)
 {
+}
+
+/* A Group 0 tick took the running S-EL0 partition to the SPMC. Preserve its
+ * full interrupted state in the partition's saved frame, mark it runnable
+ * again, and unwind to the scheduler exactly as a block does; the partition
+ * resumes at the interrupted instruction the next time it is run. Returns
+ * without preempting when the SPMC itself (or a privileged tasklet) was
+ * running, since only an S-EL0 partition can be resumed from a saved frame. */
+void wt_spm_preempt_from_fiq(wt_trap_frame_t* frame)
+{
+    struct wt_co* current = g_wt_co_current;
+
+    if ((current == &g_wt_co_bootstrap) || (current->unprivileged == 0u)) {
+        return;
+    }
+    g_wt_spm_live_frame = frame;
+    g_wt_spm_handler_depth = 1u;
+    if (wt_co_request_preempt() == false) {
+        g_wt_spm_live_frame = NULL;
+        g_wt_spm_handler_depth = 0u;
+        return;
+    }
+    wt_co_arch_leave();
 }

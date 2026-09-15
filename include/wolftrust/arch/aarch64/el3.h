@@ -42,11 +42,12 @@
 #define WT_EL3_VEC_LOWER64_SERROR  11u
 #define WT_EL3_VEC_LOWER32_SYNC    12u
 
-/* Register frame the vector table saves; layout is shared with vectors.S. */
+/* Register frame the vector table saves; layout is shared with vectors.S. The
+ * full x0-x30 is captured so a world switch can resume a lower EL exactly (the
+ * callee-saved x19-x28 carry the SPMC's neutral-core state across an NS
+ * excursion). */
 typedef struct wt_el3_frame {
-    uint64_t x[19];
-    uint64_t x29;
-    uint64_t x30;
+    uint64_t x[31];
     uint64_t elr;
     uint64_t spsr;
     uint64_t pad;

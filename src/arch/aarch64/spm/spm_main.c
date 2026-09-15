@@ -27,6 +27,7 @@
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_boot_info.h"
+#include "wolftrust/arch/aarch64/ffa_manifest.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
@@ -257,6 +258,13 @@ static void enable_mmu(uint64_t boot_info_pa)
     n++;
     fill[n].base = (uintptr_t)WT_SPM_KEYSTORE_PA;
     fill[n].size = page_up((uintptr_t)_e_keystore) - (uintptr_t)WT_SPM_KEYSTORE_PA;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
+    n++;
+    /* The FF-A RX/TX buffer band (7.2): the SPMC writes partition information
+     * into it at S-EL1, and the discovering partition maps and reads it at
+     * S-EL0, so it is shareable and taken over by that partition's table. */
+    fill[n].base = (uintptr_t)WT_SPM_RXTX_PA;
+    fill[n].size = (size_t)WT_SPM_RXTX_SIZE;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
     n++;
     /* Partition stack bands from the manifest: the SPMC seeds and scrubs
@@ -498,12 +506,64 @@ static int prove_preempt(void)
     return preempted;
 }
 
+/* Prove FF-A partition discovery: an S-EL0 partition calls
+ * FFA_PARTITION_INFO_GET with a Nil UUID, the SPMC writes a descriptor per
+ * configured partition into the partition's RX buffer, and the partition reads
+ * the count and the first descriptor's id back out at S-EL0. */
+static wt_secure_domain_t g_discover_domain;
+
+static int prove_partinfo(uint32_t* out_count)
+{
+    const wt_domain_descriptor_t* d = first_partition_domain();
+    const wt_ffa_partition_manifest_t* parts;
+    size_t np = 0u;
+    uint8_t* stack;
+    wt_co_t* co;
+    uint64_t token;
+
+    parts = wt_generated_ffa_partitions_get(&np);
+    if ((d == NULL) || (parts == NULL) || (np == 0u)) {
+        return 0;
+    }
+    stack = (uint8_t*)(uintptr_t)d->stack_base;
+    g_discover_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
+    g_discover_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
+    g_discover_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+    g_discover_domain.regions[1].base = (uintptr_t)stack;
+    g_discover_domain.regions[1].size = (size_t)d->stack_size;
+    g_discover_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_discover_domain.regions[2].base = (uintptr_t)WT_SPM_RXTX_PA;
+    g_discover_domain.regions[2].size = (size_t)WT_SPM_RXTX_SIZE;
+    g_discover_domain.regions[2].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_discover_domain.region_count = 3u;
+    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+                                 (wt_co_entry_fn)wt_sp_ffa_discover,
+                                 (void*)(uintptr_t)WT_SPM_RXTX_PA);
+    if (co == NULL) {
+        return 0;
+    }
+    wt_co_set_domain(co, &g_discover_domain, 1u);
+    wt_co_wake(co);
+    if (wt_co_run(co) != 1u) {
+        return 0;
+    }
+    token = wt_spm_yield_token();
+    *out_count = (uint32_t)(token & 0xFFFFu);
+    /* The partition read the first descriptor's id from its RX buffer at S-EL0;
+     * the SPMC assigns ids from WT_FFA_ID_SP_FIRST in creation order. */
+    if ((uint32_t)((token >> 16) & 0xFFFFu) != (uint32_t)WT_FFA_ID_SP_FIRST) {
+        return 0;
+    }
+    return (*out_count == (uint32_t)np) ? 1 : 0;
+}
+
 uint32_t wt_spm_prove_sint(void);
 
 void wt_spm_main(uint64_t boot_info_pa)
 {
     wt_ffa_regs_t r;
     uint32_t sint_id;
+    uint32_t partinfo_n = 0u;
 
     wt_el3_puts("[SPM] spmc entered at S-EL1\r\n");
     consume_boot_info(boot_info_pa);
@@ -546,6 +606,14 @@ void wt_spm_main(uint64_t boot_info_pa)
     }
     else {
         wt_el3_puts("[SPM] sint gic FAIL\r\n");
+    }
+    if (prove_partinfo(&partinfo_n)) {
+        wt_el3_puts("[SPM] partinfo ok n=");
+        wt_el3_putdec(partinfo_n);
+        wt_el3_puts("\r\n");
+    }
+    else {
+        wt_el3_puts("[SPM] partinfo FAIL\r\n");
     }
     discover_spmd();
     prove_console_log();

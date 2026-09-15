@@ -72,6 +72,10 @@ extern volatile uint32_t g_wt_ffa_direct_resp_ready;
  * ids swapped and the first payload word complemented. */
 void wt_sp_ffa_echo(void);
 
+/* S-EL0 discovery partition (sp_entry.S): calls FFA_PARTITION_INFO_GET with a
+ * Nil UUID (RX base in x0) and yields the match count and first id. */
+void wt_sp_ffa_discover(void);
+
 /* Preemption of a running S-EL0 partition by the scheduling tick: the lower-EL
  * FIQ handler saves the partition's frame, marks it runnable, and unwinds to
  * the scheduler. wt_sp_spin is an S-EL0 partition that never blocks, used by

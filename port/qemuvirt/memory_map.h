@@ -54,6 +54,12 @@
 #ifndef WT_SPM_KEYSTORE_SIZE
 #define WT_SPM_KEYSTORE_SIZE  0x00040000u
 #endif
+#ifndef WT_SPM_RXTX_PA
+#define WT_SPM_RXTX_PA        0x0E340000u
+#endif
+#ifndef WT_SPM_RXTX_SIZE
+#define WT_SPM_RXTX_SIZE      0x00002000u
+#endif
 
 #define WT_GICD_BASE          0x08000000u
 #define WT_GICC_BASE          0x08010000u

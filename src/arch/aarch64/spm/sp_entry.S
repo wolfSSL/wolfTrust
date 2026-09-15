@@ -214,6 +214,31 @@ wt_sp_lower_fiq_entry:
 wt_sp_spin:
 1:  b       1b
 
+/* S-EL0 FF-A discovery partition: FFA_PARTITION_INFO_GET with a Nil UUID lists
+ * every configured partition into the RX buffer (its base is x0 on entry). Read
+ * the match count from w2 and the first descriptor's partition id from the RX
+ * buffer, and yield both to the SPMC self-test in one token (id in bits 31:16,
+ * count in bits 15:0). */
+    .section .text.wt_sp_ffa_discover, "ax"
+    .globl wt_sp_ffa_discover
+wt_sp_ffa_discover:
+    mov     x19, x0                     /* saved RX base */
+    movz    w0, #0x0068                 /* FFA_PARTITION_INFO_GET (0x84000068) */
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0                      /* Nil UUID in w1-w4 */
+    mov     x2, #0
+    mov     x3, #0
+    mov     x4, #0
+    mov     x5, #0                      /* flags: full descriptors */
+    svc     #0
+    uxth    w20, w2                     /* match count (w2) */
+    ldrh    w21, [x19]                  /* first descriptor's partition id */
+    orr     x1, x20, x21, lsl #16       /* token = first_id<<16 | count */
+    movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3800101) */
+    movk    w0, #0xC380, lsl #16
+    svc     #0
+1:  b       1b
+
 /* S-EL0 probe for the boot self-test: yield twice with distinct tokens. */
     .section .text.wt_sp_el0_probe, "ax"
     .globl wt_sp_el0_probe

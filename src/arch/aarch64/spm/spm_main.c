@@ -190,6 +190,39 @@ void wt_domain_fail(int code)
     spmc_fail("domain", (uint64_t)(uint32_t)code);
 }
 
+uintptr_t g_wt_spm_echo_stack_base;
+uintptr_t g_wt_spm_echo_stack_size;
+
+/* Manifest partition stacks sit one WT_SPMC_STACK_STRIDE apart; the test echo
+ * partition takes the next slot, published as a shareable fill entry so its
+ * own table maps it EL0 while every other table keeps it EL1-only. */
+#define WT_SPMC_STACK_STRIDE 0x10000u
+
+#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+static size_t add_echo_band(wt_memory_region_t* fill, size_t n,
+                            uintptr_t last_base, uintptr_t band_size)
+{
+    if ((band_size == 0u) || (n >= WT_SPMC_MAX_FILL)) {
+        return n;
+    }
+    g_wt_spm_echo_stack_base = last_base + WT_SPMC_STACK_STRIDE;
+    g_wt_spm_echo_stack_size = band_size;
+    fill[n].base = g_wt_spm_echo_stack_base;
+    fill[n].size = (size_t)band_size;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
+    return n + 1u;
+}
+#else
+static size_t add_echo_band(wt_memory_region_t* fill, size_t n,
+                            uintptr_t last_base, uintptr_t band_size)
+{
+    (void)fill;
+    (void)last_base;
+    (void)band_size;
+    return n;
+}
+#endif
+
 static void enable_mmu(uint64_t boot_info_pa)
 {
     const wt_system_manifest_t* manifest = wt_generated_manifest_get();
@@ -199,6 +232,8 @@ static void enable_mmu(uint64_t boot_info_pa)
     size_t n = 0u;
     size_t i;
     uint64_t ttbr0;
+    uintptr_t last_base = 0u;
+    uintptr_t band_size = 0u;
 
     /* Shareable entries: a partition whose manifest region covers one takes
      * it over (EL0 + EL1); the SPM RAM band, boot page, pool, and devices
@@ -235,8 +270,13 @@ static void enable_mmu(uint64_t boot_info_pa)
         fill[n].base = d->stack_base & ~(uintptr_t)(WT_TABLES_PAGE_SIZE - 1u);
         fill[n].size = page_up(d->stack_base + d->stack_size) - fill[n].base;
         fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
+        if (fill[n].base > last_base) {
+            last_base = fill[n].base;
+            band_size = (uintptr_t)fill[n].size;
+        }
         n++;
     }
+    n = add_echo_band(fill, n, last_base, band_size);
     fill[n].base = (uintptr_t)boot_info_pa;
     fill[n].size = WT_TABLES_PAGE_SIZE;
     fill[n].attributes = WT_MEM_ATTR_READ;
@@ -466,6 +506,46 @@ void wt_spm_main(uint64_t boot_info_pa)
 
 /* Nothing to run on the Secure side: every event the SPMD delivers is
  * reported until the Secure virtual instance dispatches them. */
+/* A direct request the SPMD relayed from the Normal world: validate it at the
+ * NS-physical instance, deliver it to the waiting receiver, and send the
+ * partition's response back with FFA_MSG_SEND_DIRECT_RESP32; that SMC's
+ * return is the next event. A request no partition can take is answered with
+ * FFA_ERROR instead. */
+static void direct_request(wt_ffa_regs_t* r)
+{
+    uint64_t resp[8];
+    struct wt_co* co = NULL;
+    uint16_t receiver = wt_ffa_direct_receiver(r->x[1]);
+    int ret = wt_ffa_direct_req_check(r->x, WT_FFA_INSTANCE_NS_PHYSICAL);
+    unsigned int i;
+
+    wt_el3_puts("[SPM] direct req from=0x");
+    wt_el3_puthex(wt_ffa_direct_sender(r->x[1]), 4u);
+    wt_el3_puts(" to=0x");
+    wt_el3_puthex(receiver, 4u);
+    wt_el3_puts("\r\n");
+    if (ret == 0) {
+        if (receiver == WT_FFA_ID_ECHO) {
+            co = wt_spm_ffa_echo_partition();
+        }
+        ret = (co != NULL) ? wt_spm_ffa_direct_deliver(co, r->x, resp) : WT_FFA_BUSY;
+    }
+    if (ret == 0) {
+        for (i = 0u; i < 8u; i++) {
+            r->x[i] = resp[i];
+        }
+    }
+    else {
+        for (i = 0u; i < 8u; i++) {
+            r->x[i] = 0u;
+        }
+        r->x[0] = WT_FFA_ERROR;
+        r->x[2] = (uint64_t)(uint32_t)ret;
+    }
+    wt_platform_console_flush();
+    wt_ffa_smc(r);
+}
+
 void wt_spm_idle(void)
 {
     wt_ffa_regs_t r;
@@ -473,6 +553,10 @@ void wt_spm_idle(void)
     wt_platform_console_flush();
     ffa_call(&r, WT_FFA_MSG_WAIT, 0u);
     for (;;) {
+        if ((uint32_t)r.x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32) {
+            direct_request(&r);
+            continue;
+        }
         wt_el3_puts("[SPM] unexpected event x0=0x");
         wt_el3_puthex(r.x[0], 8u);
         wt_el3_puts("\r\n");

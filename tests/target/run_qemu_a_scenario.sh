@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -61,7 +61,7 @@ esac
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|ffa-direct:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
@@ -86,6 +86,7 @@ else
     crossdomain) probe=(WT_FFM_NEGATIVE_PROBE=1) ;;
     spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
     tablesneg)   probe=(WT_TABLES_NEGATIVE=1) ;;
+    ffa-direct)  probe=(WT_EL3_TEST_DRIVER=1) ;;
   esac
   make ARCH=aarch64 TARGET="$target" TOOLPREFIX="$TOOLPREFIX" WT_GIC_VERSION="$GIC" \
     WT_CPU="$CPU" WT_PORT_BOOT_CPUS="$cpus" BUILD_DIR="build-aarch64-$tag-$scenario" \
@@ -216,6 +217,17 @@ case "$scenario" in
     refute_re "the run did not exit cleanly" '\[EXPECT EXIT\] Success'
     expect "a writable and executable region was refused when the SPM table was built (W^X)" "[SPM] FAIL domain x0=0x00000001"
     expect "the SPMC panicked through the monitor" "[EL3] panic code=0x000000f1"
+    ;;
+  ffa-direct)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no unexpected FF-A event at the SPMC" '\[SPM\] unexpected event'
+    refute_re "the response was not judged bad" '\[EL3\] direct resp BAD'
+    expect "the echo partition initialized alongside the six services" "[SPM] partitions ready n=7"
+    expect "the SPMD sent a direct request to the echo partition" "[EL3] direct req to=0x80fe"
+    expect "the SPMC relayed it at the NS-physical instance" "[SPM] direct req from=0x0000 to=0x80fe"
+    expect "the echo partition's response reached the SPMD with the payload complemented" "[EL3] direct resp ok from=0x80fe x3=0xedcb5432"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
 esac
 

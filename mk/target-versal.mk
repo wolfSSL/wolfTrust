@@ -20,7 +20,7 @@ WT_EL3_RAM_SIZE ?= 0x00020000
 # translation-table pool follows it.
 WT_SPM_BOOT_INFO_PA ?= 0x7F000000
 WT_SPM_TABLE_POOL_PA ?= 0x7F001000
-WT_SPM_TABLE_POOL_PAGES ?= 64
+WT_SPM_TABLE_POOL_PAGES ?= 96
 # S-EL1 SPMC image band (placed by the loader), its RAM band, and the
 # wolfHSM keystore band.
 WT_SPM_IMAGE_PA ?= 0x7F100000

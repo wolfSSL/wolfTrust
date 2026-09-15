@@ -80,4 +80,11 @@ struct wt_co;
 int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
                               uint64_t* resp);
 
+/* The test echo partition (WT_FFA_ID_ECHO), NULL unless WT_EL3_TEST_DRIVER=1.
+ * enable_mmu publishes its stack band (the slot after the last manifest
+ * partition stack) and the init pass builds the partition on it. */
+struct wt_co* wt_spm_ffa_echo_partition(void);
+extern uintptr_t g_wt_spm_echo_stack_base;
+extern uintptr_t g_wt_spm_echo_stack_size;
+
 #endif /* WOLFTRUST_ARCH_AARCH64_SPM_SVC_H */

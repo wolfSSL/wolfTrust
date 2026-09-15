@@ -24,6 +24,7 @@
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa.h"
+#include "wolftrust/arch/aarch64/ffa_msg.h"
 
 static unsigned int g_spmc_ready;
 
@@ -95,6 +96,59 @@ void wt_ffa_spmd_console_call(uint64_t* x, unsigned int is64)
     reply_success((wt_ffa_regs_t*)x, 0u, 0u);
 }
 
+#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+/* The monitor exit call lives in the host-untranslatable monitor ABI, so the
+ * driver alone includes it. */
+#include "wolftrust/arch/aarch64/monitor_abi.h"
+
+/* Normal-world stand-in for the ffa-direct proof (never in a production
+ * image): the SPMC's first post-init wait is answered with one direct request
+ * to the echo partition, and the relayed response ends the run. */
+static int test_driver_request(wt_ffa_regs_t* r)
+{
+    static const uint32_t payload[WT_FFA_DIRECT_PAYLOAD_WORDS] = {
+        WT_FFA_TEST_PAYLOAD, 0u, 0u, 0u, 0u
+    };
+
+    wt_el3_puts("[EL3] spmc ready\r\n[EL3] direct req to=0x");
+    wt_el3_puthex(WT_FFA_ID_ECHO, 4u);
+    wt_el3_puts("\r\n");
+    wt_ffa_direct_build(r->x, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_ECHO, payload);
+    return 1;
+}
+
+static int test_driver_response(wt_ffa_regs_t* r)
+{
+    int ok = (wt_ffa_direct_resp_check(r->x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0) &&
+             (wt_ffa_direct_sender(r->x[1]) == WT_FFA_ID_ECHO) &&
+             (wt_ffa_direct_receiver(r->x[1]) == WT_FFA_ID_NS_PRIMARY) &&
+             ((uint32_t)r->x[3] == (uint32_t)~WT_FFA_TEST_PAYLOAD);
+
+    wt_el3_puts(ok ? "[EL3] direct resp ok from=0x" : "[EL3] direct resp BAD from=0x");
+    wt_el3_puthex(wt_ffa_direct_sender(r->x[1]), 4u);
+    wt_el3_puts(" x3=0x");
+    wt_el3_puthex((uint32_t)r->x[3], 8u);
+    wt_el3_puts("\r\n");
+    wt_platform_console_flush();
+    (void)wt_el3_monitor_call(WT_MON_FID_EXIT,
+                              ok ? WT_MON_EXIT_SUCCESS : WT_MON_EXIT_PANIC);
+    return 1;
+}
+#else
+static int test_driver_request(wt_ffa_regs_t* r)
+{
+    (void)r;
+    return 0;
+}
+
+static int test_driver_response(wt_ffa_regs_t* r)
+{
+    (void)r;
+    return 0;
+}
+#endif
+
 void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
 {
     uint32_t fid = (uint32_t)r->x[0];
@@ -130,9 +184,17 @@ void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
             /* 5.5: the first MSG_WAIT from the SPMC ends its initialization. */
             if (g_spmc_ready == 0u) {
                 g_spmc_ready = 1u;
+                if (test_driver_request(r) != 0) {
+                    break;
+                }
                 wt_el3_spmc_ready();
             }
             reply_error(r, WT_FFA_DENIED);
+            break;
+        case WT_FFA_MSG_SEND_DIRECT_RESP32:
+            if (test_driver_response(r) == 0) {
+                reply_error(r, WT_FFA_NOT_SUPPORTED);
+            }
             break;
         default:
             reply_error(r, WT_FFA_NOT_SUPPORTED);

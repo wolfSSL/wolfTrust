@@ -403,6 +403,10 @@ faults once and recovers on restart) are the AArch64 twins of the M33MU
 scenarios of the same names. `tablesneg` proves the stage-1 table builder
 refuses a writable-and-executable region (W^X): the SPMC panics through the
 monitor before it turns its MMU on, so no partition ever initializes.
+`ffa-direct` builds with `WT_EL3_TEST_DRIVER=1`: the monitor stands in for the
+Normal world and sends one FF-A direct request to a test echo partition; the
+SPMC delivers it to the waiting partition at Secure EL0, relays its response
+back, and the monitor checks the payload came back complemented.
 
 ## STM32H563 hardware
 

@@ -26,6 +26,7 @@
 
 #include "wolftrust/sched/coroutine_internal.h"
 #include "wolftrust/arch/aarch64/el3.h"
+#include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/ffm_domain.h"
@@ -36,6 +37,12 @@
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
+
+/* One stage-1 table per coroutine domain, so the table cap must cover every
+ * coroutine (the boot self-tests keep theirs too). */
+#if WT_DOMAIN_MAX_TABLES < WT_CO_MAX
+#error "WT_DOMAIN_MAX_TABLES must be at least WT_CO_MAX"
+#endif
 
 /* FF-A ids: SPMC 0x8000, SPMD 0x8001, partitions follow in creation order. */
 #define WT_SP_FFA_ID_BASE 0x8001u
@@ -103,6 +110,55 @@ static int run_pending_partition(unsigned int i)
  * initialization complete. A partition that faults during init is routed
  * through the core's restart policy (wt_spm_recover_faulted re-arms it) and
  * re-run, bounded so one that faults every time stays quarantined. */
+#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+/* The FF-A native echo partition for the ffa-direct proof: created in the
+ * init pass, after the core has created the manifest partitions, so it
+ * initializes (parks in FFA_MSG_WAIT) exactly like they do. It executes the
+ * shared code every partition maps and owns the band enable_mmu published. */
+static struct wt_co* g_echo_co;
+static wt_secure_domain_t g_echo_domain;
+
+static void create_echo_partition(void)
+{
+    size_t n;
+    wt_co_t* co;
+
+    if ((g_echo_co != NULL) || (g_wt_spm_echo_stack_size == 0u)) {
+        return;
+    }
+    n = wt_platform_sp_shared_regions(g_echo_domain.regions, 2u);
+    if (n != 2u) {
+        return;
+    }
+    g_echo_domain.regions[n].base = g_wt_spm_echo_stack_base;
+    g_echo_domain.regions[n].size = (size_t)g_wt_spm_echo_stack_size;
+    g_echo_domain.regions[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_echo_domain.region_count = n + 1u;
+    co = wt_co_create_blocked_ex((uint8_t*)(uintptr_t)g_wt_spm_echo_stack_base,
+                                 (size_t)g_wt_spm_echo_stack_size,
+                                 (wt_co_entry_fn)wt_sp_ffa_echo, (void*)0);
+    if (co == NULL) {
+        return;
+    }
+    wt_co_set_domain(co, &g_echo_domain, 1u);
+    g_echo_co = (struct wt_co*)co;
+}
+
+struct wt_co* wt_spm_ffa_echo_partition(void)
+{
+    return g_echo_co;
+}
+#else
+static void create_echo_partition(void)
+{
+}
+
+struct wt_co* wt_spm_ffa_echo_partition(void)
+{
+    return NULL;
+}
+#endif
+
 void wt_spm_init_partitions(void)
 {
     unsigned int i;
@@ -113,6 +169,7 @@ void wt_spm_init_partitions(void)
         return;
     }
     g_partitions_initialized = 1u;
+    create_echo_partition();
     for (i = 0u; i < WT_CO_MAX; i++) {
         (void)run_pending_partition(i);
     }

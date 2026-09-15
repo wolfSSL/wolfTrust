@@ -460,6 +460,44 @@ static int prove_ffa_direct(void)
     return 1;
 }
 
+/* Prove asynchronous preemption: an S-EL0 partition that never yields is
+ * entered with the secure timer armed, taken by a Group 0 tick mid-spin, and
+ * left runnable (not blocked or faulted) so the scheduler could resume it. */
+static wt_secure_domain_t g_spin_domain;
+
+static int prove_preempt(void)
+{
+    const wt_domain_descriptor_t* d = first_partition_domain();
+    uint8_t* stack;
+    wt_co_t* co;
+    int preempted;
+
+    if (d == NULL) {
+        return 0;
+    }
+    stack = (uint8_t*)(uintptr_t)d->stack_base;
+    g_spin_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
+    g_spin_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
+    g_spin_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+    g_spin_domain.regions[1].base = (uintptr_t)stack;
+    g_spin_domain.regions[1].size = (size_t)d->stack_size;
+    g_spin_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_spin_domain.region_count = 2u;
+    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+                                 (wt_co_entry_fn)wt_sp_spin, (void*)0);
+    if (co == NULL) {
+        return 0;
+    }
+    wt_co_set_domain(co, &g_spin_domain, 1u);
+    wt_co_wake(co);
+    wt_spm_preempt_timer_arm();
+    (void)wt_co_run(co);
+    wt_spm_preempt_timer_stop();
+    preempted = (wt_co_state(co) == WT_CO_RUNNABLE) ? 1 : 0;
+    wt_co_mark_faulted(co);
+    return preempted;
+}
+
 void wt_spm_main(uint64_t boot_info_pa)
 {
     wt_ffa_regs_t r;
@@ -490,6 +528,12 @@ void wt_spm_main(uint64_t boot_info_pa)
     }
     else {
         wt_el3_puts("[SPM] ffa direct FAIL\r\n");
+    }
+    if (prove_preempt()) {
+        wt_el3_puts("[SPM] preempt ok\r\n");
+    }
+    else {
+        wt_el3_puts("[SPM] preempt FAIL\r\n");
     }
     discover_spmd();
     prove_console_log();

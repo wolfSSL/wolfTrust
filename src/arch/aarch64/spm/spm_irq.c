@@ -24,6 +24,7 @@
 
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/gic.h"
+#include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
 
 #define WT_SPM_TICK_PERIOD_MS 10u
@@ -32,9 +33,10 @@
 volatile uint32_t g_wt_spm_tick_intid;
 
 void wt_spm_fiq(void);
+void wt_spm_lower_fiq(wt_trap_frame_t* frame);
 int wt_spm_prove_tick(void);
 
-void wt_spm_fiq(void)
+static void ack_group0_tick(void)
 {
     uint32_t intid = wt_gic->ack_group0();
 
@@ -45,6 +47,38 @@ void wt_spm_fiq(void)
         g_wt_spm_tick_intid = intid;
         wt_gic->eoi_group0(intid);
     }
+}
+
+/* Current-EL FIQ: the SPMC itself was running, so acknowledge and resume. */
+void wt_spm_fiq(void)
+{
+    ack_group0_tick();
+}
+
+/* Lower-EL FIQ: an S-EL0 partition was running. Acknowledge the tick, then
+ * preempt the partition (the scheduling tick is an NS-Int, DEV-04); the
+ * handler does not return here when the partition is preempted. */
+void wt_spm_lower_fiq(wt_trap_frame_t* frame)
+{
+    ack_group0_tick();
+    wt_spm_preempt_from_fiq(frame);
+}
+
+/* Arm the secure timer for a preemption tick with S-EL1 FIQ masked, so only
+ * the running S-EL0 partition takes it (a current-EL tick would consume the
+ * one-shot before the partition ever runs). */
+void wt_spm_preempt_timer_arm(void)
+{
+    wt_daif_set_fiq();
+    g_wt_spm_tick_intid = 0u;
+    wt_gic->enable(WT_GIC_INTID_SECURE_TIMER);
+    wt_el3_timer_arm_ms(WT_SPM_TICK_PERIOD_MS);
+}
+
+void wt_spm_preempt_timer_stop(void)
+{
+    wt_el3_timer_disable();
+    wt_gic->disable(WT_GIC_INTID_SECURE_TIMER);
 }
 
 /* One secure timer period with FIQ unmasked at S-EL1: the tick must arrive

@@ -230,6 +230,10 @@ WT_EL3_TEST_DRIVER ?= 0
 ifeq ($(WT_EL3_TEST_DRIVER),1)
 SECURE_CFLAGS += -DWT_EL3_TEST_DRIVER=1
 endif
+WT_EL3_NS_SMOKE ?= 0
+ifeq ($(WT_EL3_NS_SMOKE),1)
+SECURE_CFLAGS += -DWT_EL3_NS_SMOKE=1
+endif
 # Hardware guest-flash write protection: refuse to launch a guest whose image
 # sectors are not WRP-protected, so a peer Non-secure guest cannot reprogram a
 # suspended guest's flash. Silicon only (the M33MU model has no flash WRP).

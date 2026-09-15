@@ -62,6 +62,9 @@ static inline void wt_ffa_smc(wt_ffa_regs_t* r)
 /* EL3 (SPMD) handling of one FF-A call taken at the Secure physical
  * instance; fills r with the FFA_SUCCESS/FFA_ERROR reply. */
 void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r);
+/* EL3 (SPMD) handling of one FF-A call taken at the NS physical instance (from
+ * the Normal world once launched); fills r with the reply. */
+void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r);
 unsigned int wt_ffa_spmd_spmc_ready(void);
 /* FFA_CONSOLE_LOG over x[0..7] (SMC32) or x[0..17] (SMC64); the reply lands
  * in x[0..7]. The caller hands the saved register frame directly. */

@@ -149,6 +149,29 @@ static int test_driver_response(wt_ffa_regs_t* r)
 }
 #endif
 
+/* NS physical instance (13.x): FF-A calls arriving from the Normal world once
+ * the SPMD has launched it. B3.1 serves only version negotiation; discovery,
+ * direct messaging, and the interrupt loop follow in later B3 slices. */
+void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
+{
+    uint32_t fid = (uint32_t)r->x[0];
+    uint32_t w1 = (uint32_t)r->x[1];
+    unsigned int i;
+
+    switch (fid) {
+        case WT_FFA_VERSION:
+            for (i = 1u; i < 8u; i++) {
+                r->x[i] = 0u;
+            }
+            r->x[0] = (uint64_t)(uint32_t)wt_ffa_version_reply(w1,
+                                                               WT_FFA_VERSION_1_2);
+            break;
+        default:
+            reply_error(r, WT_FFA_NOT_SUPPORTED);
+            break;
+    }
+}
+
 void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
 {
     uint32_t fid = (uint32_t)r->x[0];

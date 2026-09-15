@@ -149,9 +149,26 @@ static int test_driver_response(wt_ffa_regs_t* r)
 }
 #endif
 
+static int ns_implements(uint32_t fid)
+{
+    switch (fid) {
+        case WT_FFA_ERROR:
+        case WT_FFA_SUCCESS32:
+        case WT_FFA_SUCCESS64:
+        case WT_FFA_VERSION:
+        case WT_FFA_FEATURES:
+        case WT_FFA_ID_GET:
+        case WT_FFA_SPM_ID_GET:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 /* NS physical instance (13.x): FF-A calls arriving from the Normal world once
- * the SPMD has launched it. B3.1 serves only version negotiation; discovery,
- * direct messaging, and the interrupt loop follow in later B3 slices. */
+ * the SPMD has launched it. B3.2 serves version negotiation and discovery
+ * (FEATURES, ID_GET, SPM_ID_GET); direct messaging and the interrupt loop
+ * follow in later B3 slices. */
 void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
 {
     uint32_t fid = (uint32_t)r->x[0];
@@ -165,6 +182,23 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
             }
             r->x[0] = (uint64_t)(uint32_t)wt_ffa_version_reply(w1,
                                                                WT_FFA_VERSION_1_2);
+            break;
+        case WT_FFA_FEATURES:
+            if (WT_FFA_FEATURES_IS_FID(w1) && ns_implements(w1)) {
+                reply_success(r, 0u, 0u);
+            }
+            else {
+                reply_error(r, WT_FFA_NOT_SUPPORTED);
+            }
+            break;
+        case WT_FFA_ID_GET:
+            /* The caller's own id: the primary Normal-world endpoint is 0
+             * (DEV-01: the SPMD plays the Hypervisor id-allocation role). */
+            reply_success(r, WT_FFA_ID_NS_PRIMARY, 0u);
+            break;
+        case WT_FFA_SPM_ID_GET:
+            /* The SPM the Normal world talks to is the SPMC. */
+            reply_success(r, WT_FFA_ID_SPMC, 0u);
             break;
         default:
             reply_error(r, WT_FFA_NOT_SUPPORTED);

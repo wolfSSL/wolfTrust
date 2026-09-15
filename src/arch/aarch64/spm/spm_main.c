@@ -606,6 +606,11 @@ void wt_spm_idle(void)
 {
     wt_ffa_regs_t r;
 
+#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+    /* With every partition initialized and waiting, route the test Secure
+     * interrupt to the echo partition (signalled, then queued) before idling. */
+    wt_spm_prove_sint_route(wt_spm_ffa_echo_partition());
+#endif
     wt_platform_console_flush();
     ffa_call(&r, WT_FFA_MSG_WAIT, 0u);
     for (;;) {

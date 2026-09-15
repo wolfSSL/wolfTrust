@@ -96,6 +96,8 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     uint32_t ec = (uint32_t)(frame->esr >> 26) & 0x3Fu;
     uint32_t fid = (uint32_t)frame->x[0];
     wt_co_t* co = wt_co_current();
+    uint32_t sint;
+    unsigned int i;
 
     g_wt_spm_live_frame = frame;
     g_wt_spm_trap_spsr = frame->spsr;
@@ -125,8 +127,20 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if (fid == WT_FFA_MSG_WAIT) {
         /* 8.2/8.5: the partition enters the waiting state; the next direct
-         * request is delivered as this call's return registers. */
-        wt_co_block();
+         * request is delivered as this call's return registers. A Secure
+         * interrupt queued while it ran (Table 9.1) is delivered here as
+         * FFA_INTERRUPT instead of blocking. */
+        sint = wt_spm_sint_take_pending(co);
+        if (sint != 0u) {
+            for (i = 0u; i < 8u; i++) {
+                frame->x[i] = 0u;
+            }
+            frame->x[0] = WT_FFA_INTERRUPT;
+            frame->x[1] = (uint64_t)sint;
+        }
+        else {
+            wt_co_block();
+        }
     }
     else if ((fid == WT_FFA_MSG_SEND_DIRECT_RESP32) ||
              (fid == WT_FFA_MSG_SEND_DIRECT_RESP64)) {

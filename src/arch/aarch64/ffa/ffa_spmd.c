@@ -159,6 +159,36 @@ static int ns_implements(uint32_t fid)
         case WT_FFA_FEATURES:
         case WT_FFA_ID_GET:
         case WT_FFA_SPM_ID_GET:
+        case WT_FFA_PARTITION_INFO_GET:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* NS-instance FIDs the SPMD cannot answer alone (it has no manifest): they are
+ * forwarded to the SPMC. Partition discovery today; guest-to-SP direct
+ * messaging joins it next. */
+int wt_ffa_spmd_ns_forwards(uint32_t fid)
+{
+    switch (fid) {
+        case WT_FFA_PARTITION_INFO_GET:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* An SMC from the SPMC that is the reply to a call the SPMD forwarded from the
+ * Normal world; it is routed back to the waiting Normal world. */
+int wt_ffa_spmd_is_ns_reply(uint32_t fid)
+{
+    switch (fid) {
+        case WT_FFA_SUCCESS32:
+        case WT_FFA_SUCCESS64:
+        case WT_FFA_ERROR:
+        case WT_FFA_MSG_SEND_DIRECT_RESP32:
+        case WT_FFA_MSG_SEND_DIRECT_RESP64:
             return 1;
         default:
             return 0;
@@ -206,7 +236,7 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
     }
 }
 
-void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
+int wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
 {
     uint32_t fid = (uint32_t)r->x[0];
     uint32_t w1 = (uint32_t)r->x[1];
@@ -238,13 +268,14 @@ void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
             wt_ffa_spmd_console_call(r->x, 0u);
             break;
         case WT_FFA_MSG_WAIT:
-            /* 5.5: the first MSG_WAIT from the SPMC ends its initialization. */
+            /* 5.5: the first MSG_WAIT from the SPMC ends its initialization; the
+             * SPMD then turns on the Normal world. */
             if (g_spmc_ready == 0u) {
                 g_spmc_ready = 1u;
                 if (test_driver_request(r) != 0) {
                     break;
                 }
-                wt_el3_spmc_ready();
+                return WT_SPMD_ACTION_LAUNCH;
             }
             reply_error(r, WT_FFA_DENIED);
             break;
@@ -257,4 +288,5 @@ void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
             reply_error(r, WT_FFA_NOT_SUPPORTED);
             break;
     }
+    return WT_SPMD_ACTION_REPLY;
 }

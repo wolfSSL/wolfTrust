@@ -65,6 +65,20 @@ static void put_hex(uint32_t value)
     put_str(&buf[i]);
 }
 
+static void put_dec(uint32_t value)
+{
+    char buf[11];
+    int i = 10;
+
+    buf[i] = '\0';
+    do {
+        i--;
+        buf[i] = (char)('0' + (char)(value % 10u));
+        value /= 10u;
+    } while (value != 0u && i > 0);
+    put_str(&buf[i]);
+}
+
 /* One FF-A SMC to the SPMD at the NS physical instance: in0/in1 in x0/x1, the
  * reply x0-x3 written back to out[0..3]. */
 static void ffa_smc(uint64_t in0, uint64_t in1, uint64_t* out)
@@ -85,10 +99,35 @@ static void ffa_smc(uint64_t in0, uint64_t in1, uint64_t* out)
     out[3] = r3;
 }
 
+/* FFA_PARTITION_INFO_GET with the count-only flag (Nil UUID lists all): the SPMD
+ * forwards it to the SPMC, which replies with the partition count in x2. Returns
+ * the count, or 0 on error. Passes the flag in x5, so it cannot use ffa_smc. */
+static uint32_t partition_count(void)
+{
+    register uint64_t r0 __asm__("x0") = WT_FFA_PARTITION_INFO_GET;
+    register uint64_t r1 __asm__("x1") = 0;
+    register uint64_t r2 __asm__("x2") = 0;
+    register uint64_t r3 __asm__("x3") = 0;
+    register uint64_t r4 __asm__("x4") = 0;
+    register uint64_t r5 __asm__("x5") = WT_FFA_PARTINFO_FLAG_COUNT;
+
+    __asm__ volatile("smc #0"
+                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4), "+r"(r5)
+                     :
+                     : "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
+                       "x15", "x16", "x17", "memory");
+    if ((uint32_t)r0 != WT_FFA_SUCCESS32) {
+        return 0u;
+    }
+    return (uint32_t)r2;
+}
+
 /* Walk the NS physical instance: FEATURES(VERSION) is supported, ID_GET returns
  * the caller's own id (the primary NS endpoint, 0), SPM_ID_GET returns the SPMC
- * id (0x8000). Returns non-zero when all three answer as expected. */
-static int discover(void)
+ * id (0x8000), and PARTITION_INFO_GET (forwarded to the SPMC) reports the
+ * partition count. Returns non-zero when all answer as expected; *count holds
+ * the reported partition count. */
+static int discover(uint32_t* count)
 {
     uint64_t o[4];
 
@@ -106,6 +145,10 @@ static int discover(void)
         ((uint16_t)o[2] != WT_FFA_ID_SPMC)) {
         return 0;
     }
+    *count = partition_count();
+    if (*count == 0u) {
+        return 0;
+    }
     return 1;
 }
 
@@ -113,6 +156,7 @@ void ns_main(void)
 {
     uint64_t current_el;
     uint64_t o[4];
+    uint32_t count = 0u;
 
     __asm__ volatile("mrs %0, CurrentEL" : "=r"(current_el));
     put_str("[NS] hello el=");
@@ -129,8 +173,10 @@ void ns_main(void)
         put_str("\r\n");
     }
 
-    if (discover()) {
-        put_str("[NS] discovery ok\r\n");
+    if (discover(&count)) {
+        put_str("[NS] discovery ok n=");
+        put_dec(count);
+        put_str("\r\n");
     }
     else {
         put_str("[NS] discovery BAD\r\n");

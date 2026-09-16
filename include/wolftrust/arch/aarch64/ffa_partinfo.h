@@ -32,8 +32,7 @@
 #define WT_FFA_PARTINFO_DESC_V10        8u   /* id + context count + props */
 #define WT_FFA_PARTINFO_DESC_V11        24u  /* the above plus the 16-byte UUID */
 
-/* w5 flags: bit 0 = return only the count of matching partitions (6.1). */
-#define WT_FFA_PARTINFO_FLAG_COUNT      0x1u
+/* WT_FFA_PARTINFO_FLAG_COUNT (w5 bit 0, count-only) lives in ffa_abi.h. */
 
 /* Partition properties (Table 6.2): direct request receipt/sending, indirect
  * messaging, notification receipt. */

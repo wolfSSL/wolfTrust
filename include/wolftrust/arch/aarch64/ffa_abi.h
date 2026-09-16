@@ -85,6 +85,10 @@
 #define WT_FFA_ID_SPMC                0x8000u
 #define WT_FFA_ID_SPMD                0x8001u
 #define WT_FFA_ID_SP_FIRST            0x8002u
+
+/* FFA_PARTITION_INFO_GET w5 flags: bit 0 set returns only the partition count
+ * in w2, so the caller needs no RX buffer. */
+#define WT_FFA_PARTINFO_FLAG_COUNT    (1u << 0)
 /* wolfTrust test echo partition and its request payload; both exist only in
  * WT_EL3_TEST_DRIVER=1 builds and never in a production image. */
 #define WT_FFA_ID_ECHO                0x80FEu

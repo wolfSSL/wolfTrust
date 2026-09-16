@@ -55,10 +55,19 @@ WT_NS_PREEMPT ?= 0
 ifeq ($(WT_NS_PREEMPT),1)
 CFLAGS += -DWT_NS_PREEMPT=1
 endif
+# Reach the Secure services over the PSA FF-A transport (the positive/guest1
+# proofs); WT_NS_GUEST_ID stamps the guest marker.
+WT_NS_GUEST_PSA ?= 0
+WT_NS_GUEST_ID ?= 0
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
 
 SRCS := ns.S ns.c
+ifeq ($(WT_NS_GUEST_PSA),1)
+CFLAGS += -DWT_NS_GUEST_PSA=1 -DWT_NS_GUEST_ID=$(WT_NS_GUEST_ID)
+SRCS += $(ROOT)/src/client/psa_ffa_transport.c \
+    $(ROOT)/src/arch/aarch64/ffa/psa_ffa_transport_arch.c
+endif
 ELF := $(BUILD_DIR)/ns.elf
 BIN := $(BUILD_DIR)/ns.bin
 

@@ -44,7 +44,7 @@ UNIT_SUITES := domain manifest lifecycle guest_verify rollback sp_recovery \
     flash_nvm ffm_veneer secure_layout \
     vault_service storage_service ps_service keystore_ipc negatives qcbor_shim \
     fwu_service runtime_verify psa_ffm_client psa_storage_client vnet_relay \
-    psa_headers
+    psa_headers psa_ffa_transport
 
 .PHONY: all test test-compilers test-sanitize test-valgrind print-suites clean
 

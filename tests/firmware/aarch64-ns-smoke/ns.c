@@ -25,6 +25,14 @@
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/psci.h"
 
+#if defined(WT_NS_GUEST_PSA)
+#include "psa/client.h"
+#include "wolftrust/arch/aarch64/psa_ffa.h"
+#ifndef WT_NS_GUEST_ID
+#define WT_NS_GUEST_ID 0
+#endif
+#endif
+
 #include <stdint.h>
 
 #define UART_DR         0x00u
@@ -157,6 +165,59 @@ static void guest_direct(void)
 }
 #endif
 
+#if defined(WT_NS_GUEST_PSA)
+/* Reach the Secure services over the operating-system-neutral PSA client
+ * (src/client/psa_ffa_transport.c): read the framework and service versions,
+ * connect to the register-only test service, prove an unknown service is
+ * refused, and close the handle. This is the Normal-world guest a real OS runs
+ * (B3.5); data-carrying psa_call arrives with memory sharing (B4). */
+static void guest_psa(void)
+{
+    uint32_t fw;
+    uint32_t ver;
+    psa_handle_t handle;
+    psa_handle_t refused;
+
+    fw = psa_framework_version();
+    put_str("[NS] psa framework 0x");
+    put_hex(fw);
+    put_str("\r\n");
+
+    ver = psa_version(WT_PSA_FFA_SID_TEST);
+    put_str("[NS] psa version v=");
+    put_dec(ver);
+    put_str("\r\n");
+
+    handle = psa_connect(WT_PSA_FFA_SID_TEST, WT_PSA_FFA_SID_TEST_VERSION);
+    if (PSA_HANDLE_IS_VALID(handle)) {
+        put_str("[NS] psa connect ok handle=");
+        put_dec((uint32_t)handle);
+        put_str("\r\n");
+    }
+    else {
+        put_str("[NS] psa connect FAIL\r\n");
+    }
+
+    refused = psa_connect(0x9999u, 1u);
+    if (!PSA_HANDLE_IS_VALID(refused)) {
+        put_str("[NS] psa connect refused\r\n");
+    }
+    else {
+        put_str("[NS] psa connect NOT refused\r\n");
+        psa_close(refused);
+    }
+
+    if (PSA_HANDLE_IS_VALID(handle)) {
+        psa_close(handle);
+        put_str("[NS] psa close ok\r\n");
+    }
+
+    put_str("[NS] guest");
+    put_dec((uint32_t)WT_NS_GUEST_ID);
+    put_str(" ok\r\n");
+}
+#endif
+
 /* Walk the NS physical instance: FEATURES(VERSION) is supported, ID_GET returns
  * the caller's own id (the primary NS endpoint, 0), SPM_ID_GET returns the SPMC
  * id (0x8000), and PARTITION_INFO_GET (forwarded to the SPMC) reports the
@@ -264,5 +325,9 @@ void ns_main(void)
 
 #if defined(WT_NS_GUEST_ECHO)
     guest_direct();
+#endif
+
+#if defined(WT_NS_GUEST_PSA)
+    guest_psa();
 #endif
 }

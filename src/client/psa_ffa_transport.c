@@ -62,5 +62,28 @@ void psa_close(psa_handle_t handle)
 {
     uint32_t result = 0u;
 
-    (void)wt_psa_ffa_op(WT_PSA_FFA_OP_CLOSE, (uint32_t)handle, 0u, &result);
+    (void)wt_psa_ffa_op(WT_PSA_FFA_OP_CLOSE, (uint64_t)(uint32_t)handle, 0u,
+                        &result);
+}
+
+psa_status_t psa_call(psa_handle_t handle, int32_t type,
+                      const psa_invec* in_vec, size_t in_len,
+                      psa_outvec* out_vec, size_t out_len)
+{
+    wt_psa_ffa_call_t desc;
+    uint32_t result = 0u;
+
+    desc.handle = (uint32_t)handle;
+    desc.type = type;
+    desc.in_len = (uint32_t)in_len;
+    desc.out_len = (uint32_t)out_len;
+    desc.in_vec = (uint64_t)(uintptr_t)in_vec;
+    desc.out_vec = (uint64_t)(uintptr_t)out_vec;
+    /* The SPMC reads the iovec arrays, copies the data both ways, and writes
+     * each out_vec length back in place; the result comes back in the reply. */
+    if (wt_psa_ffa_op(WT_PSA_FFA_OP_CALL, (uint64_t)(uintptr_t)&desc, 0u,
+                      &result) != 0) {
+        return PSA_ERROR_COMMUNICATION_FAILURE;
+    }
+    return (psa_status_t)(int32_t)result;
 }

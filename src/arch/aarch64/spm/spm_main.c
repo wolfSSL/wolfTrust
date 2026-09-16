@@ -44,6 +44,9 @@ const wt_system_manifest_t* wt_generated_manifest_get(void);
 #define WT_SPMC_UNKNOWN_FID (WT_FFA_FID32_LAST - 0xFu)
 #define WT_SPMC_BOOT_INFO_LIMIT 4096u
 #define WT_SPMC_MAX_FILL 24u
+/* Non-secure window the SPMC maps EL1-only to reach a guest's psa_call buffers
+ * (the guest image plus its stack live at WT_NS_IMAGE_PA). */
+#define WT_PSA_NS_WINDOW_SIZE 0x00100000u
 
 extern uint8_t _e_secure_text[];
 extern uint8_t __image_end[];
@@ -299,6 +302,17 @@ static void enable_mmu(uint64_t boot_info_pa)
         fill[n] = devices[i];
         n++;
     }
+#if defined(WT_EL3_NS_SMOKE)
+    /* A guest's psa_call buffers live in Non-secure RAM: map the window
+     * EL1-only and Non-secure so the SPMC (never a partition) can copy them. */
+    if (n < WT_SPMC_MAX_FILL) {
+        fill[n].base = (uintptr_t)WT_NS_IMAGE_PA;
+        fill[n].size = (size_t)WT_PSA_NS_WINDOW_SIZE;
+        fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
+                             WT_TABLES_ATTR_NS;
+        n++;
+    }
+#endif
 
     ttbr0 = wt_domain_init(fill, n, (uint8_t*)(uintptr_t)WT_SPM_TABLE_POOL_PA,
                            WT_SPM_TABLE_POOL_PA,
@@ -569,6 +583,10 @@ void wt_spm_main(uint64_t boot_info_pa)
     wt_el3_puts("[SPM] spmc entered at S-EL1\r\n");
     consume_boot_info(boot_info_pa);
     enable_mmu(boot_info_pa);
+#if defined(WT_EL3_NS_SMOKE)
+    wt_spm_psa_init((uint64_t)WT_NS_IMAGE_PA,
+                    (uint64_t)WT_NS_IMAGE_PA + WT_PSA_NS_WINDOW_SIZE);
+#endif
     if (wt_spm_prove_tick()) {
         wt_el3_puts("[SPM] tick ok intid=29\r\n");
     }

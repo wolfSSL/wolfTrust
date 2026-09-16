@@ -64,6 +64,9 @@
 /* Region attribute hint above the access bits: map an EL1-only region
  * non-global because another table maps the same range at EL0. */
 #define WT_TABLES_ATTR_NG        0x40000000u
+/* Map the output as Non-secure (PTE_NS): a Secure-EL1 access through the entry
+ * reaches Non-secure physical memory, so the SPMC can read a guest's buffers. */
+#define WT_TABLES_ATTR_NS        0x20000000u
 
 #define WT_TABLES_AP_EL1_RW      0u
 #define WT_TABLES_AP_ALL_RW      1u

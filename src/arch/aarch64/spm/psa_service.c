@@ -75,6 +75,112 @@ static int32_t do_close(uint32_t handle)
     return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
 }
 
+static uint64_t g_ns_lo;
+static uint64_t g_ns_hi;
+
+void wt_spm_psa_init(uint64_t ns_lo, uint64_t ns_hi)
+{
+    g_ns_lo = ns_lo;
+    g_ns_hi = ns_hi;
+}
+
+static int conn_live(uint32_t handle)
+{
+    return (handle >= 1u) && (handle <= WT_PSA_FFA_MAX_CONN) &&
+           (g_conn[handle - 1u].used != 0u);
+}
+
+/* A non-empty span must lie entirely inside the Non-secure window: this is the
+ * whole security check - a Secure or out-of-range pointer is refused, so the
+ * service never reads or writes anything but the caller's own memory. */
+static int range_ok(uint64_t base, uint64_t len, uint64_t lo, uint64_t hi)
+{
+    if (len == 0u) {
+        return 1;
+    }
+    return (base >= lo) && (base <= hi) && (len <= (hi - base));
+}
+
+/* The register-only test service: copy the first in-vec into a private scratch
+ * buffer complementing each byte, then copy that into the first out-vec and
+ * report the written length. The service only ever touches the scratch copy,
+ * never the caller's live memory (SPM-mediated copy, TF-M model). */
+static int32_t call_service(const wt_psa_ffa_call_t* desc, const psa_invec* iv,
+                            psa_outvec* ov)
+{
+    static uint8_t scratch[WT_PSA_FFA_CALL_MAX];
+    uint32_t n = 0u;
+    uint32_t cap;
+    uint32_t i;
+
+    if (desc->in_len >= 1u) {
+        n = (uint32_t)iv[0].len;
+        if (n > WT_PSA_FFA_CALL_MAX) {
+            n = WT_PSA_FFA_CALL_MAX;
+        }
+        for (i = 0u; i < n; i++) {
+            scratch[i] = (uint8_t)(((const uint8_t*)iv[0].base)[i] ^ 0xFFu);
+        }
+    }
+    if (desc->out_len >= 1u) {
+        cap = (uint32_t)ov[0].len;
+        if (cap > n) {
+            cap = n;
+        }
+        for (i = 0u; i < cap; i++) {
+            ((uint8_t*)ov[0].base)[i] = scratch[i];
+        }
+        ov[0].len = cap;
+    }
+    return (int32_t)PSA_SUCCESS;
+}
+
+int32_t wt_psa_call_run(uint64_t desc_addr, uint64_t ns_lo, uint64_t ns_hi)
+{
+    const wt_psa_ffa_call_t* desc;
+    const psa_invec* iv;
+    psa_outvec* ov;
+    uint32_t i;
+
+    if (!range_ok(desc_addr, (uint64_t)sizeof(wt_psa_ffa_call_t), ns_lo, ns_hi)) {
+        return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+    }
+    desc = (const wt_psa_ffa_call_t*)(uintptr_t)desc_addr;
+    if ((desc->in_len > PSA_MAX_IOVEC) || (desc->out_len > PSA_MAX_IOVEC)) {
+        return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+    }
+    if (!conn_live(desc->handle)) {
+        return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+    }
+    if ((desc->in_len != 0u) &&
+        !range_ok(desc->in_vec,
+                  (uint64_t)desc->in_len * (uint64_t)sizeof(psa_invec),
+                  ns_lo, ns_hi)) {
+        return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+    }
+    if ((desc->out_len != 0u) &&
+        !range_ok(desc->out_vec,
+                  (uint64_t)desc->out_len * (uint64_t)sizeof(psa_outvec),
+                  ns_lo, ns_hi)) {
+        return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+    }
+    iv = (const psa_invec*)(uintptr_t)desc->in_vec;
+    ov = (psa_outvec*)(uintptr_t)desc->out_vec;
+    for (i = 0u; i < desc->in_len; i++) {
+        if (!range_ok((uint64_t)(uintptr_t)iv[i].base, (uint64_t)iv[i].len,
+                      ns_lo, ns_hi)) {
+            return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+        }
+    }
+    for (i = 0u; i < desc->out_len; i++) {
+        if (!range_ok((uint64_t)(uintptr_t)ov[i].base, (uint64_t)ov[i].len,
+                      ns_lo, ns_hi)) {
+            return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+        }
+    }
+    return call_service(desc, iv, ov);
+}
+
 int wt_spm_psa_framework(wt_ffa_regs_t* r)
 {
     uint32_t op = (uint32_t)r->x[3];
@@ -96,6 +202,10 @@ int wt_spm_psa_framework(wt_ffa_regs_t* r)
             break;
         case WT_PSA_FFA_OP_CLOSE:
             result = do_close(a0);
+            break;
+        case WT_PSA_FFA_OP_CALL:
+            /* The parameter block address is the full 64-bit w4, not a0. */
+            result = wt_psa_call_run(r->x[4], g_ns_lo, g_ns_hi);
             break;
         default:
             for (i = 0u; i < 8u; i++) {

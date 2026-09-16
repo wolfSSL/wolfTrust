@@ -173,6 +173,11 @@ static void guest_direct(void)
  * (B3.5); data-carrying psa_call arrives with memory sharing (B4). */
 static void guest_psa(void)
 {
+    static const uint8_t call_in[4] = { 0x11u, 0x22u, 0x33u, 0x44u };
+    uint8_t call_out[4] = { 0u, 0u, 0u, 0u };
+    psa_invec in_vec;
+    psa_outvec out_vec;
+    psa_status_t status;
     uint32_t fw;
     uint32_t ver;
     psa_handle_t handle;
@@ -205,6 +210,22 @@ static void guest_psa(void)
     else {
         put_str("[NS] psa connect NOT refused\r\n");
         psa_close(refused);
+    }
+
+    if (PSA_HANDLE_IS_VALID(handle)) {
+        in_vec.base = call_in;
+        in_vec.len = sizeof(call_in);
+        out_vec.base = call_out;
+        out_vec.len = sizeof(call_out);
+        status = psa_call(handle, 0, &in_vec, 1u, &out_vec, 1u);
+        if ((status == PSA_SUCCESS) && (out_vec.len == sizeof(call_in)) &&
+            (call_out[0] == (uint8_t)~call_in[0]) &&
+            (call_out[3] == (uint8_t)~call_in[3])) {
+            put_str("[NS] psa call ok\r\n");
+        }
+        else {
+            put_str("[NS] psa call BAD\r\n");
+        }
     }
 
     if (PSA_HANDLE_IS_VALID(handle)) {

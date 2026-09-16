@@ -41,7 +41,7 @@ static void transport_smc(wt_ffa_regs_t* r)
 }
 #endif
 
-int wt_psa_ffa_op(uint32_t op, uint32_t a0, uint32_t a1, uint32_t* result)
+int wt_psa_ffa_op(uint32_t op, uint64_t a0, uint64_t a1, uint32_t* result)
 {
     wt_ffa_regs_t r;
     unsigned int i;

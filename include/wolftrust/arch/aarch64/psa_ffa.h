@@ -36,6 +36,17 @@
  * answered, -1 on a malformed request. */
 int wt_spm_psa_framework(wt_ffa_regs_t* r);
 
+/* Record the Non-secure window [ns_lo, ns_hi) the SPMC may read a guest's
+ * psa_call buffers from; every iovec must fall entirely inside it. */
+void wt_spm_psa_init(uint64_t ns_lo, uint64_t ns_hi);
+
+/* Run one psa_call by SPMC-mediated copy: read the parameter block at
+ * desc_addr, validate every iovec lies inside [ns_lo, ns_hi), copy the in-vecs
+ * to the service, transform, copy the out-vecs back, and update their lengths.
+ * Returns a psa_status_t. Split out so a host suite drives it with fixture
+ * bounds. */
+int32_t wt_psa_call_run(uint64_t desc_addr, uint64_t ns_lo, uint64_t ns_hi);
+
 #if !defined(__aarch64__)
 /* Host-test SMC seam: the fixture drives one client transaction to the SPMC. */
 void wt_ffa_transport_smc(wt_ffa_regs_t* r);

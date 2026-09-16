@@ -32,6 +32,24 @@
 #define WT_PSA_FFA_OP_SERVICE_VERSION   2u
 #define WT_PSA_FFA_OP_CONNECT           3u
 #define WT_PSA_FFA_OP_CLOSE             4u
+#define WT_PSA_FFA_OP_CALL              5u
+
+/* Largest single in/out vector the register-only test service copies (a small
+ * RoT-service call; DEN0140 sharing carries larger buffers). */
+#define WT_PSA_FFA_CALL_MAX             256u
+
+/* psa_call parameter block the client builds in its own Non-secure memory and
+ * hands to the SPMC by address; the SPMC reads the iovec arrays it points at,
+ * copies the data in and out, and updates each out_vec length in place. All
+ * addresses are plain integers so the block has one layout on both sides. */
+typedef struct wt_psa_ffa_call {
+    uint32_t handle;
+    int32_t  type;
+    uint32_t in_len;
+    uint32_t out_len;
+    uint64_t in_vec;   /* address of the psa_invec[in_len] array */
+    uint64_t out_vec;  /* address of the psa_outvec[out_len] array */
+} wt_psa_ffa_call_t;
 
 /* A register-only service the transport proof connects to; the SPMC answers
  * ServiceVersion/Connect/Close for it with no backing partition. */
@@ -43,8 +61,9 @@
 #define WT_PSA_FFA_MAX_CONN             8u
 #define WT_PSA_FFA_MAX_RESUME           16u
 
-/* Carry one register-only PSA framework operation to the SPMC and return its
- * result. Returns 0 with *result set, or -1 on a transport error. */
-int wt_psa_ffa_op(uint32_t op, uint32_t a0, uint32_t a1, uint32_t* result);
+/* Carry one PSA framework operation to the SPMC and return its result. The
+ * arguments are 64-bit so a Call can pass the address of its parameter block.
+ * Returns 0 with *result set, or -1 on a transport error. */
+int wt_psa_ffa_op(uint32_t op, uint64_t a0, uint64_t a1, uint32_t* result);
 
 #endif /* WOLFTRUST_PSA_FFA_TRANSPORT_H */

@@ -350,6 +350,8 @@ case "$scenario" in
     expect "the guest read the service version over the transport" "[NS] psa version v=1"
     expect "the guest connected to a Secure service and got a handle" "[NS] psa connect ok handle=1"
     expect "an unknown service was refused register-only" "[NS] psa connect refused"
+    refute_re "the data-carrying call was not misjudged" '\[NS\] psa call BAD'
+    expect "the guest completed a data-carrying psa_call through the SPMC copy" "[NS] psa call ok"
     expect "the guest closed its handle" "[NS] psa close ok"
     expect "the Normal-world guest reached the services and finished" "[NS] guest$guest_id ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"

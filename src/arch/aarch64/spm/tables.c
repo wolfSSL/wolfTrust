@@ -128,6 +128,9 @@ static int64_t encode(uint32_t attributes, int el1_only)
     if (!el1_only || (attributes & WT_TABLES_ATTR_NG) != 0u) {
         pte |= PTE_NG;
     }
+    if ((attributes & WT_TABLES_ATTR_NS) != 0u) {
+        pte |= PTE_NS;
+    }
     return (int64_t)pte;
 }
 

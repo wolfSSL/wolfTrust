@@ -276,6 +276,41 @@ static void guest_fuzz(void)
 }
 #endif
 
+#if defined(WT_NS_GUEST_SECRAM)
+extern char _ns_vectbl[];
+extern void ns_exit(int code);
+
+/* The Normal world's own abort vector (ns.S) lands here when the Secure-RAM read
+ * faults: report the refusal and end the run. A hang (no handler) or a returned
+ * value (a leak) would both be failures. */
+void ns_abort_report(uint64_t esr)
+{
+    put_str("[NS] secram refused esr=0x");
+    put_hex((uint32_t)esr);
+    put_str("\r\n");
+    ns_exit(0);
+}
+
+/* Attempt to read Secure RAM from the Normal world: the secure physical region
+ * must be unreachable from NS. The read is expected to fault into the guest's
+ * own abort vector (proving the world fence); if it ever returns data the fence
+ * is broken. */
+static void guest_secram(void)
+{
+    volatile uint32_t* p = (volatile uint32_t*)(uintptr_t)WT_NS_SECURE_PROBE_PA;
+    uint32_t v;
+
+    __asm__ volatile("msr vbar_el1, %0\n\tisb" : : "r"(_ns_vectbl));
+    put_str("[NS] secram read 0x");
+    put_hex((uint32_t)WT_NS_SECURE_PROBE_PA);
+    put_str("\r\n");
+    v = *p;
+    put_str("[NS] secram LEAK 0x");
+    put_hex(v);
+    put_str("\r\n");
+}
+#endif
+
 /* Walk the NS physical instance: FEATURES(VERSION) is supported, ID_GET returns
  * the caller's own id (the primary NS endpoint, 0), SPM_ID_GET returns the SPMC
  * id (0x8000), and PARTITION_INFO_GET (forwarded to the SPMC) reports the
@@ -365,6 +400,11 @@ void ns_main(void)
 
 #if defined(WT_NS_PREEMPT)
     ns_spin();
+    return;
+#endif
+
+#if defined(WT_NS_GUEST_SECRAM)
+    guest_secram();
     return;
 #endif
 

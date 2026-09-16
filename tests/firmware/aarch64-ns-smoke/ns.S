@@ -49,6 +49,25 @@ ns_exit:
 3:  wfi
     b       3b
 
+#if defined(WT_NS_GUEST_SECRAM)
+/* Normal-world EL1 exception vectors: the Secure-RAM read faults into here, so
+ * the guest catches its own abort and reports the refusal instead of hanging on
+ * an unset vector. Every entry funnels to one handler. */
+    .section .text
+    .balign 0x800
+    .globl _ns_vectbl
+_ns_vectbl:
+    .rept 16
+    .balign 0x80
+    b       _ns_abort
+    .endr
+_ns_abort:
+    mrs     x0, esr_el1
+    bl      ns_abort_report
+4:  wfi
+    b       4b
+#endif
+
     .bss
     .balign 16
 g_exit_block:

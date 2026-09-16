@@ -196,6 +196,46 @@ wt_el3_enter_ns:
     isb
     eret
 
+/* void wt_el3_world_eret(const wt_el3_frame_t* frame, uint64_t scr_el3):
+ * enter a saved world. Program SCR_EL3 (and HCR_EL2.RW for a Normal-world
+ * return so EL1 is AArch64), reset the EL3 stack (this never returns, so the
+ * handler's stack is abandoned), load the full saved register file plus ELR and
+ * SPSR, then ERET. The ISB before the ERET matches wt_el3_enter_ns. */
+    .globl wt_el3_world_eret
+wt_el3_world_eret:
+    tbz     x1, #0, 1f
+    mrs     x2, HCR_EL2
+    mov     x3, #1
+    lsl     x3, x3, #31
+    orr     x2, x2, x3
+    msr     HCR_EL2, x2
+1:  msr     SCR_EL3, x1
+    ldr     x2, [x0, #248]
+    msr     ELR_EL3, x2
+    ldr     x2, [x0, #256]
+    msr     SPSR_EL3, x2
+    ldr     x2, =__el3_stack_top
+    mov     sp, x2
+    ldp     x2, x3, [x0, #16]
+    ldp     x4, x5, [x0, #32]
+    ldp     x6, x7, [x0, #48]
+    ldp     x8, x9, [x0, #64]
+    ldp     x10, x11, [x0, #80]
+    ldp     x12, x13, [x0, #96]
+    ldp     x14, x15, [x0, #112]
+    ldp     x16, x17, [x0, #128]
+    ldp     x18, x19, [x0, #144]
+    ldp     x20, x21, [x0, #160]
+    ldp     x22, x23, [x0, #176]
+    ldp     x24, x25, [x0, #192]
+    ldp     x26, x27, [x0, #208]
+    ldp     x28, x29, [x0, #224]
+    ldr     x30, [x0, #240]
+    ldr     x1, [x0, #8]
+    ldr     x0, [x0, #0]
+    isb
+    eret
+
     .bss
     .balign 16
 g_wt_el3_exit_block:

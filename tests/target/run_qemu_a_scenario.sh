@@ -270,7 +270,7 @@ case "$scenario" in
     refute_re "no EL3 panic" '\[EL3\] panic'
     refute_re "the Normal world did not misread discovery" '\[NS\] discovery BAD'
     expect "the Normal world negotiated FF-A 1.2 with the SPMD" "[NS] ffa version 1.2"
-    expect "the Normal world walked FEATURES, ID_GET, and SPM_ID_GET" "[NS] discovery ok"
+    expect "the Normal world discovered the partitions through the SPMC" "[NS] discovery ok n=6"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
 esac

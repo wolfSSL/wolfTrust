@@ -145,30 +145,6 @@ static uint64_t build_boot_info(void)
     return WT_SPM_BOOT_INFO_PA;
 }
 
-void wt_el3_spmc_ready(void)
-{
-    wt_el3_puts("[EL3] spmc ready\r\n");
-    wt_platform_console_flush();
-#if defined(WT_EL3_NS_SMOKE) && (WT_EL3_NS_SMOKE == 1)
-    /* Turn on the Normal world: ERET to the NS-EL1 payload the runner loaded.
-     * EL1 system registers are not banked by security state on these cores, so
-     * the SPMC left SCTLR_EL1.M set with its secure tables; reset SCTLR_EL1 to
-     * an MMU-off state before the switch so the NS payload runs unmapped (the
-     * SPMC is not resumed after this in B3.1). */
-    wt_write_sctlr_el1(WT_SCTLR_EL1_RES1);
-    wt_isb();
-    wt_el3_puts("[EL3] ns launch pc=0x");
-    wt_el3_puthex((uint64_t)WT_NS_IMAGE_PA, 8u);
-    wt_el3_puts("\r\n");
-    wt_platform_console_flush();
-    wt_el3_enter_ns((void (*)(void))(uintptr_t)WT_NS_IMAGE_PA, 0u, 0u);
-#endif
-    /* No Normal world (or the NS payload returned): the boot proof ends here. */
-    (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);
-    for (;;) {
-    }
-}
-
 void wt_el3_main(void)
 {
     uint32_t mask;

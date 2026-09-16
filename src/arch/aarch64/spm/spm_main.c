@@ -670,6 +670,32 @@ static void direct_request(wt_ffa_regs_t* r)
     wt_ffa_smc(r);
 }
 
+/* FFA_PARTITION_INFO_GET the SPMD forwarded from the Normal world. The
+ * count-only request (w5 bit 0) is answered with the configured partition count
+ * and needs no RX buffer; writing descriptors into the guest's NS RX arrives
+ * with memory sharing. The reply's SMC return is the next event. */
+static void ns_partition_info_get(wt_ffa_regs_t* r)
+{
+    size_t n = 0u;
+    uint32_t flags = (uint32_t)r->x[5];
+    unsigned int i;
+
+    (void)wt_generated_ffa_partitions_get(&n);
+    for (i = 0u; i < 8u; i++) {
+        r->x[i] = 0u;
+    }
+    if ((flags & WT_FFA_PARTINFO_FLAG_COUNT) != 0u) {
+        r->x[0] = WT_FFA_SUCCESS32;
+        r->x[2] = (uint64_t)(uint32_t)n;
+    }
+    else {
+        r->x[0] = WT_FFA_ERROR;
+        r->x[2] = (uint64_t)(uint32_t)WT_FFA_NOT_SUPPORTED;
+    }
+    wt_platform_console_flush();
+    wt_ffa_smc(r);
+}
+
 void wt_spm_idle(void)
 {
     wt_ffa_regs_t r;
@@ -684,6 +710,10 @@ void wt_spm_idle(void)
     for (;;) {
         if ((uint32_t)r.x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32) {
             direct_request(&r);
+            continue;
+        }
+        if ((uint32_t)r.x[0] == WT_FFA_PARTITION_INFO_GET) {
+            ns_partition_info_get(&r);
             continue;
         }
         wt_el3_puts("[SPM] unexpected event x0=0x");

@@ -51,6 +51,49 @@ WT_SYSREG_WRITE(spsr_el3, "SPSR_EL3")
 WT_SYSREG_WRITE(sp_el1, "SP_EL1")
 WT_SYSREG_WRITE(sctlr_el1, "SCTLR_EL1")
 
+/* EL1 context that is not banked by security state on these cores: saved and
+ * restored around a world switch (wt_el3_world_switch). */
+WT_SYSREG_READ(hcr_el2, "HCR_EL2")
+WT_SYSREG_WRITE(hcr_el2, "HCR_EL2")
+WT_SYSREG_READ(sp_el0, "SP_EL0")
+WT_SYSREG_WRITE(sp_el0, "SP_EL0")
+WT_SYSREG_READ(sp_el1, "SP_EL1")
+WT_SYSREG_READ(sctlr_el1, "SCTLR_EL1")
+WT_SYSREG_READ(ttbr0_el1, "TTBR0_EL1")
+WT_SYSREG_WRITE(ttbr0_el1, "TTBR0_EL1")
+WT_SYSREG_READ(ttbr1_el1, "TTBR1_EL1")
+WT_SYSREG_WRITE(ttbr1_el1, "TTBR1_EL1")
+WT_SYSREG_READ(tcr_el1, "TCR_EL1")
+WT_SYSREG_WRITE(tcr_el1, "TCR_EL1")
+WT_SYSREG_READ(mair_el1, "MAIR_EL1")
+WT_SYSREG_WRITE(mair_el1, "MAIR_EL1")
+WT_SYSREG_READ(amair_el1, "AMAIR_EL1")
+WT_SYSREG_WRITE(amair_el1, "AMAIR_EL1")
+WT_SYSREG_READ(vbar_el1, "VBAR_EL1")
+WT_SYSREG_WRITE(vbar_el1, "VBAR_EL1")
+WT_SYSREG_READ(tpidr_el0, "TPIDR_EL0")
+WT_SYSREG_WRITE(tpidr_el0, "TPIDR_EL0")
+WT_SYSREG_READ(tpidrro_el0, "TPIDRRO_EL0")
+WT_SYSREG_WRITE(tpidrro_el0, "TPIDRRO_EL0")
+WT_SYSREG_READ(tpidr_el1, "TPIDR_EL1")
+WT_SYSREG_WRITE(tpidr_el1, "TPIDR_EL1")
+WT_SYSREG_READ(contextidr_el1, "CONTEXTIDR_EL1")
+WT_SYSREG_WRITE(contextidr_el1, "CONTEXTIDR_EL1")
+WT_SYSREG_READ(cpacr_el1, "CPACR_EL1")
+WT_SYSREG_WRITE(cpacr_el1, "CPACR_EL1")
+WT_SYSREG_READ(elr_el1, "ELR_EL1")
+WT_SYSREG_WRITE(elr_el1, "ELR_EL1")
+WT_SYSREG_READ(spsr_el1, "SPSR_EL1")
+WT_SYSREG_WRITE(spsr_el1, "SPSR_EL1")
+WT_SYSREG_READ(esr_el1, "ESR_EL1")
+WT_SYSREG_WRITE(esr_el1, "ESR_EL1")
+WT_SYSREG_READ(far_el1, "FAR_EL1")
+WT_SYSREG_WRITE(far_el1, "FAR_EL1")
+WT_SYSREG_READ(par_el1, "PAR_EL1")
+WT_SYSREG_WRITE(par_el1, "PAR_EL1")
+WT_SYSREG_READ(mdscr_el1, "MDSCR_EL1")
+WT_SYSREG_WRITE(mdscr_el1, "MDSCR_EL1")
+
 static inline void wt_isb(void)
 {
     __asm__ volatile("isb" : : : "memory");
@@ -88,6 +131,13 @@ static inline uint64_t wt_current_el(void)
 #define WT_SCR_ST   (1u << 11)
 /* Secure world running: EA and the secure timer at S-EL1, FIQ left to S-EL1. */
 #define WT_SCR_EL3_SECURE (WT_SCR_RW | WT_SCR_ST | WT_SCR_EA)
+/* Normal world running: NS, plus FIQ trapped to EL3 so a Secure interrupt can
+ * preempt it (Ch.9). Matches wt_el3_enter_ns. */
+#define WT_SCR_EL3_NS (WT_SCR_NS | WT_SCR_FIQ | WT_SCR_EA | WT_SCR_RW | WT_SCR_ST)
+
+/* HCR_EL2.RW: EL1 is AArch64. Required before an ERET to NS-EL1 AArch64 while
+ * EL2 is implemented, or the state change is illegal (EC 0x0e). */
+#define WT_HCR_EL2_RW (1ull << 31)
 
 /* SCTLR_EL3 and SCTLR_EL1 */
 #define WT_SCTLR_EL3_RES1 0x30C50830u

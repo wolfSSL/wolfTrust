@@ -45,12 +45,6 @@ void wt_platform_console_putc(char c)
     }
 }
 
-void wt_el3_spmc_ready(void)
-{
-    printf("unexpected wt_el3_spmc_ready\n");
-    exit(3);
-}
-
 static void check(int ok, const char* what)
 {
     checks++;

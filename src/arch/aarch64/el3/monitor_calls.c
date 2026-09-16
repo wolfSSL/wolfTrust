@@ -82,6 +82,12 @@ static void ns_smc(wt_el3_frame_t* frame)
     uint32_t fid = (uint32_t)frame->x[0];
     unsigned int i;
 
+    /* Discovery and guest-to-SP messaging need the SPMC (the SPMD has no
+     * manifest): forward the call and run the Secure world. */
+    if (wt_ffa_spmd_ns_forwards(fid)) {
+        wt_el3_world_forward_to_secure(frame);
+        return;
+    }
     if (wt_ffa_fid_in_range(fid)) {
         for (i = 0u; i < 8u; i++) {
             regs.x[i] = frame->x[i];
@@ -101,6 +107,12 @@ static void secure_smc(wt_el3_frame_t* frame)
     uint32_t fid = (uint32_t)frame->x[0];
     unsigned int i;
 
+    /* The SPMC's reply to a call the SPMD forwarded from the Normal world goes
+     * back to the waiting Normal world. */
+    if ((wt_el3_world_ns_awaiting() != 0u) && (wt_ffa_spmd_is_ns_reply(fid) != 0)) {
+        wt_el3_world_return_to_ns(frame);
+        return;
+    }
     if (fid == WT_FFA_CONSOLE_LOG64) {
         /* Characters span x2-x17: use the saved frame, not the 8-register copy. */
         wt_ffa_spmd_console_call(frame->x, 1u);
@@ -110,7 +122,11 @@ static void secure_smc(wt_el3_frame_t* frame)
         for (i = 0u; i < 8u; i++) {
             regs.x[i] = frame->x[i];
         }
-        wt_ffa_spmd_secure_call(&regs);
+        if (wt_ffa_spmd_secure_call(&regs) == WT_SPMD_ACTION_LAUNCH) {
+            /* SPMC init complete: turn on the Normal world (or exit). */
+            wt_el3_world_launch_ns(frame);
+            return;
+        }
         for (i = 0u; i < 8u; i++) {
             frame->x[i] = regs.x[i];
         }

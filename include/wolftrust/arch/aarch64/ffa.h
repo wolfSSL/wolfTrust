@@ -59,12 +59,22 @@ static inline void wt_ffa_smc(wt_ffa_regs_t* r)
 }
 #endif /* __aarch64__ */
 
-/* EL3 (SPMD) handling of one FF-A call taken at the Secure physical
- * instance; fills r with the FFA_SUCCESS/FFA_ERROR reply. */
-void wt_ffa_spmd_secure_call(wt_ffa_regs_t* r);
+/* wt_ffa_spmd_secure_call outcomes. */
+#define WT_SPMD_ACTION_REPLY  0  /* r holds the reply; return to the SPMC */
+#define WT_SPMD_ACTION_LAUNCH 1  /* SPMC init done; launch the Normal world */
+
+/* EL3 (SPMD) handling of one FF-A call taken at the Secure physical instance.
+ * Fills r with the FFA_SUCCESS/FFA_ERROR reply and returns WT_SPMD_ACTION_REPLY,
+ * or returns WT_SPMD_ACTION_LAUNCH when the SPMC has finished initializing. */
+int wt_ffa_spmd_secure_call(wt_ffa_regs_t* r);
 /* EL3 (SPMD) handling of one FF-A call taken at the NS physical instance (from
  * the Normal world once launched); fills r with the reply. */
 void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r);
+/* Non-zero when an NS-instance FID must be forwarded to the SPMC rather than
+ * answered by the SPMD (partition discovery, guest-to-SP messaging). */
+int wt_ffa_spmd_ns_forwards(uint32_t fid);
+/* Non-zero when an SMC from the SPMC is the reply to a forwarded NS call. */
+int wt_ffa_spmd_is_ns_reply(uint32_t fid);
 unsigned int wt_ffa_spmd_spmc_ready(void);
 /* FFA_CONSOLE_LOG over x[0..7] (SMC32) or x[0..17] (SMC64); the reply lands
  * in x[0..7]. The caller hands the saved register frame directly. */

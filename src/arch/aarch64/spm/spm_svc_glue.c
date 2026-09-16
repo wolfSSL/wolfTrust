@@ -28,7 +28,9 @@
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_manifest.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
+#include "wolftrust/arch/aarch64/ffa_mem.h"
 #include "wolftrust/arch/aarch64/ffa_partinfo.h"
+#include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/platform.h"
@@ -163,6 +165,129 @@ static void ffa_rx_release(wt_trap_frame_t* frame)
     ffa_success(frame, 0u, 0u);
 }
 
+/* The calling partition's RX (first page) and TX (second page) buffers. */
+static uint8_t* sp_rx(void)
+{
+    return (uint8_t*)(uintptr_t)WT_SPM_RXTX_PA;
+}
+
+static const uint8_t* sp_tx(void)
+{
+    return (const uint8_t*)(uintptr_t)(WT_SPM_RXTX_PA + WT_FFA_MEM_PAGE_SIZE);
+}
+
+/* A descriptor handed over in the TX buffer: w1 = total length, w2 = fragment
+ * length (no fragmentation, so equal), w3/w4 = 0 (not an address). */
+static int tx_descriptor_length(const wt_trap_frame_t* frame, size_t* out_len)
+{
+    uint32_t total = (uint32_t)frame->x[1];
+    uint32_t frag = (uint32_t)frame->x[2];
+
+    if ((total != frag) || (total < 1u) || (total > WT_FFA_MEM_PAGE_SIZE) ||
+        (frame->x[3] != 0u) || (frame->x[4] != 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    *out_len = (size_t)total;
+    return 0;
+}
+
+/* FFA_MEM_SHARE / FFA_MEM_LEND from a partition: the relayer validates the
+ * descriptor in its TX buffer and returns the handle in w2/w3. */
+static void ffa_mem_send(wt_trap_frame_t* frame, wt_ffa_mem_op_t op)
+{
+    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    uint64_t handle = 0u;
+    size_t len = 0u;
+    int ret;
+
+    if (b == NULL) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    ret = tx_descriptor_length(frame, &len);
+    if (ret == 0) {
+        ret = wt_spm_mem_share(sp_tx(), len, op, b->id, &handle);
+    }
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    ffa_success(frame, handle & 0xFFFFFFFFu, handle >> 32);
+}
+
+/* FFA_MEM_RETRIEVE_REQ from a partition: map the region and answer with
+ * FFA_MEM_RETRIEVE_RESP, the response descriptor in its RX buffer. */
+static void ffa_mem_retrieve(wt_trap_frame_t* frame)
+{
+    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    size_t len = 0u;
+    size_t resp_len = 0u;
+    unsigned int i;
+    int ret;
+
+    if (b == NULL) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    ret = tx_descriptor_length(frame, &len);
+    if (ret == 0) {
+        ret = wt_spm_mem_retrieve(sp_tx(), len, b->id, sp_rx(),
+                                  WT_FFA_MEM_PAGE_SIZE, &resp_len);
+    }
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    for (i = 0u; i < 8u; i++) {
+        frame->x[i] = 0u;
+    }
+    frame->x[0] = WT_FFA_MEM_RETRIEVE_RESP;
+    frame->x[1] = (uint64_t)resp_len;
+    frame->x[2] = (uint64_t)resp_len;
+}
+
+/* FFA_MEM_RELINQUISH from a partition: the descriptor is in its TX buffer. */
+static void ffa_mem_relinquish(wt_trap_frame_t* frame)
+{
+    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    int ret;
+
+    if (b == NULL) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    ret = wt_spm_mem_relinquish(sp_tx(), WT_FFA_MEM_PAGE_SIZE, b->id);
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    ffa_success(frame, 0u, 0u);
+}
+
+/* FFA_MEM_RECLAIM from a partition: w1/w2 = handle, w3 = flags. */
+static void ffa_mem_reclaim(wt_trap_frame_t* frame)
+{
+    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    uint64_t handle = (uint64_t)(uint32_t)frame->x[1] |
+                      ((uint64_t)(uint32_t)frame->x[2] << 32);
+    int ret;
+
+    if (b == NULL) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    if (((uint32_t)frame->x[3] & ~WT_FFA_MEM_RELINQ_FLAG_MASK) != 0u) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
+    ret = wt_spm_mem_reclaim(handle, b->id);
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    ffa_success(frame, 0u, 0u);
+}
+
 void wt_spm_lower_sync(wt_trap_frame_t* frame)
 {
     uint32_t ec = (uint32_t)(frame->esr >> 26) & 0x3Fu;
@@ -223,6 +348,22 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if (fid == WT_FFA_RX_RELEASE) {
         ffa_rx_release(frame);
+    }
+    else if ((fid == WT_FFA_MEM_SHARE32) || (fid == WT_FFA_MEM_SHARE64)) {
+        ffa_mem_send(frame, WT_FFA_MEM_OP_SHARE);
+    }
+    else if ((fid == WT_FFA_MEM_LEND32) || (fid == WT_FFA_MEM_LEND64)) {
+        ffa_mem_send(frame, WT_FFA_MEM_OP_LEND);
+    }
+    else if ((fid == WT_FFA_MEM_RETRIEVE_REQ32) ||
+             (fid == WT_FFA_MEM_RETRIEVE_REQ64)) {
+        ffa_mem_retrieve(frame);
+    }
+    else if (fid == WT_FFA_MEM_RELINQUISH) {
+        ffa_mem_relinquish(frame);
+    }
+    else if (fid == WT_FFA_MEM_RECLAIM) {
+        ffa_mem_reclaim(frame);
     }
     else {
         ffa_not_supported(frame);

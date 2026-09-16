@@ -64,6 +64,12 @@ WT_NS_GUEST_FUZZ ?= 0
 ifeq ($(WT_NS_GUEST_FUZZ),1)
 CFLAGS += -DWT_NS_GUEST_FUZZ=1
 endif
+# Attempt to read Secure RAM from the Normal world (the secramneg proof).
+WT_NS_GUEST_SECRAM ?= 0
+WT_NS_SECURE_PROBE_PA ?= 0x0E300000
+ifeq ($(WT_NS_GUEST_SECRAM),1)
+CFLAGS += -DWT_NS_GUEST_SECRAM=1 -DWT_NS_SECURE_PROBE_PA=$(WT_NS_SECURE_PROBE_PA)u
+endif
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
 

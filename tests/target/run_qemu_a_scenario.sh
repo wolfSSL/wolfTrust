@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -61,7 +61,7 @@ esac
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|ffa-preempt:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|ffa-preempt:virt|positive:virt|guest1:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
@@ -87,7 +87,7 @@ else
     spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
     tablesneg)   probe=(WT_TABLES_NEGATIVE=1) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
-    ns-smoke|ffa-discovery|psci) probe=(WT_EL3_NS_SMOKE=1) ;;
+    ns-smoke|ffa-discovery|psci|positive|guest1) probe=(WT_EL3_NS_SMOKE=1) ;;
     ffa-guest-direct) probe=(WT_EL3_NS_SMOKE=1 WT_NS_GUEST_ECHO=1) ;;
     ffa-preempt) probe=(WT_EL3_NS_SMOKE=1 WT_NS_PREEMPT=1) ;;
   esac
@@ -102,7 +102,8 @@ else
   ns_base=0x44000000
   if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
      [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
-     [ "$scenario" = ffa-preempt ]; then
+     [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
+     [ "$scenario" = guest1 ]; then
     nsfw="$repo/tests/firmware/aarch64-ns-smoke"
     ns_echo=0
     [ "$scenario" = ffa-guest-direct ] && ns_echo=1
@@ -110,11 +111,16 @@ else
     [ "$scenario" = psci ] && ns_psci=1
     ns_preempt=0
     [ "$scenario" = ffa-preempt ] && ns_preempt=1
+    ns_psa=0
+    ns_id=0
+    [ "$scenario" = positive ] && ns_psa=1
+    [ "$scenario" = guest1 ] && { ns_psa=1; ns_id=1; }
     # Per-scenario NS build dir so the guest-feature defines never go stale.
     make -C "$nsfw" MACHINE="$MACHINE" TOOLPREFIX="$TOOLPREFIX" \
       BUILD_DIR="build/$tag-$scenario" WT_NS_BASE="$ns_base" \
       WT_NS_GUEST_ECHO="$ns_echo" WT_NS_GUEST_PSCI="$ns_psci" \
-      WT_NS_PREEMPT="$ns_preempt"
+      WT_NS_PREEMPT="$ns_preempt" WT_NS_GUEST_PSA="$ns_psa" \
+      WT_NS_GUEST_ID="$ns_id"
     ns_bin="$nsfw/build/$tag-$scenario/ns.bin"
   fi
   # virt boots one pflash image: the monitor at 0, the SPMC image behind it
@@ -149,7 +155,8 @@ else
 fi
 if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
-   [ "$scenario" = ffa-preempt ]; then
+   [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
+   [ "$scenario" = guest1 ]; then
   args+=(-device "loader,file=$ns_bin,addr=$ns_base")
 fi
 args+=(-nographic -monitor none -no-reboot
@@ -310,6 +317,23 @@ case "$scenario" in
     expect "a Secure tick preempted the Normal world at EL3" "[EL3] ns preempted intid=29"
     expect "the SPMC scheduled the Secure interrupt" "[SPM] ns preempt intid=0x1d"
     expect "the Normal world resumed after the preemption" "[NS] resumed after preempt"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  positive|guest1)
+    [ "$scenario" = guest1 ] && guest_id=1 || guest_id=0
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "the guest did not fail a PSA connect" '\[NS\] psa connect FAIL'
+    expect "the SPMC completed initialization" "[SPM] partitions ready n=6"
+    expect "the Normal-world guest ran at NS-EL1" "[NS] hello el=1"
+    expect "the guest discovered the partitions through the SPMC" "[NS] discovery ok n=6"
+    expect "the SPMC fielded the guest's PSA requests at the framework endpoint" "[SPM] direct req from=0x0000 to=0x80fd"
+    expect "the guest read the PSA framework version over the transport" "[NS] psa framework 0x100"
+    expect "the guest read the service version over the transport" "[NS] psa version v=1"
+    expect "the guest connected to a Secure service and got a handle" "[NS] psa connect ok handle=1"
+    expect "an unknown service was refused register-only" "[NS] psa connect refused"
+    expect "the guest closed its handle" "[NS] psa close ok"
+    expect "the Normal-world guest reached the services and finished" "[NS] guest$guest_id ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
 esac

@@ -53,6 +53,7 @@ SPM_C_SRCS := \
     $(ARCH_DIR)/spm/coroutine_aarch64.c \
     $(ARCH_DIR)/spm/sp_trap.c \
     $(ARCH_DIR)/spm/spm_svc_glue.c \
+    $(ARCH_DIR)/spm/psa_service.c \
     $(ARCH_DIR)/ffa/ffa_msg.c \
     $(ARCH_DIR)/ffa/ffa_partinfo.c \
     $(ARCH_DIR)/el3/esr.c

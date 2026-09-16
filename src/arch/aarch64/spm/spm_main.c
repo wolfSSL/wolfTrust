@@ -31,6 +31,7 @@
 #include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
+#include "wolftrust/arch/aarch64/psa_ffa.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/tables.h"
 #include "wolftrust/boot.h"
@@ -648,6 +649,12 @@ static void direct_request(wt_ffa_regs_t* r)
     wt_el3_puts(" to=0x");
     wt_el3_puthex(receiver, 4u);
     wt_el3_puts("\r\n");
+    if (ret == 0 && receiver == WT_FFA_ID_PSA) {
+        (void)wt_spm_psa_framework(r);
+        wt_platform_console_flush();
+        wt_ffa_smc(r);
+        return;
+    }
     if (ret == 0) {
         if (receiver == WT_FFA_ID_ECHO) {
             co = wt_spm_ffa_echo_partition();

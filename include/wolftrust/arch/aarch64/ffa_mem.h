@@ -122,6 +122,19 @@ typedef struct wt_ffa_mem_constituent {
     uint32_t page_count;
 } wt_ffa_mem_constituent_t;
 
+/* A constituent captured for a live handle, with the borrower's permissions
+ * and the security state, so the relayer can map it into the borrower and
+ * unmap it on relinquish/reclaim. B4.3 shares a single region; multi-borrower
+ * and fragmented sharing are deferred. */
+#define WT_FFA_MEM_MAX_REGIONS          4u
+
+typedef struct wt_ffa_mem_region {
+    uint64_t base;
+    uint32_t page_count;
+    uint8_t  permissions;  /* FF-A access permissions byte (Table 5.14) */
+    uint8_t  ns;           /* 1 if the shared memory is Non-secure */
+} wt_ffa_mem_region_t;
+
 /* Parsed and validated header of a memory transaction descriptor. */
 typedef struct wt_ffa_mem_txn {
     uint64_t handle;
@@ -137,10 +150,21 @@ typedef struct wt_ffa_mem_txn {
     uint16_t attributes;
 } wt_ffa_mem_txn_t;
 
-/* Inputs to build a single-receiver lend/donate/share descriptor. */
+/* Relinquish descriptor (Table 5.24): handle, flags, endpoint count, then the
+ * endpoint id array. */
+#define WT_FFA_MEM_RELINQ_OFF_HANDLE    0u   /* u64 */
+#define WT_FFA_MEM_RELINQ_OFF_FLAGS     8u   /* u32 */
+#define WT_FFA_MEM_RELINQ_OFF_COUNT     12u  /* u32 endpoint count */
+#define WT_FFA_MEM_RELINQ_OFF_ENDPOINTS 16u  /* u16 each */
+#define WT_FFA_MEM_RELINQ_HDR_SIZE      16u
+#define WT_FFA_MEM_RELINQ_FLAG_MASK     0x3u /* zero memory, time slicing */
+
+/* Inputs to build a single-receiver lend/donate/share descriptor; handle is
+ * zero in a request and the allocated handle in a retrieve response. */
 typedef struct wt_ffa_mem_build {
     const wt_ffa_mem_constituent_t* constituents;
     uint64_t tag;
+    uint64_t handle;
     uint32_t flags;
     uint32_t constituent_count;
     wt_ffa_mem_op_t op;
@@ -182,6 +206,45 @@ int wt_ffa_mem_constituent(const uint8_t* buf, size_t len,
                            const wt_ffa_mem_txn_t* txn, uint32_t index,
                            wt_ffa_mem_constituent_t* out);
 
+/* Collect the constituents of receiver_index from an accepted descriptor into
+ * a mapping list: each region's base, page count, the receiver's permissions,
+ * and the security state from the transaction attributes. Returns 0 with
+ * *out_n set, WT_FFA_INVALID_PARAMETERS for a bad argument, or WT_FFA_NO_MEMORY
+ * if the descriptor has more constituents than max. */
+int wt_ffa_mem_regions_from_txn(const uint8_t* buf, size_t len,
+                                const wt_ffa_mem_txn_t* txn,
+                                uint32_t receiver_index,
+                                wt_ffa_mem_region_t* out, uint32_t max,
+                                uint32_t* out_n);
+
+/* Lay out a single-receiver memory retrieve request for handle: a transaction
+ * descriptor header plus one endpoint access descriptor and no composite.
+ * Returns 0 with *out_len set, or WT_FFA_NO_MEMORY. */
+int wt_ffa_mem_retrieve_req_build(uint8_t* buf, size_t len, uint64_t handle,
+                                  uint16_t sender, uint16_t receiver,
+                                  uint8_t permissions, size_t* out_len);
+
+/* Parse a memory retrieve request: the handle, the sender (owner), and the
+ * single receiver. Returns 0, WT_FFA_NOT_SUPPORTED for an access descriptor
+ * size this SPMC cannot parse or more than one receiver, or
+ * WT_FFA_INVALID_PARAMETERS for a malformed descriptor (a composite offset in
+ * a retrieve request is malformed here). */
+int wt_ffa_mem_retrieve_req_parse(const uint8_t* buf, size_t len,
+                                  uint64_t* out_handle, uint16_t* out_sender,
+                                  uint16_t* out_receiver);
+
+/* Lay out a relinquish descriptor naming one endpoint. Returns 0 with *out_len
+ * set, WT_FFA_INVALID_PARAMETERS for a reserved flag, or WT_FFA_NO_MEMORY. */
+int wt_ffa_mem_relinquish_build(uint8_t* buf, size_t len, uint64_t handle,
+                                uint32_t flags, uint16_t endpoint,
+                                size_t* out_len);
+
+/* Parse a relinquish descriptor with exactly one endpoint. Returns 0,
+ * WT_FFA_NOT_SUPPORTED for more than one endpoint, or
+ * WT_FFA_INVALID_PARAMETERS for a malformed descriptor. */
+int wt_ffa_mem_relinquish_parse(const uint8_t* buf, size_t len,
+                                uint64_t* out_handle, uint16_t* out_endpoint);
+
 /* FFA_RXTX_MAP buffer geometry (7.2.1): each of TX and RX is pages 4 KB pages,
  * page-aligned, distinct, and non-overlapping. Returns 0 or
  * WT_FFA_INVALID_PARAMETERS. */
@@ -204,10 +267,12 @@ typedef enum wt_ffa_mem_state {
 
 typedef struct wt_ffa_mem_handle_entry {
     uint64_t handle;
+    wt_ffa_mem_region_t regions[WT_FFA_MEM_MAX_REGIONS];
     uint16_t owner;
     uint16_t borrower;
     uint8_t  state;
     uint8_t  retrieved;
+    uint8_t  region_count;
 } wt_ffa_mem_handle_entry_t;
 
 typedef struct wt_ffa_mem_registry {
@@ -217,11 +282,28 @@ typedef struct wt_ffa_mem_registry {
 
 void wt_ffa_mem_registry_init(wt_ffa_mem_registry_t* reg);
 
-/* Allocate a unique handle for a validated transaction. Returns 0 with
- * *out_handle set, or WT_FFA_NO_MEMORY when the registry is full. */
+/* Allocate a unique handle for a validated transaction, with no captured
+ * region set. Returns 0 with *out_handle set, or WT_FFA_NO_MEMORY when the
+ * registry is full. */
 int wt_ffa_mem_handle_alloc(wt_ffa_mem_registry_t* reg, wt_ffa_mem_op_t op,
                             uint16_t owner, uint16_t borrower,
                             uint64_t* out_handle);
+
+/* Allocate a handle and capture the region set to map into the borrower on
+ * retrieve. Returns 0 with *out_handle set, WT_FFA_INVALID_PARAMETERS for a bad
+ * argument or a region count over WT_FFA_MEM_MAX_REGIONS, or WT_FFA_NO_MEMORY
+ * when the registry is full. */
+int wt_ffa_mem_share_register(wt_ffa_mem_registry_t* reg, wt_ffa_mem_op_t op,
+                              uint16_t owner, uint16_t borrower,
+                              const wt_ffa_mem_region_t* regions, uint32_t n,
+                              uint64_t* out_handle);
+
+/* Copy the region set captured for a live handle into out (up to max). Returns
+ * 0 with *out_n set, WT_FFA_INVALID_PARAMETERS for an unknown handle or bad
+ * argument, or WT_FFA_NO_MEMORY if the handle has more regions than max. */
+int wt_ffa_mem_handle_regions(const wt_ffa_mem_registry_t* reg, uint64_t handle,
+                              wt_ffa_mem_region_t* out, uint32_t max,
+                              uint32_t* out_n);
 
 /* Look up a live handle. Returns 0 with *out set, or WT_FFA_INVALID_PARAMETERS
  * for an unknown handle. */

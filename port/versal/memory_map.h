@@ -61,6 +61,13 @@
 #ifndef WT_SPM_RXTX_SIZE
 #define WT_SPM_RXTX_SIZE      0x00002000u
 #endif
+/* One page the SPMC shares to a partition through FFA_MEM_SHARE at boot. */
+#ifndef WT_SPM_SHARE_PA
+#define WT_SPM_SHARE_PA       0x7F342000u
+#endif
+#ifndef WT_SPM_SHARE_SIZE
+#define WT_SPM_SHARE_SIZE     0x00001000u
+#endif
 /* Normal-world payload load/run address in low DDR, below the secure window. */
 #ifndef WT_NS_IMAGE_PA
 #define WT_NS_IMAGE_PA        0x44000000u

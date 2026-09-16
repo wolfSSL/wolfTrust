@@ -103,6 +103,9 @@
  * Normal-world client's register-only FrameworkVersion/ServiceVersion/Connect/
  * Close as this receiver, without a backing partition. */
 #define WT_FFA_ID_PSA                 0x80FDu
+/* The memory-sharing boot self-test borrower: the SPMC shares a page to this
+ * endpoint and an S-EL0 partition retrieves it through the SVC gate. */
+#define WT_FFA_ID_MEM_BORROWER        0x80FBu
 
 /* FFA_PARTITION_INFO_GET w5 flags: bit 0 set returns only the partition count
  * in w2, so the caller needs no RX buffer. */

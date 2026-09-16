@@ -239,6 +239,52 @@ wt_sp_ffa_discover:
     svc     #0
 1:  b       1b
 
+/* S-EL0 memory-sharing borrower: x0 = argument block {handle, shared page base,
+ * TX base, retrieve request length, own id}. FFA_MEM_RETRIEVE_REQ (request
+ * pre-written in TX by the SPMC) maps the shared page; read its four seeded
+ * bytes, write a reply byte through the mapping, and yield the bytes. Then
+ * build a relinquish descriptor in TX, FFA_MEM_RELINQUISH, and yield the
+ * status. A failed retrieve yields its status straight away. */
+    .section .text.wt_sp_ffa_borrow, "ax"
+    .globl wt_sp_ffa_borrow
+wt_sp_ffa_borrow:
+    mov     x19, x0
+    ldr     x20, [x19]                  /* handle */
+    ldr     x21, [x19, #8]              /* shared page base */
+    ldr     x22, [x19, #16]             /* TX base */
+    ldr     x23, [x19, #24]             /* retrieve request length */
+    movz    w0, #0x0074                 /* FFA_MEM_RETRIEVE_REQ32 (0x84000074) */
+    movk    w0, #0x8400, lsl #16
+    mov     x1, x23                     /* total length */
+    mov     x2, x23                     /* fragment length */
+    mov     x3, #0                      /* descriptor in the TX buffer */
+    mov     x4, #0
+    svc     #0
+    movz    w4, #0x0075                 /* FFA_MEM_RETRIEVE_RESP (0x84000075) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    2f
+    ldr     w1, [x21]                   /* the four seeded bytes */
+    mov     w5, #0xEE
+    strb    w5, [x21, #4]               /* reply written through the mapping */
+    movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3800101) */
+    movk    w0, #0xC380, lsl #16
+    svc     #0
+    str     x20, [x22]                  /* relinquish descriptor: handle */
+    str     wzr, [x22, #8]              /* flags */
+    mov     w5, #1
+    str     w5, [x22, #12]              /* endpoint count */
+    ldr     x5, [x19, #32]
+    strh    w5, [x22, #16]              /* endpoint: own id */
+    movz    w0, #0x0076                 /* FFA_MEM_RELINQUISH (0x84000076) */
+    movk    w0, #0x8400, lsl #16
+    svc     #0
+2:  mov     x1, x0                      /* yield the FF-A status */
+    movz    w0, #0x0101
+    movk    w0, #0xC380, lsl #16
+    svc     #0
+1:  b       1b
+
 /* S-EL0 probe for the boot self-test: yield twice with distinct tokens. */
     .section .text.wt_sp_el0_probe, "ax"
     .globl wt_sp_el0_probe

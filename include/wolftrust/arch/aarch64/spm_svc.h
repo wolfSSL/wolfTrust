@@ -84,6 +84,12 @@ void wt_sp_ffa_echo(void);
  * Nil UUID (RX base in x0) and yields the match count and first id. */
 void wt_sp_ffa_discover(void);
 
+/* S-EL0 memory-sharing borrower (sp_entry.S): x0 = argument block {handle,
+ * shared page base, TX base, retrieve request length, own id}. Retrieves the
+ * shared page, reads its seeded bytes and writes a reply byte at S-EL0, yields
+ * the bytes, relinquishes the page, and yields the status. */
+void wt_sp_ffa_borrow(void);
+
 /* Preemption of a running S-EL0 partition by the scheduling tick: the lower-EL
  * FIQ handler saves the partition's frame, marks it runnable, and unwinds to
  * the scheduler. wt_sp_spin is an S-EL0 partition that never blocks, used by

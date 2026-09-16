@@ -222,6 +222,8 @@ case "$scenario" in
     expect "a spinning S-EL0 partition was preempted by the secure timer tick" "[SPM] preempt ok"
     expect "a software-raised Secure SPI reached the SPMC as a Group 0 FIQ" "[SPM] sint gic ok intid=0x28"
     expect "an S-EL0 partition discovered every partition through FFA_PARTITION_INFO_GET" "[SPM] partinfo ok n=6"
+    expect "an S-EL0 partition retrieved a page the SPMC shared, wrote it, relinquished it, and the owner reclaimed it" "[SPM] mem share ok handle="
+    refute_re "the memory-sharing self-test did not fail" '\[SPM\] mem share FAIL'
     expect "FF-A version negotiated with the SPMD" "[SPM] ffa version 1.2 negotiated"
     expect "FF-A discovery at the Secure physical instance" "[SPM] ffa discovery ok id=0x8000 spmd=0x8001"
     expect "FFA_CONSOLE_LOG SMC32 logged through the SPMD" "[SPM] console32 ok"

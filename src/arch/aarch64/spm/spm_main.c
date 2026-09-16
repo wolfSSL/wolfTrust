@@ -31,7 +31,9 @@
 #include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
+#include "wolftrust/arch/aarch64/ffa_mem.h"
 #include "wolftrust/arch/aarch64/psa_ffa.h"
+#include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/tables.h"
 #include "wolftrust/boot.h"
@@ -269,6 +271,12 @@ static void enable_mmu(uint64_t boot_info_pa)
      * S-EL0, so it is shareable and taken over by that partition's table. */
     fill[n].base = (uintptr_t)WT_SPM_RXTX_PA;
     fill[n].size = (size_t)WT_SPM_RXTX_SIZE;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
+    n++;
+    /* The memory-sharing self-test page: the SPMC seeds it at S-EL1 and a
+     * partition maps it at S-EL0 only through FFA_MEM_RETRIEVE_REQ. */
+    fill[n].base = (uintptr_t)WT_SPM_SHARE_PA;
+    fill[n].size = (size_t)WT_SPM_SHARE_SIZE;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
     n++;
     /* Partition stack bands from the manifest: the SPMC seeds and scrubs
@@ -572,6 +580,136 @@ static int prove_partinfo(uint32_t* out_count)
     return (*out_count == (uint32_t)np) ? 1 : 0;
 }
 
+/* Prove FF-A memory sharing end to end: the SPMC (owner) seeds the share page
+ * and shares it to the borrower endpoint; an S-EL0 partition retrieves it
+ * through the SVC gate (which maps it into the partition's table), reads the
+ * seeded bytes and writes a reply at S-EL0, relinquishes it (the gate unmaps
+ * it), and the owner reclaims the handle, after which a retrieve is refused.
+ * The partition's table changes only through the two transactions. */
+static wt_secure_domain_t g_borrow_domain;
+static uint8_t g_share_desc[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACCESS_SIZE +
+                            WT_FFA_MEM_COMPOSITE_HDR_SIZE +
+                            WT_FFA_MEM_CONSTITUENT_SIZE];
+
+static int prove_mem_share(uint64_t* out_handle)
+{
+    const wt_domain_descriptor_t* d = first_partition_domain();
+    volatile uint8_t* share = (volatile uint8_t*)(uintptr_t)WT_SPM_SHARE_PA;
+    uint8_t* rx = (uint8_t*)(uintptr_t)WT_SPM_RXTX_PA;
+    uint8_t* tx = rx + WT_FFA_MEM_PAGE_SIZE;
+    uint64_t* arg = (uint64_t*)(rx + WT_FFA_MEM_PAGE_SIZE - 64u);
+    wt_ffa_mem_constituent_t cons;
+    wt_ffa_mem_build_t in;
+    uint8_t* stack;
+    wt_co_t* co;
+    uint64_t handle = 0u;
+    size_t len = 0u;
+    size_t req_len = 0u;
+
+    if (d == NULL) {
+        return 0;
+    }
+    stack = (uint8_t*)(uintptr_t)d->stack_base;
+    g_borrow_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
+    g_borrow_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
+    g_borrow_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+    g_borrow_domain.regions[1].base = (uintptr_t)stack;
+    g_borrow_domain.regions[1].size = (size_t)d->stack_size;
+    g_borrow_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_borrow_domain.regions[2].base = (uintptr_t)WT_SPM_RXTX_PA;
+    g_borrow_domain.regions[2].size = (size_t)WT_SPM_RXTX_SIZE;
+    g_borrow_domain.regions[2].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_borrow_domain.region_count = 3u;
+
+    share[0] = 0x5Au;
+    share[1] = 0xA5u;
+    share[2] = 0x3Cu;
+    share[3] = 0xC3u;
+    share[4] = 0u;
+
+    cons.address = (uint64_t)WT_SPM_SHARE_PA;
+    cons.page_count = 1u;
+    in.constituents = &cons;
+    in.constituent_count = 1u;
+    in.tag = 0u;
+    in.handle = 0u;
+    in.flags = 0u;
+    in.op = WT_FFA_MEM_OP_SHARE;
+    in.sender = WT_FFA_ID_SPMC;
+    in.receiver = WT_FFA_ID_MEM_BORROWER;
+    in.attributes = (uint16_t)(WT_FFA_MEM_ATTR_TYPE_NORMAL |
+                               (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT) |
+                               WT_FFA_MEM_ATTR_SHARE_INNER);
+    in.permissions = (uint8_t)(WT_FFA_MEM_PERM_DATA_RW | WT_FFA_MEM_PERM_INSTR_NX);
+    if (wt_ffa_mem_txn_build(g_share_desc, sizeof(g_share_desc), &in, &len) != 0) {
+        return 0;
+    }
+    if (wt_spm_mem_share(g_share_desc, len, WT_FFA_MEM_OP_SHARE, WT_FFA_ID_SPMC,
+                         &handle) != 0) {
+        return 0;
+    }
+
+    /* The borrower's retrieve request waits in its TX buffer; its arguments
+     * sit at the tail of its RX buffer, clear of the retrieve response. */
+    if (wt_ffa_mem_retrieve_req_build(tx, WT_FFA_MEM_PAGE_SIZE, handle,
+                                      WT_FFA_ID_SPMC, WT_FFA_ID_MEM_BORROWER,
+                                      in.permissions, &req_len) != 0) {
+        return 0;
+    }
+    arg[0] = handle;
+    arg[1] = (uint64_t)WT_SPM_SHARE_PA;
+    arg[2] = (uint64_t)(uintptr_t)tx;
+    arg[3] = (uint64_t)req_len;
+    arg[4] = (uint64_t)WT_FFA_ID_MEM_BORROWER;
+
+    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+                                 (wt_co_entry_fn)wt_sp_ffa_borrow, (void*)arg);
+    if (co == NULL) {
+        return 0;
+    }
+    wt_co_set_domain(co, &g_borrow_domain, 1u);
+    if (wt_spm_mem_bind(WT_FFA_ID_MEM_BORROWER, co, &g_borrow_domain) != 0) {
+        return 0;
+    }
+
+    /* Run 1: retrieve, read the seed, write the reply at S-EL0, yield the seed. */
+    wt_co_wake(co);
+    if (wt_co_run(co) != 1u) {
+        return 0;
+    }
+    if ((uint32_t)wt_spm_yield_token() != 0xC33CA55Au) {
+        return 0;
+    }
+    if (share[4] != 0xEEu) {
+        return 0;
+    }
+    if (g_borrow_domain.region_count != 4u) {
+        return 0;
+    }
+
+    /* Run 2: relinquish, yield the status; the region is gone from the table. */
+    wt_co_wake(co);
+    if (wt_co_run(co) != 1u) {
+        return 0;
+    }
+    if ((uint32_t)wt_spm_yield_token() != WT_FFA_SUCCESS32) {
+        return 0;
+    }
+    if (g_borrow_domain.region_count != 3u) {
+        return 0;
+    }
+
+    if (wt_spm_mem_reclaim(handle, WT_FFA_ID_SPMC) != 0) {
+        return 0;
+    }
+    if (wt_spm_mem_retrieve(tx, req_len, WT_FFA_ID_MEM_BORROWER, rx,
+                            WT_FFA_MEM_PAGE_SIZE, &len) == 0) {
+        return 0;
+    }
+    *out_handle = handle;
+    return 1;
+}
+
 uint32_t wt_spm_prove_sint(void);
 
 void wt_spm_main(uint64_t boot_info_pa)
@@ -579,10 +717,12 @@ void wt_spm_main(uint64_t boot_info_pa)
     wt_ffa_regs_t r;
     uint32_t sint_id;
     uint32_t partinfo_n = 0u;
+    uint64_t share_handle = 0u;
 
     wt_el3_puts("[SPM] spmc entered at S-EL1\r\n");
     consume_boot_info(boot_info_pa);
     enable_mmu(boot_info_pa);
+    wt_spm_mem_init();
 #if defined(WT_EL3_NS_SMOKE)
     wt_spm_psa_init((uint64_t)WT_NS_IMAGE_PA,
                     (uint64_t)WT_NS_IMAGE_PA + WT_PSA_NS_WINDOW_SIZE);
@@ -633,6 +773,14 @@ void wt_spm_main(uint64_t boot_info_pa)
     }
     else {
         wt_el3_puts("[SPM] partinfo FAIL\r\n");
+    }
+    if (prove_mem_share(&share_handle)) {
+        wt_el3_puts("[SPM] mem share ok handle=0x");
+        wt_el3_puthex(share_handle, 4u);
+        wt_el3_puts("\r\n");
+    }
+    else {
+        wt_el3_puts("[SPM] mem share FAIL\r\n");
     }
     discover_spmd();
     prove_console_log();

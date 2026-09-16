@@ -70,6 +70,11 @@ WT_NS_SECURE_PROBE_PA ?= 0x0E300000
 ifeq ($(WT_NS_GUEST_SECRAM),1)
 CFLAGS += -DWT_NS_GUEST_SECRAM=1 -DWT_NS_SECURE_PROBE_PA=$(WT_NS_SECURE_PROBE_PA)u
 endif
+# Request a PSCI system reset that re-enters the boot chain (the resetneg proof).
+WT_NS_GUEST_RESET ?= 0
+ifeq ($(WT_NS_GUEST_RESET),1)
+CFLAGS += -DWT_NS_GUEST_RESET=1
+endif
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
 

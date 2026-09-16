@@ -27,6 +27,13 @@
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/psci.h"
 
+extern void wt_el3_warm_reset(void) __attribute__((noreturn));
+
+/* Boot counter in the .noinit band: 0 on the cold boot, 1 after the one warm
+ * reset, so the first SYSTEM_RESET re-enters the chain and the second ends the
+ * run instead of looping. */
+static uint32_t g_reset_count __attribute__((section(".noinit")));
+
 static void psci_return(wt_ffa_regs_t* r, uint64_t x0)
 {
     unsigned int i;
@@ -82,7 +89,13 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
             (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);
             break;
         case WT_PSCI_SYSTEM_RESET:
-            wt_el3_puts("[EL3] psci system_reset\r\n");
+            if (g_reset_count == 0u) {
+                g_reset_count = 1u;
+                wt_el3_puts("[EL3] psci system_reset reboot\r\n");
+                wt_platform_console_flush();
+                wt_el3_warm_reset();
+            }
+            wt_el3_puts("[EL3] psci system_reset done\r\n");
             wt_platform_console_flush();
             (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);
             break;

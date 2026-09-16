@@ -38,6 +38,13 @@ SECTIONS
     . = ALIGN(16);
     . += 0x4000;
     __el3_stack_top = .;
+    /* Survives a warm reset: placed past the stack, outside the .bss clear
+     * range and not loaded from flash, so a re-entry through wt_el3_start
+     * preserves it (the boot counter that gates PSCI SYSTEM_RESET). */
+    .noinit (NOLOAD) : {
+        *(.noinit .noinit.*)
+        . = ALIGN(16);
+    }
     __el3_ram_end = .;
 
     /DISCARD/ : {

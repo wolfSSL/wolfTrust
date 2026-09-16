@@ -276,6 +276,18 @@ static void guest_fuzz(void)
 }
 #endif
 
+#if defined(WT_NS_GUEST_RESET)
+/* Ask the SPMD to reset the system through PSCI. On the first boot the monitor
+ * re-enters the whole chain; the reset does not return to the Normal world. */
+static void guest_reset(void)
+{
+    uint64_t o[4];
+
+    put_str("[NS] psci system_reset\r\n");
+    ffa_smc(WT_PSCI_SYSTEM_RESET, 0u, o);
+}
+#endif
+
 #if defined(WT_NS_GUEST_SECRAM)
 extern char _ns_vectbl[];
 extern void ns_exit(int code);
@@ -405,6 +417,11 @@ void ns_main(void)
 
 #if defined(WT_NS_GUEST_SECRAM)
     guest_secram();
+    return;
+#endif
+
+#if defined(WT_NS_GUEST_RESET)
+    guest_reset();
     return;
 #endif
 

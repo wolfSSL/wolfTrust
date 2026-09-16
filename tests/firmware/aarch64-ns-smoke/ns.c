@@ -23,6 +23,7 @@
  * the version. It proves the world switch and the SPMD NS physical instance. */
 
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/psci.h"
 
 #include <stdint.h>
 
@@ -186,6 +187,23 @@ static int discover(uint32_t* count)
     return 1;
 }
 
+#if defined(WT_NS_GUEST_PSCI)
+/* Read the PSCI version from the SPMD, then power off through PSCI (WT-FFM-0067):
+ * SYSTEM_OFF does not return, so the SPMD ends the run. */
+static void psci_walk(void)
+{
+    uint64_t o[4];
+
+    ffa_smc(WT_PSCI_VERSION, 0u, o);
+    put_str("[NS] psci version ");
+    put_dec((uint32_t)((o[0] >> 16) & 0xFFFFu));
+    put_char('.');
+    put_dec((uint32_t)(o[0] & 0xFFFFu));
+    put_str("\r\n");
+    ffa_smc(WT_PSCI_SYSTEM_OFF, 0u, o);
+}
+#endif
+
 void ns_main(void)
 {
     uint64_t current_el;
@@ -206,6 +224,10 @@ void ns_main(void)
         put_hex((uint32_t)o[0]);
         put_str("\r\n");
     }
+
+#if defined(WT_NS_GUEST_PSCI)
+    psci_walk();
+#endif
 
     if (discover(&count)) {
         put_str("[NS] discovery ok n=");

@@ -27,6 +27,7 @@
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
+#include "wolftrust/arch/aarch64/psci.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
 
 volatile uint32_t g_wt_el3_tick_intid;
@@ -86,6 +87,17 @@ static void ns_smc(wt_el3_frame_t* frame)
      * manifest): forward the call and run the Secure world. */
     if (wt_ffa_spmd_ns_forwards(fid)) {
         wt_el3_world_forward_to_secure(frame);
+        return;
+    }
+    /* PSCI power management is served by the SPMD directly (WT-FFM-0067). */
+    if (wt_psci_fid_in_range(fid)) {
+        for (i = 0u; i < 8u; i++) {
+            regs.x[i] = frame->x[i];
+        }
+        wt_psci_ns_call(&regs);
+        for (i = 0u; i < 8u; i++) {
+            frame->x[i] = regs.x[i];
+        }
         return;
     }
     if (wt_ffa_fid_in_range(fid)) {

@@ -50,6 +50,11 @@ WT_NS_GUEST_PSCI ?= 0
 ifeq ($(WT_NS_GUEST_PSCI),1)
 CFLAGS += -DWT_NS_GUEST_PSCI=1
 endif
+# Spin long enough to be preempted by a Secure tick (the ffa-preempt proof).
+WT_NS_PREEMPT ?= 0
+ifeq ($(WT_NS_PREEMPT),1)
+CFLAGS += -DWT_NS_PREEMPT=1
+endif
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
 

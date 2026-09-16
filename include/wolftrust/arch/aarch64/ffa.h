@@ -75,6 +75,8 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r);
 int wt_ffa_spmd_ns_forwards(uint32_t fid);
 /* Non-zero when an SMC from the SPMC is the reply to a forwarded NS call. */
 int wt_ffa_spmd_is_ns_reply(uint32_t fid);
+/* Non-zero when an SMC from the SPMC yields the CPU back to the Normal world. */
+int wt_ffa_spmd_is_ns_resume(uint32_t fid);
 unsigned int wt_ffa_spmd_spmc_ready(void);
 /* FFA_CONSOLE_LOG over x[0..7] (SMC32) or x[0..17] (SMC64); the reply lands
  * in x[0..7]. The caller hands the saved register frame directly. */

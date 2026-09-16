@@ -204,6 +204,25 @@ static void psci_walk(void)
 }
 #endif
 
+#if defined(WT_NS_PREEMPT)
+/* Spin ~200ms of guest time so the Secure tick fires while the Normal world
+ * runs; the preemption is handled at EL3 and the loop resumes to completion. */
+static void ns_spin(void)
+{
+    uint64_t freq;
+    uint64_t start;
+    uint64_t now;
+
+    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
+    __asm__ volatile("mrs %0, cntpct_el0" : "=r"(start));
+    put_str("[NS] spinning\r\n");
+    do {
+        __asm__ volatile("mrs %0, cntpct_el0" : "=r"(now));
+    } while ((now - start) < (freq / 5u));
+    put_str("[NS] resumed after preempt\r\n");
+}
+#endif
+
 void ns_main(void)
 {
     uint64_t current_el;
@@ -224,6 +243,11 @@ void ns_main(void)
         put_hex((uint32_t)o[0]);
         put_str("\r\n");
     }
+
+#if defined(WT_NS_PREEMPT)
+    ns_spin();
+    return;
+#endif
 
 #if defined(WT_NS_GUEST_PSCI)
     psci_walk();

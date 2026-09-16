@@ -74,6 +74,26 @@ static void wt_el3_fiq(void)
     }
 }
 
+/* A Secure interrupt taken while the Normal world runs (SCR_EL3.FIQ routes it to
+ * EL3 as a lower-EL FIQ): acknowledge it here, then signal FFA_INTERRUPT to the
+ * SPMC so it can schedule; it yields the Normal world back afterwards (Ch.9). */
+static void ns_fiq(wt_el3_frame_t* frame)
+{
+    uint32_t intid = wt_gic->ack_group0();
+
+    if (intid == WT_GIC_INTID_SECURE_TIMER) {
+        wt_el3_timer_disable();
+    }
+    if (intid != WT_GIC_INTID_SPURIOUS) {
+        wt_gic->eoi_group0(intid);
+    }
+    wt_el3_puts("[EL3] ns preempted intid=");
+    wt_el3_putdec(intid);
+    wt_el3_puts("\r\n");
+    wt_platform_console_flush();
+    wt_el3_world_preempt_to_secure(frame, intid);
+}
+
 /* An SMC taken at the NS physical instance (SCR_EL3.NS was set): FF-A calls go
  * to the SPMD NS dispatch, everything else is an SMCCC unknown function for
  * now (PSCI lands in a later B3 slice). */
@@ -117,12 +137,18 @@ static void secure_smc(wt_el3_frame_t* frame)
 {
     wt_ffa_regs_t regs;
     uint32_t fid = (uint32_t)frame->x[0];
+    unsigned int pending;
     unsigned int i;
 
-    /* The SPMC's reply to a call the SPMD forwarded from the Normal world goes
-     * back to the waiting Normal world. */
-    if ((wt_el3_world_ns_awaiting() != 0u) && (wt_ffa_spmd_is_ns_reply(fid) != 0)) {
+    /* The SPMC's answer to a paused Normal world: its reply to a forwarded call
+     * (deliver x0-x7) or its yield after handling a preemption (resume as-is). */
+    pending = wt_el3_world_ns_pending();
+    if ((pending == WT_NS_PENDING_REPLY) && (wt_ffa_spmd_is_ns_reply(fid) != 0)) {
         wt_el3_world_return_to_ns(frame);
+        return;
+    }
+    if ((pending == WT_NS_PENDING_RESUME) && (wt_ffa_spmd_is_ns_resume(fid) != 0)) {
+        wt_el3_world_resume_ns(frame);
         return;
     }
     if (fid == WT_FFA_CONSOLE_LOG64) {
@@ -154,6 +180,11 @@ void wt_el3_exception(uint64_t kind, wt_el3_frame_t* frame)
 
     if (kind == WT_EL3_VEC_CUR_SPX_FIQ) {
         wt_el3_fiq();
+        return;
+    }
+    /* A Secure interrupt taken while the Normal world runs preempts it (Ch.9). */
+    if (kind == WT_EL3_VEC_LOWER64_FIQ) {
+        ns_fiq(frame);
         return;
     }
     esr = wt_read_esr_el3();

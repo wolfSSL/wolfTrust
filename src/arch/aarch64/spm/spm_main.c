@@ -696,6 +696,25 @@ static void ns_partition_info_get(wt_ffa_regs_t* r)
     wt_ffa_smc(r);
 }
 
+/* FFA_INTERRUPT the SPMD signalled because a Secure interrupt preempted the
+ * Normal world (Ch.9). The SPMD already serviced the GIC; the SPMC schedules
+ * (nothing else is runnable here) and yields the CPU back with
+ * FFA_NORMAL_WORLD_RESUME. The resume SMC's return is the next event. */
+static void ns_interrupt(wt_ffa_regs_t* r)
+{
+    unsigned int i;
+
+    wt_el3_puts("[SPM] ns preempt intid=0x");
+    wt_el3_puthex(r->x[1], 2u);
+    wt_el3_puts("\r\n");
+    for (i = 0u; i < 8u; i++) {
+        r->x[i] = 0u;
+    }
+    r->x[0] = WT_FFA_NORMAL_WORLD_RESUME;
+    wt_platform_console_flush();
+    wt_ffa_smc(r);
+}
+
 void wt_spm_idle(void)
 {
     wt_ffa_regs_t r;
@@ -714,6 +733,10 @@ void wt_spm_idle(void)
         }
         if ((uint32_t)r.x[0] == WT_FFA_PARTITION_INFO_GET) {
             ns_partition_info_get(&r);
+            continue;
+        }
+        if ((uint32_t)r.x[0] == WT_FFA_INTERRUPT) {
+            ns_interrupt(&r);
             continue;
         }
         wt_el3_puts("[SPM] unexpected event x0=0x");

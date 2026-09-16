@@ -96,6 +96,11 @@ void wt_el3_enter_secure_el1(void (*entry)(void), uintptr_t stack_top,
 /* Drop to NS-EL1 to run the Normal world; x0_arg reaches it in x0. */
 void wt_el3_enter_ns(void (*entry)(void), uintptr_t sp,
                      uint64_t x0_arg) __attribute__((noreturn));
+/* Why the Normal world is currently paused in the Secure world. */
+#define WT_NS_PENDING_NONE   0u
+#define WT_NS_PENDING_REPLY  1u  /* an SMC it made is being served; deliver x0-x7 */
+#define WT_NS_PENDING_RESUME 2u  /* a Secure interrupt preempted it; resume as-is */
+
 /* The SPMC signalled initialization complete with FFA_MSG_WAIT: launch the
  * Normal world (saving the SPMC so it can be resumed), or exit when there is no
  * Normal-world payload. ERETs into the launched world; never returns. */
@@ -104,11 +109,17 @@ void wt_el3_world_launch_ns(wt_el3_frame_t* frame) __attribute__((noreturn));
  * FFA_MSG_WAIT, and switch to the Secure world to run it. Never returns. */
 void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
     __attribute__((noreturn));
+/* A Secure interrupt preempted the Normal world: deliver FFA_INTERRUPT(intid) to
+ * the SPMC and switch to it, keeping the NS context to resume. Never returns. */
+void wt_el3_world_preempt_to_secure(wt_el3_frame_t* frame, uint32_t intid)
+    __attribute__((noreturn));
 /* Deliver the SPMC's reply in `frame` back to the Normal world and switch to
  * it. Never returns. */
 void wt_el3_world_return_to_ns(wt_el3_frame_t* frame) __attribute__((noreturn));
-/* Non-zero while the Normal world is blocked on a call forwarded to the SPMC. */
-unsigned int wt_el3_world_ns_awaiting(void);
+/* Resume the preempted Normal world where it left off (no reply). Never returns. */
+void wt_el3_world_resume_ns(wt_el3_frame_t* frame) __attribute__((noreturn));
+/* Why the Normal world is paused in the Secure world (WT_NS_PENDING_*). */
+unsigned int wt_el3_world_ns_pending(void);
 /* Enter a saved world: program SCR_EL3, restore its register file, and ERET. */
 void wt_el3_world_eret(const wt_el3_frame_t* frame, uint64_t scr_el3)
     __attribute__((noreturn));

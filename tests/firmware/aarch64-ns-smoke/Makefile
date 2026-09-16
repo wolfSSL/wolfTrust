@@ -37,9 +37,14 @@ else
 $(error unsupported MACHINE=$(MACHINE) (virt or versal-virt))
 endif
 
+# Send a direct request to the Secure echo partition (ffa-guest-direct proof).
+WT_NS_GUEST_ECHO ?= 0
 CFLAGS := -mcpu=generic -mgeneral-regs-only -mstrict-align -ffreestanding \
     -fno-builtin -fno-pic -fno-stack-protector -nostdlib -O2 -g \
     -Wall -Wextra -Werror -I$(ROOT)/include -DWT_NS_UART=$(UART)u
+ifeq ($(WT_NS_GUEST_ECHO),1)
+CFLAGS += -DWT_NS_GUEST_ECHO=1
+endif
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
 

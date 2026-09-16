@@ -29,6 +29,14 @@
 
 #include <stdint.h>
 
+/* The FF-A echo partition is built when the EL3 test driver drives it
+ * (WT_EL3_TEST_DRIVER) or when a Normal-world guest does (WT_NS_GUEST_ECHO): it
+ * is the direct-message target in both proofs. */
+#if (defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)) || \
+    (defined(WT_NS_GUEST_ECHO) && (WT_NS_GUEST_ECHO == 1))
+#define WT_SPM_ECHO_SP 1
+#endif
+
 /* x0 = this id, x1 = wt_spm_call_t*, x8 = call->op; x0 = gate status out. */
 #define WT_SPM_SVC_FID_CALL  0xC3800100u
 /* Scheduler yield from a partition; x1 carries a token the SPMC records. */

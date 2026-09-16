@@ -111,8 +111,8 @@ static int run_pending_partition(unsigned int i)
  * initialization complete. A partition that faults during init is routed
  * through the core's restart policy (wt_spm_recover_faulted re-arms it) and
  * re-run, bounded so one that faults every time stays quarantined. */
-#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
-/* The FF-A native echo partition for the ffa-direct proof: created in the
+#if defined(WT_SPM_ECHO_SP)
+/* The FF-A native echo partition for the direct-message proofs: created in the
  * init pass, after the core has created the manifest partitions, so it
  * initializes (parks in FFA_MSG_WAIT) exactly like they do. It executes the
  * shared code every partition maps and owns the band enable_mmu published. */

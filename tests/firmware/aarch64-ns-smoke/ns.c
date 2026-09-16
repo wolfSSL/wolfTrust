@@ -122,6 +122,40 @@ static uint32_t partition_count(void)
     return (uint32_t)r2;
 }
 
+#if defined(WT_NS_GUEST_ECHO)
+/* Send an FF-A direct request to the Secure echo partition and check it
+ * complements the payload (7.4): proves the guest->SP->guest message path
+ * relayed through the SPMD and the SPMC. */
+static void guest_direct(void)
+{
+    register uint64_t r0 __asm__("x0") = WT_FFA_MSG_SEND_DIRECT_REQ32;
+    register uint64_t r1 __asm__("x1") =
+        ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16) | WT_FFA_ID_ECHO;
+    register uint64_t r2 __asm__("x2") = 0;
+    register uint64_t r3 __asm__("x3") = WT_FFA_TEST_PAYLOAD;
+    register uint64_t r4 __asm__("x4") = 0;
+    register uint64_t r5 __asm__("x5") = 0;
+    register uint64_t r6 __asm__("x6") = 0;
+    register uint64_t r7 __asm__("x7") = 0;
+
+    __asm__ volatile("smc #0"
+                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4),
+                       "+r"(r5), "+r"(r6), "+r"(r7)
+                     :
+                     : "x8", "x9", "x10", "x11", "x12", "x13", "x14",
+                       "x15", "x16", "x17", "memory");
+    if (((uint32_t)r0 == WT_FFA_MSG_SEND_DIRECT_RESP32) &&
+        ((uint32_t)r3 == (uint32_t)~WT_FFA_TEST_PAYLOAD)) {
+        put_str("[NS] direct resp ok x3=0x");
+    }
+    else {
+        put_str("[NS] direct resp BAD x3=0x");
+    }
+    put_hex((uint32_t)r3);
+    put_str("\r\n");
+}
+#endif
+
 /* Walk the NS physical instance: FEATURES(VERSION) is supported, ID_GET returns
  * the caller's own id (the primary NS endpoint, 0), SPM_ID_GET returns the SPMC
  * id (0x8000), and PARTITION_INFO_GET (forwarded to the SPMC) reports the
@@ -181,4 +215,8 @@ void ns_main(void)
     else {
         put_str("[NS] discovery BAD\r\n");
     }
+
+#if defined(WT_NS_GUEST_ECHO)
+    guest_direct();
+#endif
 }

@@ -75,6 +75,8 @@ WT_NS_GUEST_RESET ?= 0
 ifeq ($(WT_NS_GUEST_RESET),1)
 CFLAGS += -DWT_NS_GUEST_RESET=1
 endif
+# Offer malformed FFA_MEM_SHARE descriptors, each refused (the ffa-memneg proof).
+WT_NS_GUEST_MEMNEG ?= 0
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
 
@@ -83,6 +85,10 @@ ifeq ($(WT_NS_GUEST_PSA),1)
 CFLAGS += -DWT_NS_GUEST_PSA=1 -DWT_NS_GUEST_ID=$(WT_NS_GUEST_ID)
 SRCS += $(ROOT)/src/client/psa_ffa_transport.c \
     $(ROOT)/src/arch/aarch64/ffa/psa_ffa_transport_arch.c
+endif
+ifeq ($(WT_NS_GUEST_MEMNEG),1)
+CFLAGS += -DWT_NS_GUEST_MEMNEG=1
+SRCS += $(ROOT)/src/arch/aarch64/ffa/ffa_mem.c
 endif
 ELF := $(BUILD_DIR)/ns.elf
 BIN := $(BUILD_DIR)/ns.bin

@@ -218,6 +218,64 @@ static void guest_psa(void)
 }
 #endif
 
+#if defined(WT_NS_GUEST_FUZZ)
+/* Sweep function ids the SPMD does not implement at the NS physical instance -
+ * unimplemented FF-A ids, unimplemented PSCI ids, and ids outside every served
+ * range - and confirm each is refused cleanly (no crash, no world change): FF-A
+ * ids answer FFA_ERROR/NOT_SUPPORTED, the rest answer the SMCCC unknown value.
+ * Built from macros so no raw FF-A id literal lives outside ffa_abi.h. */
+static const uint32_t g_fuzz_fids[] = {
+    WT_FFA_RX_RELEASE, WT_FFA_RXTX_MAP32, WT_FFA_RXTX_MAP64, WT_FFA_RXTX_UNMAP,
+    WT_FFA_MSG_WAIT, WT_FFA_YIELD, WT_FFA_RUN, WT_FFA_NORMAL_WORLD_RESUME,
+    WT_FFA_NOTIFICATION_BITMAP_CREATE, WT_FFA_RX_ACQUIRE, WT_FFA_MSG_SEND2,
+    WT_FFA_CONSOLE_LOG32, WT_FFA_CONSOLE_LOG64, WT_FFA_PARTITION_INFO_GET_REGS,
+    WT_FFA_MSG_SEND_DIRECT_REQ2, WT_FFA_FID32_LAST, WT_FFA_FID64_LAST,
+    WT_PSCI_CPU_OFF, WT_PSCI_MIGRATE_INFO_TYPE, WT_PSCI_FID32_LAST,
+    0x82000000u, 0x8F000000u, 0xC3000000u
+};
+
+static int fuzz_refused(uint32_t fid, const uint64_t* o)
+{
+    if (wt_ffa_fid_in_range(fid)) {
+        return ((uint32_t)o[0] == WT_FFA_ERROR) &&
+               ((int32_t)(uint32_t)o[2] == WT_FFA_NOT_SUPPORTED);
+    }
+    return (uint32_t)o[0] == 0xFFFFFFFFu;
+}
+
+static void guest_fuzz(void)
+{
+    uint64_t o[4];
+    unsigned int n = (unsigned int)(sizeof(g_fuzz_fids) / sizeof(g_fuzz_fids[0]));
+    unsigned int ok = 0u;
+    unsigned int i;
+
+    for (i = 0u; i < n; i++) {
+        ffa_smc(g_fuzz_fids[i], 0u, o);
+        if (fuzz_refused(g_fuzz_fids[i], o)) {
+            ok++;
+        }
+        else {
+            put_str("[NS] smcfuzz BAD fid=0x");
+            put_hex(g_fuzz_fids[i]);
+            put_str(" x0=0x");
+            put_hex((uint32_t)o[0]);
+            put_str("\r\n");
+        }
+    }
+    if (ok == n) {
+        put_str("[NS] smcfuzz ok swept=");
+        put_dec(n);
+        put_str("\r\n");
+    }
+    else {
+        put_str("[NS] smcfuzz FAIL ok=");
+        put_dec(ok);
+        put_str("\r\n");
+    }
+}
+#endif
+
 /* Walk the NS physical instance: FEATURES(VERSION) is supported, ID_GET returns
  * the caller's own id (the primary NS endpoint, 0), SPM_ID_GET returns the SPMC
  * id (0x8000), and PARTITION_INFO_GET (forwarded to the SPMC) reports the
@@ -329,5 +387,9 @@ void ns_main(void)
 
 #if defined(WT_NS_GUEST_PSA)
     guest_psa();
+#endif
+
+#if defined(WT_NS_GUEST_FUZZ)
+    guest_fuzz();
 #endif
 }

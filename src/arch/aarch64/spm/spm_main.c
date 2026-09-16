@@ -199,7 +199,7 @@ uintptr_t g_wt_spm_echo_stack_size;
  * own table maps it EL0 while every other table keeps it EL1-only. */
 #define WT_SPMC_STACK_STRIDE 0x10000u
 
-#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+#if defined(WT_SPM_ECHO_SP)
 static size_t add_echo_band(wt_memory_region_t* fill, size_t n,
                             uintptr_t last_base, uintptr_t band_size)
 {

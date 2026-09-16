@@ -173,6 +173,8 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid)
 {
     switch (fid) {
         case WT_FFA_PARTITION_INFO_GET:
+        case WT_FFA_MSG_SEND_DIRECT_REQ32:
+        case WT_FFA_MSG_SEND_DIRECT_REQ64:
             return 1;
         default:
             return 0;

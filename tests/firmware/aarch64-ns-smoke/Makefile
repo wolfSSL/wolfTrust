@@ -59,6 +59,11 @@ endif
 # proofs); WT_NS_GUEST_ID stamps the guest marker.
 WT_NS_GUEST_PSA ?= 0
 WT_NS_GUEST_ID ?= 0
+# Sweep unimplemented function ids and confirm each is refused (the smcfuzz proof).
+WT_NS_GUEST_FUZZ ?= 0
+ifeq ($(WT_NS_GUEST_FUZZ),1)
+CFLAGS += -DWT_NS_GUEST_FUZZ=1
+endif
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
 

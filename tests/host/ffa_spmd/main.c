@@ -90,6 +90,47 @@ static void reset_console(void)
     g_console[0] = '\0';
 }
 
+static void ns_call(wt_ffa_regs_t* r, uint32_t fid)
+{
+    memset(r, 0, sizeof(*r));
+    r->x[0] = fid;
+    wt_ffa_spmd_ns_call(r);
+}
+
+/* The NS physical instance answers these function ids directly; every other id
+ * in the FF-A ranges is NOT_SUPPORTED (discovery and direct messaging forward to
+ * the SPMC, a separate concern from the SPMD's own dispatch). */
+static int ns_defined_reply(uint32_t fid)
+{
+    switch (fid) {
+        case WT_FFA_VERSION:
+        case WT_FFA_ID_GET:
+        case WT_FFA_SPM_ID_GET:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static int ns_range_total(uint32_t first, uint32_t last)
+{
+    wt_ffa_regs_t r;
+    uint32_t fid;
+
+    for (fid = first; fid <= last; fid++) {
+        ns_call(&r, fid);
+        if (ns_defined_reply(fid)) {
+            if ((uint32_t)r.x[0] == WT_FFA_ERROR) {
+                return 0;
+            }
+        }
+        else if (!is_error(&r, WT_FFA_NOT_SUPPORTED)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 int main(void)
 {
     wt_ffa_regs_t r;
@@ -190,6 +231,11 @@ int main(void)
     check((uint32_t)frame[0] == WT_FFA_ERROR &&
           (int32_t)(uint32_t)frame[2] == WT_FFA_INVALID_PARAMETERS && g_console_len == 0u,
           "count 129 on SMC64 is INVALID_PARAMETERS");
+
+    check(ns_range_total(WT_FFA_FID32_FIRST, WT_FFA_FID32_LAST) &&
+          ns_range_total(WT_FFA_FID64_FIRST, WT_FFA_FID64_LAST),
+          "the NS dispatch is total across the FF-A ranges: every unimplemented "
+          "function id is NOT_SUPPORTED and no id is left unanswered");
 
     printf("ffa_spmd: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

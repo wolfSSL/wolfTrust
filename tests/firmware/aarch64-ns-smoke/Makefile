@@ -45,6 +45,11 @@ CFLAGS := -mcpu=generic -mgeneral-regs-only -mstrict-align -ffreestanding \
 ifeq ($(WT_NS_GUEST_ECHO),1)
 CFLAGS += -DWT_NS_GUEST_ECHO=1
 endif
+# Power off through PSCI at the end of the run (the psci proof).
+WT_NS_GUEST_PSCI ?= 0
+ifeq ($(WT_NS_GUEST_PSCI),1)
+CFLAGS += -DWT_NS_GUEST_PSCI=1
+endif
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
 

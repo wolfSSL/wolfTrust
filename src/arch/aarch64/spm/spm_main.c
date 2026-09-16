@@ -888,6 +888,68 @@ static void ns_interrupt(wt_ffa_regs_t* r)
     wt_ffa_smc(r);
 }
 
+/* FFA_MEM_SHARE forwarded from the Normal world (7.3): the guest's descriptor
+ * is at the NS address in x3 with length in x1, both inside the SPMC's
+ * Non-secure window. Validate and register it; reply with the handle in w2/w3
+ * or an error. A malformed descriptor is refused, never a crash. The reply
+ * SMC's return is the next event. */
+static void ns_mem_share(wt_ffa_regs_t* r)
+{
+    uint64_t addr = r->x[3];
+    uint32_t total = (uint32_t)r->x[1];
+    uint64_t handle = 0u;
+    unsigned int i;
+    int ret;
+
+    if ((total < 1u) || (total > WT_PSA_NS_WINDOW_SIZE) ||
+        (addr < (uint64_t)WT_NS_IMAGE_PA) ||
+        ((addr + (uint64_t)total) >
+         ((uint64_t)WT_NS_IMAGE_PA + WT_PSA_NS_WINDOW_SIZE))) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    else {
+        ret = wt_spm_mem_share((const uint8_t*)(uintptr_t)addr, (size_t)total,
+                               WT_FFA_MEM_OP_SHARE, WT_FFA_ID_NS_PRIMARY,
+                               &handle);
+    }
+    for (i = 0u; i < 8u; i++) {
+        r->x[i] = 0u;
+    }
+    if (ret == 0) {
+        r->x[0] = WT_FFA_SUCCESS32;
+        r->x[2] = handle & 0xFFFFFFFFu;
+        r->x[3] = handle >> 32;
+    }
+    else {
+        r->x[0] = WT_FFA_ERROR;
+        r->x[2] = (uint64_t)(uint32_t)ret;
+    }
+    wt_platform_console_flush();
+    wt_ffa_smc(r);
+}
+
+/* FFA_MEM_RECLAIM forwarded from the Normal world: w1/w2 = handle. */
+static void ns_mem_reclaim(wt_ffa_regs_t* r)
+{
+    uint64_t handle = (uint64_t)(uint32_t)r->x[1] |
+                      ((uint64_t)(uint32_t)r->x[2] << 32);
+    unsigned int i;
+    int ret = wt_spm_mem_reclaim(handle, WT_FFA_ID_NS_PRIMARY);
+
+    for (i = 0u; i < 8u; i++) {
+        r->x[i] = 0u;
+    }
+    if (ret == 0) {
+        r->x[0] = WT_FFA_SUCCESS32;
+    }
+    else {
+        r->x[0] = WT_FFA_ERROR;
+        r->x[2] = (uint64_t)(uint32_t)ret;
+    }
+    wt_platform_console_flush();
+    wt_ffa_smc(r);
+}
+
 void wt_spm_idle(void)
 {
     wt_ffa_regs_t r;
@@ -910,6 +972,15 @@ void wt_spm_idle(void)
         }
         if ((uint32_t)r.x[0] == WT_FFA_INTERRUPT) {
             ns_interrupt(&r);
+            continue;
+        }
+        if (((uint32_t)r.x[0] == WT_FFA_MEM_SHARE32) ||
+            ((uint32_t)r.x[0] == WT_FFA_MEM_SHARE64)) {
+            ns_mem_share(&r);
+            continue;
+        }
+        if ((uint32_t)r.x[0] == WT_FFA_MEM_RECLAIM) {
+            ns_mem_reclaim(&r);
             continue;
         }
         wt_el3_puts("[SPM] unexpected event x0=0x");

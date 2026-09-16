@@ -239,6 +239,134 @@ static void guest_psa(void)
 }
 #endif
 
+#if defined(WT_NS_GUEST_MEMNEG)
+#include "wolftrust/arch/aarch64/ffa_mem.h"
+
+/* A page the guest offers to share (its content is irrelevant to descriptor
+ * validation) and the descriptor buffer, both in the guest's NS window so the
+ * SPMC can read the descriptor it points the relayer at. */
+static uint8_t g_memneg_page[4096] __attribute__((aligned(4096)));
+static uint8_t g_memneg_desc[256];
+
+/* FFA_MEM_SHARE with the descriptor at an explicit NS address in x3 (7.3): the
+ * SPMD forwards it, the SPMC reads and validates the descriptor. Returns the
+ * FF-A status (x0); w2 and w3 carry the handle on success, w2 the error code. */
+static uint32_t mem_share_smc(uint64_t addr, uint32_t len, uint64_t* w2,
+                              uint64_t* w3)
+{
+    register uint64_t r0 __asm__("x0") = WT_FFA_MEM_SHARE32;
+    register uint64_t r1 __asm__("x1") = len;
+    register uint64_t r2 __asm__("x2") = len;
+    register uint64_t r3 __asm__("x3") = addr;
+    register uint64_t r4 __asm__("x4") = 1u;
+
+    __asm__ volatile("smc #0"
+                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4)
+                     :
+                     : "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13",
+                       "x14", "x15", "x16", "x17", "memory");
+    *w2 = r2;
+    *w3 = r3;
+    return (uint32_t)r0;
+}
+
+static uint32_t mem_reclaim_smc(uint64_t handle)
+{
+    register uint64_t r0 __asm__("x0") = WT_FFA_MEM_RECLAIM;
+    register uint64_t r1 __asm__("x1") = handle & 0xFFFFFFFFu;
+    register uint64_t r2 __asm__("x2") = handle >> 32;
+    register uint64_t r3 __asm__("x3") = 0;
+
+    __asm__ volatile("smc #0"
+                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
+                     :
+                     : "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12",
+                       "x13", "x14", "x15", "x16", "x17", "memory");
+    return (uint32_t)r0;
+}
+
+/* Build a well-formed single-constituent share descriptor into g_memneg_desc;
+ * returns its length or 0. */
+static uint32_t memneg_build(void)
+{
+    wt_ffa_mem_constituent_t cons;
+    wt_ffa_mem_build_t in;
+    size_t len = 0u;
+
+    cons.address = (uint64_t)(uintptr_t)g_memneg_page;
+    cons.page_count = 1u;
+    in.constituents = &cons;
+    in.constituent_count = 1u;
+    in.tag = 0u;
+    in.handle = 0u;
+    in.flags = 0u;
+    in.op = WT_FFA_MEM_OP_SHARE;
+    in.sender = WT_FFA_ID_NS_PRIMARY;
+    in.receiver = WT_FFA_ID_SP_FIRST;
+    in.attributes = (uint16_t)(WT_FFA_MEM_ATTR_TYPE_NORMAL |
+                               (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT) |
+                               WT_FFA_MEM_ATTR_SHARE_INNER | WT_FFA_MEM_ATTR_NS);
+    in.permissions = (uint8_t)(WT_FFA_MEM_PERM_DATA_RW | WT_FFA_MEM_PERM_INSTR_NX);
+    if (wt_ffa_mem_txn_build(g_memneg_desc, sizeof(g_memneg_desc), &in,
+                             &len) != 0) {
+        return 0u;
+    }
+    return (uint32_t)len;
+}
+
+static int memneg_refused(uint32_t len)
+{
+    uint64_t w2 = 0u;
+    uint64_t w3 = 0u;
+
+    return mem_share_smc((uint64_t)(uintptr_t)g_memneg_desc, len, &w2, &w3) ==
+           WT_FFA_ERROR;
+}
+
+/* Offer a well-formed FFA_MEM_SHARE (accepted, a handle returned), then a set of
+ * malformed descriptors (each refused with no crash), reclaim the good handle,
+ * and confirm a second reclaim of the now-dead handle is refused. */
+static void guest_memneg(void)
+{
+    uint64_t handle;
+    uint64_t w2 = 0u;
+    uint64_t w3 = 0u;
+    uint32_t len;
+    int ok = 1;
+
+    len = memneg_build();
+    if (len == 0u) {
+        put_str("[NS] memneg BAD build\r\n");
+        return;
+    }
+    if (mem_share_smc((uint64_t)(uintptr_t)g_memneg_desc, len, &w2, &w3) !=
+        WT_FFA_SUCCESS32) {
+        put_str("[NS] memneg BAD share\r\n");
+        return;
+    }
+    handle = (w2 & 0xFFFFFFFFu) | (w3 << 32);
+
+    (void)memneg_build();
+    g_memneg_desc[80] = 1u;                 /* misaligned constituent base */
+    ok = ok && memneg_refused(len);
+    (void)memneg_build();
+    g_memneg_desc[0] = 0x34u;               /* sender is not the caller */
+    g_memneg_desc[1] = 0x12u;
+    ok = ok && memneg_refused(len);
+    (void)memneg_build();
+    g_memneg_desc[50] = 0xF2u;              /* reserved permission bits */
+    ok = ok && memneg_refused(len);
+    (void)memneg_build();
+    g_memneg_desc[64] = 9u;                 /* total page count != the sum */
+    ok = ok && memneg_refused(len);
+
+    ok = ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);
+    ok = ok && (mem_reclaim_smc(handle) == WT_FFA_ERROR);  /* dead handle */
+
+    put_str(ok ? "[NS] memneg ok\r\n" : "[NS] memneg BAD\r\n");
+}
+#endif
+
 #if defined(WT_NS_GUEST_FUZZ)
 /* Sweep function ids the SPMD does not implement at the NS physical instance -
  * unimplemented FF-A ids, unimplemented PSCI ids, and ids outside every served
@@ -469,5 +597,9 @@ void ns_main(void)
 
 #if defined(WT_NS_GUEST_FUZZ)
     guest_fuzz();
+#endif
+
+#if defined(WT_NS_GUEST_MEMNEG)
+    guest_memneg();
 #endif
 }

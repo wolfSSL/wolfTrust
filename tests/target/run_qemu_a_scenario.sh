@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -61,7 +61,7 @@ esac
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt|resetneg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
@@ -90,7 +90,7 @@ else
     spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
     tablesneg)   probe=(WT_TABLES_NEGATIVE=1) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
-    ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg) probe=(WT_EL3_NS_SMOKE=1) ;;
+    ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg) probe=(WT_EL3_NS_SMOKE=1) ;;
     ffa-guest-direct) probe=(WT_EL3_NS_SMOKE=1 WT_NS_GUEST_ECHO=1) ;;
     ffa-preempt) probe=(WT_EL3_NS_SMOKE=1 WT_NS_PREEMPT=1) ;;
   esac
@@ -107,7 +107,7 @@ else
      [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
      [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
      [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
-     [ "$scenario" = secramneg ]; then
+     [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ]; then
     nsfw="$repo/tests/firmware/aarch64-ns-smoke"
     ns_echo=0
     [ "$scenario" = ffa-guest-direct ] && ns_echo=1
@@ -123,6 +123,8 @@ else
     [ "$scenario" = smcfuzz ] && ns_fuzz=1
     ns_secram=0
     [ "$scenario" = secramneg ] && ns_secram=1
+    ns_reset=0
+    [ "$scenario" = resetneg ] && ns_reset=1
     # The secure keystore address to probe from NS differs per target.
     ns_secure_probe=0x0E300000
     [ "$target" = versal ] && ns_secure_probe=0x7F300000
@@ -134,7 +136,8 @@ else
       WT_NS_GUEST_ECHO="$ns_echo" WT_NS_GUEST_PSCI="$ns_psci" \
       WT_NS_PREEMPT="$ns_preempt" WT_NS_GUEST_PSA="$ns_psa" \
       WT_NS_GUEST_ID="$ns_id" WT_NS_GUEST_FUZZ="$ns_fuzz" \
-      WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe"
+      WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
+      WT_NS_GUEST_RESET="$ns_reset"
     ns_bin="$nsfw/build/$tag-$scenario/ns.bin"
   fi
   # virt boots one pflash image: the monitor at 0, the SPMC image behind it
@@ -171,7 +174,7 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
    [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
    [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
-   [ "$scenario" = secramneg ]; then
+   [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ]; then
   args+=(-device "loader,file=$ns_bin,addr=$ns_base")
 fi
 args+=(-nographic -monitor none -no-reboot
@@ -350,6 +353,15 @@ case "$scenario" in
     expect "the guest closed its handle" "[NS] psa close ok"
     expect "the Normal-world guest reached the services and finished" "[NS] guest$guest_id ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  resetneg)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    expect "the Normal world asked for a system reset" "[NS] psci system_reset"
+    expect "the first reset re-entered the boot chain" "[EL3] psci system_reset reboot"
+    expect "the monitor booted the chain a second time" "[EL3] wolfTrust monitor cntfrq="
+    expect "the second reset ended the run through the boot-flag path" "[EL3] psci system_reset done"
+    expect "the re-entered chain exited cleanly" "[EXPECT BKPT] Success"
     ;;
   secramneg)
     refute_re "no synchronous exception reached EL3" '^\[SYNC'

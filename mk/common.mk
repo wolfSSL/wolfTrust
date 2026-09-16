@@ -240,6 +240,11 @@ WT_NS_GUEST_ECHO ?= 0
 ifeq ($(WT_NS_GUEST_ECHO),1)
 SECURE_CFLAGS += -DWT_NS_GUEST_ECHO=1
 endif
+# Arm a Secure tick that preempts the Normal world (the ffa-preempt proof).
+WT_NS_PREEMPT ?= 0
+ifeq ($(WT_NS_PREEMPT),1)
+SECURE_CFLAGS += -DWT_NS_PREEMPT=1
+endif
 # Hardware guest-flash write protection: refuse to launch a guest whose image
 # sectors are not WRP-protected, so a peer Non-secure guest cannot reprogram a
 # suspended guest's flash. Silicon only (the M33MU model has no flash WRP).

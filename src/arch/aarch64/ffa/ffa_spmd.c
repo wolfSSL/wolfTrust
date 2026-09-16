@@ -197,6 +197,18 @@ int wt_ffa_spmd_is_ns_reply(uint32_t fid)
     }
 }
 
+/* An SMC from the SPMC yielding the CPU back to a preempted Normal world. */
+int wt_ffa_spmd_is_ns_resume(uint32_t fid)
+{
+    switch (fid) {
+        case WT_FFA_NORMAL_WORLD_RESUME:
+        case WT_FFA_RUN:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
 /* NS physical instance (13.x): FF-A calls arriving from the Normal world once
  * the SPMD has launched it. B3.2 serves version negotiation and discovery
  * (FEATURES, ID_GET, SPM_ID_GET); direct messaging and the interrupt loop

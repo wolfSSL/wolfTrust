@@ -29,15 +29,21 @@
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
 
 #define WT_WORLD_SECURE 0u
 #define WT_WORLD_NS     1u
 
+/* Period after which the Secure timer preempts the Normal world (ffa-preempt). */
+#ifndef WT_NS_PREEMPT_MS
+#define WT_NS_PREEMPT_MS 50u
+#endif
+
 static wt_el3_world_t g_world[2];
 static unsigned int g_world_cur = WT_WORLD_SECURE;
-static unsigned int g_world_ns_awaiting;
+static unsigned int g_ns_pending = WT_NS_PENDING_NONE;
 
 static void world_save(wt_el3_world_t* w, const wt_el3_frame_t* frame)
 {
@@ -140,9 +146,9 @@ static void world_init_ns(wt_el3_world_t* w)
 }
 #endif
 
-unsigned int wt_el3_world_ns_awaiting(void)
+unsigned int wt_el3_world_ns_pending(void)
 {
-    return g_world_ns_awaiting;
+    return g_ns_pending;
 }
 
 void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
@@ -152,7 +158,22 @@ void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
     for (i = 0u; i < 8u; i++) {
         g_world[WT_WORLD_SECURE].frame.x[i] = frame->x[i];
     }
-    g_world_ns_awaiting = 1u;
+    g_ns_pending = WT_NS_PENDING_REPLY;
+    world_switch(frame, WT_WORLD_SECURE);
+}
+
+void wt_el3_world_preempt_to_secure(wt_el3_frame_t* frame, uint32_t intid)
+{
+    unsigned int i;
+
+    /* Hand the SPMC an FFA_INTERRUPT event; the preempted NS context is saved by
+     * the switch and resumed unchanged once the SPMC yields the Normal world. */
+    for (i = 0u; i < 8u; i++) {
+        g_world[WT_WORLD_SECURE].frame.x[i] = 0u;
+    }
+    g_world[WT_WORLD_SECURE].frame.x[0] = WT_FFA_INTERRUPT;
+    g_world[WT_WORLD_SECURE].frame.x[1] = (uint64_t)intid;
+    g_ns_pending = WT_NS_PENDING_RESUME;
     world_switch(frame, WT_WORLD_SECURE);
 }
 
@@ -163,7 +184,15 @@ void wt_el3_world_return_to_ns(wt_el3_frame_t* frame)
     for (i = 0u; i < 8u; i++) {
         g_world[WT_WORLD_NS].frame.x[i] = frame->x[i];
     }
-    g_world_ns_awaiting = 0u;
+    g_ns_pending = WT_NS_PENDING_NONE;
+    world_switch(frame, WT_WORLD_NS);
+}
+
+void wt_el3_world_resume_ns(wt_el3_frame_t* frame)
+{
+    /* Resume the preempted Normal world exactly as it was: its saved frame is
+     * restored unchanged (no reply registers). */
+    g_ns_pending = WT_NS_PENDING_NONE;
     world_switch(frame, WT_WORLD_NS);
 }
 
@@ -184,6 +213,12 @@ void wt_el3_world_launch_ns(wt_el3_frame_t* frame)
     wt_el3_puthex((uint64_t)WT_NS_IMAGE_PA, 8u);
     wt_el3_puts("\r\n");
     wt_platform_console_flush();
+#if defined(WT_NS_PREEMPT) && (WT_NS_PREEMPT == 1)
+    /* Arm a one-shot Secure tick so it fires while the Normal world runs; with
+     * SCR_EL3.FIQ set for NS it traps to EL3 as a lower-EL FIQ (ffa-preempt). */
+    wt_gic->enable(WT_GIC_INTID_SECURE_TIMER);
+    wt_el3_timer_arm_ms(WT_NS_PREEMPT_MS);
+#endif
     world_restore(&g_world[WT_WORLD_NS]);
 #else
     (void)frame;

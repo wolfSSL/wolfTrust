@@ -246,7 +246,7 @@ static void guest_psa(void)
  * ids answer FFA_ERROR/NOT_SUPPORTED, the rest answer the SMCCC unknown value.
  * Built from macros so no raw FF-A id literal lives outside ffa_abi.h. */
 static const uint32_t g_fuzz_fids[] = {
-    WT_FFA_RX_RELEASE, WT_FFA_RXTX_MAP32, WT_FFA_RXTX_MAP64, WT_FFA_RXTX_UNMAP,
+    WT_FFA_RX_RELEASE,
     WT_FFA_MSG_WAIT, WT_FFA_YIELD, WT_FFA_RUN, WT_FFA_NORMAL_WORLD_RESUME,
     WT_FFA_NOTIFICATION_BITMAP_CREATE, WT_FFA_RX_ACQUIRE, WT_FFA_MSG_SEND2,
     WT_FFA_CONSOLE_LOG32, WT_FFA_CONSOLE_LOG64, WT_FFA_PARTITION_INFO_GET_REGS,

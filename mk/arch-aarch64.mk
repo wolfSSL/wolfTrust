@@ -38,6 +38,7 @@ EL3_C_SRCS := \
     $(ARCH_DIR)/el3/world.c \
     $(ARCH_DIR)/el3/psci.c \
     $(ARCH_DIR)/ffa/ffa_spmd.c \
+    $(ARCH_DIR)/ffa/ffa_mem.c \
     $(ARCH_DIR)/ffa/ffa_msg.c \
     $(ARCH_DIR)/common/libc_min.c
 EL3_ASM_SRCS := \

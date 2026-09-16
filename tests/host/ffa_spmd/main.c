@@ -99,13 +99,17 @@ static void ns_call(wt_ffa_regs_t* r, uint32_t fid)
 
 /* The NS physical instance answers these function ids directly; every other id
  * in the FF-A ranges is NOT_SUPPORTED (discovery and direct messaging forward to
- * the SPMC, a separate concern from the SPMD's own dispatch). */
+ * the SPMC, a separate concern from the SPMD's own dispatch). RX/TX mapping is
+ * answered here too, though a malformed request is a specific error. */
 static int ns_defined_reply(uint32_t fid)
 {
     switch (fid) {
         case WT_FFA_VERSION:
         case WT_FFA_ID_GET:
         case WT_FFA_SPM_ID_GET:
+        case WT_FFA_RXTX_MAP32:
+        case WT_FFA_RXTX_MAP64:
+        case WT_FFA_RXTX_UNMAP:
             return 1;
         default:
             return 0;
@@ -120,7 +124,10 @@ static int ns_range_total(uint32_t first, uint32_t last)
     for (fid = first; fid <= last; fid++) {
         ns_call(&r, fid);
         if (ns_defined_reply(fid)) {
-            if ((uint32_t)r.x[0] == WT_FFA_ERROR) {
+            /* An implemented id is handled, never left to the catch-all
+             * NOT_SUPPORTED; it may still reject bad arguments with a
+             * specific error. */
+            if (is_error(&r, WT_FFA_NOT_SUPPORTED)) {
                 return 0;
             }
         }
@@ -129,6 +136,65 @@ static int ns_range_total(uint32_t first, uint32_t last)
         }
     }
     return 1;
+}
+
+static void ns_map(wt_ffa_regs_t* r, uint32_t fid, uint64_t tx, uint64_t rx,
+                   uint64_t w3)
+{
+    memset(r, 0, sizeof(*r));
+    r->x[0] = fid;
+    r->x[1] = tx;
+    r->x[2] = rx;
+    r->x[3] = w3;
+    wt_ffa_spmd_ns_call(r);
+}
+
+/* WT-FFA-0009 (SPMD RX/TX rows): the NS instance records a well-formed RX/TX
+ * buffer pair (7.2.1), refuses a remap, unmaps, and rejects bad geometry. The
+ * sequence ends unmapped so the totality sweep starts clean. */
+static void rxtx_rows(void)
+{
+    wt_ffa_regs_t r;
+
+    ns_map(&r, WT_FFA_RXTX_MAP32, 0x1000u, 0x2000u, 1u);
+    check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 && rest_zero(r.x, 1u, 7u),
+          "FFA_RXTX_MAP records a page-aligned, non-overlapping RX/TX pair");
+    ns_map(&r, WT_FFA_RXTX_MAP32, 0x4000u, 0x5000u, 1u);
+    check(is_error(&r, WT_FFA_DENIED),
+          "a second FFA_RXTX_MAP before an unmap is DENIED");
+
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_RXTX_UNMAP;
+    wt_ffa_spmd_ns_call(&r);
+    check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 && rest_zero(r.x, 1u, 7u),
+          "FFA_RXTX_UNMAP releases the recorded pair");
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_RXTX_UNMAP;
+    wt_ffa_spmd_ns_call(&r);
+    check(is_error(&r, WT_FFA_INVALID_PARAMETERS),
+          "FFA_RXTX_UNMAP with nothing mapped is INVALID_PARAMETERS");
+
+    ns_map(&r, WT_FFA_RXTX_MAP32, 0x1001u, 0x3000u, 1u);
+    check(is_error(&r, WT_FFA_INVALID_PARAMETERS),
+          "a misaligned buffer base is INVALID_PARAMETERS");
+    ns_map(&r, WT_FFA_RXTX_MAP32, 0x1000u, 0x2000u, 2u);
+    check(is_error(&r, WT_FFA_INVALID_PARAMETERS),
+          "overlapping RX and TX ranges are INVALID_PARAMETERS");
+    ns_map(&r, WT_FFA_RXTX_MAP32, 0x1000u, 0x3000u, 0x40u | 1u);
+    check(is_error(&r, WT_FFA_INVALID_PARAMETERS),
+          "reserved bits above the page count are SBZ");
+    ns_map(&r, WT_FFA_RXTX_MAP32, 0x1000u, 0x3000u, 0u);
+    check(is_error(&r, WT_FFA_INVALID_PARAMETERS),
+          "a zero page count is INVALID_PARAMETERS");
+
+    ns_map(&r, WT_FFA_RXTX_MAP32, 0x1000u, 0x3000u, 1u);
+    check((uint32_t)r.x[0] == WT_FFA_SUCCESS32,
+          "a valid pair maps again after the failed attempts");
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_RXTX_UNMAP;
+    wt_ffa_spmd_ns_call(&r);
+    check((uint32_t)r.x[0] == WT_FFA_SUCCESS32,
+          "the pair unmaps, leaving the NS instance clean");
 }
 
 int main(void)
@@ -231,6 +297,8 @@ int main(void)
     check((uint32_t)frame[0] == WT_FFA_ERROR &&
           (int32_t)(uint32_t)frame[2] == WT_FFA_INVALID_PARAMETERS && g_console_len == 0u,
           "count 129 on SMC64 is INVALID_PARAMETERS");
+
+    rxtx_rows();
 
     check(ns_range_total(WT_FFA_FID32_FIRST, WT_FFA_FID32_LAST) &&
           ns_range_total(WT_FFA_FID64_FIRST, WT_FFA_FID64_LAST),

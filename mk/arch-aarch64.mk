@@ -60,6 +60,12 @@ SPM_C_SRCS := \
     $(ARCH_DIR)/ffa/ffa_mem.c \
     $(ARCH_DIR)/ffa/ffa_partinfo.c \
     $(ARCH_DIR)/el3/esr.c
+# The conformance image adds the privileged NVM/interrupt backend the SVC gate
+# calls for the unprivileged DRIVER partition (WT_CONFORMANCE is a command-line
+# override, so it is already set here before mk/common.mk seats its default).
+ifeq ($(WT_CONFORMANCE),1)
+SPM_C_SRCS += $(ROOT)/port/common/aarch64/conf_backend.c
+endif
 SPM_ASM_SRCS := $(ARCH_DIR)/spm/spm_entry.S $(ARCH_DIR)/spm/mmu.S \
     $(ARCH_DIR)/spm/spm_switch.S $(ARCH_DIR)/spm/sp_entry.S
 ARCH_TREE_SRCS := $(sort $(EL3_C_SRCS) $(SPM_C_SRCS))

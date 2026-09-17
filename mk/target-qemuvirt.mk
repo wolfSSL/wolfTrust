@@ -6,8 +6,14 @@ WT_GIC_VERSION ?= 3
 WT_PORT_BOOT_CPUS ?= 2
 PORT_DIR := $(ROOT)/port/qemuvirt
 PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
-TARGET_CONF_DIR := $(PORT_DIR)/conformance
+# The conformance PAL is shared by the AArch64 targets; WT_CONFORMANCE=1 swaps
+# in the manifest that also hosts Arm's test partitions.
+TARGET_CONF_DIR := $(ROOT)/port/common/aarch64/conformance
+ifeq ($(WT_CONFORMANCE),1)
+MANIFEST_INPUT := $(PORT_DIR)/manifest-conformance.json
+else
 MANIFEST_INPUT := $(PORT_DIR)/manifest.json
+endif
 
 WT_EL3_TEXT_BASE ?= 0x00000000
 WT_EL3_RAM_BASE ?= 0x0E000000
@@ -30,6 +36,10 @@ WT_SPM_RXTX_PA ?= 0x0E340000
 WT_SPM_RXTX_SIZE ?= 0x00002000
 WT_SPM_SHARE_PA ?= 0x0E342000
 WT_SPM_SHARE_SIZE ?= 0x00001000
+# Shared data band for the Arm conformance partitions; unused (empty) in the
+# non-conformance image.
+WT_SPM_CONFDATA_PA ?= 0x0E2C0000
+WT_SPM_CONFDATA_SIZE ?= 0x00020000
 WT_NS_IMAGE_PA ?= 0x44000000
 WT_SPM_FLASH_OFFSET ?= 0x00100000
 WT_QEMU_TEST_ENTROPY ?= 1
@@ -57,6 +67,8 @@ TARGET_CFLAGS := \
     -DWT_SPM_RXTX_SIZE=$(WT_SPM_RXTX_SIZE)u \
     -DWT_SPM_SHARE_PA=$(WT_SPM_SHARE_PA)u \
     -DWT_SPM_SHARE_SIZE=$(WT_SPM_SHARE_SIZE)u \
+    -DWT_SPM_CONFDATA_PA=$(WT_SPM_CONFDATA_PA)u \
+    -DWT_SPM_CONFDATA_SIZE=$(WT_SPM_CONFDATA_SIZE)u \
     -DWT_NS_IMAGE_PA=$(WT_NS_IMAGE_PA)u \
     -DWT_SPM_FLASH_OFFSET=$(WT_SPM_FLASH_OFFSET)u \
     -DWT_QEMU_TEST_ENTROPY=$(WT_QEMU_TEST_ENTROPY)
@@ -69,7 +81,9 @@ TARGET_LDFLAGS := \
     -Wl,--defsym=WT_SPM_RAM_PA=$(WT_SPM_RAM_PA) \
     -Wl,--defsym=WT_SPM_RAM_SIZE=$(WT_SPM_RAM_SIZE) \
     -Wl,--defsym=WT_SPM_KEYSTORE_PA=$(WT_SPM_KEYSTORE_PA) \
-    -Wl,--defsym=WT_SPM_KEYSTORE_SIZE=$(WT_SPM_KEYSTORE_SIZE)
+    -Wl,--defsym=WT_SPM_KEYSTORE_SIZE=$(WT_SPM_KEYSTORE_SIZE) \
+    -Wl,--defsym=WT_SPM_CONFDATA_PA=$(WT_SPM_CONFDATA_PA) \
+    -Wl,--defsym=WT_SPM_CONFDATA_SIZE=$(WT_SPM_CONFDATA_SIZE)
 SECURE_LD := $(ROOT)/src/arch/aarch64/spm/wolftrust.ld
 
 PORT_COMMON_DIR := $(ROOT)/port/common/aarch64

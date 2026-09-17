@@ -10,6 +10,7 @@ MEMORY
     IMAGE (rx) : ORIGIN = WT_SPM_IMAGE_PA, LENGTH = WT_SPM_IMAGE_SIZE
     RAM (rw) : ORIGIN = WT_SPM_RAM_PA, LENGTH = WT_SPM_RAM_SIZE
     KEYSTORE (rw) : ORIGIN = WT_SPM_KEYSTORE_PA, LENGTH = WT_SPM_KEYSTORE_SIZE
+    CONFDATA (rw) : ORIGIN = WT_SPM_CONFDATA_PA, LENGTH = WT_SPM_CONFDATA_SIZE
 }
 
 SECTIONS
@@ -67,6 +68,27 @@ SECTIONS
         _e_keystore = .;
     } > KEYSTORE
 
+    /* The Arm conformance partitions run at S-EL0 and read their val/psa API
+     * tables from .data, so those live in a dedicated band granted to the test
+     * partitions (wt_platform_conf_sp_grants) while SPM RAM stays EL1-only.
+     * Empty in non-conformance builds. */
+    .conf_data : {
+        . = ALIGN(16);
+        _s_conf_data = .;
+        *conf_sec_*.o(.data .data.*)
+        . = ALIGN(16);
+        _e_conf_data_data = .;
+    } > CONFDATA AT > IMAGE
+    _si_conf_data = LOADADDR(.conf_data);
+    .conf_bss (NOLOAD) : {
+        . = ALIGN(16);
+        _s_conf_bss = .;
+        *conf_sec_*.o(.bss .bss.* COMMON)
+        . = ALIGN(16);
+        _e_conf_bss = .;
+    } > CONFDATA
+    _e_conf_data = .;
+
     .data : {
         . = ALIGN(16);
         __data_start = .;
@@ -89,6 +111,14 @@ SECTIONS
         . += 0x4000;
         __spm_stack_top = .;
     } > RAM
+    /* Outside the bss-clear range and NOLOAD, so the conformance NVM shadow
+     * survives the EL3 warm reset the panic tests use (QEMU keeps RAM across a
+     * warm reset). Empty in non-conformance builds. */
+    .noinit (NOLOAD) : {
+        . = ALIGN(16);
+        *(.noinit .noinit.*)
+        . = ALIGN(16);
+    } > RAM
     __spm_ram_end = .;
 
     /DISCARD/ : {
@@ -101,3 +131,4 @@ SECTIONS
 ASSERT((wt_spm_vectors & 0x7FF) == 0, "S-EL1 vector table must be 2 KiB aligned")
 ASSERT(__image_end <= WT_SPM_IMAGE_PA + WT_SPM_IMAGE_SIZE, "SPM image band overflow")
 ASSERT(_e_keystore <= WT_SPM_KEYSTORE_PA + WT_SPM_KEYSTORE_SIZE, "keystore band overflow")
+ASSERT(_e_conf_data <= WT_SPM_CONFDATA_PA + WT_SPM_CONFDATA_SIZE, "conformance data band overflow")

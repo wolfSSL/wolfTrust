@@ -81,10 +81,30 @@ LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
 
 SRCS := ns.S ns.c
+# The PSA guest links the same OS-neutral PSA client and wolfHSM client
+# transport every Armv8-M guest does plus the FF-A binding of its
+# WolfTrust_FFM_* entry points; the service ids come from the generated
+# manifest header of the matching secure build (WT_NS_MANIFEST_INC).
+WT_NS_MANIFEST_INC ?=
+WOLFHSM_DIR ?= $(ROOT)/lib/wolfHSM
 ifeq ($(WT_NS_GUEST_PSA),1)
-CFLAGS += -DWT_NS_GUEST_PSA=1 -DWT_NS_GUEST_ID=$(WT_NS_GUEST_ID)
-SRCS += $(ROOT)/src/client/psa_ffa_transport.c \
-    $(ROOT)/src/arch/aarch64/ffa/psa_ffa_transport_arch.c
+CFLAGS += -DWT_NS_GUEST_PSA=1 -DWT_NS_GUEST_ID=$(WT_NS_GUEST_ID) \
+    -DWOLFHSM_CFG -I. -I$(WOLFHSM_DIR)
+ifneq ($(WT_NS_MANIFEST_INC),)
+CFLAGS += -I$(WT_NS_MANIFEST_INC)
+endif
+SRCS += $(ROOT)/src/client/psa_ffm_client.c \
+    $(ROOT)/src/client/hsm_psa_transport.c \
+    $(ROOT)/src/arch/aarch64/ffa/psa_ffa_transport_arch.c \
+    $(ROOT)/src/arch/aarch64/common/libc_min.c \
+    $(WOLFHSM_DIR)/src/wh_client.c \
+    $(WOLFHSM_DIR)/src/wh_comm.c \
+    $(WOLFHSM_DIR)/src/wh_message_comm.c \
+    $(WOLFHSM_DIR)/src/wh_message_keystore.c \
+    $(WOLFHSM_DIR)/src/wh_message_counter.c \
+    $(WOLFHSM_DIR)/src/wh_message_customcb.c \
+    $(WOLFHSM_DIR)/src/wh_message_nvm.c \
+    $(WOLFHSM_DIR)/src/wh_utils.c
 endif
 ifeq ($(WT_NS_GUEST_MEMNEG),1)
 CFLAGS += -DWT_NS_GUEST_MEMNEG=1

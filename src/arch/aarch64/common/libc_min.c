@@ -18,13 +18,15 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* The two routines GCC may emit calls to in a -nostdlib image. */
+/* The routines GCC may emit calls to in a -nostdlib image, plus memmove for
+ * the wolfHSM client the Normal-world smoke guest links. */
 
 #include <stddef.h>
 #include <stdint.h>
 
 void* memset(void* dest, int value, size_t count);
 void* memcpy(void* dest, const void* src, size_t count);
+void* memmove(void* dest, const void* src, size_t count);
 
 void* memset(void* dest, int value, size_t count)
 {
@@ -45,6 +47,25 @@ void* memcpy(void* dest, const void* src, size_t count)
 
     for (i = 0u; i < count; ++i) {
         out[i] = in[i];
+    }
+    return dest;
+}
+
+void* memmove(void* dest, const void* src, size_t count)
+{
+    uint8_t* out = (uint8_t*)dest;
+    const uint8_t* in = (const uint8_t*)src;
+    size_t i;
+
+    if (out < in) {
+        for (i = 0u; i < count; ++i) {
+            out[i] = in[i];
+        }
+    }
+    else {
+        for (i = count; i > 0u; --i) {
+            out[i - 1u] = in[i - 1u];
+        }
     }
     return dest;
 }

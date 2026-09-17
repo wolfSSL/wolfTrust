@@ -28,6 +28,7 @@
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/tables.h"
+#include "wolftrust/ffm_gateway.h"
 #include "wolftrust/platform.h"
 #include "memory_map.h"
 
@@ -37,8 +38,11 @@
 extern uint8_t _e_secure_text[];
 extern uint8_t __image_end[];
 
+/* Install the NS memory checks the FF-M gateway consults for every
+ * Normal-world vector (the port seam the Armv8-M port installs the same way). */
 void wt_platform_init(void)
 {
+    wt_ffm_gateway_install();
 }
 
 /* No TrustZone address-space filter on these machines (WT-PORT-0008: the

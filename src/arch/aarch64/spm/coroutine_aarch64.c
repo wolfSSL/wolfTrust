@@ -32,6 +32,7 @@
 #include "wolftrust/ffm_domain.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/platform.h"
+#include "wolftrust/services/hsm.h"
 #include "wolftrust/spm_transport.h"
 
 #include <stddef.h>
@@ -170,6 +171,15 @@ void wt_spm_init_partitions(void)
         return;
     }
     g_partitions_initialized = 1u;
+#if defined(WT_ENGINE_HSM)
+    /* Seat the Normal-world guest's wolfHSM relay server. This port loads the
+     * guest externally rather than as a port-managed partition, so it reports
+     * zero guests to the monitor and the core boot loop never seats it; the
+     * single externally-loaded guest still reaches SERVICE_HSM as guest 0. */
+    if (wt_hsm_guest_init_relay((wt_guest_id_t)0) != 0) {
+        wt_platform_panic();
+    }
+#endif
     create_echo_partition();
     for (i = 0u; i < WT_CO_MAX; i++) {
         (void)run_pending_partition(i);

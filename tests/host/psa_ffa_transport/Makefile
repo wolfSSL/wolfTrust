@@ -18,19 +18,58 @@
 # along with this program; if not, write to the Free Software
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
 
-ROOT := ../../..
+ROOT    := ../../..
+WOLFSSL := $(ROOT)/lib/wolfSSL
 
 CC ?= cc
 BUILD_DIR ?= build
 
 CFLAGS := \
+    -DWOLFSSL_USER_SETTINGS \
+    -UHAVE_CONFIG_H \
+    -I. \
+    -I$(ROOT)/tests/host/wolfhsm_loopback \
     -I$(ROOT)/include \
-    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic
+    -I$(WOLFSSL) \
+    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
+    -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
 
-SRCS := $(ROOT)/src/client/psa_ffa_transport.c \
+# The neutral FF-M core and services (the ffm_veneer fixture set), the neutral
+# gateway, the OS-neutral PSA client, and the AArch64 FF-A binding + SPMC
+# front-end that replace the Armv8-M CMSE veneers.
+_WT_SRCS := \
+    $(ROOT)/src/ffm.c \
+    $(ROOT)/src/ffm_boot.c \
+    $(ROOT)/src/ffm_domain.c \
+    $(ROOT)/src/ipc.c \
+    $(ROOT)/src/spm_gate.c \
+    $(ROOT)/src/services/hsm_relay_service.c \
+    $(ROOT)/src/services/storage_service.c \
+    $(ROOT)/src/services/vault_service.c \
+    $(ROOT)/src/client/psa_ffm_client.c \
+    $(ROOT)/src/arch/common/ffm_gateway.c \
     $(ROOT)/src/arch/aarch64/ffa/psa_ffa_transport_arch.c \
-    $(ROOT)/src/arch/aarch64/spm/psa_service.c main.c
+    $(ROOT)/src/arch/aarch64/spm/psa_service.c
+
+_WC_SRCS := \
+    $(WOLFSSL)/wolfcrypt/src/sha256.c   \
+    $(WOLFSSL)/wolfcrypt/src/random.c   \
+    $(WOLFSSL)/wolfcrypt/src/memory.c   \
+    $(WOLFSSL)/wolfcrypt/src/error.c    \
+    $(WOLFSSL)/wolfcrypt/src/logging.c  \
+    $(WOLFSSL)/wolfcrypt/src/hash.c     \
+    $(WOLFSSL)/wolfcrypt/src/wc_port.c  \
+    $(WOLFSSL)/wolfcrypt/src/cryptocb.c \
+    $(WOLFSSL)/wolfcrypt/src/misc.c
+
+_TEST_SRCS := main.c
+
+_WT_OBJS   := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
+_WC_OBJS   := $(patsubst %.c,wc_%.o,$(notdir $(_WC_SRCS)))
+_TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
+
+ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WC_OBJS) $(_TEST_OBJS))
 TEST_BIN := $(BUILD_DIR)/test_psa_ffa_transport
 
 .PHONY: all run compilers sanitize valgrind clean
@@ -40,8 +79,32 @@ all: $(TEST_BIN)
 $(BUILD_DIR):
 	mkdir -p $@
 
-$(TEST_BIN): $(SRCS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(SRCS)
+$(BUILD_DIR)/wt_%.o: $(ROOT)/src/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_%.o: $(ROOT)/src/services/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_%.o: $(ROOT)/src/client/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_%.o: $(ROOT)/src/arch/common/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_%.o: $(ROOT)/src/arch/aarch64/ffa/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_%.o: $(ROOT)/src/arch/aarch64/spm/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wc_%.o: $(WOLFSSL)/wolfcrypt/src/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(TEST_BIN): $(ALL_OBJS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(ALL_OBJS) -lm
 
 run: $(TEST_BIN)
 	$(TEST_BIN)

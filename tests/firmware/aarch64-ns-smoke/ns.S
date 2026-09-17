@@ -19,15 +19,23 @@
  */
 
 /* Normal-world payload entry: the SPMD ERETs here at NS-EL1. Set the stack,
- * clear .bss, run ns_main, then exit through semihosting so QEMU reports the
- * run's status. */
+ * copy .data from its pristine load image, clear .bss, run ns_main, then exit
+ * through semihosting so QEMU reports the run's status. */
 
     .section .text.entry, "ax"
     .globl _start
 _start:
     ldr     x0, =__stack_top
     mov     sp, x0
-    ldr     x0, =__bss_start
+    ldr     x0, =__data_load
+    ldr     x1, =__data_start
+    ldr     x2, =__data_end
+5:  cmp     x1, x2
+    b.hs    6f
+    ldr     x3, [x0], #8
+    str     x3, [x1], #8
+    b       5b
+6:  ldr     x0, =__bss_start
     ldr     x1, =__bss_end
 1:  cmp     x0, x1
     b.hs    2f
@@ -49,10 +57,11 @@ ns_exit:
 3:  wfi
     b       3b
 
-#if defined(WT_NS_GUEST_SECRAM)
-/* Normal-world EL1 exception vectors: the Secure-RAM read faults into here, so
- * the guest catches its own abort and reports the refusal instead of hanging on
- * an unset vector. Every entry funnels to one handler. */
+#if defined(WT_NS_GUEST_SECRAM) || defined(WT_NS_GUEST_CONF)
+/* Normal-world EL1 exception vectors: a Secure-RAM read (secramneg) or one of
+ * the conformance suite's by-design client aborts lands here, so the guest
+ * catches its own abort and answers it instead of hanging on an unset vector.
+ * Every entry funnels to one handler. */
     .section .text
     .balign 0x800
     .globl _ns_vectbl

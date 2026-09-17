@@ -26,6 +26,7 @@
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
+#include "wolftrust/spm_transport.h"
 
 #include <stddef.h>
 
@@ -65,6 +66,20 @@ void wt_spm_fiq(void)
  * it (an NS-Int, DEV-04) and the handler does not return here; any other
  * declared Secure interrupt is queued for the partition and delivered as
  * FFA_INTERRUPT on its next FFA_MSG_WAIT (Table 9.1). */
+/* A Group 0 interrupt other than the tick: a manifest-declared partition
+ * interrupt becomes that partition's FF-M signal (consumed by psa_wait and
+ * released by psa_eoi); the FF-A test SPI is queued for its waiting endpoint. */
+static void wt_spm_declared_irq(uint32_t intid)
+{
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    if (intid != WT_SPM_TEST_SPI) {
+        wt_spm_conf_irq(intid);
+        return;
+    }
+#endif
+    wt_spm_sint_queue(intid);
+}
+
 void wt_spm_lower_fiq(wt_trap_frame_t* frame)
 {
     uint32_t intid = ack_group0_tick();
@@ -73,7 +88,7 @@ void wt_spm_lower_fiq(wt_trap_frame_t* frame)
         wt_spm_preempt_from_fiq(frame);
     }
     else if (intid != WT_GIC_INTID_SPURIOUS) {
-        wt_spm_sint_queue(intid);
+        wt_spm_declared_irq(intid);
     }
 }
 

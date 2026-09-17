@@ -159,8 +159,14 @@ uintptr_t wt_arch_read_fault_address(void)
     return (uintptr_t)far;
 }
 
+/* A partition's manifest interrupt is a Secure (Group 0) source: the GIC
+ * leaves SPIs Non-secure by default, and a Group 1 line would sit pending
+ * behind the partition's masked IRQ instead of arriving as the FIQ that
+ * asserts its signal. */
 void wt_arch_secure_irq_enable(uint32_t irq)
 {
+    wt_gic->set_group0(irq);
+    wt_gic->set_priority(irq, 0x00u);
     wt_gic->enable(irq);
 }
 

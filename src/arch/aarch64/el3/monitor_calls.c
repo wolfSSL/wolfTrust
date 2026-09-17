@@ -55,6 +55,9 @@ uint64_t wt_el3_monitor_call(uint32_t fid, uint64_t arg)
             wt_platform_console_flush();
             wt_el3_semihost_exit(WT_MON_EXIT_PANIC);
             break;
+        case WT_MON_FID_SYSTEM_RESET:
+            wt_el3_system_reset("mon");
+            break;
         default:
             break;
     }

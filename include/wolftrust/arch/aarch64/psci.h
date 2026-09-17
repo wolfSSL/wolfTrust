@@ -66,4 +66,9 @@ struct wt_ffa_regs;
  * the reply, or ends the run for SYSTEM_OFF/SYSTEM_RESET. */
 void wt_psci_ns_call(struct wt_ffa_regs* r);
 
+/* EL3 system reset shared by the NS PSCI SYSTEM_RESET and the Secure world's
+ * WT_MON_FID_SYSTEM_RESET: re-enters the boot chain while the .noinit boot
+ * counter allows it, then ends the run; tag names the requester in the log. */
+void wt_el3_system_reset(const char* tag);
+
 #endif /* WOLFTRUST_ARCH_AARCH64_PSCI_H */

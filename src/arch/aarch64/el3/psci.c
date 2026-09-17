@@ -40,6 +40,32 @@ static uint32_t g_reset_count __attribute__((section(".noinit")));
 #define WT_CONF_RESET_CAP 256u
 #endif
 
+static int reset_allowed(void)
+{
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    return g_reset_count < WT_CONF_RESET_CAP;
+#else
+    return g_reset_count == 0u;
+#endif
+}
+
+void wt_el3_system_reset(const char* tag)
+{
+    if (reset_allowed()) {
+        g_reset_count++;
+        wt_el3_puts("[EL3] ");
+        wt_el3_puts(tag);
+        wt_el3_puts(" system_reset reboot\r\n");
+        wt_platform_console_flush();
+        wt_el3_warm_reset();
+    }
+    wt_el3_puts("[EL3] ");
+    wt_el3_puts(tag);
+    wt_el3_puts(" system_reset done\r\n");
+    wt_platform_console_flush();
+    (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);
+}
+
 static void psci_return(wt_ffa_regs_t* r, uint64_t x0)
 {
     unsigned int i;
@@ -95,24 +121,7 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
             (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);
             break;
         case WT_PSCI_SYSTEM_RESET:
-#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
-            if (g_reset_count < WT_CONF_RESET_CAP) {
-                g_reset_count++;
-                wt_el3_puts("[EL3] psci system_reset reboot\r\n");
-                wt_platform_console_flush();
-                wt_el3_warm_reset();
-            }
-#else
-            if (g_reset_count == 0u) {
-                g_reset_count = 1u;
-                wt_el3_puts("[EL3] psci system_reset reboot\r\n");
-                wt_platform_console_flush();
-                wt_el3_warm_reset();
-            }
-#endif
-            wt_el3_puts("[EL3] psci system_reset done\r\n");
-            wt_platform_console_flush();
-            (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);
+            wt_el3_system_reset("psci");
             break;
         default:
             psci_return(r, (uint64_t)(uint32_t)WT_PSCI_NOT_SUPPORTED);

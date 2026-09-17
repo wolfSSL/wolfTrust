@@ -46,6 +46,11 @@ GIC="${GIC:-3}"
 CPU="${CPU:-cortex-a72}"
 QEMU="${QEMU:-qemu-system-aarch64}"
 QEMU_TIMEOUT="${QEMU_TIMEOUT:-120}"
+# The conformance suite reboots the chain across its panic tests and logs 89
+# tests, so it gets its own budget.
+if [ "$scenario" = confboot ]; then
+  QEMU_TIMEOUT="${QEMU_TIMEOUT_CONFBOOT:-1500}"
+fi
 TOOLPREFIX="${TOOLPREFIX:-aarch64-none-elf-}"
 
 case "$MACHINE" in
@@ -89,7 +94,7 @@ else
     crossdomain) probe=(WT_FFM_NEGATIVE_PROBE=1) ;;
     spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
     tablesneg)   probe=(WT_TABLES_NEGATIVE=1) ;;
-    confboot)    probe=(WT_CONFORMANCE=1) ;;
+    confboot)    probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|storage) probe=(WT_EL3_NS_SMOKE=1) ;;
     ffa-guest-direct) probe=(WT_EL3_NS_SMOKE=1 WT_NS_GUEST_ECHO=1) ;;
@@ -109,7 +114,8 @@ else
      [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
      [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
      [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
-     [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ]; then
+     [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
+     [ "$scenario" = confboot ]; then
     nsfw="$repo/tests/firmware/aarch64-ns-smoke"
     ns_echo=0
     [ "$scenario" = ffa-guest-direct ] && ns_echo=1
@@ -131,9 +137,15 @@ else
     [ "$scenario" = ffa-memneg ] && ns_memneg=1
     ns_storage=0
     [ "$scenario" = storage ] && ns_storage=1
-    # The secure keystore address to probe from NS differs per target.
+    # confboot runs Arm's val NSPE from the payload against the conformance
+    # image built above (its fetched upstream tree + generated test list).
+    ns_conf=0
+    [ "$scenario" = confboot ] && ns_conf=1
+    # The secure keystore address to probe from NS and the conformance data
+    # band the val PAL config names differ per target.
     ns_secure_probe=0x0E300000
-    [ "$target" = versal ] && ns_secure_probe=0x7F300000
+    ns_confdata=0x0E2C0000
+    [ "$target" = versal ] && { ns_secure_probe=0x7F300000; ns_confdata=0x7F2C0000; }
     # Per-scenario NS build dir, wiped each run so a changed -D flag (probe
     # address, guest id) is always recompiled and never a stale binary.
     rm -rf "$nsfw/build/$tag-$scenario"
@@ -144,7 +156,9 @@ else
       WT_NS_GUEST_ID="$ns_id" WT_NS_GUEST_FUZZ="$ns_fuzz" \
       WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
       WT_NS_GUEST_RESET="$ns_reset" WT_NS_GUEST_MEMNEG="$ns_memneg" \
-      WT_NS_GUEST_STORAGE="$ns_storage" \
+      WT_NS_GUEST_STORAGE="$ns_storage" WT_RUN_CONFORMANCE="$ns_conf" \
+      WT_NS_CONF_UPSTREAM="$build/upstream/psa-arch-tests/api-tests" \
+      WT_NS_CONFDATA_PA="$ns_confdata" \
       WT_NS_MANIFEST_INC="$build/manifest"
     ns_bin="$nsfw/build/$tag-$scenario/ns.bin"
   fi
@@ -183,7 +197,8 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
    [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
-   [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ]; then
+   [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
+   [ "$scenario" = confboot ]; then
   args+=(-device "loader,file=$ns_bin,addr=$ns_base")
 fi
 args+=(-nographic -monitor none -no-reboot
@@ -262,21 +277,48 @@ case "$scenario" in
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   confboot)
-    # B5.2 build+boot: the conformance SPMC image boots and initializes every
-    # partition, including Arm's SERVER/DRIVER/CLIENT test partitions at
-    # S-EL0. Running the suite to 85/4 (which drives SP-to-SP messaging) is a
-    # later slice, so this asserts the image comes up, not a clean exit.
-    refute_re "no synchronous exception reached EL3" '^\[SYNC'
-    refute_re "no partition fault" '\[SYNC EL=0'
+    # The unmodified Arm FF-M IPC suite (psa-arch-tests val NSPE, pinned rev,
+    # zero test edits) runs from the Normal world over FF-A against the
+    # conformance SPMC image. Panic tests reboot the whole chain mid-suite
+    # (the SPMC's must-panic policy and the NS client's own abort vector both
+    # answer with PSCI SYSTEM_RESET) and val resumes off the Secure NVM boot
+    # flag, so partition faults are by design here: the suite's own totals
+    # and the clean semihosting exit gate correctness. 89 scheduled: 85 pass,
+    # the 4 heap tests report SKIPPED (zero-allocation image); i067 is not
+    # scheduled (heap).
     refute_re "no EL3 panic" '\[EL3\] panic'
-    refute_re "no SPMC panic" '\[SPM\] panic'
     expect "monitor dropped into Secure EL1" "[SPM] spmc entered at S-EL1"
     for id in 8002 8003 8004 8005 8006 8007 8008 8009; do
       expect "partition 0x$id initialized through the SVC gate" "[SP] init id=0x$id"
     done
     expect "every conformance partition initialized" "[SPM] partitions ready n=8"
-    expect "the SPMC idles waiting for the Normal-world test harness" "[EL3] spmc ready"
-    expect "monitor exit call reached EL3" "[BKPT] imm=0x7f"
+    expect "the Normal-world test harness ran at NS-EL1" "[NS] hello el=1"
+    expect "val started from the payload" "[NS] conformance val_entry start"
+    if [ "$MACHINE" = versal-virt ]; then
+      # xlnx-versal-virt models no XMPU/RISAF (see secramneg): the seven
+      # Normal-world fence tests (i048/i049 pass a Secure iovec array pointer
+      # the client dereferences; i072/i073/i075/i076/i077 read Secure
+      # data/stack/mmio from NS) read Secure RAM without faulting and report
+      # Failed. Every other test must pass; the fence is proven on the virt
+      # cells (VIRT_SECURE_MEM) and enforced by the XMPU/RISAF on silicon.
+      expect_flat "Arm suite TOTAL PASSED : 78 (versal-virt: no NS fence model)" "TOTAL PASSED    : 78"
+      expect_flat "Arm suite TOTAL SKIPPED : 4" "TOTAL SKIPPED   : 4"
+      expect_flat "Arm suite TOTAL FAILED : 7" "TOTAL FAILED    : 7"
+      # A reboot can split a test header across lines, so key on the Num=
+      # token wherever it lands rather than on the Suite= line.
+      failed=$(awk '/Num=[0-9]+/ {match($0, /Num=[0-9]+/); n = substr($0, RSTART + 4, RLENGTH - 4)}
+                    /^Result=Failed/ && n != "" {print n}' "$log" | sort -un | tr '\n' ' ')
+      if [ "$failed" = "48 49 72 73 75 76 77 " ]; then
+        check_pass "only the Normal-world fence tests failed on the model"
+      else
+        check_fail "only the Normal-world fence tests failed on the model" "failed set: $failed"
+      fi
+    else
+      expect_flat "Arm suite TOTAL PASSED : 85" "TOTAL PASSED    : 85"
+      expect_flat "Arm suite TOTAL SKIPPED : 4" "TOTAL SKIPPED   : 4"
+      expect_flat "Arm suite TOTAL FAILED : 0" "TOTAL FAILED    : 0"
+    fi
+    expect "val returned to the payload" "[NS] conformance val_entry returned"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   crossdomain)

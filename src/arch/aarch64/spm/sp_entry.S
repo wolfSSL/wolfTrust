@@ -35,6 +35,7 @@
 
     .section .bss.g_wt_sp_kernel_ctx, "aw", %nobits
     .balign 16
+    .globl g_wt_sp_kernel_ctx
 g_wt_sp_kernel_ctx:
     .skip   112
 

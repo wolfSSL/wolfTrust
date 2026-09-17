@@ -288,6 +288,53 @@ static void guest_psa(void)
 }
 #endif
 
+#if defined(WT_NS_GUEST_STORAGE)
+#include "psa/client.h"
+#include "psa/error.h"
+#include "psa/storage_common.h"
+#include "psa/internal_trusted_storage.h"
+#include "psa_manifest/sid.h"
+
+/* An ITS round trip is the first Normal-world request whose service calls a
+ * second partition: SERVICE_ITS fronts the VAULT partition, so every op below
+ * crosses the SVC gate SP-to-SP and back before the reply reaches the guest. */
+static void guest_storage(void)
+{
+    static const uint8_t its_in[4] = { 0x11u, 0x22u, 0x33u, 0x44u };
+    uint8_t its_out[4] = { 0u, 0u, 0u, 0u };
+    struct psa_storage_info_t info;
+    psa_storage_uid_t uid = 0x5A5Au;
+    size_t got = 0u;
+    psa_status_t st_info;
+    psa_status_t st_set;
+    psa_status_t st_get;
+
+    st_info = psa_its_get_info(uid, &info);
+    put_str("[NS] its info st=0x");
+    put_hex((uint32_t)st_info);
+    put_str("\r\n");
+    st_set = psa_its_set(uid, sizeof(its_in), its_in, PSA_STORAGE_FLAG_NONE);
+    put_str("[NS] its set st=0x");
+    put_hex((uint32_t)st_set);
+    put_str("\r\n");
+    st_get = psa_its_get(uid, 0u, sizeof(its_out), its_out, &got);
+    put_str("[NS] its get st=0x");
+    put_hex((uint32_t)st_get);
+    put_str(" len=");
+    put_dec((uint32_t)got);
+    put_str("\r\n");
+    if ((st_info == PSA_ERROR_DOES_NOT_EXIST) && (st_set == PSA_SUCCESS) &&
+        (st_get == PSA_SUCCESS) && (got == sizeof(its_in)) &&
+        (its_out[0] == its_in[0]) && (its_out[3] == its_in[3])) {
+        put_str("[NS] its ok\r\n");
+    }
+    else {
+        put_str("[NS] its BAD\r\n");
+    }
+    (void)psa_its_remove(uid);
+}
+#endif
+
 #if defined(WT_NS_GUEST_MEMNEG)
 #include "wolftrust/arch/aarch64/ffa_mem.h"
 
@@ -646,6 +693,10 @@ void ns_main(void)
 
 #if defined(WT_NS_GUEST_FUZZ)
     guest_fuzz();
+#endif
+
+#if defined(WT_NS_GUEST_STORAGE)
+    guest_storage();
 #endif
 
 #if defined(WT_NS_GUEST_MEMNEG)

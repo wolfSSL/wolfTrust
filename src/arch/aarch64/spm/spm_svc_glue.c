@@ -44,6 +44,7 @@
 #define WT_ESR_EC_SVC64 0x15u
 
 wt_trap_frame_t* volatile g_wt_spm_live_frame;
+struct wt_co* volatile g_wt_spm_handler_co;
 static uint64_t g_yield_token;
 uint64_t g_wt_ffa_direct_resp[8];
 volatile uint32_t g_wt_ffa_direct_resp_ready;
@@ -298,6 +299,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
 
     g_wt_spm_live_frame = frame;
     g_wt_spm_trap_spsr = frame->spsr;
+    g_wt_spm_handler_co = co;
     g_wt_spm_handler_depth++;
 
     if (ec != WT_ESR_EC_SVC64) {
@@ -315,6 +317,10 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     if (fid == WT_SPM_SVC_FID_CALL) {
         wt_spm_call_t* call = (wt_spm_call_t*)(uintptr_t)frame->x[1];
 
+        /* A blocking op unwinds inside the dispatch with this frame already
+         * captured, so the resumed partition returns from its svc with this
+         * value: SUCCESS makes the SVC transport re-issue around the block. */
+        frame->x[0] = (uint64_t)WT_FFM_SUCCESS;
         frame->x[0] = (uint64_t)(int64_t)wt_spm_dispatch_call(call, frame);
     }
     else if (fid == WT_SPM_SVC_FID_YIELD) {

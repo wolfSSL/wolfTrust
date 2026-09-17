@@ -332,24 +332,52 @@ void wt_co_arch_init_stack(struct wt_co *co, wt_co_entry_fn entry, void *arg)
     a->frame.spsr = WT_SP_SPSR_EL0T;
 }
 
+/* The S-EL1 context wt_sp_el0_enter parks for wt_sp_el0_leave to unwind to
+ * (x19-x30 and sp): one slot, so a nested entry must save and put it back. */
+extern uint64_t g_wt_sp_kernel_ctx[14];
+
+/* Runs `to` until it blocks, faults or is preempted, then resumes whoever
+ * entered it. That is the scheduler on the bootstrap stack, or, for an
+ * SP-to-SP message, the exception handler of the partition whose call is being
+ * served: the callee's unwind slot, the handler bookkeeping, the current
+ * coroutine, and the caller's translation table and thread id are all
+ * single-valued, so they are parked here and restored as soon as `to` comes
+ * back so the caller's handler completes (and may itself block) as if the
+ * nested run never happened. From the scheduler this reduces to the bootstrap. */
 void wt_co_arch_enter(struct wt_co *to)
 {
     const struct wt_secure_domain *domain = to->domain;
+    uint64_t kernel_ctx[14];
+    wt_trap_frame_t* live_frame = g_wt_spm_live_frame;
+    uint64_t trap_spsr = g_wt_spm_trap_spsr;
+    uint32_t handler_depth = g_wt_spm_handler_depth;
+    struct wt_co *handler_co = g_wt_spm_handler_co;
+    struct wt_co *prev = (handler_depth != 0u) ? handler_co : &g_wt_co_bootstrap;
 
+    (void)memcpy(kernel_ctx, g_wt_sp_kernel_ctx, sizeof(kernel_ctx));
     if (domain != NULL) {
         wt_arch_program_sp_thread_domain(domain->regions, domain->region_count);
     }
     if (to->unprivileged != 0u) {
         write_tpidrro((uint64_t)to->id);
         wt_sp_el0_enter(&sp_arch(to)->frame);
-        write_tpidrro(0u);
     }
     else {
         wt_co_arch_switch(&g_wt_co_bootstrap.sp, to->sp);
     }
-    /* Back on the bootstrap stack: `to` blocked or faulted. */
-    g_wt_co_current = &g_wt_co_bootstrap;
-    if (domain != NULL) {
+    /* `to` blocked, faulted or was preempted. */
+    (void)memcpy(g_wt_sp_kernel_ctx, kernel_ctx, sizeof(kernel_ctx));
+    g_wt_spm_live_frame = live_frame;
+    g_wt_spm_trap_spsr = trap_spsr;
+    g_wt_spm_handler_depth = handler_depth;
+    g_wt_spm_handler_co = handler_co;
+    g_wt_co_current = prev;
+    write_tpidrro((prev->unprivileged != 0u) ? (uint64_t)prev->id : 0u);
+    if (prev->domain != NULL) {
+        wt_arch_program_sp_thread_domain(prev->domain->regions,
+                                         prev->domain->region_count);
+    }
+    else if (domain != NULL) {
         wt_arch_restore_spm_domain();
     }
 }

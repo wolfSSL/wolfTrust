@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot|storage) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot|storage" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -91,7 +91,7 @@ else
     tablesneg)   probe=(WT_TABLES_NEGATIVE=1) ;;
     confboot)    probe=(WT_CONFORMANCE=1) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
-    ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg) probe=(WT_EL3_NS_SMOKE=1) ;;
+    ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|storage) probe=(WT_EL3_NS_SMOKE=1) ;;
     ffa-guest-direct) probe=(WT_EL3_NS_SMOKE=1 WT_NS_GUEST_ECHO=1) ;;
     ffa-preempt) probe=(WT_EL3_NS_SMOKE=1 WT_NS_PREEMPT=1) ;;
   esac
@@ -109,7 +109,7 @@ else
      [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
      [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
      [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
-     [ "$scenario" = ffa-memneg ]; then
+     [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ]; then
     nsfw="$repo/tests/firmware/aarch64-ns-smoke"
     ns_echo=0
     [ "$scenario" = ffa-guest-direct ] && ns_echo=1
@@ -129,6 +129,8 @@ else
     [ "$scenario" = resetneg ] && ns_reset=1
     ns_memneg=0
     [ "$scenario" = ffa-memneg ] && ns_memneg=1
+    ns_storage=0
+    [ "$scenario" = storage ] && ns_storage=1
     # The secure keystore address to probe from NS differs per target.
     ns_secure_probe=0x0E300000
     [ "$target" = versal ] && ns_secure_probe=0x7F300000
@@ -142,6 +144,7 @@ else
       WT_NS_GUEST_ID="$ns_id" WT_NS_GUEST_FUZZ="$ns_fuzz" \
       WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
       WT_NS_GUEST_RESET="$ns_reset" WT_NS_GUEST_MEMNEG="$ns_memneg" \
+      WT_NS_GUEST_STORAGE="$ns_storage" \
       WT_NS_MANIFEST_INC="$build/manifest"
     ns_bin="$nsfw/build/$tag-$scenario/ns.bin"
   fi
@@ -180,7 +183,7 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
    [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
-   [ "$scenario" = ffa-memneg ]; then
+   [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ]; then
   args+=(-device "loader,file=$ns_bin,addr=$ns_base")
 fi
 args+=(-nographic -monitor none -no-reboot
@@ -414,6 +417,20 @@ case "$scenario" in
     refute_re "no SPMC panic on a malformed transaction" '\[SPM\] panic'
     refute_re "no malformed transaction was mishandled" '\[NS\] memneg BAD'
     expect "every malformed memory transaction was refused and a reclaimed handle is dead" "[NS] memneg ok"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  storage)
+    # SERVICE_ITS fronts the VAULT partition, so a guest ITS round trip is the
+    # first request whose service calls a second partition: the SVC gate runs
+    # VAULT from inside the ITS partition's handler and returns into it.
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no partition fault" '\[SYNC EL=0'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no SPMC panic" '\[SPM\] panic'
+    refute_re "the ITS round trip was not misjudged" '\[NS\] its BAD'
+    expect "the SPMC completed initialization" "[SPM] partitions ready n=6"
+    expect "the Normal-world guest ran at NS-EL1" "[NS] hello el=1"
+    expect "an ITS object round-tripped through SERVICE_ITS and the VAULT partition behind it" "[NS] its ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
 esac

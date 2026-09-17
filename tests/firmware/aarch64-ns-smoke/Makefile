@@ -133,37 +133,56 @@ ifeq ($(WT_NS_GUEST_STORAGE),1)
 CFLAGS += -DWT_NS_GUEST_STORAGE=1
 SRCS += $(ROOT)/src/client/psa_storage_client.c
 endif
-# Run the unmodified Arm psa-arch-tests val NSPE (the FF-M IPC suite) from
-# this payload (the confboot proof). val and the scheduled tests come from the
-# secure build's fetched upstream tree and generated test list; wolfTrust's
-# psa/*.h stay first on the include path, the NS test list before the SPE one.
+# Run the unmodified Arm psa-arch-tests val NSPE from this payload: the FF-M
+# IPC suite (confboot, WT_CONF_SUITE=ipc) or the dev_apis storage suite
+# (devstorage, WT_CONF_SUITE=storage). val and the scheduled tests come from
+# the secure build's fetched upstream tree and generated test lists;
+# wolfTrust's psa/*.h stay first on the include path, the NS test list before
+# the SPE one.
 CONF_OBJS :=
+WT_CONF_SUITE ?= ipc
 ifeq ($(WT_RUN_CONFORMANCE),1)
 WT_NS_CONF_UPSTREAM ?= $(ROOT)/build/upstream/psa-arch-tests/api-tests
-CONF_TESTS := $(shell cat $(WT_NS_MANIFEST_INC)/ns/testlist.txt 2>/dev/null)
-ifeq ($(CONF_TESTS),)
-$(error WT_RUN_CONFORMANCE=1 needs the secure build's generated test list at WT_NS_MANIFEST_INC/ns/testlist.txt)
+ifeq ($(WT_CONF_SUITE),storage)
+CONF_LIST_DIR := $(WT_NS_MANIFEST_INC)/storage/ns
+CONF_SUITE_DIR := $(WT_NS_CONF_UPSTREAM)/dev_apis/storage
+CONF_SUITE_DEFS := -DSTORAGE
+CONF_SUITE_SRCS := $(CONF_SUITE_DIR)/common/test_storage_common.c
+CONF_SUITE_INCS := -I$(CONF_SUITE_DIR)/common
+else
+CONF_LIST_DIR := $(WT_NS_MANIFEST_INC)/ns
+CONF_SUITE_DIR := $(WT_NS_CONF_UPSTREAM)/ff/ipc
+CONF_SUITE_DEFS := -DIPC
+CONF_SUITE_SRCS :=
+CONF_SUITE_INCS :=
 endif
-CFLAGS := -I$(WT_NS_MANIFEST_INC)/ns $(CFLAGS) \
-    -DWT_NS_GUEST_CONF=1 -DIPC -DVAL_NSPE_BUILD -DNONSECURE_TEST_BUILD \
-    -DVERBOSITY=3 -DWT_SPM_CONFDATA_PA=$(WT_NS_CONFDATA_PA)u \
+CONF_TESTS := $(shell cat $(CONF_LIST_DIR)/testlist.txt 2>/dev/null)
+ifeq ($(CONF_TESTS),)
+$(error WT_RUN_CONFORMANCE=1 needs the secure build's generated test list at $(CONF_LIST_DIR)/testlist.txt)
+endif
+CFLAGS := -I$(CONF_LIST_DIR) $(CFLAGS) \
+    -DWT_NS_GUEST_CONF=1 $(CONF_SUITE_DEFS) -DVAL_NSPE_BUILD \
+    -DNONSECURE_TEST_BUILD -DVERBOSITY=3 \
+    -DWT_SPM_CONFDATA_PA=$(WT_NS_CONFDATA_PA)u \
     -ffunction-sections -fdata-sections \
     -I$(WT_NS_CONF_UPSTREAM)/val/common \
     -I$(WT_NS_CONF_UPSTREAM)/val/nspe \
     -I$(WT_NS_CONF_UPSTREAM)/val/spe \
     -I$(WT_NS_CONF_UPSTREAM)/platform/targets/common/nspe \
     -I$(ROOT)/port/common/aarch64/conformance \
-    $(foreach t,$(CONF_TESTS),-I$(WT_NS_CONF_UPSTREAM)/ff/ipc/$(t))
+    $(CONF_SUITE_INCS) \
+    $(foreach t,$(CONF_TESTS),-I$(CONF_SUITE_DIR)/$(t))
 LDFLAGS += -Wl,--gc-sections
-SRCS += conformance_pal.c
+SRCS += conformance_pal.c $(ROOT)/src/client/psa_storage_client.c
 CONF_CFLAGS := $(filter-out -Werror,$(CFLAGS)) -Wno-unused-function \
     -Wno-unused-variable -Wno-unused-parameter -Wno-type-limits
 CONF_SRCS := $(WT_NS_CONF_UPSTREAM)/val/common/val_log.c \
     $(addprefix $(WT_NS_CONF_UPSTREAM)/val/nspe/,val_entry.c val_dispatcher.c \
         val_framework.c val_interfaces.c val_peripherals.c val_platform.c \
         val_crypto.c val_storage.c val_attestation.c) \
-    $(foreach t,$(CONF_TESTS),$(WT_NS_CONF_UPSTREAM)/ff/ipc/$(t)/$(t).c \
-        $(WT_NS_CONF_UPSTREAM)/ff/ipc/$(t)/test_entry_$(t:test_%=%).c)
+    $(CONF_SUITE_SRCS) \
+    $(foreach t,$(CONF_TESTS),$(CONF_SUITE_DIR)/$(t)/$(t).c \
+        $(CONF_SUITE_DIR)/$(t)/test_entry_$(t:test_%=%).c)
 CONF_OBJS := $(addprefix $(BUILD_DIR)/conf/,$(notdir $(CONF_SRCS:.c=.o)))
 vpath %.c $(sort $(dir $(CONF_SRCS)))
 endif

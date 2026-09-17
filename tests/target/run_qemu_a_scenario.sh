@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot|storage) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot|storage" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot|storage|devstorage) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot|storage|devstorage" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -48,9 +48,10 @@ QEMU="${QEMU:-qemu-system-aarch64}"
 QEMU_TIMEOUT="${QEMU_TIMEOUT:-120}"
 # The conformance suite reboots the chain across its panic tests and logs 89
 # tests, so it gets its own budget.
-if [ "$scenario" = confboot ]; then
-  QEMU_TIMEOUT="${QEMU_TIMEOUT_CONFBOOT:-1500}"
-fi
+case "$scenario" in
+  confboot)   QEMU_TIMEOUT="${QEMU_TIMEOUT_CONFBOOT:-1500}" ;;
+  devstorage) QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVSTORAGE:-600}" ;;
+esac
 TOOLPREFIX="${TOOLPREFIX:-aarch64-none-elf-}"
 
 case "$MACHINE" in
@@ -94,7 +95,7 @@ else
     crossdomain) probe=(WT_FFM_NEGATIVE_PROBE=1) ;;
     spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
     tablesneg)   probe=(WT_TABLES_NEGATIVE=1) ;;
-    confboot)    probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1) ;;
+    confboot|devstorage) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|storage) probe=(WT_EL3_NS_SMOKE=1) ;;
     ffa-guest-direct) probe=(WT_EL3_NS_SMOKE=1 WT_NS_GUEST_ECHO=1) ;;
@@ -115,7 +116,7 @@ else
      [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
      [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
      [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
-     [ "$scenario" = confboot ]; then
+     [ "$scenario" = confboot ] || [ "$scenario" = devstorage ]; then
     nsfw="$repo/tests/firmware/aarch64-ns-smoke"
     ns_echo=0
     [ "$scenario" = ffa-guest-direct ] && ns_echo=1
@@ -140,7 +141,9 @@ else
     # confboot runs Arm's val NSPE from the payload against the conformance
     # image built above (its fetched upstream tree + generated test list).
     ns_conf=0
+    ns_suite=ipc
     [ "$scenario" = confboot ] && ns_conf=1
+    [ "$scenario" = devstorage ] && { ns_conf=1; ns_suite=storage; }
     # The secure keystore address to probe from NS and the conformance data
     # band the val PAL config names differ per target.
     ns_secure_probe=0x0E300000
@@ -157,6 +160,7 @@ else
       WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
       WT_NS_GUEST_RESET="$ns_reset" WT_NS_GUEST_MEMNEG="$ns_memneg" \
       WT_NS_GUEST_STORAGE="$ns_storage" WT_RUN_CONFORMANCE="$ns_conf" \
+      WT_CONF_SUITE="$ns_suite" \
       WT_NS_CONF_UPSTREAM="$build/upstream/psa-arch-tests/api-tests" \
       WT_NS_CONFDATA_PA="$ns_confdata" \
       WT_NS_MANIFEST_INC="$build/manifest"
@@ -198,7 +202,7 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
    [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
-   [ "$scenario" = confboot ]; then
+   [ "$scenario" = confboot ] || [ "$scenario" = devstorage ]; then
   args+=(-device "loader,file=$ns_bin,addr=$ns_base")
 fi
 args+=(-nographic -monitor none -no-reboot
@@ -459,6 +463,32 @@ case "$scenario" in
     refute_re "no SPMC panic on a malformed transaction" '\[SPM\] panic'
     refute_re "no malformed transaction was mishandled" '\[NS\] memneg BAD'
     expect "every malformed memory transaction was refused and a reclaimed handle is dead" "[NS] memneg ok"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  devstorage)
+    # The unmodified Arm dev_apis storage suite (psa-arch-tests s001-s017)
+    # runs from the Normal world: every ITS/PS call rides the routed PSA
+    # client onto SERVICE_ITS / SERVICE_PS, whose VAULT hop is the SP-to-SP
+    # path. No panic tests here; every test must pass or skip, none fail.
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no partition fault" '\[SYNC EL=0'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no SPMC panic" '\[SPM\] panic'
+    expect "the conformance SPMC image initialized every partition" "[SPM] partitions ready n=8"
+    expect "the Normal-world test harness ran at NS-EL1" "[NS] hello el=1"
+    expect "val started from the payload" "[NS] conformance val_entry start"
+    flat="$(tr -d '\r\n' < "$log")"
+    passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"
+    if [ "$failed" = "0" ] && [ "$((passed + skipped))" -eq 17 ]; then
+      check_pass "dev_apis storage: ${passed} passed, ${skipped} skipped, 0 failed (17 total)"
+    else
+      check_fail "dev_apis storage suite" \
+        "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=17)"
+    fi
+    expect "val returned to the payload" "[NS] conformance val_entry returned"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   storage)

@@ -71,6 +71,7 @@ wt_spm_entry:
     isb
     WT_SPM_INIT_BAND __data_lma, __data_start, __data_end, __bss_start, __bss_end
     WT_SPM_INIT_BAND _si_keystore, _s_keystore, _e_keystore_data, _s_keystore_bss, _e_keystore
+    WT_SPM_INIT_BAND _si_conf_data, _s_conf_data, _e_conf_data_data, _s_conf_bss, _e_conf_bss
     mov     x0, x19
     bl      wt_spm_main
 2:  wfi

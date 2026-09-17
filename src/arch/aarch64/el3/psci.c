@@ -31,8 +31,14 @@ extern void wt_el3_warm_reset(void) __attribute__((noreturn));
 
 /* Boot counter in the .noinit band: 0 on the cold boot, 1 after the one warm
  * reset, so the first SYSTEM_RESET re-enters the chain and the second ends the
- * run instead of looping. */
+ * run instead of looping. Under WT_CONFORMANCE the panic tests reset the chain
+ * many times and val resumes off its Secure NVM boot flag, so the reset is
+ * unbounded up to a safety cap that stops a runaway from looping forever. */
 static uint32_t g_reset_count __attribute__((section(".noinit")));
+
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+#define WT_CONF_RESET_CAP 256u
+#endif
 
 static void psci_return(wt_ffa_regs_t* r, uint64_t x0)
 {
@@ -89,12 +95,21 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
             (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);
             break;
         case WT_PSCI_SYSTEM_RESET:
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+            if (g_reset_count < WT_CONF_RESET_CAP) {
+                g_reset_count++;
+                wt_el3_puts("[EL3] psci system_reset reboot\r\n");
+                wt_platform_console_flush();
+                wt_el3_warm_reset();
+            }
+#else
             if (g_reset_count == 0u) {
                 g_reset_count = 1u;
                 wt_el3_puts("[EL3] psci system_reset reboot\r\n");
                 wt_platform_console_flush();
                 wt_el3_warm_reset();
             }
+#endif
             wt_el3_puts("[EL3] psci system_reset done\r\n");
             wt_platform_console_flush();
             (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);

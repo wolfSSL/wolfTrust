@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -89,6 +89,7 @@ else
     crossdomain) probe=(WT_FFM_NEGATIVE_PROBE=1) ;;
     spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
     tablesneg)   probe=(WT_TABLES_NEGATIVE=1) ;;
+    confboot)    probe=(WT_CONFORMANCE=1) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg) probe=(WT_EL3_NS_SMOKE=1) ;;
     ffa-guest-direct) probe=(WT_EL3_NS_SMOKE=1 WT_NS_GUEST_ECHO=1) ;;
@@ -254,6 +255,24 @@ case "$scenario" in
     done
     expect "every partition initialized" "[SPM] partitions ready n=6"
     expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
+    expect "monitor exit call reached EL3" "[BKPT] imm=0x7f"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  confboot)
+    # B5.2 build+boot: the conformance SPMC image boots and initializes every
+    # partition, including Arm's SERVER/DRIVER/CLIENT test partitions at
+    # S-EL0. Running the suite to 85/4 (which drives SP-to-SP messaging) is a
+    # later slice, so this asserts the image comes up, not a clean exit.
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no partition fault" '\[SYNC EL=0'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no SPMC panic" '\[SPM\] panic'
+    expect "monitor dropped into Secure EL1" "[SPM] spmc entered at S-EL1"
+    for id in 8002 8003 8004 8005 8006 8007 8008 8009; do
+      expect "partition 0x$id initialized through the SVC gate" "[SP] init id=0x$id"
+    done
+    expect "every conformance partition initialized" "[SPM] partitions ready n=8"
+    expect "the SPMC idles waiting for the Normal-world test harness" "[EL3] spmc ready"
     expect "monitor exit call reached EL3" "[BKPT] imm=0x7f"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;

@@ -27,7 +27,11 @@
 
 #if defined(WT_NS_GUEST_PSA)
 #include "psa/client.h"
-#include "wolftrust/arch/aarch64/psa_ffa.h"
+#include "psa/error.h"
+#include "psa_manifest/sid.h"
+#include "wolfhsm/wh_client.h"
+#include "wolfhsm/wh_error.h"
+#include "wolftrust/hsm_psa_transport.h"
 #ifndef WT_NS_GUEST_ID
 #define WT_NS_GUEST_ID 0
 #endif
@@ -166,18 +170,71 @@ static void guest_direct(void)
 #endif
 
 #if defined(WT_NS_GUEST_PSA)
-/* Reach the Secure services over the operating-system-neutral PSA client
- * (src/client/psa_ffa_transport.c): read the framework and service versions,
- * connect to the register-only test service, prove an unknown service is
- * refused, and close the handle. This is the Normal-world guest a real OS runs
- * (B3.5); data-carrying psa_call arrives with memory sharing (B4). */
+/* Reach the real Secure services over the operating-system-neutral PSA client
+ * (src/client/psa_ffm_client.c, the same client an Armv8-M guest links) whose
+ * WolfTrust_FFM_* entry points are the FF-A binding here: read the framework
+ * and service versions, connect to SERVICE_HSM, prove an unknown service is
+ * refused, close, then run the wolfHSM client over the same SPM-mediated
+ * transport every Armv8-M guest uses (src/client/hsm_psa_transport.c) for one
+ * echo through the relay partition and the wolfHSM server - the Secure side
+ * only ever sees SPM-mediated copies of the guest's vectors. */
+static const uint8_t g_hsm_echo_in[] = "wolfTrust FF-A SERVICE_HSM relay echo";
+static wt_hsm_psa_transport_ctx_t g_hsm_tx;
+static const wt_hsm_psa_transport_cfg_t g_hsm_tx_cfg = {
+    .sid = SERVICE_HSM_SID,
+    .version = 1u
+};
+static whCommClientConfig g_hsm_comm_cfg;
+static whClientConfig g_hsm_client_cfg;
+static whClientContext g_hsm_client;
+
+static int guest_hsm_echo(void)
+{
+    uint8_t echo_out[sizeof(g_hsm_echo_in)];
+    uint16_t echo_len = 0u;
+    uint16_t want = (uint16_t)(sizeof(g_hsm_echo_in) - 1u);
+    uint16_t i;
+    int ok = 0;
+    int rc;
+
+    g_hsm_comm_cfg.transport_cb = &wt_hsm_psa_transport_cb;
+    g_hsm_comm_cfg.transport_context = &g_hsm_tx;
+    g_hsm_comm_cfg.transport_config = &g_hsm_tx_cfg;
+    g_hsm_comm_cfg.client_id = 0u;
+    g_hsm_client_cfg.comm = &g_hsm_comm_cfg;
+
+    rc = wh_Client_Init(&g_hsm_client, &g_hsm_client_cfg);
+    put_str("[NS] hsm client init rc=0x");
+    put_hex((uint32_t)rc);
+    put_str("\r\n");
+    if (rc != WH_ERROR_OK) {
+        return 0;
+    }
+
+    for (i = 0u; i < sizeof(echo_out); i++) {
+        echo_out[i] = 0u;
+    }
+    rc = wh_Client_Echo(&g_hsm_client, want, g_hsm_echo_in, &echo_len,
+                        echo_out);
+    put_str("[NS] hsm echo rc=0x");
+    put_hex((uint32_t)rc);
+    put_str(" len=");
+    put_dec(echo_len);
+    put_str("\r\n");
+    if ((rc == WH_ERROR_OK) && (echo_len == want)) {
+        ok = 1;
+        for (i = 0u; i < want; i++) {
+            if (echo_out[i] != g_hsm_echo_in[i]) {
+                ok = 0;
+            }
+        }
+    }
+    (void)wh_Client_Cleanup(&g_hsm_client);
+    return ok;
+}
+
 static void guest_psa(void)
 {
-    static const uint8_t call_in[4] = { 0x11u, 0x22u, 0x33u, 0x44u };
-    uint8_t call_out[4] = { 0u, 0u, 0u, 0u };
-    psa_invec in_vec;
-    psa_outvec out_vec;
-    psa_status_t status;
     uint32_t fw;
     uint32_t ver;
     psa_handle_t handle;
@@ -188,12 +245,12 @@ static void guest_psa(void)
     put_hex(fw);
     put_str("\r\n");
 
-    ver = psa_version(WT_PSA_FFA_SID_TEST);
+    ver = psa_version(SERVICE_HSM_SID);
     put_str("[NS] psa version v=");
     put_dec(ver);
     put_str("\r\n");
 
-    handle = psa_connect(WT_PSA_FFA_SID_TEST, WT_PSA_FFA_SID_TEST_VERSION);
+    handle = psa_connect(SERVICE_HSM_SID, 1u);
     if (PSA_HANDLE_IS_VALID(handle)) {
         put_str("[NS] psa connect ok handle=");
         put_dec((uint32_t)handle);
@@ -213,24 +270,16 @@ static void guest_psa(void)
     }
 
     if (PSA_HANDLE_IS_VALID(handle)) {
-        in_vec.base = call_in;
-        in_vec.len = sizeof(call_in);
-        out_vec.base = call_out;
-        out_vec.len = sizeof(call_out);
-        status = psa_call(handle, 0, &in_vec, 1u, &out_vec, 1u);
-        if ((status == PSA_SUCCESS) && (out_vec.len == sizeof(call_in)) &&
-            (call_out[0] == (uint8_t)~call_in[0]) &&
-            (call_out[3] == (uint8_t)~call_in[3])) {
-            put_str("[NS] psa call ok\r\n");
-        }
-        else {
-            put_str("[NS] psa call BAD\r\n");
-        }
-    }
-
-    if (PSA_HANDLE_IS_VALID(handle)) {
         psa_close(handle);
         put_str("[NS] psa close ok\r\n");
+    }
+
+    if (guest_hsm_echo() != 0) {
+        put_str("[NS] psa call ok\r\n");
+        put_str("[NS] hsm echo ok\r\n");
+    }
+    else {
+        put_str("[NS] psa call BAD\r\n");
     }
 
     put_str("[NS] guest");

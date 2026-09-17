@@ -140,7 +140,8 @@ else
       WT_NS_PREEMPT="$ns_preempt" WT_NS_GUEST_PSA="$ns_psa" \
       WT_NS_GUEST_ID="$ns_id" WT_NS_GUEST_FUZZ="$ns_fuzz" \
       WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
-      WT_NS_GUEST_RESET="$ns_reset" WT_NS_GUEST_MEMNEG="$ns_memneg"
+      WT_NS_GUEST_RESET="$ns_reset" WT_NS_GUEST_MEMNEG="$ns_memneg" \
+      WT_NS_MANIFEST_INC="$build/manifest"
     ns_bin="$nsfw/build/$tag-$scenario/ns.bin"
   fi
   # virt boots one pflash image: the monitor at 0, the SPMC image behind it
@@ -354,10 +355,11 @@ case "$scenario" in
     expect "the SPMC fielded the guest's PSA requests at the framework endpoint" "[SPM] direct req from=0x0000 to=0x80fd"
     expect "the guest read the PSA framework version over the transport" "[NS] psa framework 0x100"
     expect "the guest read the service version over the transport" "[NS] psa version v=1"
-    expect "the guest connected to a Secure service and got a handle" "[NS] psa connect ok handle=1"
-    expect "an unknown service was refused register-only" "[NS] psa connect refused"
+    expect "the guest connected to a Secure service and got a handle" "[NS] psa connect ok handle="
+    expect "an unknown service was refused by the gateway" "[NS] psa connect refused"
     refute_re "the data-carrying call was not misjudged" '\[NS\] psa call BAD'
-    expect "the guest completed a data-carrying psa_call through the SPMC copy" "[NS] psa call ok"
+    expect "the guest completed a data-carrying psa_call through the routed gateway" "[NS] psa call ok"
+    expect "the wolfHSM client echoed a packet through the relay partition and the wolfHSM server" "[NS] hsm echo ok"
     expect "the guest closed its handle" "[NS] psa close ok"
     expect "the Normal-world guest reached the services and finished" "[NS] guest$guest_id ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"

@@ -21,31 +21,32 @@
 #ifndef WOLFTRUST_ARCH_AARCH64_PSA_FFA_H
 #define WOLFTRUST_ARCH_AARCH64_PSA_FFA_H
 
+#include <stddef.h>
 #include <stdint.h>
 
 #include "wolftrust/arch/aarch64/ffa.h"
-#include "wolftrust/psa_ffa_transport.h"
+#include "wolftrust/arch/aarch64/psa_ffa_transport.h"
 
-/* AArch64 binding for the register-only PSA transport: the client op is carried
- * in the payload words of an FF-A direct request to WT_FFA_ID_PSA (op in w3,
- * arguments in w4/w5), and the SPMC answers with the result in w3 of the direct
- * response. Data-carrying psa_call arrives with memory sharing (B4). */
+/* AArch64 binding of the PSA client transport: the client op rides the payload
+ * words of an FF-A direct request to WT_FFA_ID_PSA (op in w3, arguments in
+ * x4/x5), and the SPMC answers with the result in w3 of the direct response.
+ * The SPMC side is the AArch64 twin of the Armv8-M CMSE veneers: it hands each
+ * operation to the neutral FF-M gateway (src/arch/common/ffm_gateway.c), whose
+ * core copies a call's vectors itself (psa_read/psa_write) after the NS-window
+ * checks below. */
 
-/* SPMC-side register-only handler: r holds the client's direct request on
- * entry and the direct response (or FFA_ERROR) on return. Returns 0 when it
- * answered, -1 on a malformed request. */
+/* SPMC-side handler: r holds the client's direct request on entry and the
+ * direct response (or FFA_ERROR) on return. Returns 0 when it answered, -1 on
+ * a malformed request. */
 int wt_spm_psa_framework(wt_ffa_regs_t* r);
 
 /* Record the Non-secure window [ns_lo, ns_hi) the SPMC may read a guest's
- * psa_call buffers from; every iovec must fall entirely inside it. */
+ * vectors from. Nothing is inside an unset window (fail closed). */
 void wt_spm_psa_init(uint64_t ns_lo, uint64_t ns_hi);
 
-/* Run one psa_call by SPMC-mediated copy: read the parameter block at
- * desc_addr, validate every iovec lies inside [ns_lo, ns_hi), copy the in-vecs
- * to the service, transform, copy the out-vecs back, and update their lengths.
- * Returns a psa_status_t. Split out so a host suite drives it with fixture
- * bounds. */
-int32_t wt_psa_call_run(uint64_t desc_addr, uint64_t ns_lo, uint64_t ns_hi);
+/* 1 when [base, base+len) lies entirely inside the Non-secure window (an empty
+ * span always does), else 0. The wt_arch_ns_check_* operations use it. */
+int wt_spm_ns_window_ok(uintptr_t base, size_t len);
 
 #if !defined(__aarch64__)
 /* Host-test SMC seam: the fixture drives one client transaction to the SPMC. */

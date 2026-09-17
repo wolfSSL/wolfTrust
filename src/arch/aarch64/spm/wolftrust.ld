@@ -75,15 +75,23 @@ SECTIONS
     .conf_data : {
         . = ALIGN(16);
         _s_conf_data = .;
-        *conf_sec_*.o(.data .data.*)
-        . = ALIGN(16);
+        EXCLUDE_FILE(*conf_sec_test_supp_*.o *conf_sec_driver_partition.o) *conf_sec_*.o(.data .data.*)
+        . = ALIGN(4096);
+        _s_conf_server_data = .;
+        *conf_sec_test_supp_*.o(.data .data.* .bss .bss.* COMMON)
+        . = ALIGN(4096);
+        _e_conf_server_data = .;
+        _s_conf_driver_data = .;
+        *conf_sec_driver_partition.o(.data .data.* .bss .bss.* COMMON)
+        . = ALIGN(4096);
+        _e_conf_driver_data = .;
         _e_conf_data_data = .;
     } > CONFDATA AT > IMAGE
     _si_conf_data = LOADADDR(.conf_data);
     .conf_bss (NOLOAD) : {
         . = ALIGN(16);
         _s_conf_bss = .;
-        *conf_sec_*.o(.bss .bss.* COMMON)
+        EXCLUDE_FILE(*conf_sec_test_supp_*.o *conf_sec_driver_partition.o) *conf_sec_*.o(.bss .bss.* COMMON)
         . = ALIGN(16);
         _e_conf_bss = .;
     } > CONFDATA
@@ -132,3 +140,4 @@ ASSERT((wt_spm_vectors & 0x7FF) == 0, "S-EL1 vector table must be 2 KiB aligned"
 ASSERT(__image_end <= WT_SPM_IMAGE_PA + WT_SPM_IMAGE_SIZE, "SPM image band overflow")
 ASSERT(_e_keystore <= WT_SPM_KEYSTORE_PA + WT_SPM_KEYSTORE_SIZE, "keystore band overflow")
 ASSERT(_e_conf_data <= WT_SPM_CONFDATA_PA + WT_SPM_CONFDATA_SIZE, "conformance data band overflow")
+ASSERT(_e_conf_bss <= WT_SPM_CONFDATA_PA + 0x1C000, "conformance data reaches the pseudo-MMIO pages")

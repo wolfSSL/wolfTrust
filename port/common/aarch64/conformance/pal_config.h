@@ -28,6 +28,8 @@
 #ifndef _PAL_CONFIG_H_
 #define _PAL_CONFIG_H_
 
+#include "conf_nvm.h"
+
 #define PLATFORM_PSA_ISOLATION_LEVEL 3
 
 #define UART_NUM                               1
@@ -63,13 +65,13 @@
  * out of every other partition's grant (a later slice) so a cross-partition
  * poke faults. WT_SPM_CONFDATA_PA is a -D on the secure conformance build. */
 #define SERVER_PARTITION_MMIO_NUM              1
-#define SERVER_PARTITION_MMIO_0_START          (WT_SPM_CONFDATA_PA + 0x1C000u)
-#define SERVER_PARTITION_MMIO_0_END            (WT_SPM_CONFDATA_PA + 0x1C100u)
+#define SERVER_PARTITION_MMIO_0_START          (WT_SPM_CONFDATA_PA + WT_CONF_SERVER_MMIO_OFFSET)
+#define SERVER_PARTITION_MMIO_0_END            (SERVER_PARTITION_MMIO_0_START + 0x100u)
 #define SERVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define DRIVER_PARTITION_MMIO_NUM              1
-#define DRIVER_PARTITION_MMIO_0_START          (WT_SPM_CONFDATA_PA + 0x1D000u)
-#define DRIVER_PARTITION_MMIO_0_END            (WT_SPM_CONFDATA_PA + 0x1D100u)
+#define DRIVER_PARTITION_MMIO_0_START          (WT_SPM_CONFDATA_PA + WT_CONF_DRIVER_MMIO_OFFSET)
+#define DRIVER_PARTITION_MMIO_0_END            (DRIVER_PARTITION_MMIO_0_START + 0x100u)
 #define DRIVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define PLATFORM_WD_BASE                        WATCHDOG_0_BASE

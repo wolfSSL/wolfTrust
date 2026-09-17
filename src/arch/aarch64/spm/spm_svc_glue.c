@@ -304,6 +304,12 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
 
     if (ec != WT_ESR_EC_SVC64) {
         report_partition_fault(frame);
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+        /* The Arm isolation tests fault inside a partition on purpose and
+         * expect a system restart (val resumes off its NVM boot flag); the
+         * quarantine below would leave the server dead for every later test. */
+        wt_platform_system_reset();
+#endif
         /* Route a partition fault through the core's restart policy; if it is
          * not a scheduled SP (e.g. the boot self-test) quarantine it here. */
         if (wt_spm_sp_fault(co) != WT_FFM_SUCCESS) {

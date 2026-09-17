@@ -32,12 +32,17 @@
 #include "wolftrust/types.h"
 
 #include "psa_manifest/pid.h"
+#include "conformance/conf_nvm.h"
 
 #include <stddef.h>
 #include <stdint.h>
 #include <string.h>
 
-extern uint8_t _e_conf_data[];
+extern uint8_t _s_conf_server_data[];
+extern uint8_t _e_conf_server_data[];
+extern uint8_t _s_conf_driver_data[];
+extern uint8_t _e_conf_driver_data[];
+extern uint8_t _e_conf_bss[];
 
 #define WT_CONF_NVM_SIZE  0x200u
 #define WT_CONF_NVM_MAGIC 0x774E564Du /* "wNVM" */
@@ -90,27 +95,58 @@ void wt_conf_uart_irq_set(int on)
  * own data at S-EL0 while SPM RAM stays EL1-only. Only the three test
  * partitions get it; the production services never touch this band. Per-
  * partition hole carving for the L3 MMIO-isolation tests is a later slice. */
+static size_t conf_grant(wt_memory_region_t* regions, size_t count,
+                         size_t max, uintptr_t from, uintptr_t to)
+{
+    if (regions != NULL && count < max && to > from) {
+        regions[count].base = from;
+        regions[count].size = (uint32_t)(to - from);
+        regions[count].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+        count++;
+    }
+    return count;
+}
+
+/* The band is laid out (wolftrust.ld) as common data, the server partition's
+ * page-aligned private segment, the driver partition's, then the common bss,
+ * with the two pseudo-MMIO pages above; each partition is granted everything
+ * but the other partitions' private segment and MMIO page, so the L3
+ * isolation tests fault where the suite expects. */
 size_t wt_platform_conf_sp_grants(int32_t partition_id,
                                   wt_memory_region_t* regions,
                                   size_t count, size_t max)
 {
     uintptr_t base = (uintptr_t)WT_SPM_CONFDATA_PA;
-    /* The full band, not just the used .data/.bss: the per-partition
-     * pseudo-MMIO holes the isolation tests probe live near its top and must be
-     * reachable by their owner. Per-partition hole carving is a later slice. */
-    uintptr_t end = (uintptr_t)WT_SPM_CONFDATA_PA + (uintptr_t)WT_SPM_CONFDATA_SIZE;
+    uintptr_t seg = base;
+    uintptr_t common_end = ((uintptr_t)_e_conf_bss + 0xFFFu) & ~(uintptr_t)0xFFFu;
 
-    (void)_e_conf_data;
     if (partition_id != SERVER_PARTITION_ID &&
             partition_id != DRIVER_PARTITION_ID &&
             partition_id != CLIENT_PARTITION_ID) {
         return count;
     }
-    if (regions != NULL && count < max && end > base) {
-        regions[count].base = base;
-        regions[count].size = (uint32_t)(end - base);
-        regions[count].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
-        count++;
+    if (partition_id != SERVER_PARTITION_ID) {
+        count = conf_grant(regions, count, max, seg,
+                           (uintptr_t)_s_conf_server_data);
+        seg = (uintptr_t)_e_conf_server_data;
+    }
+    if (partition_id != DRIVER_PARTITION_ID) {
+        count = conf_grant(regions, count, max, seg,
+                           (uintptr_t)_s_conf_driver_data);
+        seg = (uintptr_t)_e_conf_driver_data;
+    }
+    count = conf_grant(regions, count, max, seg, common_end);
+    if (partition_id == SERVER_PARTITION_ID) {
+        count = conf_grant(regions, count, max,
+                           base + WT_CONF_SERVER_MMIO_OFFSET,
+                           base + WT_CONF_SERVER_MMIO_OFFSET +
+                               WT_CONF_MMIO_HOLE_SIZE);
+    }
+    if (partition_id == DRIVER_PARTITION_ID) {
+        count = conf_grant(regions, count, max,
+                           base + WT_CONF_DRIVER_MMIO_OFFSET,
+                           base + WT_CONF_DRIVER_MMIO_OFFSET +
+                               WT_CONF_MMIO_HOLE_SIZE);
     }
     return count;
 }

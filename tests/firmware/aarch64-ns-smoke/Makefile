@@ -19,11 +19,19 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
 
 # Normal-world payload for tests/target/run_qemu_a_scenario.sh (ns-smoke).
-# MACHINE picks the NS console; the run address is NS DRAM (WT_NS_BASE).
+# MACHINE picks the NS console; the run address is NS DRAM (WT_NS_BASE): the
+# loaded image first, then the RAM the payload copies .data into at every entry.
 ROOT ?= ../../..
 TOOLPREFIX ?= aarch64-none-elf-
 MACHINE ?= virt
 WT_NS_BASE ?= 0x40000000
+WT_NS_IMG_SIZE ?= 0x60000
+WT_NS_RAM_SIZE ?= 0x20000
+WT_RUN_CONFORMANCE ?= 0
+ifeq ($(WT_RUN_CONFORMANCE),1)
+WT_NS_STACK_SIZE ?= 0x10000
+endif
+WT_NS_STACK_SIZE ?= 0x4000
 BUILD_DIR ?= build/$(MACHINE)
 
 CC := $(TOOLPREFIX)gcc
@@ -31,8 +39,10 @@ OBJCOPY := $(TOOLPREFIX)objcopy
 
 ifeq ($(MACHINE),virt)
 UART := 0x09000000
+WT_NS_CONFDATA_PA ?= 0x0E2C0000
 else ifeq ($(MACHINE),versal-virt)
 UART := 0xFF000000
+WT_NS_CONFDATA_PA ?= 0x7F2C0000
 else
 $(error unsupported MACHINE=$(MACHINE) (virt or versal-virt))
 endif
@@ -77,26 +87,35 @@ CFLAGS += -DWT_NS_GUEST_RESET=1
 endif
 # Offer malformed FFA_MEM_SHARE descriptors, each refused (the ffa-memneg proof).
 WT_NS_GUEST_MEMNEG ?= 0
+# Round-trip an ITS object through SERVICE_ITS and the VAULT partition behind
+# it (the storage proof: the first SP-to-SP message driven from the Normal
+# world).
+WT_NS_GUEST_STORAGE ?= 0
 LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
-    -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE)
+    -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE) \
+    -Wl,--defsym=WT_NS_IMG_SIZE=$(WT_NS_IMG_SIZE) \
+    -Wl,--defsym=WT_NS_RAM_SIZE=$(WT_NS_RAM_SIZE) \
+    -Wl,--defsym=WT_NS_STACK_SIZE=$(WT_NS_STACK_SIZE)
 
 SRCS := ns.S ns.c
-# The PSA guest links the same OS-neutral PSA client and wolfHSM client
-# transport every Armv8-M guest does plus the FF-A binding of its
-# WolfTrust_FFM_* entry points; the service ids come from the generated
-# manifest header of the matching secure build (WT_NS_MANIFEST_INC).
+# The PSA, storage and conformance guests link the same OS-neutral PSA client
+# every Armv8-M guest does plus the FF-A binding of its WolfTrust_FFM_* entry
+# points; the service ids come from the generated manifest header of the
+# matching secure build (WT_NS_MANIFEST_INC).
 WT_NS_MANIFEST_INC ?=
 WOLFHSM_DIR ?= $(ROOT)/lib/wolfHSM
-ifeq ($(WT_NS_GUEST_PSA),1)
-CFLAGS += -DWT_NS_GUEST_PSA=1 -DWT_NS_GUEST_ID=$(WT_NS_GUEST_ID) \
-    -DWOLFHSM_CFG -I. -I$(WOLFHSM_DIR)
+ifneq ($(filter 1,$(WT_NS_GUEST_PSA) $(WT_NS_GUEST_STORAGE) $(WT_RUN_CONFORMANCE)),)
 ifneq ($(WT_NS_MANIFEST_INC),)
 CFLAGS += -I$(WT_NS_MANIFEST_INC)
 endif
 SRCS += $(ROOT)/src/client/psa_ffm_client.c \
-    $(ROOT)/src/client/hsm_psa_transport.c \
     $(ROOT)/src/arch/aarch64/ffa/psa_ffa_transport_arch.c \
-    $(ROOT)/src/arch/aarch64/common/libc_min.c \
+    $(ROOT)/src/arch/aarch64/common/libc_min.c
+endif
+ifeq ($(WT_NS_GUEST_PSA),1)
+CFLAGS += -DWT_NS_GUEST_PSA=1 -DWT_NS_GUEST_ID=$(WT_NS_GUEST_ID) \
+    -DWOLFHSM_CFG -I. -I$(WOLFHSM_DIR)
+SRCS += $(ROOT)/src/client/hsm_psa_transport.c \
     $(WOLFHSM_DIR)/src/wh_client.c \
     $(WOLFHSM_DIR)/src/wh_comm.c \
     $(WOLFHSM_DIR)/src/wh_message_comm.c \
@@ -110,21 +129,43 @@ ifeq ($(WT_NS_GUEST_MEMNEG),1)
 CFLAGS += -DWT_NS_GUEST_MEMNEG=1
 SRCS += $(ROOT)/src/arch/aarch64/ffa/ffa_mem.c
 endif
-# Round-trip an ITS object through SERVICE_ITS and the VAULT partition behind
-# it (the storage proof: the first SP-to-SP message driven from the Normal
-# world). Shares the PSA client and FF-A binding with the PSA guest.
-WT_NS_GUEST_STORAGE ?= 0
 ifeq ($(WT_NS_GUEST_STORAGE),1)
 CFLAGS += -DWT_NS_GUEST_STORAGE=1
-ifneq ($(WT_NS_MANIFEST_INC),)
-CFLAGS += -I$(WT_NS_MANIFEST_INC)
-endif
 SRCS += $(ROOT)/src/client/psa_storage_client.c
-ifneq ($(WT_NS_GUEST_PSA),1)
-SRCS += $(ROOT)/src/client/psa_ffm_client.c \
-    $(ROOT)/src/arch/aarch64/ffa/psa_ffa_transport_arch.c \
-    $(ROOT)/src/arch/aarch64/common/libc_min.c
 endif
+# Run the unmodified Arm psa-arch-tests val NSPE (the FF-M IPC suite) from
+# this payload (the confboot proof). val and the scheduled tests come from the
+# secure build's fetched upstream tree and generated test list; wolfTrust's
+# psa/*.h stay first on the include path, the NS test list before the SPE one.
+CONF_OBJS :=
+ifeq ($(WT_RUN_CONFORMANCE),1)
+WT_NS_CONF_UPSTREAM ?= $(ROOT)/build/upstream/psa-arch-tests/api-tests
+CONF_TESTS := $(shell cat $(WT_NS_MANIFEST_INC)/ns/testlist.txt 2>/dev/null)
+ifeq ($(CONF_TESTS),)
+$(error WT_RUN_CONFORMANCE=1 needs the secure build's generated test list at WT_NS_MANIFEST_INC/ns/testlist.txt)
+endif
+CFLAGS := -I$(WT_NS_MANIFEST_INC)/ns $(CFLAGS) \
+    -DWT_NS_GUEST_CONF=1 -DIPC -DVAL_NSPE_BUILD -DNONSECURE_TEST_BUILD \
+    -DVERBOSITY=3 -DWT_SPM_CONFDATA_PA=$(WT_NS_CONFDATA_PA)u \
+    -ffunction-sections -fdata-sections \
+    -I$(WT_NS_CONF_UPSTREAM)/val/common \
+    -I$(WT_NS_CONF_UPSTREAM)/val/nspe \
+    -I$(WT_NS_CONF_UPSTREAM)/val/spe \
+    -I$(WT_NS_CONF_UPSTREAM)/platform/targets/common/nspe \
+    -I$(ROOT)/port/common/aarch64/conformance \
+    $(foreach t,$(CONF_TESTS),-I$(WT_NS_CONF_UPSTREAM)/ff/ipc/$(t))
+LDFLAGS += -Wl,--gc-sections
+SRCS += conformance_pal.c
+CONF_CFLAGS := $(filter-out -Werror,$(CFLAGS)) -Wno-unused-function \
+    -Wno-unused-variable -Wno-unused-parameter -Wno-type-limits
+CONF_SRCS := $(WT_NS_CONF_UPSTREAM)/val/common/val_log.c \
+    $(addprefix $(WT_NS_CONF_UPSTREAM)/val/nspe/,val_entry.c val_dispatcher.c \
+        val_framework.c val_interfaces.c val_peripherals.c val_platform.c \
+        val_crypto.c val_storage.c val_attestation.c) \
+    $(foreach t,$(CONF_TESTS),$(WT_NS_CONF_UPSTREAM)/ff/ipc/$(t)/$(t).c \
+        $(WT_NS_CONF_UPSTREAM)/ff/ipc/$(t)/test_entry_$(t:test_%=%).c)
+CONF_OBJS := $(addprefix $(BUILD_DIR)/conf/,$(notdir $(CONF_SRCS:.c=.o)))
+vpath %.c $(sort $(dir $(CONF_SRCS)))
 endif
 ELF := $(BUILD_DIR)/ns.elf
 BIN := $(BUILD_DIR)/ns.bin
@@ -133,11 +174,14 @@ BIN := $(BUILD_DIR)/ns.bin
 
 all: $(ELF) $(BIN)
 
-$(BUILD_DIR):
+$(BUILD_DIR) $(BUILD_DIR)/conf:
 	mkdir -p $@
 
-$(ELF): $(SRCS) ns.ld | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRCS)
+$(BUILD_DIR)/conf/%.o: %.c | $(BUILD_DIR)/conf
+	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+$(ELF): $(SRCS) $(CONF_OBJS) ns.ld | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRCS) $(CONF_OBJS)
 
 $(BIN): $(ELF)
 	$(OBJCOPY) -O binary $< $@

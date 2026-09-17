@@ -335,6 +335,42 @@ static void guest_storage(void)
 }
 #endif
 
+#if defined(WT_NS_GUEST_CONF)
+extern char _ns_vectbl[];
+extern int32_t val_entry(void);
+
+void ns_putc(char c)
+{
+    put_char(c);
+}
+
+/* The suite's Normal-world PROGRAMMER-ERROR checks may abort the client by
+ * design; answer as the conformance monitor does on Armv8-M, with a system
+ * reset that val resumes from off its NVM boot flag. */
+void ns_abort_report(uint64_t esr)
+{
+    uint64_t o[4];
+
+    put_str("[NS] abort esr=0x");
+    put_hex((uint32_t)esr);
+    put_str(" reset\r\n");
+    ffa_smc(WT_PSCI_SYSTEM_RESET, 0u, o);
+    for (;;) {
+        __asm__ volatile("wfi");
+    }
+}
+
+/* Run the unmodified Arm psa-arch-tests val NSPE against the SPMC: every test
+ * reaches the SERVER/CLIENT/DRIVER partitions through the routed PSA client. */
+static void guest_conformance(void)
+{
+    __asm__ volatile("msr vbar_el1, %0\n\tisb" : : "r"(_ns_vectbl));
+    put_str("[NS] conformance val_entry start\r\n");
+    (void)val_entry();
+    put_str("[NS] conformance val_entry returned\r\n");
+}
+#endif
+
 #if defined(WT_NS_GUEST_MEMNEG)
 #include "wolftrust/arch/aarch64/ffa_mem.h"
 
@@ -701,5 +737,9 @@ void ns_main(void)
 
 #if defined(WT_NS_GUEST_MEMNEG)
     guest_memneg();
+#endif
+
+#if defined(WT_NS_GUEST_CONF)
+    guest_conformance();
 #endif
 }

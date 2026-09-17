@@ -27,6 +27,7 @@
 void* memset(void* dest, int value, size_t count);
 void* memcpy(void* dest, const void* src, size_t count);
 void* memmove(void* dest, const void* src, size_t count);
+int memcmp(const void* a, const void* b, size_t count);
 
 void* memset(void* dest, int value, size_t count)
 {
@@ -68,4 +69,18 @@ void* memmove(void* dest, const void* src, size_t count)
         }
     }
     return dest;
+}
+
+int memcmp(const void* a, const void* b, size_t count)
+{
+    const uint8_t* pa = (const uint8_t*)a;
+    const uint8_t* pb = (const uint8_t*)b;
+    size_t i;
+
+    for (i = 0u; i < count; ++i) {
+        if (pa[i] != pb[i]) {
+            return (int)pa[i] - (int)pb[i];
+        }
+    }
+    return 0;
 }

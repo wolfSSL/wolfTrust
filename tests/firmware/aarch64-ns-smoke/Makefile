@@ -110,6 +110,22 @@ ifeq ($(WT_NS_GUEST_MEMNEG),1)
 CFLAGS += -DWT_NS_GUEST_MEMNEG=1
 SRCS += $(ROOT)/src/arch/aarch64/ffa/ffa_mem.c
 endif
+# Round-trip an ITS object through SERVICE_ITS and the VAULT partition behind
+# it (the storage proof: the first SP-to-SP message driven from the Normal
+# world). Shares the PSA client and FF-A binding with the PSA guest.
+WT_NS_GUEST_STORAGE ?= 0
+ifeq ($(WT_NS_GUEST_STORAGE),1)
+CFLAGS += -DWT_NS_GUEST_STORAGE=1
+ifneq ($(WT_NS_MANIFEST_INC),)
+CFLAGS += -I$(WT_NS_MANIFEST_INC)
+endif
+SRCS += $(ROOT)/src/client/psa_storage_client.c
+ifneq ($(WT_NS_GUEST_PSA),1)
+SRCS += $(ROOT)/src/client/psa_ffm_client.c \
+    $(ROOT)/src/arch/aarch64/ffa/psa_ffa_transport_arch.c \
+    $(ROOT)/src/arch/aarch64/common/libc_min.c
+endif
+endif
 ELF := $(BUILD_DIR)/ns.elf
 BIN := $(BUILD_DIR)/ns.bin
 

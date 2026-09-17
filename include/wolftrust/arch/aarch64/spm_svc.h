@@ -52,6 +52,10 @@ extern volatile uint32_t g_wt_spm_handler_depth;
 extern volatile uint64_t g_wt_spm_trap_spsr;
 /* The frame of the exception being handled (valid while depth != 0). */
 extern wt_trap_frame_t* volatile g_wt_spm_live_frame;
+/* The partition whose exception is being handled (valid while depth != 0);
+ * a partition it runs on its behalf (an SP-to-SP message) nests under it. */
+struct wt_co;
+extern struct wt_co* volatile g_wt_spm_handler_co;
 
 void wt_spm_sp_panic_trap(void);
 void wt_spm_idle(void) __attribute__((noreturn));

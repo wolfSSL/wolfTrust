@@ -1115,11 +1115,13 @@ static int wt_hsm_attest_generate_key(void)
     }
     if (ret == WH_ERROR_OK) {
         result = (whMessageCrypto_EccKeyGenResponse*)responsePayload;
-        if ((responseSize !=
+        if ((responseSize <
                 sizeof(whMessageCrypto_GenericResponseHeader) +
                 sizeof(*result)) ||
             (result->keyId != WT_HSM_ATTEST_KEY_ID) ||
-            (result->len != 0u)) {
+            (result->len != responseSize -
+                sizeof(whMessageCrypto_GenericResponseHeader) -
+                sizeof(*result))) {
             ret = WH_ERROR_ABORTED;
         }
     }

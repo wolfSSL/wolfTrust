@@ -32,31 +32,44 @@ jobs:
           changed=0
           failed=0
 
-          # These dependencies publish stable release tags. wolfPSA remains
-          # manual while this branch carries fork-only runtime-devId/device-ID
-          # changes; including it here would undo the tested replacement
-          # patches on the next upstream release scan.
+          # These dependencies publish stable release tags. A required commit
+          # prevents a release from dropping newer integration work already in
+          # the pinned tree. wolfPSA remains manual while this branch carries
+          # fork-only runtime-devId/device-ID changes.
           specs=(
-            "lib/wolfSSL|https://github.com/wolfSSL/wolfSSL.git|v*-stable"
-            "lib/wolfHSM|https://github.com/wolfSSL/wolfHSM.git|wolfHSM-v*"
-            "lib/wolfIP|https://github.com/wolfSSL/wolfIP.git|v*"
+            "lib/wolfSSL|https://github.com/wolfSSL/wolfSSL.git|v*-stable|51975e27a5439668733976a584d417dfd7776026"
+            "lib/wolfHSM|https://github.com/wolfSSL/wolfHSM.git|wolfHSM-v*|a0323156606282448f00473a3fcb7aaa69361921"
+            "lib/wolfIP|https://github.com/wolfSSL/wolfIP.git|v*|"
           )
 
           for spec in "${specs[@]}"; do
-            IFS='|' read -r path repo pattern <<< "$spec"
+            IFS='|' read -r path repo pattern required <<< "$spec"
             latest=$(git ls-remote --tags --refs "$repo" "$pattern" \
               | awk -F/ '{print $NF}' | sort -V | tail -n 1)
             test -n "$latest"
             current=$(git -C "$path" rev-parse HEAD)
-            candidate=$(git ls-remote "$repo" "refs/tags/$latest" | awk '{print $1}')
+            git -C "$path" fetch --no-tags "$repo" "refs/tags/$latest"
+            candidate=$(git -C "$path" rev-parse 'FETCH_HEAD^{commit}')
             echo "$path: current=$current latest=$latest candidate=$candidate"
+
+            if [ -n "$required" ] &&
+               ! git -C "$path" merge-base --is-ancestor \
+                   "$required" "$candidate"; then
+              echo "$path: $latest lacks required commit $required; keeping current pin"
+              continue
+            fi
             if [ "$current" = "$candidate" ]; then
               continue
             fi
 
+            if git -C "$path" merge-base --is-ancestor \
+                "$candidate" "$current"; then
+              echo "$path: current pin is newer than $latest; keeping current pin"
+              continue
+            fi
+
             changed=1
-            git -C "$path" fetch --depth 1 "$repo" "$latest"
-            git -C "$path" checkout --detach FETCH_HEAD
+            git -C "$path" checkout --detach "$candidate"
 
             if ! make test; then
               failed=1
@@ -74,9 +87,10 @@ jobs:
           done
 
           if [ "$changed" -eq 0 ]; then
-            echo "No upstream release tags advanced. Pins unchanged."
+            echo "No compatible upstream release tags advanced. Pins unchanged."
           fi
           echo "failed=$failed" >> "$GITHUB_OUTPUT"
+          exit "$failed"
 
       - name: Commit green release pins
         if: steps.gate.outputs.failed == '0'

@@ -53,6 +53,8 @@ _CLIENT_SRCS := \
 _WC_SRCS := \
     $(WOLFSSL)/wolfcrypt/src/sha256.c   \
     $(WOLFSSL)/wolfcrypt/src/random.c   \
+    $(WOLFSSL)/wolfcrypt/src/tfm.c      \
+    $(WOLFSSL)/wolfcrypt/src/wolfmath.c \
     $(WOLFSSL)/wolfcrypt/src/memory.c   \
     $(WOLFSSL)/wolfcrypt/src/error.c    \
     $(WOLFSSL)/wolfcrypt/src/logging.c  \

@@ -207,6 +207,7 @@ WOLFCRYPT_SECURE_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/hash.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/hmac.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/logging.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/memory.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/random.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/sha256.c \
     $(ARCH_WOLFCRYPT_SP_SRCS) \

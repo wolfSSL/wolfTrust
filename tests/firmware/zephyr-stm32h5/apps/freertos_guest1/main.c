@@ -25,11 +25,9 @@
 
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/random.h"
-#include "wolfssl/wolfcrypt/cryptocb.h"
 
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_client.h"
-#include "wolfhsm/wh_client_cryptocb.h"
 
 #include <psa/crypto.h>
 #include "wolfpsa/psa_engine.h"
@@ -42,7 +40,6 @@
 
 /* wolfHSM client glue (module/wolfhsm-client/src/wolfhsm_client_glue.c). */
 int wolfhsm_guest_init(void);
-int wolfhsm_guest_cryptocb(int devId, wc_CryptoInfo *info, void *ctx);
 whClientContext *wolfhsm_guest_client(void);
 int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
 
@@ -376,8 +373,8 @@ static void run_ffm_negatives(void)
 }
 
 /* Bring up the single mediated crypto path: the wolfHSM client over the
- * SPM-mediated psa_call transport, its cryptocb registered on WH_DEV_ID, and
- * wolfPSA threading that devId through wolfCrypt — exactly guest0's wiring,
+ * SPM-mediated psa_call transport registers WH_DEV_ID during client init, and
+ * wolfPSA threads that devId through wolfCrypt, exactly guest0's wiring,
  * minus the Zephyr SYS_INIT hooks it does not have. */
 static int guest_crypto_init(void)
 {
@@ -391,11 +388,6 @@ static int guest_crypto_init(void)
         uart_puts("freertos_guest1: hsm client init deferred rc=");
         uart_put_i32((int32_t)rc);
         uart_puts("\r\n");
-    }
-    rc = wc_CryptoCb_RegisterDevice(WH_DEV_ID, wolfhsm_guest_cryptocb, NULL);
-    if (rc != 0) {
-        uart_puts("freertos_guest1: cryptocb register FAILED\r\n");
-        return -1;
     }
     (void)wolfPSA_SetDefaultDevID(WH_DEV_ID);
     /* PSA requires psa_crypto_init before any other psa_* call; guest0 gets

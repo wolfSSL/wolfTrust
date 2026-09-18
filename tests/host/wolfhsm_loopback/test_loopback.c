@@ -459,15 +459,6 @@ int main(void)
         return 1;
     }
 
-    /* Register wolfHSM as a crypto callback device so wolfCrypt operations
-     * on WH_DEV_ID are forwarded to the server */
-    rc = wc_CryptoCb_RegisterDevice((int)WH_DEV_ID,
-                                    wh_Client_CryptoCb, client);
-    if (rc != 0) {
-        fprintf(stderr, "wc_CryptoCb_RegisterDevice: %d\n", rc);
-        return 1;
-    }
-
     /* === Run tests ========================================================= */
     rc = test_rng(client, server);
     if (rc != 0) {

@@ -33,15 +33,15 @@
 #include "wolfhsm/wh_comm.h"
 #include "wolfhsm/wh_client.h"
 #include "wolfhsm/wh_client_crypto.h"
-#include "wolfhsm/wh_client_cryptocb.h"
-
-#include "wolfssl/wolfcrypt/cryptocb.h"
-
 #include "wolftrust/hsm_psa_transport.h"
 
 /* SERVICE_HSM from the platform manifest (port/stm32h563/manifest.json). */
 #define WT_SERVICE_HSM_SID     4102u
 #define WT_SERVICE_HSM_VERSION 1u
+
+#ifndef WT_WOLFHSM_CLIENT_ID
+#define WT_WOLFHSM_CLIENT_ID 1u
+#endif
 
 static wt_hsm_psa_transport_ctx_t g_guest_tx;
 
@@ -64,7 +64,7 @@ int wolfhsm_guest_init(void)
     g_comm_cfg.transport_cb      = &wt_hsm_psa_transport_cb;
     g_comm_cfg.transport_context = &g_guest_tx;
     g_comm_cfg.transport_config  = &g_guest_tx_cfg;
-    g_comm_cfg.client_id         = 0u;
+    g_comm_cfg.client_id         = WT_WOLFHSM_CLIENT_ID;
 
     g_client_cfg.comm = &g_comm_cfg;
 
@@ -82,24 +82,14 @@ whClientContext *wolfhsm_guest_client(void)
     return &g_client_ctx;
 }
 
-/* Boot can race a Secure Partition restart window (the SPM refuses connects
- * while the relay recovers), so one failed init must not be terminal —
- * heal on demand by retrying the connect on the next crypto request. */
+/* Retry initialization for the direct RNG hook if early initialization did
+ * not complete. */
 static int wolfhsm_guest_ensure_ready(void)
 {
     if (g_client_ready != 0) {
         return WH_ERROR_OK;
     }
     return wolfhsm_guest_init();
-}
-
-int wolfhsm_guest_cryptocb(int devId, wc_CryptoInfo *info, void *ctx)
-{
-    (void)ctx;
-    if (wolfhsm_guest_ensure_ready() != WH_ERROR_OK) {
-        return CRYPTOCB_UNAVAILABLE;
-    }
-    return wh_Client_CryptoCb(devId, info, &g_client_ctx);
 }
 
 int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz)

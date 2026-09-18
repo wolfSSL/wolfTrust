@@ -43,6 +43,7 @@
  * Disable the TLS/SSL layer — wolfCrypt primitives only.
  * ---------------------------------------------------------------------- */
 #define WOLFCRYPT_ONLY
+#define NO_CRYPT_BENCHMARK
 
 /* -------------------------------------------------------------------------
  * No heap.
@@ -51,9 +52,17 @@
  * static or stack-owned objects. NO_WOLFSSL_MEMORY avoids wolfSSL's allocator
  * layer entirely, while WOLFSSL_NO_MALLOC makes any accidental XMALLOC path
  * fail closed instead of requiring malloc/sbrk or a static heap arena.
+ * NO_STDLIB_H and NO_STRING_H keep the freestanding Cortex-M build
+ * independent of libc headers; the linked local stubs provide these calls.
  * ---------------------------------------------------------------------- */
 #define NO_WOLFSSL_MEMORY
 #define WOLFSSL_NO_MALLOC
+#define NO_STDLIB_H
+#define NO_STRING_H
+#define NO_CTYPE_H
+#define WOLFSSL_NO_ASSERT_H
+
+#include "libc_stubs.h"
 
 /* -------------------------------------------------------------------------
  * Threading model: single-threaded from wolfCrypt's perspective.
@@ -66,6 +75,7 @@
  * No OS services.
  * ---------------------------------------------------------------------- */
 #define NO_FILESYSTEM
+#define NO_STDIO_FILESYSTEM
 #define NO_WOLFSSL_DIR
 #define WOLFSSL_USER_IO     /* no BSD socket I/O callbacks needed          */
 #define NO_WRITEV

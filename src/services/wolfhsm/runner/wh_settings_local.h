@@ -131,4 +131,7 @@
  *---------------------------------------------------------------------------*/
 #define WOLFHSM_CFG_NO_SYS_TIME
 
+/* The secure image is freestanding and leaves wolfHSM debug output disabled. */
+#define WOLFHSM_CFG_PRINTF(...) ((int)0)
+
 #endif /* WOLFTRUST_SECURE_WH_SETTINGS_LOCAL_H */

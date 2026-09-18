@@ -67,7 +67,7 @@
 #define WT_GUEST_CLIENT_ID   1u
 #define RAMSIM_SIZE   (64u * 1024u)
 #define RAMSIM_SECTOR (4u * 1024u)
-#define RAMSIM_PAGE   8u
+#define RAMSIM_PAGE   WOLFHSM_CFG_FLASH_UNIT_SIZE
 
 typedef union {
     uint64_t align;
@@ -320,23 +320,20 @@ int main(void)
     int verified = 0;
     int pubInited = 0;
     int ret;
+    static whFlashRamsimCtx ramsim_ctx;
+    static whFlashRamsimCfg ramsim_cfg;
+    static const whFlashCb ramsim_cb[1] = {WH_FLASH_RAMSIM_CB};
 
     (void)memset(g_flash_memory, 0xFF, sizeof(g_flash_memory));
     (void)memset(&g_nvm_flash_cfg, 0, sizeof(g_nvm_flash_cfg));
-    {
-        static whFlashRamsimCtx ramsim_ctx;
-        static whFlashRamsimCfg ramsim_cfg;
-        static const whFlashCb ramsim_cb[1] = {WH_FLASH_RAMSIM_CB};
-
-        ramsim_cfg.memory = g_flash_memory;
-        ramsim_cfg.size = RAMSIM_SIZE;
-        ramsim_cfg.sectorSize = RAMSIM_SECTOR;
-        ramsim_cfg.pageSize = RAMSIM_PAGE;
-        ramsim_cfg.erasedByte = 0xFF;
-        g_nvm_flash_cfg.cb = ramsim_cb;
-        g_nvm_flash_cfg.context = &ramsim_ctx;
-        g_nvm_flash_cfg.config = &ramsim_cfg;
-    }
+    ramsim_cfg.memory = g_flash_memory;
+    ramsim_cfg.size = RAMSIM_SIZE;
+    ramsim_cfg.sectorSize = RAMSIM_SECTOR;
+    ramsim_cfg.pageSize = RAMSIM_PAGE;
+    ramsim_cfg.erasedByte = 0xFF;
+    g_nvm_flash_cfg.cb = ramsim_cb;
+    g_nvm_flash_cfg.context = &ramsim_ctx;
+    g_nvm_flash_cfg.config = &ramsim_cfg;
     g_nvm_cfg.cb = g_nvm_cb;
     g_nvm_cfg.context = &g_nvm_flash_ctx;
     g_nvm_cfg.config = &g_nvm_flash_cfg;

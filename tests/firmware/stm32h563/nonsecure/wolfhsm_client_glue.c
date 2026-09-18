@@ -87,7 +87,8 @@ int wolfhsm_guest_init(void)
     g_comm_cfg.transport_cb      = &wt_hsm_psa_transport_cb;
     g_comm_cfg.transport_context = &g_guest_tx;
     g_comm_cfg.transport_config  = &g_guest_tx_cfg;
-    g_comm_cfg.client_id         = 0u;
+    /* wolfTrust maps guest 0 to wolfHSM client namespace 1. */
+    g_comm_cfg.client_id         = 1u;
 
     g_client_cfg.comm = &g_comm_cfg;
 

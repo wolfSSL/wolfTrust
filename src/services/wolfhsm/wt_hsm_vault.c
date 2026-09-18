@@ -34,6 +34,7 @@
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_common.h"
 #include "wolfhsm/wh_nvm.h"
+#include "wolfhsm/wh_nvm_flash.h"
 #include "wolfhsm/wh_flash_unit.h"
 
 /* Vault NVM id window: plain-NVM id space (type nibble 0), disjoint from the
@@ -43,6 +44,7 @@
 
 #define WT_HSM_VAULT_LABEL_MAGIC 0x31565457UL /* "WTV1" little-endian */
 #define WT_HSM_VAULT_TABLE_MAGIC 0x43565457UL /* "WTVC" little-endian */
+#define WT_HSM_VAULT_STAGE_ID    0x0123U
 
 #define WT_HSM_VAULT_FLAG_MASK \
     (WT_VAULT_FLAG_WRITE_ONCE | WT_VAULT_FLAG_NO_CONFIDENTIALITY | \
@@ -52,7 +54,8 @@
  * global increments on every sealed write and is persisted BEFORE the sealed
  * object, so a power loss can never make a GCM nonce repeat; slot[] holds the
  * counter each in-window object was sealed under, so a replayed (rolled-back)
- * ciphertext fails tag authentication on the next read. */
+ * ciphertext fails tag authentication on the next read. reserved holds the
+ * slot plus one while its prior object is staged for rollback. */
 typedef struct wt_hsm_vault_table {
     uint32_t magic;
     uint32_t reserved;
@@ -69,7 +72,11 @@ static uint8_t g_vault_pt[WT_VAULT_OBJECT_MAX];
 
 int wt_hsm_vault_init(whNvmContext* nvm)
 {
-    if (nvm == NULL) {
+    /* Reservations require physical append slots and flash compaction. */
+    if (nvm == NULL || nvm->cb == NULL ||
+            nvm->cb->GetAvailable != wh_NvmFlash_GetAvailable ||
+            nvm->cb->DestroyObjects != wh_NvmFlash_DestroyObjects) {
+        g_vault_nvm = NULL;
         return -1;
     }
     g_vault_nvm = nvm;
@@ -91,6 +98,9 @@ static void wt_hsm_vault_zeroize(uint8_t* buf, size_t len)
     }
 }
 
+static psa_status_t wt_hsm_vault_map_err(int rc);
+static psa_status_t wt_hsm_vault_recover(wt_hsm_vault_table_t* table);
+
 static psa_status_t wt_hsm_vault_table_load(wt_hsm_vault_table_t* table)
 {
     whNvmMetadata meta;
@@ -100,46 +110,48 @@ static psa_status_t wt_hsm_vault_table_load(wt_hsm_vault_table_t* table)
     if (rc == WH_ERROR_NOTFOUND) {
         (void)memset(table, 0, sizeof(*table));
         table->magic = WT_HSM_VAULT_TABLE_MAGIC;
-        return PSA_SUCCESS;
+        return wt_hsm_vault_recover(table);
     }
     if (rc != WH_ERROR_OK || meta.len != sizeof(*table)) {
         return PSA_ERROR_STORAGE_FAILURE;
     }
     rc = wh_Nvm_Read(g_vault_nvm, WT_HSM_VAULT_TABLE_ID, 0U,
                      (whNvmSize)sizeof(*table), (uint8_t*)table);
-    if (rc != WH_ERROR_OK || table->magic != WT_HSM_VAULT_TABLE_MAGIC) {
+    if (rc != WH_ERROR_OK || table->magic != WT_HSM_VAULT_TABLE_MAGIC ||
+            table->reserved > WT_HSM_VAULT_ID_COUNT) {
         return PSA_ERROR_STORAGE_FAILURE;
     }
-    return PSA_SUCCESS;
+    return wt_hsm_vault_recover(table);
 }
-
-static psa_status_t wt_hsm_vault_map_err(int rc);
 
 /* Gate every pool write: a doomed add on a full data pool fails mid-write
  * with NOTBLANK and poisons later adds, so compact reclaimable space when
  * that frees enough and otherwise report INSUFFICIENT_STORAGE before any
- * write starts. Object adds pass the counter table as headroom so the pool
- * can never fill past the point where a sealed REMOVE's table rewrite —
- * the operation that frees space — still fits. */
-static psa_status_t wt_hsm_vault_reserve(whNvmSize len, whNvmSize headroom)
+ * write starts. Transaction callers include every write needed to commit or
+ * roll back so recovery cannot run out of space. */
+static uint32_t wt_hsm_vault_storage_size(size_t len)
+{
+    return (uint32_t)(WHFU_BYTES2UNITS(len) * WHFU_BYTES_PER_UNIT);
+}
+
+static psa_status_t wt_hsm_vault_reserve(uint32_t need_size,
+                                         uint16_t need_objects)
 {
     uint32_t avail_size;
     uint32_t reclaim_size;
-    uint32_t need_size;
     uint16_t avail_objects;
     uint16_t reclaim_objects;
     int rc;
 
-    need_size = (uint32_t)(WHFU_BYTES2UNITS(len) * WHFU_BYTES_PER_UNIT) +
-                (uint32_t)(WHFU_BYTES2UNITS(headroom) * WHFU_BYTES_PER_UNIT);
     rc = wh_Nvm_GetAvailable(g_vault_nvm, &avail_size, &avail_objects,
                              &reclaim_size, &reclaim_objects);
     if (rc != WH_ERROR_OK) {
         return wt_hsm_vault_map_err(rc);
     }
-    if (avail_size < need_size || avail_objects == 0U) {
+    if (avail_size < need_size || avail_objects < need_objects) {
         if (avail_size + reclaim_size >= need_size &&
-                (uint32_t)avail_objects + (uint32_t)reclaim_objects > 0U) {
+                (uint32_t)avail_objects + (uint32_t)reclaim_objects >=
+                    need_objects) {
             rc = wh_Nvm_DestroyObjects(g_vault_nvm, 0U, NULL);
             if (rc != WH_ERROR_OK) {
                 return wt_hsm_vault_map_err(rc);
@@ -158,7 +170,8 @@ static psa_status_t wt_hsm_vault_table_store(const wt_hsm_vault_table_t* table)
     psa_status_t status;
     int rc;
 
-    status = wt_hsm_vault_reserve((whNvmSize)sizeof(*table), 0U);
+    status = wt_hsm_vault_reserve(
+        wt_hsm_vault_storage_size(sizeof(*table)), 1U);
     if (status != PSA_SUCCESS) {
         return status;
     }
@@ -207,6 +220,152 @@ uint32_t wt_hsm_vault_flags_of(const uint8_t* label)
 
     (void)memcpy(&flags, label + 16, sizeof(flags));
     return flags;
+}
+
+static psa_status_t wt_hsm_vault_read_sealed(whNvmId id,
+                                              const whNvmMetadata* meta,
+                                              uint64_t counter)
+{
+    size_t pt_len;
+    psa_status_t status;
+
+    if (g_vault_sealer == NULL) {
+        return PSA_ERROR_NOT_SUPPORTED;
+    }
+    if (counter == 0U ||
+            (wt_hsm_vault_flags_of(meta->label) &
+             WT_VAULT_FLAG_SEALED) == 0U ||
+            meta->len < WT_VAULT_SEAL_TAG_LEN ||
+            meta->len > sizeof(g_vault_ct)) {
+        return PSA_ERROR_INVALID_SIGNATURE;
+    }
+    status = wt_hsm_vault_map_err(
+        wh_Nvm_ReadChecked(g_vault_nvm, id, 0U, meta->len, g_vault_ct));
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    pt_len = (size_t)meta->len - WT_VAULT_SEAL_TAG_LEN;
+    status = g_vault_sealer->unseal(meta->label, WH_NVM_LABEL_LEN, counter,
+                                    g_vault_ct, meta->len, g_vault_pt);
+    if (status != PSA_SUCCESS) {
+        wt_hsm_vault_zeroize(g_vault_pt, pt_len);
+    }
+    return status;
+}
+
+static psa_status_t wt_hsm_vault_destroy_stage(void)
+{
+    whNvmMetadata meta;
+    whNvmId id = WT_HSM_VAULT_STAGE_ID;
+    int rc;
+
+    rc = wh_Nvm_GetMetadata(g_vault_nvm, id, &meta);
+    if (rc == WH_ERROR_NOTFOUND) {
+        return PSA_SUCCESS;
+    }
+    if (rc != WH_ERROR_OK) {
+        return PSA_ERROR_STORAGE_FAILURE;
+    }
+    return wt_hsm_vault_map_err(
+        wh_Nvm_DestroyObjects(g_vault_nvm, 1U, &id));
+}
+
+static psa_status_t wt_hsm_vault_recover_live(wt_hsm_vault_table_t* table)
+{
+    whNvmMetadata meta;
+    uint32_t slot = table->reserved - 1U;
+    whNvmId id = (whNvmId)(WT_HSM_VAULT_ID_BASE + slot);
+    psa_status_t status = PSA_ERROR_DOES_NOT_EXIST;
+    int rc;
+
+    rc = wh_Nvm_GetMetadata(g_vault_nvm, id, &meta);
+    if (rc == WH_ERROR_OK) {
+        status = wt_hsm_vault_read_sealed(id, &meta, table->slot[slot]);
+    }
+    else if (rc != WH_ERROR_NOTFOUND) {
+        return PSA_ERROR_STORAGE_FAILURE;
+    }
+    if (status == PSA_SUCCESS) {
+        wt_hsm_vault_zeroize(g_vault_pt,
+                            (size_t)meta.len - WT_VAULT_SEAL_TAG_LEN);
+    }
+    else if (status == PSA_ERROR_INVALID_SIGNATURE ||
+             status == PSA_ERROR_NOT_PERMITTED ||
+             status == PSA_ERROR_DOES_NOT_EXIST) {
+        if (rc == WH_ERROR_OK) {
+            /* The uncommitted replacement may carry WRITE_ONCE. */
+            status = wt_hsm_vault_map_err(
+                wh_Nvm_DestroyObjects(g_vault_nvm, 1U, &id));
+            if (status != PSA_SUCCESS) {
+                return status;
+            }
+        }
+        table->slot[slot] = 0U;
+    }
+    else {
+        return status;
+    }
+    table->reserved = 0U;
+    status = wt_hsm_vault_table_store(table);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    return wt_hsm_vault_destroy_stage();
+}
+
+static psa_status_t wt_hsm_vault_recover(wt_hsm_vault_table_t* table)
+{
+    whNvmMetadata meta;
+    whNvmMetadata stage_meta;
+    whNvmId id;
+    uint32_t slot;
+    size_t pt_len;
+    psa_status_t status;
+
+    if (table->reserved == 0U) {
+        return wt_hsm_vault_destroy_stage();
+    }
+    slot = table->reserved - 1U;
+    id = (whNvmId)(WT_HSM_VAULT_ID_BASE + slot);
+    status = wt_hsm_vault_map_err(
+        wh_Nvm_GetMetadata(g_vault_nvm, WT_HSM_VAULT_STAGE_ID, &stage_meta));
+    if (status == PSA_SUCCESS) {
+        /* Live metadata may be torn; the committed counter binds the stage. */
+        status = wt_hsm_vault_read_sealed(WT_HSM_VAULT_STAGE_ID,
+                                           &stage_meta, table->slot[slot]);
+    }
+    if (status == PSA_ERROR_DOES_NOT_EXIST ||
+            status == PSA_ERROR_NOT_PERMITTED ||
+            status == PSA_ERROR_INVALID_SIGNATURE) {
+        return wt_hsm_vault_recover_live(table);
+    }
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    pt_len = (size_t)stage_meta.len - WT_VAULT_SEAL_TAG_LEN;
+    wt_hsm_vault_zeroize(g_vault_pt, pt_len);
+    meta = stage_meta;
+    meta.id = id;
+    meta.flags = WH_NVM_FLAGS_SENSITIVE;
+    status = wt_hsm_vault_reserve(
+        wt_hsm_vault_storage_size(meta.len) +
+            wt_hsm_vault_storage_size(sizeof(*table)),
+        2U);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    /* The uncommitted replacement may already carry WRITE_ONCE. */
+    status = wt_hsm_vault_map_err(
+        wh_Nvm_AddObject(g_vault_nvm, &meta, meta.len, g_vault_ct));
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    table->reserved = 0U;
+    status = wt_hsm_vault_table_store(table);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    return wt_hsm_vault_destroy_stage();
 }
 
 /* Shared directory lookup for privileged vault backends: find the
@@ -284,12 +443,17 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
                                      const uint8_t* data, size_t len)
 {
     whNvmMetadata meta;
+    whNvmMetadata stage_meta;
     wt_hsm_vault_table_t table;
     whNvmId id = WH_NVM_ID_INVALID;
     whNvmId free_id = WH_NVM_ID_INVALID;
+    uint32_t slot = 0U;
+    uint32_t need_size;
+    uint64_t counter = 0U;
     whNvmSize store_len;
     const uint8_t* store_data;
     psa_status_t status;
+    int replacement = 0;
 
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
@@ -301,6 +465,10 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
     if ((flags & WT_VAULT_FLAG_SEALED) != 0U && g_vault_sealer == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
+    status = wt_hsm_vault_table_load(&table);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
     status = wt_hsm_vault_lookup(owner, sub, uid, &id, &meta, &free_id);
     if (status == PSA_SUCCESS) {
         /* A storage SET must never overwrite a key object (WT-FFM-0046),
@@ -310,6 +478,9 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
                 (WT_VAULT_FLAG_KEY | WT_VAULT_FLAG_WRITE_ONCE)) != 0U) {
             return PSA_ERROR_NOT_PERMITTED;
         }
+        replacement =
+            (wt_hsm_vault_flags_of(meta.label) &
+             WT_VAULT_FLAG_SEALED) != 0U;
     }
     else if (status == PSA_ERROR_DOES_NOT_EXIST) {
         if (free_id == WH_NVM_ID_INVALID) {
@@ -321,6 +492,46 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
         return status;
     }
 
+    slot = id - WT_HSM_VAULT_ID_BASE;
+    store_data = data;
+    store_len = (whNvmSize)len;
+    if ((flags & WT_VAULT_FLAG_SEALED) != 0U) {
+        store_len = (whNvmSize)(len + WT_VAULT_SEAL_TAG_LEN);
+    }
+    if (replacement != 0) {
+        status = wt_hsm_vault_read_sealed(id, &meta, table.slot[slot]);
+        if (status == PSA_ERROR_INVALID_SIGNATURE) {
+            replacement = 0;
+        }
+        else if (status != PSA_SUCCESS) {
+            return status;
+        }
+        else {
+            wt_hsm_vault_zeroize(
+                g_vault_pt, (size_t)meta.len - WT_VAULT_SEAL_TAG_LEN);
+        }
+    }
+    need_size = wt_hsm_vault_storage_size(store_len) +
+                wt_hsm_vault_storage_size(sizeof(table));
+    if (replacement != 0) {
+        need_size += 2U * wt_hsm_vault_storage_size(meta.len) +
+                     wt_hsm_vault_storage_size(sizeof(table));
+        status = wt_hsm_vault_reserve(need_size, 4U);
+    }
+    else {
+        status = wt_hsm_vault_reserve(
+            need_size,
+            (uint16_t)(((flags & WT_VAULT_FLAG_SEALED) != 0U ||
+                        table.slot[slot] != 0U) ? 2U : 1U));
+    }
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
+    if (replacement != 0) {
+        stage_meta = meta;
+        stage_meta.id = WT_HSM_VAULT_STAGE_ID;
+        stage_meta.flags = WH_NVM_FLAGS_SENSITIVE;
+    }
     (void)memset(&meta, 0, sizeof(meta));
     meta.id = id;
     meta.access = WH_NVM_ACCESS_ANY;
@@ -330,37 +541,54 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
                       WH_NVM_FLAGS_NONDESTROYABLE;
     }
     wt_hsm_vault_make_label(meta.label, owner, sub, uid, flags);
-    store_data = data;
-    store_len = (whNvmSize)len;
     if ((flags & WT_VAULT_FLAG_SEALED) != 0U) {
         /* Persist the bumped counter before any ciphertext exists so a power
          * loss can never repeat a GCM nonce (WT-FFM-0048). */
-        status = wt_hsm_vault_table_load(&table);
-        if (status != PSA_SUCCESS) {
-            return status;
-        }
         table.global++;
-        table.slot[id - WT_HSM_VAULT_ID_BASE] = table.global;
+        counter = table.global;
+    }
+    if (replacement != 0 || (flags & WT_VAULT_FLAG_SEALED) != 0U ||
+            table.slot[slot] != 0U) {
+        if (replacement != 0) {
+            table.reserved = slot + 1U;
+        }
+        else {
+            table.slot[slot] = counter;
+        }
         status = wt_hsm_vault_table_store(&table);
         if (status != PSA_SUCCESS) {
             return status;
         }
+    }
+    if (replacement != 0) {
+        status = wt_hsm_vault_map_err(
+            wh_Nvm_AddObject(g_vault_nvm, &stage_meta, stage_meta.len,
+                             g_vault_ct));
+        if (status != PSA_SUCCESS) {
+            return status;
+        }
+    }
+    if ((flags & WT_VAULT_FLAG_SEALED) != 0U) {
         status = g_vault_sealer->seal(meta.label, WH_NVM_LABEL_LEN,
-                                      table.global, data, len, g_vault_ct);
+                                      counter, data, len, g_vault_ct);
         if (status != PSA_SUCCESS) {
             return status;
         }
         store_data = g_vault_ct;
-        store_len = (whNvmSize)(len + WT_VAULT_SEAL_TAG_LEN);
     }
     meta.len = store_len;
-    status = wt_hsm_vault_reserve(store_len,
-                                  (whNvmSize)sizeof(wt_hsm_vault_table_t));
+    status = wt_hsm_vault_map_err(
+        wh_Nvm_AddObjectChecked(g_vault_nvm, &meta, store_len, store_data));
+    if (status != PSA_SUCCESS || replacement == 0) {
+        return status;
+    }
+    table.slot[slot] = counter;
+    table.reserved = 0U;
+    status = wt_hsm_vault_table_store(&table);
     if (status != PSA_SUCCESS) {
         return status;
     }
-    return wt_hsm_vault_map_err(
-        wh_Nvm_AddObjectChecked(g_vault_nvm, &meta, store_len, store_data));
+    return wt_hsm_vault_destroy_stage();
 }
 
 static psa_status_t wt_hsm_vault_get(int32_t owner, int32_t sub,
@@ -378,6 +606,10 @@ static psa_status_t wt_hsm_vault_get(int32_t owner, int32_t sub,
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
+    status = wt_hsm_vault_table_load(&table);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
     status = wt_hsm_vault_lookup(owner, sub, uid, &id, &meta, NULL);
     if (status != PSA_SUCCESS) {
         return status;
@@ -389,38 +621,17 @@ static psa_status_t wt_hsm_vault_get(int32_t owner, int32_t sub,
         return PSA_ERROR_NOT_PERMITTED;
     }
     if ((wt_hsm_vault_flags_of(meta.label) & WT_VAULT_FLAG_SEALED) != 0U) {
-        if (g_vault_sealer == NULL) {
-            return PSA_ERROR_NOT_SUPPORTED;
-        }
-        if (meta.len < WT_VAULT_SEAL_TAG_LEN ||
-                meta.len > sizeof(g_vault_ct)) {
-            return PSA_ERROR_STORAGE_FAILURE;
-        }
-        status = wt_hsm_vault_map_err(
-            wh_Nvm_ReadChecked(g_vault_nvm, id, 0U, meta.len, g_vault_ct));
-        if (status != PSA_SUCCESS) {
-            return status;
-        }
-        status = wt_hsm_vault_table_load(&table);
-        if (status != PSA_SUCCESS) {
-            return status;
-        }
         if (table.slot[id - WT_HSM_VAULT_ID_BASE] == 0U) {
             /* A sealed object with no live counter is a rolled-back or
              * resurrected ciphertext — fail closed. */
             return PSA_ERROR_INVALID_SIGNATURE;
         }
-        pt_len = (size_t)meta.len - WT_VAULT_SEAL_TAG_LEN;
-        status = g_vault_sealer->unseal(
-            meta.label, WH_NVM_LABEL_LEN,
-            table.slot[id - WT_HSM_VAULT_ID_BASE], g_vault_ct, meta.len,
-            g_vault_pt);
+        status = wt_hsm_vault_read_sealed(
+            id, &meta, table.slot[id - WT_HSM_VAULT_ID_BASE]);
         if (status != PSA_SUCCESS) {
-            /* GCM decrypts before the tag compare, so a failed unseal can
-             * leave unauthenticated plaintext in the persistent buffer. */
-            wt_hsm_vault_zeroize(g_vault_pt, pt_len);
             return status;
         }
+        pt_len = (size_t)meta.len - WT_VAULT_SEAL_TAG_LEN;
         if (offset > pt_len) {
             wt_hsm_vault_zeroize(g_vault_pt, pt_len);
             return PSA_ERROR_INVALID_ARGUMENT;
@@ -459,10 +670,15 @@ static psa_status_t wt_hsm_vault_get_info(int32_t owner, int32_t sub,
                                           uint64_t uid, wt_vault_info_t* info)
 {
     whNvmMetadata meta;
+    wt_hsm_vault_table_t table;
     psa_status_t status;
 
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
+    }
+    status = wt_hsm_vault_table_load(&table);
+    if (status != PSA_SUCCESS) {
+        return status;
     }
     status = wt_hsm_vault_lookup(owner, sub, uid, NULL, &meta, NULL);
     if (status != PSA_SUCCESS) {
@@ -493,6 +709,10 @@ static psa_status_t wt_hsm_vault_remove(int32_t owner, int32_t sub,
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
+    status = wt_hsm_vault_table_load(&table);
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
     status = wt_hsm_vault_lookup(owner, sub, uid, &id, &meta, NULL);
     if (status != PSA_SUCCESS) {
         return status;
@@ -504,10 +724,6 @@ static psa_status_t wt_hsm_vault_remove(int32_t owner, int32_t sub,
     if ((wt_hsm_vault_flags_of(meta.label) & WT_VAULT_FLAG_SEALED) != 0U) {
         /* Retire the counter first: a later flash-level resurrection of the
          * destroyed ciphertext then fails authentication (WT-FFM-0048). */
-        status = wt_hsm_vault_table_load(&table);
-        if (status != PSA_SUCCESS) {
-            return status;
-        }
         table.slot[id - WT_HSM_VAULT_ID_BASE] = 0U;
         status = wt_hsm_vault_table_store(&table);
         if (status != PSA_SUCCESS) {

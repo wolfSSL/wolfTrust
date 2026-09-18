@@ -160,7 +160,8 @@ int wt_hsm_attest_public_key(uint8_t* publicKey, size_t publicKeyCapacity,
 
 /* Gated vault backing (WT-FFM-0047): bind the shared NVM context, then
  * install wt_hsm_vault_backend into SERVICE_VAULT. wt_hsm_init does both;
- * host tests may bind their own (e.g. ramsim-backed) context directly. */
+ * requires wh_NvmFlash capacity/compaction callbacks. Host tests may use
+ * that backend over ramsim. Other NVM backends are rejected with -1. */
 struct whNvmContext_t;
 int wt_hsm_vault_init(struct whNvmContext_t* nvm);
 struct wt_vault_backend;

@@ -154,6 +154,15 @@ interrupted write. The live per-object counter also detects replay of a stale
 ciphertext unless an attacker can coherently roll back the counter store; see
 [Threat Model](Threat-Model.md).
 
+Sealed replacement stages the authenticated prior object until the new
+counter mapping commits. An interrupted replacement restores that object
+without rolling back the global nonce counter. Replacing sealed data with
+unsealed data uses the same transaction and retires the old seal counter on
+commit. The vault requires wolfHSM's
+`wh_NvmFlash` backend, including its capacity and compaction callbacks, and
+rejects incompatible backends at initialization. The flash HAL may be supplied
+by the target port or the host RAM simulator.
+
 Vault storage rejects its reserved key-object type. Guest cryptographic keys
 instead use the separate wolfHSM keystore behind `SERVICE_HSM`, where the
 relay binds operations to the caller's namespace.

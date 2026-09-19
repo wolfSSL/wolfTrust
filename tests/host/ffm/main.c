@@ -46,6 +46,8 @@ typedef struct test_context {
     int reject_write;
     int reply_programmer_error;
     int refuse_dispatch;
+    psa_msg_t delayed_message;
+    int delay_result;
 } test_context_t;
 
 static unsigned int g_checks;
@@ -1077,12 +1079,195 @@ static void test_refused_dispatch_queue_consistency(void)
                  "queue consistent\n");
 }
 
+static int delayed_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                             int32_t partition_id)
+{
+    test_context_t* test = (test_context_t*)context;
+
+    test->dispatches++;
+    EXPECT_INT(wt_ffm_get(runtime, partition_id, TEST_SERVICE_SIGNAL,
+                          &test->delayed_message), PSA_SUCCESS);
+    return test->delay_result;
+}
+
+static void expect_ffm_pools_empty(const wt_ffm_runtime_t* runtime)
+{
+    size_t i;
+
+    for (i = 0U; i < WT_FFM_MAX_MESSAGES; i++)
+        EXPECT_INT(runtime->messages[i].allocated, 0);
+    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++)
+        EXPECT_INT(runtime->connections[i].allocated, 0);
+}
+
+static void test_delayed_synchronous_reply(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    wt_ffm_port_ops_t ops = g_port_ops;
+    psa_handle_t handle;
+    psa_handle_t message_handle;
+    uint8_t request[3] = { 'a', 'b', 'c' };
+    uint8_t copied[3];
+    uint8_t response[2];
+    psa_invec input = { request, sizeof(request) };
+    psa_outvec output = { response, sizeof(response) };
+    unsigned int mode;
+    size_t i;
+
+    for (mode = 0U; mode < 4U; mode++) {
+        test_init(&runtime, &context);
+        handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID,
+                                 3U);
+        EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+        context.delay_result = (mode & 1U) != 0U ?
+            WT_FFM_ERROR_NOT_READY : WT_FFM_SUCCESS;
+        if ((mode & 2U) != 0U) {
+            EXPECT_INT(wt_ffm_register_partition(&runtime, TEST_PARTITION_ID,
+                           delayed_dispatch, &context), WT_FFM_SUCCESS);
+        }
+        else {
+            ops.dispatch = delayed_dispatch;
+            runtime.ops = &ops;
+        }
+        (void)memset(response, 0, sizeof(response));
+        EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
+                       PSA_IPC_CALL, &input, 1U, &output, 1U),
+                   PSA_ERROR_GENERIC_ERROR);
+        message_handle = context.delayed_message.handle;
+        if ((mode & 1U) != 0U) {
+            EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
+                       WT_FFM_SUCCESS);
+            EXPECT_INT(runtime.services[0].queue_head, WT_FFM_QUEUE_NONE);
+        }
+        EXPECT_SIZE(wt_ffm_read(&runtime, TEST_PARTITION_ID, message_handle,
+                                0U, copied, sizeof(copied)), sizeof(copied));
+        EXPECT_TRUE(memcmp(copied, request, sizeof(copied)) == 0);
+        EXPECT_INT(wt_ffm_write(&runtime, TEST_PARTITION_ID, message_handle,
+                                0U, "OK", 2U), WT_FFM_SUCCESS);
+        EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID, message_handle,
+                                PSA_SUCCESS), WT_FFM_SUCCESS);
+        EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID, message_handle,
+                                PSA_SUCCESS), WT_FFM_ERROR_HANDLE);
+        EXPECT_INT(response[0], 0);
+        EXPECT_INT(response[1], 0);
+        EXPECT_SIZE(output.len, sizeof(response));
+        if ((mode & 1U) != 0U) {
+            (void)delayed_dispatch(&context, &runtime, TEST_PARTITION_ID);
+        }
+        else {
+            EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
+                           PSA_IPC_CALL, &input, 1U, &output, 1U),
+                       PSA_ERROR_PROGRAMMER_ERROR);
+            EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
+                       WT_FFM_ERROR_NOT_READY);
+        }
+        EXPECT_INT(context.delayed_message.type, PSA_IPC_DISCONNECT);
+        EXPECT_TRUE(context.delayed_message.rhandle == TEST_RHANDLE);
+        EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID,
+                                context.delayed_message.handle, PSA_SUCCESS),
+                   WT_FFM_SUCCESS);
+        expect_ffm_pools_empty(&runtime);
+
+        for (i = 0U; i < WT_FFM_MAX_CONNECTIONS + 1U; i++) {
+            EXPECT_INT(wt_ffm_connect(&runtime, TEST_NS_CLIENT,
+                           TEST_SERVICE_SID, 3U), PSA_ERROR_GENERIC_ERROR);
+            message_handle = context.delayed_message.handle;
+            EXPECT_INT(wt_ffm_set_rhandle(&runtime, TEST_PARTITION_ID,
+                           message_handle, TEST_RHANDLE), WT_FFM_SUCCESS);
+            EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID,
+                           message_handle, PSA_SUCCESS), WT_FFM_SUCCESS);
+            (void)delayed_dispatch(&context, &runtime, TEST_PARTITION_ID);
+            EXPECT_INT(context.delayed_message.type, PSA_IPC_DISCONNECT);
+            EXPECT_TRUE(context.delayed_message.rhandle == TEST_RHANDLE);
+            EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID,
+                           context.delayed_message.handle, PSA_SUCCESS),
+                       WT_FFM_SUCCESS);
+            expect_ffm_pools_empty(&runtime);
+        }
+        EXPECT_INT(wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID,
+                                   3U), PSA_ERROR_GENERIC_ERROR);
+        EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID,
+                       context.delayed_message.handle,
+                       PSA_ERROR_CONNECTION_REFUSED), WT_FFM_SUCCESS);
+        expect_ffm_pools_empty(&runtime);
+        EXPECT_INT(context.panics, 0);
+    }
+    (void)printf("PASS: WT-FFM-0023/0024/0026/0034 synchronous IPC retains "
+                 "messages until delayed replies\n");
+}
+
+static void test_delayed_reply_fault_cleanup(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_handle_t handle = PSA_NULL_HANDLE;
+    uint16_t pending;
+    unsigned int mode;
+
+    for (mode = 0U; mode < 5U; mode++) {
+        test_init(&runtime, &context);
+        if (mode >= 2U) {
+            handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT,
+                                     TEST_SERVICE_SID, 3U);
+            EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+        }
+        EXPECT_INT(wt_ffm_register_partition(&runtime, TEST_PARTITION_ID,
+                       delayed_dispatch, &context), WT_FFM_SUCCESS);
+        if (mode < 2U) {
+            EXPECT_INT(wt_ffm_connect(&runtime, TEST_NS_CLIENT,
+                           TEST_SERVICE_SID, 3U), PSA_ERROR_GENERIC_ERROR);
+            if (mode == 1U) {
+                EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID,
+                               context.delayed_message.handle, PSA_SUCCESS),
+                           WT_FFM_SUCCESS);
+            }
+        }
+        else if (mode < 4U) {
+            EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
+                           PSA_IPC_CALL, NULL, 0U, NULL, 0U),
+                       PSA_ERROR_GENERIC_ERROR);
+            if (mode == 3U) {
+                EXPECT_INT(wt_ffm_close_begin(&runtime, TEST_NS_CLIENT,
+                                              handle, &pending),
+                           WT_FFM_SUCCESS);
+                EXPECT_INT(pending, WT_FFM_QUEUE_NONE);
+            }
+        }
+        else {
+            EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
+                       WT_FFM_ERROR_NOT_READY);
+        }
+        EXPECT_INT(wt_ffm_fail_partition_messages(&runtime, TEST_PARTITION_ID,
+                       PSA_ERROR_COMMUNICATION_FAILURE), 1);
+        EXPECT_INT(wt_ffm_fail_partition_messages(&runtime, TEST_PARTITION_ID,
+                       PSA_ERROR_COMMUNICATION_FAILURE), 0);
+        EXPECT_INT(runtime.services[0].queue_head, WT_FFM_QUEUE_NONE);
+        EXPECT_INT(runtime.services[0].queue_tail, WT_FFM_QUEUE_NONE);
+        EXPECT_INT(runtime.partitions[0].asserted_signals, 0);
+        if (mode == 2U) {
+            EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
+                           PSA_IPC_CALL, NULL, 0U, NULL, 0U),
+                       PSA_ERROR_PROGRAMMER_ERROR);
+            EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
+                       WT_FFM_ERROR_NOT_READY);
+            EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID,
+                           context.delayed_message.handle, PSA_SUCCESS),
+                       WT_FFM_SUCCESS);
+        }
+        expect_ffm_pools_empty(&runtime);
+    }
+    (void)printf("PASS: WT-FFM-0017 delayed reply fault cleanup\n");
+}
+
 int main(void)
 {
     test_arguments();
     test_error_latch_and_omitted_write();
     test_predispatch_error_drops_connection();
     test_refused_dispatch_queue_consistency();
+    test_delayed_synchronous_reply();
+    test_delayed_reply_fault_cleanup();
     test_doorbell_signal();
     test_eoi_signal();
     test_irq_route_and_assert();

@@ -111,7 +111,7 @@ static int run_pending_partition(unsigned int i)
  * partition runs once from its entry until it blocks, which is its
  * initialization complete. A partition that faults during init is routed
  * through the core's restart policy (wt_spm_recover_faulted re-arms it) and
- * re-run, bounded so one that faults every time stays quarantined. */
+ * re-run; one that faults every time exhausts its budget and fails closed. */
 #if defined(WT_SPM_ECHO_SP)
 /* The FF-A native echo partition for the direct-message proofs: created in the
  * init pass, after the core has created the manifest partitions, so it

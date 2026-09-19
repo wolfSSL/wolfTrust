@@ -450,9 +450,19 @@ void ns_abort_report(uint64_t esr)
 
 /* Run the unmodified Arm psa-arch-tests val NSPE against the SPMC: every test
  * reaches the SERVER/CLIENT/DRIVER partitions through the routed PSA client. */
+#if defined(CRYPTO) || defined(INITIAL_ATTESTATION)
+int32_t psa_crypto_init(void);
+#endif
+
 static void guest_conformance(void)
 {
     __asm__ volatile("msr vbar_el1, %0\n\tisb" : : "r"(_ns_vectbl));
+#if defined(CRYPTO) || defined(INITIAL_ATTESTATION)
+    /* wolfPSA runs in this guest; nothing else brings it up on bare metal. */
+    if (psa_crypto_init() != 0) {
+        put_str("[NS] psa_crypto_init FAIL\r\n");
+    }
+#endif
     put_str("[NS] conformance val_entry start\r\n");
     (void)val_entry();
     put_str("[NS] conformance val_entry returned\r\n");

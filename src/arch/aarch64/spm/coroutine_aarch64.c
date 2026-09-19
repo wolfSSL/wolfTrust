@@ -179,6 +179,11 @@ void wt_spm_init_partitions(void)
     if (wt_hsm_guest_init_relay((wt_guest_id_t)0) != 0) {
         wt_platform_panic();
     }
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    /* The core's boot-time attestation bootstrap found no seated guest; run
+     * it now. A failure leaves attestation failing closed, as at boot. */
+    (void)wt_hsm_attest_bootstrap();
+#endif
 #endif
     create_echo_partition();
     for (i = 0u; i < WT_CO_MAX; i++) {

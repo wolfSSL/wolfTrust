@@ -135,9 +135,9 @@ void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id)
 volatile void* wt_platform_boot_handoff_region(size_t* size)
 {
     if (size != NULL) {
-        *size = 0u;
+        *size = (g_wt_spm_handoff_pa != 0u) ? g_wt_spm_handoff_size : 0u;
     }
-    return NULL;
+    return (volatile void*)g_wt_spm_handoff_pa;
 }
 
 /* The code every partition executes: the SPMC image text (RX) and its

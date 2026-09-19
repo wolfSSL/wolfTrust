@@ -48,7 +48,9 @@ const wt_system_manifest_t* wt_generated_manifest_get(void);
 #define WT_SPMC_MAX_FILL 24u
 /* Non-secure window the SPMC maps EL1-only to reach a guest's psa_call buffers
  * (the guest image plus its stack live at WT_NS_IMAGE_PA). */
+#ifndef WT_PSA_NS_WINDOW_SIZE
 #define WT_PSA_NS_WINDOW_SIZE 0x00100000u
+#endif
 
 extern uint8_t _e_secure_text[];
 extern uint8_t __image_end[];
@@ -84,6 +86,9 @@ static void ffa_call(wt_ffa_regs_t* r, uint32_t fid, uint64_t x1)
     wt_ffa_smc(r);
 }
 
+uintptr_t g_wt_spm_handoff_pa;
+size_t g_wt_spm_handoff_size;
+
 static void consume_boot_info(uint64_t boot_info_pa)
 {
     const uint8_t* blob = (const uint8_t*)(uintptr_t)boot_info_pa;
@@ -99,6 +104,8 @@ static void consume_boot_info(uint64_t boot_info_pa)
     if (wt_ffa_boot_info_find(blob, &info, WT_FFA_BOOT_INFO_TYPE_WT_HANDOFF, &desc) ==
         WT_FFA_BOOT_INFO_OK) {
         handoff = desc.contents;
+        g_wt_spm_handoff_pa = (uintptr_t)desc.contents;
+        g_wt_spm_handoff_size = (size_t)desc.size;
     }
     wt_el3_puts("[SPM] boot info ok descs=");
     wt_el3_putdec(info.desc_count);
@@ -300,6 +307,10 @@ static void enable_mmu(uint64_t boot_info_pa)
     fill[n].base = (uintptr_t)boot_info_pa;
     fill[n].size = WT_TABLES_PAGE_SIZE;
     fill[n].attributes = WT_MEM_ATTR_READ;
+    if (g_wt_spm_handoff_pa != 0u) {
+        /* The handoff record rides in this page and is cleared once consumed. */
+        fill[n].attributes |= WT_MEM_ATTR_WRITE;
+    }
     n++;
     fill[n].base = (uintptr_t)WT_SPM_TABLE_POOL_PA;
     fill[n].size = (size_t)WT_SPM_TABLE_POOL_PAGES * WT_TABLES_PAGE_SIZE;

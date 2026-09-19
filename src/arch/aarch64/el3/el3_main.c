@@ -28,6 +28,10 @@
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
+#if defined(WT_EL3_TEST_HANDOFF)
+#include "wolftrust/boot_handoff.h"
+#include "psa/lifecycle.h"
+#endif
 
 #include <string.h>
 
@@ -109,6 +113,29 @@ static void prove_tick(void)
     }
 }
 
+#if defined(WT_EL3_TEST_HANDOFF)
+/* Stand in for the boot loader: an unlocked-lifecycle record whose measurement
+ * is a fixed pattern. Never built into production images. */
+static void synthesize_test_handoff(void)
+{
+    wt_boot_handoff_t* rec = (wt_boot_handoff_t*)(uintptr_t)WT_PORT_HANDOFF_PA;
+    uint32_t i;
+
+    (void)memset(rec, 0, WT_PORT_HANDOFF_SIZE);
+    rec->magic = WT_BOOT_HANDOFF_MAGIC;
+    rec->magic_inverse = ~WT_BOOT_HANDOFF_MAGIC;
+    rec->version = (uint16_t)WT_BOOT_HANDOFF_VERSION;
+    rec->size = (uint16_t)sizeof(*rec);
+    rec->lifecycle = PSA_LIFECYCLE_ASSEMBLY_AND_TEST;
+    rec->image_version = 1u;
+    rec->hash_algorithm = (uint16_t)WT_BOOT_HANDOFF_HASH_SHA256;
+    rec->measurement_size = (uint16_t)WT_BOOT_HANDOFF_DIGEST_SIZE;
+    for (i = 0u; i < WT_BOOT_HANDOFF_DIGEST_SIZE; i++) {
+        rec->measurement[i] = (uint8_t)(0xA0u + i);
+    }
+}
+#endif
+
 /* 5.4: one 4K page at the start of the SPM band; the wolfBoot handoff record
  * rides an IMPDEF descriptor when the port has one (WT-PORT-0020). */
 static uint64_t build_boot_info(void)
@@ -134,6 +161,10 @@ static uint64_t build_boot_info(void)
     if (ret != WT_FFA_BOOT_INFO_OK) {
         wt_el3_puts("[EL3] boot info build failed\r\n");
         (void)wt_el3_monitor_call(WT_MON_FID_PANIC, 0xB1u);
+    }
+    if (count != 0u) {
+        /* The SPMC owns the only copy from here on. */
+        (void)memset((void*)(uintptr_t)WT_PORT_HANDOFF_PA, 0, WT_PORT_HANDOFF_SIZE);
     }
     wt_el3_puts("[EL3] boot info at 0x");
     wt_el3_puthex(WT_SPM_BOOT_INFO_PA, 8u);
@@ -165,6 +196,9 @@ void wt_el3_main(void)
     wt_el3_puts("\r\n");
 
     prove_tick();
+#if defined(WT_EL3_TEST_HANDOFF)
+    synthesize_test_handoff();
+#endif
     boot_info = build_boot_info();
 
     wt_write_sctlr_el1(WT_SCTLR_EL1_RES1);

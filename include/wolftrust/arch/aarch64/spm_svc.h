@@ -27,6 +27,7 @@
 
 #include "wolftrust/arch/aarch64/context.h"
 
+#include <stddef.h>
 #include <stdint.h>
 
 /* The FF-A echo partition is built when the EL3 test driver drives it
@@ -71,6 +72,10 @@ uint64_t wt_spm_yield_token(void);
  * coroutine then counts as that partition's initialization. */
 extern volatile uint32_t g_wt_spm_partitions_live;
 uint32_t wt_spm_sp_init_count(void);
+
+/* The boot handoff record the FF-A boot information named, if any. */
+extern uintptr_t g_wt_spm_handoff_pa;
+extern size_t g_wt_spm_handoff_size;
 void wt_spm_init_partitions(void);
 
 /* FF-A direct messaging at the Secure virtual instance. A partition that has

@@ -32,6 +32,8 @@ vectors, Secure Partition layout and recovery, HSM relay and key isolation,
 vault and storage services, attestation and COSE integration, firmware update,
 runtime remeasurement, VNET, public PSA headers, boot-handoff record
 consumption, and negative paths.
+The attestation IAK suite runs wolfHSM NVM with both the default 8-byte and
+STM32H5 16-byte flash programming units.
 
 Additional host checks:
 

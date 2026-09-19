@@ -136,7 +136,7 @@ $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 # ---------------------------------------------------------------------------
 # Targets
 # ---------------------------------------------------------------------------
-.PHONY: all run compilers sanitize valgrind clean
+.PHONY: all run run-one compilers sanitize valgrind clean
 
 all: $(TEST_BIN)
 
@@ -144,8 +144,15 @@ $(TEST_BIN): $(ALL_OBJS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(ALL_OBJS) -lm
 
 run: $(TEST_BIN)
+	@echo "RUN: attestation_iak (default 8-byte flash unit)"
 	$(TEST_BIN)
-	@exit $$?
+	@echo "RUN: attestation_iak (16-byte flash unit)"
+	$(MAKE) --no-print-directory run-one \
+		BUILD_DIR=$(BUILD_DIR)-16 \
+		EXTRA_CFLAGS="$(EXTRA_CFLAGS) -DWOLFHSM_CFG_FLASH_UNIT_SIZE=16"
+
+run-one: $(TEST_BIN)
+	$(TEST_BIN)
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
@@ -162,4 +169,4 @@ valgrind: clean $(TEST_BIN)
 		$(TEST_BIN)
 
 clean:
-	rm -rf $(BUILD_DIR)
+	rm -rf $(BUILD_DIR) $(BUILD_DIR)-16

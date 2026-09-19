@@ -35,6 +35,7 @@
 #include "wolfssl/wolfcrypt/ecc.h"
 #include "wolfssl/wolfcrypt/error-crypt.h"
 #include "wolfssl/wolfcrypt/asn_public.h"
+#include "wolfssl/wolfcrypt/cryptocb.h"
 
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_common.h"
@@ -54,10 +55,16 @@
 #include "psa/client.h"
 
 #define TEST_HSM_PARTITION 2
-#define TEST_HSM_SID       4104U
+#define TEST_HSM_SID       4102U
 #define TEST_NS_CLIENT     (-1)
 
 static int g_failures;
+static int32_t g_connect_error;
+static unsigned int g_connect_count;
+
+extern int (*test_wolfhsm_sys_init)(void);
+int wolfhsm_guest_init(void);
+whClientContext* wolfhsm_guest_client(void);
 
 static void check(int ok, const char* what)
 {
@@ -136,6 +143,10 @@ static const wt_system_manifest_t g_manifest = {
 /* ---- host stubs for the NS->S veneers: route into the runtime ---- */
 int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version)
 {
+    g_connect_count++;
+    if (g_connect_error != PSA_SUCCESS) {
+        return g_connect_error;
+    }
     return (int32_t)wt_ffm_connect(&g_runtime, TEST_NS_CLIENT, sid, version);
 }
 
@@ -298,6 +309,37 @@ static int buf_is_zero(const uint8_t* buf, size_t len)
     return 1;
 }
 
+static void test_guest_init_retry(void)
+{
+    WC_RNG rng;
+    uint8_t output[32];
+    unsigned int connected_count;
+
+    (void)memset(&rng, 0, sizeof(rng));
+    rng.devId = WH_DEV_ID;
+    check(wc_CryptoCb_RandomBlock(&rng, output, sizeof(output)) == WC_HW_E,
+          "WT-FFM-0054 unavailable HSM callback fails closed");
+    check(wc_CryptoCb_IsDeviceRegistered(WH_DEV_ID) != 0,
+          "failed HSM retry keeps the callback registered");
+    check(wc_CryptoCb_RandomBlock(&rng, output, sizeof(output)) == WC_HW_E,
+          "HSM callback remains retryable after repeated failures");
+    g_connect_error = PSA_SUCCESS;
+    (void)memset(output, 0, sizeof(output));
+    check(wc_CryptoCb_RandomBlock(&rng, output, sizeof(output)) == 0 &&
+              buf_is_zero(output, sizeof(output)) == 0,
+          "WT-FFM-0054 callback reconnects after initial HSM failure");
+    connected_count = g_connect_count;
+    check(wc_CryptoCb_RandomBlock(&rng, output, sizeof(output)) == 0 &&
+              g_connect_count == connected_count,
+          "ready callback reuses its HSM connection");
+    (void)wh_Client_Cleanup(wolfhsm_guest_client());
+    check(test_wolfhsm_sys_init() == 0,
+          "successful guest SYS_INIT does not duplicate callback registration");
+    check(wc_CryptoCb_RandomBlock(&rng, output, sizeof(output)) == 0,
+          "successful guest SYS_INIT serves crypto operations");
+    (void)wh_Client_Cleanup(wolfhsm_guest_client());
+}
+
 int main(void)
 {
     whFlashRamsimCfg ramsim_cfg = {
@@ -358,6 +400,7 @@ int main(void)
     uint8_t rng_small[32];
     uint8_t rng_large[1000];
     int rc;
+    int guest_init_rc;
 
     /* ECC state for the sign/verify round trip */
     whKeyId key_id = WH_KEYID_ERASED;
@@ -385,6 +428,16 @@ int main(void)
 
     memset(&tctx, 0, sizeof(tctx));
 
+    g_connect_error = PSA_ERROR_CONNECTION_REFUSED;
+    guest_init_rc = wolfhsm_guest_init();
+    check(guest_init_rc == WH_ERROR_ABORTED &&
+              wc_CryptoCb_IsDeviceRegistered(WH_DEV_ID) == 0,
+          "permanent HSM connect failure remains terminal");
+    g_connect_error = PSA_ERROR_GENERIC_ERROR;
+    guest_init_rc = wolfhsm_guest_init();
+    check(guest_init_rc == 0,
+          "FreeRTOS guest init installs retry after cold-start failure");
+
     /* === FF-M runtime up first: the client transport connects through it. */
     check(wt_ffm_init(&g_runtime, &g_manifest, &g_port_ops, NULL) ==
               WT_FFM_SUCCESS,
@@ -404,6 +457,7 @@ int main(void)
     check(rc == WH_ERROR_OK, "wolfHSM server marked connected");
 
     wt_hsm_relay_set_submit(test_relay_submit, NULL);
+    test_guest_init_retry();
 
     /* === Client: wh_Client_Init runs the transport Init, which performs the
      * psa_connect to SERVICE_HSM through the SPM. */

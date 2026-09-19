@@ -46,6 +46,10 @@ static int wt_hsm_psa_init(void* ctx_v, const void* cfg_v,
         return WH_ERROR_BADARGS;
     }
     ctx->handle = (int32_t)psa_connect(cfg->sid, cfg->version);
+    if (ctx->handle == (int32_t)PSA_ERROR_CONNECTION_BUSY ||
+            ctx->handle == (int32_t)PSA_ERROR_GENERIC_ERROR) {
+        return WH_ERROR_NOTREADY;
+    }
     if (ctx->handle <= 0) {
         return WH_ERROR_ABORTED;
     }

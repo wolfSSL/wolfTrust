@@ -574,10 +574,10 @@ static void exercise_hsm_attack_probe(void)
     rc = wh_Client_SendRequest(ctx, WH_MESSAGE_GROUP_NVM,
         WH_MESSAGE_NVM_ACTION_READ, (uint16_t)sizeof(nvmbuf), nvmbuf);
     if (rc == WH_ERROR_OK) {
-        rSize = (uint16_t)sizeof(nvmbuf);
         guard2 = 1000;
         do {
-            rc = wh_Client_RecvResponse(ctx, &rGroup, &rAction, &rSize, nvmbuf);
+            rc = wh_Client_RecvResponse(ctx, &rGroup, &rAction, &rSize,
+                (uint16_t)sizeof(nvmbuf), nvmbuf);
         } while (rc == WH_ERROR_NOTREADY && guard2-- > 0);
     }
     if (rc != WH_ERROR_OK) {

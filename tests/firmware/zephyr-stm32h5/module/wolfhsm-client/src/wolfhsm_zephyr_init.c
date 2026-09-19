@@ -18,10 +18,7 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Zephyr SYS_INIT wrapper for the wolfTrust wolfHSM client. Brings up the
- * client at POST_KERNEL so SYS_INIT consumers running later (wolfPSA's own
- * init, an app's main()) find the wolfHSM client initialized and the
- * secure-side server reachable. */
+/* Register the wolfHSM client at POST_KERNEL before wolfPSA or app startup. */
 
 #include <zephyr/init.h>
 #include <zephyr/logging/log.h>
@@ -43,14 +40,15 @@ static int wolftrust_wolfhsm_client_sys_init(void)
         return rc;
     }
 
-    /* wh_Client_Init() registers the crypto callback. */
+    /* Direct initialization registers the wolfHSM callback. If the Secure
+     * Partition is restarting, the shared glue registers a retry callback. */
     /* wolfCrypt's "default devId" (wc_CryptoCb_DefaultDevID) returns the
      * first registered crypto_cb device; with WH_DEV_ID being the only
      * device wolfHSM registers, that's already WH_DEV_ID. wolfPSA threads its
      * own runtime-settable devId via wolfPSA_SetDefaultDevID() — done in
      * the wolfpsa module's SYS_INIT hook. */
 
-    LOG_INF("wolfHSM client up; devId=0x%08x registered", (unsigned)WH_DEV_ID);
+    LOG_INF("wolfHSM devId=0x%08x registered", (unsigned)WH_DEV_ID);
     return 0;
 }
 

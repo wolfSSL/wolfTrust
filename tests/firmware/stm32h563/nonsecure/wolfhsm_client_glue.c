@@ -68,6 +68,7 @@ static whClientContext    g_client_ctx;
 static whClientConfig     g_client_cfg;
 static whCommClientConfig g_comm_cfg;
 static int                g_client_ready;
+static uint32_t           g_client_id;
 
 /* ---------------------------------------------------------------------------
  * Public API
@@ -78,17 +79,21 @@ static int                g_client_ready;
  * Call this once from Reset_Handler (or equivalent early-init code) after
  * .data/.bss are ready.  wc_* calls will be routed to the secure HSM once
  * this returns WH_ERROR_OK. */
-int wolfhsm_guest_init(void)
+int wolfhsm_guest_init(uint32_t client_id)
 {
     int rc;
 
+    if (client_id == 0u) {
+        return WH_ERROR_BADARGS;
+    }
+
     g_client_ready = 0;
+    g_client_id = client_id;
 
     g_comm_cfg.transport_cb      = &wt_hsm_psa_transport_cb;
     g_comm_cfg.transport_context = &g_guest_tx;
     g_comm_cfg.transport_config  = &g_guest_tx_cfg;
-    /* wolfTrust maps guest 0 to wolfHSM client namespace 1. */
-    g_comm_cfg.client_id         = 1u;
+    g_comm_cfg.client_id         = g_client_id;
 
     g_client_cfg.comm = &g_comm_cfg;
 
@@ -125,7 +130,9 @@ int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz)
     }
     /* Boot can race a Secure Partition restart window; one failed init must
      * not be terminal — retry the connect on demand. */
-    if (g_client_ready == 0 && wolfhsm_guest_init() != WH_ERROR_OK) {
+    if (g_client_ready == 0 &&
+            (g_client_id == 0u ||
+             wolfhsm_guest_init(g_client_id) != WH_ERROR_OK)) {
         return -1;
     }
 

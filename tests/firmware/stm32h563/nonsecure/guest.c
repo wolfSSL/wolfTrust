@@ -35,7 +35,7 @@
 
 #define WT_ALIGNED_WORD __attribute__((aligned(4)))
 
-int wolfhsm_guest_init(void);
+int wolfhsm_guest_init(uint32_t client_id);
 int wolfcrypt_benchmark_main(int argc, char** argv);
 
 /* Static buffers to keep large structs off the stack. */
@@ -878,7 +878,7 @@ static void run_hsm_selftest(void)
     uint32_t bench_i;
 
     /* --- Step 1: Init wolfHSM client --- */
-    rc = wolfhsm_guest_init();
+    rc = wolfhsm_guest_init(wt_guest_id() + 1u);
     if (rc != 0) {
         wt_uart_putc('g');
         wt_uart_put_u32(wt_guest_id());

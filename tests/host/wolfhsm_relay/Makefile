@@ -21,6 +21,7 @@
 ROOT    := ../../..
 WOLFHSM := $(ROOT)/lib/wolfHSM
 WOLFSSL := $(ROOT)/lib/wolfSSL
+GUEST_GLUE := $(ROOT)/tests/firmware/zephyr-stm32h5/module/wolfhsm-client/src
 
 CC ?= cc
 BUILD_DIR ?= build
@@ -35,6 +36,7 @@ CFLAGS := \
     -DWOLFHSM_CFG_ENABLE_SERVER \
     -DWOLFHSM_CFG_COMM_DATA_LEN=368 \
     -I. \
+    -Istubs \
     -I$(ROOT)/include \
     -I$(WOLFHSM) \
     -I$(WOLFSSL) \
@@ -102,6 +104,7 @@ _WTC_SRCS := \
     $(ROOT)/src/client/hsm_psa_transport.c
 
 _TEST_SRCS := main.c
+_GUEST_SRCS := wolfhsm_client_glue.c wolfhsm_zephyr_init.c
 
 _WH_OBJS      := $(patsubst %.c,wh_%.o,$(notdir $(_WH_SRCS)))
 _WH_PORT_OBJS := $(patsubst %.c,whport_%.o,$(notdir $(_WH_PORT_SRCS)))
@@ -110,9 +113,11 @@ _WT_OBJS      := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
 _WTS_OBJS     := $(patsubst %.c,wts_%.o,$(notdir $(_WTS_SRCS)))
 _WTC_OBJS     := $(patsubst %.c,wtc_%.o,$(notdir $(_WTC_SRCS)))
 _TEST_OBJS    := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
+_GUEST_OBJS   := $(patsubst %.c,guest_%.o,$(_GUEST_SRCS))
 
 ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WH_OBJS) $(_WH_PORT_OBJS) \
-    $(_WC_OBJS) $(_WT_OBJS) $(_WTS_OBJS) $(_WTC_OBJS) $(_TEST_OBJS))
+    $(_WC_OBJS) $(_WT_OBJS) $(_WTS_OBJS) $(_WTC_OBJS) $(_TEST_OBJS) \
+    $(_GUEST_OBJS))
 TEST_BIN := $(BUILD_DIR)/test_wolfhsm_relay
 
 $(BUILD_DIR):
@@ -137,6 +142,9 @@ $(BUILD_DIR)/wtc_%.o: $(ROOT)/src/client/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/guest_%.o: $(GUEST_GLUE)/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 .PHONY: all run compilers sanitize valgrind clean

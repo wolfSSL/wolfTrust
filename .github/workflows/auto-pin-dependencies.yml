@@ -38,7 +38,7 @@ jobs:
           # fork-only runtime-devId/device-ID changes.
           specs=(
             "lib/wolfSSL|https://github.com/wolfSSL/wolfSSL.git|v*-stable|51975e27a5439668733976a584d417dfd7776026"
-            "lib/wolfHSM|https://github.com/wolfSSL/wolfHSM.git|wolfHSM-v*|a0323156606282448f00473a3fcb7aaa69361921"
+            "lib/wolfHSM|https://github.com/wolfSSL/wolfHSM.git|wolfHSM-v*|97dbbd72ad2bf757279d7dc5101580290525c647"
             "lib/wolfIP|https://github.com/wolfSSL/wolfIP.git|v*|"
           )
 

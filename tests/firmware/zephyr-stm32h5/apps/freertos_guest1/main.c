@@ -380,14 +380,14 @@ static int guest_crypto_init(void)
 {
     int rc;
 
-    /* Boot can race a Secure Partition restart window; the glue cryptocb
-     * heals by retrying the connect on demand, so a failed init here is a
-     * warning, not a terminal error. */
+    /* Boot can race a Secure Partition restart window. The shared glue
+     * installs a retry callback when the first connection is refused. */
     rc = wolfhsm_guest_init();
     if (rc != WH_ERROR_OK) {
-        uart_puts("freertos_guest1: hsm client init deferred rc=");
+        uart_puts("freertos_guest1: hsm client init FAILED rc=");
         uart_put_i32((int32_t)rc);
         uart_puts("\r\n");
+        return -1;
     }
     (void)wolfPSA_SetDefaultDevID(WH_DEV_ID);
     /* PSA requires psa_crypto_init before any other psa_* call; guest0 gets

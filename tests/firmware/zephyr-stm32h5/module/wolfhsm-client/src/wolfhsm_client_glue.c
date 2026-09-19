@@ -33,6 +33,12 @@
 #include "wolfhsm/wh_comm.h"
 #include "wolfhsm/wh_client.h"
 #include "wolfhsm/wh_client_crypto.h"
+#include "wolfhsm/wh_client_cryptocb.h"
+
+#include "wolfssl/wolfcrypt/cryptocb.h"
+#include "wolfssl/wolfcrypt/error-crypt.h"
+#include "wolfssl/wolfcrypt/wc_port.h"
+
 #include "wolftrust/hsm_psa_transport.h"
 
 /* SERVICE_HSM from the platform manifest (port/stm32h563/manifest.json). */
@@ -54,8 +60,11 @@ static whClientContext    g_client_ctx;
 static whClientConfig     g_client_cfg;
 static whCommClientConfig g_comm_cfg;
 static int                g_client_ready;
+static int                g_retry_crypto_initialized;
 
-int wolfhsm_guest_init(void)
+static int wolfhsm_guest_register_retry(void);
+
+static int wolfhsm_guest_connect(void)
 {
     int rc;
 
@@ -74,7 +83,69 @@ int wolfhsm_guest_init(void)
     }
 
     g_client_ready = 1;
+    if (g_retry_crypto_initialized != 0) {
+        (void)wolfCrypt_Cleanup();
+        g_retry_crypto_initialized = 0;
+    }
     return WH_ERROR_OK;
+}
+
+static int wolfhsm_guest_retry(int devId, wc_CryptoInfo *info, void *ctx)
+{
+    int rc;
+
+    (void)ctx;
+#ifdef WOLF_CRYPTO_CB_CMD
+    if (info != NULL && info->algo_type == WC_ALGO_TYPE_NONE) {
+        return CRYPTOCB_UNAVAILABLE;
+    }
+#endif
+    rc = wolfhsm_guest_connect();
+    if (rc != WH_ERROR_OK) {
+        if (rc == WH_ERROR_NOTREADY) {
+            (void)wolfhsm_guest_register_retry();
+        }
+        return WC_HW_E;
+    }
+    return wh_Client_CryptoCb(devId, info, &g_client_ctx);
+}
+
+static int wolfhsm_guest_register_retry(void)
+{
+    int rc;
+    int initialized = 0;
+
+    if (g_retry_crypto_initialized == 0) {
+        rc = wolfCrypt_Init();
+        if (rc != 0) {
+            return rc;
+        }
+        g_retry_crypto_initialized = 1;
+        initialized = 1;
+    }
+    if (wc_CryptoCb_IsDeviceRegistered(WH_DEV_ID) != 0) {
+        return WH_ERROR_OK;
+    }
+    rc = wc_CryptoCb_RegisterDevice(WH_DEV_ID, wolfhsm_guest_retry, NULL);
+    if (rc != 0 && initialized != 0) {
+        (void)wolfCrypt_Cleanup();
+        g_retry_crypto_initialized = 0;
+    }
+    return rc;
+}
+
+int wolfhsm_guest_init(void)
+{
+    int rc;
+
+    rc = wolfhsm_guest_connect();
+    if (rc == WH_ERROR_OK) {
+        return WH_ERROR_OK;
+    }
+    if (rc != WH_ERROR_NOTREADY) {
+        return rc;
+    }
+    return wolfhsm_guest_register_retry();
 }
 
 whClientContext *wolfhsm_guest_client(void)
@@ -89,7 +160,7 @@ static int wolfhsm_guest_ensure_ready(void)
     if (g_client_ready != 0) {
         return WH_ERROR_OK;
     }
-    return wolfhsm_guest_init();
+    return wolfhsm_guest_connect();
 }
 
 int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz)

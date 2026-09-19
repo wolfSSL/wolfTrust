@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|confboot|storage|devstorage) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|confboot|storage|devstorage" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|vaultrecoversec|confboot|storage|devstorage) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|vaultrecoversec|confboot|storage|devstorage" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -67,7 +67,7 @@ esac
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt|resetneg:virt|ffa-memneg:virt|hsmattackneg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt|resetneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
@@ -102,6 +102,7 @@ else
     confboot|devstorage) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
+    vaultrecoversec) probe=(WT_EL3_NS_SMOKE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1) ;;
     ffa-guest-direct) probe=(WT_EL3_NS_SMOKE=1 WT_NS_GUEST_ECHO=1) ;;
     ffa-preempt) probe=(WT_EL3_NS_SMOKE=1 WT_NS_PREEMPT=1) ;;
   esac
@@ -120,7 +121,7 @@ else
      [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
      [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
      [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
-     [ "$scenario" = hsmattackneg ] || \
+     [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
      [ "$scenario" = confboot ] || [ "$scenario" = devstorage ]; then
     nsfw="$repo/tests/firmware/aarch64-ns-smoke"
     ns_echo=0
@@ -135,6 +136,7 @@ else
     [ "$scenario" = guest1 ] && { ns_psa=1; ns_id=1; }
     ns_hsmattack=0
     [ "$scenario" = hsmattackneg ] && { ns_psa=1; ns_hsmattack=1; }
+    [ "$scenario" = vaultrecoversec ] && ns_psa=1
     ns_fuzz=0
     [ "$scenario" = smcfuzz ] && ns_fuzz=1
     ns_secram=0
@@ -210,7 +212,7 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
    [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
-   [ "$scenario" = hsmattackneg ] || \
+   [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
    [ "$scenario" = confboot ] || [ "$scenario" = devstorage ]; then
   args+=(-device "loader,file=$ns_bin,addr=$ns_base")
 fi
@@ -474,6 +476,16 @@ case "$scenario" in
     expect "the wolfHSM client echoed a packet through the relay partition and the wolfHSM server" "[NS] hsm echo ok"
     expect "the guest closed its handle" "[NS] psa close ok"
     expect "the Normal-world guest reached the services and finished" "[NS] guest$guest_id ok"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  vaultrecoversec)
+    # A foreign vault under a locked lifecycle: the reformat is refused and
+    # attestation fails closed, but the boot is not bricked and the guest runs.
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    expect "the SPMC completed initialization" "[SPM] partitions ready n=6"
+    expect "the wolfHSM relay still serves the guest" "[NS] hsm echo ok"
+    expect "the guest ran to completion under fail-closed attestation" "[NS] guest0 ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   hsmattackneg)

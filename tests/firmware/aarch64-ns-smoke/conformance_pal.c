@@ -43,6 +43,10 @@
 #include "psa/storage_common.h"
 #include "psa/internal_trusted_storage.h"
 #include "psa/protected_storage.h"
+#if defined(INITIAL_ATTESTATION)
+#include "psa/crypto.h"
+#include "wolftrust/attestation.h"
+#endif
 
 extern void ns_putc(char c);
 
@@ -179,12 +183,14 @@ void pal_terminate_simulation(void)
     pal_print_ns("wolfTrust FF-M conformance: val_entry returned\n", 0);
 }
 
+#if !defined(CRYPTO)
 int32_t pal_crypto_function(int type, va_list valist)
 {
     (void)type;
     (void)valist;
     return -1;
 }
+#endif
 
 /* dev_apis storage: dispatch val's ITS/PS function codes (val_storage.h's
  * storage_function_type_t: ITS SET/GET/GET_INFO/REMOVE = 0x1..0x4, PS
@@ -284,9 +290,32 @@ uint32_t pal_ps_function(int type, va_list valist)
     }
 }
 
+#if defined(INITIAL_ATTESTATION)
+/* val's own COSE_Sign1 verify asks for the key the token was signed with:
+ * the runtime IAK public key, read through SERVICE_ATTEST. */
+int32_t tfm_initial_attest_get_public_key(uint8_t* public_key_buff,
+    size_t public_key_buf_size, size_t* public_key_len,
+    psa_ecc_family_t* elliptic_family_type)
+{
+    psa_status_t status;
+
+    if ((public_key_buff == NULL) || (public_key_len == NULL) ||
+            (elliptic_family_type == NULL)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    status = wolftrust_attestation_get_iak_public_key(public_key_buff,
+                                                      public_key_buf_size,
+                                                      public_key_len);
+    if (status == PSA_SUCCESS) {
+        *elliptic_family_type = PSA_ECC_FAMILY_SECP_R1;
+    }
+    return status;
+}
+#else
 int32_t pal_attestation_function(int type, va_list valist)
 {
     (void)type;
     (void)valist;
     return -1;
 }
+#endif

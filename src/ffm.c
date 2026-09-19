@@ -29,6 +29,8 @@
 #define WT_FFM_HANDLE_GEN_MASK   0x00FFFFFFU
 #define WT_FFM_HANDLE_CONNECTION 1U
 #define WT_FFM_HANDLE_MESSAGE    2U
+#define WT_FFM_ABANDONED_REPLY   1U
+#define WT_FFM_ABANDONED_CLOSE   2U
 
 static uint32_t wt_ffm_next_generation(uint32_t generation)
 {
@@ -275,6 +277,25 @@ static int wt_ffm_message_from_handle(wt_ffm_runtime_t* runtime,
 
     *message_index = index;
     return WT_FFM_SUCCESS;
+}
+
+static int wt_ffm_close_abandoned(wt_ffm_runtime_t* runtime,
+                                   uint16_t connection_index)
+{
+    size_t i;
+
+    for (i = 0U; i < WT_FFM_MAX_MESSAGES; i++) {
+        wt_ffm_message_runtime_t* message = &runtime->messages[i];
+
+        if (message->allocated != 0U && message->abandoned != 0U &&
+                message->connection_index == connection_index) {
+            message->abandoned = WT_FFM_ABANDONED_CLOSE;
+            runtime->connections[connection_index].state =
+                WT_IPC_CONNECTION_DISCONNECTING;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 static void wt_ffm_update_service_signal(wt_ffm_runtime_t* runtime,
@@ -651,6 +672,12 @@ psa_handle_t wt_ffm_connect(wt_ffm_runtime_t* runtime,
     wt_ffm_enqueue(runtime, service_index, message_index);
     ret = wt_ffm_dispatch_message(runtime, message_index);
     status = message->reply_status;
+    if (ret != WT_FFM_SUCCESS && message->active != 0U) {
+        message->abandoned = WT_FFM_ABANDONED_CLOSE;
+        return ret == WT_FFM_ERROR_RESOURCE ?
+            (psa_handle_t)PSA_ERROR_CONNECTION_BUSY :
+            (psa_handle_t)PSA_ERROR_GENERIC_ERROR;
+    }
     if (ret != WT_FFM_SUCCESS) {
         /* A refused CONNECT dispatch must unlink the message before its slot
          * is released, or the slot aliases the next queued request. */
@@ -747,6 +774,13 @@ psa_status_t wt_ffm_call(wt_ffm_runtime_t* runtime,
     ret = wt_ffm_dispatch_message(runtime, message_index);
     if (ret != WT_FFM_SUCCESS) {
         connection->state = WT_IPC_CONNECTION_ERROR;
+        if (message->active != 0U) {
+            connection->error_latch = 1U;
+            message->abandoned = WT_FFM_ABANDONED_REPLY;
+            (void)memset(message->client_output, 0,
+                         sizeof(message->client_output));
+            return PSA_ERROR_GENERIC_ERROR;
+        }
         wt_ffm_dequeue_message(runtime, connection->service_index,
                                message_index);
         wt_ffm_release_message(runtime, message_index);
@@ -823,6 +857,8 @@ int wt_ffm_close(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
     if (connection->state != WT_IPC_CONNECTION_IDLE &&
             connection->state != WT_IPC_CONNECTION_ERROR)
         return WT_FFM_ERROR_STATE;
+    if (wt_ffm_close_abandoned(runtime, connection_index) != 0)
+        return WT_FFM_SUCCESS;
     if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS)
         return WT_FFM_ERROR_RESOURCE;
 
@@ -834,6 +870,10 @@ int wt_ffm_close(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
     message->type = PSA_IPC_DISCONNECT;
     wt_ffm_enqueue(runtime, connection->service_index, message_index);
     ret = wt_ffm_dispatch_message(runtime, message_index);
+    if (ret != WT_FFM_SUCCESS && message->active != 0U) {
+        message->abandoned = WT_FFM_ABANDONED_CLOSE;
+        return ret;
+    }
     if (ret != WT_FFM_SUCCESS) {
         wt_ffm_dequeue_message(runtime, connection->service_index,
                                message_index);
@@ -988,6 +1028,10 @@ int wt_ffm_close_begin(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
     if (connection->state != WT_IPC_CONNECTION_IDLE &&
             connection->state != WT_IPC_CONNECTION_ERROR)
         return WT_FFM_ERROR_STATE;
+    if (wt_ffm_close_abandoned(runtime, connection_index) != 0) {
+        *msg_index = WT_FFM_QUEUE_NONE;
+        return WT_FFM_SUCCESS;
+    }
     if (wt_ffm_alloc_message(runtime, &message_index) != WT_FFM_SUCCESS)
         return WT_FFM_ERROR_RESOURCE;
 
@@ -1048,6 +1092,11 @@ int wt_ffm_fail_partition_messages(wt_ffm_runtime_t* runtime,
         message->complete = 1U;
         runtime->connections[message->connection_index].state =
             WT_IPC_CONNECTION_ERROR;
+        if (message->abandoned != 0U) {
+            if (message->abandoned == WT_FFM_ABANDONED_CLOSE)
+                wt_ffm_release_connection(runtime, message->connection_index);
+            wt_ffm_release_message(runtime, (uint16_t)i);
+        }
         failed++;
     }
 
@@ -1575,6 +1624,35 @@ int wt_ffm_write(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return WT_FFM_SUCCESS;
 }
 
+static void wt_ffm_finish_abandoned(wt_ffm_runtime_t* runtime,
+                                    uint16_t message_index)
+{
+    wt_ffm_message_runtime_t* message = &runtime->messages[message_index];
+    uint16_t connection_index = message->connection_index;
+    wt_ffm_connection_runtime_t* connection =
+        &runtime->connections[connection_index];
+    int disconnect;
+
+    disconnect = (message->type == PSA_IPC_CONNECT &&
+                  message->reply_status == PSA_SUCCESS) ||
+                 (message->type >= PSA_IPC_CALL &&
+                  message->abandoned == WT_FFM_ABANDONED_CLOSE);
+    if (!disconnect && message->type < PSA_IPC_CALL)
+        wt_ffm_release_connection(runtime, connection_index);
+    wt_ffm_release_message(runtime, message_index);
+    if (disconnect) {
+        /* Reuse the replied slot so cleanup cannot fail on pool exhaustion. */
+        message->allocated = 1U;
+        message->abandoned = WT_FFM_ABANDONED_CLOSE;
+        message->caller = connection->caller;
+        message->connection_index = connection_index;
+        message->service_index = connection->service_index;
+        message->type = PSA_IPC_DISCONNECT;
+        connection->state = WT_IPC_CONNECTION_DISCONNECTING;
+        wt_ffm_enqueue(runtime, message->service_index, message_index);
+    }
+}
+
 int wt_ffm_reply(wt_ffm_runtime_t* runtime, int32_t partition_id,
                  psa_handle_t msg_handle, psa_status_t status)
 {
@@ -1622,5 +1700,7 @@ int wt_ffm_reply(wt_ffm_runtime_t* runtime, int32_t partition_id,
     message->reply_status = status;
     message->active = 0U;
     message->complete = 1U;
+    if (message->abandoned != 0U)
+        wt_ffm_finish_abandoned(runtime, message_index);
     return WT_FFM_SUCCESS;
 }

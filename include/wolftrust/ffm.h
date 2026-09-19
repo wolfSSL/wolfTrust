@@ -103,6 +103,7 @@ typedef struct wt_ffm_message_runtime {
     uint8_t allocated;
     uint8_t active;
     uint8_t complete;
+    uint8_t abandoned; /* Client returned; retain ownership until service reply. */
 } wt_ffm_message_runtime_t;
 
 struct wt_ffm_runtime {

@@ -78,6 +78,18 @@ int wt_platform_guest_flash_wrp_ok(uintptr_t window_base, size_t window_size)
 /* No Normal world to run: the SPMC waits for FF-A events instead. */
 void wt_platform_all_guests_faulted(void)
 {
+    static uint32_t entered;
+
+    /* The first call never returns, so a re-entry is a recovery escalation. */
+    if (entered != 0u) {
+        wt_el3_puts("[SPM] restart budget exhausted, failing closed\r\n");
+        wt_platform_console_flush();
+        (void)wt_mon_call(WT_MON_FID_PANIC, 0x7Du);
+        for (;;) {
+            __asm__ volatile("wfi");
+        }
+    }
+    entered = 1u;
     wt_spm_init_partitions();
     wt_el3_puts("[SPM] partitions ready n=");
     wt_el3_putdec(wt_spm_sp_init_count());

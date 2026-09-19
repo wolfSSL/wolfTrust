@@ -31,6 +31,10 @@
 #include "psa_manifest/sid.h"
 #include "wolfhsm/wh_client.h"
 #include "wolfhsm/wh_error.h"
+#if defined(WT_NS_HSM_ATTACK)
+#include "wolfhsm/wh_message.h"
+#include "wolfhsm/wh_message_nvm.h"
+#endif
 #include "wolftrust/hsm_psa_transport.h"
 #ifndef WT_NS_GUEST_ID
 #define WT_NS_GUEST_ID 0
@@ -233,6 +237,87 @@ static int guest_hsm_echo(void)
     return ok;
 }
 
+#if defined(WT_NS_HSM_ATTACK)
+/* Compromised-guest probe: a COMM_INIT forging the attestation-reserved client
+ * id must not reach the committed IAK (key 0xF0), a raw NVM-group request must
+ * never reach the server, and the guest's own relay namespace still works. */
+#define WT_HSM_ATTACK_IAK_KEY_ID 0xF0u
+#define WT_HSM_ATTACK_ROLLBACK_ID 0x0122u /* WT_HSM_ROLLBACK_TABLE_ID */
+
+static void guest_hsm_attack(void)
+{
+    uint8_t label[WH_NVM_LABEL_LEN];
+    uint8_t key[64];
+    uint8_t nvmbuf[16];
+    uint16_t keySz = (uint16_t)sizeof(key);
+    uint16_t rGroup = 0u;
+    uint16_t rAction = 0u;
+    uint16_t rSize = (uint16_t)sizeof(nvmbuf);
+    uint32_t outClientId = 0u;
+    uint32_t outServerId = 0u;
+    int guard = 1000;
+    unsigned int i;
+    int rc;
+
+    g_hsm_comm_cfg.transport_cb = &wt_hsm_psa_transport_cb;
+    g_hsm_comm_cfg.transport_context = &g_hsm_tx;
+    g_hsm_comm_cfg.transport_config = &g_hsm_tx_cfg;
+    g_hsm_comm_cfg.client_id = (uint8_t)WH_CLIENT_ID_MAX;
+    g_hsm_client_cfg.comm = &g_hsm_comm_cfg;
+    rc = wh_Client_Init(&g_hsm_client, &g_hsm_client_cfg);
+    if (rc == WH_ERROR_OK) {
+        rc = wh_Client_CommInit(&g_hsm_client, &outClientId, &outServerId);
+    }
+    put_str("[NS] hsmattack forged COMM_INIT client_id=");
+    put_dec(outClientId);
+    put_str(" rc=0x");
+    put_hex((uint32_t)rc);
+    put_str("\r\n");
+
+    rc = wh_Client_KeyExport(&g_hsm_client, WT_HSM_ATTACK_IAK_KEY_ID, label,
+                             (uint16_t)sizeof(label), key, &keySz);
+    if (rc != WH_ERROR_OK) {
+        put_str("[NS] hsmattack IAK read refused rc=0x");
+        put_hex((uint32_t)rc);
+        put_str("\r\n");
+    }
+    else {
+        put_str("[NS] hsmattack IAK read SUCCEEDED\r\n");
+    }
+
+    for (i = 0u; i < sizeof(nvmbuf); i++) {
+        nvmbuf[i] = 0u;
+    }
+    nvmbuf[0] = (uint8_t)(WT_HSM_ATTACK_ROLLBACK_ID & 0xFFu);
+    nvmbuf[1] = (uint8_t)((WT_HSM_ATTACK_ROLLBACK_ID >> 8) & 0xFFu);
+    rc = wh_Client_SendRequest(&g_hsm_client, WH_MESSAGE_GROUP_NVM,
+                               WH_MESSAGE_NVM_ACTION_READ,
+                               (uint16_t)sizeof(nvmbuf), nvmbuf);
+    if (rc == WH_ERROR_OK) {
+        do {
+            rc = wh_Client_RecvResponse(&g_hsm_client, &rGroup, &rAction,
+                                        &rSize, nvmbuf);
+        } while ((rc == WH_ERROR_NOTREADY) && (guard-- > 0));
+    }
+    if (rc != WH_ERROR_OK) {
+        put_str("[NS] hsmattack rollback NVM group refused rc=0x");
+        put_hex((uint32_t)rc);
+        put_str("\r\n");
+    }
+    else {
+        put_str("[NS] hsmattack rollback NVM group SUCCEEDED\r\n");
+    }
+    (void)wh_Client_Cleanup(&g_hsm_client);
+
+    if (guest_hsm_echo() != 0) {
+        put_str("[NS] hsmattack own-namespace relay still works\r\n");
+    }
+    else {
+        put_str("[NS] hsmattack own-namespace relay BROKEN\r\n");
+    }
+}
+#endif
+
 static void guest_psa(void)
 {
     uint32_t fw;
@@ -281,6 +366,9 @@ static void guest_psa(void)
     else {
         put_str("[NS] psa call BAD\r\n");
     }
+#if defined(WT_NS_HSM_ATTACK)
+    guest_hsm_attack();
+#endif
 
     put_str("[NS] guest");
     put_dec((uint32_t)WT_NS_GUEST_ID);

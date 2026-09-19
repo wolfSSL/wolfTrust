@@ -69,6 +69,11 @@ endif
 # proofs); WT_NS_GUEST_ID stamps the guest marker.
 WT_NS_GUEST_PSA ?= 0
 WT_NS_GUEST_ID ?= 0
+# Forge a client id and an NVM-group request at the relay (the hsmattackneg proof).
+WT_NS_HSM_ATTACK ?= 0
+ifeq ($(WT_NS_HSM_ATTACK),1)
+CFLAGS += -DWT_NS_HSM_ATTACK=1
+endif
 # Sweep unimplemented function ids and confirm each is refused (the smcfuzz proof).
 WT_NS_GUEST_FUZZ ?= 0
 ifeq ($(WT_NS_GUEST_FUZZ),1)

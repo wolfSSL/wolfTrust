@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot|storage|devstorage) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot|storage|devstorage" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot|storage|devstorage) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|confboot|storage|devstorage" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -67,7 +67,7 @@ esac
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt|resetneg:virt|ffa-memneg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt|resetneg:virt|ffa-memneg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
@@ -97,6 +97,7 @@ else
     tablesneg)   probe=(WT_TABLES_NEGATIVE=1) ;;
     manifestneg) probe=(WT_MANIFEST_NEG_PROBE=1) ;;
     keystoreneg) probe=(WT_KEYSTORE_NEG_PROBE=1) ;;
+    panicneg)    probe=(WT_PANIC_NEG_PROBE=1) ;;
     confboot|devstorage) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|storage) probe=(WT_EL3_NS_SMOKE=1) ;;
@@ -369,6 +370,15 @@ case "$scenario" in
     fi
     expect "the offending partition was restarted under its manifest policy" "[SP] restarted id=0x"
     expect "the persistently-faulting partition was quarantined, the rest initialized" "[SPM] partitions ready n=5"
+    expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  panicneg)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    expect "the ITS partition was panicked for a programmer-error handle close at S-EL0" "[SYNC EL=0 EC=0x00"
+    expect "the panicked ITS partition was restarted under its manifest policy" "[SP] restarted id=0x8004"
+    expect "every partition still reached initialization after the one-shot recovery" "[SPM] partitions ready n=6"
     expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;

@@ -130,7 +130,6 @@ static int sender_owns(uint16_t sender, const wt_ffa_mem_region_t* r)
     const wt_spm_mem_binding_t* b;
     uint64_t size = (uint64_t)r->page_count * WT_FFA_MEM_PAGE_SIZE;
     uint64_t at;
-    uint32_t attributes;
 
     if (sender == WT_FFA_ID_SPMC) {
         return 1;
@@ -144,11 +143,8 @@ static int sender_owns(uint16_t sender, const wt_ffa_mem_region_t* r)
         return 0;
     }
     for (at = r->base; at < (r->base + size); at += WT_FFA_MEM_PAGE_SIZE) {
-        attributes = 0u;
-        if ((wt_domain_get_permissions(b->dom->regions, b->dom->region_count,
-                                       (uintptr_t)at, &attributes) !=
-             WT_TABLES_OK) ||
-            ((attributes & WT_MEM_ATTR_WRITE) == 0u)) {
+        if (wt_domain_page_writable(b->dom->regions, b->dom->region_count,
+                                    (uintptr_t)at) == 0) {
             return 0;
         }
     }

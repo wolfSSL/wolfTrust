@@ -205,6 +205,26 @@ int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
     return ret;
 }
 
+/* Is va an EL0 read-write page in this partition's stage-1 table, whatever its
+ * region list says? A page a partition owns outright or has been given (a
+ * donate) is writable at EL0; the region list is not consulted, so ownership
+ * that a transaction moved is still seen. */
+int wt_domain_page_writable(const wt_memory_region_t* regions, size_t count,
+                            uintptr_t va)
+{
+    const wt_domain_entry_t* e = find_built(regions, count);
+    wt_tables_walk_t w;
+
+    if ((g_ready == 0u) || (e == NULL) || (regions == NULL) ||
+        ((va % WT_TABLES_PAGE_SIZE) != 0u)) {
+        return 0;
+    }
+    if (wt_tables_walk(&e->table, &g_pool, (uint64_t)va, &w) != WT_TABLES_OK) {
+        return 0;
+    }
+    return (w.ap == WT_TABLES_AP_ALL_RW) ? 1 : 0;
+}
+
 int wt_domain_grant(const wt_memory_region_t* regions, size_t count,
                     uintptr_t va, size_t pages, uint32_t attributes,
                     int* was_mapped)

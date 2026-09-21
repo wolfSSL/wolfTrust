@@ -226,6 +226,10 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     }
     for (i = 0u; (ret == 0) && (i < txn.receiver_count); i++) {
         ret = wt_ffa_mem_receiver(desc, len, &txn, i, &receiver, &perms);
+        /* Secure memory never leaves the Secure world (10.10.2). */
+        if ((ret == 0) && id_is_secure(sender) && !id_is_secure(receiver)) {
+            ret = WT_FFA_DENIED;
+        }
         /* A borrower is a partition the SPMC can map into, never the sender. */
         if ((ret == 0) &&
             ((receiver == sender) || (receiver_known(receiver) == 0))) {

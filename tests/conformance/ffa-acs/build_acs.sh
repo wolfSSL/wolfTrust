@@ -59,7 +59,7 @@ acs="$out/ff-a-acs"
 
 # Platform exclusions, each a recorded patch: the suite stays pinned and any
 # test the platform cannot host skips by name instead of hanging the run.
-git -C "$acs" checkout -q -- test val
+git -C "$acs" checkout -q -- test val platform/common
 for patch in "$here"/patches/*.patch; do
   git -C "$acs" apply "$patch"
 done

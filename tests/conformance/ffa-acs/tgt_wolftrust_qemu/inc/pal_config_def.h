@@ -94,4 +94,15 @@
 /* One processing element: the SPMC runs uniprocessor, secondaries stay parked. */
 #define PLATFORM_NO_OF_CPUS 1
 
+/* What this platform gives each endpoint: direct messaging (both request
+ * forms), AArch64. It has no indirect messaging and no notifications, so the
+ * suite skips those checks instead of demanding them. Bit values are the
+ * FFA_PARTITION_INFO_GET properties (Table 6.2). */
+#define WT_ACS_EP_PROPERTIES 0x703
+#define PLATFORM_VM1_EP_PROPERTIES WT_ACS_EP_PROPERTIES
+#define PLATFORM_SP1_EP_PROPERTIES WT_ACS_EP_PROPERTIES
+#define PLATFORM_SP2_EP_PROPERTIES WT_ACS_EP_PROPERTIES
+#define PLATFORM_SP3_EP_PROPERTIES WT_ACS_EP_PROPERTIES
+#define PLATFORM_SP4_EP_PROPERTIES WT_ACS_EP_PROPERTIES
+
 #endif /* _PAL_CONFIG_H_ */

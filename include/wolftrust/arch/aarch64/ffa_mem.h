@@ -90,6 +90,9 @@
 #define WT_FFA_MEM_FLAG_TIME_SLICE      (1u << 1)
 /* Retrieve request only: zero the memory after the borrower relinquishes. */
 #define WT_FFA_MEM_FLAG_ZERO_AFTER      (1u << 2)
+/* Retrieve request only (FF-A 1.2): the caller names just itself although the
+ * transaction has several borrowers. */
+#define WT_FFA_MEM_FLAG_BYPASS_BORROWERS (1u << 10)
 #define WT_FFA_MEM_FLAG_TYPE_SHIFT      3u
 #define WT_FFA_MEM_FLAG_TYPE_MASK       (0x3u << WT_FFA_MEM_FLAG_TYPE_SHIFT)
 #define WT_FFA_MEM_FLAG_TYPE_SHARE      (0x1u << WT_FFA_MEM_FLAG_TYPE_SHIFT)

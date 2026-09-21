@@ -220,6 +220,7 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
                      uint16_t sender, uint64_t* out_handle)
 {
     const wt_ffa_mem_handle_entry_t* e;
+    wt_ffa_mem_borrower_t* named;
     wt_ffa_mem_txn_t txn;
     wt_ffa_mem_region_t regs[WT_FFA_MEM_MAX_REGIONS];
     uint32_t n = 0u;
@@ -234,6 +235,11 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
         return WT_FFA_INVALID_PARAMETERS;
     }
     ret = wt_ffa_mem_txn_validate(desc, len, op, sender, &txn);
+    /* Nothing here can take memory away from the Normal world, so it cannot
+     * give any away for good; a malformed attempt is still told why. */
+    if ((ret == 0) && (op == WT_FFA_MEM_OP_DONATE) && !id_is_secure(sender)) {
+        ret = WT_FFA_NOT_SUPPORTED;
+    }
     if ((ret == 0) && (txn.receiver_count > WT_FFA_MEM_MAX_BORROWERS)) {
         ret = WT_FFA_NO_MEMORY;
     }
@@ -313,6 +319,14 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
         }
         if (ret != 0) {
             (void)wt_ffa_mem_handle_reclaim(&g_reg, *out_handle, sender);
+        }
+    }
+    for (i = 0u; (ret == 0) && (i < txn.receiver_count); i++) {
+        ret = wt_ffa_mem_receiver(desc, len, &txn, i, &receiver, &perms);
+        named = (ret == 0) ? wt_ffa_mem_handle_borrower(&g_reg, *out_handle,
+                                                         receiver) : NULL;
+        if (named != NULL) {
+            ret = wt_ffa_mem_receiver_impdef(desc, len, &txn, i, named->impdef);
         }
     }
     if (ret == 0) {
@@ -420,6 +434,7 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
 {
     const wt_ffa_mem_handle_entry_t* e;
     wt_ffa_mem_borrower_t* borrower;
+    wt_ffa_mem_borrower_t* other;
     wt_spm_mem_binding_t* b;
     wt_ffa_mem_retrieve_req_t rq;
     wt_ffa_mem_constituent_t cons[WT_FFA_MEM_MAX_REGIONS];
@@ -463,12 +478,22 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     if ((borrower == NULL) || (b == NULL) || (borrower->retrieved != 0u)) {
         return WT_FFA_DENIED;
     }
+    /* FF-A 1.2: what the owner attached for a borrower is repeated by whoever
+     * names that borrower in a retrieve request. */
+    for (i = 0u; i < rq.receiver_count; i++) {
+        other = wt_ffa_mem_handle_borrower(&g_reg, rq.handle, rq.receivers[i]);
+        if ((other == NULL) ||
+            (memcmp(other->impdef, rq.impdef[i], sizeof(other->impdef)) != 0)) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+    }
     type = rq.flags & WT_FFA_MEM_FLAG_TYPE_MASK;
     if ((rq.tag != e->tag) ||
         ((rq.flags & ~(WT_FFA_MEM_FLAG_SEND_MASK | WT_FFA_MEM_FLAG_TYPE_MASK |
                        WT_FFA_MEM_FLAG_ZERO_AFTER)) != 0u) ||
         ((type != 0u) && (type != type_flag(e->state))) ||
-        ((rq.attributes & WT_FFA_MEM_ATTR_RSVD_MASK) != 0u)) {
+        ((rq.attributes & (WT_FFA_MEM_ATTR_RSVD_MASK | WT_FFA_MEM_ATTR_NS)) !=
+         0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     /* Well formed, but not what was sent: only Normal memory is ever lent. */
@@ -523,6 +548,7 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
                                ((e->regions[0].ns != 0u) ? WT_FFA_MEM_ATTR_NS : 0u));
     in.permissions = perms;
     in.access_desc_size = (uint8_t)rq.access_desc_size;
+    in.impdef = borrower->impdef;
     ret = wt_ffa_mem_txn_build(resp, resp_cap, &in, out_resp_len);
     if (ret != 0) {
         return ret;

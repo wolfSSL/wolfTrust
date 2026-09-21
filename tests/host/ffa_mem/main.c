@@ -77,7 +77,7 @@ static size_t make_txn(uint8_t* buf, size_t cap, wt_ffa_mem_op_t op,
     in.op = op;
     in.sender = 0u;
     in.receiver = 0x8002u;
-    in.attributes = 0x6Fu;
+    in.attributes = 0x2Fu;
     in.permissions = 0x06u;
     in.flags = flags;
     in.tag = 0x1122334455667788ull;
@@ -410,9 +410,14 @@ static void share_rows(void)
                                       WT_FFA_MEM_MAX_REGIONS, &n) == 0 &&
           n == 2u && regs[0].base == 0x40000000ull &&
           regs[0].page_count == 2u && regs[0].permissions == 0x06u &&
-          regs[0].ns == 1u && regs[1].base == 0x40002000ull &&
+          regs[0].ns == 0u && regs[1].base == 0x40002000ull &&
           regs[1].page_count == 3u,
-          "the mapping list carries each constituent with the borrower permissions and NS state");
+          "the mapping list carries each constituent with the borrower permissions; the relayer decides the security state");
+    buf[2] = (uint8_t)(buf[2] | 0x40u);
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a sender that sets the NS bit is INVALID_PARAMETERS");
+    buf[2] = (uint8_t)(buf[2] & ~0x40u);
     check(wt_ffa_mem_regions_from_txn(buf, len, &txn, 0u, regs, 1u, &n) ==
               WT_FFA_NO_MEMORY,
           "a mapping list smaller than the constituent count is NO_MEMORY");

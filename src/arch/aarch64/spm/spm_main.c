@@ -1008,7 +1008,8 @@ void wt_spm_idle(void)
     wt_platform_console_flush();
     ffa_call(&r, WT_FFA_MSG_WAIT, 0u);
     for (;;) {
-        if ((uint32_t)r.x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32) {
+        if (((uint32_t)r.x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32) ||
+            ((uint32_t)r.x[0] == WT_FFA_MSG_SEND_DIRECT_REQ64)) {
             direct_request(&r);
             continue;
         }

@@ -222,6 +222,11 @@ int main(void)
     size_t i;
     size_t j;
     int ok;
+    uint64_t x32[8] = { WT_FFA_MSG_SEND_DIRECT_REQ32, 0x1111111100008002ull, 0u,
+                        0x1125534411255344ull, 0xFFEEDDCC88776655ull, 0u, 0u,
+                        0xBBAA9988CCBBAA99ull };
+    uint64_t x64[8] = { WT_FFA_MSG_SEND_DIRECT_REQ64, 0x1111111100008002ull, 0u,
+                        0x1125534411255344ull, 0u, 0u, 0u, 0u };
 
     printf("WT-FFA-0001 / WT-FFA-0002 (function ids, status codes, version)\n");
 
@@ -270,8 +275,18 @@ int main(void)
               (int32_t)WT_FFA_VERSION_1_2,
           "a 1.0 caller is told the callee version 1.2");
     check(wt_ffa_version_reply(WT_FFA_VERSION_MAKE(2u, 0u), WT_FFA_VERSION_1_2) ==
-              (int32_t)WT_FFA_VERSION_1_2,
-          "an incompatible 2.0 caller is told 1.2 rather than refused");
+              WT_FFA_NOT_SUPPORTED &&
+          wt_ffa_version_reply(WT_FFA_VERSION_MAKE(1u, 4u), WT_FFA_VERSION_1_2) ==
+              WT_FFA_NOT_SUPPORTED &&
+          wt_ffa_version_reply(0u, WT_FFA_VERSION_1_2) == WT_FFA_NOT_SUPPORTED,
+          "an incompatible caller (other major, newer minor, version zero) is refused");
+    wt_ffa_regs_normalize(x32);
+    wt_ffa_regs_normalize(x64);
+    check(x32[1] == 0x00008002ull && x32[3] == 0x11255344ull &&
+          x32[4] == 0x88776655ull && x32[7] == 0xCCBBAA99ull,
+          "a 32-bit function id is relayed with w1-w7 only");
+    check(x64[1] == 0x1111111100008002ull && x64[3] == 0x1125534411255344ull,
+          "a 64-bit function id keeps its full registers");
     check(wt_ffa_version_reply(0x80010002u, WT_FFA_VERSION_1_2) ==
               WT_FFA_NOT_SUPPORTED,
           "bit 31 set in the input version is NOT_SUPPORTED");

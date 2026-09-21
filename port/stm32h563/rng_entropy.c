@@ -29,7 +29,7 @@
 #include <wolfHAL/rng/stm32h5_rng.h>
 #include <wolfHAL/timeout.h>
 
-#include "board.h"
+#include "wolfHAL_board.h"
 
 #include "wolftrust/spm_transport.h"
 #include "wolftrust/spm_gate.h"

@@ -126,6 +126,12 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
            in->receiver);
     buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_PERMS] = in->permissions;
     wr_u32(&buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_COMP_OFF], comp_off);
+    if ((in->impdef != NULL) && (acc_size == WT_FFA_MEM_ACCESS_SIZE_V12)) {
+        for (i = 0u; i < WT_FFA_MEM_IMPDEF_SIZE; i++) {
+            buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_IMPDEF + i] =
+                in->impdef[i];
+        }
+    }
 
     for (i = 0u; i < in->constituent_count; i++) {
         sum += in->constituents[i].page_count;
@@ -190,6 +196,11 @@ int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
         return WT_FFA_INVALID_PARAMETERS;
     }
     if ((txn.attributes & WT_FFA_MEM_ATTR_TYPE_MASK) == WT_FFA_MEM_ATTR_TYPE_MASK) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    /* The security state is the relayer's to report in a retrieve response; a
+     * sender leaves the NS bit clear (Table 5.18 usage). */
+    if ((txn.attributes & WT_FFA_MEM_ATTR_NS) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if ((txn.flags & ~WT_FFA_MEM_FLAG_SEND_MASK) != 0u) {
@@ -325,6 +336,27 @@ int wt_ffa_mem_receiver(const uint8_t* buf, size_t len,
     return 0;
 }
 
+int wt_ffa_mem_receiver_impdef(const uint8_t* buf, size_t len,
+                               const wt_ffa_mem_txn_t* txn, uint32_t index,
+                               uint8_t* out16)
+{
+    const uint8_t* acc;
+    uint32_t i;
+
+    if ((buf == NULL) || (txn == NULL) || (out16 == NULL) ||
+        (index >= txn->receiver_count) ||
+        (((uint64_t)txn->access_offset +
+          (uint64_t)(index + 1u) * txn->access_desc_size) > (uint64_t)len)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    acc = &buf[txn->access_offset + index * txn->access_desc_size];
+    for (i = 0u; i < WT_FFA_MEM_IMPDEF_SIZE; i++) {
+        out16[i] = (txn->access_desc_size == WT_FFA_MEM_ACCESS_SIZE_V12)
+                       ? acc[WT_FFA_MEM_ACC_OFF_IMPDEF + i] : 0u;
+    }
+    return 0;
+}
+
 int wt_ffa_mem_constituent(const uint8_t* buf, size_t len,
                            const wt_ffa_mem_txn_t* txn, uint32_t index,
                            wt_ffa_mem_constituent_t* out)
@@ -422,6 +454,7 @@ int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
     uint32_t count;
     uint32_t off;
     uint32_t i;
+    uint32_t j;
 
     if ((buf == NULL) || (out == NULL) || (len < WT_FFA_MEM_TXN_HDR_SIZE)) {
         return WT_FFA_INVALID_PARAMETERS;
@@ -456,6 +489,10 @@ int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
         }
         out->receivers[i] = (uint16_t)rd_u16(&acc[WT_FFA_MEM_ACC_OFF_RECEIVER]);
         out->permissions[i] = acc[WT_FFA_MEM_ACC_OFF_PERMS];
+        for (j = 0u; j < WT_FFA_MEM_IMPDEF_SIZE; j++) {
+            out->impdef[i][j] = (acc_size == WT_FFA_MEM_ACCESS_SIZE_V12)
+                                    ? acc[WT_FFA_MEM_ACC_OFF_IMPDEF + j] : 0u;
+        }
     }
     out->receiver_count = count;
     out->access_desc_size = acc_size;
@@ -724,6 +761,9 @@ int wt_ffa_mem_share_register(wt_ffa_mem_registry_t* reg, wt_ffa_mem_op_t op,
                 (n > 0u) ? regions[0].permissions : 0u;
             reg->entries[i].borrowers[0].retrieved = 0u;
             reg->entries[i].borrowers[0].mapping = 0u;
+            for (r = 0u; r < WT_FFA_MEM_IMPDEF_SIZE; r++) {
+                reg->entries[i].borrowers[0].impdef[r] = 0u;
+            }
             reg->entries[i].region_count = (uint8_t)n;
             for (r = 0u; r < n; r++) {
                 reg->entries[i].regions[r] = regions[r];
@@ -824,6 +864,7 @@ int wt_ffa_mem_handle_add_borrower(wt_ffa_mem_registry_t* reg, uint64_t handle,
                                    uint16_t borrower, uint8_t permissions)
 {
     wt_ffa_mem_handle_entry_t* e;
+    uint32_t i;
 
     if (reg == NULL) {
         return WT_FFA_INVALID_PARAMETERS;
@@ -840,6 +881,9 @@ int wt_ffa_mem_handle_add_borrower(wt_ffa_mem_registry_t* reg, uint64_t handle,
     e->borrowers[e->borrower_count].permissions = permissions;
     e->borrowers[e->borrower_count].retrieved = 0u;
     e->borrowers[e->borrower_count].mapping = 0u;
+    for (i = 0u; i < WT_FFA_MEM_IMPDEF_SIZE; i++) {
+        e->borrowers[e->borrower_count].impdef[i] = 0u;
+    }
     e->borrower_count++;
     return 0;
 }

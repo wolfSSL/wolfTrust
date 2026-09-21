@@ -38,6 +38,8 @@
 /* FF-A 1.2 grew it by 16 implementation-defined bytes ahead of the reserved
  * tail; a descriptor names its own size, so both layouts are accepted. */
 #define WT_FFA_MEM_ACCESS_SIZE_V12      32u
+#define WT_FFA_MEM_ACC_OFF_IMPDEF       8u   /* v1.2 only: 16 bytes */
+#define WT_FFA_MEM_IMPDEF_SIZE          16u
 #define WT_FFA_MEM_COMPOSITE_HDR_SIZE   16u  /* composite memory region header */
 #define WT_FFA_MEM_CONSTITUENT_SIZE     16u  /* constituent memory region descriptor */
 
@@ -180,6 +182,8 @@ typedef struct wt_ffa_mem_build {
     uint8_t  permissions;
     /* 0 selects WT_FFA_MEM_ACCESS_SIZE; appended so older initializers hold. */
     uint8_t  access_desc_size;
+    /* 16 implementation-defined bytes for a v1.2 descriptor, or NULL. */
+    const uint8_t* impdef;
 } wt_ffa_mem_build_t;
 
 /* Lay out a single-receiver memory transaction descriptor for op into buf
@@ -264,6 +268,7 @@ typedef struct wt_ffa_mem_retrieve_req {
     uint16_t attributes;
     uint16_t receivers[3];
     uint8_t  permissions[3];
+    uint8_t  impdef[3][16];
 } wt_ffa_mem_retrieve_req_t;
 
 int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
@@ -325,6 +330,9 @@ typedef struct wt_ffa_mem_borrower {
     uint8_t  permissions;  /* what the owner granted this borrower */
     uint8_t  retrieved;
     uint8_t  mapping;      /* relayer cookie: how the retrieve mapped it */
+    /* What the owner attached for this borrower (FF-A 1.2); its retrieve
+     * request must repeat it. Zero for a 16-byte access descriptor. */
+    uint8_t  impdef[16];
 } wt_ffa_mem_borrower_t;
 
 typedef struct wt_ffa_mem_handle_entry {
@@ -363,6 +371,12 @@ int wt_ffa_mem_share_register(wt_ffa_mem_registry_t* reg, wt_ffa_mem_op_t op,
                               uint16_t owner, uint16_t borrower,
                               const wt_ffa_mem_region_t* regions, uint32_t n,
                               uint64_t* out_handle);
+
+/* The implementation-defined bytes of receiver index (zeros for a 16-byte
+ * access descriptor). */
+int wt_ffa_mem_receiver_impdef(const uint8_t* buf, size_t len,
+                               const wt_ffa_mem_txn_t* txn, uint32_t index,
+                               uint8_t* out16);
 
 /* Record the tag the owner attached (a retrieve request must repeat it) and
  * the relayer's own cookie for the transaction. */

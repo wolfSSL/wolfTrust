@@ -278,7 +278,7 @@ static void ffa_rxtx_unmap(wt_trap_frame_t* frame, const struct wt_co* co)
         return;
     }
     if ((pair == NULL) || (pair->rx == 0u)) {
-        ffa_error(frame, WT_FFA_DENIED);
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }
     pair->rx = 0u;
@@ -398,19 +398,11 @@ static void ffa_mem_reclaim(wt_trap_frame_t* frame)
     ffa_success(frame, 0u, 0u);
 }
 
-/* FFA_VERSION (13.2): the Secure virtual instance speaks 1.2 to any caller
- * with a compatible major version; the result is returned in w0 alone. */
+/* FFA_VERSION (13.2): the result is returned in w0 alone. */
 static void ffa_version(wt_trap_frame_t* frame)
 {
-    uint32_t requested = (uint32_t)frame->x[1];
-
-    if (((requested & 0x80000000u) != 0u) ||
-        (WT_FFA_VERSION_MAJOR_OF(requested) != WT_FFA_VERSION_MAJOR_OF(WT_FFA_VERSION_1_2))) {
-        frame->x[0] = (uint64_t)(uint32_t)WT_FFA_NOT_SUPPORTED;
-    }
-    else {
-        frame->x[0] = WT_FFA_VERSION_1_2;
-    }
+    frame->x[0] = (uint64_t)(uint32_t)wt_ffa_version_reply(
+        (uint32_t)frame->x[1], WT_FFA_VERSION_1_2);
 }
 
 static int sp_implements(uint32_t fid)
@@ -419,6 +411,7 @@ static int sp_implements(uint32_t fid)
         case WT_FFA_ERROR:
         case WT_FFA_SUCCESS32:
         case WT_FFA_SUCCESS64:
+        case WT_FFA_INTERRUPT:
         case WT_FFA_VERSION:
         case WT_FFA_FEATURES:
         case WT_FFA_RX_RELEASE:

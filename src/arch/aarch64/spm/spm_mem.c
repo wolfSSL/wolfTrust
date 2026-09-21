@@ -41,6 +41,9 @@
 /* Owner cookie, above the send flags it keeps: a borrower asked for the memory
  * to be zeroed, which happens once no borrower maps it any more. */
 #define WT_SPM_MEM_COOKIE_ZERO_PENDING 0x80000000u
+/* Owner cookie: the owner itself only reads the memory, so nothing may wipe it
+ * and a lend gives it back read-only. */
+#define WT_SPM_MEM_COOKIE_OWNER_RO     0x40000000u
 
 static wt_ffa_mem_registry_t g_reg;
 static wt_spm_mem_binding_t g_bind[WT_SPM_MEM_MAX_BIND];
@@ -123,32 +126,37 @@ static int id_is_secure(uint16_t id)
 }
 
 /* Only memory the sender owns outright may be sent (10.10): Non-secure memory
- * inside the window the SPMC maps, or a partition's own writable data pages.
- * The SPMC's own sends are its boot self-test. */
+ * inside the window the SPMC maps, or pages a partition reaches at EL0. The
+ * result is the least access it has over the range (WT_DOMAIN_ACCESS_*). The
+ * SPMC's own sends are its boot self-test. */
 static int sender_owns(uint16_t sender, const wt_ffa_mem_region_t* r)
 {
     const wt_spm_mem_binding_t* b;
     uint64_t size = (uint64_t)r->page_count * WT_FFA_MEM_PAGE_SIZE;
     uint64_t at;
+    int access = WT_DOMAIN_ACCESS_RW;
+    int page;
 
     if (sender == WT_FFA_ID_SPMC) {
-        return 1;
+        return WT_DOMAIN_ACCESS_RW;
     }
     if (!id_is_secure(sender)) {
         return ((r->base >= g_ns_base) && (r->base < g_ns_limit) &&
-                (size <= (g_ns_limit - r->base))) ? 1 : 0;
+                (size <= (g_ns_limit - r->base))) ? WT_DOMAIN_ACCESS_RW
+                                                  : WT_DOMAIN_ACCESS_NONE;
     }
     b = bind_by_id(sender);
     if (b == NULL) {
-        return 0;
+        return WT_DOMAIN_ACCESS_NONE;
     }
     for (at = r->base; at < (r->base + size); at += WT_FFA_MEM_PAGE_SIZE) {
-        if (wt_domain_page_writable(b->dom->regions, b->dom->region_count,
-                                    (uintptr_t)at) == 0) {
-            return 0;
+        page = wt_domain_page_access(b->dom->regions, b->dom->region_count,
+                                     (uintptr_t)at);
+        if (page < access) {
+            access = page;
         }
     }
-    return 1;
+    return access;
 }
 
 /* A partition that is not bound may be named but can never retrieve. */
@@ -175,7 +183,10 @@ static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
             (void)wt_domain_grant(b->dom->regions, b->dom->region_count,
                                   (uintptr_t)e->regions[i].base,
                                   e->regions[i].page_count,
-                                  WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE,
+                                  ((e->owner_cookie &
+                                    WT_SPM_MEM_COOKIE_OWNER_RO) != 0u)
+                                      ? WT_MEM_ATTR_READ
+                                      : (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE),
                                   &was_mapped);
         }
         else {
@@ -215,6 +226,8 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     uint32_t i;
     uint16_t receiver = 0u;
     uint8_t perms = 0u;
+    int access = WT_DOMAIN_ACCESS_NONE;
+    int owner_ro = 0;
     int ret;
 
     if (out_handle == NULL) {
@@ -253,16 +266,36 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
                                           WT_FFA_MEM_MAX_REGIONS, &n);
     }
     for (i = 0u; (ret == 0) && (i < n); i++) {
+        access = sender_owns(sender, &regs[i]);
+        if (access == WT_DOMAIN_ACCESS_RO) {
+            owner_ro = 1;
+        }
         regs[i].ns = id_is_secure(sender) ? 0u : 1u;
         /* A donate makes the receiver the owner, with full data access. */
         if (op == WT_FFA_MEM_OP_DONATE) {
-            regs[i].permissions = (uint8_t)(WT_FFA_MEM_PERM_DATA_RW |
-                                            WT_FFA_MEM_PERM_INSTR_NX);
+            regs[i].permissions = (uint8_t)(
+                ((access == WT_DOMAIN_ACCESS_RO) ? WT_FFA_MEM_PERM_DATA_RO
+                                                 : WT_FFA_MEM_PERM_DATA_RW) |
+                WT_FFA_MEM_PERM_INSTR_NX);
         }
-        if ((sender_owns(sender, &regs[i]) == 0) ||
+        if ((access == WT_DOMAIN_ACCESS_NONE) ||
             (wt_ffa_mem_registry_overlaps(&g_reg, regs[i].base,
                                           regs[i].page_count) != 0)) {
             ret = WT_FFA_DENIED;
+        }
+    }
+    /* An owner that only reads the memory cannot have it wiped, nor hand out
+     * write access it does not hold (Table 5.20, 10.10.2). */
+    if ((ret == 0) && (owner_ro != 0)) {
+        if ((txn.flags & WT_FFA_MEM_FLAG_ZERO) != 0u) {
+            ret = WT_FFA_DENIED;
+        }
+        for (i = 0u; (ret == 0) && (i < txn.receiver_count); i++) {
+            ret = wt_ffa_mem_receiver(desc, len, &txn, i, &receiver, &perms);
+            if ((ret == 0) && ((perms & WT_FFA_MEM_PERM_DATA_MASK) ==
+                               WT_FFA_MEM_PERM_DATA_RW)) {
+                ret = WT_FFA_DENIED;
+            }
         }
     }
     if (ret == 0) {
@@ -285,7 +318,10 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     if (ret == 0) {
         /* The cookie keeps the owner's flags: it may ask for the memory to be
          * zeroed before a borrower sees it. */
-        wt_ffa_mem_handle_set_meta(&g_reg, *out_handle, txn.tag, txn.flags);
+        wt_ffa_mem_handle_set_meta(&g_reg, *out_handle, txn.tag,
+                                   txn.flags | ((owner_ro != 0)
+                                                    ? WT_SPM_MEM_COOKIE_OWNER_RO
+                                                    : 0u));
         if (wt_ffa_mem_handle_lookup(&g_reg, *out_handle, &e) == 0) {
             owner_access(e, 0);
         }
@@ -608,6 +644,10 @@ int wt_spm_mem_reclaim(uint64_t handle, uint16_t owner, uint32_t flags)
     ret = wt_ffa_mem_handle_lookup(&g_reg, handle, &e);
     if (ret != 0) {
         return ret;
+    }
+    if (((flags & WT_FFA_MEM_RELINQ_FLAG_ZERO) != 0u) &&
+        ((e->owner_cookie & WT_SPM_MEM_COOKIE_OWNER_RO) != 0u)) {
+        return (e->owner == owner) ? WT_FFA_DENIED : WT_FFA_INVALID_PARAMETERS;
     }
     snapshot = *e;
     ret = wt_ffa_mem_handle_reclaim(&g_reg, handle, owner);

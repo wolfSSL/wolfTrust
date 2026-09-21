@@ -55,3 +55,32 @@ wt_co_trampoline:
     blr     x19
     brk     #0x52
 1:  b       1b
+
+/* void wt_ffa_smc_ext(wt_ffa_regs_ext_t* r): one SMC with x0-x17 loaded from
+ * and captured back into r (FFA_MSG_SEND_DIRECT_REQ2/RESP2 use them all). */
+    .section .text.wt_ffa_smc_ext, "ax"
+    .globl wt_ffa_smc_ext
+wt_ffa_smc_ext:
+    stp     x19, x30, [sp, #-16]!
+    mov     x19, x0
+    ldp     x0, x1, [x19, #0]
+    ldp     x2, x3, [x19, #16]
+    ldp     x4, x5, [x19, #32]
+    ldp     x6, x7, [x19, #48]
+    ldp     x8, x9, [x19, #64]
+    ldp     x10, x11, [x19, #80]
+    ldp     x12, x13, [x19, #96]
+    ldp     x14, x15, [x19, #112]
+    ldp     x16, x17, [x19, #128]
+    smc     #0
+    stp     x0, x1, [x19, #0]
+    stp     x2, x3, [x19, #16]
+    stp     x4, x5, [x19, #32]
+    stp     x6, x7, [x19, #48]
+    stp     x8, x9, [x19, #64]
+    stp     x10, x11, [x19, #80]
+    stp     x12, x13, [x19, #96]
+    stp     x14, x15, [x19, #112]
+    stp     x16, x17, [x19, #128]
+    ldp     x19, x30, [sp], #16
+    ret

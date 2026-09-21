@@ -132,6 +132,24 @@ static void direct_message_rows(void)
     check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) ==
               WT_FFA_INVALID_PARAMETERS,
           "a response whose sender is not Secure is INVALID_PARAMETERS");
+
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ2, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_SP_FIRST, payload);
+    x[2] = 0x1122334455667788ull;
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0,
+          "FFA_MSG_SEND_DIRECT_REQ2 carries a UUID in x2, not a reserved word");
+    check(wt_ffa_msg_reg_count(x[0]) == WT_FFA_MSG_REGS_EXT &&
+              wt_ffa_msg_reg_count(WT_FFA_MSG_SEND_DIRECT_REQ64) ==
+                  WT_FFA_MSG_REGS,
+          "only REQ2 and RESP2 relay x8-x17");
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP2, WT_FFA_ID_SP_FIRST,
+                        WT_FFA_ID_NS_PRIMARY, payload);
+    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "FFA_MSG_SEND_DIRECT_RESP2 keeps x2 and x3 zero");
+    x[3] = 0u;
+    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0,
+          "a well-formed RESP2 returns to the Normal-world requester");
 }
 
 static uint32_t rd_u16(const uint8_t* p)

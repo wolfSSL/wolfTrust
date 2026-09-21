@@ -57,6 +57,13 @@ out="$(cd "$out" && pwd)"
 acs="$out/ff-a-acs"
 "$repo/tests/upstream/fetch_ffa_acs.sh" "$acs" >/dev/null
 
+# Platform exclusions, each a recorded patch: the suite stays pinned and any
+# test the platform cannot host skips by name instead of hanging the run.
+git -C "$acs" checkout -q -- test val
+for patch in "$here"/patches/*.patch; do
+  git -C "$acs" apply "$patch"
+done
+
 target="$acs/platform/pal_baremetal/tgt_wolftrust_qemu"
 rm -rf "$target"
 cp -R "$here/tgt_wolftrust_qemu" "$target"

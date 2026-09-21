@@ -50,7 +50,7 @@
 wt_trap_frame_t* volatile g_wt_spm_live_frame;
 struct wt_co* volatile g_wt_spm_handler_co;
 static uint64_t g_yield_token;
-uint64_t g_wt_ffa_direct_resp[8];
+uint64_t g_wt_ffa_direct_resp[18];
 volatile uint32_t g_wt_ffa_direct_resp_ready;
 
 uint64_t wt_spm_yield_token(void)
@@ -92,7 +92,13 @@ static void ffa_direct_resp(wt_trap_frame_t* frame, const struct wt_co* co)
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }
-    for (i = 0u; i < 8u; i++) {
+    /* 15.5: a REQ2 is answered with RESP2 and nothing else is. */
+    if ((wt_ffa_msg_reg_count(frame->x[0]) == WT_FFA_MSG_REGS_EXT) !=
+        (wt_spm_ffa_sp_req2(co) != 0)) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
         g_wt_ffa_direct_resp[i] = frame->x[i];
     }
     g_wt_ffa_direct_resp_ready = 1u;
@@ -550,6 +556,8 @@ static int sp_implements(uint32_t fid)
         case WT_FFA_MSG_SEND_DIRECT_REQ64:
         case WT_FFA_MSG_SEND_DIRECT_RESP32:
         case WT_FFA_MSG_SEND_DIRECT_RESP64:
+        case WT_FFA_MSG_SEND_DIRECT_REQ2:
+        case WT_FFA_MSG_SEND_DIRECT_RESP2:
         case WT_FFA_MEM_SHARE32:
         case WT_FFA_MEM_SHARE64:
         case WT_FFA_MEM_LEND32:
@@ -778,7 +786,8 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         }
     }
     else if ((fid == WT_FFA_MSG_SEND_DIRECT_REQ32) ||
-             (fid == WT_FFA_MSG_SEND_DIRECT_REQ64)) {
+             (fid == WT_FFA_MSG_SEND_DIRECT_REQ64) ||
+             (fid == WT_FFA_MSG_SEND_DIRECT_REQ2)) {
         ffa_direct_req(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_RUN) {
@@ -788,7 +797,8 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         ffa_yield(frame);
     }
     else if ((fid == WT_FFA_MSG_SEND_DIRECT_RESP32) ||
-             (fid == WT_FFA_MSG_SEND_DIRECT_RESP64)) {
+             (fid == WT_FFA_MSG_SEND_DIRECT_RESP64) ||
+             (fid == WT_FFA_MSG_SEND_DIRECT_RESP2)) {
         ffa_direct_resp(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_VERSION) {

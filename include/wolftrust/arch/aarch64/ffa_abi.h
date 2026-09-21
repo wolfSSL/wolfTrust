@@ -147,6 +147,19 @@ static inline int32_t wt_ffa_version_reply(uint32_t input, uint32_t ours)
     return (int32_t)ours;
 }
 
+/* Registers a relayed message occupies: x0-x7, or x0-x17 for REQ2/RESP2. */
+#define WT_FFA_MSG_REGS     8u
+#define WT_FFA_MSG_REGS_EXT 18u
+
+static inline unsigned int wt_ffa_msg_reg_count(uint64_t x0)
+{
+    uint32_t fid = (uint32_t)x0;
+
+    return ((fid == WT_FFA_MSG_SEND_DIRECT_REQ2) ||
+            (fid == WT_FFA_MSG_SEND_DIRECT_RESP2)) ? WT_FFA_MSG_REGS_EXT
+                                                   : WT_FFA_MSG_REGS;
+}
+
 /* A 32-bit function id carries w1-w7 only (SMCCC): a relayer hands the
  * receiver the low halves and never leaks the sender's upper register bits. */
 static inline void wt_ffa_regs_normalize(uint64_t* x)

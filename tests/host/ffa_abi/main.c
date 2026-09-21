@@ -182,6 +182,7 @@ static void partition_info_rows(void)
     };
     static const uint8_t nil[16] = { 0 };
     uint8_t rx[128];
+    uint64_t regs[18];
     uint32_t count;
     uint32_t size;
     int ret;
@@ -236,6 +237,58 @@ static void partition_info_rows(void)
                                 &size);
     check(ret == WT_FFA_NO_MEMORY,
           "an RX buffer too small for the matches is NO_MEMORY");
+
+    ret = wt_ffa_partinfo_regs(parts, 3u, nil, 0u, 0u, regs);
+    check(ret == 0 && (uint32_t)regs[0] == WT_FFA_SUCCESS64 &&
+              (regs[2] & 0xFFFFu) == 2u && ((regs[2] >> 16) & 0xFFFFu) == 2u &&
+              (regs[2] >> 48) == WT_FFA_PARTINFO_DESC_V11 &&
+              (regs[3] & 0xFFFFu) == parts[0].id &&
+              (regs[9] & 0xFFFFu) == parts[2].id && regs[12] == 0u,
+          "FFA_PARTITION_INFO_GET_REGS packs every match from index 0");
+    ret = wt_ffa_partinfo_regs(parts, 3u, nil, 2u, 0u, regs);
+    check(ret == 0 && (regs[3] & 0xFFFFu) == parts[2].id &&
+              ((regs[2] >> 16) & 0xFFFFu) == 2u && regs[6] == 0u,
+          "a start index resumes the listing there");
+    ret = wt_ffa_partinfo_regs(parts, 3u, parts[1].uuid, 0u, 0u, regs);
+    check(ret == 0 && (regs[2] & 0xFFFFu) == 0u &&
+              (regs[3] & 0xFFFFu) == parts[1].id &&
+              (uint8_t)regs[4] == parts[1].uuid[0] &&
+              (uint8_t)(regs[5] >> 56) == parts[1].uuid[15],
+          "a UUID selects its partition and is returned in two registers");
+    check(wt_ffa_partinfo_regs(parts, 3u, nil, 3u, 0u, regs) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_ffa_partinfo_regs(parts, 3u, nil, 0u, 1u, regs) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_ffa_partinfo_regs(parts, 3u, rx, 0u, 0u, regs) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a start past the end, a foreign tag, or an unknown UUID is refused");
+}
+
+/* WT-FFA-0002 (version renegotiation, 13.2). */
+static void version_state_rows(void)
+{
+    wt_ffa_version_state_t st = { 0u, 0u };
+
+    check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 1u),
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_1_2 &&
+          wt_ffa_version_negotiate(&st, WT_FFA_VERSION_1_2,
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_1_2,
+          "a caller may renegotiate before its first other call");
+    wt_ffa_version_lock(&st, WT_FFA_VERSION_1_2);
+    check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 1u),
+                                   WT_FFA_VERSION_1_2) == WT_FFA_NOT_SUPPORTED &&
+          wt_ffa_version_negotiate(&st, WT_FFA_VERSION_1_2,
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_1_2,
+          "after it, only the settled version is accepted");
+    st.version = 0u;
+    st.locked = 0u;
+    wt_ffa_version_lock(&st, WT_FFA_VERSION_1_2);
+    check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 1u),
+                                   WT_FFA_VERSION_1_2) == WT_FFA_NOT_SUPPORTED,
+          "a caller that never negotiated is held to the callee version");
 }
 
 int main(void)
@@ -328,6 +381,7 @@ int main(void)
 
     direct_message_rows();
     partition_info_rows();
+    version_state_rows();
 
     printf("ffa_abi: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

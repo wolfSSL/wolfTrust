@@ -44,6 +44,7 @@
 static wt_el3_world_t g_world[2];
 static unsigned int g_world_cur = WT_WORLD_SECURE;
 static unsigned int g_ns_pending = WT_NS_PENDING_NONE;
+static uint32_t g_ns_forwarded_fid;
 
 static void world_save(wt_el3_world_t* w, const wt_el3_frame_t* frame)
 {
@@ -164,6 +165,7 @@ void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
     for (i = 0u; i < count; i++) {
         g_world[WT_WORLD_SECURE].frame.x[i] = frame->x[i];
     }
+    g_ns_forwarded_fid = (uint32_t)frame->x[0];
     g_ns_pending = WT_NS_PENDING_REPLY;
     world_switch(frame, WT_WORLD_SECURE);
 }
@@ -185,7 +187,9 @@ void wt_el3_world_preempt_to_secure(wt_el3_frame_t* frame, uint32_t intid)
 
 void wt_el3_world_return_to_ns(wt_el3_frame_t* frame)
 {
-    unsigned int count = wt_ffa_msg_reg_count(frame->x[0]);
+    unsigned int count = wt_ffa_reply_is_ext(g_ns_forwarded_fid,
+                                             (uint32_t)frame->x[0])
+                             ? WT_FFA_MSG_REGS_EXT : WT_FFA_MSG_REGS;
     unsigned int i;
 
     for (i = 0u; i < count; i++) {

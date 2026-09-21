@@ -28,6 +28,7 @@
 #include "wolftrust/arch/aarch64/ffa_msg.h"
 
 static unsigned int g_spmc_ready;
+static wt_ffa_version_state_t g_ns_version;
 
 static void reply_error(wt_ffa_regs_t* r, int32_t code)
 {
@@ -162,6 +163,7 @@ static int ns_implements(uint32_t fid)
         case WT_FFA_ID_GET:
         case WT_FFA_SPM_ID_GET:
         case WT_FFA_PARTITION_INFO_GET:
+        case WT_FFA_PARTITION_INFO_GET_REGS:
         case WT_FFA_RXTX_MAP32:
         case WT_FFA_RXTX_MAP64:
         case WT_FFA_RXTX_UNMAP:
@@ -183,6 +185,14 @@ static int ns_implements(uint32_t fid)
     }
 }
 
+/* Any NS call but FFA_VERSION settles the version the guest negotiated. */
+void wt_ffa_spmd_ns_note(uint32_t fid)
+{
+    if (wt_ffa_fid_in_range(fid) && (fid != WT_FFA_VERSION)) {
+        wt_ffa_version_lock(&g_ns_version, WT_FFA_VERSION_1_2);
+    }
+}
+
 /* NS-instance FIDs the SPMD cannot answer alone (it has no manifest and owns
  * no mailbox): they are forwarded to the SPMC. */
 int wt_ffa_spmd_ns_forwards(uint32_t fid)
@@ -194,6 +204,7 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid)
         case WT_FFA_RX_RELEASE:
         case WT_FFA_RUN:
         case WT_FFA_PARTITION_INFO_GET:
+        case WT_FFA_PARTITION_INFO_GET_REGS:
         case WT_FFA_MSG_SEND_DIRECT_REQ32:
         case WT_FFA_MSG_SEND_DIRECT_REQ64:
         case WT_FFA_MSG_SEND_DIRECT_REQ2:
@@ -252,11 +263,18 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
             for (i = 1u; i < 8u; i++) {
                 r->x[i] = 0u;
             }
-            r->x[0] = (uint64_t)(uint32_t)wt_ffa_version_reply(w1,
-                                                               WT_FFA_VERSION_1_2);
+            r->x[0] = (uint64_t)(uint32_t)wt_ffa_version_negotiate(
+                &g_ns_version, w1, WT_FFA_VERSION_1_2);
             break;
         case WT_FFA_FEATURES:
-            if (WT_FFA_FEATURES_IS_FID(w1) && ns_implements(w1)) {
+            if (w1 == WT_FFA_FEATURE_SRI) {
+                reply_success(r, WT_FFA_SRI_INTID, 0u);
+            }
+            else if ((w1 == WT_FFA_MEM_RETRIEVE_REQ32) ||
+                     (w1 == WT_FFA_MEM_RETRIEVE_REQ64)) {
+                reply_success(r, WT_FFA_FEATURES_RETRIEVE_NS_BIT, 0u);
+            }
+            else if (WT_FFA_FEATURES_IS_FID(w1) && ns_implements(w1)) {
                 reply_success(r, 0u, 0u);
             }
             else {

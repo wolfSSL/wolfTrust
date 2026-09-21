@@ -68,4 +68,15 @@ int wt_ffa_partinfo_write(uint8_t* rx, size_t rx_size, uint32_t caller_version,
                           const uint8_t* uuid16, uint32_t flags,
                           uint32_t* out_count, uint32_t* out_desc_size);
 
+/* FFA_PARTITION_INFO_GET_REGS (13.9): up to five matching descriptors per
+ * call in out[3..17], three registers each (id, contexts and properties; then
+ * the UUID), from the start index on. out[2] packs the last index, the index of
+ * the last descriptor returned, the tag and the descriptor size. The list never
+ * changes, so the tag is zero. INVALID_PARAMETERS for a UUID nothing matches,
+ * a start index past the end, or a tag that is not the one handed out. */
+#define WT_FFA_PARTINFO_REGS_PER_CALL 5u
+int wt_ffa_partinfo_regs(const wt_ffa_partinfo_entry_t* parts, size_t n,
+                         const uint8_t* uuid16, uint16_t start, uint16_t tag,
+                         uint64_t* out18);
+
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_PARTINFO_H */

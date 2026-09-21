@@ -141,31 +141,35 @@ static size_t partinfo_collect(void)
     const wt_ffa_partition_manifest_t* parts;
     const wt_ffa_native_sp_t* natives;
     size_t native_count = 0u;
+    size_t part_count = 0u;
+    size_t cap = sizeof(g_partinfo) / sizeof(g_partinfo[0]);
     size_t n = 0u;
     size_t i;
     unsigned int j;
 
-    parts = wt_generated_ffa_partitions_get(&n);
-    if ((parts == NULL) || (n > (sizeof(g_partinfo) / sizeof(g_partinfo[0])))) {
-        return 0u;
-    }
-    for (i = 0u; i < n; i++) {
-        g_partinfo[i].id = (uint16_t)(WT_FFA_ID_SP_FIRST + i);
-        g_partinfo[i].exec_contexts = (uint16_t)parts[i].execution_contexts;
-        g_partinfo[i].properties = wt_ffa_partinfo_props(parts[i].messaging);
-        for (j = 0u; j < 16u; j++) {
-            g_partinfo[i].uuid[j] = (parts[i].uuid_count > 0u) ?
-                                    parts[i].uuids[0].bytes[j] : 0u;
-        }
-    }
+    /* FF-A native endpoints lead the listing: a register-based caller sees
+     * five descriptors per call and looks for message receivers first. */
     natives = wt_spm_ffa_native_list(&native_count);
-    for (i = 0u; (i < native_count) &&
-                 (n < (sizeof(g_partinfo) / sizeof(g_partinfo[0]))); i++) {
+    for (i = 0u; (i < native_count) && (n < cap); i++) {
         g_partinfo[n].id = wt_spm_ffa_native_id(i);
         g_partinfo[n].exec_contexts = 1u;
         g_partinfo[n].properties = natives[i].properties;
         for (j = 0u; j < 16u; j++) {
             g_partinfo[n].uuid[j] = natives[i].uuid[j];
+        }
+        n++;
+    }
+    parts = wt_generated_ffa_partitions_get(&part_count);
+    if (parts == NULL) {
+        return 0u;
+    }
+    for (i = 0u; (i < part_count) && (n < cap); i++) {
+        g_partinfo[n].id = (uint16_t)(WT_FFA_ID_SP_FIRST + i);
+        g_partinfo[n].exec_contexts = (uint16_t)parts[i].execution_contexts;
+        g_partinfo[n].properties = wt_ffa_partinfo_props(parts[i].messaging);
+        for (j = 0u; j < 16u; j++) {
+            g_partinfo[n].uuid[j] = (parts[i].uuid_count > 0u) ?
+                                    parts[i].uuids[0].bytes[j] : 0u;
         }
         n++;
     }
@@ -222,8 +226,41 @@ int wt_spm_partition_info(const uint64_t* x, wt_ffa_mailbox_t* mb, uint8_t* rx,
     return ret;
 }
 
+/* FFA_PARTITION_INFO_GET_REGS for either instance: UUID in x1/x2, start index
+ * and tag in x3 (bits 63:32 SBZ); the reply fills out18. */
+int wt_spm_partition_info_regs(const uint64_t* x, uint64_t* out18)
+{
+    size_t n = partinfo_collect();
+    uint8_t uuid[16];
+    unsigned int i;
+
+    if ((n == 0u) || ((x[3] >> 32) != 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    for (i = 0u; i < 16u; i++) {
+        uuid[i] = (uint8_t)(x[1u + (i / 8u)] >> (8u * (i % 8u)));
+    }
+    return wt_ffa_partinfo_regs(g_partinfo, n, uuid, (uint16_t)(x[3] & 0xFFFFu),
+                                (uint16_t)((x[3] >> 16) & 0xFFFFu), out18);
+}
+
 static wt_ffa_mailbox_t* sp_mailbox(void);
 static uint8_t* sp_rx(void);
+
+static void ffa_partition_info_get_regs(wt_trap_frame_t* frame)
+{
+    uint64_t out[WT_FFA_MSG_REGS_EXT];
+    unsigned int i;
+    int ret = wt_spm_partition_info_regs(frame->x, out);
+
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
+        frame->x[i] = out[i];
+    }
+}
 
 static void ffa_partition_info_get(wt_trap_frame_t* frame)
 {
@@ -521,7 +558,9 @@ static void ffa_mem_reclaim(wt_trap_frame_t* frame)
 }
 
 /* FFA_VERSION (13.2): the result is returned in w0 alone. */
-static void ffa_version(wt_trap_frame_t* frame)
+static wt_ffa_version_state_t g_sp_version[WT_CO_MAX];
+
+static void ffa_version(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     uint32_t requested = (uint32_t)frame->x[1];
     unsigned int i;
@@ -529,8 +568,8 @@ static void ffa_version(wt_trap_frame_t* frame)
     for (i = 1u; i < 8u; i++) {
         frame->x[i] = 0u;
     }
-    frame->x[0] = (uint64_t)(uint32_t)wt_ffa_version_reply(requested,
-                                                           WT_FFA_VERSION_1_2);
+    frame->x[0] = (uint64_t)(uint32_t)wt_ffa_version_negotiate(
+        &g_sp_version[co->id - 1u], requested, WT_FFA_VERSION_1_2);
 }
 
 static int sp_implements(uint32_t fid)
@@ -547,6 +586,7 @@ static int sp_implements(uint32_t fid)
         case WT_FFA_RXTX_MAP64:
         case WT_FFA_RXTX_UNMAP:
         case WT_FFA_PARTITION_INFO_GET:
+        case WT_FFA_PARTITION_INFO_GET_REGS:
         case WT_FFA_ID_GET:
         case WT_FFA_SPM_ID_GET:
         case WT_FFA_MSG_WAIT:
@@ -583,8 +623,19 @@ static int sp_implements(uint32_t fid)
 static void ffa_features(wt_trap_frame_t* frame)
 {
     uint32_t query = (uint32_t)frame->x[1];
+    uint32_t props = (uint32_t)frame->x[2];
 
-    if (WT_FFA_FEATURES_IS_FID(query) && (sp_implements(query) != 0)) {
+    if ((query == WT_FFA_MEM_RETRIEVE_REQ32) ||
+        (query == WT_FFA_MEM_RETRIEVE_REQ64)) {
+        /* 13.3: a v1.1+ partition must say it handles the NS bit. */
+        if ((props & WT_FFA_FEATURES_RETRIEVE_NS_BIT) == 0u) {
+            ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        }
+        else {
+            ffa_success(frame, WT_FFA_FEATURES_RETRIEVE_NS_BIT, 0u);
+        }
+    }
+    else if (WT_FFA_FEATURES_IS_FID(query) && (sp_implements(query) != 0)) {
         ffa_success(frame, 0u, 0u);
     }
     else {
@@ -744,6 +795,11 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         wt_sp_el0_leave();
     }
 
+    if (wt_ffa_fid_in_range(fid) && (fid != WT_FFA_VERSION) && (co != NULL) &&
+        (co->id != 0u) && (co->id <= WT_CO_MAX)) {
+        wt_ffa_version_lock(&g_sp_version[co->id - 1u], WT_FFA_VERSION_1_2);
+    }
+
     if (fid == WT_SPM_SVC_FID_CALL) {
         wt_spm_call_t* call = (wt_spm_call_t*)(uintptr_t)frame->x[1];
 
@@ -802,7 +858,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         ffa_direct_resp(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_VERSION) {
-        ffa_version(frame);
+        ffa_version(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_FEATURES) {
         ffa_features(frame);
@@ -830,6 +886,9 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if (fid == WT_FFA_PARTITION_INFO_GET) {
         ffa_partition_info_get(frame);
+    }
+    else if (fid == WT_FFA_PARTITION_INFO_GET_REGS) {
+        ffa_partition_info_get_regs(frame);
     }
     else if (fid == WT_FFA_RX_RELEASE) {
         ffa_rx_release(frame);

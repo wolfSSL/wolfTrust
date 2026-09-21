@@ -106,6 +106,7 @@ static void ns_smc(wt_el3_frame_t* frame)
     uint32_t fid = (uint32_t)frame->x[0];
     unsigned int i;
 
+    wt_ffa_spmd_ns_note(fid);
     /* Discovery and guest-to-SP messaging need the SPMC (the SPMD has no
      * manifest): forward the call and run the Secure world. */
     if (wt_ffa_spmd_ns_forwards(fid)) {

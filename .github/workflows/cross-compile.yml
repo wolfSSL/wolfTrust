@@ -33,3 +33,7 @@ jobs:
         run: make -C tests/firmware/stm32h563 all TOOLPREFIX=arm-none-eabi-
       - name: Compile-check the no-attestation secure image (WT_ATTEST_COSE=0)
         run: make TARGET=stm32h563 WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
+      - name: Build the hsm-engine secure image (WT_ENGINE=hsm)
+        run: make TARGET=stm32h563 WT_ENGINE=hsm secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_hsm
+      - name: Build the native-engine secure image (WT_ENGINE=native)
+        run: make TARGET=stm32h563 WT_ENGINE=native secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_native

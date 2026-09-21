@@ -16,6 +16,7 @@ repo="$(cd "$(dirname "$0")/../.." && pwd)"
 runner="$repo/tests/target/run_h5_hardware.sh"
 img="${WT_H5_DOCKER_IMAGE:-}"
 scenarios="${WT_H5_SCENARIOS:-positive restart crossdomain confboot}"
+. "$repo/tests/target/lib/engine.sh"
 
 if ! "$repo/tests/target/detect_h5.sh" >/dev/null 2>&1; then
   echo "SKIP: H5 hardware suite ($("$repo/tests/target/detect_h5.sh" 2>&1))"
@@ -24,7 +25,8 @@ fi
 
 build_one() {
   if [ -n "$img" ]; then
-    docker run --rm -v "$repo":/workspace -w /workspace "$img" \
+    docker run --rm -e WT_ENGINE="$WT_ENGINE" \
+      -v "$repo":/work -w /work "$img" \
       bash tests/target/run_h5_hardware.sh build "$1"
   else
     "$runner" build "$1"

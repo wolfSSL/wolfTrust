@@ -80,12 +80,13 @@ jobs:
           ./test-app/emu-test-apps/test.sh
 
   wolfboot-wolftrust-m33mu:
-    name: wolfTrust ${{ matrix.guest }} lifecycle
+    name: wolfTrust ${{ matrix.guest }} lifecycle (${{ matrix.engine }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
         guest: [zephyr, freertos]
+        engine: [native, hsm]
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
@@ -93,6 +94,7 @@ jobs:
       # Keep the validated H5 secure-app handoff until that configuration is
       # upstreamed; upstream master does not yet ship this wolfTrust config.
       WOLFBOOT_REF: d85fa9dbdf6c36f47b7e96eba5c9df750ad3c963
+      WT_ENGINE: ${{ matrix.engine }}
       CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
       ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
       # The wolfBoot configuration reserves the wolfTrust partition at the
@@ -273,11 +275,12 @@ jobs:
           fi
 
   wolfboot-wolftrust-m33mu-scenarios:
-    name: ${{ matrix.scenario.name }}
+    name: ${{ matrix.scenario.name }} (${{ matrix.engine }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
+        engine: [native, hsm]
         scenario:
           - { key: positive,        name: "Positive lifecycle" }
           - { key: bothpsa,         name: "Both-OS PSA parity (Zephyr + FreeRTOS)" }
@@ -305,9 +308,17 @@ jobs:
           - { key: vnetneg,         name: "Confined VNET isolation negatives" }
           - { key: manifestneg,     name: "Corrupted-manifest activation refused" }
           - { key: gtzcneg,         name: "NS MPU bypass cannot reach peer guest RAM" }
+          - { key: spbudgetneg,     name: "SP restart-budget exhaustion escalates" }
+        exclude:
+          # hsmattackneg drives the raw wolfHSM client wire from the guest;
+          # the native engine does not link that wire, so the attack surface
+          # under test does not exist there.
+          - { engine: native, scenario: { key: hsmattackneg, name: "wolfHSM cross-namespace + NVM relay negatives" } }
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
     steps:
       - uses: actions/checkout@v4
 

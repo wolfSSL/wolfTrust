@@ -37,10 +37,20 @@ case "$revision" in
         ;;
 esac
 
-if [ ! -d "$destination/.git" ]; then
-    git clone --no-checkout "$repository" "$destination"
+# WT_FFA_ACS_CACHE names a local mirror that already holds the pinned revision;
+# cloning from it keeps a rebuild off the network. The pin is still verified.
+cache=${WT_FFA_ACS_CACHE:-}
+if [ -n "$cache" ] && [ -d "$cache/.git" ] &&
+   git -C "$cache" cat-file -e "$revision^{commit}" 2>/dev/null; then
+    if [ ! -d "$destination/.git" ]; then
+        git clone --no-checkout "$cache" "$destination"
+    fi
+else
+    if [ ! -d "$destination/.git" ]; then
+        git clone --no-checkout "$repository" "$destination"
+    fi
+    git -C "$destination" fetch --depth 1 origin "$revision"
 fi
-git -C "$destination" fetch --depth 1 origin "$revision"
 git -C "$destination" checkout --detach "$revision"
 actual=$(git -C "$destination" rev-parse HEAD)
 if [ "$actual" != "$revision" ]; then

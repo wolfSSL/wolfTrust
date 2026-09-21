@@ -186,32 +186,23 @@ static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
     }
 }
 
-/* The access permissions a sender may state (Table 11.15/11.16): a share or
- * lend names the data access it grants and leaves instruction access to the
- * relayer (lend may pre-set not-executable); a donate hands the receiver full
- * ownership, so the sender specifies neither. Execution is never granted. */
+/* The access permissions a sender may state (Table 5.14 usage): instruction
+ * access is always the relayer's to fill in (it only ever answers
+ * not-executable); a share or lend names the data access it grants, a donate
+ * hands over full ownership and names none. */
 static int send_permissions_ok(wt_ffa_mem_op_t op, uint8_t perms)
 {
     uint8_t data = perms & WT_FFA_MEM_PERM_DATA_MASK;
-    uint8_t instr = perms & WT_FFA_MEM_PERM_INSTR_MASK;
 
-    if ((instr == WT_FFA_MEM_PERM_INSTR_X) ||
-        (instr == WT_FFA_MEM_PERM_INSTR_MASK)) {
+    if ((perms & WT_FFA_MEM_PERM_INSTR_MASK) != WT_FFA_MEM_PERM_INSTR_NOT_SPEC) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if (op == WT_FFA_MEM_OP_DONATE) {
-        return ((data == WT_FFA_MEM_PERM_DATA_NOT_SPEC) &&
-                (instr == WT_FFA_MEM_PERM_INSTR_NOT_SPEC)) ? 0
-                                                           : WT_FFA_INVALID_PARAMETERS;
+        return (data == WT_FFA_MEM_PERM_DATA_NOT_SPEC) ? 0
+                                                       : WT_FFA_INVALID_PARAMETERS;
     }
-    if ((data == WT_FFA_MEM_PERM_DATA_NOT_SPEC) ||
-        (data == WT_FFA_MEM_PERM_DATA_RSVD)) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
-    if ((op == WT_FFA_MEM_OP_SHARE) && (instr != WT_FFA_MEM_PERM_INSTR_NOT_SPEC)) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
-    return 0;
+    return ((data == WT_FFA_MEM_PERM_DATA_RO) ||
+            (data == WT_FFA_MEM_PERM_DATA_RW)) ? 0 : WT_FFA_INVALID_PARAMETERS;
 }
 
 int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,

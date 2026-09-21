@@ -38,7 +38,7 @@ jobs:
       - name: Initialize wolfTrust dependencies
         run: |
           git config --global url."https://github.com/".insteadOf "git@github.com:"
-          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE
+          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE lib/wolfPSA
 
       - name: Toolchain and emulator versions
         run: |

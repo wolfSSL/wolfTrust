@@ -239,6 +239,11 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
             ret = send_permissions_ok(op, perms);
         }
     }
+    /* A donate leaves the memory type to the receiver (Table 5.18 usage). */
+    if ((ret == 0) && (op == WT_FFA_MEM_OP_DONATE) &&
+        ((txn.attributes & WT_FFA_MEM_ATTR_TYPE_MASK) != 0u)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
     if (ret == 0) {
         ret = wt_ffa_mem_regions_from_txn(desc, len, &txn, 0u, regs,
                                           WT_FFA_MEM_MAX_REGIONS, &n);
@@ -304,13 +309,21 @@ static uint32_t type_flag(uint8_t state)
 
 /* What the borrower asked for against what the owner granted it (11.4.2):
  * it may ask for less, never for more, and never for execution. */
-static int effective_permissions(uint8_t granted, uint8_t asked, uint8_t* out)
+static int effective_permissions(int exclusive, uint8_t granted, uint8_t asked,
+                                 uint8_t* out)
 {
     uint8_t data = asked & WT_FFA_MEM_PERM_DATA_MASK;
+    uint8_t instr = asked & WT_FFA_MEM_PERM_INSTR_MASK;
     uint8_t granted_data = granted & WT_FFA_MEM_PERM_DATA_MASK;
 
     if ((data == WT_FFA_MEM_PERM_DATA_RSVD) ||
-        ((asked & WT_FFA_MEM_PERM_INSTR_MASK) == WT_FFA_MEM_PERM_INSTR_MASK)) {
+        (instr == WT_FFA_MEM_PERM_INSTR_MASK)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    /* A receiver states instruction access only when the memory becomes its
+     * alone (a donate, or a lend to one borrower); for a share or a lend to
+     * several it is the relayer's (Table 5.14 usage). */
+    if ((exclusive == 0) && (instr != WT_FFA_MEM_PERM_INSTR_NOT_SPEC)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if ((asked & WT_FFA_MEM_PERM_INSTR_MASK) == WT_FFA_MEM_PERM_INSTR_X) {
@@ -415,12 +428,19 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
         ((rq.flags & ~(WT_FFA_MEM_FLAG_SEND_MASK | WT_FFA_MEM_FLAG_TYPE_MASK |
                        WT_FFA_MEM_FLAG_ZERO_AFTER)) != 0u) ||
         ((type != 0u) && (type != type_flag(e->state))) ||
-        ((rq.attributes & WT_FFA_MEM_ATTR_RSVD_MASK) != 0u) ||
-        ((rq.attributes & WT_FFA_MEM_ATTR_TYPE_MASK) ==
-         WT_FFA_MEM_ATTR_TYPE_DEVICE)) {
+        ((rq.attributes & WT_FFA_MEM_ATTR_RSVD_MASK) != 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    ret = effective_permissions(borrower->permissions, asked, &perms);
+    /* Well formed, but not what was sent: only Normal memory is ever lent. */
+    if ((rq.attributes & WT_FFA_MEM_ATTR_TYPE_MASK) ==
+        WT_FFA_MEM_ATTR_TYPE_DEVICE) {
+        return WT_FFA_DENIED;
+    }
+    ret = effective_permissions(
+        ((e->state == (uint8_t)WT_FFA_MEM_STATE_DONATED) ||
+         ((e->state == (uint8_t)WT_FFA_MEM_STATE_LENT) &&
+          (e->borrower_count == 1u))) ? 1 : 0,
+        borrower->permissions, asked, &perms);
     if (ret != 0) {
         return ret;
     }

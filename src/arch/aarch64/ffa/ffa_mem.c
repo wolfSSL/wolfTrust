@@ -254,7 +254,8 @@ int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
     cons_base = (uint64_t)comp_off + WT_FFA_MEM_COMPOSITE_HDR_SIZE;
     cons_end = cons_base +
                (uint64_t)txn.constituent_count * WT_FFA_MEM_CONSTITUENT_SIZE;
-    if (cons_end > (uint64_t)len) {
+    /* The length a sender states is the descriptor's, to the byte. */
+    if (cons_end != (uint64_t)len) {
         return WT_FFA_INVALID_PARAMETERS;
     }
 
@@ -443,7 +444,7 @@ int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
         return WT_FFA_NOT_SUPPORTED;
     }
     if ((off < WT_FFA_MEM_TXN_HDR_SIZE) ||
-        (((uint64_t)off + ((uint64_t)count * acc_size)) > (uint64_t)len)) {
+        (((uint64_t)off + ((uint64_t)count * acc_size)) != (uint64_t)len)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     for (i = 0u; i < count; i++) {

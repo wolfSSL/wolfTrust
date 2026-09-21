@@ -1028,7 +1028,9 @@ static void ns_mem_send(wt_ffa_regs_t* r, wt_ffa_mem_op_t op)
         (total <= (g_ns_mailbox.pages * WT_FFA_MEM_PAGE_SIZE))) {
         addr = g_ns_mailbox.tx;
     }
-    if (ns_range_ok(addr, (uint64_t)total) == 0) {
+    /* No fragmentation: the one fragment is the whole descriptor. */
+    if ((ns_range_ok(addr, (uint64_t)total) == 0) ||
+        ((uint32_t)r->x[2] != total)) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     else {

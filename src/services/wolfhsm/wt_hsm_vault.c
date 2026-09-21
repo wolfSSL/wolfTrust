@@ -164,6 +164,17 @@ static psa_status_t wt_hsm_vault_reserve(uint32_t need_size,
     return PSA_SUCCESS;
 }
 
+/* Object-add reservation for the native key backend: reserve the object's
+ * bytes plus the counter-table headroom, and two directory entries (the add
+ * plus one kept free) so a later sealed write's counter-table create always
+ * has a slot (WT-FFM-0048). Exported for keyvault.c. */
+psa_status_t wt_hsm_vault_reserve_object(whNvmSize len)
+{
+    return wt_hsm_vault_reserve(
+        wt_hsm_vault_storage_size(len) +
+            wt_hsm_vault_storage_size(sizeof(wt_hsm_vault_table_t)), 2U);
+}
+
 static psa_status_t wt_hsm_vault_table_store(const wt_hsm_vault_table_t* table)
 {
     whNvmMetadata meta;
@@ -717,8 +728,13 @@ static psa_status_t wt_hsm_vault_remove(int32_t owner, int32_t sub,
     if (status != PSA_SUCCESS) {
         return status;
     }
-    if ((wt_hsm_vault_flags_of(meta.label) &
-            WT_VAULT_FLAG_WRITE_ONCE) != 0U) {
+    /* Key objects hold WT_VAULT_KEY_USAGE_* bits in the low label bits that
+     * alias WT_VAULT_FLAG_WRITE_ONCE (USAGE_SIGN == WRITE_ONCE == 0x1); they
+     * are never write-once stores, so apply the storage gate to non-key
+     * objects only and let REMOVE destroy a key as psa_destroy_key promises. */
+    if ((wt_hsm_vault_flags_of(meta.label) & WT_VAULT_FLAG_KEY) == 0U &&
+            (wt_hsm_vault_flags_of(meta.label) &
+             WT_VAULT_FLAG_WRITE_ONCE) != 0U) {
         return PSA_ERROR_NOT_PERMITTED;
     }
     if ((wt_hsm_vault_flags_of(meta.label) & WT_VAULT_FLAG_SEALED) != 0U) {

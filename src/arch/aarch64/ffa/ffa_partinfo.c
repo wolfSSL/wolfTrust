@@ -134,3 +134,58 @@ int wt_ffa_partinfo_write(uint8_t* rx, size_t rx_size, uint32_t caller_version,
     *out_desc_size = (count_only != 0) ? 0u : desc_size;
     return 0;
 }
+
+static uint64_t uuid_half(const uint8_t* u)
+{
+    uint64_t v = 0u;
+    unsigned int i;
+
+    for (i = 0u; i < 8u; i++) {
+        v |= (uint64_t)u[i] << (8u * i);
+    }
+    return v;
+}
+
+int wt_ffa_partinfo_regs(const wt_ffa_partinfo_entry_t* parts, size_t n,
+                         const uint8_t* uuid16, uint16_t start, uint16_t tag,
+                         uint64_t* out18)
+{
+    uint32_t matches = 0u;
+    uint32_t written = 0u;
+    uint32_t last;
+    uint32_t reg;
+    size_t i;
+    int nil;
+
+    if ((parts == NULL) || (uuid16 == NULL) || (out18 == NULL) || (tag != 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    for (i = 0u; i < 18u; i++) {
+        out18[i] = 0u;
+    }
+    nil = uuid_is_nil(uuid16);
+    for (i = 0u; i < n; i++) {
+        if ((nil == 0) && (uuid_equal(uuid16, parts[i].uuid) == 0)) {
+            continue;
+        }
+        if ((matches >= start) && (written < WT_FFA_PARTINFO_REGS_PER_CALL)) {
+            reg = 3u + (3u * written);
+            out18[reg] = (uint64_t)parts[i].id |
+                         ((uint64_t)parts[i].exec_contexts << 16) |
+                         ((uint64_t)parts[i].properties << 32);
+            out18[reg + 1u] = uuid_half(&parts[i].uuid[0]);
+            out18[reg + 2u] = uuid_half(&parts[i].uuid[8]);
+            written++;
+        }
+        matches++;
+    }
+    if ((matches == 0u) || (written == 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    last = matches - 1u;
+    out18[0] = WT_FFA_SUCCESS64;
+    out18[2] = (uint64_t)last |
+               ((uint64_t)((uint32_t)start + written - 1u) << 16) |
+               ((uint64_t)WT_FFA_PARTINFO_DESC_V11 << 48);
+    return 0;
+}

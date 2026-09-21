@@ -159,6 +159,7 @@ void wt_spm_prove_sint_route(struct wt_co* co);
 struct wt_ffa_mailbox;
 int wt_spm_partition_info(const uint64_t* x, struct wt_ffa_mailbox* mb,
                           uint8_t* rx, uint32_t* count, uint32_t* size);
+int wt_spm_partition_info_regs(const uint64_t* x, uint64_t* out18);
 
 /* FF-A native partitions: separately built S-EL0 images that speak FF-A
  * directly rather than hosting an FF-M service (the FF-A ACS endpoints). The

@@ -1074,6 +1074,25 @@ static void ns_mem_reclaim(wt_ffa_regs_t* r)
     }
 }
 
+/* FFA_PARTITION_INFO_GET_REGS forwarded from the Normal world. */
+static void ns_partition_info_get_regs(wt_ffa_regs_ext_t* e)
+{
+    uint64_t out[WT_FFA_MSG_REGS_EXT];
+    int ret = wt_spm_partition_info_regs(e->base.x, out);
+    unsigned int i;
+
+    if (ret != 0) {
+        ns_reply(&e->base, ret, 0u, 0u);
+        return;
+    }
+    for (i = 0u; i < WT_FFA_MSG_REGS; i++) {
+        e->base.x[i] = out[i];
+    }
+    for (i = WT_FFA_MSG_REGS; i < WT_FFA_MSG_REGS_EXT; i++) {
+        e->ext[i - WT_FFA_MSG_REGS] = out[i];
+    }
+}
+
 /* One forwarded event; the reply is left in e for the loop's SMC. */
 static void idle_dispatch(wt_ffa_regs_ext_t* e)
 {
@@ -1090,6 +1109,9 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
             break;
         case WT_FFA_PARTITION_INFO_GET:
             ns_partition_info_get(r);
+            break;
+        case WT_FFA_PARTITION_INFO_GET_REGS:
+            ns_partition_info_get_regs(e);
             break;
         case WT_FFA_RXTX_MAP32:
         case WT_FFA_RXTX_MAP64:
@@ -1123,7 +1145,7 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
 void wt_spm_idle(void)
 {
     wt_ffa_regs_ext_t e;
-    unsigned int count;
+    uint32_t event = 0u;
     unsigned int i;
 
 #if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
@@ -1134,13 +1156,15 @@ void wt_spm_idle(void)
     (void)memset(&e, 0, sizeof(e));
     e.base.x[0] = WT_FFA_MSG_WAIT;
     for (;;) {
-        /* Only RESP2 carries x8-x17 out; nothing else of the SPMC's leaves. */
-        count = wt_ffa_msg_reg_count(e.base.x[0]);
-        for (i = count; i < WT_FFA_MSG_REGS_EXT; i++) {
-            e.ext[i - WT_FFA_MSG_REGS] = 0u;
+        /* Only an extended reply carries x8-x17 out of the SPMC. */
+        if (wt_ffa_reply_is_ext(event, (uint32_t)e.base.x[0]) == 0) {
+            for (i = 0u; i < (WT_FFA_MSG_REGS_EXT - WT_FFA_MSG_REGS); i++) {
+                e.ext[i] = 0u;
+            }
         }
         wt_platform_console_flush();
         wt_ffa_smc_ext(&e);
+        event = (uint32_t)e.base.x[0];
         idle_dispatch(&e);
     }
 }

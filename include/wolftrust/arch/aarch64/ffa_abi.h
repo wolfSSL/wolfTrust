@@ -147,6 +147,58 @@ static inline int32_t wt_ffa_version_reply(uint32_t input, uint32_t ours)
     return (int32_t)ours;
 }
 
+/* One caller's negotiated version (13.2): it may renegotiate until it makes
+ * any other FF-A call, after which only the version it settled on is accepted.
+ * A caller that never negotiated is held to ours. */
+typedef struct wt_ffa_version_state {
+    uint32_t version;
+    uint8_t locked;
+} wt_ffa_version_state_t;
+
+static inline void wt_ffa_version_lock(wt_ffa_version_state_t* st, uint32_t ours)
+{
+    if (st->locked == 0u) {
+        if (st->version == 0u) {
+            st->version = ours;
+        }
+        st->locked = 1u;
+    }
+}
+
+static inline int32_t wt_ffa_version_negotiate(wt_ffa_version_state_t* st,
+                                               uint32_t input, uint32_t ours)
+{
+    int32_t reply = wt_ffa_version_reply(input, ours);
+
+    if (reply == (int32_t)WT_FFA_NOT_SUPPORTED) {
+        return reply;
+    }
+    if (st->locked != 0u) {
+        return (input == st->version) ? reply : (int32_t)WT_FFA_NOT_SUPPORTED;
+    }
+    st->version = input;
+    return reply;
+}
+
+/* FFA_FEATURES feature ids (13.3, Table 13.14) and the properties this
+ * implementation reports. No notifications exist, so the schedule receiver
+ * interrupt is reserved and never raised. */
+#define WT_FFA_FEATURE_NPI            0x1u
+#define WT_FFA_FEATURE_SRI            0x2u
+#define WT_FFA_FEATURE_MEI            0x3u
+#define WT_FFA_SRI_INTID              8u
+/* FFA_MEM_RETRIEVE_REQ: bit 1 in (caller) and out (SPMC) = NS bit is used. */
+#define WT_FFA_FEATURES_RETRIEVE_NS_BIT 0x2u
+
+/* FFA_PARTITION_INFO_GET_REGS answers in x0-x17 although it is asked in
+ * x0-x3, so a relayer decides a reply's width from what it forwarded too. */
+static inline int wt_ffa_reply_is_ext(uint32_t forwarded, uint32_t reply)
+{
+    return (reply == WT_FFA_MSG_SEND_DIRECT_RESP2) ||
+           ((forwarded == WT_FFA_PARTITION_INFO_GET_REGS) &&
+            (reply == WT_FFA_SUCCESS64));
+}
+
 /* Registers a relayed message occupies: x0-x7, or x0-x17 for REQ2/RESP2. */
 #define WT_FFA_MSG_REGS     8u
 #define WT_FFA_MSG_REGS_EXT 18u

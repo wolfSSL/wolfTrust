@@ -293,6 +293,42 @@ static void rxtx_rows(void)
           "more than the maximum page count is INVALID_PARAMETERS");
 }
 
+/* WT-FFA-0009 (RX/TX registration and RX buffer ownership, 7.2.2). */
+static void mailbox_rows(void)
+{
+    wt_ffa_mailbox_t mb;
+
+    memset(&mb, 0, sizeof(mb));
+    check(wt_ffa_mailbox_unmap(&mb) == WT_FFA_INVALID_PARAMETERS,
+          "FFA_RXTX_UNMAP with nothing mapped is INVALID_PARAMETERS");
+    check(wt_ffa_mailbox_rx_release(&mb) == WT_FFA_DENIED,
+          "FFA_RX_RELEASE with nothing mapped is DENIED");
+    check(wt_ffa_mailbox_rx_acquire(&mb) == WT_FFA_DENIED,
+          "an unmapped RX buffer cannot be acquired");
+    check(wt_ffa_mailbox_map(&mb, 0x1000ull, 0x3000ull, 0x40u | 1u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "reserved bits above the page count are SBZ");
+    check(wt_ffa_mailbox_map(&mb, 0x1001ull, 0x3000ull, 1u) ==
+              WT_FFA_INVALID_PARAMETERS && mb.mapped == 0u,
+          "bad geometry maps nothing");
+    check(wt_ffa_mailbox_map(&mb, 0x1000ull, 0x3000ull, 1u) == 0 &&
+              mb.mapped == 1u && mb.tx == 0x1000ull && mb.rx == 0x3000ull,
+          "a valid pair is recorded");
+    check(wt_ffa_mailbox_map(&mb, 0x5000ull, 0x7000ull, 1u) == WT_FFA_DENIED,
+          "a second FFA_RXTX_MAP before an unmap is DENIED");
+    check(wt_ffa_mailbox_rx_release(&mb) == WT_FFA_DENIED,
+          "releasing an RX buffer the endpoint does not own is DENIED");
+    check(wt_ffa_mailbox_rx_acquire(&mb) == 0 &&
+              wt_ffa_mailbox_rx_acquire(&mb) == WT_FFA_BUSY,
+          "a full RX buffer is BUSY until released");
+    check(wt_ffa_mailbox_rx_release(&mb) == 0 &&
+              wt_ffa_mailbox_rx_acquire(&mb) == 0,
+          "FFA_RX_RELEASE hands the buffer back to the producer");
+    check(wt_ffa_mailbox_unmap(&mb) == 0 && mb.mapped == 0u &&
+              mb.rx_full == 0u,
+          "FFA_RXTX_UNMAP forgets the pair and its ownership");
+}
+
 /* WT-FFA-0009 (handle lifetime state). */
 static void registry_rows(void)
 {
@@ -483,6 +519,7 @@ int main(void)
     txn_rows();
     reject_rows();
     rxtx_rows();
+    mailbox_rows();
     registry_rows();
     share_rows();
     retrieve_rows();

@@ -29,15 +29,6 @@
 
 static unsigned int g_spmc_ready;
 
-/* The Normal-world endpoint's RX/TX buffer pair (7.2.1); the SPMD records it at
- * the NS physical instance where it plays the id-allocation role. */
-static struct {
-    uint64_t tx;
-    uint64_t rx;
-    uint32_t pages;
-    unsigned int mapped;
-} g_ns_rxtx;
-
 static void reply_error(wt_ffa_regs_t* r, int32_t code)
 {
     unsigned int i;
@@ -174,6 +165,9 @@ static int ns_implements(uint32_t fid)
         case WT_FFA_RXTX_MAP32:
         case WT_FFA_RXTX_MAP64:
         case WT_FFA_RXTX_UNMAP:
+        case WT_FFA_RX_RELEASE:
+        case WT_FFA_MSG_WAIT:
+        case WT_FFA_RUN:
         case WT_FFA_MSG_SEND_DIRECT_REQ32:
         case WT_FFA_MSG_SEND_DIRECT_REQ64:
         case WT_FFA_MSG_SEND_DIRECT_RESP32:
@@ -187,53 +181,16 @@ static int ns_implements(uint32_t fid)
     }
 }
 
-/* 7.2.1: w1 = TX base, w2 = RX base, w3 bits[5:0] = page count of each buffer,
- * the rest SBZ. The geometry is validated before the pair is recorded. */
-static void ns_rxtx_map(wt_ffa_regs_t* r)
-{
-    uint64_t tx = r->x[1];
-    uint64_t rx = r->x[2];
-    uint32_t w3 = (uint32_t)r->x[3];
-    uint32_t pages = w3 & 0x3Fu;
-
-    if ((w3 & 0xFFFFFFC0u) != 0u) {
-        reply_error(r, WT_FFA_INVALID_PARAMETERS);
-    }
-    else if (g_ns_rxtx.mapped != 0u) {
-        reply_error(r, WT_FFA_DENIED);
-    }
-    else if (wt_ffa_rxtx_validate(tx, rx, pages) != 0) {
-        reply_error(r, WT_FFA_INVALID_PARAMETERS);
-    }
-    else {
-        g_ns_rxtx.tx = tx;
-        g_ns_rxtx.rx = rx;
-        g_ns_rxtx.pages = pages;
-        g_ns_rxtx.mapped = 1u;
-        reply_success(r, 0u, 0u);
-    }
-}
-
-static void ns_rxtx_unmap(wt_ffa_regs_t* r)
-{
-    if (g_ns_rxtx.mapped == 0u) {
-        reply_error(r, WT_FFA_INVALID_PARAMETERS);
-    }
-    else {
-        g_ns_rxtx.tx = 0u;
-        g_ns_rxtx.rx = 0u;
-        g_ns_rxtx.pages = 0u;
-        g_ns_rxtx.mapped = 0u;
-        reply_success(r, 0u, 0u);
-    }
-}
-
-/* NS-instance FIDs the SPMD cannot answer alone (it has no manifest): they are
- * forwarded to the SPMC. Partition discovery today; guest-to-SP direct
- * messaging joins it next. */
+/* NS-instance FIDs the SPMD cannot answer alone (it has no manifest and owns
+ * no mailbox): they are forwarded to the SPMC. */
 int wt_ffa_spmd_ns_forwards(uint32_t fid)
 {
     switch (fid) {
+        case WT_FFA_RXTX_MAP32:
+        case WT_FFA_RXTX_MAP64:
+        case WT_FFA_RXTX_UNMAP:
+        case WT_FFA_RX_RELEASE:
+        case WT_FFA_RUN:
         case WT_FFA_PARTITION_INFO_GET:
         case WT_FFA_MSG_SEND_DIRECT_REQ32:
         case WT_FFA_MSG_SEND_DIRECT_REQ64:
@@ -256,6 +213,8 @@ int wt_ffa_spmd_is_ns_reply(uint32_t fid)
         case WT_FFA_ERROR:
         case WT_FFA_MSG_SEND_DIRECT_RESP32:
         case WT_FFA_MSG_SEND_DIRECT_RESP64:
+        case WT_FFA_YIELD:
+        case WT_FFA_MSG_WAIT:
             return 1;
         default:
             return 0;
@@ -309,12 +268,11 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
             /* The SPM the Normal world talks to is the SPMC. */
             reply_success(r, WT_FFA_ID_SPMC, 0u);
             break;
-        case WT_FFA_RXTX_MAP32:
-        case WT_FFA_RXTX_MAP64:
-            ns_rxtx_map(r);
-            break;
-        case WT_FFA_RXTX_UNMAP:
-            ns_rxtx_unmap(r);
+        case WT_FFA_MSG_WAIT:
+        case WT_FFA_MSG_SEND_DIRECT_RESP32:
+        case WT_FFA_MSG_SEND_DIRECT_RESP64:
+            /* The primary Normal-world endpoint is never a message receiver. */
+            reply_error(r, WT_FFA_DENIED);
             break;
         default:
             reply_error(r, WT_FFA_NOT_SUPPORTED);

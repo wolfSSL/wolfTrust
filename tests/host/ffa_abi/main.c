@@ -87,7 +87,8 @@ static void direct_message_rows(void)
 
     check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0,
           "the SPMD relays a Normal-world request to a Secure partition");
-    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) == WT_FFA_DENIED,
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) ==
+              WT_FFA_INVALID_PARAMETERS,
           "the SPMC does not relay a Normal-world sender between partitions");
 
     x[2] = WT_FFA_DIRECT_FRAMEWORK_BIT;
@@ -104,15 +105,17 @@ static void direct_message_rows(void)
 
     wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
                         0x0001u, payload);
-    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == WT_FFA_DENIED,
-          "a Normal-world request to a Normal-world receiver is DENIED");
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a Normal-world request to a Normal-world receiver is INVALID_PARAMETERS");
 
     wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ32,
                         (uint16_t)(WT_FFA_ID_SP_FIRST + 1u), WT_FFA_ID_SP_FIRST,
                         payload);
     check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) == 0,
           "the SPMC relays a request between two Secure partitions");
-    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == WT_FFA_DENIED,
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) ==
+              WT_FFA_INVALID_PARAMETERS,
           "the SPMD does not relay a Secure sender as a Normal-world request");
 
     wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP32, WT_FFA_ID_SP_FIRST,
@@ -126,8 +129,9 @@ static void direct_message_rows(void)
 
     wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP32, WT_FFA_ID_NS_PRIMARY,
                         WT_FFA_ID_SP_FIRST, payload);
-    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) == WT_FFA_DENIED,
-          "a response whose sender is not Secure is DENIED");
+    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a response whose sender is not Secure is INVALID_PARAMETERS");
 }
 
 static uint32_t rd_u16(const uint8_t* p)

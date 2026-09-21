@@ -524,6 +524,62 @@ int wt_ffa_rxtx_validate(uint64_t tx, uint64_t rx, uint32_t pages)
     return 0;
 }
 
+int wt_ffa_mailbox_map(wt_ffa_mailbox_t* mb, uint64_t tx, uint64_t rx,
+                       uint32_t w3)
+{
+    uint32_t pages = w3 & 0x3Fu;
+
+    if ((mb == NULL) || ((w3 & 0xFFFFFFC0u) != 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (mb->mapped != 0u) {
+        return WT_FFA_DENIED;
+    }
+    if (wt_ffa_rxtx_validate(tx, rx, pages) != 0) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    mb->tx = tx;
+    mb->rx = rx;
+    mb->pages = pages;
+    mb->mapped = 1u;
+    mb->rx_full = 0u;
+    return 0;
+}
+
+int wt_ffa_mailbox_unmap(wt_ffa_mailbox_t* mb)
+{
+    if ((mb == NULL) || (mb->mapped == 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    mb->tx = 0u;
+    mb->rx = 0u;
+    mb->pages = 0u;
+    mb->mapped = 0u;
+    mb->rx_full = 0u;
+    return 0;
+}
+
+int wt_ffa_mailbox_rx_acquire(wt_ffa_mailbox_t* mb)
+{
+    if ((mb == NULL) || (mb->mapped == 0u)) {
+        return WT_FFA_DENIED;
+    }
+    if (mb->rx_full != 0u) {
+        return WT_FFA_BUSY;
+    }
+    mb->rx_full = 1u;
+    return 0;
+}
+
+int wt_ffa_mailbox_rx_release(wt_ffa_mailbox_t* mb)
+{
+    if ((mb == NULL) || (mb->mapped == 0u) || (mb->rx_full == 0u)) {
+        return WT_FFA_DENIED;
+    }
+    mb->rx_full = 0u;
+    return 0;
+}
+
 static uint8_t op_state(wt_ffa_mem_op_t op)
 {
     uint8_t state;

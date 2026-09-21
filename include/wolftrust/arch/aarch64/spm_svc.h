@@ -116,12 +116,33 @@ void wt_spm_preempt_timer_stop(void);
 void wt_sp_spin(void);
 
 /* Deliver req (x0..x7 as at FFA_MSG_WAIT's return) to a waiting partition,
- * run it until it responds, and copy the response into resp. 0 on success;
- * BUSY if it is not waiting, ABORTED if it faulted, DENIED if it blocked
- * without responding. */
+ * run it until it responds or yields, and copy the response (or FFA_YIELD)
+ * into resp. 0 on success; BUSY if it is not waiting, ABORTED if it faulted,
+ * DENIED if it blocked without responding. */
 struct wt_co;
 int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
                               uint64_t* resp);
+
+/* How a running endpoint handed the CPU back; the gate sets it before it
+ * blocks the partition, the invoker consumes it. */
+#define WT_FFA_SP_EXIT_NONE  0u
+#define WT_FFA_SP_EXIT_RESP  1u
+#define WT_FFA_SP_EXIT_WAIT  2u
+#define WT_FFA_SP_EXIT_YIELD 3u
+#define WT_FFA_SP_EXIT_CALL  4u
+extern volatile uint32_t g_wt_ffa_sp_exit;
+
+/* FFA_RUN on behalf of caller; out is what the caller's FFA_RUN returns. */
+int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out);
+/* Arm target for caller's direct request (req) or FFA_RUN (req == NULL); on 0
+ * the gate blocks the caller with WT_FFA_SP_EXIT_CALL. */
+int wt_spm_ffa_sp_call(const struct wt_co* caller, struct wt_co* target,
+                       const uint64_t* req);
+/* Non-zero while co processes a direct request, with the request's ids. */
+int wt_spm_ffa_sp_requester(const struct wt_co* co, uint16_t* requester,
+                            uint16_t* self);
+/* Non-zero if co yielded inside a direct request caller sent it. */
+int wt_spm_ffa_sp_yielded_to(const struct wt_co* co, uint16_t caller);
 
 /* Secure interrupt routing to a partition (Ch.9, Table 9.1): a declared Secure
  * interrupt is signalled to its owner with FFA_INTERRUPT while the owner waits,
@@ -131,6 +152,11 @@ void wt_spm_sint_queue(uint32_t intid);
 uint32_t wt_spm_sint_take_pending(const struct wt_co* co);
 extern volatile uint32_t g_wt_spm_sint_queued;
 void wt_spm_prove_sint_route(struct wt_co* co);
+
+/* FFA_PARTITION_INFO_GET for either instance; see spm_svc_glue.c. */
+struct wt_ffa_mailbox;
+int wt_spm_partition_info(const uint64_t* x, struct wt_ffa_mailbox* mb,
+                          uint8_t* rx, uint32_t* count, uint32_t* size);
 
 /* FF-A native partitions: separately built S-EL0 images that speak FF-A
  * directly rather than hosting an FF-M service (the FF-A ACS endpoints). The

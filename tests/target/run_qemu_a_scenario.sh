@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -54,6 +54,7 @@ case "$scenario" in
   devattest|attestneg) QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVATTEST:-600}" ;;
   devcrypto)  QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVCRYPTO:-3600}" ;;
   vaultrecover) QEMU_TIMEOUT="${QEMU_TIMEOUT_VAULTRECOVER:-3600}" ;;
+  ffaacs) QEMU_TIMEOUT="${QEMU_TIMEOUT_FFAACS:-1800}" ;;
 esac
 TOOLPREFIX="${TOOLPREFIX:-aarch64-none-elf-}"
 
@@ -94,6 +95,11 @@ if [ "$scenario" = smoke ]; then
 else
   build="$repo/build-aarch64-$tag-$scenario"
   probe=()
+  # Secure RAM behind the SPMC's own bands holds the FF-A ACS images, the
+  # suite's test NVM, and the enlarged table pool.
+  acs_secure_base=0x0E000000
+  [ "$target" = versal ] && acs_secure_base=0x7F000000
+  acs_pool_pa=$(printf '0x%X' $((acs_secure_base + 0x900000)))
   case "$scenario" in
     crossdomain) probe=(WT_FFM_NEGATIVE_PROBE=1) ;;
     spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
@@ -108,6 +114,10 @@ else
     # Same crypto image, but the foreign-pool probe forces the boot-time vault
     # recovery; the test handoff's unlocked lifecycle lets it self-heal.
     vaultrecover) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EL3_TEST_HANDOFF=1 WT_VAULT_FOREIGN_PROBE=1) ;;
+    # The Arm FF-A ACS: SP1..SP4 are separately built S-EL0 images the SPMC
+    # hosts as FF-A native partitions, VM1 is the Normal-world dispatcher at
+    # EL2; the larger table pool covers the four 1 MB image bands.
+    ffaacs) probe=(WT_EL3_NS_SMOKE=1 WT_FFA_ACS=1 WT_EL3_NS_EL2=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 "WT_SPM_TABLE_POOL_PA=$acs_pool_pa" WT_SPM_TABLE_POOL_PAGES=512) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
     vaultrecoversec) probe=(WT_EL3_NS_SMOKE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1) ;;
@@ -194,12 +204,36 @@ else
       WT_NS_MANIFEST_INC="$build/manifest"
     ns_bin="$nsfw/build/$tag-$scenario/ns.bin"
   fi
+  if [ "$scenario" = ffaacs ]; then
+    acs_out="$build/acs"
+    SUITE="${WT_ACS_SUITE:-all}" TOOLPREFIX="$TOOLPREFIX" \
+      WT_ACS_SP_ID_BASE="${WT_ACS_SP_ID_BASE:-0x8009}" \
+      "$repo/tests/conformance/ffa-acs/build_acs.sh" "$MACHINE" "$acs_out" >/dev/null
+    ns_bin="$acs_out/vm1.bin"
+    # The suite requires its NVM to read 0xFF at power-on.
+    head -c 65536 /dev/zero | tr '\000' '\377' > "$acs_out/nvm.bin"
+    # One blob mirroring the Secure RAM layout: four 1 MB bands with each image
+    # 0x4000 in, then the NVM.
+    acs_blob="$acs_out/acs-secure.bin"
+    : > "$acs_blob"
+    for acs_n in 1 2 3 4; do
+      truncate -s $(( (acs_n - 1) * 0x100000 + 0x4000 )) "$acs_blob"
+      cat "$acs_out/sp$acs_n.bin" >> "$acs_blob"
+    done
+    truncate -s $((0x400000)) "$acs_blob"
+    cat "$acs_out/nvm.bin" >> "$acs_blob"
+  fi
   # virt boots one pflash image: the monitor at 0, the SPMC image behind it
   # at WT_SPM_FLASH_OFFSET (mk/target-qemuvirt.mk), copied to RAM by EL3.
   image_bin="$build/pflash.bin"
   cp "$build/wolftrust_el3.bin" "$image_bin"
   truncate -s $((0x100000)) "$image_bin"
   cat "$build/wolftrust.bin" >> "$image_bin"
+  if [ "$scenario" = ffaacs ]; then
+    # Behind the SPMC image at WT_FFA_ACS_FLASH_OFFSET (mk/target-qemuvirt.mk).
+    truncate -s $((0x200000)) "$image_bin"
+    cat "$acs_blob" >> "$image_bin"
+  fi
 fi
 
 log="$repo/ci-qemu-a-$scenario-$tag.log"
@@ -212,7 +246,9 @@ qemu_out="$repo/ci-qemu-a-$scenario-$tag-qemu.log"
 # the image boots from flash0 at 0. versal-virt: the loader places the ELF in
 # OCM and points core 0 at it; UART0 is the NS console, UART1 the secure one.
 if [ "$MACHINE" = virt ]; then
-  args=(-M "virt,secure=on,gic-version=$GIC" -cpu "$CPU" -smp "$SMP" -m 1G
+  virt_opts="virt,secure=on,gic-version=$GIC"
+  [ "$scenario" = ffaacs ] && virt_opts="$virt_opts,virtualization=on"
+  args=(-M "$virt_opts" -cpu "$CPU" -smp "$SMP" -m 1G
         -bios "$image_bin"
         -serial "file:$ns_log" -serial "file:$sec_log")
 else
@@ -235,6 +271,14 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devcrypto ]; then
   args+=(-device "loader,file=$ns_bin,addr=$ns_base")
+fi
+if [ "$scenario" = ffaacs ]; then
+  args+=(-device "loader,file=$ns_bin,addr=$ns_base")
+  # virt reaches Secure RAM only through the monitor's copy out of pflash;
+  # versal-virt's loader places the same blob directly.
+  if [ "$MACHINE" != virt ]; then
+    args+=(-device "loader,file=$acs_blob,addr=$(printf '0x%X' $((acs_secure_base + 0x400000)))")
+  fi
 fi
 args+=(-nographic -monitor none -no-reboot
        -semihosting-config "enable=on,target=native")
@@ -578,6 +622,25 @@ case "$scenario" in
     fi
     expect "val returned to the payload" "[NS] conformance val_entry returned"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  ffaacs)
+    # The Arm FF-A ACS regression report, printed by the Normal-world
+    # dispatcher once every scheduled test has run.
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no SPMC panic" '\[SPM\] panic'
+    expect "every ACS partition initialized" "EL0 entry.. id"
+    expect "the dispatcher printed the regression report" "REGRESSION REPORT"
+    flat="$(tr -d '\r\n' < "$log")"
+    passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"
+    if [ "$failed" = "0" ] && [ "$passed" -ge 1 ]; then
+      check_pass "FF-A ACS: ${passed} passed, ${skipped} skipped, 0 failed"
+    else
+      check_fail "FF-A ACS regression" "passed=$passed skipped=$skipped failed=$failed (want failed=0)"
+    fi
+    expect "the dispatcher ended the run" "END OF ACS"
     ;;
   attestneg)
     # NS-side negative probe over the routed FF-A path (the attestation service

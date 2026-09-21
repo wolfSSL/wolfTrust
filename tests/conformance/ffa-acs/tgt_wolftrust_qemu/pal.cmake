@@ -27,12 +27,12 @@ set(PAL_SRC
     ${ROOT_DIR}/platform/common/src/pal_sp_helpers.c
     ${ROOT_DIR}/platform/common/src/pal_spm_helpers.c
     ${ROOT_DIR}/platform/common/src/pal_asm_smc.S
+    ${ROOT_DIR}/platform/pal_baremetal/${TARGET}/src/pal_console.c
     ${ROOT_DIR}/platform/pal_baremetal/${TARGET}/src/pal_driver.c
     ${ROOT_DIR}/platform/pal_baremetal/${TARGET}/src/pal_misc.c
     ${ROOT_DIR}/platform/pal_baremetal/${TARGET}/src/pal_vcpu_setup.c
     ${ROOT_DIR}/platform/pal_baremetal/tgt_tfa_fvp/src/pal_mmio.c
     ${ROOT_DIR}/platform/pal_baremetal/tgt_tfa_fvp/src/pal_irq.c
-    ${ROOT_DIR}/platform/driver/src/pal_pl011_uart.c
     ${ROOT_DIR}/platform/driver/src/pal_log.c
     ${ROOT_DIR}/platform/driver/src/pal_nvm.c
     ${ROOT_DIR}/platform/driver/src/gic/pal_arm_gic_v2v3.c

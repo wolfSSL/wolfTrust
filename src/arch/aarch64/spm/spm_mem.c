@@ -239,8 +239,12 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
             ret = send_permissions_ok(op, perms);
         }
     }
-    /* A donate leaves the memory type to the receiver (Table 5.18 usage). */
-    if ((ret == 0) && (op == WT_FFA_MEM_OP_DONATE) &&
+    /* Memory that becomes one receiver's alone (a donate, a lend to a single
+     * borrower) has its type chosen by that receiver; a share or a lend to
+     * several names it (Table 5.18 usage). */
+    if ((ret == 0) &&
+        ((op == WT_FFA_MEM_OP_DONATE) ||
+         ((op == WT_FFA_MEM_OP_LEND) && (txn.receiver_count == 1u))) &&
         ((txn.attributes & WT_FFA_MEM_ATTR_TYPE_MASK) != 0u)) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }

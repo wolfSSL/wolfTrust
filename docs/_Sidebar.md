@@ -3,6 +3,7 @@
 - [[Home]]
 - [[Getting Started]]
 - [[Architecture]]
+- [[Crypto Engines]]
 - [[Security Model]]
 - [[Threat Model]]
 - [[API Reference]]

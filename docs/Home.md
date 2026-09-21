@@ -37,7 +37,7 @@ flowchart TB
     subgraph WT[wolfTrust policy and service runtime]
         SPM[Secure Partition Manager<br/>policy, identity, IPC, scheduling, lifecycle, recovery]
         subgraph SP[Secure services]
-            CR["Cryptography and hardware<br/>security module (HSM)"]
+            CR["Selected crypto engine<br/>native or wolfHSM"]
             ST["Internal Trusted Storage (ITS),<br/>Protected Storage, and vault"]
             AT[Initial Attestation]
             FW[Firmware Update]
@@ -51,8 +51,8 @@ flowchart TB
     end
 
     subgraph LIBS[wolfSSL ecosystem components]
-        PSA[wolfPSA<br/>guest wolfCrypt and wolfHSM client]
-        WC[Secure wolfCrypt and wolfHSM]
+        PSA[wolfPSA<br/>guest wolfCrypt; optional wolfHSM client]
+        WC[Secure wolfCrypt<br/>optional wolfHSM server]
         COSE[wolfCOSE]
         HAL[wolfHAL]
         IP[wolfIP<br/>optional bare-metal reference networking]
@@ -93,8 +93,8 @@ port's five CMSE gateway veneers.
 | One mediated client boundary | Application domains reach services only through the client gateway supplied by the architecture port. The current Armv8-M image exports exactly five `WolfTrust_FFM_*` veneers. |
 | Caller-bound IPC | wolfTrust derives the PSA client identity from the active application domain, copies vector descriptors, checks every range, and enforces manifest access policy. |
 | Port-defined isolation | Each port declares and enforces the protection capabilities required by its manifest. The STM32H563 reference uses TrustZone, the Secure MPU, and GTZC MPCBB attribution; its exact limits are documented in [Security Model](Security-Model.md). |
-| PSA cryptography | Zephyr and FreeRTOS reference guests call wolfPSA's PSA Crypto API; operations are mediated to wolfCrypt and per-guest wolfHSM namespaces. |
-| Secure services | Connection-based services provide attestation, hardware security module (HSM) access, Internal Trusted Storage (ITS), Protected Storage, firmware update, and an optional Secure virtual Ethernet switch. The optional bare-metal networking guests run wolfIP outside the Secure image. |
+| PSA cryptography | Zephyr and FreeRTOS reference guests call wolfPSA's PSA Crypto API. The default native engine runs wolfCrypt in each guest and obtains DRBG seeds from the Secure vault; the optional wolfHSM engine routes supported operations to per-guest Secure server namespaces. |
+| Secure services | Connection-based services provide the selected crypto engine, attestation, Internal Trusted Storage (ITS), Protected Storage, firmware update, and an optional Secure virtual Ethernet switch. The optional bare-metal networking guests run wolfIP outside the Secure image. |
 | Fault containment | A guest fault either restarts the guest within policy limits or leaves it quarantined. A Secure Partition fault releases synchronization state before failing affected calls. Restart paths scrub declared private writable memory before rearming; forbidden, exhausted, or failed recovery escalates to the port's fail-closed path. |
 | Static Secure memory | The Secure image is built with `WOLFSSL_NO_MALLOC` and `NO_WOLFSSL_MEMORY`; service buffers, stacks, and state are statically allocated. |
 
@@ -104,6 +104,7 @@ port's five CMSE gateway veneers.
 | --- | --- |
 | [Getting Started](Getting-Started.md) | Prerequisites, checkout, first builds, emulator use, and hardware entry points |
 | [Architecture](Architecture.md) | Boot flow, isolation layers, FF-M IPC, services, and scheduling |
+| [Crypto Engines](Crypto-Engines.md) | Native and wolfHSM engine behavior, selection, key models, and measured cost |
 | [Security Model](Security-Model.md) | Trust boundaries and enforced security properties |
 | [Threat Model](Threat-Model.md) | Protected assets, attacker capabilities, controls, and residual risks |
 | [API Reference](API-Reference.md) | PSA client, service, storage, update, lifecycle, attestation, and gateway APIs |

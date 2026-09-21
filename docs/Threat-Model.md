@@ -43,7 +43,8 @@ The primary adversary controls all software in one Non-secure guest. It may:
 - issue arbitrary PSA requests, call types, handles, vector counts, addresses,
   lengths, and payloads;
 - race its own memory while a gateway call is in progress;
-- spoof protocol fields, including wolfHSM communication IDs;
+- spoof selected-engine protocol fields, including wolfHSM communication IDs
+  when the hsm engine is linked;
 - trigger faults, interrupt activity, repeated connects, and abandoned update
   sessions;
 - attempt to access peer RAM, Secure memory, peripherals, and inactive guest
@@ -79,8 +80,8 @@ images.
 | Stale or stolen handles | Handle ownership, type, generation, and state transitions are checked by the SPM. |
 | Cross-guest RAM access | GTZC MPCBB attribution closes the full guest-RAM extent and reopens only the scheduled guest's writable SRAM blocks. Per-guest Non-secure MPU and interrupt state are restored scheduling policy, not adversarial boundaries against privileged guests. |
 | Inactive-guest flash modification | Signature-covered guest digests and runtime verification detect changes; hardened STM32H563 builds also require complete WRP coverage. |
-| Cross-guest key use | The relay maps guest `N` to forced wolfHSM client ID `N + 1`. |
-| Direct NVM access through HSM protocol | The guest HSM relay rejects NVM message groups. |
+| Cross-guest key use | The SPM-stamped identity selects the native vault sub-owner; the hsm relay maps guest `N` to forced wolfHSM client ID `N + 1`. |
+| Direct NVM access through a crypto protocol | The native format exposes no general NVM operation; the hsm relay rejects wolfHSM NVM message groups. |
 | Storage object confusion | The vault namespaces objects by front-end partition, stamped client, and UID, and storage requests cannot use its reserved key-object type. |
 | Protected Storage disclosure or edit | AES-256-GCM sealing, a non-exportable device key, authenticated labels, and checked NVM operations. |
 | Stale sealed-object replay | Each sealed write advances a persisted counter used in its nonce; the current slot counter authenticates reads. |
@@ -105,7 +106,7 @@ peer secrets in guest images or claim peer-image confidentiality.
 ### Persistent counters use the same flash trust boundary
 
 Protected Storage counter records and firmware-version floors reside in the
-wolfHSM NVM flash pool. The design detects stale object data when its live
+shared NVM flash pool. The design detects stale object data when its live
 counter remains current and fails closed on malformed records. It does not
 claim resistance to a physical adversary that can restore a mutually
 consistent historical snapshot of the entire NVM pool. A target requiring
@@ -114,9 +115,10 @@ that property needs rollback-resistant monotonic storage in its port.
 ### Secure code is shared
 
 Secure Partition writable state is narrowed by the Secure MPU, but all service
-threads execute shared read/execute text from one linked image. HSM, vault, and
-attestation also share a keystore data band. A defect in trusted shared code or
-an allowed shared backend can therefore affect more than one service.
+threads execute shared read/execute text from one linked image. The selected
+crypto engine, vault, and attestation also share a keystore data band. A defect
+in trusted shared code or an allowed shared backend can therefore affect more
+than one service.
 
 ### Privileged handlers remain security-critical
 

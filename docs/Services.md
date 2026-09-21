@@ -13,7 +13,7 @@ manifest with a seventh service.
 | `SERVICE_ITS` | `0x1003` | Yes | PSA Internal Trusted Storage |
 | `SERVICE_PS` | `0x1004` | Yes | PSA Protected Storage |
 | `SERVICE_FWU` | `0x1005` | Yes | PSA Firmware Update staging for wolfBoot |
-| `SERVICE_HSM` | `0x1006` | Yes | Copied wolfHSM cryptographic request relay |
+| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine |
 | `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
 
 All service versions are `1`. ITS and Protected Storage declare a
@@ -29,25 +29,32 @@ replies. Each thread receives shared Secure text plus its own stack and
 manifest-declared data. Privileged hardware operations are performed by narrow
 SVC gates that verify which partition issued the request.
 
-## HSM and PSA Crypto
+## Crypto engines and PSA Crypto
 
-Zephyr and FreeRTOS reference guests expose wolfPSA's PSA Crypto API. wolfPSA
-uses a wolfHSM client transport that places one complete wire packet in an
-FF-M `psa_call` to `SERVICE_HSM`.
+Zephyr and FreeRTOS reference guests expose wolfPSA's PSA Crypto API. The
+`WT_ENGINE` build selector chooses how those guests and `SERVICE_HSM` are
+wired. Both engines use one input and one output vector, bounded to 384 bytes,
+through the same copied FF-M call.
 
-The service:
+With the default native engine, wolfPSA and wolfCrypt execute in the
+Non-secure guest. DRBG seed requests use the native client to reach the Secure
+vault RNG. The native wire also exposes explicit vault-backed P-256 and
+AES-256 key operations, random generation, and SHA-256. Vault key objects are
+namespaced by the SPM-stamped client ID and stored `SENSITIVE` and
+`NONEXPORTABLE`.
 
-- accepts one input packet and one output packet, each bounded to 512 bytes;
-- uses the SPM-stamped PSA client ID rather than an ID in the packet;
-- maps guest `N` to its dedicated wolfHSM server and forces server
-  client ID `N + 1`;
-- rejects all guest-facing wolfHSM NVM message groups; and
-- returns the copied response through the original output vector.
+With the wolfHSM engine, wolfPSA uses a wolfHSM client transport that places
+one complete wolfHSM packet in the FF-M call. The relay maps guest `N` to its
+dedicated server, forces server client ID `N + 1`, and rejects guest-facing
+wolfHSM NVM message groups. The reference build executes the server with
+software wolfCrypt; deployments can configure wolfHSM's external-HSM path.
 
 The reference cryptographic profile is controlled by each guest's wolfCrypt
 `user_settings.h`. Consult the vendored
 `lib/wolfPSA/wolfpsa/psa/crypto.h` and the active guest configuration
-before assuming a particular algorithm is available.
+before assuming a particular algorithm is available. See
+[Crypto Engines](Crypto-Engines.md) for the protocol, key-protection, and
+footprint differences.
 
 ## Vault
 
@@ -62,11 +69,12 @@ object is indexed by:
 This lets ITS and Protected Storage forward a guest's stamped client ID without
 allowing either front end to escape its own vault namespace.
 
-The vault uses checked wolfHSM NVM operations for write-once and object
-metadata policy. Storage calls cannot create, read, or overwrite the reserved
-key-object type. The STM32H563 integration does not install the vault's
-optional key-operation backend; guest cryptographic keys are managed through
-`SERVICE_HSM` instead.
+The vault uses the wolfHSM NVM object-store library and checked operations for
+write-once and object-metadata policy in both engines. Storage calls cannot
+create, read, or overwrite the reserved key-object type. The native engine
+installs the vault key backend used by its explicit key wire. The wolfHSM
+engine instead manages guest cryptographic keys in its server keystore behind
+`SERVICE_HSM`.
 
 ## Internal Trusted Storage
 
@@ -103,9 +111,10 @@ limited to 512 bytes. The underlying Secure vault still uses a 1024-byte object
 buffer and caps one copied vault response at 1000 bytes.
 
 Every stored object is AES-256-GCM sealed in the vault under a device-local
-non-exportable key. A persisted write counter supplies the nonce and the object
-label is authenticated data. Confidentiality and replay-protection hint flags do
-not weaken storage: Protected Storage still seals and counter-binds the object.
+non-exportable key in the shared NVM store. A persisted write counter supplies
+the nonce and the object label is authenticated data. Confidentiality and
+replay-protection hint flags do not weaken storage: Protected Storage still
+seals and counter-binds the object.
 The current `psa_ps_get_info()` behavior echoes the requested flags instead of
 reporting the stronger protection actually applied, which differs from the PSA
 Secure Storage 1.0 recommendation.
@@ -115,7 +124,8 @@ Secure Storage 1.0 recommendation.
 `SERVICE_ATTEST` implements the token and exact-size API operations from PSA
 Initial Attestation 1.0. It accepts a 32-, 48-, or 64-byte challenge and returns
 a tagged COSE_Sign1 token signed with ES256 through an external signer backed
-by the protected attestation key. wolfCOSE performs the COSE encoding.
+by the selected engine's protected attestation key. wolfCOSE performs the COSE
+encoding.
 
 The emitted token is derived from [RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html)
 but is not conformant with its advertised

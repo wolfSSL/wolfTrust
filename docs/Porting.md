@@ -110,9 +110,11 @@ const void* wt_hsm_flash_config(void);
 int wt_hsm_flash_format(void);
 ```
 
-The implementation must preserve the wolfHSM flash-log semantics, distinguish
-foreign or corrupt media, honor checked object flags, and erase only the
-dedicated vault region when lifecycle policy allows reformat.
+Both crypto engines use this object store. The implementation must preserve
+the wolfHSM NVM flash-log semantics, distinguish foreign or corrupt media,
+honor checked object flags, and erase only the dedicated vault region when
+lifecycle policy allows reformat. See [Crypto Engines](Crypto-Engines.md) for
+the engine boundary above the common store.
 
 ### Entropy
 

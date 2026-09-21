@@ -21,8 +21,8 @@ contain Armv8-M-specific types and assumptions.
 | wolfBoot | Performs the BL2 secure-boot role, authenticates wolfTrust, passes the measured-boot handoff, and swaps authenticated update images. |
 | wolfTrust | Configures isolation, validates the manifest and guest images, schedules guests and Secure Partitions, implements FF-M IPC, and manages lifecycle and recovery. |
 | wolfPSA | Implements PSA Crypto entry points over wolfCrypt for the Non-secure reference guests. |
-| wolfCrypt | Supplies cryptographic implementations used by wolfPSA and Secure services. |
-| wolfHSM | Owns protected key operations and the persistent NVM backend. |
+| wolfCrypt | Supplies cryptographic implementations used by guest wolfPSA and Secure services. The native engine dispatches it directly. |
+| wolfHSM | Optional crypto engine providing the client/server key-management model and external-HSM integration path. Both engines use its NVM object-store subset. |
 | wolfCOSE | Encodes and signs COSE_Sign1 attestation tokens. |
 | wolfIP | Supplies the TCP/IP stack for the optional bare-metal reference guests; the Secure virtual Ethernet switch itself is implemented by wolfTrust. |
 
@@ -52,9 +52,9 @@ preserve the public manifest, service, IPC, and PSA API contracts. See
    and memory policies; validates and binds the generated manifest; registers
    the FF-M services; seeds each guest context; and performs an initial
    signed-record, image-size, manifest-version, digest, and optional WRP check.
-3. wolfTrust consumes the measured-boot handoff, initializes wolfHSM and the
-   persistent vault backends, and checks the persistent Secure-image and guest
-   version floors.
+3. wolfTrust consumes the measured-boot handoff, initializes the selected
+   [crypto engine](Crypto-Engines.md) and shared persistent vault backend, and
+   checks the persistent Secure-image and guest version floors.
 4. wolfTrust starts the scheduled Secure Partitions.
 5. Immediately before an accepted guest's first dispatch, the monitor repeats
    its signed-record, image-size, manifest-version, digest, and optional WRP

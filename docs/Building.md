@@ -31,6 +31,19 @@ reference is the mutable `main` branch, not a pinned workspace.
 make
 ```
 
+The default uses the native crypto engine. Keep separate output directories
+when comparing or retaining both engine builds:
+
+```sh
+make secure-image WT_ENGINE=native BUILD_DIR=build-native
+make secure-image WT_ENGINE=hsm BUILD_DIR=build-hsm
+```
+
+`WT_ENGINE_HSM=0` and `WT_ENGINE_HSM=1` remain as legacy aliases for
+`native` and `hsm`, respectively. `WT_ENGINE` is the public selector for new
+builds. See [Crypto Engines](Crypto-Engines.md) for the behavior, key model,
+and measured footprint of each choice.
+
 The default target builds:
 
 | Output | Purpose |
@@ -99,6 +112,31 @@ make -C tests/firmware/zephyr-stm32h5 \
     build-guest0-psa build-freertos-guest1
 ```
 
+`WT_ENGINE` must match the Secure image and every guest image. The guest build
+scripts default to `native` and pass the same selector through the Secure and
+guest builds:
+
+```sh
+WT_ENGINE=native make -C tests/firmware/zephyr-stm32h5 \
+    build-guest0-psa build-freertos-guest1
+WT_ENGINE=hsm make -C tests/firmware/zephyr-stm32h5 \
+    build-guest0-psa build-freertos-guest1
+```
+
+For a direct Zephyr configuration rather than the wrapper script:
+
+- native uses `CONFIG_WOLFTRUST_NATIVE_CLIENT=y` and
+  `CONFIG_WOLFTRUST_WOLFHSM_CLIENT=n`; and
+- hsm uses `CONFIG_WOLFTRUST_WOLFHSM_CLIENT=y` and leaves
+  `CONFIG_WOLFTRUST_NATIVE_CLIENT` disabled.
+
+The native Zephyr module links guest wolfCrypt plus
+`src/client/crypto_native_client.c`. The wolfHSM module instead links the
+wolfHSM client, crypto-callback glue, and
+`src/client/hsm_psa_transport.c`. The FreeRTOS
+`build_freertos_guest.sh` script makes the same source and preprocessor choice
+from its `WT_ENGINE` environment variable.
+
 This produces:
 
 - `tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin`
@@ -116,6 +154,19 @@ The same Makefile also provides:
 | `run-uarts` | Same pair with separated UART output |
 | `run-tui` | Same pair with the M33MU TUI |
 | `zephyr-freertos-uarts` | Zephyr and FreeRTOS PSA guests under M33MU |
+
+## Engine coverage in CI
+
+The cross-compile workflow links a Secure image with each engine. The M33MU
+lifecycle job crosses `guest: [zephyr, freertos]` with
+`engine: [native, hsm]`. The scenario job also adds the engine as a matrix
+dimension, and the label-selected pull-request workflow runs each requested
+scenario under both engines.
+
+The `hsmattackneg` scenario is intentionally hsm-only. It injects raw wolfHSM
+protocol packets and attacks a wolfHSM namespace and NVM relay surface that is
+not linked into the native engine. All other scenario rows run under both
+engines. See [Testing](Testing.md) for the commands and validation scope.
 
 ## Authenticated image assembly
 

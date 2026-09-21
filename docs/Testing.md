@@ -28,10 +28,10 @@ make -s -C tests/host print-suites
 
 Current suites cover domain and manifest validation, lifecycle, guest
 verification, rollback decisions, IPC and FF-M behavior, SPM policy, gateway
-vectors, Secure Partition layout and recovery, HSM relay and key isolation,
-vault and storage services, attestation and COSE integration, firmware update,
-runtime remeasurement, VNET, public PSA headers, boot-handoff record
-consumption, and negative paths.
+vectors, Secure Partition layout and recovery, crypto-engine relay and key
+isolation, vault and storage services, attestation and COSE integration,
+firmware update, runtime remeasurement, VNET, public PSA headers, boot-handoff
+record consumption, and negative paths.
 The attestation IAK suite runs wolfHSM NVM with both the default 8-byte and
 STM32H5 16-byte flash programming units.
 
@@ -71,6 +71,14 @@ The baseline target command is:
 make test-target
 ```
 
+The engine defaults to `native`. Set `WT_ENGINE` to exercise the same target
+path with either backend:
+
+```sh
+WT_ENGINE=native make test-target
+WT_ENGINE=hsm make test-target
+```
+
 It runs the positive lifecycle, guest restart, cross-domain Secure fault, and
 FF-M conformance scenarios. Detection accepts `m33mu` on
 `PATH` or a path in `M33MU`. If the emulator is unavailable,
@@ -79,7 +87,8 @@ the target reports a skip rather than a pass.
 Additional focused runs use:
 
 ```sh
-tests/target/run_m33mu_scenario.sh positive
+WT_ENGINE=native tests/target/run_m33mu_scenario.sh positive
+WT_ENGINE=hsm tests/target/run_m33mu_scenario.sh positive
 ```
 
 The runner's usage output is the authoritative scenario list. It includes
@@ -96,6 +105,35 @@ make test-vnet-target
 
 `test-vnet` is host-only. `test-vnet-target` launches two
 authenticated wolfIP guests under M33MU.
+
+### Engine matrix
+
+The full CI scenario list contains 27 scenarios and adds
+`engine: [native, hsm]` as a matrix dimension. There are 53 applicable
+engine/scenario cells: every scenario runs with both engines except
+`hsmattackneg` under native.
+
+`hsmattackneg` drives the raw wolfHSM protocol from a compromised-guest probe.
+It checks that a forged wolfHSM client ID cannot select the attestation key and
+that a wolfHSM NVM-group packet cannot reach the rollback store. The native
+engine does not link the wolfHSM client wire, server, or message handlers, so
+that exact attack surface does not exist there. Native key and namespace
+behavior remains covered by the common positive, cross-domain, keystore,
+storage, attestation, and Crypto-validation rows.
+
+Validation of the engine split completed under both engines with:
+
+- the applicable M33MU scenario matrix;
+- the Arm FF-M IPC suite at 85 passed, 4 heap-dependent tests skipped, and
+  0 failed;
+- the current dev_apis Crypto schedule at 64 passed, 13 skipped, and 0 failed
+  (77 scheduled tests; c047 is configuration-skipped in addition to the
+  upstream schedule); and
+- the STM32H563 positive, restart, cross-domain, and conformance hardware
+  suite.
+
+The engine dimension changes crypto dispatch, not what M33MU proves. Emulator
+results still do not establish STM32 attribution or physical flash behavior.
 
 ## STM32H563 hardware
 
@@ -119,12 +157,18 @@ than an initial skip.
 Run the default hardware set with:
 
 ```sh
-WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 make test-hardware
+WT_ENGINE=native \
+WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 \
+make test-hardware
+WT_ENGINE=hsm \
+WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 \
+make test-hardware
 ```
 
 The target skips if hardware detection fails. It builds and flashes the
-positive, restart, cross-domain, and conformance scenarios by default. Select
-a narrower set with `WT_H5_SCENARIOS`:
+positive, restart, cross-domain, and conformance scenarios by default. The
+suite wrapper forwards `WT_ENGINE` into its build container. Select a narrower
+set with `WT_H5_SCENARIOS`:
 
 ```sh
 WT_H5_SCENARIOS="positive bootupdate" \
@@ -175,7 +219,7 @@ The workflows under `.github/workflows/` separately run:
 
 - host unit tests;
 - compiler variants, sanitizers, and Valgrind;
-- Cortex-M33 cross-compilation;
+- Cortex-M33 cross-compilation of both crypto engines;
 - dependency integration;
 - the core/port split guard and the docs guard (no internal-ledger or
   home-directory references in the published docs);
@@ -189,10 +233,11 @@ core/port split checks run on every pull request, including drafts. The fuzz
 target also runs on pull requests as a 60-second libFuzzer smoke pass; the
 nightly schedule and manual dispatch run the 600-second soak instead.
 
-The full M33MU matrix (the `M33MU` workflow: wolfBoot plus both guest lifecycles
-and every scenario) runs on every pull request, on a push to `master`, `main`,
-or `wolfTrust-dev`, on the nightly schedule, and on manual dispatch. Every PR
-gets the full emulator matrix automatically — no label or opt-in step.
+The full M33MU matrix (the `M33MU` workflow: wolfBoot plus both guest
+lifecycles, both crypto engines, and every scenario) runs on every pull
+request, on a push to `master`, `main`, or `wolfTrust-dev`, on the nightly
+schedule, and on manual dispatch. Every PR gets the full emulator matrix
+automatically — no label or opt-in step.
 
 ### Running M33MU off a pull request
 

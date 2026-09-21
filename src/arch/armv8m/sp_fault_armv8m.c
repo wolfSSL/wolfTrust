@@ -32,8 +32,8 @@
 
 #include <stdint.h>
 
-#ifdef WT_ENGINE_HSM
 #include "wolftrust/sched/tasklet.h"
+#ifdef WT_ENGINE_HSM
 #include "wolftrust/services/hsm.h"
 #endif
 
@@ -48,7 +48,6 @@ static volatile uint32_t g_tasklet_fault_icsr;
 static volatile uint32_t g_tasklet_fault_co;
 static volatile uint32_t g_tasklet_fault_co_sp;
 
-#ifdef WT_ENGINE_HSM
 /* -----------------------------------------------------------------------
  * Secure-side tasklet fault path.
  *
@@ -140,10 +139,12 @@ static void wt_secure_tasklet_fault_dispatch(uint32_t *frame,
         return;
     }
 
+#ifdef WT_ENGINE_HSM
     wt_guest_id_t gid = wt_hsm_guest_for_tasklet(tasklet);
     if (gid < WT_MAX_GUESTS) {
         (void)wt_hsm_signal_fault(gid);
     }
+#endif
 
     wt_tasklet_mark_faulted(tasklet);
 }
@@ -202,4 +203,3 @@ __attribute__((naked)) void UsageFault_Handler(void)
 {
     __asm volatile("b wt_armv8m_tasklet_fault_entry \n");
 }
-#endif /* WT_ENGINE_HSM */

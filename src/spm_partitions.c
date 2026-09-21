@@ -39,6 +39,9 @@
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
+#ifndef WT_ENGINE_HSM
+#include "wolftrust/services/crypto_native.h"
+#endif
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
@@ -48,6 +51,8 @@
 #endif
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
+
+#include <string.h>
 
 /* Generated in every secure build; the ITS entry embeds SERVICE_VAULT_SID as
  * a code constant — the unprivileged loop cannot read SPM RAM at runtime. */
@@ -92,6 +97,10 @@ int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     wt_hsm_relay_set_transport(wt_spm_svc_transport);
 #if defined(WT_ENGINE_HSM)
     wt_hsm_relay_set_submit(wt_hsm_relay_submit, NULL);
+#else
+    /* Native engine: SERVICE_HSM stays the single mediated door; its packets
+     * carry the native wire and dispatch straight into wolfCrypt. */
+    wt_hsm_relay_set_submit(wt_native_submit, (void*)(intptr_t)partition_id);
 #endif
     wt_spm_set_hsm_partition(partition_id);
     return wt_spm_sched_add(runtime, partition_id, wt_spm_hsm_entry,

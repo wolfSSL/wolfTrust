@@ -33,9 +33,10 @@
 #include "wolftrust/platform.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/initial_attestation.h"
-#ifdef WT_ENGINE_HSM
-#include "wolftrust/sched/tasklet.h"
 #include "wolfhsm/wh_error.h"
+#include "wolftrust/sched/tasklet.h"
+#ifndef WT_ENGINE_HSM
+#include "wolftrust/services/crypto_native.h"
 #endif
 
 #include <stddef.h>
@@ -56,12 +57,8 @@ void wt_boot_run(void)
     handoffRet = wt_boot_handoff_consume(&bootHandoff);
     wt_boot_handoff_clear();
 #endif
-#ifdef WT_ENGINE_HSM
-    /* Bring up the secure-side wolfHSM service before dispatching guests:
-     *  1. tasklet scheduler (provides the bootstrap context)
-     *  2. shared wolfCrypt + NVM + lock
-     *  3. one transport + server context + tasklet per guest
-     * Any failure here is fatal because guests require this engine. */
+    /* Coroutine runtime first: the SP scheduler and (in the hsm engine) the
+     * per-guest server tasklets both ride it. */
     wt_tasklet_init();
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     /* Gate vault auto-reformat on the wolfBoot-reported lifecycle before the
@@ -71,7 +68,11 @@ void wt_boot_run(void)
         wt_hsm_set_boot_lifecycle(bootHandoff.lifecycle);
     }
 #endif
+#ifdef WT_ENGINE_HSM
     if (wt_hsm_init() != 0) wt_platform_panic();
+#else
+    if (wt_native_init() != 0) wt_platform_panic();
+#endif
     /* WT-FFM-0050: the vault NVM is live and no guest has dispatched, so the
      * monotonic version floors gate every domain now. A missing handoff
      * reports version zero, which fails closed once a floor is armed. */
@@ -81,6 +82,7 @@ void wt_boot_run(void)
 #else
     (void)wt_hsm_rollback_enforce(0u);
 #endif
+#ifdef WT_ENGINE_HSM
     /* WT-FFM-0054: every guest server binds the secure relay capture
      * transport — packets arrive only through SERVICE_HSM's mediated
      * psa_call path, never a shared NS-RAM window. */
@@ -93,6 +95,7 @@ void wt_boot_run(void)
             wt_platform_panic();
         }
     }
+#endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     if (wt_hsm_attest_bootstrap() != WH_ERROR_OK) {
         /* The vault could not be provisioned and auto-reformat was not
@@ -117,12 +120,11 @@ void wt_boot_run(void)
         wt_ffm_set_lifecycle(wt_ffm_boot_runtime_mut(), bootHandoff.lifecycle);
     }
 #endif
-    /* P1t: crypto SP becomes a scheduled unprivileged coroutine now that
-     * the tasklet scheduler exists. Fail closed — guests depend on it. */
+    /* P1t: the service partitions become scheduled unprivileged coroutines.
+     * Fail closed — guests depend on them. */
     if (wt_ffm_boot_start_sched() != WT_FFM_SUCCESS) {
         wt_platform_panic();
     }
-#endif
 #if defined(WT_REMEASURE_PROBE)
     wt_platform_remeasure_probe();
 #endif

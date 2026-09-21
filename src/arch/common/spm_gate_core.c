@@ -41,6 +41,7 @@
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
+#include "wolftrust/services/crypto_native.h"
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
@@ -50,6 +51,8 @@
 #endif
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
+
+#include <string.h>
 
 /* Generated in every secure build; the ITS entry embeds SERVICE_VAULT_SID as
  * a code constant — the unprivileged loop cannot read SPM RAM at runtime. */
@@ -181,15 +184,21 @@ static void wt_spm_fault_release(void* ctx)
 {
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
 
-#if defined(WT_ENGINE_HSM)
+    /* The shared NVM lock is engine-independent (nvm_store.c): a faulted
+     * holder must release it in both engines or later acquirers deadlock. */
     wt_hsm_release_locks(c->slot->co);
+#if defined(WT_ENGINE_HSM)
     if (c->slot->partition_id == g_spm_hsm_partition_id) {
         /* The fault may have torn a per-guest server mid-request; rebuild
          * them all. Fails closed — a guest whose re-init fails stays down. */
         (void)wt_hsm_relay_reinit_servers();
     }
-#else
-    (void)c;
+#elif defined(WT_ENGINE_NATIVE)
+    /* The native vault DRBG is process-global — the HSM relay, SERVICE_VAULT
+     * (RANDOM and key ops), and attestation signing all draw from the one
+     * g_kv_rng. Any recovered fault may have torn it mid-draw, so invalidate
+     * it unconditionally; the next draw re-seeds and fails closed on error. */
+    wt_native_reinit();
 #endif
 }
 

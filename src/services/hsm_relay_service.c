@@ -108,9 +108,21 @@ static int wt_hsm_relay_write_resp(wt_ffm_runtime_t* runtime,
     return WT_FFM_SUCCESS;
 }
 
-static psa_status_t wt_hsm_relay_call(wt_ffm_runtime_t* runtime,
-                                      int32_t partition_id,
-                                      const psa_msg_t* msg)
+/* Scrub a relay copy buffer. volatile so the clear is not optimized away; the
+ * relay unit is port-free and does not link wolfCrypt's ForceZero. */
+static void wt_hsm_relay_zeroize(uint8_t* buf, size_t len)
+{
+    volatile uint8_t* p = buf;
+    size_t i;
+
+    for (i = 0U; i < len; i++) {
+        p[i] = 0U;
+    }
+}
+
+static psa_status_t wt_hsm_relay_call_inner(wt_ffm_runtime_t* runtime,
+                                            int32_t partition_id,
+                                            const psa_msg_t* msg)
 {
     size_t req_len = 0U;
     size_t resp_len = 0U;
@@ -155,6 +167,21 @@ static psa_status_t wt_hsm_relay_call(wt_ffm_runtime_t* runtime,
         return PSA_ERROR_GENERIC_ERROR;
     }
     return PSA_SUCCESS;
+}
+
+/* Single cleanup path (key hygiene): the relay copy buffers live in the shared
+ * keystore band and carry imported key material and decrypted plaintext, so
+ * scrub both after every call, on success and on every error path. */
+static psa_status_t wt_hsm_relay_call(wt_ffm_runtime_t* runtime,
+                                      int32_t partition_id,
+                                      const psa_msg_t* msg)
+{
+    psa_status_t status;
+
+    status = wt_hsm_relay_call_inner(runtime, partition_id, msg);
+    wt_hsm_relay_zeroize(g_relay_io.req, sizeof(g_relay_io.req));
+    wt_hsm_relay_zeroize(g_relay_io.resp, sizeof(g_relay_io.resp));
+    return status;
 }
 
 int wt_hsm_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,

@@ -116,7 +116,6 @@ void wt_arch_init(void)
     WT_SCB_AIRCR_S = WT_SCB_AIRCR_VECTKEY |
                      (WT_SCB_AIRCR_S & WT_SCB_AIRCR_CFG_MASK) |
                      WT_SCB_AIRCR_SYSRESETREQS;
-#ifdef WT_ENGINE_HSM
     /* PendSV and the secure SysTick must share the lowest priority: SysTick at
      * the reset default (0, highest) would preempt PendSV mid-coroutine switch,
      * and a nested exception return off the half-saved frame faults INVPC.
@@ -124,7 +123,6 @@ void wt_arch_init(void)
     WT_SCB_SHPR3_S |= (0xFFu << WT_SCB_SHPR3_PENDSV_SHIFT) |
                       (0xFFu << WT_SCB_SHPR3_SYSTICK_SHIFT);
     WT_SCB_ICSR_S = WT_SCB_ICSR_PENDSVCLR;
-#endif
     g_switch_count = 0u;
     g_active_guest = UINT32_MAX;
 }
@@ -699,7 +697,6 @@ uint32_t wt_arch_active_guest_id(void)
 __attribute__((naked)) void SecureFault_Handler(void)
 {
     __asm volatile(
-#ifdef WT_ENGINE_HSM
         /* EXC_RETURN bit6 = secure frame, bit3 = Thread. A fault from Secure
          * Thread with a live tasklet is a Secure Partition/tasklet fault, not
          * a guest escalation: blaming the scheduled NS guest would restart an
@@ -718,7 +715,6 @@ __attribute__((naked)) void SecureFault_Handler(void)
         "beq 1f                         \n"
         "b wt_armv8m_tasklet_fault_entry \n"
         "1:                             \n"
-#endif
         "mov r2, sp                     \n"
         "ldr r1, =g_secure_entry_sp     \n"
         "str r2, [r1]                   \n"

@@ -110,6 +110,7 @@ static int ns_defined_reply(uint32_t fid)
         case WT_FFA_MSG_WAIT:
         case WT_FFA_MSG_SEND_DIRECT_RESP32:
         case WT_FFA_MSG_SEND_DIRECT_RESP64:
+        case WT_FFA_MSG_SEND_DIRECT_RESP2:
             return 1;
         default:
             return 0;

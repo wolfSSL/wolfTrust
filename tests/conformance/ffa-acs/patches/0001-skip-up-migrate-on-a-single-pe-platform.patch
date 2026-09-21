@@ -1,0 +1,18 @@
+diff --git a/test/v1.0/setup_discovery/up_migrate_capable/up_migrate_capable_client.c b/test/v1.0/setup_discovery/up_migrate_capable/up_migrate_capable_client.c
+index b68b1c7..90daf61 100644
+--- a/test/v1.0/setup_discovery/up_migrate_capable/up_migrate_capable_client.c
++++ b/test/v1.0/setup_discovery/up_migrate_capable/up_migrate_capable_client.c
+@@ -44,6 +44,13 @@ uint32_t up_migrate_capable_client(uint32_t test_run_data)
+     uint32_t status = VAL_ERROR;
+     uint32_t test_num = GET_TEST_NUM(test_run_data);
+ 
++    /* A single-PE platform has no second execution context to migrate to */
++    if (total_cpus < 2)
++    {
++        LOG(TEST, "Skipping the check, platform has a single PE");
++        return VAL_SKIP_CHECK;
++    }
++
+     /* Run server test on boot cpu */
+     payload = val_select_server_fn_direct(test_run_data, 0, 0, 0, 0);
+     if (payload.fid != FFA_MSG_SEND_DIRECT_RESP_32)

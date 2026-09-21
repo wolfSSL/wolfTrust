@@ -158,9 +158,10 @@ unsigned int wt_el3_world_ns_pending(void)
 
 void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
 {
+    unsigned int count = wt_ffa_msg_reg_count(frame->x[0]);
     unsigned int i;
 
-    for (i = 0u; i < 8u; i++) {
+    for (i = 0u; i < count; i++) {
         g_world[WT_WORLD_SECURE].frame.x[i] = frame->x[i];
     }
     g_ns_pending = WT_NS_PENDING_REPLY;
@@ -184,9 +185,10 @@ void wt_el3_world_preempt_to_secure(wt_el3_frame_t* frame, uint32_t intid)
 
 void wt_el3_world_return_to_ns(wt_el3_frame_t* frame)
 {
+    unsigned int count = wt_ffa_msg_reg_count(frame->x[0]);
     unsigned int i;
 
-    for (i = 0u; i < 8u; i++) {
+    for (i = 0u; i < count; i++) {
         g_world[WT_WORLD_NS].frame.x[i] = frame->x[i];
     }
     g_ns_pending = WT_NS_PENDING_NONE;

@@ -89,7 +89,7 @@ void wt_spm_init_partitions(void);
  * blocked in FFA_MSG_WAIT is delivered a request by loading it into the saved
  * x0-x7 of its frame and resuming it; its FFA_MSG_SEND_DIRECT_RESP is captured
  * here by the gate before the partition blocks again. */
-extern uint64_t g_wt_ffa_direct_resp[8];
+extern uint64_t g_wt_ffa_direct_resp[18];
 extern volatile uint32_t g_wt_ffa_direct_resp_ready;
 
 /* S-EL0 echo partition (sp_entry.S): replies to each direct request with the
@@ -115,7 +115,7 @@ void wt_spm_preempt_timer_arm(void);
 void wt_spm_preempt_timer_stop(void);
 void wt_sp_spin(void);
 
-/* Deliver req (x0..x7 as at FFA_MSG_WAIT's return) to a waiting partition,
+/* Deliver req (x0..x17 as at FFA_MSG_WAIT's return) to a waiting partition,
  * run it until it responds or yields, and copy the response (or FFA_YIELD)
  * into resp. 0 on success; BUSY if it is not waiting, ABORTED if it faulted,
  * DENIED if it blocked without responding. */
@@ -141,6 +141,8 @@ int wt_spm_ffa_sp_call(const struct wt_co* caller, struct wt_co* target,
 /* Non-zero while co processes a direct request, with the request's ids. */
 int wt_spm_ffa_sp_requester(const struct wt_co* co, uint16_t* requester,
                             uint16_t* self);
+/* Non-zero if the request co processes arrived as FFA_MSG_SEND_DIRECT_REQ2. */
+int wt_spm_ffa_sp_req2(const struct wt_co* co);
 /* Non-zero if co yielded inside a direct request caller sent it. */
 int wt_spm_ffa_sp_yielded_to(const struct wt_co* co, uint16_t caller);
 

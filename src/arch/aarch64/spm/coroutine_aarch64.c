@@ -346,6 +346,7 @@ typedef struct wt_sp_msg {
     uint8_t busy;
     uint8_t yielded;
     uint8_t calling;
+    uint8_t req2;
 } wt_sp_msg_t;
 
 static wt_sp_msg_t g_sp_msg[WT_CO_MAX];
@@ -366,6 +367,14 @@ int wt_spm_ffa_sp_requester(const struct wt_co* co, uint16_t* requester,
     *requester = m->requester;
     *self = m->self;
     return 1;
+}
+
+int wt_spm_ffa_sp_req2(const struct wt_co* co)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return 0;
+    }
+    return (int)g_sp_msg[co->id - 1u].req2;
 }
 
 int wt_spm_ffa_sp_yielded_to(const struct wt_co* co, uint16_t caller)
@@ -398,7 +407,7 @@ static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason)
     }
     *reason = g_wt_ffa_sp_exit;
     g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_NONE;
-    for (i = 0u; i < 8u; i++) {
+    for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
         out[i] = 0u;
     }
     if (wt_co_state((wt_co_t*)co) == WT_CO_FAULTED) {
@@ -410,7 +419,7 @@ static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason)
         return 0;
     }
     if ((*reason == WT_FFA_SP_EXIT_RESP) && (g_wt_ffa_direct_resp_ready != 0u)) {
-        for (i = 0u; i < 8u; i++) {
+        for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
             out[i] = g_wt_ffa_direct_resp[i];
         }
         wt_ffa_regs_normalize(out);
@@ -441,6 +450,7 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
     struct wt_co* chain[WT_CO_MAX];
     struct wt_co* caller;
     unsigned int depth = 1u;
+    unsigned int count;
     unsigned int i;
     uint32_t reason = WT_FFA_SP_EXIT_NONE;
     int ret;
@@ -463,13 +473,14 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
         caller = chain[depth - 1u];
         g_sp_msg[caller->id - 1u].calling = 0u;
         if (ret != 0) {
-            for (i = 0u; i < 8u; i++) {
+            for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
                 out[i] = 0u;
             }
             out[0] = WT_FFA_ERROR;
             out[2] = (uint64_t)(uint32_t)ret;
         }
-        for (i = 0u; i < 8u; i++) {
+        count = wt_ffa_msg_reg_count(out[0]);
+        for (i = 0u; i < count; i++) {
             sp_arch(caller)->frame.x[i] = out[i];
         }
     }
@@ -487,15 +498,50 @@ static void endpoint_load_request(struct wt_co* co, const uint64_t* req)
 {
     wt_sp_arch_t* a = sp_arch(co);
     wt_sp_msg_t* m = &g_sp_msg[co->id - 1u];
+    unsigned int count = wt_ffa_msg_reg_count(req[0]);
     unsigned int i;
 
-    for (i = 0u; i < 8u; i++) {
+    for (i = 0u; i < count; i++) {
         a->frame.x[i] = req[i];
     }
     wt_ffa_regs_normalize(a->frame.x);
     m->busy = 1u;
+    m->req2 = (count == WT_FFA_MSG_REGS_EXT) ? 1u : 0u;
     m->requester = (uint16_t)(req[1] >> 16);
     m->self = (uint16_t)(req[1] & 0xFFFFu);
+}
+
+/* FFA_MSG_SEND_DIRECT_REQ2 names a service by UUID in x2/x3 (15.4): it must be
+ * Nil or the receiver's own. */
+static int req2_uuid_ok(const struct wt_co* co, const uint64_t* req)
+{
+    const wt_ffa_native_sp_t* natives;
+    size_t count = 0u;
+    size_t i;
+    unsigned int j;
+    int match;
+
+    if ((uint32_t)req[0] != WT_FFA_MSG_SEND_DIRECT_REQ2) {
+        return 1;
+    }
+    if ((req[2] == 0u) && (req[3] == 0u)) {
+        return 1;
+    }
+    natives = wt_spm_ffa_native_list(&count);
+    for (i = 0u; i < count; i++) {
+        if (wt_spm_ffa_native_by_id(wt_spm_ffa_native_id(i)) != co) {
+            continue;
+        }
+        match = 1;
+        for (j = 0u; j < 16u; j++) {
+            if (natives[i].uuid[j] !=
+                (uint8_t)(req[2u + (j / 8u)] >> (8u * (j % 8u)))) {
+                match = 0;
+            }
+        }
+        return match;
+    }
+    return 0;
 }
 
 /* A partition's own direct request (req != NULL) or its FFA_RUN of a callee
@@ -513,6 +559,9 @@ int wt_spm_ffa_sp_call(const struct wt_co* caller, struct wt_co* target,
         return WT_FFA_DENIED;
     }
     if (req != NULL) {
+        if (req2_uuid_ok(target, req) == 0) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
         if (endpoint_waiting(target) == 0) {
             return WT_FFA_BUSY;
         }
@@ -535,6 +584,9 @@ int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
                               uint64_t* resp)
 {
     if ((co == NULL) || (req == NULL) || (resp == NULL) || (co->unprivileged == 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (req2_uuid_ok(co, req) == 0) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if (endpoint_waiting(co) == 0) {

@@ -672,6 +672,7 @@ static int prove_mem_share(uint64_t* out_handle)
     share[3] = 0xC3u;
     share[4] = 0u;
 
+    (void)memset(&in, 0, sizeof(in));
     cons.address = (uint64_t)WT_SPM_SHARE_PA;
     cons.page_count = 1u;
     in.constituents = &cons;
@@ -1131,6 +1132,10 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
         case WT_FFA_MEM_LEND32:
         case WT_FFA_MEM_LEND64:
             ns_mem_send(r, WT_FFA_MEM_OP_LEND);
+            break;
+        case WT_FFA_MEM_DONATE32:
+        case WT_FFA_MEM_DONATE64:
+            ns_mem_send(r, WT_FFA_MEM_OP_DONATE);
             break;
         case WT_FFA_MEM_RETRIEVE_REQ32:
         case WT_FFA_MEM_RETRIEVE_REQ64:

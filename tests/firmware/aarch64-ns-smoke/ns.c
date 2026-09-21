@@ -637,8 +637,10 @@ static uint32_t memneg_build(void)
     in.receiver = WT_FFA_ID_SP_FIRST;
     in.attributes = (uint16_t)(WT_FFA_MEM_ATTR_TYPE_NORMAL |
                                (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT) |
-                               WT_FFA_MEM_ATTR_SHARE_INNER | WT_FFA_MEM_ATTR_NS);
+                               WT_FFA_MEM_ATTR_SHARE_INNER);
     in.permissions = (uint8_t)WT_FFA_MEM_PERM_DATA_RW;
+    in.access_desc_size = 0u;
+    in.impdef = NULL;
     if (wt_ffa_mem_txn_build(g_memneg_desc, sizeof(g_memneg_desc), &in,
                              &len) != 0) {
         return 0u;

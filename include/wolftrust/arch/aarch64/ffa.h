@@ -80,6 +80,8 @@ int wt_ffa_spmd_secure_call(wt_ffa_regs_t* r);
 /* EL3 (SPMD) handling of one FF-A call taken at the NS physical instance (from
  * the Normal world once launched); fills r with the reply. */
 void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r);
+/* Called for every NS-instance call before it is answered or forwarded. */
+void wt_ffa_spmd_ns_note(uint32_t fid);
 /* Non-zero when an NS-instance FID must be forwarded to the SPMC rather than
  * answered by the SPMD (partition discovery, guest-to-SP messaging). */
 int wt_ffa_spmd_ns_forwards(uint32_t fid);

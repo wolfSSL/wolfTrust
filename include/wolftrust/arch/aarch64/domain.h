@@ -62,10 +62,13 @@ int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
 int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
                               uintptr_t va, uint32_t* attributes);
 
-/* Non-zero when va is an EL0 read-write page in the domain's table (whatever
- * its region list says), i.e. memory the partition may itself send. */
-int wt_domain_page_writable(const wt_memory_region_t* regions, size_t count,
-                            uintptr_t va);
+/* The EL0 access the domain's table gives va (whatever its region list says):
+ * memory the partition reaches at EL0 is memory it may itself send. */
+#define WT_DOMAIN_ACCESS_NONE 0
+#define WT_DOMAIN_ACCESS_RO   1
+#define WT_DOMAIN_ACCESS_RW   2
+int wt_domain_page_access(const wt_memory_region_t* regions, size_t count,
+                          uintptr_t va);
 
 /* Lend a built domain a window onto memory outside its own regions, and take
  * it back (memory sharing); WT_TABLES_* result codes. */

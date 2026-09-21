@@ -205,24 +205,27 @@ int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
     return ret;
 }
 
-/* Is va an EL0 read-write page in this partition's stage-1 table, whatever its
- * region list says? A page a partition owns outright or has been given (a
- * donate) is writable at EL0; the region list is not consulted, so ownership
- * that a transaction moved is still seen. */
-int wt_domain_page_writable(const wt_memory_region_t* regions, size_t count,
-                            uintptr_t va)
+/* What EL0 access this partition's stage-1 table gives va, whatever its region
+ * list says: memory a partition owns or was given (a donate) is reachable at
+ * EL0, so ownership that a transaction moved is still seen. */
+int wt_domain_page_access(const wt_memory_region_t* regions, size_t count,
+                          uintptr_t va)
 {
     const wt_domain_entry_t* e = find_built(regions, count);
     wt_tables_walk_t w;
 
     if ((g_ready == 0u) || (e == NULL) || (regions == NULL) ||
         ((va % WT_TABLES_PAGE_SIZE) != 0u)) {
-        return 0;
+        return WT_DOMAIN_ACCESS_NONE;
     }
     if (wt_tables_walk(&e->table, &g_pool, (uint64_t)va, &w) != WT_TABLES_OK) {
-        return 0;
+        return WT_DOMAIN_ACCESS_NONE;
     }
-    return (w.ap == WT_TABLES_AP_ALL_RW) ? 1 : 0;
+    if (w.ap == WT_TABLES_AP_ALL_RW) {
+        return WT_DOMAIN_ACCESS_RW;
+    }
+    return (w.ap == WT_TABLES_AP_ALL_RO) ? WT_DOMAIN_ACCESS_RO
+                                         : WT_DOMAIN_ACCESS_NONE;
 }
 
 int wt_domain_grant(const wt_memory_region_t* regions, size_t count,

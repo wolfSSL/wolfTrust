@@ -32,6 +32,7 @@ WOLFPSA_DIR="${ROOT}/lib/wolfPSA"
 WOLFHSM_DIR="${ROOT}/lib/wolfHSM"
 BAREMETAL_NS_DIR="${ROOT}/tests/firmware/stm32h563/nonsecure"
 WOLFHSM_MODULE_DIR="${SUBTREE_DIR}/module/wolfhsm-client"
+. "${ROOT}/tests/target/lib/engine.sh"
 
 if [ ! -d "${FREERTOS_KERNEL}" ]; then
     echo "missing FreeRTOS workspace: ${FREERTOS_KERNEL}" >&2
@@ -106,8 +107,18 @@ ${WOLFHSM_DIR}/src/wh_message_counter.c \
 ${WOLFHSM_DIR}/src/wh_utils.c"
 
 # OS-neutral wolfTrust NS client core: psa_connect/call/close over the
-# WolfTrust_FFM_* veneers, plus the wolfHSM-over-psa_call transport and the
-# guest glue that registers the wolfHSM crypto-callback device.
+# WolfTrust_FFM_* veneers, plus the engine-specific client: the
+# wolfHSM-over-psa_call transport + cryptocb glue (hsm), or the native wire
+# client whose only secure crossing is the vault RNG seed (native).
+if [ "${WT_ENGINE}" = "native" ]; then
+WOLFHSM_CLIENT_SRCS=""
+WT_CLIENT_SRCS="\
+${ROOT}/src/client/psa_ffm_client.c \
+${ROOT}/src/client/crypto_native_client.c"
+
+GUEST_GLUE_SRCS="\
+${BAREMETAL_NS_DIR}/libc_stubs_guest.c"
+else
 WT_CLIENT_SRCS="\
 ${ROOT}/src/client/psa_ffm_client.c \
 ${ROOT}/src/client/hsm_psa_transport.c"
@@ -115,6 +126,7 @@ ${ROOT}/src/client/hsm_psa_transport.c"
 GUEST_GLUE_SRCS="\
 ${BAREMETAL_NS_DIR}/libc_stubs_guest.c \
 ${WOLFHSM_MODULE_DIR}/src/wolfhsm_client_glue.c"
+fi
 
 # wh_settings.h picks up config via `#ifdef WOLFHSM_CFG / #include
 # "wolfhsm_cfg.h"`; generate the trampolines pointing at the shared guest
@@ -127,6 +139,12 @@ printf '#include "%s"\n' "${BAREMETAL_NS_DIR}/wh_settings_guest.h" \
     > "${WH_CFG_DIR}/wolfhsm_guest_cfg.h"
 
 APP_SRCS="${APP_DIR}/main.c"
+
+if [ "${WT_ENGINE}" = "native" ]; then
+WT_ENGINE_DEFS="-DWT_ENGINE_NATIVE=1"
+else
+WT_ENGINE_DEFS="-DWOLFHSM_CFG -DWOLF_CRYPTO_CB -DWT_ENGINE_HSM=1 -DWT_WOLFHSM_CLIENT_ID=2"
+fi
 
 CFLAGS="\
 -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
@@ -149,10 +167,7 @@ CFLAGS="\
 -DWOLFSSL_USER_SETTINGS \
 -DWOLFSSL_PSA_ENGINE \
 -DWOLFPSA_NO_TRACE \
--DWOLFHSM_CFG \
--DWOLF_CRYPTO_CB \
--DWT_ENGINE_HSM=1 \
--DWT_WOLFHSM_CLIENT_ID=2 \
+${WT_ENGINE_DEFS} \
 -DWC_RESEED_INTERVAL=1000000 \
 -include ${SUBTREE_DIR}/module/wolfpsa/wolfpsa_no_trace.h \
 -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8 \
@@ -191,7 +206,16 @@ NM_OUT=$(arm-none-eabi-nm "${BUILD_DIR}/freertos_guest1.elf") || {
     echo "FAIL: nm on the guest1 image failed" >&2
     exit 1
 }
-if ! printf '%s\n' "${NM_OUT}" | grep -q "wt_hsm_psa_transport_cb"; then
+if [ "${WT_ENGINE}" = "native" ]; then
+    if ! printf '%s\n' "${NM_OUT}" | grep -q "wt_crypto_native_call"; then
+        echo "guest1 is not wired to the native crypto wire client" >&2
+        exit 1
+    fi
+    if printf '%s\n' "${NM_OUT}" | grep -q "wh_Client"; then
+        echo "FAIL: wolfHSM client linked into a native-engine guest1" >&2
+        exit 1
+    fi
+elif ! printf '%s\n' "${NM_OUT}" | grep -q "wt_hsm_psa_transport_cb"; then
     echo "guest1 is not wired to the SPM-mediated wolfHSM transport" >&2
     exit 1
 fi

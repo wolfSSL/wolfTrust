@@ -52,6 +52,9 @@
 
 #include "attestation_verify.h"
 
+/* The hsmattackneg probe drives the raw wolfHSM client; only that probe
+ * build (hsm engine) links the client, so the headers gate with it. */
+#if defined(WT_HSM_ATTACK_PROBE)
 #include "wolfssl/wolfcrypt/ecc.h"
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_comm.h"
@@ -61,6 +64,7 @@
 #include "wolfhsm/wh_message.h"
 #include "wolfhsm/wh_message_nvm.h"
 #include "wolftrust/services/hsm.h"
+#endif
 
 LOG_MODULE_REGISTER(guest0_psa, LOG_LEVEL_INF);
 

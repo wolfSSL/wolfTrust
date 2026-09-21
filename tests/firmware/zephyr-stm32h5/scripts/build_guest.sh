@@ -30,6 +30,7 @@ WT_FWU_PROBE="${WT_FWU_PROBE:-0}"
 WT_WRITE_ONCE_RESET_PROBE="${WT_WRITE_ONCE_RESET_PROBE:-0}"
 WT_HSM_ATTACK_PROBE="${WT_HSM_ATTACK_PROBE:-0}"
 WT_MPU_BYPASS_PROBE="${WT_MPU_BYPASS_PROBE:-0}"
+. "$ROOT/tests/target/lib/engine.sh"
 
 if [ ! -d "$APP_DIR" ]; then
     echo "unknown guest app: $APP_NAME" >&2
@@ -64,6 +65,16 @@ set -- \
     "-DWT_WRITE_ONCE_RESET_PROBE=$WT_WRITE_ONCE_RESET_PROBE" \
     "-DWT_HSM_ATTACK_PROBE=$WT_HSM_ATTACK_PROBE" \
     "-DWT_MPU_BYPASS_PROBE=$WT_MPU_BYPASS_PROBE"
+
+if [ "$WT_ENGINE" = "native" ]; then
+    set -- "$@" \
+        "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=n" \
+        "-DCONFIG_WOLFTRUST_NATIVE_CLIENT=y"
+else
+    set -- "$@" \
+        "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=y" \
+        "-DCONFIG_WOLFTRUST_NATIVE_CLIENT=n"
+fi
 
 if [ -n "${ZEPHYR_TOOLCHAIN_VARIANT:-}" ]; then
     set -- "$@" "-DZEPHYR_TOOLCHAIN_VARIANT=$ZEPHYR_TOOLCHAIN_VARIANT"
@@ -115,7 +126,16 @@ if printf '%s\n' "$NM_OUT" | \
     echo "FAIL: retired direct veneers linked into $APP_NAME" >&2
     exit 1
 fi
-if ! printf '%s\n' "$NM_OUT" | grep -q 'wt_hsm_psa_transport_cb'; then
+if [ "$WT_ENGINE" = "native" ]; then
+    if ! printf '%s\n' "$NM_OUT" | grep -q 'wt_crypto_native_call'; then
+        echo "FAIL: $APP_NAME is not wired to the native crypto wire client" >&2
+        exit 1
+    fi
+    if printf '%s\n' "$NM_OUT" | grep -q 'wh_Client'; then
+        echo "FAIL: wolfHSM client linked into a native-engine $APP_NAME" >&2
+        exit 1
+    fi
+elif ! printf '%s\n' "$NM_OUT" | grep -q 'wt_hsm_psa_transport_cb'; then
     echo "FAIL: $APP_NAME is not wired to the SPM-mediated wolfHSM transport" >&2
     exit 1
 fi

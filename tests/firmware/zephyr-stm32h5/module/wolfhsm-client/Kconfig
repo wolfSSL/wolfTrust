@@ -17,3 +17,13 @@ if WOLFTRUST_WOLFHSM_CLIENT
 # in the module's SYS_INIT hook. Nothing to configure here yet.
 
 endif # WOLFTRUST_WOLFHSM_CLIENT
+
+config WOLFTRUST_NATIVE_CLIENT
+	bool "wolfTrust non-secure native crypto client (WT_ENGINE=native)"
+	depends on ARM
+	depends on !WOLFTRUST_WOLFHSM_CLIENT
+	help
+	  Link the native-engine crypto client into the Zephyr image: wolfCrypt
+	  runs Non-secure with no crypto_cb routing, and DRBG seed material
+	  comes from the secure vault RNG over the SERVICE_HSM native wire
+	  (one psa_call per request through the same 5-veneer FF-M gateway).

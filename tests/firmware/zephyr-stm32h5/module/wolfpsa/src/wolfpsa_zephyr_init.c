@@ -35,7 +35,9 @@
 #include <psa/crypto.h>
 #include <wolfpsa/psa_engine.h>
 
+#ifdef CONFIG_WOLFTRUST_WOLFHSM_CLIENT
 #include "wolfhsm/wh_client.h"
+#endif
 
 LOG_MODULE_REGISTER(wolfpsa_zephyr, LOG_LEVEL_INF);
 
@@ -43,7 +45,9 @@ static int wolfpsa_zephyr_sys_init(void)
 {
     psa_status_t st;
 
+#ifdef CONFIG_WOLFTRUST_WOLFHSM_CLIENT
     (void)wolfPSA_SetDefaultDevID(WH_DEV_ID);
+#endif
 
     st = psa_crypto_init();
     if (st != PSA_SUCCESS) {
@@ -51,7 +55,11 @@ static int wolfpsa_zephyr_sys_init(void)
         return -EIO;
     }
 
+#ifdef CONFIG_WOLFTRUST_WOLFHSM_CLIENT
     LOG_INF("wolfPSA up; default devId=0x%08x", (unsigned)WH_DEV_ID);
+#else
+    LOG_INF("wolfPSA up; native engine (Non-secure wolfCrypt)");
+#endif
     return 0;
 }
 

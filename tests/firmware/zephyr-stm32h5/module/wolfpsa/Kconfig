@@ -1,13 +1,14 @@
 menuconfig WOLFPSA
-	bool "wolfPSA Crypto engine (PSA API over wolfCrypt + wolfHSM)"
-	depends on WOLFTRUST_WOLFHSM_CLIENT
+	bool "wolfPSA Crypto engine (PSA API over wolfCrypt)"
+	depends on WOLFTRUST_WOLFHSM_CLIENT || WOLFTRUST_NATIVE_CLIENT
 	depends on !MBEDTLS
 	depends on !BUILD_WITH_TFM
 	help
 	  Link the lib/wolfPSA submodule into the Zephyr image and expose
-	  the PSA Crypto API on top of wolfCrypt. The wolfPSA glue calls
-	  wolfPSA_SetDefaultDevID(WH_DEV_ID) in its SYS_INIT hook so every
-	  psa_*() call routes through the wolfHSM client (registered by
-	  the wolfhsm-client module) and across the CMSE boundary into
-	  the secure side. Mutually exclusive with Zephyr's bundled
-	  mbedTLS PSA front-end and TF-M.
+	  the PSA Crypto API on top of wolfCrypt. With the wolfhsm-client
+	  module (hsm engine) the glue calls wolfPSA_SetDefaultDevID(WH_DEV_ID)
+	  in its SYS_INIT hook so every psa_*() call routes through the wolfHSM
+	  client across the CMSE boundary; with the native client, primitives
+	  run Non-secure and only DRBG seeds cross to the secure vault RNG.
+	  Mutually exclusive with Zephyr's bundled mbedTLS PSA front-end
+	  and TF-M.

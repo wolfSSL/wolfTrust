@@ -160,3 +160,90 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
   )
 
 endif()
+
+if(CONFIG_WOLFTRUST_NATIVE_CLIENT)
+
+  set(WT_REPO_ROOT      ${CMAKE_CURRENT_LIST_DIR}/../../../../..)
+  set(WT_WOLFSSL_DIR    ${WT_REPO_ROOT}/lib/wolfSSL)
+  set(WT_MODULE_DIR     ${CMAKE_CURRENT_LIST_DIR})
+
+  zephyr_include_directories(
+    ${WT_MODULE_DIR}/include
+    ${WT_MODULE_DIR}/include/wolftrust/wolfhsm
+    ${WT_WOLFSSL_DIR}
+    ${WT_REPO_ROOT}/include
+  )
+
+  # Same wolfCrypt shape as the hsm client, minus the crypto_cb routing and
+  # every wolfHSM define: primitives run Non-secure, seeds ride the native
+  # wire (crypto_native_client.c) to the secure vault RNG.
+  zephyr_compile_definitions(
+    WOLFSSL_USER_SETTINGS
+    WC_RESEED_INTERVAL=1000000
+    WT_ENGINE_NATIVE=1
+    WOLFSSL_SP_ASM
+    WOLFSSL_SP_ARM_CORTEX_M_ASM
+    WOLFSSL_ARM_ARCH=8
+    WOLFSSL_ECDSA_DETERMINISTIC_K
+    WOLFSSL_ARMASM
+    WOLFSSL_ARMASM_NO_HW_CRYPTO
+    WOLFSSL_ARMASM_INLINE
+    WOLFSSL_ARMASM_NO_NEON
+    WOLFSSL_ARMASM_THUMB2
+    NO_ERROR_STRINGS
+    HAVE_ANONYMOUS_INLINE_AGGREGATES=1
+    WOLFSSL_ZEPHYR
+  )
+
+  zephyr_library_named(wolftrust_native_client)
+
+  zephyr_library_sources(
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/aes.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/ecc.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/random.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/sha256.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/asn.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/coding.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/error.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/hash.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/hmac.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/memory.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/pwdbased.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/sha.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_cortexm.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_int.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/wolfmath.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/wc_port.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
+  )
+
+  zephyr_library_sources(
+    ${WT_REPO_ROOT}/src/client/crypto_native_client.c
+    ${WT_REPO_ROOT}/src/client/psa_ffm_client.c
+  )
+
+  set_source_files_properties(
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/aes.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/ecc.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/random.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/sha256.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/asn.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/coding.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/error.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/hash.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/hmac.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/memory.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/pwdbased.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/sha.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_cortexm.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_int.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/wolfmath.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/wc_port.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c
+    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
+    PROPERTIES COMPILE_OPTIONS
+      "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter;-Wno-type-limits"
+  )
+
+endif()

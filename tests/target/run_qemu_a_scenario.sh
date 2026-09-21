@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -53,6 +53,7 @@ case "$scenario" in
   devstorage) QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVSTORAGE:-600}" ;;
   devattest)  QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVATTEST:-600}" ;;
   devcrypto)  QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVCRYPTO:-3600}" ;;
+  vaultrecover) QEMU_TIMEOUT="${QEMU_TIMEOUT_VAULTRECOVER:-3600}" ;;
 esac
 TOOLPREFIX="${TOOLPREFIX:-aarch64-none-elf-}"
 
@@ -104,6 +105,9 @@ else
     confboot|devstorage) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1) ;;
     # The wolfPSA guests carry a heap: one 2 MB block costs the same table page.
     devattest|devcrypto) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EL3_TEST_HANDOFF=1) ;;
+    # Same crypto image, but the foreign-pool probe forces the boot-time vault
+    # recovery; the test handoff's unlocked lifecycle lets it self-heal.
+    vaultrecover) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EL3_TEST_HANDOFF=1 WT_VAULT_FOREIGN_PROBE=1) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
     vaultrecoversec) probe=(WT_EL3_NS_SMOKE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1) ;;
@@ -126,6 +130,7 @@ else
      [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
      [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
      [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
+     [ "$scenario" = vaultrecover ] || \
      [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devcrypto ]; then
     nsfw="$repo/tests/firmware/aarch64-ns-smoke"
@@ -160,6 +165,7 @@ else
     [ "$scenario" = devstorage ] && { ns_conf=1; ns_suite=storage; }
     [ "$scenario" = devattest ] && { ns_conf=1; ns_suite=attestation; }
     [ "$scenario" = devcrypto ] && { ns_conf=1; ns_suite=crypto; }
+    [ "$scenario" = vaultrecover ] && { ns_conf=1; ns_suite=crypto; }
     # The secure keystore address to probe from NS and the conformance data
     # band the val PAL config names differ per target.
     ns_secure_probe=0x0E300000
@@ -220,6 +226,7 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
    [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
    [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
+   [ "$scenario" = vaultrecover ] || \
    [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devcrypto ]; then
   args+=(-device "loader,file=$ns_bin,addr=$ns_base")
@@ -563,6 +570,32 @@ case "$scenario" in
     else
       check_fail "dev_apis storage suite" \
         "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=17)"
+    fi
+    expect "val returned to the payload" "[NS] conformance val_entry returned"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  vaultrecover)
+    # The foreign-pool probe forces the boot-time vault recovery. Under the
+    # test handoff's unlocked lifecycle the vault self-heals (reformat and
+    # re-provision), attestation comes back, and the crypto suite still totals
+    # 64 passed / 13 skipped -- proving the recovery neither bricked the boot
+    # nor left the vault unusable (WT-FFM-0017/0051).
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no partition fault" '\[SYNC EL=0'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no SPMC panic" '\[SPM\] panic'
+    expect "the Normal-world test harness ran at NS-EL1" "[NS] hello el=1"
+    expect "val started from the payload" "[NS] conformance val_entry start"
+    flat="$(tr -d '\r\n' < "$log")"
+    passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"
+    if [ "$failed" = "0" ] && [ "$((passed + skipped))" -eq 77 ] && [ "$passed" -ge 1 ]; then
+      check_pass "crypto suite green after self-heal: ${passed} passed, ${skipped} skipped, 0 failed (77 total)"
+    else
+      check_fail "crypto suite after self-heal" \
+        "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=77)"
     fi
     expect "val returned to the payload" "[NS] conformance val_entry returned"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"

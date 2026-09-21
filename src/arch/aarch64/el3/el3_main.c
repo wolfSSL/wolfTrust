@@ -209,6 +209,14 @@ void wt_el3_main(void)
                  (const void*)(uintptr_t)(WT_EL3_TEXT_BASE + WT_SPM_FLASH_OFFSET),
                  (size_t)WT_SPM_IMAGE_SIZE);
 #endif
+#if defined(WT_FFA_ACS_FLASH_OFFSET)
+    /* Conformance image only: the FF-A ACS partition images and the suite's
+     * test NVM ride behind the SPMC image in flash, since nothing else can
+     * place them in Secure RAM on this machine. */
+    (void)memcpy((void*)(uintptr_t)WT_FFA_ACS_BASE,
+                 (const void*)(uintptr_t)(WT_EL3_TEXT_BASE + WT_FFA_ACS_FLASH_OFFSET),
+                 (size_t)WT_FFA_ACS_FLASH_SIZE);
+#endif
     wt_el3_puts("[EL3] spmc image at 0x");
     wt_el3_puthex((uint64_t)WT_SPM_IMAGE_PA, 8u);
     wt_el3_puts("\r\n");

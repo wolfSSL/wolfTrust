@@ -26,6 +26,7 @@
 #define WOLFTRUST_ARCH_AARCH64_SPM_SVC_H
 
 #include "wolftrust/arch/aarch64/context.h"
+#include "wolftrust/types.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -72,6 +73,12 @@ uint64_t wt_spm_yield_token(void);
  * coroutine then counts as that partition's initialization. */
 extern volatile uint32_t g_wt_spm_partitions_live;
 uint32_t wt_spm_sp_init_count(void);
+
+/* FF-A endpoint identity of the S-EL0 partitions, and whether one is still in
+ * its initialization (before its first block). */
+uint16_t wt_spm_sp_ffa_id(const struct wt_co* co);
+struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id);
+int wt_spm_sp_initializing(const struct wt_co* co);
 
 /* The boot handoff record the FF-A boot information named, if any. */
 extern uintptr_t g_wt_spm_handoff_pa;
@@ -124,6 +131,28 @@ void wt_spm_sint_queue(uint32_t intid);
 uint32_t wt_spm_sint_take_pending(const struct wt_co* co);
 extern volatile uint32_t g_wt_spm_sint_queued;
 void wt_spm_prove_sint_route(struct wt_co* co);
+
+/* FF-A native partitions: separately built S-EL0 images that speak FF-A
+ * directly rather than hosting an FF-M service (the FF-A ACS endpoints). The
+ * port lists them; the SPMC maps each one's regions, enters it at its entry,
+ * and reports it through FFA_PARTITION_INFO_GET. Conformance builds only. */
+#define WT_FFA_NATIVE_SP_MAX     4u
+#define WT_FFA_NATIVE_SP_REGIONS 4u
+
+typedef struct wt_ffa_native_sp {
+    uintptr_t entry;
+    uintptr_t stack_base;
+    size_t stack_size;
+    wt_memory_region_t regions[WT_FFA_NATIVE_SP_REGIONS];
+    size_t region_count;
+    uint8_t uuid[16];
+    uint32_t properties;
+} wt_ffa_native_sp_t;
+
+const wt_ffa_native_sp_t* wt_platform_ffa_native_partitions(size_t* count);
+const wt_ffa_native_sp_t* wt_spm_ffa_native_list(size_t* count);
+struct wt_co* wt_spm_ffa_native_by_id(uint16_t id);
+uint16_t wt_spm_ffa_native_id(size_t index);
 
 /* The test echo partition (WT_FFA_ID_ECHO), NULL unless WT_EL3_TEST_DRIVER=1.
  * enable_mmu publishes its stack band (the slot after the last manifest

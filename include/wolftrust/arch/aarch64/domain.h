@@ -39,7 +39,7 @@
  * the partition's mapping (EL0 + EL1) replaces it. Partial cover still
  * fails. A shareable range is mapped non-global in every table (it is the
  * builder's WT_TABLES_ATTR_NG hint) so no ASID inherits another's entry. */
-#define WT_DOMAIN_MAX_FILL   24u
+#define WT_DOMAIN_MAX_FILL   32u
 #define WT_DOMAIN_FILL_SHARED WT_TABLES_ATTR_NG
 
 #define WT_DOMAIN_FAIL_INIT   1
@@ -54,6 +54,13 @@ uint64_t wt_domain_init(const wt_memory_region_t* fill, size_t fill_count,
 uint64_t wt_domain_current_ttbr0(void);
 size_t wt_domain_tables_built(void);
 size_t wt_domain_pool_pages_used(void);
+
+/* FFA_MEM_PERM_SET/GET on an already-built domain: the range must lie inside
+ * one of the domain's own memory regions; WT_TABLES_* result codes. */
+int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
+                              uintptr_t va, size_t pages, uint32_t attributes);
+int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
+                              uintptr_t va, uint32_t* attributes);
 
 /* Fail-closed hook: the SPMC image panics, the host suite records it. */
 void wt_domain_fail(int code);

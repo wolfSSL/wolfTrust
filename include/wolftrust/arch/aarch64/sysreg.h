@@ -149,6 +149,7 @@ static inline uint64_t wt_current_el(void)
 
 /* SPSR: EL1h with D, A, I, F masked. */
 #define WT_SPSR_EL1H_DAIF 0x3C5u
+#define WT_SPSR_EL2H_DAIF 0x3C9u
 #define WT_SPSR_M_EL(spsr) ((uint32_t)(((spsr) >> 2) & 0x3u))
 
 /* ESR */

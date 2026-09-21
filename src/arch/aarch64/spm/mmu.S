@@ -55,3 +55,12 @@ wt_mmu_switch_ttbr0:
     msr     TTBR0_EL1, x0
     isb
     ret
+
+/* void wt_mmu_tlbi_asid(uint64_t asid): drop one domain's cached entries. */
+    .globl wt_mmu_tlbi_asid
+wt_mmu_tlbi_asid:
+    lsl     x0, x0, #48
+    tlbi    aside1, x0
+    dsb     sy
+    isb
+    ret

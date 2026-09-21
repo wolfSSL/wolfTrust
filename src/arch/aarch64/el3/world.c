@@ -120,9 +120,14 @@ static void world_init_ns(wt_el3_world_t* w)
         w->frame.x[i] = 0u;
     }
     w->frame.elr = (uint64_t)WT_NS_IMAGE_PA;
+#if defined(WT_EL3_NS_EL2) && (WT_EL3_NS_EL2 == 1)
+    w->frame.spsr = WT_SPSR_EL2H_DAIF;
+    w->scr_el3 = WT_SCR_EL3_NS | WT_SCR_HCE;
+#else
     w->frame.spsr = WT_SPSR_EL1H_DAIF;
-    w->frame.pad = 0u;
     w->scr_el3 = WT_SCR_EL3_NS;
+#endif
+    w->frame.pad = 0u;
     w->sp_el0 = 0u;
     w->sp_el1 = 0u;
     w->sctlr_el1 = WT_SCTLR_EL1_RES1;

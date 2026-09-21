@@ -48,6 +48,15 @@ void wt_mmu_switch_ttbr0(uint64_t ttbr0)
     g_switches++;
 }
 
+static uint64_t g_tlbi_asid;
+static unsigned int g_tlbis;
+
+void wt_mmu_tlbi_asid(uint64_t asid)
+{
+    g_tlbi_asid = asid;
+    g_tlbis++;
+}
+
 void wt_domain_fail(int code)
 {
     g_last_fail = code;
@@ -109,6 +118,7 @@ int main(void)
     uint64_t sp1;
     size_t used;
     unsigned int switches;
+    uint32_t attrs;
 
     printf("WT-PORT-0014 (AArch64 domain operations)\n");
 
@@ -163,6 +173,28 @@ int main(void)
     check(g_fails == 3u && g_last_fail == WT_DOMAIN_FAIL_BUILD &&
           g_switches == switches && wt_domain_tables_built() == 3u,
           "partial cover of a shareable fill entry still fails the build");
+
+    attrs = 0u;
+    check(wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, &attrs) ==
+              WT_TABLES_OK && attrs == RX,
+          "a partition reads back its code page as read-execute");
+    check(wt_domain_set_permissions(g_sp0, 2u, 0x0E201000u, 1u, RW) ==
+              WT_TABLES_OK && g_tlbis == 1u && g_tlbi_asid == 1u &&
+          wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, &attrs) ==
+              WT_TABLES_OK && attrs == RW,
+          "re-permissioning an owned page invalidates exactly that domain's ASID");
+    check(wt_domain_set_permissions(g_sp0, 2u, 0x0E400000u, 1u, RW) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          wt_domain_set_permissions(g_sp0, 2u, 0x0E203000u, 2u, RW) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          wt_domain_set_permissions(g_sp0, 2u, 0x0E000000u, 1u, RW) ==
+              WT_TABLES_ERROR_UNMAPPED && g_tlbis == 1u,
+          "another partition's page, a range past the region end, and SPM memory are refused");
+    check(wt_domain_set_permissions(g_bad, 1u, 0x0E000000u, 1u, RW) ==
+              WT_TABLES_ERROR_ARGUMENT &&
+          wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, NULL) ==
+              WT_TABLES_ERROR_ARGUMENT,
+          "a domain that was never built and a NULL result are refused");
 
     check(wt_domain_pool_pages_used() <= POOL_PAGES, "pool accounting stays inside the pool");
 

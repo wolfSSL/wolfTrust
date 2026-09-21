@@ -45,7 +45,7 @@ const wt_system_manifest_t* wt_generated_manifest_get(void);
 
 #define WT_SPMC_UNKNOWN_FID (WT_FFA_FID32_LAST - 0xFu)
 #define WT_SPMC_BOOT_INFO_LIMIT 4096u
-#define WT_SPMC_MAX_FILL 24u
+#define WT_SPMC_MAX_FILL 32u
 /* Non-secure window the SPMC maps EL1-only to reach a guest's psa_call buffers
  * (the guest image plus its stack live at WT_NS_IMAGE_PA). */
 #ifndef WT_PSA_NS_WINDOW_SIZE
@@ -237,6 +237,37 @@ static size_t add_echo_band(wt_memory_region_t* fill, size_t n,
 }
 #endif
 
+#if defined(WT_FFA_ACS) && (WT_FFA_ACS == 1)
+/* Each native partition's memory is a shareable fill entry: its own table maps
+ * it at EL0 with the listed permissions, every other table keeps it EL1-only
+ * so the SPMC can seed its stack and reach its message buffers. */
+static size_t add_native_bands(wt_memory_region_t* fill, size_t n)
+{
+    const wt_ffa_native_sp_t* list;
+    size_t count = 0u;
+    size_t i;
+    size_t j;
+
+    list = wt_platform_ffa_native_partitions(&count);
+    for (i = 0u; (list != NULL) && (i < count); i++) {
+        for (j = 0u; (j < list[i].region_count) && (n < WT_SPMC_MAX_FILL); j++) {
+            fill[n].base = list[i].regions[j].base;
+            fill[n].size = list[i].regions[j].size;
+            fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
+                                 WT_DOMAIN_FILL_SHARED;
+            n++;
+        }
+    }
+    return n;
+}
+#else
+static size_t add_native_bands(wt_memory_region_t* fill, size_t n)
+{
+    (void)fill;
+    return n;
+}
+#endif
+
 static void enable_mmu(uint64_t boot_info_pa)
 {
     const wt_system_manifest_t* manifest = wt_generated_manifest_get();
@@ -304,6 +335,7 @@ static void enable_mmu(uint64_t boot_info_pa)
         n++;
     }
     n = add_echo_band(fill, n, last_base, band_size);
+    n = add_native_bands(fill, n);
     fill[n].base = (uintptr_t)boot_info_pa;
     fill[n].size = WT_TABLES_PAGE_SIZE;
     fill[n].attributes = WT_MEM_ATTR_READ;
@@ -835,6 +867,9 @@ static void direct_request(wt_ffa_regs_t* r)
     if (ret == 0) {
         if (receiver == WT_FFA_ID_ECHO) {
             co = wt_spm_ffa_echo_partition();
+        }
+        else {
+            co = wt_spm_ffa_native_by_id(receiver);
         }
         ret = (co != NULL) ? wt_spm_ffa_direct_deliver(co, r->x, resp) : WT_FFA_BUSY;
     }

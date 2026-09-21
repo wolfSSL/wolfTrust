@@ -174,3 +174,68 @@ uintptr_t wt_platform_probe_address(unsigned int target)
     }
 }
 #endif
+
+#if defined(WT_FFA_ACS) && (WT_FFA_ACS == 1)
+/* The Arm FF-A ACS endpoints SP1..SP4 (conformance images only): each owns a
+ * 1 MB band the runner loads its image into, entered 0x4000 in; SP1 also owns
+ * the suite's 64 KB test NVM and its read-only test page. The UUIDs are the
+ * pinned suite's, stored as the little-endian bytes of its four words. */
+#define WT_ACS_BAND_SIZE    0x00100000u
+#define WT_ACS_ENTRY_OFFSET 0x00004000u
+#define WT_ACS_STACK_SIZE   0x00001000u
+#define WT_ACS_NVM_OFFSET   0x00400000u
+#define WT_ACS_NVM_SIZE     0x00010000u
+#define WT_ACS_RO_OFFSET    0x00410000u
+#define WT_ACS_PROPERTIES   0x00000103u
+
+#define WT_ACS_BAND(n) ((uintptr_t)WT_FFA_ACS_BASE + ((n) * WT_ACS_BAND_SIZE))
+#define WT_ACS_IMAGE(n) \
+    { WT_ACS_BAND(n), WT_ACS_BAND_SIZE, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC }
+#define WT_ACS_UUID(a, b, c, d) { \
+    (uint8_t)(a), (uint8_t)((a) >> 8), (uint8_t)((a) >> 16), (uint8_t)((a) >> 24), \
+    (uint8_t)(b), (uint8_t)((b) >> 8), (uint8_t)((b) >> 16), (uint8_t)((b) >> 24), \
+    (uint8_t)(c), (uint8_t)((c) >> 8), (uint8_t)((c) >> 16), (uint8_t)((c) >> 24), \
+    (uint8_t)(d), (uint8_t)((d) >> 8), (uint8_t)((d) >> 16), (uint8_t)((d) >> 24) }
+#define WT_ACS_ENTRY(n) (WT_ACS_BAND(n) + WT_ACS_ENTRY_OFFSET)
+#define WT_ACS_STACK(n) (WT_ACS_BAND(n) + WT_ACS_BAND_SIZE - WT_ACS_STACK_SIZE)
+
+static const wt_ffa_native_sp_t g_acs_partitions[] = {
+    {
+        WT_ACS_ENTRY(0u), WT_ACS_STACK(0u), WT_ACS_STACK_SIZE,
+        {
+            WT_ACS_IMAGE(0u),
+            { (uintptr_t)WT_FFA_ACS_BASE + WT_ACS_NVM_OFFSET, WT_ACS_NVM_SIZE,
+              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE },
+            { (uintptr_t)WT_FFA_ACS_BASE + WT_ACS_RO_OFFSET, WT_TABLES_PAGE_SIZE,
+              WT_MEM_ATTR_READ }
+        },
+        3u,
+        WT_ACS_UUID(0x1e67b5b4u, 0xe14f904au, 0x13fb1fb8u, 0xcbdae1dau),
+        WT_ACS_PROPERTIES
+    },
+    {
+        WT_ACS_ENTRY(1u), WT_ACS_STACK(1u), WT_ACS_STACK_SIZE,
+        { WT_ACS_IMAGE(1u) }, 1u,
+        WT_ACS_UUID(0x092358d1u, 0xb94723f0u, 0x64447c82u, 0xc88f57f5u),
+        WT_ACS_PROPERTIES
+    },
+    {
+        WT_ACS_ENTRY(2u), WT_ACS_STACK(2u), WT_ACS_STACK_SIZE,
+        { WT_ACS_IMAGE(2u) }, 1u,
+        WT_ACS_UUID(0x735cb579u, 0xb9448c1du, 0xe1619385u, 0xd2d80a77u),
+        WT_ACS_PROPERTIES
+    },
+    {
+        WT_ACS_ENTRY(3u), WT_ACS_STACK(3u), WT_ACS_STACK_SIZE,
+        { WT_ACS_IMAGE(3u) }, 1u,
+        WT_ACS_UUID(0x2658cda4u, 0xcf6713e1u, 0x49cd10f9u, 0x31ef6813u),
+        WT_ACS_PROPERTIES
+    }
+};
+
+const wt_ffa_native_sp_t* wt_platform_ffa_native_partitions(size_t* count)
+{
+    *count = sizeof(g_acs_partitions) / sizeof(g_acs_partitions[0]);
+    return g_acs_partitions;
+}
+#endif

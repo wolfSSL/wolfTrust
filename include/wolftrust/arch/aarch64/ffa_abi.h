@@ -136,14 +136,28 @@ static inline int wt_ffa_version_compatible(uint32_t caller, uint32_t callee)
            (WT_FFA_VERSION_MINOR_OF(caller) <= WT_FFA_VERSION_MINOR_OF(callee));
 }
 
-/* The callee always reports its own version to a well-formed request (13.2.2);
- * bit 31 set is malformed and gets NOT_SUPPORTED. */
+/* From FF-A 1.1 the callee reports its version only to a compatible caller
+ * (13.2.2); a malformed (bit 31) or incompatible request is NOT_SUPPORTED. */
 static inline int32_t wt_ffa_version_reply(uint32_t input, uint32_t ours)
 {
-    if ((input & 0x80000000u) != 0u) {
+    if (((input & 0x80000000u) != 0u) ||
+        !wt_ffa_version_compatible(input, ours)) {
         return (int32_t)WT_FFA_NOT_SUPPORTED;
     }
     return (int32_t)ours;
+}
+
+/* A 32-bit function id carries w1-w7 only (SMCCC): a relayer hands the
+ * receiver the low halves and never leaks the sender's upper register bits. */
+static inline void wt_ffa_regs_normalize(uint64_t* x)
+{
+    unsigned int i;
+
+    if (((uint32_t)x[0] & 0x40000000u) == 0u) {
+        for (i = 1u; i < 8u; i++) {
+            x[i] &= 0xFFFFFFFFull;
+        }
+    }
 }
 
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_ABI_H */

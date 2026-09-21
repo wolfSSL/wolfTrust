@@ -357,6 +357,7 @@ int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
     for (i = 0u; i < 8u; i++) {
         a->frame.x[i] = req[i];
     }
+    wt_ffa_regs_normalize(a->frame.x);
     g_wt_ffa_direct_resp_ready = 0u;
     wt_co_wake((wt_co_t*)co);
     (void)wt_co_run((wt_co_t*)co);
@@ -369,6 +370,7 @@ int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
     for (i = 0u; i < 8u; i++) {
         resp[i] = g_wt_ffa_direct_resp[i];
     }
+    wt_ffa_regs_normalize(resp);
     return 0;
 }
 

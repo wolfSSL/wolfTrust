@@ -165,6 +165,7 @@ static int ns_implements(uint32_t fid)
         case WT_FFA_ERROR:
         case WT_FFA_SUCCESS32:
         case WT_FFA_SUCCESS64:
+        case WT_FFA_INTERRUPT:
         case WT_FFA_VERSION:
         case WT_FFA_FEATURES:
         case WT_FFA_ID_GET:
@@ -173,6 +174,13 @@ static int ns_implements(uint32_t fid)
         case WT_FFA_RXTX_MAP32:
         case WT_FFA_RXTX_MAP64:
         case WT_FFA_RXTX_UNMAP:
+        case WT_FFA_MSG_SEND_DIRECT_REQ32:
+        case WT_FFA_MSG_SEND_DIRECT_REQ64:
+        case WT_FFA_MSG_SEND_DIRECT_RESP32:
+        case WT_FFA_MSG_SEND_DIRECT_RESP64:
+        case WT_FFA_MEM_SHARE32:
+        case WT_FFA_MEM_SHARE64:
+        case WT_FFA_MEM_RECLAIM:
             return 1;
         default:
             return 0;

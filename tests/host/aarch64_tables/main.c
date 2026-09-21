@@ -209,6 +209,7 @@ int main(void)
     wt_tables_walk_t w;
     wt_memory_region_t bad[2];
     size_t used;
+    int mapped = 0;
     int ret;
 
     printf("WT-PORT-0014 (AArch64 stage-1 table builder)\n");
@@ -351,6 +352,41 @@ int main(void)
           "re-permission: unaligned, empty, and device-typed requests are refused");
     check(wt_tables_pool_pages_used(&pool) == used,
           "re-permission: rewrites entries in place, no pool growth");
+
+    check(wt_tables_grant_el0(&t, &pool, 0x0E045000u, 1u, RW, &mapped) ==
+              WT_TABLES_OK && mapped == 1 &&
+          walk_is(&t, &pool, 0x0E045000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RW, 1u, 1u, 1u) &&
+          walk_is(&t, &pool, 0x0E046000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
+          "window: one EL1-only page becomes EL0 data, its neighbour is untouched");
+    check(wt_tables_grant_el0(&t, &pool, 0x0E045000u, 1u, RW, &mapped) ==
+              WT_TABLES_ERROR_OVERLAP,
+          "window: a page EL0 already reaches is never granted over");
+    check(wt_tables_revoke_el0(&t, &pool, 0x0E045000u, 1u, 1) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E045000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
+          "window: revoke puts the EL1-only mapping back");
+    check(wt_tables_revoke_el0(&t, &pool, 0x0E045000u, 1u, 1) ==
+              WT_TABLES_ERROR_UNMAPPED,
+          "window: nothing to revoke on an EL1-only page");
+    check(wt_tables_grant_el0(&t, &pool, 0x0E048000u, 2u, WT_MEM_ATTR_READ,
+                              &mapped) == WT_TABLES_OK && mapped == 0 &&
+          walk_is(&t, &pool, 0x0E049000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 1u, 1u, 1u) &&
+          wt_tables_revoke_el0(&t, &pool, 0x0E048000u, 2u, 0) == WT_TABLES_OK &&
+          wt_tables_walk(&t, &pool, 0x0E048000u, &w) != WT_TABLES_OK,
+          "window: absent pages are mapped read-only and unmapped again");
+    check(wt_tables_grant_el0(&t, &pool, 0x0E046000u, 3u, RW, &mapped) ==
+              WT_TABLES_ERROR_OVERLAP &&
+          walk_is(&t, &pool, 0x0E046000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
+          "window: a range mixing mapped and absent pages changes nothing");
+    check(wt_tables_grant_el0(&t, &pool, 0x0E045000u, 1u, RX, &mapped) ==
+              WT_TABLES_ERROR_ARGUMENT &&
+          wt_tables_grant_el0(&t, &pool, 0x0E045800u, 1u, RW, &mapped) ==
+              WT_TABLES_ERROR_ALIGN,
+          "window: executable and unaligned grants are refused");
 
     wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, 2u * WT_TABLES_PAGE_SIZE);
     check(build(&t2, 6u, g_sp, 1u, &pool) == WT_TABLES_ERROR_POOL,

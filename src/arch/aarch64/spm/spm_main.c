@@ -685,7 +685,17 @@ static int prove_mem_share(uint64_t* out_handle)
     in.attributes = (uint16_t)(WT_FFA_MEM_ATTR_TYPE_NORMAL |
                                (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT) |
                                WT_FFA_MEM_ATTR_SHARE_INNER);
-    in.permissions = (uint8_t)(WT_FFA_MEM_PERM_DATA_RW | WT_FFA_MEM_PERM_INSTR_NX);
+    in.permissions = (uint8_t)WT_FFA_MEM_PERM_DATA_RW;
+    /* The borrower exists before the share names it. */
+    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+                                 (wt_co_entry_fn)wt_sp_ffa_borrow, (void*)arg);
+    if (co == NULL) {
+        return 0;
+    }
+    wt_co_set_domain(co, &g_borrow_domain, 1u);
+    if (wt_spm_mem_bind(WT_FFA_ID_MEM_BORROWER, co, &g_borrow_domain) != 0) {
+        return 0;
+    }
     if (wt_ffa_mem_txn_build(g_share_desc, sizeof(g_share_desc), &in, &len) != 0) {
         return 0;
     }
@@ -707,16 +717,6 @@ static int prove_mem_share(uint64_t* out_handle)
     arg[3] = (uint64_t)req_len;
     arg[4] = (uint64_t)WT_FFA_ID_MEM_BORROWER;
 
-    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
-                                 (wt_co_entry_fn)wt_sp_ffa_borrow, (void*)arg);
-    if (co == NULL) {
-        return 0;
-    }
-    wt_co_set_domain(co, &g_borrow_domain, 1u);
-    if (wt_spm_mem_bind(WT_FFA_ID_MEM_BORROWER, co, &g_borrow_domain) != 0) {
-        return 0;
-    }
-
     /* Run 1: retrieve, read the seed, write the reply at S-EL0, yield the seed. */
     wt_co_wake(co);
     if (wt_co_run(co) != 1u) {
@@ -728,9 +728,6 @@ static int prove_mem_share(uint64_t* out_handle)
     if (share[4] != 0xEEu) {
         return 0;
     }
-    if (g_borrow_domain.region_count != 4u) {
-        return 0;
-    }
 
     /* Run 2: relinquish, yield the status; the region is gone from the table. */
     wt_co_wake(co);
@@ -740,11 +737,8 @@ static int prove_mem_share(uint64_t* out_handle)
     if ((uint32_t)wt_spm_yield_token() != WT_FFA_SUCCESS32) {
         return 0;
     }
-    if (g_borrow_domain.region_count != 3u) {
-        return 0;
-    }
 
-    if (wt_spm_mem_reclaim(handle, WT_FFA_ID_SPMC) != 0) {
+    if (wt_spm_mem_reclaim(handle, WT_FFA_ID_SPMC, 0u) != 0) {
         return 0;
     }
     if (wt_spm_mem_retrieve(tx, req_len, WT_FFA_ID_MEM_BORROWER, rx,
@@ -768,6 +762,8 @@ void wt_spm_main(uint64_t boot_info_pa)
     consume_boot_info(boot_info_pa);
     enable_mmu(boot_info_pa);
     wt_spm_mem_init();
+    wt_spm_mem_ns_window((uint64_t)WT_NS_IMAGE_PA,
+                         (uint64_t)WT_PSA_NS_WINDOW_SIZE);
 #if defined(WT_EL3_NS_SMOKE)
     wt_spm_psa_init((uint64_t)WT_NS_IMAGE_PA,
                     (uint64_t)WT_NS_IMAGE_PA + WT_PSA_NS_WINDOW_SIZE);
@@ -1019,7 +1015,7 @@ static void ns_interrupt(wt_ffa_regs_t* r)
  * Non-secure window. Validate and register it; reply with the handle in w2/w3
  * or an error. A malformed descriptor is refused, never a crash. The reply
  * SMC's return is the next event. */
-static void ns_mem_share(wt_ffa_regs_t* r)
+static void ns_mem_send(wt_ffa_regs_t* r, wt_ffa_mem_op_t op)
 {
     uint64_t addr = r->x[3];
     uint32_t total = (uint32_t)r->x[1];
@@ -1037,8 +1033,7 @@ static void ns_mem_share(wt_ffa_regs_t* r)
     }
     else {
         ret = wt_spm_mem_share((const uint8_t*)(uintptr_t)addr, (size_t)total,
-                               WT_FFA_MEM_OP_SHARE, WT_FFA_ID_NS_PRIMARY,
-                               &handle);
+                               op, WT_FFA_ID_NS_PRIMARY, &handle);
     }
     for (i = 0u; i < 8u; i++) {
         r->x[i] = 0u;
@@ -1060,7 +1055,8 @@ static void ns_mem_reclaim(wt_ffa_regs_t* r)
     uint64_t handle = (uint64_t)(uint32_t)r->x[1] |
                       ((uint64_t)(uint32_t)r->x[2] << 32);
     unsigned int i;
-    int ret = wt_spm_mem_reclaim(handle, WT_FFA_ID_NS_PRIMARY);
+    int ret = wt_spm_mem_reclaim(handle, WT_FFA_ID_NS_PRIMARY,
+                                 (uint32_t)r->x[3]);
 
     for (i = 0u; i < 8u; i++) {
         r->x[i] = 0u;
@@ -1128,7 +1124,17 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
             break;
         case WT_FFA_MEM_SHARE32:
         case WT_FFA_MEM_SHARE64:
-            ns_mem_share(r);
+            ns_mem_send(r, WT_FFA_MEM_OP_SHARE);
+            break;
+        case WT_FFA_MEM_LEND32:
+        case WT_FFA_MEM_LEND64:
+            ns_mem_send(r, WT_FFA_MEM_OP_LEND);
+            break;
+        case WT_FFA_MEM_RETRIEVE_REQ32:
+        case WT_FFA_MEM_RETRIEVE_REQ64:
+        case WT_FFA_MEM_RELINQUISH:
+            /* The Normal world only ever owns: nothing is lent to it. */
+            ns_reply(r, WT_FFA_DENIED, 0u, 0u);
             break;
         case WT_FFA_MEM_RECLAIM:
             ns_mem_reclaim(r);

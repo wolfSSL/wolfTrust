@@ -38,8 +38,9 @@
 #define WT_SPM_MEM_MAX_BIND 8u
 /* Borrower mapping cookie: the entry existed before the grant. */
 #define WT_SPM_MEM_MAP_WAS_MAPPED 0x1u
-/* The borrower asked at retrieve for the memory to be zeroed once it lets go. */
-#define WT_SPM_MEM_MAP_ZERO_AFTER 0x2u
+/* Owner cookie, above the send flags it keeps: a borrower asked for the memory
+ * to be zeroed, which happens once no borrower maps it any more. */
+#define WT_SPM_MEM_COOKIE_ZERO_PENDING 0x80000000u
 
 static wt_ffa_mem_registry_t g_reg;
 static wt_spm_mem_binding_t g_bind[WT_SPM_MEM_MAX_BIND];
@@ -417,6 +418,11 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
         if ((perms & WT_FFA_MEM_PERM_DATA_MASK) == WT_FFA_MEM_PERM_DATA_RO) {
             return WT_FFA_DENIED;
         }
+        /* Bit 0 from a borrower means: only if the owner asked for the wipe. */
+        if (((rq.flags & WT_FFA_MEM_FLAG_ZERO) != 0u) &&
+            ((e->owner_cookie & WT_FFA_MEM_FLAG_ZERO) == 0u)) {
+            return WT_FFA_DENIED;
+        }
     }
     ret = alignment_hint_ok(e, rq.flags);
     if (ret != 0) {
@@ -431,7 +437,7 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     in.constituent_count = (uint32_t)e->region_count;
     in.tag = e->tag;
     in.handle = rq.handle;
-    zero = (((rq.flags | e->owner_cookie) & WT_FFA_MEM_FLAG_ZERO) != 0u) ? 1 : 0;
+    zero = ((e->owner_cookie & WT_FFA_MEM_FLAG_ZERO) != 0u) ? 1 : 0;
     in.flags = type_flag(e->state) | ((zero != 0) ? WT_FFA_MEM_FLAG_ZERO : 0u);
     in.op = WT_FFA_MEM_OP_SHARE;
     in.sender = e->owner;
@@ -477,9 +483,6 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
         return ret;
     }
     borrower->mapping = (uint8_t)((was_mapped != 0) ? WT_SPM_MEM_MAP_WAS_MAPPED : 0u);
-    if ((rq.flags & WT_FFA_MEM_FLAG_ZERO_AFTER) != 0u) {
-        borrower->mapping |= (uint8_t)WT_SPM_MEM_MAP_ZERO_AFTER;
-    }
     return wt_ffa_mem_handle_retrieve(&g_reg, rq.handle, receiver);
 }
 
@@ -490,6 +493,7 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)
     wt_spm_mem_binding_t* b;
     uint64_t handle = 0u;
     uint32_t flags = 0u;
+    uint32_t cookie;
     uint32_t i;
     uint16_t ep = 0u;
     int ret;
@@ -516,19 +520,14 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)
         if (e->state == (uint8_t)WT_FFA_MEM_STATE_SHARED) {
             return WT_FFA_INVALID_PARAMETERS;
         }
-        if ((e->borrower_count > 1u) ||
-            ((borrower->permissions & WT_FFA_MEM_PERM_DATA_MASK) ==
-             WT_FFA_MEM_PERM_DATA_RO)) {
+        if ((borrower->permissions & WT_FFA_MEM_PERM_DATA_MASK) ==
+            WT_FFA_MEM_PERM_DATA_RO) {
             return WT_FFA_DENIED;
         }
     }
     ret = wt_ffa_mem_handle_relinquish(&g_reg, handle, endpoint);
     if (ret != 0) {
         return ret;
-    }
-    if (((flags & WT_FFA_MEM_RELINQ_FLAG_ZERO) != 0u) ||
-        ((borrower->mapping & WT_SPM_MEM_MAP_ZERO_AFTER) != 0u)) {
-        zero_regions(e);
     }
     for (i = 0u; i < (uint32_t)e->region_count; i++) {
         (void)wt_domain_revoke(b->dom->regions, b->dom->region_count,
@@ -537,6 +536,17 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)
                                ((borrower->mapping &
                                  WT_SPM_MEM_MAP_WAS_MAPPED) != 0u) ? 1 : 0);
     }
+    /* The flag here, not the one at retrieve, decides; with several borrowers
+     * the wipe waits until the last of them has been unmapped (Table 11.26). */
+    cookie = e->owner_cookie;
+    if ((flags & WT_FFA_MEM_RELINQ_FLAG_ZERO) != 0u) {
+        cookie |= WT_SPM_MEM_COOKIE_ZERO_PENDING;
+    }
+    if (((cookie & WT_SPM_MEM_COOKIE_ZERO_PENDING) != 0u) && (e->retrieved == 0u)) {
+        zero_regions(e);
+        cookie &= ~WT_SPM_MEM_COOKIE_ZERO_PENDING;
+    }
+    wt_ffa_mem_handle_set_meta(&g_reg, handle, e->tag, cookie);
     return 0;
 }
 

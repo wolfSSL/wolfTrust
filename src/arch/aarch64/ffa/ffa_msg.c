@@ -51,12 +51,13 @@ int wt_ffa_direct_req_check(const uint64_t* x, wt_ffa_instance_t inst)
     uint16_t receiver = wt_ffa_direct_receiver(x[1]);
 
     if ((fid != WT_FFA_MSG_SEND_DIRECT_REQ32) &&
-        (fid != WT_FFA_MSG_SEND_DIRECT_REQ64)) {
+        (fid != WT_FFA_MSG_SEND_DIRECT_REQ64) &&
+        (fid != WT_FFA_MSG_SEND_DIRECT_REQ2)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     /* w2 carries the framework bit and reserved fields; a partition message
-     * requires it zero. */
-    if ((uint32_t)x[2] != 0u) {
+     * requires it zero. REQ2 carries the service UUID in x2/x3 instead. */
+    if ((fid != WT_FFA_MSG_SEND_DIRECT_REQ2) && ((uint32_t)x[2] != 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if (sender == receiver) {
@@ -84,10 +85,14 @@ int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst)
     uint16_t receiver = wt_ffa_direct_receiver(x[1]);
 
     if ((fid != WT_FFA_MSG_SEND_DIRECT_RESP32) &&
-        (fid != WT_FFA_MSG_SEND_DIRECT_RESP64)) {
+        (fid != WT_FFA_MSG_SEND_DIRECT_RESP64) &&
+        (fid != WT_FFA_MSG_SEND_DIRECT_RESP2)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if ((uint32_t)x[2] != 0u) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((fid == WT_FFA_MSG_SEND_DIRECT_RESP2) && ((x[2] != 0u) || (x[3] != 0u))) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if (sender == receiver) {

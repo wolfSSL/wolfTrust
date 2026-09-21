@@ -59,6 +59,16 @@ static inline void wt_ffa_smc(wt_ffa_regs_t* r)
 }
 #endif /* __aarch64__ */
 
+/* The extended form FFA_MSG_SEND_DIRECT_REQ2/RESP2 use: x8-x17 carry payload
+ * too, so the conduit loads and captures all eighteen registers. */
+typedef struct wt_ffa_regs_ext {
+    wt_ffa_regs_t base;
+    uint64_t ext[10];
+} wt_ffa_regs_ext_t;
+
+/* spm_switch.S; eighteen operands exceed what an inline asm may name. */
+void wt_ffa_smc_ext(wt_ffa_regs_ext_t* r);
+
 /* wt_ffa_spmd_secure_call outcomes. */
 #define WT_SPMD_ACTION_REPLY  0  /* r holds the reply; return to the SPMC */
 #define WT_SPMD_ACTION_LAUNCH 1  /* SPMC init done; launch the Normal world */

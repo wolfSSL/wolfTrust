@@ -41,6 +41,8 @@
 #include "wolftrust/manifest.h"
 #include "wolftrust/sched/coroutine.h"
 
+#include <string.h>
+
 const wt_system_manifest_t* wt_generated_manifest_get(void);
 
 #define WT_SPMC_UNKNOWN_FID (WT_FFA_FID32_LAST - 0xFu)
@@ -481,8 +483,8 @@ static int prove_ffa_direct(void)
         0x0000C3C3u, 0u, 0u, 0u, 0u
     };
     const wt_domain_descriptor_t* d = first_partition_domain();
-    uint64_t req[8];
-    uint64_t resp[8];
+    uint64_t req[WT_FFA_MSG_REGS_EXT];
+    uint64_t resp[WT_FFA_MSG_REGS_EXT];
     uint8_t* stack;
     wt_co_t* co;
 
@@ -838,77 +840,8 @@ void wt_spm_main(uint64_t boot_info_pa)
     spmc_fail("boot_run returned", r.x[0]);
 }
 
-/* Nothing to run on the Secure side: every event the SPMD delivers is
- * reported until the Secure virtual instance dispatches them. */
-/* A direct request the SPMD relayed from the Normal world: validate it at the
- * NS-physical instance, deliver it to the waiting receiver, and send the
- * partition's response back with FFA_MSG_SEND_DIRECT_RESP32; that SMC's
- * return is the next event. A request no partition can take is answered with
- * FFA_ERROR instead. */
-static void direct_request(wt_ffa_regs_t* r)
-{
-    uint64_t resp[8];
-    struct wt_co* co = NULL;
-    uint16_t receiver = wt_ffa_direct_receiver(r->x[1]);
-    int ret = wt_ffa_direct_req_check(r->x, WT_FFA_INSTANCE_NS_PHYSICAL);
-    unsigned int i;
-
-    wt_el3_puts("[SPM] direct req from=0x");
-    wt_el3_puthex(wt_ffa_direct_sender(r->x[1]), 4u);
-    wt_el3_puts(" to=0x");
-    wt_el3_puthex(receiver, 4u);
-    wt_el3_puts("\r\n");
-    if ((ret == 0) &&
-        (wt_ffa_direct_sender(r->x[1]) != WT_FFA_ID_NS_PRIMARY)) {
-        ret = WT_FFA_INVALID_PARAMETERS;
-    }
-    if (ret == 0 && receiver == WT_FFA_ID_PSA) {
-        (void)wt_spm_psa_framework(r);
-        wt_platform_console_flush();
-        wt_ffa_smc(r);
-        return;
-    }
-    if (ret == 0) {
-        if (receiver == WT_FFA_ID_ECHO) {
-            co = wt_spm_ffa_echo_partition();
-        }
-        else {
-            co = wt_spm_ffa_native_by_id(receiver);
-        }
-        ret = (co != NULL) ? wt_spm_ffa_direct_deliver(co, r->x, resp)
-                           : WT_FFA_INVALID_PARAMETERS;
-    }
-    if (ret == 0) {
-        for (i = 0u; i < 8u; i++) {
-            r->x[i] = resp[i];
-        }
-    }
-    else {
-        for (i = 0u; i < 8u; i++) {
-            r->x[i] = 0u;
-        }
-        r->x[0] = WT_FFA_ERROR;
-        r->x[2] = (uint64_t)(uint32_t)ret;
-    }
-    wt_platform_console_flush();
-    wt_ffa_smc(r);
-}
-
-/* The Normal-world endpoint's mailbox (7.2.2): the SPMC is the producer of its
- * RX buffer, so the pair and its ownership live here, not in the SPMD. */
-static wt_ffa_mailbox_t g_ns_mailbox;
-
-static int ns_range_ok(uint64_t addr, uint64_t len)
-{
-    uint64_t base = (uint64_t)WT_NS_IMAGE_PA;
-    uint64_t limit = base + (uint64_t)WT_PSA_NS_WINDOW_SIZE;
-
-    return ((len != 0u) && (addr >= base) && (addr < limit) &&
-            (len <= (limit - addr))) ? 1 : 0;
-}
-
 /* Answer a forwarded call: FFA_SUCCESS with w2/w3, or FFA_ERROR with ret. The
- * reply SMC's return is the next event. */
+ * idle loop issues the reply SMC, whose return is the next event. */
 static void ns_reply(wt_ffa_regs_t* r, int ret, uint64_t w2, uint64_t w3)
 {
     unsigned int i;
@@ -925,8 +858,86 @@ static void ns_reply(wt_ffa_regs_t* r, int ret, uint64_t w2, uint64_t w3)
         r->x[0] = WT_FFA_ERROR;
         r->x[2] = (uint64_t)(uint32_t)ret;
     }
-    wt_platform_console_flush();
-    wt_ffa_smc(r);
+}
+
+/* Answer with what an endpoint handed back: x0-x7, or x0-x17 for RESP2. */
+static void ns_reply_regs(wt_ffa_regs_ext_t* e, const uint64_t* out)
+{
+    unsigned int count = wt_ffa_msg_reg_count(out[0]);
+    unsigned int i;
+
+    for (i = 0u; i < WT_FFA_MSG_REGS; i++) {
+        e->base.x[i] = out[i];
+    }
+    for (i = WT_FFA_MSG_REGS; i < count; i++) {
+        e->ext[i - WT_FFA_MSG_REGS] = out[i];
+    }
+}
+
+/* Nothing to run on the Secure side: every event the SPMD delivers is
+ * reported until the Secure virtual instance dispatches them. */
+/* A direct request the SPMD relayed from the Normal world: validate it at the
+ * NS-physical instance, deliver it to the waiting receiver, and send the
+ * partition's response back with FFA_MSG_SEND_DIRECT_RESP32; that SMC's
+ * return is the next event. A request no partition can take is answered with
+ * FFA_ERROR instead. */
+static void direct_request(wt_ffa_regs_ext_t* e)
+{
+    uint64_t req[WT_FFA_MSG_REGS_EXT];
+    uint64_t resp[WT_FFA_MSG_REGS_EXT];
+    wt_ffa_regs_t* r = &e->base;
+    struct wt_co* co = NULL;
+    uint16_t receiver = wt_ffa_direct_receiver(r->x[1]);
+    int ret = wt_ffa_direct_req_check(r->x, WT_FFA_INSTANCE_NS_PHYSICAL);
+    unsigned int i;
+
+    wt_el3_puts("[SPM] direct req from=0x");
+    wt_el3_puthex(wt_ffa_direct_sender(r->x[1]), 4u);
+    wt_el3_puts(" to=0x");
+    wt_el3_puthex(receiver, 4u);
+    wt_el3_puts("\r\n");
+    if ((ret == 0) &&
+        (wt_ffa_direct_sender(r->x[1]) != WT_FFA_ID_NS_PRIMARY)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    if (ret == 0 && receiver == WT_FFA_ID_PSA) {
+        (void)wt_spm_psa_framework(r);
+        return;
+    }
+    if (ret == 0) {
+        if (receiver == WT_FFA_ID_ECHO) {
+            co = wt_spm_ffa_echo_partition();
+        }
+        else {
+            co = wt_spm_ffa_native_by_id(receiver);
+        }
+        for (i = 0u; i < WT_FFA_MSG_REGS; i++) {
+            req[i] = r->x[i];
+        }
+        for (i = WT_FFA_MSG_REGS; i < WT_FFA_MSG_REGS_EXT; i++) {
+            req[i] = e->ext[i - WT_FFA_MSG_REGS];
+        }
+        ret = (co != NULL) ? wt_spm_ffa_direct_deliver(co, req, resp)
+                           : WT_FFA_INVALID_PARAMETERS;
+    }
+    if (ret != 0) {
+        ns_reply(r, ret, 0u, 0u);
+        return;
+    }
+    ns_reply_regs(e, resp);
+}
+
+/* The Normal-world endpoint's mailbox (7.2.2): the SPMC is the producer of its
+ * RX buffer, so the pair and its ownership live here, not in the SPMD. */
+static wt_ffa_mailbox_t g_ns_mailbox;
+
+static int ns_range_ok(uint64_t addr, uint64_t len)
+{
+    uint64_t base = (uint64_t)WT_NS_IMAGE_PA;
+    uint64_t limit = base + (uint64_t)WT_PSA_NS_WINDOW_SIZE;
+
+    return ((len != 0u) && (addr >= base) && (addr < limit) &&
+            (len <= (limit - addr))) ? 1 : 0;
 }
 
 /* FFA_RXTX_MAP from the Normal world: both buffers must lie in the window of
@@ -971,24 +982,19 @@ static void ns_partition_info_get(wt_ffa_regs_t* r)
 
 /* FFA_RUN forwarded from the Normal world: w1 bits 31:16 name the endpoint;
  * what it hands back (response, FFA_YIELD, FFA_MSG_WAIT) is the reply. */
-static void ns_run(wt_ffa_regs_t* r)
+static void ns_run(wt_ffa_regs_ext_t* e)
 {
-    uint64_t out[8];
+    uint64_t out[WT_FFA_MSG_REGS_EXT];
     struct wt_co* co =
-        wt_spm_ffa_native_by_id((uint16_t)((uint32_t)r->x[1] >> 16));
-    unsigned int i;
+        wt_spm_ffa_native_by_id((uint16_t)((uint32_t)e->base.x[1] >> 16));
     int ret = (co != NULL) ? wt_spm_ffa_run(co, WT_FFA_ID_NS_PRIMARY, out)
                            : WT_FFA_INVALID_PARAMETERS;
 
     if (ret != 0) {
-        ns_reply(r, ret, 0u, 0u);
+        ns_reply(&e->base, ret, 0u, 0u);
         return;
     }
-    for (i = 0u; i < 8u; i++) {
-        r->x[i] = out[i];
-    }
-    wt_platform_console_flush();
-    wt_ffa_smc(r);
+    ns_reply_regs(e, out);
 }
 
 /* FFA_INTERRUPT the SPMD signalled because a Secure interrupt preempted the
@@ -1006,8 +1012,6 @@ static void ns_interrupt(wt_ffa_regs_t* r)
         r->x[i] = 0u;
     }
     r->x[0] = WT_FFA_NORMAL_WORLD_RESUME;
-    wt_platform_console_flush();
-    wt_ffa_smc(r);
 }
 
 /* FFA_MEM_SHARE forwarded from the Normal world (7.3): the guest's descriptor
@@ -1048,8 +1052,6 @@ static void ns_mem_share(wt_ffa_regs_t* r)
         r->x[0] = WT_FFA_ERROR;
         r->x[2] = (uint64_t)(uint32_t)ret;
     }
-    wt_platform_console_flush();
-    wt_ffa_smc(r);
 }
 
 /* FFA_MEM_RECLAIM forwarded from the Normal world: w1/w2 = handle. */
@@ -1070,64 +1072,75 @@ static void ns_mem_reclaim(wt_ffa_regs_t* r)
         r->x[0] = WT_FFA_ERROR;
         r->x[2] = (uint64_t)(uint32_t)ret;
     }
-    wt_platform_console_flush();
-    wt_ffa_smc(r);
+}
+
+/* One forwarded event; the reply is left in e for the loop's SMC. */
+static void idle_dispatch(wt_ffa_regs_ext_t* e)
+{
+    wt_ffa_regs_t* r = &e->base;
+
+    switch ((uint32_t)r->x[0]) {
+        case WT_FFA_MSG_SEND_DIRECT_REQ32:
+        case WT_FFA_MSG_SEND_DIRECT_REQ64:
+        case WT_FFA_MSG_SEND_DIRECT_REQ2:
+            direct_request(e);
+            break;
+        case WT_FFA_RUN:
+            ns_run(e);
+            break;
+        case WT_FFA_PARTITION_INFO_GET:
+            ns_partition_info_get(r);
+            break;
+        case WT_FFA_RXTX_MAP32:
+        case WT_FFA_RXTX_MAP64:
+            ns_rxtx_map(r);
+            break;
+        case WT_FFA_RXTX_UNMAP:
+            ns_rxtx_unmap(r);
+            break;
+        case WT_FFA_RX_RELEASE:
+            ns_reply(r, wt_ffa_mailbox_rx_release(&g_ns_mailbox), 0u, 0u);
+            break;
+        case WT_FFA_INTERRUPT:
+            ns_interrupt(r);
+            break;
+        case WT_FFA_MEM_SHARE32:
+        case WT_FFA_MEM_SHARE64:
+            ns_mem_share(r);
+            break;
+        case WT_FFA_MEM_RECLAIM:
+            ns_mem_reclaim(r);
+            break;
+        default:
+            wt_el3_puts("[SPM] unexpected event x0=0x");
+            wt_el3_puthex(r->x[0], 8u);
+            wt_el3_puts("\r\n");
+            ns_reply(r, WT_FFA_NOT_SUPPORTED, 0u, 0u);
+            break;
+    }
 }
 
 void wt_spm_idle(void)
 {
-    wt_ffa_regs_t r;
+    wt_ffa_regs_ext_t e;
+    unsigned int count;
+    unsigned int i;
 
 #if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
     /* With every partition initialized and waiting, route the test Secure
      * interrupt to the echo partition (signalled, then queued) before idling. */
     wt_spm_prove_sint_route(wt_spm_ffa_echo_partition());
 #endif
-    wt_platform_console_flush();
-    ffa_call(&r, WT_FFA_MSG_WAIT, 0u);
+    (void)memset(&e, 0, sizeof(e));
+    e.base.x[0] = WT_FFA_MSG_WAIT;
     for (;;) {
-        if (((uint32_t)r.x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32) ||
-            ((uint32_t)r.x[0] == WT_FFA_MSG_SEND_DIRECT_REQ64)) {
-            direct_request(&r);
-            continue;
+        /* Only RESP2 carries x8-x17 out; nothing else of the SPMC's leaves. */
+        count = wt_ffa_msg_reg_count(e.base.x[0]);
+        for (i = count; i < WT_FFA_MSG_REGS_EXT; i++) {
+            e.ext[i - WT_FFA_MSG_REGS] = 0u;
         }
-        if ((uint32_t)r.x[0] == WT_FFA_PARTITION_INFO_GET) {
-            ns_partition_info_get(&r);
-            continue;
-        }
-        if (((uint32_t)r.x[0] == WT_FFA_RXTX_MAP32) ||
-            ((uint32_t)r.x[0] == WT_FFA_RXTX_MAP64)) {
-            ns_rxtx_map(&r);
-            continue;
-        }
-        if ((uint32_t)r.x[0] == WT_FFA_RXTX_UNMAP) {
-            ns_rxtx_unmap(&r);
-            continue;
-        }
-        if ((uint32_t)r.x[0] == WT_FFA_RX_RELEASE) {
-            ns_reply(&r, wt_ffa_mailbox_rx_release(&g_ns_mailbox), 0u, 0u);
-            continue;
-        }
-        if ((uint32_t)r.x[0] == WT_FFA_RUN) {
-            ns_run(&r);
-            continue;
-        }
-        if ((uint32_t)r.x[0] == WT_FFA_INTERRUPT) {
-            ns_interrupt(&r);
-            continue;
-        }
-        if (((uint32_t)r.x[0] == WT_FFA_MEM_SHARE32) ||
-            ((uint32_t)r.x[0] == WT_FFA_MEM_SHARE64)) {
-            ns_mem_share(&r);
-            continue;
-        }
-        if ((uint32_t)r.x[0] == WT_FFA_MEM_RECLAIM) {
-            ns_mem_reclaim(&r);
-            continue;
-        }
-        wt_el3_puts("[SPM] unexpected event x0=0x");
-        wt_el3_puthex(r.x[0], 8u);
-        wt_el3_puts("\r\n");
-        ns_reply(&r, WT_FFA_NOT_SUPPORTED, 0u, 0u);
+        wt_platform_console_flush();
+        wt_ffa_smc_ext(&e);
+        idle_dispatch(&e);
     }
 }

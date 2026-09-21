@@ -172,6 +172,8 @@ static int ns_implements(uint32_t fid)
         case WT_FFA_MSG_SEND_DIRECT_REQ64:
         case WT_FFA_MSG_SEND_DIRECT_RESP32:
         case WT_FFA_MSG_SEND_DIRECT_RESP64:
+        case WT_FFA_MSG_SEND_DIRECT_REQ2:
+        case WT_FFA_MSG_SEND_DIRECT_RESP2:
         case WT_FFA_MEM_SHARE32:
         case WT_FFA_MEM_SHARE64:
         case WT_FFA_MEM_RECLAIM:
@@ -194,6 +196,7 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid)
         case WT_FFA_PARTITION_INFO_GET:
         case WT_FFA_MSG_SEND_DIRECT_REQ32:
         case WT_FFA_MSG_SEND_DIRECT_REQ64:
+        case WT_FFA_MSG_SEND_DIRECT_REQ2:
         case WT_FFA_MEM_SHARE32:
         case WT_FFA_MEM_SHARE64:
         case WT_FFA_MEM_RECLAIM:
@@ -213,6 +216,7 @@ int wt_ffa_spmd_is_ns_reply(uint32_t fid)
         case WT_FFA_ERROR:
         case WT_FFA_MSG_SEND_DIRECT_RESP32:
         case WT_FFA_MSG_SEND_DIRECT_RESP64:
+        case WT_FFA_MSG_SEND_DIRECT_RESP2:
         case WT_FFA_YIELD:
         case WT_FFA_MSG_WAIT:
             return 1;
@@ -271,6 +275,7 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
         case WT_FFA_MSG_WAIT:
         case WT_FFA_MSG_SEND_DIRECT_RESP32:
         case WT_FFA_MSG_SEND_DIRECT_RESP64:
+        case WT_FFA_MSG_SEND_DIRECT_RESP2:
             /* The primary Normal-world endpoint is never a message receiver. */
             reply_error(r, WT_FFA_DENIED);
             break;

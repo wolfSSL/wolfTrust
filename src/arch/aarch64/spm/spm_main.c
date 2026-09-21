@@ -858,6 +858,10 @@ static void direct_request(wt_ffa_regs_t* r)
     wt_el3_puts(" to=0x");
     wt_el3_puthex(receiver, 4u);
     wt_el3_puts("\r\n");
+    if ((ret == 0) &&
+        (wt_ffa_direct_sender(r->x[1]) != WT_FFA_ID_NS_PRIMARY)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
     if (ret == 0 && receiver == WT_FFA_ID_PSA) {
         (void)wt_spm_psa_framework(r);
         wt_platform_console_flush();
@@ -871,7 +875,8 @@ static void direct_request(wt_ffa_regs_t* r)
         else {
             co = wt_spm_ffa_native_by_id(receiver);
         }
-        ret = (co != NULL) ? wt_spm_ffa_direct_deliver(co, r->x, resp) : WT_FFA_BUSY;
+        ret = (co != NULL) ? wt_spm_ffa_direct_deliver(co, r->x, resp)
+                           : WT_FFA_INVALID_PARAMETERS;
     }
     if (ret == 0) {
         for (i = 0u; i < 8u; i++) {
@@ -889,27 +894,98 @@ static void direct_request(wt_ffa_regs_t* r)
     wt_ffa_smc(r);
 }
 
-/* FFA_PARTITION_INFO_GET the SPMD forwarded from the Normal world. The
- * count-only request (w5 bit 0) is answered with the configured partition count
- * and needs no RX buffer; writing descriptors into the guest's NS RX arrives
- * with memory sharing. The reply's SMC return is the next event. */
-static void ns_partition_info_get(wt_ffa_regs_t* r)
+/* The Normal-world endpoint's mailbox (7.2.2): the SPMC is the producer of its
+ * RX buffer, so the pair and its ownership live here, not in the SPMD. */
+static wt_ffa_mailbox_t g_ns_mailbox;
+
+static int ns_range_ok(uint64_t addr, uint64_t len)
 {
-    size_t n = 0u;
-    uint32_t flags = (uint32_t)r->x[5];
+    uint64_t base = (uint64_t)WT_NS_IMAGE_PA;
+    uint64_t limit = base + (uint64_t)WT_PSA_NS_WINDOW_SIZE;
+
+    return ((len != 0u) && (addr >= base) && (addr < limit) &&
+            (len <= (limit - addr))) ? 1 : 0;
+}
+
+/* Answer a forwarded call: FFA_SUCCESS with w2/w3, or FFA_ERROR with ret. The
+ * reply SMC's return is the next event. */
+static void ns_reply(wt_ffa_regs_t* r, int ret, uint64_t w2, uint64_t w3)
+{
     unsigned int i;
 
-    (void)wt_generated_ffa_partitions_get(&n);
     for (i = 0u; i < 8u; i++) {
         r->x[i] = 0u;
     }
-    if ((flags & WT_FFA_PARTINFO_FLAG_COUNT) != 0u) {
+    if (ret == 0) {
         r->x[0] = WT_FFA_SUCCESS32;
-        r->x[2] = (uint64_t)(uint32_t)n;
+        r->x[2] = w2;
+        r->x[3] = w3;
     }
     else {
         r->x[0] = WT_FFA_ERROR;
-        r->x[2] = (uint64_t)(uint32_t)WT_FFA_NOT_SUPPORTED;
+        r->x[2] = (uint64_t)(uint32_t)ret;
+    }
+    wt_platform_console_flush();
+    wt_ffa_smc(r);
+}
+
+/* FFA_RXTX_MAP from the Normal world: both buffers must lie in the window of
+ * Non-secure memory the SPMC maps. */
+static void ns_rxtx_map(wt_ffa_regs_t* r)
+{
+    uint64_t span = (uint64_t)((uint32_t)r->x[3] & 0x3Fu) * WT_FFA_MEM_PAGE_SIZE;
+    int ret = 0;
+
+    if ((g_ns_mailbox.mapped == 0u) &&
+        ((ns_range_ok(r->x[1], span) == 0) || (ns_range_ok(r->x[2], span) == 0))) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    if (ret == 0) {
+        ret = wt_ffa_mailbox_map(&g_ns_mailbox, r->x[1], r->x[2],
+                                 (uint32_t)r->x[3]);
+    }
+    ns_reply(r, ret, 0u, 0u);
+}
+
+static void ns_rxtx_unmap(wt_ffa_regs_t* r)
+{
+    int ret = ((((uint32_t)r->x[1] >> 16) & 0xFFFFu) == WT_FFA_ID_NS_PRIMARY)
+                  ? wt_ffa_mailbox_unmap(&g_ns_mailbox)
+                  : WT_FFA_INVALID_PARAMETERS;
+
+    ns_reply(r, ret, 0u, 0u);
+}
+
+/* FFA_PARTITION_INFO_GET forwarded from the Normal world: descriptors go to
+ * the guest's RX buffer, a count-only request needs none. */
+static void ns_partition_info_get(wt_ffa_regs_t* r)
+{
+    uint32_t count = 0u;
+    uint32_t size = 0u;
+    int ret = wt_spm_partition_info(r->x, &g_ns_mailbox,
+                                    (uint8_t*)(uintptr_t)g_ns_mailbox.rx,
+                                    &count, &size);
+
+    ns_reply(r, ret, count, size);
+}
+
+/* FFA_RUN forwarded from the Normal world: w1 bits 31:16 name the endpoint;
+ * what it hands back (response, FFA_YIELD, FFA_MSG_WAIT) is the reply. */
+static void ns_run(wt_ffa_regs_t* r)
+{
+    uint64_t out[8];
+    struct wt_co* co =
+        wt_spm_ffa_native_by_id((uint16_t)((uint32_t)r->x[1] >> 16));
+    unsigned int i;
+    int ret = (co != NULL) ? wt_spm_ffa_run(co, WT_FFA_ID_NS_PRIMARY, out)
+                           : WT_FFA_INVALID_PARAMETERS;
+
+    if (ret != 0) {
+        ns_reply(r, ret, 0u, 0u);
+        return;
+    }
+    for (i = 0u; i < 8u; i++) {
+        r->x[i] = out[i];
     }
     wt_platform_console_flush();
     wt_ffa_smc(r);
@@ -947,10 +1023,12 @@ static void ns_mem_share(wt_ffa_regs_t* r)
     unsigned int i;
     int ret;
 
-    if ((total < 1u) || (total > WT_PSA_NS_WINDOW_SIZE) ||
-        (addr < (uint64_t)WT_NS_IMAGE_PA) ||
-        ((addr + (uint64_t)total) >
-         ((uint64_t)WT_NS_IMAGE_PA + WT_PSA_NS_WINDOW_SIZE))) {
+    /* x3 = 0 names the descriptor in the guest's TX buffer (11.1). */
+    if ((addr == 0u) && (g_ns_mailbox.mapped != 0u) &&
+        (total <= (g_ns_mailbox.pages * WT_FFA_MEM_PAGE_SIZE))) {
+        addr = g_ns_mailbox.tx;
+    }
+    if (ns_range_ok(addr, (uint64_t)total) == 0) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     else {
@@ -1017,6 +1095,23 @@ void wt_spm_idle(void)
             ns_partition_info_get(&r);
             continue;
         }
+        if (((uint32_t)r.x[0] == WT_FFA_RXTX_MAP32) ||
+            ((uint32_t)r.x[0] == WT_FFA_RXTX_MAP64)) {
+            ns_rxtx_map(&r);
+            continue;
+        }
+        if ((uint32_t)r.x[0] == WT_FFA_RXTX_UNMAP) {
+            ns_rxtx_unmap(&r);
+            continue;
+        }
+        if ((uint32_t)r.x[0] == WT_FFA_RX_RELEASE) {
+            ns_reply(&r, wt_ffa_mailbox_rx_release(&g_ns_mailbox), 0u, 0u);
+            continue;
+        }
+        if ((uint32_t)r.x[0] == WT_FFA_RUN) {
+            ns_run(&r);
+            continue;
+        }
         if ((uint32_t)r.x[0] == WT_FFA_INTERRUPT) {
             ns_interrupt(&r);
             continue;
@@ -1033,6 +1128,6 @@ void wt_spm_idle(void)
         wt_el3_puts("[SPM] unexpected event x0=0x");
         wt_el3_puthex(r.x[0], 8u);
         wt_el3_puts("\r\n");
-        ffa_call(&r, WT_FFA_MSG_WAIT, 0u);
+        ns_reply(&r, WT_FFA_NOT_SUPPORTED, 0u, 0u);
     }
 }

@@ -60,27 +60,43 @@ uint64_t wt_spm_yield_token(void)
 
 static void ffa_error(wt_trap_frame_t* frame, int32_t code)
 {
+    unsigned int i;
+
+    for (i = 0u; i < 8u; i++) {
+        frame->x[i] = 0u;
+    }
     frame->x[0] = WT_FFA_ERROR;
-    frame->x[1] = 0u;
     frame->x[2] = (uint64_t)(uint32_t)code;
 }
 
 /* A partition's direct response: validate it at the Secure virtual instance,
  * keep it for the deliverer, and park the partition back in waiting. A
  * malformed response is returned to the partition as an error instead. */
-static void ffa_direct_resp(wt_trap_frame_t* frame)
+static void ffa_direct_resp(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     unsigned int i;
+    uint16_t requester = 0u;
+    uint16_t self = 0u;
     int ret = wt_ffa_direct_resp_check(frame->x, WT_FFA_INSTANCE_SECURE_VIRTUAL);
 
     if (ret != 0) {
         ffa_error(frame, (int32_t)ret);
         return;
     }
+    if (wt_spm_ffa_sp_requester(co, &requester, &self) == 0) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    if ((wt_ffa_direct_sender(frame->x[1]) != self) ||
+        (wt_ffa_direct_receiver(frame->x[1]) != requester)) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
     for (i = 0u; i < 8u; i++) {
         g_wt_ffa_direct_resp[i] = frame->x[i];
     }
     g_wt_ffa_direct_resp_ready = 1u;
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_RESP;
     wt_co_block();
 }
 
@@ -95,9 +111,7 @@ static void report_partition_fault(const wt_trap_frame_t* frame)
 
 static void ffa_not_supported(wt_trap_frame_t* frame)
 {
-    frame->x[0] = WT_FFA_ERROR;
-    frame->x[1] = 0u;
-    frame->x[2] = (uint64_t)(uint32_t)WT_FFA_NOT_SUPPORTED;
+    ffa_error(frame, WT_FFA_NOT_SUPPORTED);
 }
 
 static void ffa_success(wt_trap_frame_t* frame, uint64_t w2, uint64_t w3)
@@ -112,34 +126,22 @@ static void ffa_success(wt_trap_frame_t* frame, uint64_t w2, uint64_t w3)
     frame->x[3] = w3;
 }
 
-static uint8_t* sp_rx(void);
-
 /* The configured partitions as FFA_PARTITION_INFO_GET source records: the FF-A
  * id follows creation order (0x8002 up), matching the ids the SPMC assigns. */
 static wt_ffa_partinfo_entry_t g_partinfo[16];
 
-/* FFA_PARTITION_INFO_GET (6.1): write a Table 6.1 descriptor for every
- * configured partition matching the UUID in w1-w4 into the RX buffer, and
- * return the match count in w2 and the descriptor size in w3. A Nil UUID lists
- * every partition (WT-FFA-0003). */
-static void ffa_partition_info_get(wt_trap_frame_t* frame)
+static size_t partinfo_collect(void)
 {
     const wt_ffa_partition_manifest_t* parts;
     const wt_ffa_native_sp_t* natives;
     size_t native_count = 0u;
-    size_t n;
+    size_t n = 0u;
     size_t i;
     unsigned int j;
-    uint8_t uuid[16];
-    uint32_t word;
-    uint32_t count = 0u;
-    uint32_t size = 0u;
-    int ret;
 
     parts = wt_generated_ffa_partitions_get(&n);
     if ((parts == NULL) || (n > (sizeof(g_partinfo) / sizeof(g_partinfo[0])))) {
-        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
-        return;
+        return 0u;
     }
     for (i = 0u; i < n; i++) {
         g_partinfo[i].id = (uint16_t)(WT_FFA_ID_SP_FIRST + i);
@@ -161,17 +163,73 @@ static void ffa_partition_info_get(wt_trap_frame_t* frame)
         }
         n++;
     }
+    return n;
+}
+
+/* FFA_PARTITION_INFO_GET (6.1) for either instance: x = the call's registers
+ * (UUID in w1-w4, flags in w5), mb = the caller's mailbox (NULL for a caller
+ * on the SPMC's own band), rx = where descriptors go. A UUID nothing matches
+ * is INVALID_PARAMETERS; descriptors take RX ownership, a count does not. */
+int wt_spm_partition_info(const uint64_t* x, wt_ffa_mailbox_t* mb, uint8_t* rx,
+                          uint32_t* count, uint32_t* size)
+{
+    size_t n = partinfo_collect();
+    uint8_t uuid[16];
+    uint32_t word;
+    uint32_t flags = (uint32_t)x[5];
+    size_t i;
+    int ret;
+
+    if (n == 0u) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
     for (i = 0u; i < 4u; i++) {
-        word = (uint32_t)frame->x[1u + i];
+        word = (uint32_t)x[1u + i];
         uuid[4u * i + 0u] = (uint8_t)(word & 0xFFu);
         uuid[4u * i + 1u] = (uint8_t)((word >> 8) & 0xFFu);
         uuid[4u * i + 2u] = (uint8_t)((word >> 16) & 0xFFu);
         uuid[4u * i + 3u] = (uint8_t)((word >> 24) & 0xFFu);
     }
-    ret = wt_ffa_partinfo_write(sp_rx(), (size_t)WT_FFA_MEM_PAGE_SIZE,
-                                WT_FFA_VERSION_1_2,
-                                g_partinfo, n, uuid, (uint32_t)frame->x[5],
-                                &count, &size);
+    /* Count first: it validates the flags and finds a UUID nothing matches
+     * before the RX buffer changes hands. */
+    ret = wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, g_partinfo, n,
+                                uuid, flags | WT_FFA_PARTINFO_FLAG_COUNT, count,
+                                size);
+    if ((ret == 0) && (*count == 0u)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((ret != 0) || ((flags & WT_FFA_PARTINFO_FLAG_COUNT) != 0u)) {
+        return ret;
+    }
+    if (mb != NULL) {
+        ret = wt_ffa_mailbox_rx_acquire(mb);
+        if (ret != 0) {
+            return (ret == WT_FFA_DENIED) ? WT_FFA_BUSY : ret;
+        }
+    }
+    ret = wt_ffa_partinfo_write(rx, (size_t)WT_FFA_MEM_PAGE_SIZE,
+                                WT_FFA_VERSION_1_2, g_partinfo, n, uuid, flags,
+                                count, size);
+    if ((ret != 0) && (mb != NULL)) {
+        (void)wt_ffa_mailbox_rx_release(mb);
+    }
+    return ret;
+}
+
+static wt_ffa_mailbox_t* sp_mailbox(void);
+static uint8_t* sp_rx(void);
+
+static void ffa_partition_info_get(wt_trap_frame_t* frame)
+{
+    wt_ffa_mailbox_t* mb = sp_mailbox();
+    uint32_t count = 0u;
+    uint32_t size = 0u;
+    int ret;
+
+    if ((mb != NULL) && (mb->mapped == 0u)) {
+        mb = NULL;
+    }
+    ret = wt_spm_partition_info(frame->x, mb, sp_rx(), &count, &size);
     if (ret != 0) {
         ffa_error(frame, ret);
         return;
@@ -182,45 +240,46 @@ static void ffa_partition_info_get(wt_trap_frame_t* frame)
 /* FFA_RX_RELEASE (7.2.2.4): ownership of the RX buffer returns to the SPMC. */
 static void ffa_rx_release(wt_trap_frame_t* frame)
 {
+    int ret = wt_ffa_mailbox_rx_release(sp_mailbox());
+
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
     ffa_success(frame, 0u, 0u);
 }
 
 /* RX/TX pairs the partitions registered with FFA_RXTX_MAP (7.2.2), indexed by
  * coroutine id; a partition that never registered uses the SPMC's own band. */
-typedef struct wt_sp_rxtx {
-    uintptr_t rx;
-    uintptr_t tx;
-} wt_sp_rxtx_t;
+static wt_ffa_mailbox_t g_sp_mailbox[WT_CO_MAX];
 
-static wt_sp_rxtx_t g_sp_rxtx[WT_CO_MAX];
-
-static wt_sp_rxtx_t* sp_rxtx(void)
+static wt_ffa_mailbox_t* sp_mailbox(void)
 {
     const struct wt_co* co = (const struct wt_co*)wt_co_current();
 
     if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
         return NULL;
     }
-    return &g_sp_rxtx[co->id - 1u];
+    return &g_sp_mailbox[co->id - 1u];
 }
 
 /* The calling partition's RX and TX buffers. */
 static uint8_t* sp_rx(void)
 {
-    const wt_sp_rxtx_t* pair = sp_rxtx();
+    const wt_ffa_mailbox_t* mb = sp_mailbox();
 
-    if ((pair != NULL) && (pair->rx != 0u)) {
-        return (uint8_t*)pair->rx;
+    if ((mb != NULL) && (mb->mapped != 0u)) {
+        return (uint8_t*)(uintptr_t)mb->rx;
     }
     return (uint8_t*)(uintptr_t)WT_SPM_RXTX_PA;
 }
 
 static const uint8_t* sp_tx(void)
 {
-    const wt_sp_rxtx_t* pair = sp_rxtx();
+    const wt_ffa_mailbox_t* mb = sp_mailbox();
 
-    if ((pair != NULL) && (pair->tx != 0u)) {
-        return (const uint8_t*)pair->tx;
+    if ((mb != NULL) && (mb->mapped != 0u)) {
+        return (const uint8_t*)(uintptr_t)mb->tx;
     }
     return (const uint8_t*)(uintptr_t)(WT_SPM_RXTX_PA + WT_FFA_MEM_PAGE_SIZE);
 }
@@ -243,47 +302,95 @@ static int sp_owns_writable_page(const struct wt_co* co, uintptr_t va)
  * two distinct writable pages of the caller's own memory. */
 static void ffa_rxtx_map(wt_trap_frame_t* frame, const struct wt_co* co)
 {
-    wt_sp_rxtx_t* pair = sp_rxtx();
+    wt_ffa_mailbox_t* mb = sp_mailbox();
     uintptr_t tx = (uintptr_t)frame->x[1];
     uintptr_t rx = (uintptr_t)frame->x[2];
-    uint32_t pages = (uint32_t)frame->x[3] & 0x3Fu;
+    uint32_t w3 = (uint32_t)frame->x[3];
+    int ret;
 
-    if (pair == NULL) {
+    if (mb == NULL) {
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
-    if ((pair->rx != 0u) || (pair->tx != 0u)) {
-        ffa_error(frame, WT_FFA_DENIED);
-        return;
-    }
-    if ((pages != 1u) || (tx == 0u) || (rx == 0u) || (tx == rx) ||
-        (sp_owns_writable_page(co, tx) == 0) ||
-        (sp_owns_writable_page(co, rx) == 0)) {
+    if ((mb->mapped == 0u) &&
+        ((w3 != 1u) || (sp_owns_writable_page(co, tx) == 0) ||
+         (sp_owns_writable_page(co, rx) == 0))) {
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }
-    pair->tx = tx;
-    pair->rx = rx;
+    ret = wt_ffa_mailbox_map(mb, (uint64_t)tx, (uint64_t)rx, w3);
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
     ffa_success(frame, 0u, 0u);
 }
 
 /* FFA_RXTX_UNMAP (13.6): w1 bits 31:16 name the caller (or zero). */
 static void ffa_rxtx_unmap(wt_trap_frame_t* frame, const struct wt_co* co)
 {
-    wt_sp_rxtx_t* pair = sp_rxtx();
     uint16_t id = (uint16_t)(((uint32_t)frame->x[1] >> 16) & 0xFFFFu);
+    int ret;
 
     if ((id != 0u) && (id != wt_spm_sp_ffa_id(co))) {
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }
-    if ((pair == NULL) || (pair->rx == 0u)) {
-        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+    ret = wt_ffa_mailbox_unmap(sp_mailbox());
+    if (ret != 0) {
+        ffa_error(frame, ret);
         return;
     }
-    pair->rx = 0u;
-    pair->tx = 0u;
     ffa_success(frame, 0u, 0u);
+}
+
+/* A direct request from a partition (15.2): only to another FF-A endpoint the
+ * SPMC hosts, which must be waiting. The caller blocks; its callee's response
+ * (or FFA_YIELD) is written into its frame before it resumes. */
+static void ffa_direct_req(wt_trap_frame_t* frame, const struct wt_co* co)
+{
+    struct wt_co* target;
+    int ret = wt_ffa_direct_req_check(frame->x, WT_FFA_INSTANCE_SECURE_VIRTUAL);
+
+    if ((ret == 0) &&
+        (wt_ffa_direct_sender(frame->x[1]) != wt_spm_sp_ffa_id(co))) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    if (ret == 0) {
+        target = wt_spm_ffa_native_by_id(wt_ffa_direct_receiver(frame->x[1]));
+        ret = wt_spm_ffa_sp_call(co, target, frame->x);
+    }
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_CALL;
+    wt_co_block();
+}
+
+/* FFA_RUN from a partition: only to resume an endpoint that yielded inside a
+ * direct request this partition sent it. */
+static void ffa_run(wt_trap_frame_t* frame, const struct wt_co* co)
+{
+    struct wt_co* target =
+        wt_spm_ffa_native_by_id((uint16_t)((uint32_t)frame->x[1] >> 16));
+    int ret = wt_spm_ffa_sp_call(co, target, NULL);
+
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_CALL;
+    wt_co_block();
+}
+
+/* FFA_YIELD (8.2): hand the CPU back to whoever entered this partition; the
+ * call returns FFA_SUCCESS once FFA_RUN resumes it. */
+static void ffa_yield(wt_trap_frame_t* frame)
+{
+    ffa_success(frame, 0u, 0u);
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_YIELD;
+    wt_co_block();
 }
 
 /* A descriptor handed over in the TX buffer: w1 = total length, w2 = fragment
@@ -330,9 +437,11 @@ static void ffa_mem_send(wt_trap_frame_t* frame, wt_ffa_mem_op_t op)
 static void ffa_mem_retrieve(wt_trap_frame_t* frame)
 {
     const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    wt_ffa_mailbox_t* mb = sp_mailbox();
     size_t len = 0u;
     size_t resp_len = 0u;
     unsigned int i;
+    int acquired = 0;
     int ret;
 
     if (b == NULL) {
@@ -340,11 +449,18 @@ static void ffa_mem_retrieve(wt_trap_frame_t* frame)
         return;
     }
     ret = tx_descriptor_length(frame, &len);
+    if ((ret == 0) && (mb != NULL) && (mb->mapped != 0u)) {
+        ret = wt_ffa_mailbox_rx_acquire(mb);
+        acquired = (ret == 0) ? 1 : 0;
+    }
     if (ret == 0) {
         ret = wt_spm_mem_retrieve(sp_tx(), len, b->id, sp_rx(),
                                   WT_FFA_MEM_PAGE_SIZE, &resp_len);
     }
     if (ret != 0) {
+        if (acquired != 0) {
+            (void)wt_ffa_mailbox_rx_release(mb);
+        }
         ffa_error(frame, ret);
         return;
     }
@@ -401,8 +517,14 @@ static void ffa_mem_reclaim(wt_trap_frame_t* frame)
 /* FFA_VERSION (13.2): the result is returned in w0 alone. */
 static void ffa_version(wt_trap_frame_t* frame)
 {
-    frame->x[0] = (uint64_t)(uint32_t)wt_ffa_version_reply(
-        (uint32_t)frame->x[1], WT_FFA_VERSION_1_2);
+    uint32_t requested = (uint32_t)frame->x[1];
+    unsigned int i;
+
+    for (i = 1u; i < 8u; i++) {
+        frame->x[i] = 0u;
+    }
+    frame->x[0] = (uint64_t)(uint32_t)wt_ffa_version_reply(requested,
+                                                           WT_FFA_VERSION_1_2);
 }
 
 static int sp_implements(uint32_t fid)
@@ -422,6 +544,10 @@ static int sp_implements(uint32_t fid)
         case WT_FFA_ID_GET:
         case WT_FFA_SPM_ID_GET:
         case WT_FFA_MSG_WAIT:
+        case WT_FFA_YIELD:
+        case WT_FFA_RUN:
+        case WT_FFA_MSG_SEND_DIRECT_REQ32:
+        case WT_FFA_MSG_SEND_DIRECT_REQ64:
         case WT_FFA_MSG_SEND_DIRECT_RESP32:
         case WT_FFA_MSG_SEND_DIRECT_RESP64:
         case WT_FFA_MEM_SHARE32:
@@ -582,7 +708,10 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     uint32_t fid = (uint32_t)frame->x[0];
     wt_co_t* co = wt_co_current();
     uint32_t sint;
+    uint16_t requester = 0u;
+    uint16_t self = 0u;
     unsigned int i;
+    int busy;
 
     g_wt_spm_live_frame = frame;
     g_wt_spm_trap_spsr = frame->spsr;
@@ -626,8 +755,13 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
          * request is delivered as this call's return registers. A Secure
          * interrupt queued while it ran (Table 9.1) is delivered here as
          * FFA_INTERRUPT instead of blocking. */
-        sint = wt_spm_sint_take_pending(co);
-        if (sint != 0u) {
+        busy = wt_spm_ffa_sp_requester((const struct wt_co*)co, &requester,
+                                       &self);
+        sint = (busy == 0) ? wt_spm_sint_take_pending(co) : 0u;
+        if (busy != 0) {
+            ffa_error(frame, WT_FFA_DENIED);
+        }
+        else if (sint != 0u) {
             for (i = 0u; i < 8u; i++) {
                 frame->x[i] = 0u;
             }
@@ -635,12 +769,27 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
             frame->x[1] = (uint64_t)sint;
         }
         else {
+            /* 13.8: w2 bit 0 set keeps RX ownership across the wait. */
+            if (((uint32_t)frame->x[2] & 1u) == 0u) {
+                (void)wt_ffa_mailbox_rx_release(sp_mailbox());
+            }
+            g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_WAIT;
             wt_co_block();
         }
     }
+    else if ((fid == WT_FFA_MSG_SEND_DIRECT_REQ32) ||
+             (fid == WT_FFA_MSG_SEND_DIRECT_REQ64)) {
+        ffa_direct_req(frame, (const struct wt_co*)co);
+    }
+    else if (fid == WT_FFA_RUN) {
+        ffa_run(frame, (const struct wt_co*)co);
+    }
+    else if (fid == WT_FFA_YIELD) {
+        ffa_yield(frame);
+    }
     else if ((fid == WT_FFA_MSG_SEND_DIRECT_RESP32) ||
              (fid == WT_FFA_MSG_SEND_DIRECT_RESP64)) {
-        ffa_direct_resp(frame);
+        ffa_direct_resp(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_VERSION) {
         ffa_version(frame);

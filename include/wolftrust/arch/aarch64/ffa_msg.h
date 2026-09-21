@@ -61,8 +61,8 @@ void wt_ffa_direct_build(uint64_t* x, uint32_t fid, uint16_t sender,
                          uint16_t receiver, const uint32_t* payload);
 
 /* Relayer validation (7.4.2): 0 if the message may be forwarded, else a
- * negative FF-A status (INVALID_PARAMETERS for a malformed frame, DENIED for a
- * direction the instance does not relay). */
+ * INVALID_PARAMETERS (15.2.1: a malformed frame or an endpoint id the instance
+ * does not relay for). */
 int wt_ffa_direct_req_check(const uint64_t* x, wt_ffa_instance_t inst);
 int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst);
 

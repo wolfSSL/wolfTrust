@@ -338,40 +338,245 @@ static wt_sp_arch_t* sp_arch(const struct wt_co *co)
     return &g_sp_arch[co->id - 1u];
 }
 
-/* The waiting partition's saved frame holds the registers its FFA_MSG_WAIT
- * returns with, so the request is written there and the partition resumed;
- * the gate captures its response and blocks it again before we return. */
-int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
-                              uint64_t* resp)
+/* FF-A runtime state of one S-EL0 endpoint (Ch.8): busy while it processes a
+ * direct request, yielded after FFA_YIELD until FFA_RUN resumes it. */
+typedef struct wt_sp_msg {
+    uint16_t requester;
+    uint16_t self;
+    uint8_t busy;
+    uint8_t yielded;
+    uint8_t calling;
+} wt_sp_msg_t;
+
+static wt_sp_msg_t g_sp_msg[WT_CO_MAX];
+volatile uint32_t g_wt_ffa_sp_exit;
+
+int wt_spm_ffa_sp_requester(const struct wt_co* co, uint16_t* requester,
+                            uint16_t* self)
 {
-    wt_sp_arch_t* a;
+    const wt_sp_msg_t* m;
+
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return 0;
+    }
+    m = &g_sp_msg[co->id - 1u];
+    if (m->busy == 0u) {
+        return 0;
+    }
+    *requester = m->requester;
+    *self = m->self;
+    return 1;
+}
+
+int wt_spm_ffa_sp_yielded_to(const struct wt_co* co, uint16_t caller)
+{
+    const wt_sp_msg_t* m;
+
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return 0;
+    }
+    m = &g_sp_msg[co->id - 1u];
+    return ((m->yielded != 0u) && (m->busy != 0u) &&
+            (m->requester == caller)) ? 1 : 0;
+}
+
+/* Run one endpoint until it hands the CPU back, and turn how it did so into
+ * the registers its invoker sees: its direct response, FFA_YIELD, or
+ * FFA_MSG_WAIT. WT_FFA_SP_EXIT_CALL is returned as-is for the chain below. */
+static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason)
+{
+    wt_sp_msg_t* m = &g_sp_msg[co->id - 1u];
     unsigned int i;
 
-    if ((co == NULL) || (req == NULL) || (resp == NULL) || (co->unprivileged == 0u)) {
-        return WT_FFA_INVALID_PARAMETERS;
+    g_wt_ffa_direct_resp_ready = 0u;
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_NONE;
+    wt_co_wake((wt_co_t*)co);
+    (void)wt_co_run((wt_co_t*)co);
+    while ((wt_co_state((wt_co_t*)co) == WT_CO_RUNNABLE) &&
+           (g_wt_ffa_sp_exit == WT_FFA_SP_EXIT_NONE)) {
+        (void)wt_co_run((wt_co_t*)co);
     }
-    if (wt_co_state((wt_co_t*)co) != WT_CO_BLOCKED) {
-        return WT_FFA_BUSY;
+    *reason = g_wt_ffa_sp_exit;
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_NONE;
+    for (i = 0u; i < 8u; i++) {
+        out[i] = 0u;
     }
-    a = sp_arch(co);
+    if (wt_co_state((wt_co_t*)co) == WT_CO_FAULTED) {
+        (void)memset(m, 0, sizeof(*m));
+        *reason = WT_FFA_SP_EXIT_NONE;
+        return WT_FFA_ABORTED;
+    }
+    if (*reason == WT_FFA_SP_EXIT_CALL) {
+        return 0;
+    }
+    if ((*reason == WT_FFA_SP_EXIT_RESP) && (g_wt_ffa_direct_resp_ready != 0u)) {
+        for (i = 0u; i < 8u; i++) {
+            out[i] = g_wt_ffa_direct_resp[i];
+        }
+        wt_ffa_regs_normalize(out);
+        m->busy = 0u;
+        return 0;
+    }
+    if (*reason == WT_FFA_SP_EXIT_YIELD) {
+        m->yielded = 1u;
+        out[0] = WT_FFA_YIELD;
+        out[1] = (uint64_t)wt_spm_sp_ffa_id(co) << 16;
+        return 0;
+    }
+    if (*reason == WT_FFA_SP_EXIT_WAIT) {
+        out[0] = WT_FFA_MSG_WAIT;
+        return 0;
+    }
+    m->busy = 0u;
+    return WT_FFA_DENIED;
+}
+
+static struct wt_co* g_ffa_call_target;
+
+/* The core scheduler does not nest, so an endpoint that messages another one
+ * blocks and names its callee; this loop, on the scheduler's stack, runs the
+ * callee and writes what it hands back into the caller's saved frame. */
+static int run_endpoint(struct wt_co* co, uint64_t* out)
+{
+    struct wt_co* chain[WT_CO_MAX];
+    struct wt_co* caller;
+    unsigned int depth = 1u;
+    unsigned int i;
+    uint32_t reason = WT_FFA_SP_EXIT_NONE;
+    int ret;
+
+    chain[0] = co;
+    for (;;) {
+        ret = run_one(chain[depth - 1u], out, &reason);
+        if ((ret == 0) && (reason == WT_FFA_SP_EXIT_CALL)) {
+            if ((depth == WT_CO_MAX) || (g_ffa_call_target == NULL)) {
+                wt_platform_panic();
+            }
+            chain[depth] = g_ffa_call_target;
+            depth++;
+            continue;
+        }
+        if (depth == 1u) {
+            return ret;
+        }
+        depth--;
+        caller = chain[depth - 1u];
+        g_sp_msg[caller->id - 1u].calling = 0u;
+        if (ret != 0) {
+            for (i = 0u; i < 8u; i++) {
+                out[i] = 0u;
+            }
+            out[0] = WT_FFA_ERROR;
+            out[2] = (uint64_t)(uint32_t)ret;
+        }
+        for (i = 0u; i < 8u; i++) {
+            sp_arch(caller)->frame.x[i] = out[i];
+        }
+    }
+}
+
+static int endpoint_waiting(const struct wt_co* co)
+{
+    const wt_sp_msg_t* m = &g_sp_msg[co->id - 1u];
+
+    return ((wt_co_state((wt_co_t*)co) == WT_CO_BLOCKED) && (m->busy == 0u) &&
+            (m->yielded == 0u) && (m->calling == 0u)) ? 1 : 0;
+}
+
+static void endpoint_load_request(struct wt_co* co, const uint64_t* req)
+{
+    wt_sp_arch_t* a = sp_arch(co);
+    wt_sp_msg_t* m = &g_sp_msg[co->id - 1u];
+    unsigned int i;
+
     for (i = 0u; i < 8u; i++) {
         a->frame.x[i] = req[i];
     }
     wt_ffa_regs_normalize(a->frame.x);
-    g_wt_ffa_direct_resp_ready = 0u;
-    wt_co_wake((wt_co_t*)co);
-    (void)wt_co_run((wt_co_t*)co);
-    if (wt_co_state((wt_co_t*)co) == WT_CO_FAULTED) {
-        return WT_FFA_ABORTED;
+    m->busy = 1u;
+    m->requester = (uint16_t)(req[1] >> 16);
+    m->self = (uint16_t)(req[1] & 0xFFFFu);
+}
+
+/* A partition's own direct request (req != NULL) or its FFA_RUN of a callee
+ * that yielded to it (req == NULL): arm the callee; the gate then blocks the
+ * caller with WT_FFA_SP_EXIT_CALL and the chain above does the rest. */
+int wt_spm_ffa_sp_call(const struct wt_co* caller, struct wt_co* target,
+                       const uint64_t* req)
+{
+    if ((caller == NULL) || (target == NULL) || (target == caller) ||
+        (target->unprivileged == 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
     }
-    if (g_wt_ffa_direct_resp_ready == 0u) {
+    /* Nothing runs the call chain for a partition still in its init pass. */
+    if (wt_spm_sp_initializing(caller) != 0) {
         return WT_FFA_DENIED;
     }
-    for (i = 0u; i < 8u; i++) {
-        resp[i] = g_wt_ffa_direct_resp[i];
+    if (req != NULL) {
+        if (endpoint_waiting(target) == 0) {
+            return WT_FFA_BUSY;
+        }
+        endpoint_load_request(target, req);
     }
-    wt_ffa_regs_normalize(resp);
+    else {
+        if (wt_spm_ffa_sp_yielded_to(target, wt_spm_sp_ffa_id(caller)) == 0) {
+            return WT_FFA_DENIED;
+        }
+        g_sp_msg[target->id - 1u].yielded = 0u;
+    }
+    g_sp_msg[caller->id - 1u].calling = 1u;
+    g_ffa_call_target = target;
     return 0;
+}
+
+/* The waiting partition's saved frame holds the registers its FFA_MSG_WAIT
+ * returns with, so the request is written there and the partition resumed. */
+int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
+                              uint64_t* resp)
+{
+    if ((co == NULL) || (req == NULL) || (resp == NULL) || (co->unprivileged == 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (endpoint_waiting(co) == 0) {
+        return WT_FFA_BUSY;
+    }
+    endpoint_load_request(co, req);
+    return run_endpoint(co, resp);
+}
+
+/* FFA_RUN: resume an endpoint that yielded, or give cycles to a waiting one
+ * (it sees FFA_RUN as the return of its FFA_MSG_WAIT). */
+int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
+{
+    wt_sp_arch_t* a;
+    wt_sp_msg_t* m;
+    unsigned int i;
+
+    if ((co == NULL) || (out == NULL) || (co->unprivileged == 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    m = &g_sp_msg[co->id - 1u];
+    if (wt_co_state((wt_co_t*)co) != WT_CO_BLOCKED) {
+        return WT_FFA_BUSY;
+    }
+    if (m->yielded != 0u) {
+        if ((m->busy != 0u) && (m->requester != caller)) {
+            return WT_FFA_DENIED;
+        }
+        m->yielded = 0u;
+    }
+    else if ((m->busy != 0u) || (m->calling != 0u)) {
+        return WT_FFA_DENIED;
+    }
+    else {
+        a = sp_arch(co);
+        for (i = 0u; i < 8u; i++) {
+            a->frame.x[i] = 0u;
+        }
+        a->frame.x[0] = WT_FFA_RUN;
+        a->frame.x[1] = (uint64_t)wt_spm_sp_ffa_id(co) << 16;
+    }
+    return run_endpoint(co, out);
 }
 
 /* A Secure interrupt taken while its owner runs at S-EL0 is queued here and
@@ -457,6 +662,7 @@ void wt_co_arch_init_stack(struct wt_co *co, wt_co_entry_fn entry, void *arg)
     /* The S-EL0 form of the same start: the domain flag arrives later. */
     g_init_seen[co->id - 1u] = 0u;
     g_created[co->id - 1u] = co;
+    (void)memset(&g_sp_msg[co->id - 1u], 0, sizeof(g_sp_msg[0]));
     (void)memset(&a->frame, 0, sizeof(a->frame));
     a->frame.x[0] = (uint64_t)(uintptr_t)arg;
     a->frame.elr = (uint64_t)(uintptr_t)entry;

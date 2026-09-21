@@ -252,6 +252,27 @@ int wt_ffa_mem_relinquish_parse(const uint8_t* buf, size_t len,
 #define WT_FFA_RXTX_MAX_PAGES           64u
 int wt_ffa_rxtx_validate(uint64_t tx, uint64_t rx, uint32_t pages);
 
+/* One endpoint's RX/TX pair and who owns its RX buffer (7.2.2): the producer
+ * acquires RX before it writes, the endpoint hands it back with RX_RELEASE. */
+typedef struct wt_ffa_mailbox {
+    uint64_t tx;
+    uint64_t rx;
+    uint32_t pages;
+    uint8_t mapped;
+    uint8_t rx_full;
+} wt_ffa_mailbox_t;
+
+/* w3 is the raw FFA_RXTX_MAP page-count word (bits 31:6 SBZ). DENIED when a
+ * pair is already mapped, INVALID_PARAMETERS for bad geometry. */
+int wt_ffa_mailbox_map(wt_ffa_mailbox_t* mb, uint64_t tx, uint64_t rx,
+                       uint32_t w3);
+/* INVALID_PARAMETERS when no pair is mapped. */
+int wt_ffa_mailbox_unmap(wt_ffa_mailbox_t* mb);
+/* DENIED when no pair is mapped, BUSY while the endpoint still owns RX. */
+int wt_ffa_mailbox_rx_acquire(wt_ffa_mailbox_t* mb);
+/* DENIED unless the endpoint owns a full RX buffer. */
+int wt_ffa_mailbox_rx_release(wt_ffa_mailbox_t* mb);
+
 /* Memory transaction handle registry (handle lifetime state). A handle names a
  * transaction from allocation until reclaim; DEN0140 5.10.2 sets bit[63] of a
  * handle allocated by the SPMC to zero. */

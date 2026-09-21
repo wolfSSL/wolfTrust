@@ -65,13 +65,13 @@ int wt_ffa_direct_req_check(const uint64_t* x, wt_ffa_instance_t inst)
     if (inst == WT_FFA_INSTANCE_NS_PHYSICAL) {
         /* The SPMD relays only Normal world to a Secure partition. */
         if (wt_ffa_id_is_secure(sender) || !wt_ffa_id_is_secure(receiver)) {
-            return WT_FFA_DENIED;
+            return WT_FFA_INVALID_PARAMETERS;
         }
     }
     else {
         /* The SPMC relays a request only between Secure partitions. */
         if (!wt_ffa_id_is_secure(sender) || !wt_ffa_id_is_secure(receiver)) {
-            return WT_FFA_DENIED;
+            return WT_FFA_INVALID_PARAMETERS;
         }
     }
     return 0;
@@ -97,10 +97,10 @@ int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst)
      * sender is always Secure; the receiver is whoever sent the request, which
      * at the NS-physical instance is the Normal world the SPMD returns to. */
     if (!wt_ffa_id_is_secure(sender)) {
-        return WT_FFA_DENIED;
+        return WT_FFA_INVALID_PARAMETERS;
     }
     if ((inst == WT_FFA_INSTANCE_NS_PHYSICAL) && wt_ffa_id_is_secure(receiver)) {
-        return WT_FFA_DENIED;
+        return WT_FFA_INVALID_PARAMETERS;
     }
     return 0;
 }

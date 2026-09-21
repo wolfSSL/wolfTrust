@@ -274,6 +274,73 @@ int wt_tables_walk(const wt_tables_t* t, const wt_tables_pool_t* pool,
     return WT_TABLES_OK;
 }
 
+static uint64_t* l3_entry(const wt_tables_t* t, const wt_tables_pool_t* pool,
+                          uint64_t va)
+{
+    uint64_t* table;
+    uint64_t desc;
+
+    desc = t->l1[(va >> L1_SHIFT) & INDEX_MASK];
+    if ((desc & DESC_VALID) == 0u) {
+        return NULL;
+    }
+    table = table_at(pool, desc);
+    desc = table[(va >> L2_SHIFT) & INDEX_MASK];
+    if ((desc & DESC_VALID) == 0u) {
+        return NULL;
+    }
+    table = table_at(pool, desc);
+    return &table[(va >> L3_SHIFT) & INDEX_MASK];
+}
+
+static int el0_owned_normal_page(uint64_t desc)
+{
+    uint32_t ap = (uint32_t)((desc >> PTE_AP_SHIFT) & 0x3u);
+    uint32_t attr = (uint32_t)((desc >> PTE_ATTR_SHIFT) & 0x7u);
+
+    return ((desc & DESC_VALID) != 0u) && ((desc & PTE_NS) == 0u) &&
+           (attr == WT_TABLES_ATTR_NORMAL_WBWA) &&
+           ((ap == WT_TABLES_AP_ALL_RW) || (ap == WT_TABLES_AP_ALL_RO));
+}
+
+int wt_tables_set_el0_attributes(wt_tables_t* t, const wt_tables_pool_t* pool,
+                                 uint64_t va, size_t pages, uint32_t attributes)
+{
+    const uint64_t* probe;
+    uint64_t* entry;
+    uint64_t end;
+    uint64_t at;
+    int64_t pte;
+
+    if ((t == NULL) || (pool == NULL) || (t->l1 == NULL) || (pages == 0u) ||
+        ((attributes & (WT_MEM_ATTR_DEVICE | WT_TABLES_ATTR_NS)) != 0u)) {
+        return WT_TABLES_ERROR_ARGUMENT;
+    }
+    if ((va % WT_TABLES_PAGE_SIZE) != 0u) {
+        return WT_TABLES_ERROR_ALIGN;
+    }
+    if ((va >= WT_TABLES_VA_LIMIT) ||
+        (pages > ((WT_TABLES_VA_LIMIT - va) / WT_TABLES_PAGE_SIZE))) {
+        return WT_TABLES_ERROR_RANGE;
+    }
+    pte = encode(attributes, 0);
+    if (pte < 0) {
+        return (int)pte;
+    }
+    end = va + ((uint64_t)pages * WT_TABLES_PAGE_SIZE);
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        probe = l3_entry(t, pool, at);
+        if ((probe == NULL) || !el0_owned_normal_page(*probe)) {
+            return WT_TABLES_ERROR_UNMAPPED;
+        }
+    }
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        entry = l3_entry(t, pool, at);
+        *entry = (uint64_t)pte | (*entry & PTE_ADDR_MASK);
+    }
+    return WT_TABLES_OK;
+}
+
 uint64_t wt_tables_ttbr0(const wt_tables_t* t)
 {
     return (t->l1_pa & PTE_ADDR_MASK) | ((uint64_t)t->asid << 48);

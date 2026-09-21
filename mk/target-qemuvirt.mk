@@ -82,6 +82,18 @@ ifeq ($(WT_EL3_TEST_HANDOFF),1)
 TARGET_CFLAGS += -DWT_EL3_TEST_HANDOFF=1 \
     -DWT_PORT_HANDOFF_PA=$(WT_PORT_HANDOFF_PA)u -DWT_PORT_HANDOFF_SIZE=64u
 endif
+# Arm FF-A ACS conformance image: SP1..SP4 load into 1 MB bands from here.
+WT_FFA_ACS ?= 0
+WT_FFA_ACS_BASE ?= 0x0E400000
+# The runner places the partition images and the test NVM here in the pflash
+# image; the monitor copies them into Secure RAM.
+WT_FFA_ACS_FLASH_OFFSET ?= 0x00200000
+WT_FFA_ACS_FLASH_SIZE ?= 0x00410000
+ifeq ($(WT_FFA_ACS),1)
+TARGET_CFLAGS += -DWT_FFA_ACS=1 -DWT_FFA_ACS_BASE=$(WT_FFA_ACS_BASE)u \
+    -DWT_FFA_ACS_FLASH_OFFSET=$(WT_FFA_ACS_FLASH_OFFSET)u \
+    -DWT_FFA_ACS_FLASH_SIZE=$(WT_FFA_ACS_FLASH_SIZE)u
+endif
 TARGET_LDFLAGS := \
     -Wl,--defsym=WT_EL3_TEXT_BASE=$(WT_EL3_TEXT_BASE) \
     -Wl,--defsym=WT_EL3_RAM_BASE=$(WT_EL3_RAM_BASE) \

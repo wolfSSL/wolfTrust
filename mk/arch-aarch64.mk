@@ -8,6 +8,11 @@ WT_GIC_VERSION ?= 3
 AR := $(TOOLPREFIX)ar
 CPU_FLAGS := -mcpu=$(WT_CPU) -mgeneral-regs-only -mstrict-align
 ARCH_CFLAGS := -DWT_TARGET_BUILD=1 -DWT_GIC_VERSION=$(WT_GIC_VERSION)
+# Enter the Normal world at EL2 instead of EL1 (a boot loader or an EL2 payload).
+WT_EL3_NS_EL2 ?= 0
+ifeq ($(WT_EL3_NS_EL2),1)
+ARCH_CFLAGS += -DWT_EL3_NS_EL2=1
+endif
 WT_WOLFCRYPT_SP_ASM := 0
 WT_WOLFCRYPT_ARMASM := 0
 # 64-bit SP math words, C implementation (no WOLFSSL_SP_ARM64_ASM).

@@ -304,6 +304,54 @@ int main(void)
           wt_tables_build(NULL, 1u, g_sp, 1u, g_el1, 1u, &pool) ==
               WT_TABLES_ERROR_ARGUMENT,
           "an ASID over 8 bits or a NULL table is refused");
+    used = wt_tables_pool_pages_used(&pool);
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E201000u, 1u, RW) ==
+              WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E201000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RW, 1u, 1u, 1u) &&
+          walk_is(&t, &pool, 0x0E200000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 0u, 0u, 1u),
+          "re-permission: one owned code page becomes RW and execute-never, its neighbour is untouched");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E201000u, 1u,
+                                       WT_MEM_ATTR_READ) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E201000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 1u, 1u, 1u),
+          "re-permission: the same page becomes read-only data");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E201000u, 1u,
+                                       RW | WT_MEM_ATTR_EXEC) ==
+              WT_TABLES_ERROR_WX &&
+          walk_is(&t, &pool, 0x0E201000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 1u, 1u, 1u),
+          "re-permission: writable and executable is refused and changes nothing");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E201000u, 1u, RX) ==
+              WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E201000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 0u, 0u, 1u),
+          "re-permission: the page returns to read-execute");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E041000u, 1u, RW) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          walk_is(&t, &pool, 0x0E041000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RO, 1u, 0u, 0u),
+          "re-permission: an EL1-only SPM page is never a partition's to change");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x09040000u, 1u, RW) ==
+              WT_TABLES_ERROR_UNMAPPED,
+          "re-permission: a device page is refused");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E203000u, 2u, RW) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          walk_is(&t, &pool, 0x0E203000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 1u, 1u, 1u),
+          "re-permission: a range running into a guard hole changes no page at all");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E201800u, 1u, RW) ==
+              WT_TABLES_ERROR_ALIGN &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x0E201000u, 0u, RW) ==
+              WT_TABLES_ERROR_ARGUMENT &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x0E201000u, 1u,
+                                       RW | WT_MEM_ATTR_DEVICE) ==
+              WT_TABLES_ERROR_ARGUMENT,
+          "re-permission: unaligned, empty, and device-typed requests are refused");
+    check(wt_tables_pool_pages_used(&pool) == used,
+          "re-permission: rewrites entries in place, no pool growth");
+
     wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, 2u * WT_TABLES_PAGE_SIZE);
     check(build(&t2, 6u, g_sp, 1u, &pool) == WT_TABLES_ERROR_POOL,
           "pool exhaustion fails the build");

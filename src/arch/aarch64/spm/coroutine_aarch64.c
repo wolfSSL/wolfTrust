@@ -161,6 +161,98 @@ struct wt_co* wt_spm_ffa_echo_partition(void)
 }
 #endif
 
+#if defined(WT_FFA_ACS) && (WT_FFA_ACS == 1)
+static struct wt_co* g_native_co[WT_FFA_NATIVE_SP_MAX];
+static wt_secure_domain_t g_native_domain[WT_FFA_NATIVE_SP_MAX];
+static const wt_ffa_native_sp_t* g_native_list;
+static size_t g_native_count;
+
+/* Created in the init pass after the manifest partitions, so each native
+ * partition initializes (runs to its first FFA_MSG_WAIT) exactly like them. */
+static void create_native_partitions(void)
+{
+    const wt_ffa_native_sp_t* list;
+    size_t count = 0u;
+    size_t i;
+    size_t j;
+    wt_co_t* co;
+
+    if (g_native_list != NULL) {
+        return;
+    }
+    list = wt_platform_ffa_native_partitions(&count);
+    if ((list == NULL) || (count > WT_FFA_NATIVE_SP_MAX)) {
+        return;
+    }
+    for (i = 0u; i < count; i++) {
+        if (list[i].region_count > WT_FFA_NATIVE_SP_REGIONS) {
+            wt_platform_panic();
+        }
+        for (j = 0u; j < list[i].region_count; j++) {
+            g_native_domain[i].regions[j] = list[i].regions[j];
+        }
+        g_native_domain[i].region_count = list[i].region_count;
+        g_native_domain[i].stack_base = list[i].stack_base;
+        g_native_domain[i].stack_size = list[i].stack_size;
+        co = wt_co_create_blocked_ex((uint8_t*)list[i].stack_base,
+                                     list[i].stack_size,
+                                     (wt_co_entry_fn)list[i].entry, (void*)0);
+        if (co == NULL) {
+            wt_platform_panic();
+        }
+        wt_co_set_domain(co, &g_native_domain[i], 1u);
+        g_native_co[i] = (struct wt_co*)co;
+    }
+    g_native_list = list;
+    g_native_count = count;
+}
+
+const wt_ffa_native_sp_t* wt_spm_ffa_native_list(size_t* count)
+{
+    *count = g_native_count;
+    return g_native_list;
+}
+
+uint16_t wt_spm_ffa_native_id(size_t index)
+{
+    return (index < g_native_count) ? wt_spm_sp_ffa_id(g_native_co[index]) : 0u;
+}
+
+struct wt_co* wt_spm_ffa_native_by_id(uint16_t id)
+{
+    size_t i;
+
+    for (i = 0u; i < g_native_count; i++) {
+        if ((id != 0u) && (wt_spm_sp_ffa_id(g_native_co[i]) == id)) {
+            return g_native_co[i];
+        }
+    }
+    return NULL;
+}
+#else
+static void create_native_partitions(void)
+{
+}
+
+const wt_ffa_native_sp_t* wt_spm_ffa_native_list(size_t* count)
+{
+    *count = 0u;
+    return NULL;
+}
+
+uint16_t wt_spm_ffa_native_id(size_t index)
+{
+    (void)index;
+    return 0u;
+}
+
+struct wt_co* wt_spm_ffa_native_by_id(uint16_t id)
+{
+    (void)id;
+    return NULL;
+}
+#endif
+
 void wt_spm_init_partitions(void)
 {
     unsigned int i;
@@ -186,6 +278,7 @@ void wt_spm_init_partitions(void)
 #endif
 #endif
     create_echo_partition();
+    create_native_partitions();
     for (i = 0u; i < WT_CO_MAX; i++) {
         (void)run_pending_partition(i);
     }
@@ -203,6 +296,38 @@ void wt_spm_init_partitions(void)
     }
     while (wt_co_tick(8u) != 0u) {
     }
+}
+
+/* A partition's FF-A endpoint id follows its creation order (0x8002 up). */
+uint16_t wt_spm_sp_ffa_id(const struct wt_co* co)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return 0u;
+    }
+    return (uint16_t)(WT_SP_FFA_ID_BASE + co->id);
+}
+
+struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id)
+{
+    uint32_t slot;
+
+    if ((id <= WT_SP_FFA_ID_BASE) || (id > (WT_SP_FFA_ID_BASE + WT_CO_MAX))) {
+        return NULL;
+    }
+    slot = (uint32_t)id - WT_SP_FFA_ID_BASE - 1u;
+    if ((g_created[slot] == NULL) || (g_created[slot]->unprivileged == 0u)) {
+        return NULL;
+    }
+    return g_created[slot];
+}
+
+/* Non-zero until the partition's first block, which completes its init. */
+int wt_spm_sp_initializing(const struct wt_co* co)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return 0;
+    }
+    return (g_init_seen[co->id - 1u] == 0u) ? 1 : 0;
 }
 
 static wt_sp_arch_t* sp_arch(const struct wt_co *co)

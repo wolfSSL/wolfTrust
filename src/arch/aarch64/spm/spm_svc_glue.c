@@ -23,6 +23,7 @@
  * bootstrap stack underneath the wt_co_arch_enter that started the
  * partition; blocking unwinds to it through wt_co_arch_leave. */
 
+#include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/esr.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
@@ -32,9 +33,12 @@
 #include "wolftrust/arch/aarch64/ffa_partinfo.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
+#include "wolftrust/arch/aarch64/tables.h"
 #include "wolftrust/arch.h"
+#include "wolftrust/ffm_domain.h"
 #include "wolftrust/platform.h"
 #include "wolftrust/sched/coroutine.h"
+#include "wolftrust/sched/coroutine_internal.h"
 #include "wolftrust/spm_gate.h"
 #include "wolftrust/spm_transport.h"
 
@@ -108,6 +112,8 @@ static void ffa_success(wt_trap_frame_t* frame, uint64_t w2, uint64_t w3)
     frame->x[3] = w3;
 }
 
+static uint8_t* sp_rx(void);
+
 /* The configured partitions as FFA_PARTITION_INFO_GET source records: the FF-A
  * id follows creation order (0x8002 up), matching the ids the SPMC assigns. */
 static wt_ffa_partinfo_entry_t g_partinfo[16];
@@ -119,6 +125,8 @@ static wt_ffa_partinfo_entry_t g_partinfo[16];
 static void ffa_partition_info_get(wt_trap_frame_t* frame)
 {
     const wt_ffa_partition_manifest_t* parts;
+    const wt_ffa_native_sp_t* natives;
+    size_t native_count = 0u;
     size_t n;
     size_t i;
     unsigned int j;
@@ -142,6 +150,17 @@ static void ffa_partition_info_get(wt_trap_frame_t* frame)
                                     parts[i].uuids[0].bytes[j] : 0u;
         }
     }
+    natives = wt_spm_ffa_native_list(&native_count);
+    for (i = 0u; (i < native_count) &&
+                 (n < (sizeof(g_partinfo) / sizeof(g_partinfo[0]))); i++) {
+        g_partinfo[n].id = wt_spm_ffa_native_id(i);
+        g_partinfo[n].exec_contexts = 1u;
+        g_partinfo[n].properties = natives[i].properties;
+        for (j = 0u; j < 16u; j++) {
+            g_partinfo[n].uuid[j] = natives[i].uuid[j];
+        }
+        n++;
+    }
     for (i = 0u; i < 4u; i++) {
         word = (uint32_t)frame->x[1u + i];
         uuid[4u * i + 0u] = (uint8_t)(word & 0xFFu);
@@ -149,8 +168,8 @@ static void ffa_partition_info_get(wt_trap_frame_t* frame)
         uuid[4u * i + 2u] = (uint8_t)((word >> 16) & 0xFFu);
         uuid[4u * i + 3u] = (uint8_t)((word >> 24) & 0xFFu);
     }
-    ret = wt_ffa_partinfo_write((uint8_t*)(uintptr_t)WT_SPM_RXTX_PA,
-                                (size_t)WT_SPM_RXTX_SIZE, WT_FFA_VERSION_1_2,
+    ret = wt_ffa_partinfo_write(sp_rx(), (size_t)WT_FFA_MEM_PAGE_SIZE,
+                                WT_FFA_VERSION_1_2,
                                 g_partinfo, n, uuid, (uint32_t)frame->x[5],
                                 &count, &size);
     if (ret != 0) {
@@ -166,15 +185,105 @@ static void ffa_rx_release(wt_trap_frame_t* frame)
     ffa_success(frame, 0u, 0u);
 }
 
-/* The calling partition's RX (first page) and TX (second page) buffers. */
+/* RX/TX pairs the partitions registered with FFA_RXTX_MAP (7.2.2), indexed by
+ * coroutine id; a partition that never registered uses the SPMC's own band. */
+typedef struct wt_sp_rxtx {
+    uintptr_t rx;
+    uintptr_t tx;
+} wt_sp_rxtx_t;
+
+static wt_sp_rxtx_t g_sp_rxtx[WT_CO_MAX];
+
+static wt_sp_rxtx_t* sp_rxtx(void)
+{
+    const struct wt_co* co = (const struct wt_co*)wt_co_current();
+
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return NULL;
+    }
+    return &g_sp_rxtx[co->id - 1u];
+}
+
+/* The calling partition's RX and TX buffers. */
 static uint8_t* sp_rx(void)
 {
+    const wt_sp_rxtx_t* pair = sp_rxtx();
+
+    if ((pair != NULL) && (pair->rx != 0u)) {
+        return (uint8_t*)pair->rx;
+    }
     return (uint8_t*)(uintptr_t)WT_SPM_RXTX_PA;
 }
 
 static const uint8_t* sp_tx(void)
 {
+    const wt_sp_rxtx_t* pair = sp_rxtx();
+
+    if ((pair != NULL) && (pair->tx != 0u)) {
+        return (const uint8_t*)pair->tx;
+    }
     return (const uint8_t*)(uintptr_t)(WT_SPM_RXTX_PA + WT_FFA_MEM_PAGE_SIZE);
+}
+
+/* One page the caller owns and may write, per its current mapping. */
+static int sp_owns_writable_page(const struct wt_co* co, uintptr_t va)
+{
+    uint32_t attributes = 0u;
+
+    if ((co->domain == NULL) || ((va % WT_TABLES_PAGE_SIZE) != 0u) ||
+        (wt_domain_get_permissions(co->domain->regions,
+                                   co->domain->region_count, va,
+                                   &attributes) != WT_TABLES_OK)) {
+        return 0;
+    }
+    return ((attributes & WT_MEM_ATTR_WRITE) != 0u) ? 1 : 0;
+}
+
+/* FFA_RXTX_MAP (13.5): x1 = TX, x2 = RX, w3 = page count. The pair must be
+ * two distinct writable pages of the caller's own memory. */
+static void ffa_rxtx_map(wt_trap_frame_t* frame, const struct wt_co* co)
+{
+    wt_sp_rxtx_t* pair = sp_rxtx();
+    uintptr_t tx = (uintptr_t)frame->x[1];
+    uintptr_t rx = (uintptr_t)frame->x[2];
+    uint32_t pages = (uint32_t)frame->x[3] & 0x3Fu;
+
+    if (pair == NULL) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    if ((pair->rx != 0u) || (pair->tx != 0u)) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    if ((pages != 1u) || (tx == 0u) || (rx == 0u) || (tx == rx) ||
+        (sp_owns_writable_page(co, tx) == 0) ||
+        (sp_owns_writable_page(co, rx) == 0)) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
+    pair->tx = tx;
+    pair->rx = rx;
+    ffa_success(frame, 0u, 0u);
+}
+
+/* FFA_RXTX_UNMAP (13.6): w1 bits 31:16 name the caller (or zero). */
+static void ffa_rxtx_unmap(wt_trap_frame_t* frame, const struct wt_co* co)
+{
+    wt_sp_rxtx_t* pair = sp_rxtx();
+    uint16_t id = (uint16_t)(((uint32_t)frame->x[1] >> 16) & 0xFFFFu);
+
+    if ((id != 0u) && (id != wt_spm_sp_ffa_id(co))) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
+    if ((pair == NULL) || (pair->rx == 0u)) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    pair->rx = 0u;
+    pair->tx = 0u;
+    ffa_success(frame, 0u, 0u);
 }
 
 /* A descriptor handed over in the TX buffer: w1 = total length, w2 = fragment
@@ -289,6 +398,191 @@ static void ffa_mem_reclaim(wt_trap_frame_t* frame)
     ffa_success(frame, 0u, 0u);
 }
 
+/* FFA_VERSION (13.2): the Secure virtual instance speaks 1.2 to any caller
+ * with a compatible major version; the result is returned in w0 alone. */
+static void ffa_version(wt_trap_frame_t* frame)
+{
+    uint32_t requested = (uint32_t)frame->x[1];
+
+    if (((requested & 0x80000000u) != 0u) ||
+        (WT_FFA_VERSION_MAJOR_OF(requested) != WT_FFA_VERSION_MAJOR_OF(WT_FFA_VERSION_1_2))) {
+        frame->x[0] = (uint64_t)(uint32_t)WT_FFA_NOT_SUPPORTED;
+    }
+    else {
+        frame->x[0] = WT_FFA_VERSION_1_2;
+    }
+}
+
+static int sp_implements(uint32_t fid)
+{
+    switch (fid) {
+        case WT_FFA_ERROR:
+        case WT_FFA_SUCCESS32:
+        case WT_FFA_SUCCESS64:
+        case WT_FFA_VERSION:
+        case WT_FFA_FEATURES:
+        case WT_FFA_RX_RELEASE:
+        case WT_FFA_RXTX_MAP32:
+        case WT_FFA_RXTX_MAP64:
+        case WT_FFA_RXTX_UNMAP:
+        case WT_FFA_PARTITION_INFO_GET:
+        case WT_FFA_ID_GET:
+        case WT_FFA_SPM_ID_GET:
+        case WT_FFA_MSG_WAIT:
+        case WT_FFA_MSG_SEND_DIRECT_RESP32:
+        case WT_FFA_MSG_SEND_DIRECT_RESP64:
+        case WT_FFA_MEM_SHARE32:
+        case WT_FFA_MEM_SHARE64:
+        case WT_FFA_MEM_LEND32:
+        case WT_FFA_MEM_LEND64:
+        case WT_FFA_MEM_RETRIEVE_REQ32:
+        case WT_FFA_MEM_RETRIEVE_REQ64:
+        case WT_FFA_MEM_RELINQUISH:
+        case WT_FFA_MEM_RECLAIM:
+        case WT_FFA_MEM_PERM_GET32:
+        case WT_FFA_MEM_PERM_GET64:
+        case WT_FFA_MEM_PERM_SET32:
+        case WT_FFA_MEM_PERM_SET64:
+        case WT_FFA_CONSOLE_LOG32:
+        case WT_FFA_CONSOLE_LOG64:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+/* FFA_FEATURES (13.3): exactly the function ids this instance serves; no
+ * optional feature id is implemented. */
+static void ffa_features(wt_trap_frame_t* frame)
+{
+    uint32_t query = (uint32_t)frame->x[1];
+
+    if (WT_FFA_FEATURES_IS_FID(query) && (sp_implements(query) != 0)) {
+        ffa_success(frame, 0u, 0u);
+    }
+    else {
+        ffa_not_supported(frame);
+    }
+}
+
+/* FFA_CONSOLE_LOG (13.12): w1 = count, characters packed from w2/x2 upward;
+ * 1..24 over w2-w7, 1..128 over x2-x17. */
+static void ffa_console_log(wt_trap_frame_t* frame, unsigned int is64)
+{
+    uint32_t count = (uint32_t)frame->x[1];
+    unsigned int per_reg = (is64 != 0u) ? 8u : 4u;
+    unsigned int max = (is64 != 0u) ? 128u : 24u;
+    unsigned int i;
+    uint64_t reg;
+
+    if (((count & 0xFFFFFF00u) != 0u) || (count < 1u) || (count > max)) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
+    for (i = 0u; i < count; i++) {
+        reg = frame->x[2u + (i / per_reg)];
+        wt_platform_console_putc((char)((reg >> (8u * (i % per_reg))) & 0xFFu));
+    }
+    ffa_success(frame, 0u, 0u);
+}
+
+/* FFA_MEM_PERM_GET/SET permission word: bits[1:0] data access (1 = RW,
+ * 3 = RO), bit[2] set = execute-never; everything else is reserved. */
+#define WT_FFA_PERM_DATA_MASK 0x3u
+#define WT_FFA_PERM_DATA_RW   0x1u
+#define WT_FFA_PERM_DATA_RO   0x3u
+#define WT_FFA_PERM_XN        0x4u
+
+static int perm_to_attributes(uint32_t perm, uint32_t* attributes)
+{
+    uint32_t data = perm & WT_FFA_PERM_DATA_MASK;
+
+    if ((perm & ~(WT_FFA_PERM_DATA_MASK | WT_FFA_PERM_XN)) != 0u) {
+        return -1;
+    }
+    if ((data == WT_FFA_PERM_DATA_RW) && ((perm & WT_FFA_PERM_XN) != 0u)) {
+        *attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+        return 0;
+    }
+    if (data == WT_FFA_PERM_DATA_RO) {
+        *attributes = WT_MEM_ATTR_READ;
+        if ((perm & WT_FFA_PERM_XN) == 0u) {
+            *attributes |= WT_MEM_ATTR_EXEC;
+        }
+        return 0;
+    }
+    return -1;
+}
+
+/* Code every partition maps is never one partition's to re-permission. */
+static int overlaps_shared(uintptr_t va, size_t pages)
+{
+    wt_memory_region_t shared[4];
+    uintptr_t end = va + (pages * WT_TABLES_PAGE_SIZE);
+    size_t n = wt_platform_sp_shared_regions(shared, 4u);
+    size_t i;
+
+    for (i = 0u; i < n; i++) {
+        if ((va < (shared[i].base + shared[i].size)) && (end > shared[i].base)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* FFA_MEM_PERM_SET (18.3.2): an S-EL0 partition re-permissions its own pages,
+ * during its initialization only. w1 = base VA, w2 = page count, w3 = perms. */
+static void ffa_mem_perm_set(wt_trap_frame_t* frame, const struct wt_co* co)
+{
+    uintptr_t va = (uintptr_t)frame->x[1];
+    size_t pages = (size_t)(uint32_t)frame->x[2];
+    uint32_t attributes = 0u;
+
+    if ((co->domain == NULL) || (wt_spm_sp_initializing(co) == 0)) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    if ((perm_to_attributes((uint32_t)frame->x[3], &attributes) != 0) ||
+        (pages == 0u) || (pages > (WT_TABLES_VA_LIMIT / WT_TABLES_PAGE_SIZE))) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
+    if (overlaps_shared(va, pages) != 0) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    if (wt_domain_set_permissions(co->domain->regions, co->domain->region_count,
+                                  va, pages, attributes) != WT_TABLES_OK) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
+    ffa_success(frame, 0u, 0u);
+}
+
+/* FFA_MEM_PERM_GET (18.3.1): w1 = base VA; the permissions return in w2. */
+static void ffa_mem_perm_get(wt_trap_frame_t* frame, const struct wt_co* co)
+{
+    uint32_t attributes = 0u;
+    uint32_t perm;
+
+    if ((co->domain == NULL) || (wt_spm_sp_initializing(co) == 0)) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    if (wt_domain_get_permissions(co->domain->regions, co->domain->region_count,
+                                  (uintptr_t)frame->x[1], &attributes) !=
+        WT_TABLES_OK) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
+    perm = ((attributes & WT_MEM_ATTR_WRITE) != 0u) ? WT_FFA_PERM_DATA_RW
+                                                     : WT_FFA_PERM_DATA_RO;
+    if ((attributes & WT_MEM_ATTR_EXEC) == 0u) {
+        perm |= WT_FFA_PERM_XN;
+    }
+    ffa_success(frame, perm, 0u);
+}
+
 void wt_spm_lower_sync(wt_trap_frame_t* frame)
 {
     uint32_t ec = (uint32_t)(frame->esr >> 26) & 0x3Fu;
@@ -354,6 +648,33 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     else if ((fid == WT_FFA_MSG_SEND_DIRECT_RESP32) ||
              (fid == WT_FFA_MSG_SEND_DIRECT_RESP64)) {
         ffa_direct_resp(frame);
+    }
+    else if (fid == WT_FFA_VERSION) {
+        ffa_version(frame);
+    }
+    else if (fid == WT_FFA_FEATURES) {
+        ffa_features(frame);
+    }
+    else if (fid == WT_FFA_ID_GET) {
+        ffa_success(frame, wt_spm_sp_ffa_id((const struct wt_co*)co), 0u);
+    }
+    else if (fid == WT_FFA_SPM_ID_GET) {
+        ffa_success(frame, WT_FFA_ID_SPMC, 0u);
+    }
+    else if ((fid == WT_FFA_CONSOLE_LOG32) || (fid == WT_FFA_CONSOLE_LOG64)) {
+        ffa_console_log(frame, (fid == WT_FFA_CONSOLE_LOG64) ? 1u : 0u);
+    }
+    else if ((fid == WT_FFA_MEM_PERM_SET32) || (fid == WT_FFA_MEM_PERM_SET64)) {
+        ffa_mem_perm_set(frame, (const struct wt_co*)co);
+    }
+    else if ((fid == WT_FFA_MEM_PERM_GET32) || (fid == WT_FFA_MEM_PERM_GET64)) {
+        ffa_mem_perm_get(frame, (const struct wt_co*)co);
+    }
+    else if ((fid == WT_FFA_RXTX_MAP32) || (fid == WT_FFA_RXTX_MAP64)) {
+        ffa_rxtx_map(frame, (const struct wt_co*)co);
+    }
+    else if (fid == WT_FFA_RXTX_UNMAP) {
+        ffa_rxtx_unmap(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_PARTITION_INFO_GET) {
         ffa_partition_info_get(frame);

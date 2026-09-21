@@ -116,10 +116,19 @@ int wt_tables_walk(const wt_tables_t* t, const wt_tables_pool_t* pool,
 
 uint64_t wt_tables_ttbr0(const wt_tables_t* t);
 
-/* mmu.S: stage 1 on at S-EL1 (M|C|I|SA|SA0|WXN, EL0 wfi/wfe trapping) and
- * the per-domain TTBR0 switch (distinct ASIDs, no TLBI). */
+/* Re-permission pages the partition already owns at EL0 (FFA_MEM_PERM_SET):
+ * every page must be a mapped, Secure, Normal-memory EL0 page, else nothing
+ * changes. The caller invalidates the table's ASID afterwards. */
+int wt_tables_set_el0_attributes(wt_tables_t* t, const wt_tables_pool_t* pool,
+                                 uint64_t va, size_t pages,
+                                 uint32_t attributes);
+
+/* mmu.S: stage 1 on at S-EL1 (M|C|I|SA|SA0|WXN, EL0 wfi/wfe trapping), the
+ * per-domain TTBR0 switch (distinct ASIDs, no TLBI), and the per-ASID
+ * invalidation a permission change needs. */
 void wt_mmu_enable(uint64_t ttbr0, uint64_t mair, uint64_t tcr);
 void wt_mmu_switch_ttbr0(uint64_t ttbr0);
+void wt_mmu_tlbi_asid(uint64_t asid);
 
 /* Port hook: device pages the SPM itself needs mapped (the secure console). */
 const wt_memory_region_t* wt_platform_board_device_regions(size_t* count);

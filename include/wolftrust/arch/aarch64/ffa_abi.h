@@ -76,6 +76,10 @@
 #define WT_FFA_RX_ACQUIRE             0x84000084u
 #define WT_FFA_SPM_ID_GET             0x84000085u
 #define WT_FFA_MSG_SEND2              0x84000086u
+#define WT_FFA_MEM_PERM_GET32          0x84000088u
+#define WT_FFA_MEM_PERM_GET64          0xC4000088u
+#define WT_FFA_MEM_PERM_SET32          0x84000089u
+#define WT_FFA_MEM_PERM_SET64          0xC4000089u
 #define WT_FFA_CONSOLE_LOG32          0x8400008Au
 #define WT_FFA_CONSOLE_LOG64          0xC400008Au
 #define WT_FFA_PARTITION_INFO_GET_REGS 0xC400008Bu

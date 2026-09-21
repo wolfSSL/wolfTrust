@@ -30,8 +30,6 @@ static uint8_t pal_buffer_4k[WT_ACS_BUFFER_COUNT][PAGE_SIZE_4K];
 
 static memory_region_descriptor_t endpoint_device_regions[] = {
 #if defined(SP1_COMPILE)
-    {PLATFORM_S_UART_BASE, PLATFORM_S_UART_BASE, PLATFORM_S_UART_SIZE,
-        ATTR_DEVICE_RW_S},
     {PLATFORM_NVM_BASE, PLATFORM_NVM_BASE, PLATFORM_NVM_SIZE, ATTR_DEVICE_RW_S},
 #endif
 #if defined(VM1_COMPILE)

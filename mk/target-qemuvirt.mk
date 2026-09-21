@@ -89,10 +89,14 @@ WT_FFA_ACS_BASE ?= 0x0E400000
 # image; the monitor copies them into Secure RAM.
 WT_FFA_ACS_FLASH_OFFSET ?= 0x00200000
 WT_FFA_ACS_FLASH_SIZE ?= 0x00410000
+# The test NVM rides at this offset within the ACS band, behind the four 1 MB
+# SP images; it must survive a warm reset (the suite records progress in it).
+WT_FFA_ACS_NVM_OFFSET ?= 0x00400000
 ifeq ($(WT_FFA_ACS),1)
 TARGET_CFLAGS += -DWT_FFA_ACS=1 -DWT_FFA_ACS_BASE=$(WT_FFA_ACS_BASE)u \
     -DWT_FFA_ACS_FLASH_OFFSET=$(WT_FFA_ACS_FLASH_OFFSET)u \
-    -DWT_FFA_ACS_FLASH_SIZE=$(WT_FFA_ACS_FLASH_SIZE)u
+    -DWT_FFA_ACS_FLASH_SIZE=$(WT_FFA_ACS_FLASH_SIZE)u \
+    -DWT_FFA_ACS_NVM_OFFSET=$(WT_FFA_ACS_NVM_OFFSET)u
 endif
 TARGET_LDFLAGS := \
     -Wl,--defsym=WT_EL3_TEXT_BASE=$(WT_EL3_TEXT_BASE) \

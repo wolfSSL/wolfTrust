@@ -212,10 +212,20 @@ void wt_el3_main(void)
 #if defined(WT_FFA_ACS_FLASH_OFFSET)
     /* Conformance image only: the FF-A ACS partition images and the suite's
      * test NVM ride behind the SPMC image in flash, since nothing else can
-     * place them in Secure RAM on this machine. */
+     * place them in Secure RAM on this machine. The partition images are laid
+     * down fresh every boot, but the NVM (behind them, from WT_FFA_ACS_NVM_
+     * OFFSET) records the suite's progress and must survive a warm reset: the
+     * isolation tests fault a partition on purpose and resume off it. */
     (void)memcpy((void*)(uintptr_t)WT_FFA_ACS_BASE,
                  (const void*)(uintptr_t)(WT_EL3_TEXT_BASE + WT_FFA_ACS_FLASH_OFFSET),
-                 (size_t)WT_FFA_ACS_FLASH_SIZE);
+                 (size_t)WT_FFA_ACS_NVM_OFFSET);
+    if (wt_el3_reset_count() == 0u) {
+        (void)memcpy((void*)(uintptr_t)(WT_FFA_ACS_BASE + WT_FFA_ACS_NVM_OFFSET),
+                     (const void*)(uintptr_t)(WT_EL3_TEXT_BASE +
+                                              WT_FFA_ACS_FLASH_OFFSET +
+                                              WT_FFA_ACS_NVM_OFFSET),
+                     (size_t)(WT_FFA_ACS_FLASH_SIZE - WT_FFA_ACS_NVM_OFFSET));
+    }
 #endif
     wt_el3_puts("[EL3] spmc image at 0x");
     wt_el3_puthex((uint64_t)WT_SPM_IMAGE_PA, 8u);

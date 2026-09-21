@@ -205,6 +205,37 @@ int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
     return ret;
 }
 
+int wt_domain_grant(const wt_memory_region_t* regions, size_t count,
+                    uintptr_t va, size_t pages, uint32_t attributes,
+                    int* was_mapped)
+{
+    wt_domain_entry_t* e = find_built(regions, count);
+    int ret;
+
+    if ((g_ready == 0u) || (e == NULL) || (regions == NULL)) {
+        return WT_TABLES_ERROR_ARGUMENT;
+    }
+    ret = wt_tables_grant_el0(&e->table, &g_pool, (uint64_t)va, pages,
+                              attributes, was_mapped);
+    wt_mmu_tlbi_asid((uint64_t)e->table.asid);
+    return ret;
+}
+
+int wt_domain_revoke(const wt_memory_region_t* regions, size_t count,
+                     uintptr_t va, size_t pages, int was_mapped)
+{
+    wt_domain_entry_t* e = find_built(regions, count);
+    int ret;
+
+    if ((g_ready == 0u) || (e == NULL) || (regions == NULL)) {
+        return WT_TABLES_ERROR_ARGUMENT;
+    }
+    ret = wt_tables_revoke_el0(&e->table, &g_pool, (uint64_t)va, pages,
+                               was_mapped);
+    wt_mmu_tlbi_asid((uint64_t)e->table.asid);
+    return ret;
+}
+
 int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
                               uintptr_t va, uint32_t* attributes)
 {

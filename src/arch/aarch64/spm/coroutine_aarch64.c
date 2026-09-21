@@ -28,6 +28,7 @@
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/ffm_domain.h"
 #include "wolftrust/arch.h"
@@ -202,6 +203,10 @@ static void create_native_partitions(void)
         }
         wt_co_set_domain(co, &g_native_domain[i], 1u);
         g_native_co[i] = (struct wt_co*)co;
+        if (wt_spm_mem_bind(wt_spm_sp_ffa_id((struct wt_co*)co),
+                            (struct wt_co*)co, &g_native_domain[i]) != 0) {
+            wt_platform_panic();
+        }
     }
     g_native_list = list;
     g_native_count = count;

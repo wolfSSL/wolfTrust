@@ -78,7 +78,7 @@ static size_t make_txn(uint8_t* buf, size_t cap, wt_ffa_mem_op_t op,
     in.sender = 0u;
     in.receiver = 0x8002u;
     in.attributes = 0x6Fu;
-    in.permissions = 0x0Au;
+    in.permissions = 0x06u;
     in.flags = flags;
     in.tag = 0x1122334455667788ull;
     if (wt_ffa_mem_txn_build(buf, cap, &in, &out) != 0) {
@@ -142,7 +142,7 @@ static void txn_rows(void)
           txn.total_page_count == 5u && txn.tag == 0x1122334455667788ull,
           "the parsed header carries the sender, composite location, and page total");
     check(wt_ffa_mem_receiver(buf, len, &txn, 0u, &rid, &perms) == 0 &&
-          rid == 0x8002u && perms == 0x0Au,
+          rid == 0x8002u && perms == 0x06u,
           "the endpoint access descriptor names the borrower and its permissions");
     check(wt_ffa_mem_constituent(buf, len, &txn, 0u, &c) == 0 &&
           c.address == 0x40000000ull && c.page_count == 2u &&
@@ -409,7 +409,7 @@ static void share_rows(void)
     check(wt_ffa_mem_regions_from_txn(buf, len, &txn, 0u, regs,
                                       WT_FFA_MEM_MAX_REGIONS, &n) == 0 &&
           n == 2u && regs[0].base == 0x40000000ull &&
-          regs[0].page_count == 2u && regs[0].permissions == 0x0Au &&
+          regs[0].page_count == 2u && regs[0].permissions == 0x06u &&
           regs[0].ns == 1u && regs[1].base == 0x40002000ull &&
           regs[1].page_count == 3u,
           "the mapping list carries each constituent with the borrower permissions and NS state");
@@ -452,7 +452,7 @@ static void retrieve_rows(void)
     size_t len = 0u;
 
     check(wt_ffa_mem_retrieve_req_build(buf, sizeof(buf), 0x1234ull, 0x8000u,
-                                        0x80FBu, 0x0Au, &len) == 0 &&
+                                        0x80FBu, 0x06u, &len) == 0 &&
           len == 64u,
           "a retrieve request is a header plus one access descriptor");
     check(wt_ffa_mem_retrieve_req_parse(buf, len, &h, &sender, &receiver) == 0 &&
@@ -464,19 +464,19 @@ static void retrieve_rows(void)
           "a retrieve request without its access descriptor is INVALID_PARAMETERS");
 
     (void)wt_ffa_mem_retrieve_req_build(buf, sizeof(buf), 0x1234ull, 0x8000u,
-                                        0x80FBu, 0x0Au, &len);
-    buf[28] = 2u;
+                                        0x80FBu, 0x06u, &len);
+    buf[28] = (uint8_t)(WT_FFA_MEM_MAX_BORROWERS + 1u);
     check(wt_ffa_mem_retrieve_req_parse(buf, len, &h, &sender, &receiver) ==
               WT_FFA_NOT_SUPPORTED,
-          "a retrieve request for more than one receiver is NOT_SUPPORTED");
+          "a retrieve request naming more receivers than a transaction holds is NOT_SUPPORTED");
     (void)wt_ffa_mem_retrieve_req_build(buf, sizeof(buf), 0x1234ull, 0x8000u,
-                                        0x80FBu, 0x0Au, &len);
+                                        0x80FBu, 0x06u, &len);
     buf[24] = 24u;
     check(wt_ffa_mem_retrieve_req_parse(buf, len, &h, &sender, &receiver) ==
               WT_FFA_NOT_SUPPORTED,
           "a retrieve request with an unknown access descriptor size is NOT_SUPPORTED");
     (void)wt_ffa_mem_retrieve_req_build(buf, sizeof(buf), 0x1234ull, 0x8000u,
-                                        0x80FBu, 0x0Au, &len);
+                                        0x80FBu, 0x06u, &len);
     put32(&buf[52], 64u);
     check(wt_ffa_mem_retrieve_req_parse(buf, len, &h, &sender, &receiver) ==
               WT_FFA_INVALID_PARAMETERS,
@@ -511,6 +511,103 @@ static void retrieve_rows(void)
           "a descriptor carrying a handle (a retrieve response) parses it");
 }
 
+/* WT-FFA-0009 (several borrowers, the v1.2 access descriptor, send flags). */
+static void borrower_rows(void)
+{
+    static const wt_ffa_mem_constituent_t cons[1] = { { 0x40000000ull, 2u } };
+    wt_ffa_mem_registry_t reg;
+    wt_ffa_mem_region_t region = { 0x40000000ull, 2u, 0x06u, 1u };
+    wt_ffa_mem_retrieve_req_t rq;
+    wt_ffa_mem_build_t in;
+    wt_ffa_mem_txn_t txn;
+    uint8_t buf[256];
+    uint64_t h = 0u;
+    uint64_t parsed = 0u;
+    uint32_t flags = 0u;
+    uint16_t ep = 0u;
+    size_t len = 0u;
+
+    wt_ffa_mem_registry_init(&reg);
+    check(wt_ffa_mem_share_register(&reg, WT_FFA_MEM_OP_SHARE, 0u, 0x8002u,
+                                    &region, 1u, &h) == 0 &&
+          wt_ffa_mem_handle_add_borrower(&reg, h, 0x8003u, 0x05u) == 0,
+          "a transaction names a second borrower with its own permissions");
+    check(wt_ffa_mem_handle_add_borrower(&reg, h, 0x8003u, 0x05u) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_ffa_mem_handle_add_borrower(&reg, h, 0u, 0x05u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a repeated borrower or the owner itself is refused");
+    check(wt_ffa_mem_handle_add_borrower(&reg, h, 0x8004u, 0x05u) == 0 &&
+          wt_ffa_mem_handle_add_borrower(&reg, h, 0x8005u, 0x05u) ==
+              WT_FFA_NO_MEMORY,
+          "borrowers past the per-transaction limit are NO_MEMORY");
+    check(wt_ffa_mem_handle_borrower(&reg, h, 0x8003u) != NULL &&
+          wt_ffa_mem_handle_borrower(&reg, h, 0x8003u)->permissions == 0x05u &&
+          wt_ffa_mem_handle_borrower(&reg, h, 0x8009u) == NULL,
+          "each borrower keeps what it was granted");
+    check(wt_ffa_mem_handle_retrieve(&reg, h, 0x8002u) == 0 &&
+          wt_ffa_mem_handle_retrieve(&reg, h, 0x8003u) == 0 &&
+          wt_ffa_mem_handle_relinquish(&reg, h, 0x8002u) == 0 &&
+          wt_ffa_mem_handle_reclaim(&reg, h, 0u) == WT_FFA_DENIED,
+          "the owner cannot reclaim while any borrower still holds the region");
+    check(wt_ffa_mem_handle_add_borrower(&reg, h, 0x8006u, 0x05u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "no borrower joins a transaction already retrieved");
+    check(wt_ffa_mem_registry_overlaps(&reg, 0x40001000ull, 1u) != 0 &&
+          wt_ffa_mem_registry_overlaps(&reg, 0x40002000ull, 4u) == 0,
+          "pages a live handle holds are found, its neighbours are not");
+    check(wt_ffa_mem_handle_relinquish(&reg, h, 0x8003u) == 0 &&
+          wt_ffa_mem_handle_reclaim(&reg, h, 0u) == 0 &&
+          wt_ffa_mem_registry_overlaps(&reg, 0x40001000ull, 1u) == 0,
+          "reclaim frees the pages for a later transaction");
+
+    memset(&in, 0, sizeof(in));
+    in.constituents = cons;
+    in.constituent_count = 1u;
+    in.op = WT_FFA_MEM_OP_LEND;
+    in.receiver = 0x8002u;
+    in.attributes = 0x2Fu;
+    in.permissions = 0x06u;
+    in.access_desc_size = (uint8_t)WT_FFA_MEM_ACCESS_SIZE_V12;
+    check(wt_ffa_mem_txn_build(buf, sizeof(buf), &in, &len) == 0 &&
+          len == 112u &&
+          wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) == 0 &&
+          txn.access_desc_size == WT_FFA_MEM_ACCESS_SIZE_V12 &&
+          txn.composite_offset == 80u,
+          "the 32-byte FF-A 1.2 access descriptor round-trips");
+    buf[48u + 31u] = 1u;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "its reserved tail must be zero");
+    buf[48u + 31u] = 0u;
+    buf[48u + 12u] = 0x5Au;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) == 0,
+          "its implementation-defined bytes are the sender's to use");
+    in.access_desc_size = 24u;
+    check(wt_ffa_mem_txn_build(buf, sizeof(buf), &in, &len) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "no other access descriptor size is built");
+
+    (void)wt_ffa_mem_retrieve_req_build(buf, sizeof(buf), 0x77ull, 0u, 0x8002u,
+                                        0x06u, &len);
+    put64(&buf[16], 0xABCDull);
+    put32(&buf[4], WT_FFA_MEM_FLAG_TYPE_LEND);
+    check(wt_ffa_mem_retrieve_req_parse_ex(buf, len, &rq) == 0 &&
+          rq.handle == 0x77ull && rq.tag == 0xABCDull &&
+          rq.flags == WT_FFA_MEM_FLAG_TYPE_LEND && rq.receiver_count == 1u &&
+          rq.receivers[0] == 0x8002u && rq.permissions[0] == 0x06u &&
+          rq.access_desc_size == WT_FFA_MEM_ACCESS_SIZE,
+          "a retrieve request yields its tag, flags, and asked-for permissions");
+
+    (void)wt_ffa_mem_relinquish_build(buf, sizeof(buf), 0x77ull,
+                                      WT_FFA_MEM_RELINQ_FLAG_ZERO, 0x8002u,
+                                      &len);
+    check(wt_ffa_mem_relinquish_parse_ex(buf, len, &parsed, &ep, &flags) == 0 &&
+          parsed == 0x77ull && ep == 0x8002u &&
+          flags == WT_FFA_MEM_RELINQ_FLAG_ZERO,
+          "a relinquish descriptor yields its zero-memory flag");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -523,6 +620,7 @@ int main(void)
     registry_rows();
     share_rows();
     retrieve_rows();
+    borrower_rows();
 
     printf("ffa_mem: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

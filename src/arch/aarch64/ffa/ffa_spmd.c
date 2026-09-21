@@ -178,6 +178,12 @@ static int ns_implements(uint32_t fid)
         case WT_FFA_MSG_SEND_DIRECT_RESP2:
         case WT_FFA_MEM_SHARE32:
         case WT_FFA_MEM_SHARE64:
+        case WT_FFA_MEM_LEND32:
+        case WT_FFA_MEM_LEND64:
+        case WT_FFA_MEM_RETRIEVE_REQ32:
+        case WT_FFA_MEM_RETRIEVE_REQ64:
+        case WT_FFA_MEM_RETRIEVE_RESP:
+        case WT_FFA_MEM_RELINQUISH:
         case WT_FFA_MEM_RECLAIM:
             return 1;
         default:
@@ -210,6 +216,11 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid)
         case WT_FFA_MSG_SEND_DIRECT_REQ2:
         case WT_FFA_MEM_SHARE32:
         case WT_FFA_MEM_SHARE64:
+        case WT_FFA_MEM_LEND32:
+        case WT_FFA_MEM_LEND64:
+        case WT_FFA_MEM_RETRIEVE_REQ32:
+        case WT_FFA_MEM_RETRIEVE_REQ64:
+        case WT_FFA_MEM_RELINQUISH:
         case WT_FFA_MEM_RECLAIM:
             return 1;
         default:

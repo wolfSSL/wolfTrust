@@ -32,7 +32,8 @@ endif
 
 UNIT_SUITES := domain manifest lifecycle guest_verify rollback sp_recovery \
     ipc ffm spm \
-    vnet wolfhsm_loopback wolfhsm_relay keystore_isolation \
+    vnet wolfhsm_loopback wolfhsm_relay native_wire native_wire_client \
+    keystore_isolation \
     attestation_service attestation attestation_token \
     attestation_golden attestation_negatives attestation_replay \
     attestation_iak ffm_domain sp_layout port_binding boot_handoff spm_gate \

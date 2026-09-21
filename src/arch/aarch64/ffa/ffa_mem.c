@@ -916,6 +916,22 @@ int wt_ffa_mem_handle_relinquish(wt_ffa_mem_registry_t* reg, uint64_t handle,
     return 0;
 }
 
+int wt_ffa_mem_handle_free(wt_ffa_mem_registry_t* reg, uint64_t handle)
+{
+    wt_ffa_mem_handle_entry_t* e;
+
+    if (reg == NULL) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    e = find_handle(reg, handle);
+    if (e == NULL) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    e->state = (uint8_t)WT_FFA_MEM_STATE_FREE;
+    e->handle = WT_FFA_MEM_HANDLE_INVALID;
+    return 0;
+}
+
 int wt_ffa_mem_handle_reclaim(wt_ffa_mem_registry_t* reg, uint64_t handle,
                               uint16_t owner)
 {

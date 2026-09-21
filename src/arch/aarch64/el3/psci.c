@@ -49,6 +49,11 @@ static int reset_allowed(void)
 #endif
 }
 
+unsigned int wt_el3_reset_count(void)
+{
+    return g_reset_count;
+}
+
 void wt_el3_system_reset(const char* tag)
 {
     if (reset_allowed()) {

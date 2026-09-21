@@ -120,6 +120,8 @@ void wt_el3_world_return_to_ns(wt_el3_frame_t* frame) __attribute__((noreturn));
 void wt_el3_world_resume_ns(wt_el3_frame_t* frame) __attribute__((noreturn));
 /* Why the Normal world is paused in the Secure world (WT_NS_PENDING_*). */
 unsigned int wt_el3_world_ns_pending(void);
+/* 0 on the cold boot, non-zero after a warm reset (the .noinit boot counter). */
+unsigned int wt_el3_reset_count(void);
 /* Enter a saved world: program SCR_EL3, restore its register file, and ERET. */
 void wt_el3_world_eret(const wt_el3_frame_t* frame, uint64_t scr_el3)
     __attribute__((noreturn));

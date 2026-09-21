@@ -169,7 +169,9 @@ static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
     int was_mapped = 1;
     uint32_t i;
 
-    if ((b == NULL) || (e->state != (uint8_t)WT_FFA_MEM_STATE_LENT)) {
+    /* Lend and donate both take the owner's own access away; a share leaves
+     * it. Donate never gives it back (there is no reclaim). */
+    if ((b == NULL) || (e->state == (uint8_t)WT_FFA_MEM_STATE_SHARED)) {
         return;
     }
     for (i = 0u; i < (uint32_t)e->region_count; i++) {
@@ -186,6 +188,34 @@ static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
                                    e->regions[i].page_count, 1);
         }
     }
+}
+
+/* The access permissions a sender may state (Table 11.15/11.16): a share or
+ * lend names the data access it grants and leaves instruction access to the
+ * relayer (lend may pre-set not-executable); a donate hands the receiver full
+ * ownership, so the sender specifies neither. Execution is never granted. */
+static int send_permissions_ok(wt_ffa_mem_op_t op, uint8_t perms)
+{
+    uint8_t data = perms & WT_FFA_MEM_PERM_DATA_MASK;
+    uint8_t instr = perms & WT_FFA_MEM_PERM_INSTR_MASK;
+
+    if ((instr == WT_FFA_MEM_PERM_INSTR_X) ||
+        (instr == WT_FFA_MEM_PERM_INSTR_MASK)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (op == WT_FFA_MEM_OP_DONATE) {
+        return ((data == WT_FFA_MEM_PERM_DATA_NOT_SPEC) &&
+                (instr == WT_FFA_MEM_PERM_INSTR_NOT_SPEC)) ? 0
+                                                           : WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((data == WT_FFA_MEM_PERM_DATA_NOT_SPEC) ||
+        (data == WT_FFA_MEM_PERM_DATA_RSVD)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((op == WT_FFA_MEM_OP_SHARE) && (instr != WT_FFA_MEM_PERM_INSTR_NOT_SPEC)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    return 0;
 }
 
 int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
@@ -209,19 +239,13 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     }
     for (i = 0u; (ret == 0) && (i < txn.receiver_count); i++) {
         ret = wt_ffa_mem_receiver(desc, len, &txn, i, &receiver, &perms);
-        /* A borrower is a partition the SPMC can map into, never the sender;
-         * executable access is never handed out. */
+        /* A borrower is a partition the SPMC can map into, never the sender. */
         if ((ret == 0) &&
-            ((receiver == sender) || (receiver_known(receiver) == 0) ||
-             ((perms & WT_FFA_MEM_PERM_DATA_MASK) ==
-              WT_FFA_MEM_PERM_DATA_NOT_SPEC))) {
+            ((receiver == sender) || (receiver_known(receiver) == 0))) {
             ret = WT_FFA_INVALID_PARAMETERS;
         }
-        /* The owner of a share or lend leaves instruction access to the
-         * relayer, which only ever answers not-executable (11.2). */
-        if ((ret == 0) && ((perms & WT_FFA_MEM_PERM_INSTR_MASK) !=
-                           WT_FFA_MEM_PERM_INSTR_NOT_SPEC)) {
-            ret = WT_FFA_INVALID_PARAMETERS;
+        if (ret == 0) {
+            ret = send_permissions_ok(op, perms);
         }
     }
     if (ret == 0) {
@@ -230,16 +254,16 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     }
     for (i = 0u; (ret == 0) && (i < n); i++) {
         regs[i].ns = id_is_secure(sender) ? 0u : 1u;
+        /* A donate makes the receiver the owner, with full data access. */
+        if (op == WT_FFA_MEM_OP_DONATE) {
+            regs[i].permissions = (uint8_t)(WT_FFA_MEM_PERM_DATA_RW |
+                                            WT_FFA_MEM_PERM_INSTR_NX);
+        }
         if ((sender_owns(sender, &regs[i]) == 0) ||
             (wt_ffa_mem_registry_overlaps(&g_reg, regs[i].base,
                                           regs[i].page_count) != 0)) {
             ret = WT_FFA_DENIED;
         }
-    }
-    /* Ownership never changes hands here; a donate is refused only after the
-     * sender proved it owns the memory, so a borrower's attempt is DENIED. */
-    if ((ret == 0) && (op == WT_FFA_MEM_OP_DONATE)) {
-        ret = WT_FFA_NOT_SUPPORTED;
     }
     if (ret == 0) {
         ret = wt_ffa_mem_receiver(desc, len, &txn, 0u, &receiver, &perms);
@@ -483,7 +507,14 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
         return ret;
     }
     borrower->mapping = (uint8_t)((was_mapped != 0) ? WT_SPM_MEM_MAP_WAS_MAPPED : 0u);
-    return wt_ffa_mem_handle_retrieve(&g_reg, rq.handle, receiver);
+    ret = wt_ffa_mem_handle_retrieve(&g_reg, rq.handle, receiver);
+    /* A donate hands ownership over for good: the region is now the receiver's
+     * own writable memory (the owner's access was dropped at donate time), so
+     * the transaction is consumed and there is nothing to reclaim. */
+    if ((ret == 0) && (e->state == (uint8_t)WT_FFA_MEM_STATE_DONATED)) {
+        (void)wt_ffa_mem_handle_free(&g_reg, rq.handle);
+    }
+    return ret;
 }
 
 int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)

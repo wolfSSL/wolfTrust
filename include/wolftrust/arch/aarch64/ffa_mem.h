@@ -396,6 +396,9 @@ int wt_ffa_mem_handle_regions(const wt_ffa_mem_registry_t* reg, uint64_t handle,
 int wt_ffa_mem_handle_lookup(const wt_ffa_mem_registry_t* reg, uint64_t handle,
                              const wt_ffa_mem_handle_entry_t** out);
 
+/* Free a handle unconditionally (a donate consumes it once retrieved). */
+int wt_ffa_mem_handle_free(wt_ffa_mem_registry_t* reg, uint64_t handle);
+
 /* A borrower retrieves a handle once. Returns 0, WT_FFA_INVALID_PARAMETERS for
  * an unknown handle, or WT_FFA_DENIED for the wrong borrower or a second
  * retrieve. */

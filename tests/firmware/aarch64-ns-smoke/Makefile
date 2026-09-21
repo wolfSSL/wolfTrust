@@ -181,6 +181,15 @@ CONF_SUITE_SRCS := $(CONF_PAL_DIR)/pal_attestation_intf.c \
     $(ROOT)/tests/conformance/qcbor-shim/qcbor_shim.c
 CONF_SUITE_INCS := -I$(CONF_PAL_DIR) -I$(ROOT)/tests/conformance/qcbor-shim \
     -I$(ROOT)/tests/firmware/zephyr-stm32h5/module/wolftrust-tee/include
+# attestneg runs a Normal-world negative probe instead of val, reusing this
+# build's attestation client and COSE stack plus the guest's own token verify.
+WT_NS_ATTEST_NEG ?= 0
+ifeq ($(WT_NS_ATTEST_NEG),1)
+CONF_SUITE_DEFS += -DWT_NS_ATTEST_NEG=1
+CONF_SUITE_SRCS += $(ROOT)/tests/firmware/zephyr-stm32h5/apps/guest0_psa/src/attestation_verify.c \
+    $(ROOT)/lib/wolfCOSE/src/wolfcose_recipient.c
+CONF_SUITE_INCS += -I$(ROOT)/tests/firmware/zephyr-stm32h5/apps/guest0_psa/src
+endif
 CONF_PSA := 1
 else
 CONF_LIST_DIR := $(WT_NS_MANIFEST_INC)/ns

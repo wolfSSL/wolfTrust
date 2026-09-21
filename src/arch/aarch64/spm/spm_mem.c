@@ -165,11 +165,9 @@ static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
     int was_mapped = 1;
     uint32_t i;
 
-    /* A lend takes the owner's own access away until it reclaims; a share
-     * leaves it, and a donate keeps the sender mapped (the ACS reuses a fixed
-     * buffer pool across tests, so a permanent unmap would strand a page). The
-     * registry still records that ownership moved. */
-    if ((b == NULL) || (e->state != (uint8_t)WT_FFA_MEM_STATE_LENT)) {
+    /* Lend and donate both take the owner's own access away; a share leaves
+     * it. Donate never gives it back (there is no reclaim). */
+    if ((b == NULL) || (e->state == (uint8_t)WT_FFA_MEM_STATE_SHARED)) {
         return;
     }
     for (i = 0u; i < (uint32_t)e->region_count; i++) {

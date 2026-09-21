@@ -454,6 +454,104 @@ void ns_abort_report(uint64_t esr)
 int32_t psa_crypto_init(void);
 #endif
 
+#if defined(WT_NS_ATTEST_NEG)
+#include "psa/error.h"
+#include <psa/initial_attestation.h>
+#include "wolftrust/attestation.h"
+#include "attestation_verify.h"
+
+/* attestneg: the secure attestation service must reject invalid get_token
+ * requests over the routed FF-A path, and a tampered or misattributed token
+ * must fail the guest COSE_Sign1 verify. NS-side probe only; the attestation
+ * service and EAT code are untouched. The guest measurement differs per image,
+ * so the token's real lifecycle is discovered from a deliberately mismatched
+ * verify and the measurement check runs in report-only mode. */
+static void guest_attest_neg(void)
+{
+    uint8_t challenge[PSA_INITIAL_ATTEST_CHALLENGE_SIZE_64 + 1u];
+    uint8_t token[640];
+    uint8_t publicKey[65];
+    size_t tokenSize = 0u;
+    size_t publicKeySize = 0u;
+    size_t querySize = 0u;
+    uint32_t lifecycle = 0u;
+    psa_status_t status;
+    int verify;
+    unsigned int i;
+
+    for (i = 0u; i < sizeof(challenge); i++) {
+        challenge[i] = (uint8_t)(0xC0u + i);
+    }
+
+    status = psa_initial_attest_get_token_size(sizeof(challenge), &querySize);
+    if (status != PSA_ERROR_INVALID_ARGUMENT) {
+        put_str("[NS] attestneg oversized challenge ACCEPTED st=0x");
+        put_hex((uint32_t)status);
+        put_str("\r\n");
+        return;
+    }
+    put_str("[NS] attestneg oversized challenge rejected\r\n");
+
+    status = psa_initial_attest_get_token(challenge,
+        PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32, token, 0u, &tokenSize);
+    if (status != PSA_ERROR_INVALID_ARGUMENT) {
+        put_str("[NS] attestneg zero token buffer ACCEPTED st=0x");
+        put_hex((uint32_t)status);
+        put_str("\r\n");
+        return;
+    }
+    put_str("[NS] attestneg zero token buffer rejected\r\n");
+
+    status = psa_initial_attest_get_token(challenge,
+        PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32, token, sizeof(token), &tokenSize);
+    if (status != PSA_SUCCESS) {
+        put_str("[NS] attestneg baseline token FAIL st=0x");
+        put_hex((uint32_t)status);
+        put_str("\r\n");
+        return;
+    }
+    status = wolftrust_attestation_get_iak_public_key(publicKey,
+        sizeof(publicKey), &publicKeySize);
+    if (status != PSA_SUCCESS) {
+        put_str("[NS] attestneg public key FAIL st=0x");
+        put_hex((uint32_t)status);
+        put_str("\r\n");
+        return;
+    }
+
+    verify = wt_attestation_verify_ex(token, tokenSize, publicKey,
+        publicKeySize, challenge, PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32, NULL,
+        0xEEEEu, &lifecycle, NULL);
+    if (verify == 0) {
+        put_str("[NS] attestneg lifecycle mismatch ACCEPTED\r\n");
+        return;
+    }
+    put_str("[NS] attestneg lifecycle mismatch rejected\r\n");
+
+    verify = wt_attestation_verify_ex(token, tokenSize, publicKey,
+        publicKeySize, challenge, PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32, NULL,
+        lifecycle, &lifecycle, NULL);
+    if (verify != 0) {
+        put_str("[NS] attestneg baseline verify FAIL\r\n");
+        return;
+    }
+    put_str("[NS] attestneg baseline token verified\r\n");
+
+    token[tokenSize - 1u] ^= 0x01u;
+    verify = wt_attestation_verify_ex(token, tokenSize, publicKey,
+        publicKeySize, challenge, PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32, NULL,
+        lifecycle, &lifecycle, NULL);
+    token[tokenSize - 1u] ^= 0x01u;
+    if (verify == 0) {
+        put_str("[NS] attestneg tampered token ACCEPTED\r\n");
+        return;
+    }
+    put_str("[NS] attestneg tampered token rejected\r\n");
+
+    put_str("[NS] attestneg ok\r\n");
+}
+#endif
+
 static void guest_conformance(void)
 {
     __asm__ volatile("msr vbar_el1, %0\n\tisb" : : "r"(_ns_vectbl));
@@ -462,6 +560,10 @@ static void guest_conformance(void)
     if (psa_crypto_init() != 0) {
         put_str("[NS] psa_crypto_init FAIL\r\n");
     }
+#endif
+#if defined(WT_NS_ATTEST_NEG)
+    guest_attest_neg();
+    return;
 #endif
     put_str("[NS] conformance val_entry start\r\n");
     (void)val_entry();

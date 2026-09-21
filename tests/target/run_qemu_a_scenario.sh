@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -51,7 +51,7 @@ QEMU_TIMEOUT="${QEMU_TIMEOUT:-120}"
 case "$scenario" in
   confboot)   QEMU_TIMEOUT="${QEMU_TIMEOUT_CONFBOOT:-1500}" ;;
   devstorage) QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVSTORAGE:-600}" ;;
-  devattest)  QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVATTEST:-600}" ;;
+  devattest|attestneg) QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVATTEST:-600}" ;;
   devcrypto)  QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVCRYPTO:-3600}" ;;
   vaultrecover) QEMU_TIMEOUT="${QEMU_TIMEOUT_VAULTRECOVER:-3600}" ;;
 esac
@@ -104,7 +104,7 @@ else
     panicneg)    probe=(WT_PANIC_NEG_PROBE=1) ;;
     confboot|devstorage) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1) ;;
     # The wolfPSA guests carry a heap: one 2 MB block costs the same table page.
-    devattest|devcrypto) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EL3_TEST_HANDOFF=1) ;;
+    devattest|devcrypto|attestneg) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EL3_TEST_HANDOFF=1) ;;
     # Same crypto image, but the foreign-pool probe forces the boot-time vault
     # recovery; the test handoff's unlocked lifecycle lets it self-heal.
     vaultrecover) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EL3_TEST_HANDOFF=1 WT_VAULT_FOREIGN_PROBE=1) ;;
@@ -130,7 +130,7 @@ else
      [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
      [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
      [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
-     [ "$scenario" = vaultrecover ] || \
+     [ "$scenario" = vaultrecover ] || [ "$scenario" = attestneg ] || \
      [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devcrypto ]; then
     nsfw="$repo/tests/firmware/aarch64-ns-smoke"
@@ -166,6 +166,11 @@ else
     [ "$scenario" = devattest ] && { ns_conf=1; ns_suite=attestation; }
     [ "$scenario" = devcrypto ] && { ns_conf=1; ns_suite=crypto; }
     [ "$scenario" = vaultrecover ] && { ns_conf=1; ns_suite=crypto; }
+    # attestneg reuses the attestation build but runs a Normal-world negative
+    # probe (invalid get_token requests + a tampered/misattributed token) in
+    # place of val; the attestation service and EAT code are untouched.
+    ns_attest_neg=0
+    [ "$scenario" = attestneg ] && { ns_conf=1; ns_suite=attestation; ns_attest_neg=1; }
     # The secure keystore address to probe from NS and the conformance data
     # band the val PAL config names differ per target.
     ns_secure_probe=0x0E300000
@@ -183,7 +188,7 @@ else
       WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
       WT_NS_GUEST_RESET="$ns_reset" WT_NS_GUEST_MEMNEG="$ns_memneg" \
       WT_NS_GUEST_STORAGE="$ns_storage" WT_RUN_CONFORMANCE="$ns_conf" \
-      WT_CONF_SUITE="$ns_suite" \
+      WT_CONF_SUITE="$ns_suite" WT_NS_ATTEST_NEG="$ns_attest_neg" \
       WT_NS_CONF_UPSTREAM="$build/upstream/psa-arch-tests/api-tests" \
       WT_NS_CONFDATA_PA="$ns_confdata" \
       WT_NS_MANIFEST_INC="$build/manifest"
@@ -226,7 +231,7 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
    [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
    [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
-   [ "$scenario" = vaultrecover ] || \
+   [ "$scenario" = vaultrecover ] || [ "$scenario" = attestneg ] || \
    [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devcrypto ]; then
   args+=(-device "loader,file=$ns_bin,addr=$ns_base")
@@ -572,6 +577,25 @@ case "$scenario" in
         "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=17)"
     fi
     expect "val returned to the payload" "[NS] conformance val_entry returned"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  attestneg)
+    # NS-side negative probe over the routed FF-A path (the attestation service
+    # and EAT code are untouched): the secure service rejects invalid get_token
+    # requests, the untampered token verifies, and a tampered or misattributed
+    # token fails the guest COSE_Sign1 verify.
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no partition fault" '\[SYNC EL=0'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no SPMC panic" '\[SPM\] panic'
+    expect "the Normal-world test harness ran at NS-EL1" "[NS] hello el=1"
+    expect "the oversized challenge was rejected" "[NS] attestneg oversized challenge rejected"
+    expect "the zero token buffer was rejected" "[NS] attestneg zero token buffer rejected"
+    expect "a misattributed lifecycle was rejected" "[NS] attestneg lifecycle mismatch rejected"
+    expect "the untampered token verified" "[NS] attestneg baseline token verified"
+    expect "a tampered token was rejected" "[NS] attestneg tampered token rejected"
+    refute_re "no invalid request was accepted" 'attestneg .* ACCEPTED'
+    expect "every attestation negative held" "[NS] attestneg ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   vaultrecover)

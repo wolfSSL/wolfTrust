@@ -54,7 +54,7 @@ jobs:
         run: make ARCH=aarch64 TARGET=${{ matrix.cell.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" BUILD_DIR=build-aarch64-guard el3-image
 
       - name: Boot the EL3 smoke and the wolfTrust EL3 monitor
-        run: tests/target/run_suite.sh qemu-a smoke boot boot-smp2 positive-secure crossdomain spfaultneg tablesneg manifestneg keystoreneg spbudgetneg panicneg ffa-direct ffa-sint ns-smoke ffa-discovery ffa-guest-direct psci ffa-preempt positive guest1 smcfuzz secramneg resetneg ffa-memneg hsmattackneg vaultrecoversec confboot storage devstorage devattest devcrypto
+        run: tests/target/run_suite.sh qemu-a smoke boot boot-smp2 positive-secure crossdomain spfaultneg tablesneg manifestneg keystoreneg spbudgetneg panicneg ffa-direct ffa-sint ns-smoke ffa-discovery ffa-guest-direct psci ffa-preempt positive guest1 smcfuzz secramneg resetneg ffa-memneg hsmattackneg vaultrecover vaultrecoversec confboot storage devstorage devattest devcrypto
 
       - name: Show the boot logs
         if: always()
@@ -84,6 +84,7 @@ jobs:
           cat logs/target-resetneg.log || true
           cat logs/target-ffa-memneg.log || true
           cat logs/target-hsmattackneg.log || true
+          cat logs/target-vaultrecover.log || true
           cat logs/target-vaultrecoversec.log || true
           cat logs/target-confboot.log || true
           cat logs/target-devstorage.log || true

@@ -186,7 +186,7 @@ uintptr_t wt_platform_probe_address(unsigned int target)
 #define WT_ACS_NVM_OFFSET   0x00400000u
 #define WT_ACS_NVM_SIZE     0x00010000u
 #define WT_ACS_RO_OFFSET    0x00410000u
-#define WT_ACS_PROPERTIES   0x00000103u
+#define WT_ACS_PROPERTIES   0x00000703u
 
 #define WT_ACS_BAND(n) ((uintptr_t)WT_FFA_ACS_BASE + ((n) * WT_ACS_BAND_SIZE))
 #define WT_ACS_IMAGE(n) \

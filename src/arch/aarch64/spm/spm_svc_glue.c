@@ -602,6 +602,7 @@ static int sp_implements(uint32_t fid)
         case WT_FFA_MEM_DONATE64:
         case WT_FFA_MEM_RETRIEVE_REQ32:
         case WT_FFA_MEM_RETRIEVE_REQ64:
+        case WT_FFA_MEM_RETRIEVE_RESP:
         case WT_FFA_MEM_RELINQUISH:
         case WT_FFA_MEM_RECLAIM:
         case WT_FFA_MEM_PERM_GET32:

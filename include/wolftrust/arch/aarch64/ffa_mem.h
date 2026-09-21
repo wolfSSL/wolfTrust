@@ -35,6 +35,9 @@
 /* Fixed byte sizes of the v1.1 descriptor layout. */
 #define WT_FFA_MEM_TXN_HDR_SIZE         48u  /* transaction descriptor header */
 #define WT_FFA_MEM_ACCESS_SIZE          16u  /* endpoint memory access descriptor */
+/* FF-A 1.2 grew it by 16 implementation-defined bytes ahead of the reserved
+ * tail; a descriptor names its own size, so both layouts are accepted. */
+#define WT_FFA_MEM_ACCESS_SIZE_V12      32u
 #define WT_FFA_MEM_COMPOSITE_HDR_SIZE   16u  /* composite memory region header */
 #define WT_FFA_MEM_CONSTITUENT_SIZE     16u  /* constituent memory region descriptor */
 
@@ -75,14 +78,16 @@
 #define WT_FFA_MEM_PERM_INSTR_SHIFT     2u
 #define WT_FFA_MEM_PERM_INSTR_MASK      0xCu
 #define WT_FFA_MEM_PERM_INSTR_NOT_SPEC  0x0u
-#define WT_FFA_MEM_PERM_INSTR_X         (0x1u << WT_FFA_MEM_PERM_INSTR_SHIFT)
-#define WT_FFA_MEM_PERM_INSTR_NX        (0x2u << WT_FFA_MEM_PERM_INSTR_SHIFT)
+#define WT_FFA_MEM_PERM_INSTR_NX        (0x1u << WT_FFA_MEM_PERM_INSTR_SHIFT)
+#define WT_FFA_MEM_PERM_INSTR_X         (0x2u << WT_FFA_MEM_PERM_INSTR_SHIFT)
 #define WT_FFA_MEM_PERM_RSVD_MASK       0xF0u  /* bits[7:4] must be zero */
 
 /* Transaction descriptor flags (Table 5.20/5.21). Bits[4:3] carry the
  * transaction type only in a retrieve response; they are zero in a send. */
 #define WT_FFA_MEM_FLAG_ZERO            (1u << 0)
 #define WT_FFA_MEM_FLAG_TIME_SLICE      (1u << 1)
+/* Retrieve request only: zero the memory after the borrower relinquishes. */
+#define WT_FFA_MEM_FLAG_ZERO_AFTER      (1u << 2)
 #define WT_FFA_MEM_FLAG_TYPE_SHIFT      3u
 #define WT_FFA_MEM_FLAG_TYPE_MASK       (0x3u << WT_FFA_MEM_FLAG_TYPE_SHIFT)
 #define WT_FFA_MEM_FLAG_TYPE_SHARE      (0x1u << WT_FFA_MEM_FLAG_TYPE_SHIFT)
@@ -158,6 +163,7 @@ typedef struct wt_ffa_mem_txn {
 #define WT_FFA_MEM_RELINQ_OFF_ENDPOINTS 16u  /* u16 each */
 #define WT_FFA_MEM_RELINQ_HDR_SIZE      16u
 #define WT_FFA_MEM_RELINQ_FLAG_MASK     0x3u /* zero memory, time slicing */
+#define WT_FFA_MEM_RELINQ_FLAG_ZERO     0x1u
 
 /* Inputs to build a single-receiver lend/donate/share descriptor; handle is
  * zero in a request and the allocated handle in a retrieve response. */
@@ -172,6 +178,8 @@ typedef struct wt_ffa_mem_build {
     uint16_t receiver;
     uint16_t attributes;
     uint8_t  permissions;
+    /* 0 selects WT_FFA_MEM_ACCESS_SIZE; appended so older initializers hold. */
+    uint8_t  access_desc_size;
 } wt_ffa_mem_build_t;
 
 /* Lay out a single-receiver memory transaction descriptor for op into buf
@@ -239,6 +247,28 @@ int wt_ffa_mem_relinquish_build(uint8_t* buf, size_t len, uint64_t handle,
                                 uint32_t flags, uint16_t endpoint,
                                 size_t* out_len);
 
+/* wt_ffa_mem_relinquish_parse that also returns the descriptor's flags. */
+int wt_ffa_mem_relinquish_parse_ex(const uint8_t* buf, size_t len,
+                                   uint64_t* out_handle, uint16_t* out_endpoint,
+                                   uint32_t* out_flags);
+
+/* Everything a retrieve request states, for the relayer to hold against the
+ * transaction it names (11.4.2). Its composite offset is not consulted. */
+typedef struct wt_ffa_mem_retrieve_req {
+    uint64_t handle;
+    uint64_t tag;
+    uint32_t flags;
+    uint32_t receiver_count;
+    uint32_t access_desc_size;
+    uint16_t sender;
+    uint16_t attributes;
+    uint16_t receivers[3];
+    uint8_t  permissions[3];
+} wt_ffa_mem_retrieve_req_t;
+
+int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
+                                     wt_ffa_mem_retrieve_req_t* out);
+
 /* Parse a relinquish descriptor with exactly one endpoint. Returns 0,
  * WT_FFA_NOT_SUPPORTED for more than one endpoint, or
  * WT_FFA_INVALID_PARAMETERS for a malformed descriptor. */
@@ -286,14 +316,29 @@ typedef enum wt_ffa_mem_state {
     WT_FFA_MEM_STATE_DONATED
 } wt_ffa_mem_state_t;
 
+/* A transaction names up to this many borrowers (10.2: memory may be shared
+ * with or lent to several endpoints at once). */
+#define WT_FFA_MEM_MAX_BORROWERS        3u
+
+typedef struct wt_ffa_mem_borrower {
+    uint16_t id;
+    uint8_t  permissions;  /* what the owner granted this borrower */
+    uint8_t  retrieved;
+    uint8_t  mapping;      /* relayer cookie: how the retrieve mapped it */
+} wt_ffa_mem_borrower_t;
+
 typedef struct wt_ffa_mem_handle_entry {
     uint64_t handle;
+    uint64_t tag;
     wt_ffa_mem_region_t regions[WT_FFA_MEM_MAX_REGIONS];
+    wt_ffa_mem_borrower_t borrowers[WT_FFA_MEM_MAX_BORROWERS];
+    uint32_t owner_cookie; /* relayer cookie: the owner's own mapping */
     uint16_t owner;
-    uint16_t borrower;
+    uint16_t borrower;     /* the first borrower */
     uint8_t  state;
-    uint8_t  retrieved;
+    uint8_t  retrieved;    /* borrowers currently holding the region */
     uint8_t  region_count;
+    uint8_t  borrower_count;
 } wt_ffa_mem_handle_entry_t;
 
 typedef struct wt_ffa_mem_registry {
@@ -318,6 +363,26 @@ int wt_ffa_mem_share_register(wt_ffa_mem_registry_t* reg, wt_ffa_mem_op_t op,
                               uint16_t owner, uint16_t borrower,
                               const wt_ffa_mem_region_t* regions, uint32_t n,
                               uint64_t* out_handle);
+
+/* Record the tag the owner attached (a retrieve request must repeat it) and
+ * the relayer's own cookie for the transaction. */
+void wt_ffa_mem_handle_set_meta(wt_ffa_mem_registry_t* reg, uint64_t handle,
+                                uint64_t tag, uint32_t owner_cookie);
+
+/* Name a further borrower of a live handle nobody has retrieved yet. Returns 0,
+ * WT_FFA_INVALID_PARAMETERS for an unknown handle, the owner, or a repeat, or
+ * WT_FFA_NO_MEMORY past WT_FFA_MEM_MAX_BORROWERS. */
+int wt_ffa_mem_handle_add_borrower(wt_ffa_mem_registry_t* reg, uint64_t handle,
+                                   uint16_t borrower, uint8_t permissions);
+
+/* The borrower record of a live handle, or NULL. */
+wt_ffa_mem_borrower_t* wt_ffa_mem_handle_borrower(wt_ffa_mem_registry_t* reg,
+                                                  uint64_t handle,
+                                                  uint16_t borrower);
+
+/* Non-zero when [base, base + pages) overlaps memory a live handle holds. */
+int wt_ffa_mem_registry_overlaps(const wt_ffa_mem_registry_t* reg,
+                                 uint64_t base, uint32_t pages);
 
 /* Copy the region set captured for a live handle into out (up to max). Returns
  * 0 with *out_n set, WT_FFA_INVALID_PARAMETERS for an unknown handle or bad

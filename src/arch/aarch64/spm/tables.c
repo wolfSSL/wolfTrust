@@ -341,6 +341,119 @@ int wt_tables_set_el0_attributes(wt_tables_t* t, const wt_tables_pool_t* pool,
     return WT_TABLES_OK;
 }
 
+static int el1_only_page(uint64_t desc)
+{
+    uint32_t ap = (uint32_t)((desc >> PTE_AP_SHIFT) & 0x3u);
+
+    return ((desc & DESC_VALID) != 0u) &&
+           ((ap == WT_TABLES_AP_EL1_RW) || (ap == WT_TABLES_AP_EL1_RO));
+}
+
+static int window_range_ok(const wt_tables_t* t, uint64_t va, size_t pages)
+{
+    if ((t == NULL) || (t->l1 == NULL) || (pages == 0u)) {
+        return WT_TABLES_ERROR_ARGUMENT;
+    }
+    if ((va % WT_TABLES_PAGE_SIZE) != 0u) {
+        return WT_TABLES_ERROR_ALIGN;
+    }
+    if ((va >= WT_TABLES_VA_LIMIT) ||
+        (pages > ((WT_TABLES_VA_LIMIT - va) / WT_TABLES_PAGE_SIZE))) {
+        return WT_TABLES_ERROR_RANGE;
+    }
+    return WT_TABLES_OK;
+}
+
+int wt_tables_grant_el0(wt_tables_t* t, wt_tables_pool_t* pool, uint64_t va,
+                        size_t pages, uint32_t attributes, int* was_mapped)
+{
+    const uint64_t* probe;
+    uint64_t* entry;
+    uint64_t end;
+    uint64_t at;
+    int64_t pte;
+    size_t mapped = 0u;
+    int ret = window_range_ok(t, va, pages);
+
+    if ((ret == WT_TABLES_OK) &&
+        ((pool == NULL) || (was_mapped == NULL) ||
+         ((attributes & (WT_MEM_ATTR_DEVICE | WT_MEM_ATTR_EXEC)) != 0u))) {
+        ret = WT_TABLES_ERROR_ARGUMENT;
+    }
+    if (ret != WT_TABLES_OK) {
+        return ret;
+    }
+    pte = encode(attributes, 0);
+    if (pte < 0) {
+        return (int)pte;
+    }
+    end = va + ((uint64_t)pages * WT_TABLES_PAGE_SIZE);
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        probe = l3_entry(t, pool, at);
+        if ((probe != NULL) && ((*probe & DESC_VALID) != 0u)) {
+            if (!el1_only_page(*probe)) {
+                return WT_TABLES_ERROR_OVERLAP;
+            }
+            mapped++;
+        }
+    }
+    if ((mapped != 0u) && (mapped != pages)) {
+        return WT_TABLES_ERROR_OVERLAP;
+    }
+    for (at = va; (at < end) && (ret == WT_TABLES_OK);
+         at += WT_TABLES_PAGE_SIZE) {
+        if (mapped != 0u) {
+            entry = l3_entry(t, pool, at);
+            *entry = (uint64_t)pte | (*entry & PTE_ADDR_MASK);
+        }
+        else {
+            ret = map_page(t, pool, at, (uint64_t)pte);
+        }
+    }
+    *was_mapped = (mapped != 0u) ? 1 : 0;
+    return ret;
+}
+
+int wt_tables_revoke_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
+                         uint64_t va, size_t pages, int was_mapped)
+{
+    uint64_t* entry;
+    uint64_t end;
+    uint64_t at;
+    uint32_t attributes;
+    int64_t pte;
+    int ret = window_range_ok(t, va, pages);
+
+    if ((ret == WT_TABLES_OK) && (pool == NULL)) {
+        ret = WT_TABLES_ERROR_ARGUMENT;
+    }
+    if (ret != WT_TABLES_OK) {
+        return ret;
+    }
+    end = va + ((uint64_t)pages * WT_TABLES_PAGE_SIZE);
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        entry = l3_entry(t, pool, at);
+        if ((entry == NULL) || ((*entry & DESC_VALID) == 0u) ||
+            el1_only_page(*entry)) {
+            return WT_TABLES_ERROR_UNMAPPED;
+        }
+    }
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        entry = l3_entry(t, pool, at);
+        if (was_mapped == 0) {
+            *entry = 0u;
+            continue;
+        }
+        attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_TABLES_ATTR_NG;
+        if ((*entry & PTE_NS) != 0u) {
+            attributes |= WT_TABLES_ATTR_NS;
+        }
+        pte = encode(attributes, 1);
+        *entry = (uint64_t)pte | (*entry & PTE_ADDR_MASK);
+    }
+    return WT_TABLES_OK;
+}
+
 uint64_t wt_tables_ttbr0(const wt_tables_t* t)
 {
     return (t->l1_pa & PTE_ADDR_MASK) | ((uint64_t)t->asid << 48);

@@ -28,9 +28,8 @@
 #include <stdint.h>
 
 /* The SPMC's FF-A memory-sharing relayer (DEN0140): validates a lend or share,
- * allocates the handle, and maps a retrieved region into the borrowing
- * partition's stage-1 table by rebuilding that partition's domain with the
- * region appended; relinquish restores the domain, reclaim frees the handle.
+ * allocates the handle, and opens a window onto the region in the borrowing
+ * partition's stage-1 table; relinquish closes it, reclaim frees the handle.
  * A partition's table changes only through these transactions. */
 
 struct wt_co;
@@ -41,11 +40,12 @@ typedef struct wt_spm_mem_binding {
     struct wt_co* co;
     wt_secure_domain_t* dom;
     uint16_t id;
-    uint8_t base_count;  /* region count before a retrieve appended */
     uint8_t live;
 } wt_spm_mem_binding_t;
 
 void wt_spm_mem_init(void);
+/* The Non-secure memory a Normal-world sender may name. */
+void wt_spm_mem_ns_window(uint64_t base, uint64_t size);
 
 int wt_spm_mem_bind(uint16_t id, struct wt_co* co, wt_secure_domain_t* dom);
 
@@ -69,7 +69,8 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
  * caller, unmap the region, and mark the handle relinquished. */
 int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint);
 
-/* Owner side: free a relinquished handle. */
-int wt_spm_mem_reclaim(uint64_t handle, uint16_t owner);
+/* Owner side: free a handle no borrower holds; flags is the FFA_MEM_RECLAIM
+ * flags word (bit 0 zeroes the memory first). */
+int wt_spm_mem_reclaim(uint64_t handle, uint16_t owner, uint32_t flags);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_SPM_MEM_H */

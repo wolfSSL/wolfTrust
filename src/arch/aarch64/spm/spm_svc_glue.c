@@ -545,11 +545,7 @@ static void ffa_mem_reclaim(wt_trap_frame_t* frame)
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
-    if (((uint32_t)frame->x[3] & ~WT_FFA_MEM_RELINQ_FLAG_MASK) != 0u) {
-        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
-        return;
-    }
-    ret = wt_spm_mem_reclaim(handle, b->id);
+    ret = wt_spm_mem_reclaim(handle, b->id, (uint32_t)frame->x[3]);
     if (ret != 0) {
         ffa_error(frame, ret);
         return;
@@ -898,6 +894,9 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if ((fid == WT_FFA_MEM_LEND32) || (fid == WT_FFA_MEM_LEND64)) {
         ffa_mem_send(frame, WT_FFA_MEM_OP_LEND);
+    }
+    else if ((fid == WT_FFA_MEM_DONATE32) || (fid == WT_FFA_MEM_DONATE64)) {
+        ffa_mem_send(frame, WT_FFA_MEM_OP_DONATE);
     }
     else if ((fid == WT_FFA_MEM_RETRIEVE_REQ32) ||
              (fid == WT_FFA_MEM_RETRIEVE_REQ64)) {

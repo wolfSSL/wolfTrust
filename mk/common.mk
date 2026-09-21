@@ -22,7 +22,38 @@ WT_MAX_GUESTS ?= 2
 # the SP_SMALL math switch; PSPLIM_S faults any real overflow, so this floor
 # is measured, not guessed.
 WT_CO_STACK_SIZE ?= 10240
-WT_ENGINE_HSM ?= 1
+# Secure crypto engine. native (the default) calls wolfCrypt directly; hsm
+# links the wolfHSM server as a key-management add-on. Legacy WT_ENGINE_HSM
+# values map onto the selector.
+WT_ENGINE_LEGACY :=
+ifeq ($(WT_ENGINE_HSM),0)
+WT_ENGINE_LEGACY := native
+endif
+ifeq ($(WT_ENGINE_HSM),1)
+WT_ENGINE_LEGACY := hsm
+endif
+ifneq ($(WT_ENGINE_HSM),)
+ifeq ($(WT_ENGINE_LEGACY),)
+$(error unsupported WT_ENGINE_HSM='$(WT_ENGINE_HSM)' (want 0 or 1))
+endif
+endif
+ifneq ($(WT_ENGINE_LEGACY),)
+ifneq ($(WT_ENGINE),)
+ifneq ($(WT_ENGINE),$(WT_ENGINE_LEGACY))
+$(error conflicting engine selectors: WT_ENGINE=$(WT_ENGINE) but WT_ENGINE_HSM=$(WT_ENGINE_HSM) selects $(WT_ENGINE_LEGACY))
+endif
+endif
+WT_ENGINE := $(WT_ENGINE_LEGACY)
+endif
+WT_ENGINE ?= native
+ifneq ($(words $(WT_ENGINE))/$(filter native hsm,$(WT_ENGINE)),1/$(WT_ENGINE))
+$(error unsupported WT_ENGINE='$(WT_ENGINE)' (want native or hsm))
+endif
+ifeq ($(WT_ENGINE),hsm)
+WT_ENGINE_HSM := 1
+else
+WT_ENGINE_HSM := 0
+endif
 WT_ATTEST_COSE ?= 1
 WT_FFM_NEGATIVE_PROBE ?= 0
 WT_KEYSTORE_NEG_PROBE ?= 0
@@ -52,9 +83,16 @@ WT_VNET_UNKNOWN_UCAST_FLOOD ?= 0
 HSM_INCLUDES := -I$(WOLFHSM_DIR) -I$(WOLFSSL_DIR) -I$(BUILD_DIR)
 HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(WOLFHAL_DIR) -I$(abspath $(WOLFHSM_RUNNER_DIR))
 HSM_DEFS_SECURE := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
-    -DWOLF_CRYPTO_CB -UNO_CODING \
-    -DWC_RESEED_INTERVAL=1000000 -DWT_ENGINE_HSM=$(WT_ENGINE_HSM) \
+    -UNO_CODING \
+    -DWC_RESEED_INTERVAL=1000000 \
     $(ARCH_HSM_DEFS)
+ifeq ($(WT_ENGINE),hsm)
+HSM_DEFS_SECURE += -DWOLF_CRYPTO_CB -DWT_ENGINE_HSM=1
+else
+# Native links only the wolfHSM NVM object store; NO_CRYPTO drops the server's
+# wolfCrypt dependency (and its WOLF_CRYPTO_CB requirement).
+HSM_DEFS_SECURE += -DWT_ENGINE_NATIVE=1 -DWOLFHSM_CFG_NO_CRYPTO
+endif
 
 ifeq ($(WT_ATTEST_COSE),1)
 SECURE_CFLAGS_COSE := -I$(WOLFCOSE_DIR)/include \
@@ -197,6 +235,13 @@ WOLFHSM_SECURE_SRCS := \
     $(WOLFHSM_DIR)/src/wh_crypto.c \
     $(WOLFHSM_DIR)/src/wh_keyid.c
 
+# Native engine keeps only the self-contained NVM object store (vault/ITS/PS/FWU
+# ride it); the wolfHSM server, comm, and message layers are hsm-only.
+ifeq ($(WT_ENGINE),native)
+WOLFHSM_SECURE_SRCS := $(filter %/wh_nvm.c %/wh_nvm_flash.c %/wh_flash_unit.c \
+    %/wh_lock.c %/wh_utils.c %/wh_keyid.c,$(WOLFHSM_SECURE_SRCS))
+endif
+
 WOLFCRYPT_SECURE_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/aes.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/asn.c \
@@ -226,11 +271,23 @@ WT_SECURE_EXTRA_SRCS := \
     $(TARGET_EXTRA_SRCS) \
     $(wildcard $(WOLFHSM_RUNNER_DIR)/libc_stubs.c) \
     $(wildcard $(ROOT)/src/services/wolfhsm/*.c) \
+    $(ROOT)/src/services/nvm_store.c \
     $(ROOT)/src/services/boot_handoff.c \
     $(ROOT)/src/services/hsm_relay_service.c \
     $(ROOT)/src/services/storage_service.c \
     $(ROOT)/src/services/fwu_service.c \
     $(ROOT)/src/services/vault_service.c
+
+# Engine split: wt_hsm.c drives the wolfHSM server (hsm engine only); the
+# native engine dispatches wolfCrypt directly behind the same SERVICE_HSM
+# door and keeps the server-free vault/seal/lock glue over the shared store.
+ifeq ($(WT_ENGINE),native)
+WT_SECURE_EXTRA_SRCS := $(filter-out %/wolfhsm/wt_hsm.c,$(WT_SECURE_EXTRA_SRCS))
+WT_SECURE_EXTRA_SRCS += \
+    $(ROOT)/src/services/native/crypto_native.c \
+    $(ROOT)/src/services/native/native_wire.c \
+    $(ROOT)/src/services/native/keyvault.c
+endif
 
 ifeq ($(WT_ATTEST_COSE),1)
 WT_SECURE_EXTRA_SRCS += \
@@ -1300,7 +1357,9 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_SHARED_UART=$(WT_SHARED_UART)' \
 		'WT_TIMESLICE_MS=$(WT_TIMESLICE_MS)' \
 		'WT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)' \
-		'WT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)' > "$$tmp"; \
+		'WT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)' \
+		'WT_EXTRA_CFLAGS=$(WT_EXTRA_CFLAGS)' \
+		'WT_EXTRA_LDFLAGS=$(WT_EXTRA_LDFLAGS)' > "$$tmp"; \
 	if test -f "$@" && cmp -s "$$tmp" "$@"; then \
 		rm -f "$$tmp"; \
 	else \
@@ -1344,6 +1403,9 @@ $(BUILD_DIR)/wt_sec_%.o: $(WOLFHAL_DIR)/src/rng/%.c $(WOLFHSM_CFG_H) $(BUILD_MOD
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/wolfhsm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/native/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/vnet/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)

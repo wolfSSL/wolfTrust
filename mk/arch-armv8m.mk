@@ -64,4 +64,9 @@ define arch_image_checks
 		echo "FAIL: expected $(NSC_COUNT) FF-M veneers, found $$n (WT-FFM-0057)" >&2; \
 		exit 1; \
 	fi
+	@if grep -E ' (malloc|free|calloc|realloc|_sbrk|_malloc_r|_free_r)$$' \
+			$(BUILD_DIR)/nsc-syms.txt; then \
+		echo "FAIL: heap allocator symbol in the zero-heap secure image" >&2; \
+		exit 1; \
+	fi
 endef

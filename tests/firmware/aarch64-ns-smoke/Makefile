@@ -222,7 +222,7 @@ ifeq ($(CONF_PSA),1)
 WOLFSSL_DIR ?= $(ROOT)/lib/wolfSSL
 WOLFPSA_DIR ?= $(ROOT)/lib/wolfPSA
 WOLFCOSE_DIR ?= $(ROOT)/lib/wolfCOSE
-CFLAGS += -DWOLFSSL_USER_SETTINGS -DCONFIG_SECURE_STORAGE=1 -Icrypto \
+CFLAGS += -DWOLFSSL_USER_SETTINGS -Icrypto \
     -I$(WOLFSSL_DIR) -I$(WOLFPSA_DIR) -I$(WOLFPSA_DIR)/wolfpsa \
     -I$(WOLFPSA_DIR)/src -I$(WOLFCOSE_DIR)/include \
     -DWOLFCOSE_LEAN -DWOLFCOSE_ENABLE_DEPRECATED_ALGS -DWOLFCOSE_NO_SIGN1_SIGN \
@@ -230,8 +230,8 @@ CFLAGS += -DWOLFSSL_USER_SETTINGS -DCONFIG_SECURE_STORAGE=1 -Icrypto \
     -DWOLFCOSE_NO_KEY_DECODE
 CONF_CFLAGS := $(filter-out -Werror,$(CFLAGS)) -Wno-unused-function \
     -Wno-unused-variable -Wno-unused-parameter -Wno-type-limits
-CONF_SRCS += crypto/ns_crypto_port.c \
-    $(filter-out %/psa_store_posix.c %/psa_attestation.c,$(wildcard $(WOLFPSA_DIR)/src/*.c)) \
+CONF_SRCS += crypto/ns_crypto_port.c crypto/psa_store_ns.c \
+    $(filter-out %/psa_store_posix.c %/psa_store_zephyr.c %/psa_attestation.c,$(wildcard $(WOLFPSA_DIR)/src/*.c)) \
     $(addprefix $(WOLFSSL_DIR)/wolfcrypt/src/,aes.c asn.c chacha.c \
         chacha20_poly1305.c cmac.c coding.c cryptocb.c des3.c ecc.c error.c \
         hash.c hmac.c kdf.c logging.c md5.c memory.c poly1305.c pwdbased.c \

@@ -490,7 +490,10 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     type = rq.flags & WT_FFA_MEM_FLAG_TYPE_MASK;
     if ((rq.tag != e->tag) ||
         ((rq.flags & ~(WT_FFA_MEM_FLAG_SEND_MASK | WT_FFA_MEM_FLAG_TYPE_MASK |
-                       WT_FFA_MEM_FLAG_ZERO_AFTER)) != 0u) ||
+                       WT_FFA_MEM_FLAG_ZERO_AFTER |
+                       WT_FFA_MEM_FLAG_BYPASS_BORROWERS)) != 0u) ||
+        (((rq.flags & WT_FFA_MEM_FLAG_BYPASS_BORROWERS) != 0u) &&
+         (e->borrower_count == 1u)) ||
         ((type != 0u) && (type != type_flag(e->state))) ||
         ((rq.attributes & (WT_FFA_MEM_ATTR_RSVD_MASK | WT_FFA_MEM_ATTR_NS)) !=
          0u)) {

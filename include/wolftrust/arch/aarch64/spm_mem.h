@@ -57,6 +57,23 @@ const wt_spm_mem_binding_t* wt_spm_mem_binding(const struct wt_co* co);
 int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
                      uint16_t sender, uint64_t* out_handle);
 
+/* A descriptor sent in fragments (DEN0140 4.1.2). begin takes the first
+ * fragment of a lend, share, donate (op = wt_ffa_mem_op_t) or retrieve request
+ * (WT_SPM_MEM_FRAG_OP_RETRIEVE) and returns the handle that ties the rest to
+ * it; next appends one, returning the bytes held in *offset and *done once the
+ * descriptor is whole. frag_share completes a whole lend/share/donate under
+ * that handle; a whole retrieve request is read with frag_desc and handed to
+ * wt_spm_mem_retrieve by the caller, which then releases it. */
+#define WT_SPM_MEM_FRAG_OP_RETRIEVE 0xFFu
+int wt_spm_mem_frag_begin(uint8_t op, uint16_t sender, const uint8_t* frag,
+                          uint32_t frag_len, uint32_t total, uint64_t* handle);
+int wt_spm_mem_frag_next(uint64_t handle, uint16_t sender, const uint8_t* frag,
+                         uint32_t frag_len, uint32_t* offset, int* done);
+const uint8_t* wt_spm_mem_frag_desc(uint64_t handle, uint16_t sender,
+                                    uint32_t* len, uint8_t* op);
+void wt_spm_mem_frag_release(uint64_t handle, uint16_t sender);
+int wt_spm_mem_frag_share(uint64_t handle, uint16_t sender);
+
 /* Borrower side: parse the retrieve request in req, check receiver is the
  * declared borrower and the request names the owner, write the retrieve
  * response descriptor into resp, map the region into the borrower's table, and

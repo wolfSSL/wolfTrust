@@ -648,6 +648,90 @@ static uint32_t memneg_build(void)
     return (uint32_t)len;
 }
 
+/* One SMC with x0-x4 in and x0-x4 back, for the fragment exchange. */
+static void smc5(uint64_t* x)
+{
+    register uint64_t r0 __asm__("x0") = x[0];
+    register uint64_t r1 __asm__("x1") = x[1];
+    register uint64_t r2 __asm__("x2") = x[2];
+    register uint64_t r3 __asm__("x3") = x[3];
+    register uint64_t r4 __asm__("x4") = x[4];
+
+    __asm__ volatile("smc #0"
+                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4)
+                     :
+                     : "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13",
+                       "x14", "x15", "x16", "x17", "memory");
+    x[0] = r0;
+    x[1] = r1;
+    x[2] = r2;
+    x[3] = r3;
+    x[4] = r4;
+}
+
+/* Send a well-formed share in two fragments through the same buffer (DEN0140
+ * 4.1.2): the SPMC asks for the rest with FFA_MEM_FRAG_RX under the handle it
+ * reserved, refuses a fragment for any other handle, and completes the share
+ * under that same handle once the descriptor is whole. */
+static int memfrag_share(void)
+{
+    static uint8_t full[256];
+    uint64_t x[5];
+    uint64_t handle;
+    uint32_t len = memneg_build();
+    uint32_t split = 40u;
+    uint32_t i;
+    int ok;
+
+    if (len <= split) {
+        return 0;
+    }
+    for (i = 0u; i < len; i++) {
+        full[i] = g_memneg_desc[i];
+    }
+    x[0] = WT_FFA_MEM_SHARE32;
+    x[1] = len;
+    x[2] = split;
+    x[3] = (uint64_t)(uintptr_t)g_memneg_desc;
+    x[4] = 1u;
+    smc5(x);
+    handle = (x[1] & 0xFFFFFFFFu) | ((x[2] & 0xFFFFFFFFu) << 32);
+    ok = ((uint32_t)x[0] == WT_FFA_MEM_FRAG_RX) && ((uint32_t)x[3] == split) &&
+         ((uint32_t)x[4] == 0u) && (handle != 0u);
+
+    for (i = split; i < len; i++) {
+        g_memneg_desc[i - split] = full[i];
+    }
+    x[0] = WT_FFA_MEM_FRAG_TX;
+    x[1] = (handle + 1u) & 0xFFFFFFFFu;
+    x[2] = (handle + 1u) >> 32;
+    x[3] = len - split;
+    x[4] = 0u;
+    smc5(x);
+    ok = ok && ((uint32_t)x[0] == WT_FFA_ERROR) &&
+         ((int32_t)(uint32_t)x[2] == WT_FFA_INVALID_PARAMETERS);
+
+    x[0] = WT_FFA_MEM_FRAG_TX;
+    x[1] = handle & 0xFFFFFFFFu;
+    x[2] = handle >> 32;
+    x[3] = len - split;
+    x[4] = 0u;
+    smc5(x);
+    ok = ok && ((uint32_t)x[0] == WT_FFA_SUCCESS32) &&
+         (((x[2] & 0xFFFFFFFFu) | ((x[3] & 0xFFFFFFFFu) << 32)) == handle);
+
+    x[0] = WT_FFA_MEM_FRAG_RX;
+    x[1] = handle & 0xFFFFFFFFu;
+    x[2] = handle >> 32;
+    x[3] = 0u;
+    x[4] = 0u;
+    smc5(x);
+    ok = ok && ((uint32_t)x[0] == WT_FFA_ERROR) &&
+         ((int32_t)(uint32_t)x[2] == WT_FFA_INVALID_PARAMETERS);
+
+    return ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);
+}
+
 static int memneg_refused(uint32_t len)
 {
     uint64_t w2 = 0u;
@@ -698,6 +782,7 @@ static void guest_memneg(void)
     ok = ok && (mem_reclaim_smc(handle) == WT_FFA_ERROR);  /* dead handle */
 
     put_str(ok ? "[NS] memneg ok\r\n" : "[NS] memneg BAD\r\n");
+    put_str(memfrag_share() ? "[NS] memfrag ok\r\n" : "[NS] memfrag BAD\r\n");
 }
 #endif
 

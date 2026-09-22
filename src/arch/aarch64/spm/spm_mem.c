@@ -216,8 +216,8 @@ static int send_permissions_ok(wt_ffa_mem_op_t op, uint8_t perms)
             (data == WT_FFA_MEM_PERM_DATA_RW)) ? 0 : WT_FFA_INVALID_PARAMETERS;
 }
 
-int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
-                     uint16_t sender, uint64_t* out_handle)
+static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
+                     uint16_t sender, uint64_t reserved, uint64_t* out_handle)
 {
     const wt_ffa_mem_handle_entry_t* e;
     wt_ffa_mem_borrower_t* named;
@@ -307,7 +307,14 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     if (ret == 0) {
         ret = wt_ffa_mem_receiver(desc, len, &txn, 0u, &receiver, &perms);
     }
-    if (ret == 0) {
+    if ((ret == 0) && (reserved != 0u)) {
+        ret = wt_ffa_mem_share_register_as(&g_reg, op, sender, receiver, regs,
+                                           n, reserved);
+        if (ret == 0) {
+            *out_handle = reserved;
+        }
+    }
+    else if (ret == 0) {
         ret = wt_ffa_mem_share_register(&g_reg, op, sender, receiver, regs, n,
                                         out_handle);
     }
@@ -340,6 +347,132 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
             owner_access(e, 0);
         }
     }
+    return ret;
+}
+
+int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
+                     uint16_t sender, uint64_t* out_handle)
+{
+    return mem_share(desc, len, op, sender, 0u, out_handle);
+}
+
+/* Transactions whose descriptor is still arriving in fragments, at most one
+ * per sender (DEN0140 4.1.2). */
+#define WT_SPM_MEM_FRAG_SLOTS 2u
+static wt_ffa_mem_frag_t g_frag[WT_SPM_MEM_FRAG_SLOTS];
+
+static wt_ffa_mem_frag_t* frag_slot(uint64_t handle, uint16_t sender)
+{
+    unsigned int i;
+
+    for (i = 0u; i < WT_SPM_MEM_FRAG_SLOTS; i++) {
+        if ((g_frag[i].active != 0u) && (g_frag[i].handle == handle) &&
+            (g_frag[i].sender == sender)) {
+            return &g_frag[i];
+        }
+    }
+    return NULL;
+}
+
+int wt_spm_mem_frag_begin(uint8_t op, uint16_t sender, const uint8_t* frag,
+                          uint32_t frag_len, uint32_t total, uint64_t* handle)
+{
+    wt_ffa_mem_frag_t* slot = NULL;
+    uint64_t named = 0u;
+    uint64_t size = 0u;
+    unsigned int i;
+    int ret = 0;
+
+    if ((frag == NULL) || (handle == NULL)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    /* A total the descriptor's own headers contradict is an invalid length,
+     * not the start of a transfer. */
+    if ((wt_ffa_mem_frag_expected(frag, frag_len,
+                                  (op == WT_SPM_MEM_FRAG_OP_RETRIEVE) ? 1 : 0,
+                                  &size) != 0) &&
+        (size != (uint64_t)total)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    /* A retrieve request fragment names its region's handle up front. */
+    if (op == WT_SPM_MEM_FRAG_OP_RETRIEVE) {
+        if (frag_len < (WT_FFA_MEM_TXN_OFF_HANDLE + 8u)) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+        for (i = 0u; i < 8u; i++) {
+            named |= (uint64_t)frag[WT_FFA_MEM_TXN_OFF_HANDLE + i] << (8u * i);
+        }
+    }
+    /* A sender that starts over drops the transfer it left unfinished. */
+    for (i = 0u; i < WT_SPM_MEM_FRAG_SLOTS; i++) {
+        if ((g_frag[i].active != 0u) && (g_frag[i].sender == sender)) {
+            wt_ffa_mem_frag_reset(&g_frag[i]);
+        }
+    }
+    for (i = 0u; (i < WT_SPM_MEM_FRAG_SLOTS) && (slot == NULL); i++) {
+        if (g_frag[i].active == 0u) {
+            slot = &g_frag[i];
+        }
+    }
+    if (slot == NULL) {
+        ret = WT_FFA_NO_MEMORY;
+    }
+    if (ret == 0) {
+        *handle = (op == WT_SPM_MEM_FRAG_OP_RETRIEVE) ?
+                  named : wt_ffa_mem_handle_reserve(&g_reg);
+        ret = wt_ffa_mem_frag_begin(slot, *handle, sender, op, frag, frag_len,
+                                    total);
+    }
+    return ret;
+}
+
+int wt_spm_mem_frag_next(uint64_t handle, uint16_t sender, const uint8_t* frag,
+                         uint32_t frag_len, uint32_t* offset, int* done)
+{
+    wt_ffa_mem_frag_t* slot = frag_slot(handle, sender);
+    int ret;
+
+    if ((slot == NULL) || (offset == NULL)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    ret = wt_ffa_mem_frag_add(slot, handle, sender, frag, frag_len, done);
+    *offset = slot->received;
+    return ret;
+}
+
+const uint8_t* wt_spm_mem_frag_desc(uint64_t handle, uint16_t sender,
+                                    uint32_t* len, uint8_t* op)
+{
+    wt_ffa_mem_frag_t* slot = frag_slot(handle, sender);
+
+    if ((slot == NULL) || (slot->received != slot->total) || (len == NULL) ||
+        (op == NULL)) {
+        return NULL;
+    }
+    *len = slot->total;
+    *op = slot->op;
+    return slot->buf;
+}
+
+void wt_spm_mem_frag_release(uint64_t handle, uint16_t sender)
+{
+    wt_ffa_mem_frag_reset(frag_slot(handle, sender));
+}
+
+int wt_spm_mem_frag_share(uint64_t handle, uint16_t sender)
+{
+    const uint8_t* desc;
+    uint64_t out = 0u;
+    uint32_t len = 0u;
+    uint8_t op = 0u;
+    int ret = WT_FFA_INVALID_PARAMETERS;
+
+    desc = wt_spm_mem_frag_desc(handle, sender, &len, &op);
+    if ((desc != NULL) && (op != WT_SPM_MEM_FRAG_OP_RETRIEVE)) {
+        ret = mem_share(desc, (size_t)len, (wt_ffa_mem_op_t)op, sender, handle,
+                        &out);
+    }
+    wt_spm_mem_frag_release(handle, sender);
     return ret;
 }
 

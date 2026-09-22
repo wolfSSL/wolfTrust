@@ -613,6 +613,7 @@ case "$scenario" in
     refute_re "no SPMC panic on a malformed transaction" '\[SPM\] panic'
     refute_re "no malformed transaction was mishandled" '\[NS\] memneg BAD'
     expect "every malformed memory transaction was refused and a reclaimed handle is dead" "[NS] memneg ok"
+    expect "a share sent in two fragments completed under the handle its first one reserved" "[NS] memfrag ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   devstorage)

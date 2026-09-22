@@ -1041,33 +1041,32 @@ static void ns_interrupt(wt_ffa_regs_t* r)
     r->x[0] = WT_FFA_NORMAL_WORLD_RESUME;
 }
 
-/* FFA_MEM_SHARE forwarded from the Normal world (7.3): the guest's descriptor
- * is at the NS address in x3 with length in x1, both inside the SPMC's
- * Non-secure window. Validate and register it; reply with the handle in w2/w3
- * or an error. A malformed descriptor is refused, never a crash. The reply
- * SMC's return is the next event. */
-static void ns_mem_send(wt_ffa_regs_t* r, wt_ffa_mem_op_t op)
-{
-    uint64_t addr = r->x[3];
-    uint32_t total = (uint32_t)r->x[1];
-    uint64_t handle = 0u;
-    unsigned int i;
-    int ret;
+/* The buffer the Normal world sent a fragmented descriptor from: later
+ * fragments must arrive in the same one (DEN0140 4.1.2). */
+static uint64_t g_ns_frag_src;
 
-    /* x3 = 0 names the descriptor in the guest's TX buffer (11.1). */
-    if ((addr == 0u) && (g_ns_mailbox.mapped != 0u) &&
-        (total <= (g_ns_mailbox.pages * WT_FFA_MEM_PAGE_SIZE))) {
-        addr = g_ns_mailbox.tx;
+/* At this physical instance FFA_MEM_FRAG_RX/TX carry the Owner's id in
+ * w4[31:16]; the Normal-world owner is the primary endpoint. */
+#define WT_NS_FRAG_W4 ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16)
+
+static void ns_frag_rx_reply(wt_ffa_regs_t* r, uint64_t handle, uint32_t offset)
+{
+    unsigned int i;
+
+    for (i = 0u; i < 8u; i++) {
+        r->x[i] = 0u;
     }
-    /* No fragmentation: the one fragment is the whole descriptor. */
-    if ((ns_range_ok(addr, (uint64_t)total) == 0) ||
-        ((uint32_t)r->x[2] != total)) {
-        ret = WT_FFA_INVALID_PARAMETERS;
-    }
-    else {
-        ret = wt_spm_mem_share((const uint8_t*)(uintptr_t)addr, (size_t)total,
-                               op, WT_FFA_ID_NS_PRIMARY, &handle);
-    }
+    r->x[0] = WT_FFA_MEM_FRAG_RX;
+    r->x[1] = handle & 0xFFFFFFFFu;
+    r->x[2] = handle >> 32;
+    r->x[3] = (uint64_t)offset;
+    r->x[4] = WT_NS_FRAG_W4;
+}
+
+static void ns_handle_reply(wt_ffa_regs_t* r, int ret, uint64_t handle)
+{
+    unsigned int i;
+
     for (i = 0u; i < 8u; i++) {
         r->x[i] = 0u;
     }
@@ -1080,6 +1079,72 @@ static void ns_mem_send(wt_ffa_regs_t* r, wt_ffa_mem_op_t op)
         r->x[0] = WT_FFA_ERROR;
         r->x[2] = (uint64_t)(uint32_t)ret;
     }
+}
+
+/* FFA_MEM_SHARE forwarded from the Normal world (7.3): the guest's descriptor
+ * is at the NS address in x3 with length in x1, both inside the SPMC's
+ * Non-secure window. Validate and register it; reply with the handle in w2/w3
+ * or an error. A malformed descriptor is refused, never a crash. The reply
+ * SMC's return is the next event. */
+static void ns_mem_send(wt_ffa_regs_t* r, wt_ffa_mem_op_t op)
+{
+    uint64_t addr = r->x[3];
+    uint32_t total = (uint32_t)r->x[1];
+    uint32_t frag = (uint32_t)r->x[2];
+    uint64_t handle = 0u;
+    int ret;
+
+    /* x3 = 0 names the descriptor in the guest's TX buffer (11.1). */
+    if ((addr == 0u) && (g_ns_mailbox.mapped != 0u) &&
+        (frag <= (g_ns_mailbox.pages * WT_FFA_MEM_PAGE_SIZE))) {
+        addr = g_ns_mailbox.tx;
+    }
+    if ((frag < 1u) || (frag > total) ||
+        (ns_range_ok(addr, (uint64_t)frag) == 0)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    else if (frag < total) {
+        ret = wt_spm_mem_frag_begin((uint8_t)op, WT_FFA_ID_NS_PRIMARY,
+                                    (const uint8_t*)(uintptr_t)addr, frag,
+                                    total, &handle);
+        if (ret == 0) {
+            g_ns_frag_src = addr;
+            ns_frag_rx_reply(r, handle, frag);
+            return;
+        }
+    }
+    else {
+        ret = wt_spm_mem_share((const uint8_t*)(uintptr_t)addr, (size_t)total,
+                               op, WT_FFA_ID_NS_PRIMARY, &handle);
+    }
+    ns_handle_reply(r, ret, handle);
+}
+
+/* FFA_MEM_FRAG_TX forwarded from the Normal world: the next fragment of a
+ * descriptor it began sending; the last one completes the send. */
+static void ns_mem_frag_tx(wt_ffa_regs_t* r)
+{
+    uint64_t handle = (uint64_t)(uint32_t)r->x[1] |
+                      ((uint64_t)(uint32_t)r->x[2] << 32);
+    uint32_t len = (uint32_t)r->x[3];
+    uint32_t offset = 0u;
+    int done = 0;
+    int ret = WT_FFA_INVALID_PARAMETERS;
+
+    if (((uint32_t)r->x[4] == (uint32_t)WT_NS_FRAG_W4) &&
+        (ns_range_ok(g_ns_frag_src, (uint64_t)len) != 0)) {
+        ret = wt_spm_mem_frag_next(handle, WT_FFA_ID_NS_PRIMARY,
+                                   (const uint8_t*)(uintptr_t)g_ns_frag_src,
+                                   len, &offset, &done);
+    }
+    if ((ret == 0) && (done == 0)) {
+        ns_frag_rx_reply(r, handle, offset);
+        return;
+    }
+    if (ret == 0) {
+        ret = wt_spm_mem_frag_share(handle, WT_FFA_ID_NS_PRIMARY);
+    }
+    ns_handle_reply(r, ret, handle);
 }
 
 /* FFA_MEM_RECLAIM forwarded from the Normal world: w1/w2 = handle. */
@@ -1318,6 +1383,14 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
             break;
         case WT_FFA_MEM_RECLAIM:
             ns_mem_reclaim(r);
+            break;
+        case WT_FFA_MEM_FRAG_TX:
+            ns_mem_frag_tx(r);
+            break;
+        case WT_FFA_MEM_FRAG_RX:
+            /* Nothing is lent to the Normal world, so no retrieve response
+             * is ever outstanding for it to ask the rest of. */
+            ns_reply(r, WT_FFA_INVALID_PARAMETERS, 0u, 0u);
             break;
         case WT_FFA_NOTIFICATION_BITMAP_CREATE:
             ns_reply(r, wt_ffa_notif_bitmap_create(WT_FFA_ID_NS_PRIMARY,

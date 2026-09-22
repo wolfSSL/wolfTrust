@@ -188,8 +188,9 @@ static inline int32_t wt_ffa_version_negotiate(wt_ffa_version_state_t* st,
 }
 
 /* FFA_FEATURES feature ids (13.3, Table 13.14) and the properties this
- * implementation reports. No notifications exist, so the schedule receiver
- * interrupt is reserved and never raised. */
+ * implementation reports. The schedule receiver interrupt is the SGI of
+ * 9.4.1, raised for the Normal world when notification work pends; S-EL0
+ * partitions have no NPI and are scheduled to their pending notifications. */
 #define WT_FFA_FEATURE_NPI            0x1u
 #define WT_FFA_FEATURE_SRI            0x2u
 #define WT_FFA_FEATURE_MEI            0x3u

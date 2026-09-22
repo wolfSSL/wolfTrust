@@ -48,6 +48,7 @@
 #define GICR_IGROUPR0     (GICR_SGI_BASE + 0x0080u)
 #define GICR_ISENABLER0   (GICR_SGI_BASE + 0x0100u)
 #define GICR_ICENABLER0   (GICR_SGI_BASE + 0x0180u)
+#define GICR_ISPENDR0     (GICR_SGI_BASE + 0x0200u)
 #define GICR_IPRIORITYR   (GICR_SGI_BASE + 0x0400u)
 #define GICR_IGRPMODR0    (GICR_SGI_BASE + 0x0D00u)
 
@@ -213,6 +214,13 @@ static void gicv3_set_pending(uint32_t intid)
     *gicd(GICD_ISPENDR + (intid / 32u) * 4u) = 1u << (intid % 32u);
 }
 
+/* Raise an SGI for the Normal world on this core: init_secure left the
+ * redistributor's ids NS Group 1, so pending it delivers it there. */
+static void gicv3_raise_ns_sgi(uint32_t intid)
+{
+    *gicr(GICR_ISPENDR0) = 1u << (intid & 0xFu);
+}
+
 static const struct wt_gic_ops gicv3_ops = {
     gicv3_init_secure,
     gicv3_set_group0,
@@ -222,6 +230,7 @@ static const struct wt_gic_ops gicv3_ops = {
     gicv3_ack_group0,
     gicv3_eoi_group0,
     gicv3_set_pending,
+    gicv3_raise_ns_sgi,
     3u
 };
 

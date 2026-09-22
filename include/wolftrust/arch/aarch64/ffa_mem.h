@@ -359,6 +359,55 @@ typedef struct wt_ffa_mem_registry {
 
 void wt_ffa_mem_registry_init(wt_ffa_mem_registry_t* reg);
 
+/* Take the next handle for a transaction whose descriptor is still arriving
+ * in fragments (DEN0140 4.1.2): the same handle names the region once
+ * wt_ffa_mem_share_register_as binds it. */
+uint64_t wt_ffa_mem_handle_reserve(wt_ffa_mem_registry_t* reg);
+
+/* wt_ffa_mem_share_register with a handle reserved earlier. */
+int wt_ffa_mem_share_register_as(wt_ffa_mem_registry_t* reg,
+                                 wt_ffa_mem_op_t op, uint16_t owner,
+                                 uint16_t borrower,
+                                 const wt_ffa_mem_region_t* regions,
+                                 uint32_t n, uint64_t handle);
+
+/* Reassembly of a transaction descriptor sent in fragments (DEN0140 4.1.2),
+ * bounded by the largest descriptor the relayer takes in one piece. */
+#define WT_FFA_MEM_FRAG_MAX WT_FFA_MEM_PAGE_SIZE
+
+typedef struct wt_ffa_mem_frag {
+    uint8_t buf[WT_FFA_MEM_FRAG_MAX];
+    uint64_t handle;
+    uint32_t total;
+    uint32_t received;
+    uint16_t sender;
+    uint8_t op;
+    uint8_t active;
+} wt_ffa_mem_frag_t;
+
+/* Start reassembly with the first fragment of a descriptor of total bytes.
+ * Returns 0, WT_FFA_INVALID_PARAMETERS for a fragment that is empty or not
+ * shorter than total, or WT_FFA_NO_MEMORY past WT_FFA_MEM_FRAG_MAX. */
+int wt_ffa_mem_frag_begin(wt_ffa_mem_frag_t* f, uint64_t handle,
+                          uint16_t sender, uint8_t op, const uint8_t* frag,
+                          uint32_t frag_len, uint32_t total);
+
+/* Append the next fragment; *done is set once the descriptor is whole.
+ * Returns 0, or WT_FFA_INVALID_PARAMETERS for another handle or sender, an
+ * empty fragment, or one past the declared total. */
+int wt_ffa_mem_frag_add(wt_ffa_mem_frag_t* f, uint64_t handle,
+                        uint16_t sender, const uint8_t* frag,
+                        uint32_t frag_len, int* done);
+
+void wt_ffa_mem_frag_reset(wt_ffa_mem_frag_t* f);
+
+/* The descriptor length the first fragment's own headers describe (a retrieve
+ * request when retrieve is non-zero, else a lend/share/donate), so a declared
+ * total that disagrees is refused before any fragment is taken. Returns 1 with
+ * *size set, or 0 when the fragment is too short to tell. */
+int wt_ffa_mem_frag_expected(const uint8_t* frag, uint32_t frag_len,
+                             int retrieve, uint64_t* size);
+
 /* Allocate a unique handle for a validated transaction, with no captured
  * region set. Returns 0 with *out_handle set, or WT_FFA_NO_MEMORY when the
  * registry is full. */

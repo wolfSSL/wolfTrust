@@ -446,68 +446,55 @@ static void ffa_yield(wt_trap_frame_t* frame)
     wt_co_block();
 }
 
-/* A descriptor handed over in the TX buffer: w1 = total length, w2 = fragment
- * length (no fragmentation, so equal), w3/w4 = 0 (not an address). */
-static int tx_descriptor_length(const wt_trap_frame_t* frame, size_t* out_len)
+/* A descriptor handed over in the TX buffer: w1 = total length, w2 = length
+ * of the fragment in TX (DEN0140 4.1.2 when shorter), w3/w4 = 0 (not an
+ * address). */
+static int tx_descriptor_length(const wt_trap_frame_t* frame, uint32_t* total,
+                                uint32_t* frag)
 {
-    uint32_t total = (uint32_t)frame->x[1];
-    uint32_t frag = (uint32_t)frame->x[2];
-
-    if ((total != frag) || (total < 1u) || (total > WT_FFA_MEM_PAGE_SIZE) ||
+    *total = (uint32_t)frame->x[1];
+    *frag = (uint32_t)frame->x[2];
+    if ((*frag < 1u) || (*frag > *total) || (*frag > WT_FFA_MEM_PAGE_SIZE) ||
         (frame->x[3] != 0u) || (frame->x[4] != 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    *out_len = (size_t)total;
     return 0;
 }
 
-/* FFA_MEM_SHARE / FFA_MEM_LEND from a partition: the relayer validates the
- * descriptor in its TX buffer and returns the handle in w2/w3. */
-static void ffa_mem_send(wt_trap_frame_t* frame, wt_ffa_mem_op_t op)
+/* Ask the sender for the rest of a descriptor: FFA_MEM_FRAG_RX with the
+ * transaction's handle and the bytes held; w4 is MBZ at this virtual
+ * instance. */
+static void frag_rx_reply(wt_trap_frame_t* frame, uint64_t handle,
+                          uint32_t offset)
 {
-    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
-    uint64_t handle = 0u;
-    size_t len = 0u;
-    int ret;
+    unsigned int i;
 
-    if (b == NULL) {
-        ffa_error(frame, WT_FFA_DENIED);
-        return;
+    for (i = 0u; i < 8u; i++) {
+        frame->x[i] = 0u;
     }
-    ret = tx_descriptor_length(frame, &len);
-    if (ret == 0) {
-        ret = wt_spm_mem_share(sp_tx(), len, op, b->id, &handle);
-    }
-    if (ret != 0) {
-        ffa_error(frame, ret);
-        return;
-    }
-    ffa_success(frame, handle & 0xFFFFFFFFu, handle >> 32);
+    frame->x[0] = WT_FFA_MEM_FRAG_RX;
+    frame->x[1] = handle & 0xFFFFFFFFu;
+    frame->x[2] = handle >> 32;
+    frame->x[3] = (uint64_t)offset;
 }
 
-/* FFA_MEM_RETRIEVE_REQ from a partition: map the region and answer with
- * FFA_MEM_RETRIEVE_RESP, the response descriptor in its RX buffer. */
-static void ffa_mem_retrieve(wt_trap_frame_t* frame)
+/* Answer a whole retrieve request with FFA_MEM_RETRIEVE_RESP, the response
+ * descriptor in the caller's RX buffer (it always fits in one fragment). */
+static void retrieve_answer(wt_trap_frame_t* frame, uint16_t receiver,
+                            const uint8_t* req, size_t len)
 {
-    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
     wt_ffa_mailbox_t* mb = sp_mailbox();
-    size_t len = 0u;
     size_t resp_len = 0u;
     unsigned int i;
     int acquired = 0;
-    int ret;
+    int ret = 0;
 
-    if (b == NULL) {
-        ffa_error(frame, WT_FFA_DENIED);
-        return;
-    }
-    ret = tx_descriptor_length(frame, &len);
-    if ((ret == 0) && (mb != NULL) && (mb->mapped != 0u)) {
+    if ((mb != NULL) && (mb->mapped != 0u)) {
         ret = wt_ffa_mailbox_rx_acquire(mb);
         acquired = (ret == 0) ? 1 : 0;
     }
     if (ret == 0) {
-        ret = wt_spm_mem_retrieve(sp_tx(), len, b->id, sp_rx(),
+        ret = wt_spm_mem_retrieve(req, len, receiver, sp_rx(),
                                   WT_FFA_MEM_PAGE_SIZE, &resp_len);
     }
     if (ret != 0) {
@@ -523,6 +510,114 @@ static void ffa_mem_retrieve(wt_trap_frame_t* frame)
     frame->x[0] = WT_FFA_MEM_RETRIEVE_RESP;
     frame->x[1] = (uint64_t)resp_len;
     frame->x[2] = (uint64_t)resp_len;
+}
+
+/* FFA_MEM_SHARE / LEND / DONATE from a partition: the relayer validates the
+ * descriptor in its TX buffer and returns the handle in w2/w3, or asks for
+ * the remaining fragments first. */
+static void ffa_mem_send(wt_trap_frame_t* frame, wt_ffa_mem_op_t op)
+{
+    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    uint64_t handle = 0u;
+    uint32_t total = 0u;
+    uint32_t frag = 0u;
+    int ret;
+
+    if (b == NULL) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    ret = tx_descriptor_length(frame, &total, &frag);
+    if ((ret == 0) && (frag < total)) {
+        ret = wt_spm_mem_frag_begin((uint8_t)op, b->id, sp_tx(), frag, total,
+                                    &handle);
+        if (ret == 0) {
+            frag_rx_reply(frame, handle, frag);
+            return;
+        }
+    }
+    else if (ret == 0) {
+        ret = wt_spm_mem_share(sp_tx(), (size_t)total, op, b->id, &handle);
+    }
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    ffa_success(frame, handle & 0xFFFFFFFFu, handle >> 32);
+}
+
+/* FFA_MEM_RETRIEVE_REQ from a partition: map the region and answer with
+ * FFA_MEM_RETRIEVE_RESP, or ask for the rest of a fragmented request. */
+static void ffa_mem_retrieve(wt_trap_frame_t* frame)
+{
+    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    uint64_t handle = 0u;
+    uint32_t total = 0u;
+    uint32_t frag = 0u;
+    int ret;
+
+    if (b == NULL) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    ret = tx_descriptor_length(frame, &total, &frag);
+    if ((ret == 0) && (frag < total)) {
+        ret = wt_spm_mem_frag_begin(WT_SPM_MEM_FRAG_OP_RETRIEVE, b->id, sp_tx(),
+                                    frag, total, &handle);
+        if (ret == 0) {
+            frag_rx_reply(frame, handle, frag);
+        }
+        else {
+            ffa_error(frame, ret);
+        }
+        return;
+    }
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    retrieve_answer(frame, b->id, sp_tx(), (size_t)total);
+}
+
+/* FFA_MEM_FRAG_TX (DEN0140 4.1.2.5): the next fragment, in the TX buffer the
+ * first one used; the last completes the call that sent the first. */
+static void ffa_mem_frag_tx(wt_trap_frame_t* frame)
+{
+    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    uint64_t handle = (uint64_t)(uint32_t)frame->x[1] |
+                      ((uint64_t)(uint32_t)frame->x[2] << 32);
+    uint32_t len = (uint32_t)frame->x[3];
+    const uint8_t* desc;
+    uint32_t offset = 0u;
+    uint32_t total = 0u;
+    uint8_t op = 0u;
+    int done = 0;
+    int ret = WT_FFA_INVALID_PARAMETERS;
+
+    if ((b != NULL) && ((uint32_t)frame->x[4] == 0u) &&
+        (len <= WT_FFA_MEM_PAGE_SIZE)) {
+        ret = wt_spm_mem_frag_next(handle, b->id, sp_tx(), len, &offset, &done);
+    }
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    if (done == 0) {
+        frag_rx_reply(frame, handle, offset);
+        return;
+    }
+    desc = wt_spm_mem_frag_desc(handle, b->id, &total, &op);
+    if ((desc != NULL) && (op == WT_SPM_MEM_FRAG_OP_RETRIEVE)) {
+        retrieve_answer(frame, b->id, desc, (size_t)total);
+        wt_spm_mem_frag_release(handle, b->id);
+        return;
+    }
+    ret = wt_spm_mem_frag_share(handle, b->id);
+    if (ret != 0) {
+        ffa_error(frame, ret);
+        return;
+    }
+    ffa_success(frame, handle & 0xFFFFFFFFu, handle >> 32);
 }
 
 /* FFA_MEM_RELINQUISH from a partition: the descriptor is in its TX buffer. */
@@ -615,6 +710,8 @@ static int sp_implements(uint32_t fid)
         case WT_FFA_MEM_RETRIEVE_RESP:
         case WT_FFA_MEM_RELINQUISH:
         case WT_FFA_MEM_RECLAIM:
+        case WT_FFA_MEM_FRAG_RX:
+        case WT_FFA_MEM_FRAG_TX:
         case WT_FFA_MEM_PERM_GET32:
         case WT_FFA_MEM_PERM_GET64:
         case WT_FFA_MEM_PERM_SET32:
@@ -1058,6 +1155,14 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if (fid == WT_FFA_MEM_RECLAIM) {
         ffa_mem_reclaim(frame);
+    }
+    else if (fid == WT_FFA_MEM_FRAG_TX) {
+        ffa_mem_frag_tx(frame);
+    }
+    else if (fid == WT_FFA_MEM_FRAG_RX) {
+        /* A retrieve response always fits the caller's RX buffer, so no
+         * fragment is ever outstanding for it to ask for. */
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
     }
     else {
         ffa_not_supported(frame);

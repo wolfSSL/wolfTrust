@@ -331,13 +331,10 @@ int32_t wt_ffa_notif_get(uint16_t caller, uint32_t w1, uint32_t flags,
         out->from_vm = receiver->pend_vm;
         receiver->pend_vm = 0u;
     }
-    if ((flags & WT_FFA_NOTIF_GET_FLAG_SPM) != 0u) {
-        out->framework |= receiver->pend_fw & 0xFFFFFFFF00000000ull;
-        receiver->pend_fw &= 0x00000000FFFFFFFFull;
-    }
-    if ((flags & WT_FFA_NOTIF_GET_FLAG_HYP) != 0u) {
-        out->framework |= receiver->pend_fw & 0x00000000FFFFFFFFull;
-        receiver->pend_fw &= 0xFFFFFFFF00000000ull;
+    if ((flags & (WT_FFA_NOTIF_GET_FLAG_SPM | WT_FFA_NOTIF_GET_FLAG_HYP)) !=
+        0u) {
+        out->framework = receiver->pend_fw;
+        receiver->pend_fw = 0u;
     }
     return 0;
 }
@@ -393,14 +390,15 @@ int32_t wt_ffa_notif_info_get(uint16_t caller, int is64,
     return 0;
 }
 
-int32_t wt_ffa_notif_frame_rx_full(uint16_t receiver_id)
+int32_t wt_ffa_notif_frame_rx_full(uint16_t receiver_id, int sender_secure)
 {
     wt_notif_ep_t* receiver = ep_find(receiver_id);
 
     if (receiver == NULL) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    receiver->pend_fw |= WT_FFA_NOTIF_FW_SPM_RX_FULL;
+    receiver->pend_fw |= (sender_secure != 0) ? WT_FFA_NOTIF_FW_SPM_RX_FULL
+                                              : WT_FFA_NOTIF_FW_NS_RX_FULL;
     g_sri_pending = 1u;
     return 0;
 }

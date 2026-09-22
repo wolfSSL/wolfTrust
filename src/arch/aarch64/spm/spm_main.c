@@ -33,6 +33,7 @@
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/ffa_mem.h"
 #include "wolftrust/arch/aarch64/ffa_notif.h"
+#include "wolftrust/arch/aarch64/ffa_partinfo.h"
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/psa_ffa.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
@@ -1137,6 +1138,87 @@ static void ns_notif_info_get(wt_ffa_regs_t* r, unsigned int is64)
     }
 }
 
+/* FFA_MSG_SEND2 (16.4), shared by both conduits: the partition message in
+ * the caller's TX buffer is copied into the receiver's RX, whose RX-full
+ * framework notification tells the Normal-world scheduler to run it. Only a
+ * receiver whose properties advertise indirect messaging may be sent one. */
+int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
+                        uint32_t w1, uint32_t w2)
+{
+    static const uint8_t ns_uuid[16];
+    wt_ffa_msg2_t msg;
+    const wt_ffa_native_sp_t* natives;
+    const uint8_t* uuid = NULL;
+    uint32_t properties = 0u;
+    wt_ffa_mailbox_t* mb = NULL;
+    size_t count = 0u;
+    size_t i;
+    uint32_t total;
+    int ret;
+
+    ret = wt_ffa_msg2_parse(tx, tx_size, caller, w1, w2, &msg);
+    if (ret == 0) {
+        if (msg.receiver == WT_FFA_ID_NS_PRIMARY) {
+            uuid = ns_uuid;
+            properties = WT_FFA_PARTINFO_PROP_INDIRECT;
+            mb = &g_ns_mailbox;
+        }
+        else {
+            natives = wt_spm_ffa_native_list(&count);
+            for (i = 0u; i < count; i++) {
+                if (wt_spm_ffa_native_id(i) == msg.receiver) {
+                    uuid = natives[i].uuid;
+                    properties = natives[i].properties;
+                    mb = wt_spm_sp_mailbox_of(
+                        wt_spm_ffa_native_by_id(msg.receiver));
+                }
+            }
+            if (uuid == NULL) {
+                ret = WT_FFA_INVALID_PARAMETERS;
+            }
+        }
+    }
+    if ((ret == 0) && ((properties & WT_FFA_PARTINFO_PROP_INDIRECT) == 0u)) {
+        ret = WT_FFA_DENIED;
+    }
+    if ((ret == 0) && (wt_ffa_msg2_uuid_ok(msg.uuid, uuid) == 0)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    if (ret == 0) {
+        total = msg.offset + msg.size;
+        if ((mb != NULL) && (mb->mapped != 0u) &&
+            (total > (mb->pages * (uint32_t)WT_TABLES_PAGE_SIZE))) {
+            ret = WT_FFA_INVALID_PARAMETERS;
+        }
+        else {
+            ret = wt_ffa_mailbox_rx_acquire(mb);
+        }
+    }
+    if (ret == 0) {
+        (void)memcpy((void*)(uintptr_t)mb->rx, tx,
+                     msg.offset + msg.size);
+        (void)wt_ffa_notif_frame_rx_full(msg.receiver,
+                                         wt_ffa_id_is_secure(caller));
+    }
+    return ret;
+}
+
+/* FFA_MSG_SEND2 forwarded from the Normal world. */
+static void ns_msg_send2(wt_ffa_regs_t* r)
+{
+    int ret;
+
+    if (g_ns_mailbox.mapped == 0u) {
+        ns_reply(r, WT_FFA_DENIED, 0u, 0u);
+        return;
+    }
+    ret = wt_spm_msg2_deliver(WT_FFA_ID_NS_PRIMARY,
+                              (const uint8_t*)(uintptr_t)g_ns_mailbox.tx,
+                              g_ns_mailbox.pages * (uint32_t)WT_TABLES_PAGE_SIZE,
+                              (uint32_t)r->x[1], (uint32_t)r->x[2]);
+    ns_reply(r, ret, 0u, 0u);
+}
+
 /* FFA_PARTITION_INFO_GET_REGS forwarded from the Normal world. */
 static void ns_partition_info_get_regs(wt_ffa_regs_ext_t* e)
 {
@@ -1236,6 +1318,9 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
         case WT_FFA_NOTIFICATION_INFO_GET64:
             ns_notif_info_get(r, 1u);
             break;
+        case WT_FFA_MSG_SEND2:
+            ns_msg_send2(r);
+            break;
         default:
             wt_el3_puts("[SPM] unexpected event x0=0x");
             wt_el3_puthex(r->x[0], 8u);
@@ -1269,6 +1354,7 @@ void wt_spm_idle(void)
          * pending notification work raises the schedule-receiver SGI here. */
         if (wt_ffa_notif_sri_take() != 0) {
             wt_gic->raise_ns_sgi(WT_FFA_SRI_INTID);
+            wt_el3_puts("[SPM] sri sgi\r\n");
         }
         wt_platform_console_flush();
         wt_ffa_smc_ext(&e);

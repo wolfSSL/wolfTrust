@@ -93,7 +93,8 @@ mkdir -p "$build"
 ( cd "$build" && cmake ../ -G"Unix Makefiles" \
     -DCROSS_COMPILE="$TOOLPREFIX" -DTARGET=tgt_wolftrust_qemu \
     -DPLATFORM_NS_HYPERVISOR_PRESENT=0 -DPLATFORM_SPMC_EL=1 \
-    -DPLATFORM_SP_EL=0 -DPLATFORM_FFA_V_1_2=1 -DSUITE="$SUITE" \
+    -DPLATFORM_SP_EL=0 -DPLATFORM_FFA_V_1_2=1 \
+    -DINDIRECT_MESSAGE_UUID_SUPPORT=1 -DSUITE="$SUITE" \
     > cmake.log 2>&1 \
   && make -j"$(nproc 2>/dev/null || echo 4)" > make.log 2>&1 ) || {
     tail -40 "$build/cmake.log" "$build/make.log" 2>/dev/null >&2

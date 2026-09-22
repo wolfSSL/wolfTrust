@@ -297,6 +297,14 @@ static void ffa_rx_release(wt_trap_frame_t* frame)
  * coroutine id; a partition that never registered uses the SPMC's own band. */
 static wt_ffa_mailbox_t g_sp_mailbox[WT_CO_MAX];
 
+struct wt_ffa_mailbox* wt_spm_sp_mailbox_of(const struct wt_co* co)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return NULL;
+    }
+    return &g_sp_mailbox[co->id - 1u];
+}
+
 static wt_ffa_mailbox_t* sp_mailbox(void)
 {
     const struct wt_co* co = (const struct wt_co*)wt_co_current();
@@ -616,6 +624,7 @@ static int sp_implements(uint32_t fid)
         case WT_FFA_NOTIFICATION_UNBIND:
         case WT_FFA_NOTIFICATION_SET:
         case WT_FFA_NOTIFICATION_GET:
+        case WT_FFA_MSG_SEND2:
             return 1;
         default:
             return 0;
@@ -703,6 +712,29 @@ static void ffa_notif_set(wt_trap_frame_t* frame, const struct wt_co* co)
     int32_t ret = wt_ffa_notif_set(caller, (uint32_t)frame->x[1],
                                    (uint32_t)frame->x[2], bitmap);
 
+    if (ret == 0) {
+        ffa_success(frame, 0u, 0u);
+    }
+    else {
+        ffa_error(frame, ret);
+    }
+}
+
+/* FFA_MSG_SEND2 from a partition: the shared delivery engine reads the
+ * message from the caller's own TX buffer. */
+static void ffa_msg_send2(wt_trap_frame_t* frame, const struct wt_co* co)
+{
+    wt_ffa_mailbox_t* mb = wt_spm_sp_mailbox_of(co);
+    int ret;
+
+    if ((mb == NULL) || (mb->mapped == 0u)) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    ret = wt_spm_msg2_deliver((uint16_t)wt_spm_sp_ffa_id(co),
+                              (const uint8_t*)(uintptr_t)mb->tx,
+                              mb->pages * (uint32_t)WT_TABLES_PAGE_SIZE,
+                              (uint32_t)frame->x[1], (uint32_t)frame->x[2]);
     if (ret == 0) {
         ffa_success(frame, 0u, 0u);
     }
@@ -949,6 +981,9 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if (fid == WT_FFA_NOTIFICATION_GET) {
         ffa_notif_get(frame, (const struct wt_co*)co);
+    }
+    else if (fid == WT_FFA_MSG_SEND2) {
+        ffa_msg_send2(frame, (const struct wt_co*)co);
     }
     else if ((fid == WT_FFA_MEM_PERM_SET32) || (fid == WT_FFA_MEM_PERM_SET64)) {
         ffa_mem_perm_set(frame, (const struct wt_co*)co);

@@ -282,17 +282,20 @@ static void get_rows(void)
     check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_VM, &got) == 0,
           "SP2 drains the VM class");
     check(got.from_vm == BIT(12), "the signaled bit comes back");
-    check(wt_ffa_notif_frame_rx_full(BAD_ID) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_notif_frame_rx_full(BAD_ID, 1) == WT_FFA_INVALID_PARAMETERS,
           "a framework signal to an unknown receiver is refused");
-    check(wt_ffa_notif_frame_rx_full(SP2) == 0,
-          "the framework pends RX-full for SP2");
-    check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_HYP, &got) == 0,
-          "the Hypervisor half is asked first");
-    check(got.framework == 0u, "and holds nothing");
+    check(wt_ffa_notif_frame_rx_full(SP2, 1) == 0,
+          "a Secure sender's message pends RX-full for SP2");
     check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_SPM, &got) == 0,
-          "the SPM half drains");
+          "the framework bitmap drains");
     check(got.framework == WT_FFA_NOTIF_FW_SPM_RX_FULL,
-          "RX-full is bit 0 of the SPM half");
+          "a Secure sender's RX-full is bit 0");
+    check(wt_ffa_notif_frame_rx_full(SP2, 0) == 0,
+          "a Normal-world message pends RX-full for SP2");
+    check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_HYP, &got) == 0,
+          "either framework flag drains it");
+    check(got.framework == WT_FFA_NOTIF_FW_NS_RX_FULL,
+          "a Normal-world sender's RX-full is bit 32");
     check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_SPM, &got) == 0,
           "a second drain succeeds");
     check(got.framework == 0u, "and is empty");

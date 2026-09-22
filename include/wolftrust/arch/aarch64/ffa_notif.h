@@ -45,10 +45,11 @@
 #define WT_FFA_NOTIF_GET_FLAG_HYP     (1u << 3)
 #define WT_FFA_NOTIF_GET_FLAG_ALL     0xFu
 
-/* The 64-bit framework bitmap: the Hypervisor's half is bits [31:0] and the
- * SPM's half bits [63:32]; bit 0 of each half is that world's RX-buffer-full
- * message notification. */
-#define WT_FFA_NOTIF_FW_SPM_RX_FULL   (1ull << 32)
+/* The 64-bit framework bitmap: bit 0 is the RX-buffer-full the SPM pends for
+ * a Secure sender's message, bit 32 the one the Normal world's relayer pends;
+ * a GET returns the whole bitmap in w6/w7. */
+#define WT_FFA_NOTIF_FW_SPM_RX_FULL   (1ull << 0)
+#define WT_FFA_NOTIF_FW_NS_RX_FULL    (1ull << 32)
 
 /* w1 of BIND/UNBIND/SET carries sender [31:16] and receiver [15:0]; w1 of
  * GET carries the receiver's vCPU id [31:16] and the receiver [15:0]. */
@@ -91,9 +92,10 @@ int32_t wt_ffa_notif_get(uint16_t caller, uint32_t w1, uint32_t flags,
 int32_t wt_ffa_notif_info_get(uint16_t caller, int is64,
                               wt_ffa_notif_info_result_t* out);
 
-/* The framework (SPM) message-pending notification a message send pends for
- * its receiver; consumed through GET like any other class. */
-int32_t wt_ffa_notif_frame_rx_full(uint16_t receiver);
+/* The framework message-pending notification a message send pends for its
+ * receiver, on the half of the bitmap the sender's world owns; consumed
+ * through GET like any other class. */
+int32_t wt_ffa_notif_frame_rx_full(uint16_t receiver, int sender_secure);
 
 /* Schedule-receiver interrupt latch: set when a signal leaves work for the
  * Normal-world scheduler, cleared when it asks. */

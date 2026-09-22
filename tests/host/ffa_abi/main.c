@@ -28,6 +28,7 @@
 
 #include <stdint.h>
 #include <stdio.h>
+#include <string.h>
 
 static int checks;
 static int failures;
@@ -291,6 +292,77 @@ static void version_state_rows(void)
           "a caller that never negotiated is held to the callee version");
 }
 
+
+/* The v1.2 partition message header of FFA_MSG_SEND2 (16.4) as its relayer
+ * validates it; the rows mirror the ACS uuid-check client. */
+static void msg2_rows(void)
+{
+    uint8_t tx[4096];
+    wt_ffa_msg2_t m;
+    static const uint8_t ep_uuid[16] = {
+        1u, 2u, 3u, 4u, 5u, 6u, 7u, 8u,
+        9u, 10u, 11u, 12u, 13u, 14u, 15u, 16u
+    };
+    unsigned int i;
+
+    memset(tx, 0, sizeof(tx));
+    /* offset 40, sender 0 receiver 0x8002, size 32, uuid = the endpoint's */
+    tx[8] = 40u;
+    tx[12] = 0x02u; tx[13] = 0x80u;
+    tx[16] = 32u;
+    for (i = 0u; i < 16u; i++) {
+        tx[24u + i] = ep_uuid[i];
+    }
+
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, 0u, 0u, &m) == 0,
+          "a well-formed header parses");
+    check((m.receiver == 0x8002u) && (m.offset == 40u) && (m.size == 32u),
+          "and yields receiver, offset and size");
+    check(wt_ffa_msg2_uuid_ok(m.uuid, ep_uuid) == 1,
+          "the receiver's own UUID is accepted");
+    tx[24] = 0xAAu;
+    check(wt_ffa_msg2_uuid_ok(&tx[24], ep_uuid) == 0,
+          "a foreign UUID is refused");
+    memset(&tx[24], 0, 16u);
+    check(wt_ffa_msg2_uuid_ok(&tx[24], ep_uuid) == 1,
+          "a Nil UUID is accepted");
+
+    check(wt_ffa_msg2_parse(tx, 39u, 0u, 0u, 0u, &m) ==
+          WT_FFA_INVALID_PARAMETERS, "a TX smaller than the header is refused");
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, 1u, 0u, &m) ==
+          WT_FFA_INVALID_PARAMETERS, "reserved w1 bits are refused");
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, 0u, 0x1u, &m) ==
+          WT_FFA_INVALID_PARAMETERS, "flags beyond delay-SRI are refused");
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, 0u,
+                            WT_FFA_MSG2_FLAG_DELAY_SRI, &m) == 0,
+          "the delay-SRI flag is accepted");
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, 0x80030000u, 0u, &m) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "a header sender other than the caller is refused");
+    tx[14] = 0x03u; tx[15] = 0x80u;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, 0u, 0u, &m) == 0,
+          "a secure caller leaves the w1 sender zero");
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, 0x00010000u, 0u, &m) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "a nonzero w1 sender other than the caller is refused");
+    tx[14] = 0u; tx[15] = 0u;
+    tx[0] = 1u;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, 0u, 0u, &m) ==
+          WT_FFA_INVALID_PARAMETERS, "nonzero header flags are refused");
+    tx[0] = 0u;
+    tx[8] = 39u;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, 0u, 0u, &m) ==
+          WT_FFA_INVALID_PARAMETERS, "an offset inside the header is refused");
+    tx[8] = 40u;
+    tx[16] = 0xFFu; tx[17] = 0xFFu; tx[18] = 0xFFu; tx[19] = 0xFFu;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, 0u, 0u, &m) ==
+          WT_FFA_INVALID_PARAMETERS, "a payload past the TX end is refused");
+    tx[16] = 32u; tx[17] = 0u; tx[18] = 0u; tx[19] = 0u;
+    tx[12] = 0u; tx[13] = 0u;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, 0u, 0u, &m) ==
+          WT_FFA_INVALID_PARAMETERS, "a receiver equal to the sender is refused");
+}
+
 int main(void)
 {
     size_t n = sizeof(g_fids) / sizeof(g_fids[0]);
@@ -380,6 +452,7 @@ int main(void)
           "FFA_FEATURES tells function ids from feature ids by bit 31");
 
     direct_message_rows();
+    msg2_rows();
     partition_info_rows();
     version_state_rows();
 

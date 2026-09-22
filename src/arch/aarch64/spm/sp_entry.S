@@ -209,6 +209,66 @@ wt_sp_lower_fiq_entry:
     add     sp, sp, #FRAME_SIZE
     eret
 
+/* Lower-EL IRQ (a Normal-world Group 1 interrupt while an S-EL0 partition
+ * runs): the same frame, handed to wt_spm_lower_irq, which preempts the
+ * partition so the Normal world can take its interrupt. */
+    .section .text.wt_sp_lower_irq_entry, "ax"
+    .globl wt_sp_lower_irq_entry
+wt_sp_lower_irq_entry:
+    sub     sp, sp, #FRAME_SIZE
+    stp     x0, x1, [sp, #0]
+    stp     x2, x3, [sp, #16]
+    stp     x4, x5, [sp, #32]
+    stp     x6, x7, [sp, #48]
+    stp     x8, x9, [sp, #64]
+    stp     x10, x11, [sp, #80]
+    stp     x12, x13, [sp, #96]
+    stp     x14, x15, [sp, #112]
+    stp     x16, x17, [sp, #128]
+    stp     x18, x19, [sp, #144]
+    stp     x20, x21, [sp, #160]
+    stp     x22, x23, [sp, #176]
+    stp     x24, x25, [sp, #192]
+    stp     x26, x27, [sp, #208]
+    stp     x28, x29, [sp, #224]
+    str     x30, [sp, #240]
+    mrs     x0, SP_EL0
+    str     x0, [sp, #FRAME_SP_EL0]
+    mrs     x0, ELR_EL1
+    str     x0, [sp, #FRAME_ELR]
+    mrs     x0, SPSR_EL1
+    str     x0, [sp, #FRAME_SPSR]
+    mrs     x0, ESR_EL1
+    str     x0, [sp, #FRAME_ESR]
+    mrs     x0, FAR_EL1
+    str     x0, [sp, #FRAME_FAR]
+    mov     x0, sp
+    bl      wt_spm_lower_irq
+    ldr     x0, [sp, #FRAME_SPSR]
+    msr     SPSR_EL1, x0
+    ldr     x0, [sp, #FRAME_ELR]
+    msr     ELR_EL1, x0
+    ldr     x0, [sp, #FRAME_SP_EL0]
+    msr     SP_EL0, x0
+    ldr     x30, [sp, #240]
+    ldp     x28, x29, [sp, #224]
+    ldp     x26, x27, [sp, #208]
+    ldp     x24, x25, [sp, #192]
+    ldp     x22, x23, [sp, #176]
+    ldp     x20, x21, [sp, #160]
+    ldp     x18, x19, [sp, #144]
+    ldp     x16, x17, [sp, #128]
+    ldp     x14, x15, [sp, #112]
+    ldp     x12, x13, [sp, #96]
+    ldp     x10, x11, [sp, #80]
+    ldp     x8, x9, [sp, #64]
+    ldp     x6, x7, [sp, #48]
+    ldp     x4, x5, [sp, #32]
+    ldp     x2, x3, [sp, #16]
+    ldp     x0, x1, [sp, #0]
+    add     sp, sp, #FRAME_SIZE
+    eret
+
 /* S-EL0 spinner for the preemption self-test: loops until a tick preempts it. */
     .section .text.wt_sp_spin, "ax"
     .globl wt_sp_spin

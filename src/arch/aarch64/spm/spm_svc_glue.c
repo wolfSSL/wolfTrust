@@ -32,6 +32,7 @@
 #include "wolftrust/arch/aarch64/ffa_mem.h"
 #include "wolftrust/arch/aarch64/ffa_notif.h"
 #include "wolftrust/arch/aarch64/ffa_partinfo.h"
+#include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/tables.h"
@@ -912,6 +913,39 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         g_yield_token = frame->x[1];
         frame->x[0] = 0u;
         wt_co_block();
+    }
+    else if (fid == WT_SPM_HVC_INTERRUPT_ENABLE) {
+        sint = (uint32_t)frame->x[1];
+        if (wt_spm_sint_own((struct wt_co*)co, sint,
+                            (frame->x[2] != 0u) ? 1u : 0u) == 0) {
+            if (frame->x[2] != 0u) {
+                wt_gic->set_group0(sint);
+                wt_gic->set_priority(sint, 0x10u);
+                wt_gic->enable(sint);
+            }
+            else {
+                wt_gic->disable(sint);
+            }
+            frame->x[0] = 0u;
+        }
+        else {
+            frame->x[0] = (uint64_t)(int64_t)-1;
+        }
+    }
+    else if (fid == WT_SPM_HVC_INTERRUPT_GET) {
+        frame->x[0] = (uint64_t)wt_spm_sint_delivered((const struct wt_co*)co);
+    }
+    else if (fid == WT_SPM_HVC_INTERRUPT_DEACTIVATE) {
+        frame->x[0] = 0u;
+    }
+    else if (fid == WT_SPM_SVC_FID_TIMER_ARM) {
+        frame->x[0] = (wt_spm_twdog_arm((uint32_t)frame->x[1],
+                                        (uint32_t)frame->x[2]) == 0) ?
+                      0u : (uint64_t)(int64_t)-1;
+    }
+    else if (fid == WT_SPM_SVC_FID_TIMER_STOP) {
+        wt_spm_twdog_stop((const struct wt_co*)co);
+        frame->x[0] = 0u;
     }
     else if (fid == WT_FFA_MSG_WAIT) {
         /* 8.2/8.5: the partition enters the waiting state; the next direct

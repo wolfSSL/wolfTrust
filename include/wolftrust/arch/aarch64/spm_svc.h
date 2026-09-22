@@ -43,6 +43,17 @@
 #define WT_SPM_SVC_FID_CALL  0xC3800100u
 /* Scheduler yield from a partition; x1 carries a token the SPMC records. */
 #define WT_SPM_SVC_FID_YIELD 0xC3800101u
+/* Test-timer service for the ACS platform layer: arm a Secure interrupt
+ * (x1 = intid, x2 = deadline in milliseconds) or stop the caller's own. */
+#define WT_SPM_SVC_FID_TIMER_ARM  0xC3800102u
+#define WT_SPM_SVC_FID_TIMER_STOP 0xC3800103u
+
+/* The para-virtual interrupt controls of the ACS partition support layer
+ * (Hafnium's values), taken at the SVC gate: enable claims an interrupt for
+ * the caller, get returns the id the last FFA_INTERRUPT delivered. */
+#define WT_SPM_HVC_INTERRUPT_ENABLE     0xFF03u
+#define WT_SPM_HVC_INTERRUPT_GET        0xFF04u
+#define WT_SPM_HVC_INTERRUPT_DEACTIVATE 0xFF08u
 
 /* Saved S-EL0 register state of one partition, indexed by coroutine id. */
 typedef struct wt_sp_arch {
@@ -130,6 +141,12 @@ int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
 #define WT_FFA_SP_EXIT_WAIT  2u
 #define WT_FFA_SP_EXIT_YIELD 3u
 #define WT_FFA_SP_EXIT_CALL  4u
+/* A Normal-world interrupt preempted the partition (Ch.9 NS-Int signaled):
+ * the invoker sees FFA_INTERRUPT and resumes it later with FFA_RUN. */
+#define WT_FFA_SP_EXIT_NSINT 5u
+/* The run loop stopped a preempted partition so a waiting one could be
+ * signaled first; the stopped one resumes afterwards. */
+#define WT_FFA_SP_EXIT_SIGNAL 6u
 extern volatile uint32_t g_wt_ffa_sp_exit;
 
 /* FFA_RUN on behalf of caller; out is what the caller's FFA_RUN returns. */
@@ -151,9 +168,31 @@ int wt_spm_ffa_sp_yielded_to(const struct wt_co* co, uint16_t caller);
  * or queued while it runs and delivered on its next FFA_MSG_WAIT. */
 int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid);
 void wt_spm_sint_queue(uint32_t intid);
+void wt_spm_sint_queue_for(struct wt_co* co, uint32_t intid);
 uint32_t wt_spm_sint_take_pending(const struct wt_co* co);
 extern volatile uint32_t g_wt_spm_sint_queued;
 void wt_spm_prove_sint_route(struct wt_co* co);
+
+/* Dynamic Secure-interrupt ownership, claimed through the para-virtual
+ * enable; the id the last FFA_INTERRUPT delivered answers the get. */
+int wt_spm_sint_own(struct wt_co* co, uint32_t intid, unsigned int enable);
+struct wt_co* wt_spm_sint_owner(uint32_t intid);
+void wt_spm_sint_set_delivered(const struct wt_co* co, uint32_t intid);
+uint32_t wt_spm_sint_delivered(const struct wt_co* co);
+/* Non-zero when owner waits while another partition runs, so the SPMC must
+ * preempt that partition to signal the owner (Table 9.1). */
+int wt_spm_sint_signal_needed(struct wt_co* owner);
+
+/* A Normal-world Group 1 interrupt asserted while a partition ran. */
+void wt_spm_preempt_from_irq(wt_trap_frame_t* frame);
+
+/* The test-timer service: arm makes the interrupt pending at its deadline
+ * (see spm_irq.c for when a Normal-world one lands); stop clears the caller's
+ * own timers (owner NULL for the Normal world's). */
+int wt_spm_twdog_arm(uint32_t intid, uint32_t ms);
+void wt_spm_twdog_stop(const struct wt_co* owner);
+void wt_spm_twdog_tick(void);
+int wt_spm_current_is_partition(void);
 
 /* FFA_PARTITION_INFO_GET for either instance; see spm_svc_glue.c. */
 struct wt_ffa_mailbox;
@@ -176,6 +215,9 @@ typedef struct wt_ffa_native_sp {
     size_t region_count;
     uint8_t uuid[16];
     uint32_t properties;
+    /* FF-A "Action in response to a Non-secure interrupt": 0 queued (masked
+     * while the partition runs), 2 signaled (preempts to the Normal world). */
+    uint8_t ns_int_action;
 } wt_ffa_native_sp_t;
 
 const wt_ffa_native_sp_t* wt_platform_ffa_native_partitions(size_t* count);

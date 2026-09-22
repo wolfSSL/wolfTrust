@@ -261,6 +261,8 @@ struct wt_co* wt_spm_ffa_native_by_id(uint16_t id)
 
 void wt_spm_init_partitions(void)
 {
+    size_t native_count = 0u;
+    size_t n;
     unsigned int i;
     unsigned int pass;
     int progressed;
@@ -286,11 +288,13 @@ void wt_spm_init_partitions(void)
     create_echo_partition();
     create_native_partitions();
     /* Seed the notification endpoint table: the Normal-world scheduler and
-     * every partition; a table past its bound simply lacks notifications. */
+     * every native partition; a table past its bound simply lacks
+     * notifications. */
     wt_ffa_notif_reset();
     (void)wt_ffa_notif_register(WT_FFA_ID_NS_PRIMARY, 0);
-    for (i = 0u; i < g_native_count; i++) {
-        (void)wt_ffa_notif_register(wt_spm_sp_ffa_id(g_native_co[i]), 1);
+    (void)wt_spm_ffa_native_list(&native_count);
+    for (n = 0u; n < native_count; n++) {
+        (void)wt_ffa_notif_register(wt_spm_ffa_native_id(n), 1);
     }
     for (i = 0u; i < WT_CO_MAX; i++) {
         (void)run_pending_partition(i);

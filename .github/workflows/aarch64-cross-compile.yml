@@ -128,7 +128,7 @@ jobs:
           echo "WT_FFA_ACS_CACHE=$GITHUB_WORKSPACE/.acs-cache" >> "$GITHUB_ENV"
 
       - name: Run the Arm FF-A ACS against the SPMC
-        run: tests/target/run_suite.sh qemu-a ffaacs-discovery ffaacs-direct ffaacs-memory
+        run: tests/target/run_suite.sh qemu-a ffaacs-discovery ffaacs-direct ffaacs-memory ffaacs-notify
 
       - name: Show the ACS logs
         if: always()
@@ -136,3 +136,4 @@ jobs:
           cat logs/target-ffaacs-discovery.log || true
           cat logs/target-ffaacs-direct.log || true
           cat logs/target-ffaacs-memory.log || true
+          cat logs/target-ffaacs-notify.log || true

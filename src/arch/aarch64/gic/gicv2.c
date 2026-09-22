@@ -32,6 +32,7 @@
 #define GICD_ITARGETSR   0x800u
 #define GICD_ICENABLER   0x180u
 #define GICD_IPRIORITYR  0x400u
+#define GICD_SGIR        0xF00u
 #define GICD_CTLR_ENABLE_GRP0 (1u << 0)
 #define GICD_CTLR_ENABLE_GRP1 (1u << 1)
 
@@ -123,6 +124,13 @@ static void gicv2_set_pending(uint32_t intid)
     *gicd(GICD_ISPENDR + (intid / 32u) * 4u) = 1u << (intid % 32u);
 }
 
+/* Raise an SGI for the Normal world on this core: init_secure left every id
+ * Group 1, and NSATT in GICD_SGIR forwards it in that group. */
+static void gicv2_raise_ns_sgi(uint32_t intid)
+{
+    *gicd(GICD_SGIR) = (2u << 24) | (1u << 15) | (intid & 0xFu);
+}
+
 static const struct wt_gic_ops gicv2_ops = {
     gicv2_init_secure,
     gicv2_set_group0,
@@ -132,6 +140,7 @@ static const struct wt_gic_ops gicv2_ops = {
     gicv2_ack_group0,
     gicv2_eoi_group0,
     gicv2_set_pending,
+    gicv2_raise_ns_sgi,
     2u
 };
 

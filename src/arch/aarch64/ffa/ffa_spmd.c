@@ -185,6 +185,14 @@ static int ns_implements(uint32_t fid)
         case WT_FFA_MEM_RETRIEVE_RESP:
         case WT_FFA_MEM_RELINQUISH:
         case WT_FFA_MEM_RECLAIM:
+        case WT_FFA_NOTIFICATION_BITMAP_CREATE:
+        case WT_FFA_NOTIFICATION_BITMAP_DESTROY:
+        case WT_FFA_NOTIFICATION_BIND:
+        case WT_FFA_NOTIFICATION_UNBIND:
+        case WT_FFA_NOTIFICATION_SET:
+        case WT_FFA_NOTIFICATION_GET:
+        case WT_FFA_NOTIFICATION_INFO_GET32:
+        case WT_FFA_NOTIFICATION_INFO_GET64:
             return 1;
         default:
             return 0;
@@ -224,6 +232,14 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid)
         case WT_FFA_MEM_RETRIEVE_REQ64:
         case WT_FFA_MEM_RELINQUISH:
         case WT_FFA_MEM_RECLAIM:
+        case WT_FFA_NOTIFICATION_BITMAP_CREATE:
+        case WT_FFA_NOTIFICATION_BITMAP_DESTROY:
+        case WT_FFA_NOTIFICATION_BIND:
+        case WT_FFA_NOTIFICATION_UNBIND:
+        case WT_FFA_NOTIFICATION_SET:
+        case WT_FFA_NOTIFICATION_GET:
+        case WT_FFA_NOTIFICATION_INFO_GET32:
+        case WT_FFA_NOTIFICATION_INFO_GET64:
             return 1;
         default:
             return 0;

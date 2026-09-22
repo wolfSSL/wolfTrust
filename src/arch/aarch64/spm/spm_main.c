@@ -32,6 +32,8 @@
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/ffa_mem.h"
+#include "wolftrust/arch/aarch64/ffa_notif.h"
+#include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/psa_ffa.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
@@ -1073,6 +1075,68 @@ static void ns_mem_reclaim(wt_ffa_regs_t* r)
     }
 }
 
+/* The Normal-world scheduler's notification calls, forwarded by the SPMD.
+ * The primary NS endpoint is both the only VM and its own scheduler. */
+static void ns_notif_bind(wt_ffa_regs_t* r, unsigned int unbind)
+{
+    uint32_t w1 = (uint32_t)r->x[1];
+    uint32_t w2 = (uint32_t)r->x[2];
+    uint64_t bitmap = (uint64_t)(uint32_t)r->x[3] |
+                      ((uint64_t)(uint32_t)r->x[4] << 32);
+    int32_t ret;
+
+    if (unbind != 0u) {
+        ret = wt_ffa_notif_unbind(WT_FFA_ID_NS_PRIMARY, w1, w2, bitmap);
+    }
+    else {
+        ret = wt_ffa_notif_bind(WT_FFA_ID_NS_PRIMARY, w1, w2, bitmap);
+    }
+    ns_reply(r, ret, 0u, 0u);
+}
+
+static void ns_notif_set(wt_ffa_regs_t* r)
+{
+    uint64_t bitmap = (uint64_t)(uint32_t)r->x[3] |
+                      ((uint64_t)(uint32_t)r->x[4] << 32);
+
+    ns_reply(r, wt_ffa_notif_set(WT_FFA_ID_NS_PRIMARY, (uint32_t)r->x[1],
+                                 (uint32_t)r->x[2], bitmap), 0u, 0u);
+}
+
+static void ns_notif_get(wt_ffa_regs_t* r)
+{
+    wt_ffa_notif_get_result_t got;
+    int32_t ret = wt_ffa_notif_get(WT_FFA_ID_NS_PRIMARY, (uint32_t)r->x[1],
+                                   (uint32_t)r->x[2], &got);
+
+    ns_reply(r, (int)ret, 0u, 0u);
+    if (ret == 0) {
+        r->x[2] = (uint32_t)got.from_sp;
+        r->x[3] = (uint32_t)(got.from_sp >> 32);
+        r->x[4] = (uint32_t)got.from_vm;
+        r->x[5] = (uint32_t)(got.from_vm >> 32);
+        r->x[6] = (uint32_t)got.framework;
+        r->x[7] = (uint32_t)(got.framework >> 32);
+    }
+}
+
+static void ns_notif_info_get(wt_ffa_regs_t* r, unsigned int is64)
+{
+    wt_ffa_notif_info_result_t info;
+    int32_t ret = wt_ffa_notif_info_get(WT_FFA_ID_NS_PRIMARY,
+                                        (is64 != 0u) ? 1 : 0, &info);
+    unsigned int i;
+
+    ns_reply(r, (int)ret, 0u, 0u);
+    if (ret == 0) {
+        r->x[0] = (is64 != 0u) ? WT_FFA_SUCCESS64 : WT_FFA_SUCCESS32;
+        r->x[2] = info.w2;
+        for (i = 0u; i < WT_FFA_NOTIF_INFO_MAX_REGS; i++) {
+            r->x[3u + i] = info.regs[i];
+        }
+    }
+}
+
 /* FFA_PARTITION_INFO_GET_REGS forwarded from the Normal world. */
 static void ns_partition_info_get_regs(wt_ffa_regs_ext_t* e)
 {
@@ -1146,6 +1210,32 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
         case WT_FFA_MEM_RECLAIM:
             ns_mem_reclaim(r);
             break;
+        case WT_FFA_NOTIFICATION_BITMAP_CREATE:
+            ns_reply(r, wt_ffa_notif_bitmap_create(WT_FFA_ID_NS_PRIMARY,
+                     (uint32_t)r->x[1], (uint32_t)r->x[2]), 0u, 0u);
+            break;
+        case WT_FFA_NOTIFICATION_BITMAP_DESTROY:
+            ns_reply(r, wt_ffa_notif_bitmap_destroy(WT_FFA_ID_NS_PRIMARY,
+                     (uint32_t)r->x[1]), 0u, 0u);
+            break;
+        case WT_FFA_NOTIFICATION_BIND:
+            ns_notif_bind(r, 0u);
+            break;
+        case WT_FFA_NOTIFICATION_UNBIND:
+            ns_notif_bind(r, 1u);
+            break;
+        case WT_FFA_NOTIFICATION_SET:
+            ns_notif_set(r);
+            break;
+        case WT_FFA_NOTIFICATION_GET:
+            ns_notif_get(r);
+            break;
+        case WT_FFA_NOTIFICATION_INFO_GET32:
+            ns_notif_info_get(r, 0u);
+            break;
+        case WT_FFA_NOTIFICATION_INFO_GET64:
+            ns_notif_info_get(r, 1u);
+            break;
         default:
             wt_el3_puts("[SPM] unexpected event x0=0x");
             wt_el3_puthex(r->x[0], 8u);
@@ -1174,6 +1264,11 @@ void wt_spm_idle(void)
             for (i = 0u; i < (WT_FFA_MSG_REGS_EXT - WT_FFA_MSG_REGS); i++) {
                 e.ext[i] = 0u;
             }
+        }
+        /* Every hand-off to the Normal world funnels through this SMC, so
+         * pending notification work raises the schedule-receiver SGI here. */
+        if (wt_ffa_notif_sri_take() != 0) {
+            wt_gic->raise_ns_sgi(WT_FFA_SRI_INTID);
         }
         wt_platform_console_flush();
         wt_ffa_smc_ext(&e);

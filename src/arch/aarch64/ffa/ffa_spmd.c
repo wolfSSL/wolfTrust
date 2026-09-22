@@ -23,6 +23,7 @@
 
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_mem.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
@@ -242,6 +243,8 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid)
         case WT_FFA_NOTIFICATION_INFO_GET32:
         case WT_FFA_NOTIFICATION_INFO_GET64:
         case WT_FFA_MSG_SEND2:
+        case WT_SPM_SVC_FID_TIMER_ARM:
+        case WT_SPM_SVC_FID_TIMER_STOP:
             return 1;
         default:
             return 0;
@@ -256,6 +259,7 @@ int wt_ffa_spmd_is_ns_reply(uint32_t fid)
         case WT_FFA_SUCCESS32:
         case WT_FFA_SUCCESS64:
         case WT_FFA_ERROR:
+        case WT_FFA_INTERRUPT:
         case WT_FFA_MSG_SEND_DIRECT_RESP32:
         case WT_FFA_MSG_SEND_DIRECT_RESP64:
         case WT_FFA_MSG_SEND_DIRECT_RESP2:

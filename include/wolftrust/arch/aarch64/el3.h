@@ -80,6 +80,7 @@ typedef struct wt_el3_world {
     uint64_t far_el1;
     uint64_t par_el1;
     uint64_t mdscr_el1;
+    uint64_t cntkctl_el1;
 } wt_el3_world_t;
 
 extern volatile uint8_t g_wt_el3_parked[WT_EL3_MAX_CPUS];

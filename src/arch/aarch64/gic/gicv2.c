@@ -131,6 +131,14 @@ static void gicv2_raise_ns_sgi(uint32_t intid)
     *gicd(GICD_SGIR) = (2u << 24) | (1u << 15) | (intid & 0xFu);
 }
 
+static uint32_t gicv2_swap_pmr(uint32_t pmr)
+{
+    uint32_t prev = *gicc(GICC_PMR);
+
+    *gicc(GICC_PMR) = pmr;
+    return prev;
+}
+
 static const struct wt_gic_ops gicv2_ops = {
     gicv2_init_secure,
     gicv2_set_group0,
@@ -141,6 +149,7 @@ static const struct wt_gic_ops gicv2_ops = {
     gicv2_eoi_group0,
     gicv2_set_pending,
     gicv2_raise_ns_sgi,
+    gicv2_swap_pmr,
     2u
 };
 

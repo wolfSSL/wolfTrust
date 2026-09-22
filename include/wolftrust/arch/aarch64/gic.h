@@ -39,6 +39,8 @@ struct wt_gic_ops {
     void (*eoi_group0)(uint32_t intid);
     void (*set_pending)(uint32_t intid);
     void (*raise_ns_sgi)(uint32_t intid);
+    /* Set the CPU interface priority mask, returning the previous one. */
+    uint32_t (*swap_pmr)(uint32_t pmr);
     unsigned int version;
 };
 

@@ -31,6 +31,7 @@
 #include <stddef.h>
 
 #define WT_SPM_TICK_PERIOD_MS 10u
+#define WT_SPM_TWDOG_PERIOD_MS 1u
 #define WT_SPM_TICK_WAIT_MS 100u
 /* A shared-peripheral interrupt id used only by the secure-interrupt tests. */
 #define WT_SPM_TEST_SPI 40u
@@ -69,8 +70,20 @@ void wt_spm_fiq(void)
 /* A Group 0 interrupt other than the tick: a manifest-declared partition
  * interrupt becomes that partition's FF-M signal (consumed by psa_wait and
  * released by psa_eoi); the FF-A test SPI is queued for its waiting endpoint. */
-static void wt_spm_declared_irq(uint32_t intid)
+static void wt_spm_declared_irq(uint32_t intid, wt_trap_frame_t* frame)
 {
+    struct wt_co* owner = wt_spm_sint_owner(intid);
+
+    /* An interrupt a partition claimed through the para-virtual enable is
+     * queued for that owner; an owner that is waiting is signaled, so the
+     * partition that was running is preempted to let the SPMC do it. */
+    if (owner != NULL) {
+        wt_spm_sint_queue_for(owner, intid);
+        if (wt_spm_sint_signal_needed(owner) != 0) {
+            wt_spm_preempt_from_fiq(frame);
+        }
+        return;
+    }
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     if (intid != WT_SPM_TEST_SPI) {
         wt_spm_conf_irq(intid);
@@ -85,10 +98,104 @@ void wt_spm_lower_fiq(wt_trap_frame_t* frame)
     uint32_t intid = ack_group0_tick();
 
     if (intid == WT_GIC_INTID_SECURE_TIMER) {
+        wt_spm_twdog_tick();
         wt_spm_preempt_from_fiq(frame);
     }
     else if (intid != WT_GIC_INTID_SPURIOUS) {
-        wt_spm_declared_irq(intid);
+        wt_spm_declared_irq(intid, frame);
+    }
+    else if (wt_gic->version == 3u) {
+        /* GICv3 signals a Group 1 Non-secure interrupt as FIQ while the PE is
+         * Secure; nothing Group 0 is pending, so it is the Normal world's. */
+        wt_spm_preempt_from_irq(frame);
+    }
+}
+
+/* A Normal-world Group 1 interrupt asserted while an S-EL0 partition ran:
+ * hand the CPU back so the Normal world can take it (Ch.9). Nothing is
+ * acknowledged here; the interrupt is not this world's. */
+void wt_spm_lower_irq(wt_trap_frame_t* frame)
+{
+    wt_spm_preempt_from_irq(frame);
+}
+
+/* The test-timer service of the ACS platform layer, one slot per armed
+ * interrupt on the shared secure timer. An interrupt a partition owns expires
+ * at its deadline whatever runs, and the declared routing above delivers it by
+ * the owner's state; a Normal-world one (no owner) stands for a peripheral
+ * that fires while a partition works, so it is made pending on the first tick
+ * that lands on a partition. */
+#define WT_SPM_TWDOG_SLOTS 4u
+
+static uint32_t g_twdog_intid[WT_SPM_TWDOG_SLOTS];
+static uint64_t g_twdog_deadline[WT_SPM_TWDOG_SLOTS];
+
+int wt_spm_twdog_arm(uint32_t intid, uint32_t ms)
+{
+    unsigned int slot = WT_SPM_TWDOG_SLOTS;
+    unsigned int i;
+
+    for (i = 0u; i < WT_SPM_TWDOG_SLOTS; i++) {
+        if (g_twdog_intid[i] == intid) {
+            slot = i;
+        }
+    }
+    for (i = 0u; (i < WT_SPM_TWDOG_SLOTS) && (slot == WT_SPM_TWDOG_SLOTS); i++) {
+        if (g_twdog_intid[i] == 0u) {
+            slot = i;
+        }
+    }
+    if ((intid == 0u) || (slot == WT_SPM_TWDOG_SLOTS)) {
+        return -1;
+    }
+    g_twdog_deadline[slot] = wt_read_cntpct_el0() +
+                             ((wt_read_cntfrq_el0() * (uint64_t)ms) / 1000u);
+    g_twdog_intid[slot] = intid;
+    wt_gic->enable(WT_GIC_INTID_SECURE_TIMER);
+    wt_el3_timer_arm_ms(WT_SPM_TWDOG_PERIOD_MS);
+    return 0;
+}
+
+/* Stop the caller's own timers: a partition's owned interrupts, or with no
+ * owner the Normal world's. */
+void wt_spm_twdog_stop(const struct wt_co* owner)
+{
+    unsigned int i;
+
+    for (i = 0u; i < WT_SPM_TWDOG_SLOTS; i++) {
+        if ((g_twdog_intid[i] != 0u) &&
+            (wt_spm_sint_owner(g_twdog_intid[i]) == owner)) {
+            g_twdog_intid[i] = 0u;
+        }
+    }
+}
+
+void wt_spm_twdog_tick(void)
+{
+    uint64_t now = wt_read_cntpct_el0();
+    unsigned int armed = 0u;
+    unsigned int i;
+    int due;
+
+    for (i = 0u; i < WT_SPM_TWDOG_SLOTS; i++) {
+        if (g_twdog_intid[i] != 0u) {
+            if (wt_spm_sint_owner(g_twdog_intid[i]) != NULL) {
+                due = (now >= g_twdog_deadline[i]) ? 1 : 0;
+            }
+            else {
+                due = wt_spm_current_is_partition();
+            }
+            if (due != 0) {
+                wt_gic->set_pending(g_twdog_intid[i]);
+                g_twdog_intid[i] = 0u;
+            }
+            else {
+                armed = 1u;
+            }
+        }
+    }
+    if (armed != 0u) {
+        wt_el3_timer_arm_ms(WT_SPM_TWDOG_PERIOD_MS);
     }
 }
 

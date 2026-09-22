@@ -71,32 +71,65 @@ uint32_t pal_ap_virt_refclk_dis(bool int_mask)
     return PAL_ERROR;
 }
 
+/* The SPMC's test-timer service: a deadline against its scheduling tick that
+ * makes the named interrupt pending on expiry. A partition reaches it by SVC,
+ * the Normal-world dispatcher by SMC, through the same conduit helper. */
+#define WT_ACS_SVC_TIMER_ARM  0xC3800102U
+#define WT_ACS_SVC_TIMER_STOP 0xC3800103U
+
+smc_ret_values asm_smc64(uint32_t fid, u_register_t arg1, u_register_t arg2,
+                         u_register_t arg3, u_register_t arg4,
+                         u_register_t arg5, u_register_t arg6,
+                         u_register_t arg7);
+
+static uint32_t wt_acs_timer_call(uint32_t fid, uint32_t intid, uint32_t ms)
+{
+    smc_args args = {
+        .fid = fid,
+        .arg1 = intid,
+        .arg2 = ms
+    };
+#if defined(VM1_COMPILE)
+    /* The dispatcher reaches the monitor by SMC; its hvc conduit is a real
+     * hypervisor call this system has nothing to take. */
+    smc_ret_values ret = asm_smc64(args.fid, args.arg1, args.arg2, args.arg3,
+                                   args.arg4, args.arg5, args.arg6, args.arg7);
+#else
+    smc_ret_values ret = pal_hvc(&args);
+#endif
+
+    return (ret.ret0 == 0U) ? PAL_SUCCESS : PAL_ERROR;
+}
+
 uint32_t pal_twdog_enable(uint32_t ms)
 {
-    (void)ms;
-    return PAL_ERROR;
+    (void)spm_interrupt_enable(PLATFORM_TWDOG_INTID, true, INTERRUPT_TYPE_IRQ);
+    return wt_acs_timer_call(WT_ACS_SVC_TIMER_ARM, PLATFORM_TWDOG_INTID, ms);
 }
 
 uint32_t pal_twdog_disable(void)
 {
-    return PAL_ERROR;
+    return wt_acs_timer_call(WT_ACS_SVC_TIMER_STOP, 0U, 0U);
 }
 
 void pal_twdog_intr_enable(void)
 {
+    (void)spm_interrupt_enable(PLATFORM_TWDOG_INTID, true, INTERRUPT_TYPE_IRQ);
 }
 
 void pal_twdog_intr_disable(void)
 {
+    (void)spm_interrupt_enable(PLATFORM_TWDOG_INTID, false, INTERRUPT_TYPE_IRQ);
 }
 
 void pal_ns_wdog_enable(uint32_t ms)
 {
-    (void)ms;
+    (void)wt_acs_timer_call(WT_ACS_SVC_TIMER_ARM, PLATFORM_NS_WD_INTR, ms);
 }
 
 void pal_ns_wdog_disable(void)
 {
+    (void)wt_acs_timer_call(WT_ACS_SVC_TIMER_STOP, 0U, 0U);
 }
 
 void pal_ns_wdog_intr_enable(void)

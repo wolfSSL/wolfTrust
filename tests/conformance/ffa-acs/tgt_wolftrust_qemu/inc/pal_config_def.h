@@ -35,6 +35,10 @@
 #define SUITE                           all
 #endif
 
+/* The SPMC grants these S-EL0 partitions the virtual counter, so their waits
+ * run in real time instead of a loop calibrated for another platform. */
+#define PLATFORM_SP_EL0_COUNTER_SLEEP 1
+
 #define PLATFORM_SP_IMAGE_OFFSET 0x4000
 #define PLATFORM_VM_IMAGE_OFFSET 0x0
 

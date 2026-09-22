@@ -1,0 +1,27 @@
+diff --git a/platform/common/src/pal_sp_helpers.c b/platform/common/src/pal_sp_helpers.c
+index 34e556c..e45e397 100644
+--- a/platform/common/src/pal_sp_helpers.c
++++ b/platform/common/src/pal_sp_helpers.c
+@@ -40,8 +40,10 @@ uint64_t sp_sleep_elapsed_time(uint64_t ms)
+     return ((time2 - time1) * 1000) / timer_freq;
+ }
+ 
+-#if ((PLATFORM_SP_EL == 0) && !defined(VM1_COMPILE))
+-/* Need to be adjusted based on platform */
++#if ((PLATFORM_SP_EL == 0) && !defined(VM1_COMPILE) && \
++     !defined(PLATFORM_SP_EL0_COUNTER_SLEEP))
++/* Need to be adjusted based on platform, or define
++ * PLATFORM_SP_EL0_COUNTER_SLEEP where EL0 may read the virtual counter */
+ #define ITERATIONS_PER_MS 10000
+ 
+ static inline void while_wait_loop(uint64_t ms)
+@@ -60,7 +62,8 @@ static inline void while_wait_loop(uint64_t ms)
+ 
+ void sp_sleep(uint64_t ms)
+ {
+-#if ((PLATFORM_SP_EL == 0) && !defined(VM1_COMPILE))
++#if ((PLATFORM_SP_EL == 0) && !defined(VM1_COMPILE) && \
++     !defined(PLATFORM_SP_EL0_COUNTER_SLEEP))
+     while_wait_loop(ms);
+ #else
+     (void)sp_sleep_elapsed_time(ms);

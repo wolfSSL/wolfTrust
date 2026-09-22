@@ -38,6 +38,7 @@ struct wt_gic_ops {
     uint32_t (*ack_group0)(void);
     void (*eoi_group0)(uint32_t intid);
     void (*set_pending)(uint32_t intid);
+    void (*raise_ns_sgi)(uint32_t intid);
     unsigned int version;
 };
 

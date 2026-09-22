@@ -28,6 +28,7 @@
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/ffa_notif.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/ffm_domain.h"
@@ -284,6 +285,13 @@ void wt_spm_init_partitions(void)
 #endif
     create_echo_partition();
     create_native_partitions();
+    /* Seed the notification endpoint table: the Normal-world scheduler and
+     * every partition; a table past its bound simply lacks notifications. */
+    wt_ffa_notif_reset();
+    (void)wt_ffa_notif_register(WT_FFA_ID_NS_PRIMARY, 0);
+    for (i = 0u; i < g_native_count; i++) {
+        (void)wt_ffa_notif_register(wt_spm_sp_ffa_id(g_native_co[i]), 1);
+    }
     for (i = 0u; i < WT_CO_MAX; i++) {
         (void)run_pending_partition(i);
     }

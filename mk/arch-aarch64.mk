@@ -63,6 +63,7 @@ SPM_C_SRCS := \
     $(ARCH_DIR)/spm/spm_mem.c \
     $(ARCH_DIR)/ffa/ffa_msg.c \
     $(ARCH_DIR)/ffa/ffa_mem.c \
+    $(ARCH_DIR)/ffa/ffa_notif.c \
     $(ARCH_DIR)/ffa/ffa_partinfo.c \
     $(ARCH_DIR)/el3/esr.c
 # The conformance image adds the privileged NVM/interrupt backend the SVC gate

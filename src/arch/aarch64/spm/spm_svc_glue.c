@@ -30,6 +30,7 @@
 #include "wolftrust/arch/aarch64/ffa_manifest.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/ffa_mem.h"
+#include "wolftrust/arch/aarch64/ffa_notif.h"
 #include "wolftrust/arch/aarch64/ffa_partinfo.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
@@ -611,6 +612,10 @@ static int sp_implements(uint32_t fid)
         case WT_FFA_MEM_PERM_SET64:
         case WT_FFA_CONSOLE_LOG32:
         case WT_FFA_CONSOLE_LOG64:
+        case WT_FFA_NOTIFICATION_BIND:
+        case WT_FFA_NOTIFICATION_UNBIND:
+        case WT_FFA_NOTIFICATION_SET:
+        case WT_FFA_NOTIFICATION_GET:
             return 1;
         default:
             return 0;
@@ -661,6 +666,69 @@ static void ffa_console_log(wt_trap_frame_t* frame, unsigned int is64)
         wt_platform_console_putc((char)((reg >> (8u * (i % per_reg))) & 0xFFu));
     }
     ffa_success(frame, 0u, 0u);
+}
+
+/* A partition's notification calls share the Normal world's state machine;
+ * the bitmap and info-get ABIs stay unhandled here so a partition caller
+ * gets NOT_SUPPORTED, as the scheduler-side ABIs require. */
+static void ffa_notif_bind(wt_trap_frame_t* frame, const struct wt_co* co,
+                           unsigned int unbind)
+{
+    uint16_t caller = (uint16_t)wt_spm_sp_ffa_id(co);
+    uint32_t w1 = (uint32_t)frame->x[1];
+    uint32_t w2 = (uint32_t)frame->x[2];
+    uint64_t bitmap = (uint64_t)(uint32_t)frame->x[3] |
+                      ((uint64_t)(uint32_t)frame->x[4] << 32);
+    int32_t ret;
+
+    if (unbind != 0u) {
+        ret = wt_ffa_notif_unbind(caller, w1, w2, bitmap);
+    }
+    else {
+        ret = wt_ffa_notif_bind(caller, w1, w2, bitmap);
+    }
+    if (ret == 0) {
+        ffa_success(frame, 0u, 0u);
+    }
+    else {
+        ffa_error(frame, ret);
+    }
+}
+
+static void ffa_notif_set(wt_trap_frame_t* frame, const struct wt_co* co)
+{
+    uint16_t caller = (uint16_t)wt_spm_sp_ffa_id(co);
+    uint64_t bitmap = (uint64_t)(uint32_t)frame->x[3] |
+                      ((uint64_t)(uint32_t)frame->x[4] << 32);
+    int32_t ret = wt_ffa_notif_set(caller, (uint32_t)frame->x[1],
+                                   (uint32_t)frame->x[2], bitmap);
+
+    if (ret == 0) {
+        ffa_success(frame, 0u, 0u);
+    }
+    else {
+        ffa_error(frame, ret);
+    }
+}
+
+static void ffa_notif_get(wt_trap_frame_t* frame, const struct wt_co* co)
+{
+    uint16_t caller = (uint16_t)wt_spm_sp_ffa_id(co);
+    wt_ffa_notif_get_result_t got;
+    int32_t ret = wt_ffa_notif_get(caller, (uint32_t)frame->x[1],
+                                   (uint32_t)frame->x[2], &got);
+
+    if (ret == 0) {
+        ffa_success(frame, (uint32_t)got.from_sp,
+                    (uint32_t)(got.from_sp >> 32));
+        frame->x[4] = (uint32_t)got.from_vm;
+        frame->x[5] = (uint32_t)(got.from_vm >> 32);
+        frame->x[6] = (uint32_t)got.framework;
+        frame->x[7] = (uint32_t)(got.framework >> 32);
+    }
+    else {
+        ffa_error(frame, ret);
+    }
 }
 
 /* FFA_MEM_PERM_GET/SET permission word: bits[1:0] data access (1 = RW,
@@ -870,6 +938,17 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if ((fid == WT_FFA_CONSOLE_LOG32) || (fid == WT_FFA_CONSOLE_LOG64)) {
         ffa_console_log(frame, (fid == WT_FFA_CONSOLE_LOG64) ? 1u : 0u);
+    }
+    else if ((fid == WT_FFA_NOTIFICATION_BIND) ||
+             (fid == WT_FFA_NOTIFICATION_UNBIND)) {
+        ffa_notif_bind(frame, (const struct wt_co*)co,
+                       (fid == WT_FFA_NOTIFICATION_UNBIND) ? 1u : 0u);
+    }
+    else if (fid == WT_FFA_NOTIFICATION_SET) {
+        ffa_notif_set(frame, (const struct wt_co*)co);
+    }
+    else if (fid == WT_FFA_NOTIFICATION_GET) {
+        ffa_notif_get(frame, (const struct wt_co*)co);
     }
     else if ((fid == WT_FFA_MEM_PERM_SET32) || (fid == WT_FFA_MEM_PERM_SET64)) {
         ffa_mem_perm_set(frame, (const struct wt_co*)co);

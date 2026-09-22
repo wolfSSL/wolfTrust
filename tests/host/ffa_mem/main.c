@@ -93,7 +93,8 @@ static void fid_rows(void)
     static const uint32_t mem32[] = {
         WT_FFA_MEM_DONATE32, WT_FFA_MEM_LEND32, WT_FFA_MEM_SHARE32,
         WT_FFA_MEM_RETRIEVE_REQ32, WT_FFA_MEM_RETRIEVE_RESP,
-        WT_FFA_MEM_RELINQUISH, WT_FFA_MEM_RECLAIM
+        WT_FFA_MEM_RELINQUISH, WT_FFA_MEM_RECLAIM,
+        WT_FFA_MEM_FRAG_RX, WT_FFA_MEM_FRAG_TX
     };
     size_t n = sizeof(mem32) / sizeof(mem32[0]);
     size_t i;
@@ -613,6 +614,117 @@ static void borrower_rows(void)
           "a relinquish descriptor yields its zero-memory flag");
 }
 
+/* WT-FFA-0009 (fragmented transmission, DEN0140 4.1.2): a descriptor sent
+ * in pieces reassembles byte for byte at every split point, and only the
+ * transaction's own sender and handle can add to it. */
+static wt_ffa_mem_frag_t g_frag_row;
+
+static void frag_rows(void)
+{
+    static uint8_t buf[256];
+    wt_ffa_mem_registry_t reg;
+    wt_ffa_mem_txn_t txn;
+    size_t len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
+    uint32_t split;
+    uint32_t off;
+    uint32_t piece;
+    uint64_t h1;
+    uint64_t h2;
+    const wt_ffa_mem_handle_entry_t* e = NULL;
+    static uint8_t rbuf[128];
+    size_t rlen = 0u;
+    uint64_t size = 0u;
+    int done = 0;
+    int ok = 1;
+    int ret;
+
+    check(len > 32u, "the canonical descriptor spans several fragments");
+    for (split = 1u; split < (uint32_t)len; split++) {
+        ret = wt_ffa_mem_frag_begin(&g_frag_row, 7u, 0u, 1u, buf, split,
+                                    (uint32_t)len);
+        done = 0;
+        for (off = split; (ret == 0) && (off < (uint32_t)len); off += piece) {
+            piece = ((uint32_t)len - off > 5u) ? 5u : (uint32_t)len - off;
+            ret = wt_ffa_mem_frag_add(&g_frag_row, 7u, 0u, &buf[off], piece,
+                                      &done);
+        }
+        ok = ok && (ret == 0) && (done == 1) &&
+             (g_frag_row.received == (uint32_t)len) &&
+             (memcmp(g_frag_row.buf, buf, len) == 0);
+        wt_ffa_mem_frag_reset(&g_frag_row);
+    }
+    check(ok, "a descriptor split at every offset reassembles byte for byte");
+
+    check(wt_ffa_mem_frag_begin(&g_frag_row, 7u, 0u, 1u, buf, 0u, 64u) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "an empty first fragment is refused");
+    check(wt_ffa_mem_frag_begin(&g_frag_row, 7u, 0u, 1u, buf, 64u, 64u) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "a first fragment that is the whole descriptor is not a fragmented send");
+    check(wt_ffa_mem_frag_begin(&g_frag_row, 7u, 0u, 1u, buf, 16u,
+                                WT_FFA_MEM_FRAG_MAX + 1u) == WT_FFA_NO_MEMORY,
+          "a descriptor past the reassembly bound is NO_MEMORY");
+
+    (void)wt_ffa_mem_frag_begin(&g_frag_row, 7u, 0u, 1u, buf, 16u, 64u);
+    check(wt_ffa_mem_frag_add(&g_frag_row, 8u, 0u, &buf[16], 16u, &done) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "a fragment for another handle is refused");
+    check(wt_ffa_mem_frag_add(&g_frag_row, 7u, 0x8002u, &buf[16], 16u, &done) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "a fragment from another sender is refused");
+    check(wt_ffa_mem_frag_add(&g_frag_row, 7u, 0u, &buf[16], 0u, &done) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "an empty fragment is refused");
+    check(wt_ffa_mem_frag_add(&g_frag_row, 7u, 0u, &buf[16], 49u, &done) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "a fragment past the declared total is refused");
+    check(g_frag_row.received == 16u,
+          "a refused fragment leaves the reassembly where it was");
+    wt_ffa_mem_frag_reset(&g_frag_row);
+    check(wt_ffa_mem_frag_add(&g_frag_row, 7u, 0u, buf, 16u, &done) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "a fragment with no transfer in progress is refused");
+
+    wt_ffa_mem_registry_init(&reg);
+    h1 = wt_ffa_mem_handle_reserve(&reg);
+    (void)wt_ffa_mem_share_register(&reg, WT_FFA_MEM_OP_SHARE, 0u, 0x8002u,
+                                    NULL, 0u, &h2);
+    check((h1 != 0u) && (h2 != h1),
+          "a reserved handle is never handed to another transaction");
+    check((wt_ffa_mem_share_register_as(&reg, WT_FFA_MEM_OP_SHARE, 0u, 0x8002u,
+                                        NULL, 0u, h1) == 0) &&
+          (wt_ffa_mem_handle_lookup(&reg, h1, &e) == 0) && (e->handle == h1),
+          "the reserved handle names the region once the descriptor is whole");
+
+    (void)wt_ffa_mem_frag_begin(&g_frag_row, h1, 0u, 1u, buf, 40u,
+                                (uint32_t)len);
+    (void)wt_ffa_mem_frag_add(&g_frag_row, h1, 0u, &buf[40],
+                              (uint32_t)len - 40u, &done);
+    check((done == 1) &&
+          (wt_ffa_mem_txn_validate(g_frag_row.buf, g_frag_row.total,
+                                   WT_FFA_MEM_OP_SHARE, 0u, &txn) == 0),
+          "a reassembled descriptor passes the relayer checks");
+    wt_ffa_mem_frag_reset(&g_frag_row);
+
+    check((wt_ffa_mem_frag_expected(buf, (uint32_t)len, 0, &size) == 1) &&
+          (size == (uint64_t)len),
+          "a whole first fragment states the descriptor's exact length");
+    check((wt_ffa_mem_frag_expected(buf, (uint32_t)len - 16u, 0, &size) == 1) &&
+          (size == (uint64_t)len),
+          "the length is known before the last constituent has arrived");
+    check(wt_ffa_mem_frag_expected(buf, WT_FFA_MEM_TXN_HDR_SIZE, 0, &size) == 0,
+          "a fragment that stops before the composite header cannot tell");
+    check((wt_ffa_mem_frag_expected(buf, (uint32_t)len, 0, &size) == 1) &&
+          (size != (uint64_t)len + 0x10u),
+          "a total longer than the descriptor it heads is caught");
+    rlen = 0u;
+    check((wt_ffa_mem_retrieve_req_build(rbuf, sizeof(rbuf), 0x1234u, 0u,
+                                         0x8002u, 0x06u, &rlen) == 0) &&
+          (wt_ffa_mem_frag_expected(rbuf, (uint32_t)rlen, 1, &size) == 1) &&
+          (size == (uint64_t)rlen) && (size != WT_FFA_MEM_PAGE_SIZE + 1u),
+          "a retrieve request states its length from its access descriptors");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -626,6 +738,7 @@ int main(void)
     share_rows();
     retrieve_rows();
     borrower_rows();
+    frag_rows();
 
     printf("ffa_mem: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

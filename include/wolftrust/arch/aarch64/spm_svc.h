@@ -183,6 +183,15 @@ const wt_ffa_native_sp_t* wt_spm_ffa_native_list(size_t* count);
 struct wt_co* wt_spm_ffa_native_by_id(uint16_t id);
 uint16_t wt_spm_ffa_native_id(size_t index);
 
+/* A partition's RX/TX pair as the SVC gate registered it, for a producer
+ * delivering into its RX; NULL when the slot has none. */
+struct wt_ffa_mailbox* wt_spm_sp_mailbox_of(const struct wt_co* co);
+
+/* FFA_MSG_SEND2 delivery from either conduit: validate the partition message
+ * in the caller's TX and copy it into the receiver's RX. */
+int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
+                        uint32_t w1, uint32_t w2);
+
 /* The test echo partition (WT_FFA_ID_ECHO), NULL unless WT_EL3_TEST_DRIVER=1.
  * enable_mmu publishes its stack band (the slot after the last manifest
  * partition stack) and the init pass builds the partition on it. */

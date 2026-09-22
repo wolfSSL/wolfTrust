@@ -186,7 +186,10 @@ uintptr_t wt_platform_probe_address(unsigned int target)
 #define WT_ACS_NVM_OFFSET   0x00400000u
 #define WT_ACS_NVM_SIZE     0x00010000u
 #define WT_ACS_RO_OFFSET    0x00410000u
-#define WT_ACS_PROPERTIES   0x00000703u
+/* The first two test partitions receive indirect messages, the last two do
+ * not: the suite expects DENIED when one is sent to a non-receiver. */
+#define WT_ACS_PROPERTIES   0x0000070Fu
+#define WT_ACS_PROPERTIES_NO_INDIRECT 0x0000070Bu
 
 #define WT_ACS_BAND(n) ((uintptr_t)WT_FFA_ACS_BASE + ((n) * WT_ACS_BAND_SIZE))
 #define WT_ACS_IMAGE(n) \
@@ -223,13 +226,13 @@ static const wt_ffa_native_sp_t g_acs_partitions[] = {
         WT_ACS_ENTRY(2u), WT_ACS_STACK(2u), WT_ACS_STACK_SIZE,
         { WT_ACS_IMAGE(2u) }, 1u,
         WT_ACS_UUID(0x735cb579u, 0xb9448c1du, 0xe1619385u, 0xd2d80a77u),
-        WT_ACS_PROPERTIES
+        WT_ACS_PROPERTIES_NO_INDIRECT
     },
     {
         WT_ACS_ENTRY(3u), WT_ACS_STACK(3u), WT_ACS_STACK_SIZE,
         { WT_ACS_IMAGE(3u) }, 1u,
         WT_ACS_UUID(0x2658cda4u, 0xcf6713e1u, 0x49cd10f9u, 0x31ef6813u),
-        WT_ACS_PROPERTIES
+        WT_ACS_PROPERTIES_NO_INDIRECT
     }
 };
 

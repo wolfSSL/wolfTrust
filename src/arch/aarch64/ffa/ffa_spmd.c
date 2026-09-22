@@ -193,6 +193,7 @@ static int ns_implements(uint32_t fid)
         case WT_FFA_NOTIFICATION_GET:
         case WT_FFA_NOTIFICATION_INFO_GET32:
         case WT_FFA_NOTIFICATION_INFO_GET64:
+        case WT_FFA_MSG_SEND2:
             return 1;
         default:
             return 0;
@@ -240,6 +241,7 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid)
         case WT_FFA_NOTIFICATION_GET:
         case WT_FFA_NOTIFICATION_INFO_GET32:
         case WT_FFA_NOTIFICATION_INFO_GET64:
+        case WT_FFA_MSG_SEND2:
             return 1;
         default:
             return 0;

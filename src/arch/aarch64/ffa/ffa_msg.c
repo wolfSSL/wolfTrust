@@ -109,3 +109,75 @@ int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst)
     }
     return 0;
 }
+
+static uint32_t msg2_read32(const uint8_t* p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |
+           ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+}
+
+int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
+                      uint32_t w1, uint32_t w2, wt_ffa_msg2_t* out)
+{
+    uint32_t flags;
+    uint32_t sender_receiver;
+    uint16_t sender;
+
+    if ((tx == NULL) || (out == NULL) ||
+        (tx_size < WT_FFA_MSG2_HEADER_SIZE)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (((w1 & 0xFFFFu) != 0u) ||
+        ((w2 & ~(uint32_t)WT_FFA_MSG2_FLAG_DELAY_SRI) != 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    flags = msg2_read32(&tx[0]);
+    out->offset = msg2_read32(&tx[8]);
+    sender_receiver = msg2_read32(&tx[12]);
+    out->size = msg2_read32(&tx[16]);
+    out->uuid = &tx[24];
+    sender = (uint16_t)(sender_receiver >> 16);
+    out->receiver = (uint16_t)(sender_receiver & 0xFFFFu);
+    if ((flags != 0u) || (msg2_read32(&tx[4]) != 0u) ||
+        (msg2_read32(&tx[20]) != 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    /* The header names the caller as sender; w1 repeats it at the physical
+     * instance and is zero at the secure virtual one (16.4). */
+    if ((sender != caller) ||
+        (((w1 >> 16) != 0u) && ((uint16_t)(w1 >> 16) != caller))) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (sender == out->receiver) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((out->offset < WT_FFA_MSG2_HEADER_SIZE) ||
+        ((uint64_t)out->offset + (uint64_t)out->size > (uint64_t)tx_size)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    return 0;
+}
+
+int wt_ffa_msg2_uuid_ok(const uint8_t* header_uuid, const uint8_t* ep_uuid)
+{
+    unsigned int i;
+    unsigned int nil = 1u;
+
+    if ((header_uuid == NULL) || (ep_uuid == NULL)) {
+        return 0;
+    }
+    for (i = 0u; i < 16u; i++) {
+        if (header_uuid[i] != 0u) {
+            nil = 0u;
+        }
+    }
+    if (nil != 0u) {
+        return 1;
+    }
+    for (i = 0u; i < 16u; i++) {
+        if (header_uuid[i] != ep_uuid[i]) {
+            return 0;
+        }
+    }
+    return 1;
+}

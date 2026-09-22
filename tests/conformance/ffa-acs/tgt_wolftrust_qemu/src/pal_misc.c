@@ -65,6 +65,8 @@ void *pal_memory_alloc(uint64_t size)
 {
     int span = 0;
     int i;
+    int r;
+    uint32_t b;
 
     if (size == PAGE_SIZE_4K) {
         span = 1;
@@ -75,9 +77,13 @@ void *pal_memory_alloc(uint64_t size)
     for (i = 0; (span != 0) && ((i + span) <= WT_ACS_BUFFER_COUNT); i++) {
         if ((is_buffer_in_use[i] == 0u) &&
             ((span == 1) || (is_buffer_in_use[i + 1] == 0u))) {
-            is_buffer_in_use[i] = 1u;
-            if (span == 2) {
-                is_buffer_in_use[i + 1] = 1u;
+            /* The pool reuses pages across tests; a message header built in
+             * one must not inherit reserved or UUID bytes from another. */
+            for (r = i; r < (i + span); r++) {
+                is_buffer_in_use[r] = 1u;
+                for (b = 0u; b < PAGE_SIZE_4K; b++) {
+                    pal_buffer_4k[r][b] = 0u;
+                }
             }
             return &pal_buffer_4k[i][0];
         }

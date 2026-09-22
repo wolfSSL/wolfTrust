@@ -93,6 +93,8 @@ WT_SYSREG_READ(par_el1, "PAR_EL1")
 WT_SYSREG_WRITE(par_el1, "PAR_EL1")
 WT_SYSREG_READ(mdscr_el1, "MDSCR_EL1")
 WT_SYSREG_WRITE(mdscr_el1, "MDSCR_EL1")
+WT_SYSREG_READ(cntkctl_el1, "CNTKCTL_EL1")
+WT_SYSREG_WRITE(cntkctl_el1, "CNTKCTL_EL1")
 
 static inline void wt_isb(void)
 {

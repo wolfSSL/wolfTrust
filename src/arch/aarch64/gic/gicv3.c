@@ -62,6 +62,7 @@
 WT_SYSREG_WRITE(icc_sre_el3, "ICC_SRE_EL3")
 WT_SYSREG_WRITE(icc_sre_el1, "ICC_SRE_EL1")
 WT_SYSREG_WRITE(icc_pmr_el1, "ICC_PMR_EL1")
+WT_SYSREG_READ(icc_pmr_el1, "ICC_PMR_EL1")
 WT_SYSREG_WRITE(icc_igrpen0_el1, "ICC_IGRPEN0_EL1")
 WT_SYSREG_WRITE(icc_ctlr_el3, "ICC_CTLR_EL3")
 WT_SYSREG_WRITE(icc_eoir0_el1, "ICC_EOIR0_EL1")
@@ -221,6 +222,15 @@ static void gicv3_raise_ns_sgi(uint32_t intid)
     *gicr(GICR_ISPENDR0) = 1u << (intid & 0xFu);
 }
 
+static uint32_t gicv3_swap_pmr(uint32_t pmr)
+{
+    uint32_t prev = (uint32_t)wt_read_icc_pmr_el1();
+
+    wt_write_icc_pmr_el1(pmr);
+    wt_isb();
+    return prev;
+}
+
 static const struct wt_gic_ops gicv3_ops = {
     gicv3_init_secure,
     gicv3_set_group0,
@@ -231,6 +241,7 @@ static const struct wt_gic_ops gicv3_ops = {
     gicv3_eoi_group0,
     gicv3_set_pending,
     gicv3_raise_ns_sgi,
+    gicv3_swap_pmr,
     3u
 };
 

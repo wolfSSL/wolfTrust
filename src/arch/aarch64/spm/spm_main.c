@@ -38,6 +38,7 @@
 #include "wolftrust/arch/aarch64/psa_ffa.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
+#include "wolftrust/arch/aarch64/sysreg.h"
 #include "wolftrust/arch/aarch64/tables.h"
 #include "wolftrust/boot.h"
 #include "wolftrust/ffm_domain.h"
@@ -778,6 +779,12 @@ void wt_spm_main(uint64_t boot_info_pa)
     else {
         wt_el3_puts("[SPM] tick TIMEOUT\r\n");
     }
+#if defined(WT_FFA_ACS) && (WT_FFA_ACS == 1)
+    /* The conformance partitions time their waits on the virtual counter
+     * (CNTKCTL_EL1.EL0VCTEN); production partitions get no EL0 time source. */
+    wt_write_cntkctl_el1(wt_read_cntkctl_el1() | 0x2u);
+    wt_isb();
+#endif
     if (prove_coroutine()) {
         wt_el3_puts("[SPM] coroutine ok\r\n");
     }
@@ -1003,11 +1010,31 @@ static void ns_run(wt_ffa_regs_ext_t* e)
  * FFA_NORMAL_WORLD_RESUME. The resume SMC's return is the next event. */
 static void ns_interrupt(wt_ffa_regs_t* r)
 {
+    uint32_t intid = (uint32_t)r->x[1];
+    struct wt_co* owner;
     unsigned int i;
 
-    wt_el3_puts("[SPM] ns preempt intid=0x");
-    wt_el3_puthex(r->x[1], 2u);
-    wt_el3_puts("\r\n");
+    if (intid == WT_GIC_INTID_SECURE_TIMER) {
+        wt_spm_twdog_tick();
+        wt_el3_puts("[SPM] ns preempt intid=0x");
+        wt_el3_puthex(r->x[1], 2u);
+        wt_el3_puts("\r\n");
+    }
+    else {
+        owner = wt_spm_sint_owner(intid);
+        if (owner != NULL) {
+            /* Table 9.1: signal a waiting owner, queue for a busy one. */
+            wt_spm_sint_set_delivered(owner, intid);
+            if (wt_spm_ffa_signal_deliver(owner, intid) != 0) {
+                wt_spm_sint_queue_for(owner, intid);
+            }
+        }
+        else {
+            wt_el3_puts("[SPM] ns preempt intid=0x");
+            wt_el3_puthex(r->x[1], 2u);
+            wt_el3_puts("\r\n");
+        }
+    }
     for (i = 0u; i < 8u; i++) {
         r->x[i] = 0u;
     }
@@ -1320,6 +1347,18 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
             break;
         case WT_FFA_MSG_SEND2:
             ns_msg_send2(r);
+            break;
+        case WT_SPM_SVC_FID_TIMER_ARM:
+            /* The ACS platform layer's test timer, from the Normal world:
+             * the armed id keeps its Normal-world group so its expiry
+             * preempts a running partition for the Normal world to take. */
+            ns_reply(r, (wt_spm_twdog_arm((uint32_t)r->x[1],
+                                          (uint32_t)r->x[2]) == 0) ?
+                        0 : WT_FFA_INVALID_PARAMETERS, 0u, 0u);
+            break;
+        case WT_SPM_SVC_FID_TIMER_STOP:
+            wt_spm_twdog_stop(NULL);
+            ns_reply(r, 0, 0u, 0u);
             break;
         default:
             wt_el3_puts("[SPM] unexpected event x0=0x");

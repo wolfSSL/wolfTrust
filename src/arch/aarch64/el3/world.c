@@ -69,6 +69,7 @@ static void world_save(wt_el3_world_t* w, const wt_el3_frame_t* frame)
     w->far_el1 = wt_read_far_el1();
     w->par_el1 = wt_read_par_el1();
     w->mdscr_el1 = wt_read_mdscr_el1();
+    w->cntkctl_el1 = wt_read_cntkctl_el1();
 }
 
 /* Restore a world's EL1 context and ERET into it (never returns). SCR_EL3,
@@ -98,6 +99,7 @@ static void world_restore(const wt_el3_world_t* w)
     wt_write_far_el1(w->far_el1);
     wt_write_par_el1(w->par_el1);
     wt_write_mdscr_el1(w->mdscr_el1);
+    wt_write_cntkctl_el1(w->cntkctl_el1);
     wt_el3_world_eret(&w->frame, w->scr_el3);
 }
 
@@ -149,6 +151,7 @@ static void world_init_ns(wt_el3_world_t* w)
     w->far_el1 = 0u;
     w->par_el1 = 0u;
     w->mdscr_el1 = 0u;
+    w->cntkctl_el1 = 0u;
 }
 #endif
 

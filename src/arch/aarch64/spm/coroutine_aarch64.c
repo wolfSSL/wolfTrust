@@ -29,6 +29,7 @@
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_notif.h"
+#include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/ffm_domain.h"
@@ -70,9 +71,23 @@ void wt_co_trampoline(void);
 #define WT_CO_SLOT_X19 0u
 #define WT_CO_SLOT_X20 1u
 #define WT_CO_SLOT_X30 11u
-/* EL0t with A and I masked and FIQ open (bit 6 clear), so the scheduling tick
- * preempts a running partition and reaches the SPMC at S-EL1. */
-#define WT_SP_SPSR_EL0T 0x180u
+/* EL0t with A masked and IRQ and FIQ open, so the scheduling tick (Group 0)
+ * preempts a running partition into the SPMC and a pending Normal-world
+ * Group 1 interrupt preempts it for the Normal world to take (Ch.9). */
+#define WT_SP_SPSR_EL0T 0x100u
+/* A partition whose manifest queues Non-secure interrupts runs with the GIC
+ * priority mask at the top of the Non-secure range, so a Normal-world
+ * interrupt stays pending until it returns there instead of preempting it
+ * (ns-interrupts-action = queued); Secure priorities stay below the mask. */
+#define WT_SP_PMR_MASK_NS 0x80u
+static uint8_t g_ns_queued[WT_CO_MAX];
+
+static wt_sp_arch_t* sp_arch(const struct wt_co *co);
+static int endpoint_waiting(const struct wt_co* co);
+static struct wt_co* sint_take_waiting_owner(void);
+/* Set when a Secure interrupt is queued for a waiting partition while another
+ * one runs; the run loop stops the runner so the owner is signaled first. */
+static volatile uint32_t g_sint_signal_request;
 
 #define WT_SP_INIT_MAX_PASSES 16u
 
@@ -203,6 +218,8 @@ static void create_native_partitions(void)
             wt_platform_panic();
         }
         wt_co_set_domain(co, &g_native_domain[i], 1u);
+        g_ns_queued[((struct wt_co*)co)->id - 1u] =
+            (list[i].ns_int_action == 0u) ? 1u : 0u;
         g_native_co[i] = (struct wt_co*)co;
         if (wt_spm_mem_bind(wt_spm_sp_ffa_id((struct wt_co*)co),
                             (struct wt_co*)co, &g_native_domain[i]) != 0) {
@@ -406,21 +423,51 @@ int wt_spm_ffa_sp_yielded_to(const struct wt_co* co, uint16_t caller)
             (m->requester == caller)) ? 1 : 0;
 }
 
+/* Stage a queued Secure interrupt for delivery: its FFA_INTERRUPT becomes the
+ * return of the call the partition is blocked in. Returns 1 if one was. */
+static unsigned int sint_stage(struct wt_co* co)
+{
+    uint32_t sint = wt_spm_sint_take_pending(co);
+    wt_sp_arch_t* a;
+    unsigned int i;
+
+    if (sint == 0u) {
+        return 0u;
+    }
+    a = sp_arch(co);
+    for (i = 0u; i < 8u; i++) {
+        a->frame.x[i] = 0u;
+    }
+    a->frame.x[0] = WT_FFA_INTERRUPT;
+    a->frame.x[1] = (uint64_t)sint;
+    wt_spm_sint_set_delivered(co, sint);
+    return 1u;
+}
+
 /* Run one endpoint until it hands the CPU back, and turn how it did so into
  * the registers its invoker sees: its direct response, FFA_YIELD, or
- * FFA_MSG_WAIT. WT_FFA_SP_EXIT_CALL is returned as-is for the chain below. */
-static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason)
+ * FFA_MSG_WAIT. WT_FFA_SP_EXIT_CALL and WT_FFA_SP_EXIT_SIGNAL are returned
+ * as-is for the chain below; *deliver is set when a Secure interrupt queued
+ * while it ran is staged for it after its response (Table 9.1). */
+static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason,
+                   unsigned int* deliver)
 {
     wt_sp_msg_t* m = &g_sp_msg[co->id - 1u];
     unsigned int i;
 
+    *deliver = 0u;
     g_wt_ffa_direct_resp_ready = 0u;
     g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_NONE;
     wt_co_wake((wt_co_t*)co);
     (void)wt_co_run((wt_co_t*)co);
     while ((wt_co_state((wt_co_t*)co) == WT_CO_RUNNABLE) &&
-           (g_wt_ffa_sp_exit == WT_FFA_SP_EXIT_NONE)) {
+           (g_wt_ffa_sp_exit == WT_FFA_SP_EXIT_NONE) &&
+           (g_sint_signal_request == 0u)) {
         (void)wt_co_run((wt_co_t*)co);
+    }
+    if ((wt_co_state((wt_co_t*)co) == WT_CO_RUNNABLE) &&
+        (g_wt_ffa_sp_exit == WT_FFA_SP_EXIT_NONE)) {
+        g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_SIGNAL;
     }
     *reason = g_wt_ffa_sp_exit;
     g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_NONE;
@@ -432,7 +479,7 @@ static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason)
         *reason = WT_FFA_SP_EXIT_NONE;
         return WT_FFA_ABORTED;
     }
-    if (*reason == WT_FFA_SP_EXIT_CALL) {
+    if ((*reason == WT_FFA_SP_EXIT_CALL) || (*reason == WT_FFA_SP_EXIT_SIGNAL)) {
         return 0;
     }
     if ((*reason == WT_FFA_SP_EXIT_RESP) && (g_wt_ffa_direct_resp_ready != 0u)) {
@@ -441,6 +488,12 @@ static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason)
         }
         wt_ffa_regs_normalize(out);
         m->busy = 0u;
+        *deliver = sint_stage(co);
+        return 0;
+    }
+    if (*reason == WT_FFA_SP_EXIT_NSINT) {
+        out[0] = WT_FFA_INTERRUPT;
+        out[1] = (uint64_t)wt_spm_sp_ffa_id(co) << 16;
         return 0;
     }
     if (*reason == WT_FFA_SP_EXIT_YIELD) {
@@ -461,30 +514,72 @@ static struct wt_co* g_ffa_call_target;
 
 /* The core scheduler does not nest, so an endpoint that messages another one
  * blocks and names its callee; this loop, on the scheduler's stack, runs the
- * callee and writes what it hands back into the caller's saved frame. */
+ * callee and writes what it hands back into the caller's saved frame. A
+ * partition staged a Secure interrupt after its response, or a waiting owner
+ * an interrupt is signaled to, runs detached: stacked on top with its own
+ * result discarded, before the frame below resumes (Table 9.1). */
 static int run_endpoint(struct wt_co* co, uint64_t* out)
 {
     struct wt_co* chain[WT_CO_MAX];
+    uint8_t detached[WT_CO_MAX];
+    uint64_t root_out[WT_FFA_MSG_REGS_EXT];
+    struct wt_co* top;
     struct wt_co* caller;
+    struct wt_co* waiting;
     unsigned int depth = 1u;
+    unsigned int deliver = 0u;
     unsigned int count;
     unsigned int i;
     uint32_t reason = WT_FFA_SP_EXIT_NONE;
+    int root_ret = 0;
     int ret;
 
     chain[0] = co;
+    detached[0] = 0u;
     for (;;) {
-        ret = run_one(chain[depth - 1u], out, &reason);
+        top = chain[depth - 1u];
+        ret = run_one(top, out, &reason, &deliver);
         if ((ret == 0) && (reason == WT_FFA_SP_EXIT_CALL)) {
             if ((depth == WT_CO_MAX) || (g_ffa_call_target == NULL)) {
                 wt_platform_panic();
             }
             chain[depth] = g_ffa_call_target;
+            detached[depth] = 0u;
             depth++;
             continue;
         }
+        if ((ret == 0) && (reason == WT_FFA_SP_EXIT_SIGNAL)) {
+            waiting = sint_take_waiting_owner();
+            if (waiting != NULL) {
+                if (depth == WT_CO_MAX) {
+                    wt_platform_panic();
+                }
+                chain[depth] = waiting;
+                detached[depth] = 1u;
+                depth++;
+            }
+            continue;
+        }
+        if (detached[depth - 1u] != 0u) {
+            depth--;
+            if (depth == 0u) {
+                for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
+                    out[i] = root_out[i];
+                }
+                return root_ret;
+            }
+            continue;
+        }
         if (depth == 1u) {
-            return ret;
+            if (deliver == 0u) {
+                return ret;
+            }
+            for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
+                root_out[i] = out[i];
+            }
+            root_ret = ret;
+            detached[0] = 1u;
+            continue;
         }
         depth--;
         caller = chain[depth - 1u];
@@ -499,6 +594,11 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
         count = wt_ffa_msg_reg_count(out[0]);
         for (i = 0u; i < count; i++) {
             sp_arch(caller)->frame.x[i] = out[i];
+        }
+        if (deliver != 0u) {
+            chain[depth] = top;
+            detached[depth] = 1u;
+            depth++;
         }
     }
 }
@@ -626,6 +726,12 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
     }
     m = &g_sp_msg[co->id - 1u];
     if (wt_co_state((wt_co_t*)co) != WT_CO_BLOCKED) {
+        /* A partition an NS interrupt preempted mid-request resumes at the
+         * interrupted instruction and finishes its response. */
+        if ((wt_co_state((wt_co_t*)co) == WT_CO_RUNNABLE) &&
+            (m->busy != 0u)) {
+            return run_endpoint(co, out);
+        }
         return WT_FFA_BUSY;
     }
     if (m->yielded != 0u) {
@@ -664,6 +770,78 @@ void wt_spm_sint_queue(uint32_t intid)
     g_wt_spm_sint_queued = intid;
 }
 
+void wt_spm_sint_queue_for(struct wt_co* co, uint32_t intid)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return;
+    }
+    g_sp_sint_pending[co->id - 1u] = intid;
+    g_wt_spm_sint_queued = intid;
+}
+
+/* Ownership a partition claims through the para-virtual interrupt enable,
+ * and the id its last FFA_INTERRUPT carried, answered by the get. */
+#define WT_SPM_SINT_OWNERS 4u
+static struct wt_co* g_sint_owner_co[WT_SPM_SINT_OWNERS];
+static uint32_t g_sint_owner_id[WT_SPM_SINT_OWNERS];
+static uint32_t g_sint_delivered[WT_CO_MAX];
+
+int wt_spm_sint_own(struct wt_co* co, uint32_t intid, unsigned int enable)
+{
+    unsigned int i;
+
+    if ((co == NULL) || (intid < 32u)) {
+        return -1;
+    }
+    for (i = 0u; i < WT_SPM_SINT_OWNERS; i++) {
+        if (g_sint_owner_id[i] == intid) {
+            g_sint_owner_co[i] = (enable != 0u) ? co : NULL;
+            if (enable == 0u) {
+                g_sint_owner_id[i] = 0u;
+            }
+            return 0;
+        }
+    }
+    if (enable == 0u) {
+        return 0;
+    }
+    for (i = 0u; i < WT_SPM_SINT_OWNERS; i++) {
+        if (g_sint_owner_id[i] == 0u) {
+            g_sint_owner_id[i] = intid;
+            g_sint_owner_co[i] = co;
+            return 0;
+        }
+    }
+    return -1;
+}
+
+struct wt_co* wt_spm_sint_owner(uint32_t intid)
+{
+    unsigned int i;
+
+    for (i = 0u; i < WT_SPM_SINT_OWNERS; i++) {
+        if ((g_sint_owner_id[i] == intid) && (g_sint_owner_co[i] != NULL)) {
+            return g_sint_owner_co[i];
+        }
+    }
+    return NULL;
+}
+
+void wt_spm_sint_set_delivered(const struct wt_co* co, uint32_t intid)
+{
+    if ((co != NULL) && (co->id != 0u) && (co->id <= WT_CO_MAX)) {
+        g_sint_delivered[co->id - 1u] = intid;
+    }
+}
+
+uint32_t wt_spm_sint_delivered(const struct wt_co* co)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return 0u;
+    }
+    return g_sint_delivered[co->id - 1u];
+}
+
 uint32_t wt_spm_sint_take_pending(const struct wt_co* co)
 {
     uint32_t intid;
@@ -676,21 +854,48 @@ uint32_t wt_spm_sint_take_pending(const struct wt_co* co)
     return intid;
 }
 
-/* Signal a waiting partition: write an FFA_INTERRUPT message into its saved
- * frame and resume it. It acknowledges by returning to waiting, so there is no
- * response to capture; the call returns once it blocks again. Used both to
- * signal a waiting owner directly and, with the owned interrupt already made
- * pending in the GIC, to drive the queued path (the partition takes it as a
- * lower-EL FIQ on entry, then the gate delivers the queued interrupt). */
+/* A waiting partition owed a queued Secure interrupt, staged for delivery;
+ * clears the signal request once none is left. */
+static struct wt_co* sint_take_waiting_owner(void)
+{
+    struct wt_co* co;
+    unsigned int i;
+
+    for (i = 0u; i < WT_CO_MAX; i++) {
+        co = g_created[i];
+        if ((co != NULL) && (co->unprivileged != 0u) &&
+            (g_sp_sint_pending[i] != 0u) && (endpoint_waiting(co) != 0) &&
+            (sint_stage(co) != 0u)) {
+            return co;
+        }
+    }
+    g_sint_signal_request = 0u;
+    return NULL;
+}
+
+int wt_spm_sint_signal_needed(struct wt_co* owner)
+{
+    if ((owner == NULL) || (owner == g_wt_co_current) ||
+        (owner->unprivileged == 0u) || (endpoint_waiting(owner) == 0)) {
+        return 0;
+    }
+    g_sint_signal_request = 1u;
+    return 1;
+}
+
+/* Signal a waiting partition: FFA_INTERRUPT becomes the return of its wait
+ * and it runs, with any partition it messages, until it waits again. With the
+ * interrupt also pending in the GIC this drives the queued path instead. */
 int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid)
 {
+    uint64_t out[WT_FFA_MSG_REGS_EXT];
     wt_sp_arch_t* a;
     unsigned int i;
 
     if ((co == NULL) || (co->unprivileged == 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    if (wt_co_state((wt_co_t*)co) != WT_CO_BLOCKED) {
+    if (endpoint_waiting(co) == 0) {
         return WT_FFA_BUSY;
     }
     a = sp_arch(co);
@@ -699,12 +904,7 @@ int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid)
     }
     a->frame.x[0] = WT_FFA_INTERRUPT;
     a->frame.x[1] = (uint64_t)intid;
-    wt_co_wake((wt_co_t*)co);
-    (void)wt_co_run((wt_co_t*)co);
-    if (wt_co_state((wt_co_t*)co) == WT_CO_FAULTED) {
-        return WT_FFA_ABORTED;
-    }
-    return 0;
+    return (run_endpoint(co, out) == WT_FFA_ABORTED) ? WT_FFA_ABORTED : 0;
 }
 
 static void write_tpidrro(uint64_t value)
@@ -760,6 +960,8 @@ void wt_co_arch_enter(struct wt_co *to)
     uint32_t handler_depth = g_wt_spm_handler_depth;
     struct wt_co *handler_co = g_wt_spm_handler_co;
     struct wt_co *prev = (handler_depth != 0u) ? handler_co : &g_wt_co_bootstrap;
+    uint32_t pmr = 0u;
+    unsigned int masked = 0u;
 
     (void)memcpy(kernel_ctx, g_wt_sp_kernel_ctx, sizeof(kernel_ctx));
     if (domain != NULL) {
@@ -767,7 +969,14 @@ void wt_co_arch_enter(struct wt_co *to)
     }
     if (to->unprivileged != 0u) {
         write_tpidrro((uint64_t)to->id);
+        if (g_ns_queued[to->id - 1u] != 0u) {
+            pmr = wt_gic->swap_pmr(WT_SP_PMR_MASK_NS);
+            masked = 1u;
+        }
         wt_sp_el0_enter(&sp_arch(to)->frame);
+        if (masked != 0u) {
+            (void)wt_gic->swap_pmr(pmr);
+        }
     }
     else {
         wt_co_arch_switch(&g_wt_co_bootstrap.sp, to->sp);
@@ -838,5 +1047,38 @@ void wt_spm_preempt_from_fiq(wt_trap_frame_t* frame)
         g_wt_spm_handler_depth = 0u;
         return;
     }
+    wt_co_arch_leave();
+}
+
+/* Non-zero while an S-EL0 partition (not the SPMC or a privileged tasklet) is
+ * the running coroutine, so the test-timer only makes its interrupt pending
+ * while the partition under test executes. */
+int wt_spm_current_is_partition(void)
+{
+    struct wt_co* current = g_wt_co_current;
+
+    return ((current != &g_wt_co_bootstrap) && (current->unprivileged != 0u)) ?
+           1 : 0;
+}
+
+/* A Normal-world Group 1 interrupt asserted while the partition ran: the
+ * partition is preempted for the Normal world to take it, and the invoker
+ * sees FFA_INTERRUPT until FFA_RUN resumes the partition (Ch.9). The GIC is
+ * left untouched; the interrupt is the Normal world's to acknowledge. */
+void wt_spm_preempt_from_irq(wt_trap_frame_t* frame)
+{
+    struct wt_co* current = g_wt_co_current;
+
+    if ((current == &g_wt_co_bootstrap) || (current->unprivileged == 0u)) {
+        return;
+    }
+    g_wt_spm_live_frame = frame;
+    g_wt_spm_handler_depth = 1u;
+    if (wt_co_request_preempt() == false) {
+        g_wt_spm_live_frame = NULL;
+        g_wt_spm_handler_depth = 0u;
+        return;
+    }
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_NSINT;
     wt_co_arch_leave();
 }

@@ -138,6 +138,8 @@ int wt_tables_revoke_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
 void wt_mmu_enable(uint64_t ttbr0, uint64_t mair, uint64_t tcr);
 void wt_mmu_switch_ttbr0(uint64_t ttbr0);
 void wt_mmu_tlbi_asid(uint64_t asid);
+/* Clean and invalidate [va, va + size) to the point of coherency. */
+void wt_mmu_dcache_clean_inval(uint64_t va, uint64_t size);
 
 /* Port hook: device pages the SPM itself needs mapped (the secure console). */
 const wt_memory_region_t* wt_platform_board_device_regions(size_t* count);

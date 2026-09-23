@@ -21,9 +21,9 @@
 /* AArch64 binding of the PSA client transport. The WolfTrust_FFM_* entry
  * points the operating-system-neutral client (src/client/psa_ffm_client.c)
  * calls are the CMSE veneers on Armv8-M; here each one is carried as an FF-A
- * direct request to the PSA framework endpoint over the SMC conduit, hiding
- * the preemption resume loop (an FFA_INTERRUPT return is resumed with FFA_RUN
- * until the direct response arrives). */
+ * SMC64 direct request to the PSA framework endpoint over the SMC conduit,
+ * hiding the preemption resume loop (an FFA_INTERRUPT return is resumed with
+ * FFA_RUN until the direct response arrives). */
 
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
@@ -55,7 +55,7 @@ int wt_psa_ffa_op(uint32_t op, uint64_t a0, uint64_t a1, uint32_t* result)
     for (i = 0u; i < 8u; i++) {
         r.x[i] = 0u;
     }
-    r.x[0] = WT_FFA_MSG_SEND_DIRECT_REQ32;
+    r.x[0] = WT_FFA_MSG_SEND_DIRECT_REQ64;
     r.x[1] = ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16) | WT_FFA_ID_PSA;
     r.x[3] = op;
     r.x[4] = a0;
@@ -74,7 +74,7 @@ int wt_psa_ffa_op(uint32_t op, uint64_t a0, uint64_t a1, uint32_t* result)
         r.x[0] = WT_FFA_RUN;
         r.x[1] = (uint64_t)WT_FFA_ID_PSA << 16;
     }
-    if ((uint32_t)r.x[0] != WT_FFA_MSG_SEND_DIRECT_RESP32) {
+    if ((uint32_t)r.x[0] != WT_FFA_MSG_SEND_DIRECT_RESP64) {
         return -1;
     }
     *result = (uint32_t)r.x[3];

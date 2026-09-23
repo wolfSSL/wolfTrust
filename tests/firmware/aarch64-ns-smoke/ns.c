@@ -200,6 +200,70 @@ static void guest_direct(void)
     put_str("\r\n");
 }
 
+/* One SMC with x0-x17 in and x0-x17 back through x[0..17]. */
+static void smc18(uint64_t* x)
+{
+    register uint64_t* p __asm__("x19") = x;
+
+    __asm__ volatile("ldp x0, x1, [%0, #0]\n\t"
+                     "ldp x2, x3, [%0, #16]\n\t"
+                     "ldp x4, x5, [%0, #32]\n\t"
+                     "ldp x6, x7, [%0, #48]\n\t"
+                     "ldp x8, x9, [%0, #64]\n\t"
+                     "ldp x10, x11, [%0, #80]\n\t"
+                     "ldp x12, x13, [%0, #96]\n\t"
+                     "ldp x14, x15, [%0, #112]\n\t"
+                     "ldp x16, x17, [%0, #128]\n\t"
+                     "smc #0\n\t"
+                     "stp x0, x1, [%0, #0]\n\t"
+                     "stp x2, x3, [%0, #16]\n\t"
+                     "stp x4, x5, [%0, #32]\n\t"
+                     "stp x6, x7, [%0, #48]\n\t"
+                     "stp x8, x9, [%0, #64]\n\t"
+                     "stp x10, x11, [%0, #80]\n\t"
+                     "stp x12, x13, [%0, #96]\n\t"
+                     "stp x14, x15, [%0, #112]\n\t"
+                     "stp x16, x17, [%0, #128]"
+                     :
+                     : "r"(p)
+                     : "x0", "x1", "x2", "x3", "x4", "x5", "x6", "x7", "x8",
+                       "x9", "x10", "x11", "x12", "x13", "x14", "x15", "x16",
+                       "x17", "memory");
+}
+
+/* The echo partition takes no REQ2, so the SPMC refuses one with FFA_ERROR;
+ * that 8-register reply to an SMC64 call returns x8-x17 zero (11.2), not the
+ * request's own payload. */
+static void guest_req2_refused(void)
+{
+    uint64_t x[18];
+    uint64_t ext = 0u;
+    unsigned int i;
+
+    for (i = 0u; i < 18u; i++) {
+        x[i] = 0x0101010101010101ull * (uint64_t)(i + 1u);
+    }
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ2;
+    x[1] = ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16) | WT_FFA_ID_ECHO;
+    x[2] = 0u;
+    x[3] = 0u;
+    smc18(x);
+    for (i = 8u; i < 18u; i++) {
+        ext |= x[i];
+    }
+    if (((uint32_t)x[0] == WT_FFA_ERROR) && (ext == 0u)) {
+        put_str("[NS] req2 refused x8-x17 zero w2=0x");
+    }
+    else {
+        put_str("[NS] req2 refused BAD x0=0x");
+        put_hex((uint32_t)x[0]);
+        put_str(" x8=0x");
+        put_hex((uint32_t)x[8]);
+        put_str(" w2=0x");
+    }
+    put_hex((uint32_t)x[2]);
+    put_str("\r\n");
+}
 #endif
 
 #if defined(WT_NS_GUEST_PSA)
@@ -1341,6 +1405,7 @@ void ns_main(void)
 
 #if defined(WT_NS_GUEST_ECHO)
     guest_direct();
+    guest_req2_refused();
 #endif
 
 #if defined(WT_NS_GUEST_PSA)

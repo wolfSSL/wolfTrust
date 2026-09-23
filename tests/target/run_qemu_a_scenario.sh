@@ -548,6 +548,8 @@ case "$scenario" in
     refute_re "the Normal world did not misread the direct response" '\[NS\] direct resp BAD'
     expect "the Normal world discovered the partitions through the SPMC" "[NS] discovery ok n=6"
     expect "a guest direct request reached the Secure partition and echoed back" "[NS] direct resp ok x3=0x"
+    refute_re "a refused REQ2 did not hand back its own payload in x8-x17" '\[NS\] req2 refused BAD'
+    expect "a refused REQ2 returned FFA_ERROR with x8-x17 zero" "[NS] req2 refused x8-x17 zero"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   psci|el2dirtyneg)

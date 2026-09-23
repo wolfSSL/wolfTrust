@@ -198,6 +198,7 @@ void wt_el3_world_return_to_ns(wt_el3_frame_t* frame)
     for (i = 0u; i < count; i++) {
         g_world[WT_WORLD_NS].frame.x[i] = frame->x[i];
     }
+    wt_ffa_reply_clear_ext(g_ns_forwarded_fid, g_world[WT_WORLD_NS].frame.x);
     g_ns_pending = WT_NS_PENDING_NONE;
     world_switch(frame, WT_WORLD_NS);
 }

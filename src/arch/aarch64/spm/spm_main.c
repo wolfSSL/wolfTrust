@@ -1235,7 +1235,7 @@ static void ns_notif_info_get(wt_ffa_regs_t* r, unsigned int is64)
  * framework notification tells the Normal-world scheduler to run it. Only a
  * receiver whose properties advertise indirect messaging may be sent one. */
 int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
-                        uint32_t w1, uint32_t w2)
+                        wt_ffa_instance_t inst, uint32_t w1, uint32_t w2)
 {
     static const uint8_t ns_uuid[16];
     wt_ffa_msg2_t msg;
@@ -1248,7 +1248,7 @@ int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
     uint32_t total;
     int ret;
 
-    ret = wt_ffa_msg2_parse(tx, tx_size, caller, w1, w2, &msg);
+    ret = wt_ffa_msg2_parse(tx, tx_size, caller, inst, w1, w2, &msg);
     if (ret == 0) {
         if (msg.receiver == WT_FFA_ID_NS_PRIMARY) {
             uuid = ns_uuid;
@@ -1307,6 +1307,7 @@ static void ns_msg_send2(wt_ffa_regs_t* r)
     ret = wt_spm_msg2_deliver(WT_FFA_ID_NS_PRIMARY,
                               (const uint8_t*)(uintptr_t)g_ns_mailbox.tx,
                               g_ns_mailbox.pages * (uint32_t)WT_TABLES_PAGE_SIZE,
+                              WT_FFA_INSTANCE_NS_PHYSICAL,
                               (uint32_t)r->x[1], (uint32_t)r->x[2]);
     ns_reply(r, ret, 0u, 0u);
 }

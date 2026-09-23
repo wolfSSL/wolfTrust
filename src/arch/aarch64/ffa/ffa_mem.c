@@ -298,6 +298,10 @@ int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
     if (cons_end != (uint64_t)len) {
         return WT_FFA_INVALID_PARAMETERS;
     }
+    /* Bounds the pairwise overlap scan below by what a handle can hold. */
+    if (txn.constituent_count > WT_FFA_MEM_MAX_REGIONS) {
+        return WT_FFA_NO_MEMORY;
+    }
 
     for (i = 0u; i < txn.constituent_count; i++) {
         const uint8_t* c = &buf[cons_base + (uint64_t)i * WT_FFA_MEM_CONSTITUENT_SIZE];

@@ -33,8 +33,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -96,7 +96,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt|resetneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt|resetneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
@@ -148,6 +148,9 @@ else
     vaultrecoversec) probe=(WT_EL3_NS_SMOKE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1) ;;
     ffa-guest-direct) probe=(WT_EL3_NS_SMOKE=1 WT_NS_GUEST_ECHO=1) ;;
     ffa-preempt) probe=(WT_EL3_NS_SMOKE=1 WT_NS_PREEMPT=1) ;;
+    # The monitor starts on EL2 state an earlier stage left dirty (SMC trapped,
+    # a foreign virtual MPIDR); the virt cell turns EL2 on so it is live.
+    el2dirtyneg) probe=(WT_EL3_NS_SMOKE=1 WT_EL3_EL2_DIRTY_PROBE=1) ;;
   esac
   make ARCH=aarch64 TARGET="$target" TOOLPREFIX="$TOOLPREFIX" WT_GIC_VERSION="$GIC" \
     WT_CPU="$CPU" WT_PORT_BOOT_CPUS="$cpus" BUILD_DIR="build-aarch64-$tag-$scenario" \
@@ -160,6 +163,7 @@ else
   ns_base=0x44000000
   if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
      [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
+     [ "$scenario" = el2dirtyneg ] || \
      [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
      [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
      [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
@@ -173,6 +177,7 @@ else
     [ "$scenario" = ffa-guest-direct ] && ns_echo=1
     ns_psci=0
     [ "$scenario" = psci ] && ns_psci=1
+    [ "$scenario" = el2dirtyneg ] && ns_psci=1
     ns_preempt=0
     [ "$scenario" = ffa-preempt ] && ns_preempt=1
     ns_psa=0
@@ -277,6 +282,7 @@ qemu_out="$repo/ci-qemu-a-$scenario-$tag-qemu.log"
 if [ "$MACHINE" = virt ]; then
   virt_opts="virt,secure=on,gic-version=$GIC"
   [ -n "$acs_suite" ] && virt_opts="$virt_opts,virtualization=on"
+  [ "$scenario" = el2dirtyneg ] && virt_opts="$virt_opts,virtualization=on"
   args=(-M "$virt_opts" -cpu "$CPU" -smp "$SMP" -m 1G
         -bios "$image_bin"
         -serial "file:$ns_log" -serial "file:$sec_log")
@@ -291,6 +297,7 @@ else
 fi
 if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
+   [ "$scenario" = el2dirtyneg ] || \
    [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
    [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
@@ -535,7 +542,9 @@ case "$scenario" in
     expect "a guest direct request reached the Secure partition and echoed back" "[NS] direct resp ok x3=0x"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
-  psci)
+  psci|el2dirtyneg)
+    # el2dirtyneg: an inherited SMC trap would strand the first NS call at
+    # EL2, and an inherited virtual MPIDR would misname the boot core.
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the Normal world read the PSCI version from the SPMD" "[NS] psci version 1.1"

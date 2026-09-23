@@ -13,6 +13,11 @@ WT_EL3_NS_EL2 ?= 0
 ifeq ($(WT_EL3_NS_EL2),1)
 ARCH_CFLAGS += -DWT_EL3_NS_EL2=1
 endif
+# Test only: the monitor starts on EL2 state an earlier stage left dirty.
+WT_EL3_EL2_DIRTY_PROBE ?= 0
+ifeq ($(WT_EL3_EL2_DIRTY_PROBE),1)
+ARCH_CFLAGS += -DWT_EL3_EL2_DIRTY_PROBE=1
+endif
 WT_WOLFCRYPT_SP_ASM := 0
 WT_WOLFCRYPT_ARMASM := 0
 # 64-bit SP math words, C implementation (no WOLFSSL_SP_ARM64_ASM).

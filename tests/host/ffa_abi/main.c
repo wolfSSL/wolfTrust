@@ -154,6 +154,45 @@ static void direct_message_rows(void)
           "a well-formed RESP2 returns to the Normal-world requester");
 }
 
+static int ext_equal(const uint64_t* x, uint64_t v)
+{
+    unsigned int i;
+
+    for (i = WT_FFA_MSG_REGS; i < WT_FFA_MSG_REGS_EXT; i++) {
+        if (x[i] != v) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* 11.2 / SMCCC 2.6-2.7: a reply to an SMC64 call returns x8-x17 zero unless it
+ * carries results there; an SMC32 caller's x8-x17 are preserved. */
+static void reply_ext_rows(void)
+{
+    uint64_t x[WT_FFA_MSG_REGS_EXT];
+
+    memset(x, 0x77, sizeof(x));
+    x[0] = WT_FFA_ERROR;
+    wt_ffa_reply_clear_ext(WT_FFA_MSG_SEND_DIRECT_REQ32, x);
+    check(ext_equal(x, 0x7777777777777777ull),
+          "a reply to an SMC32 call leaves x8-x17 as the caller had them");
+    wt_ffa_reply_clear_ext(WT_FFA_MSG_SEND_DIRECT_REQ64, x);
+    check(ext_equal(x, 0u), "a reply to an SMC64 call returns x8-x17 zero");
+    memset(x, 0x77, sizeof(x));
+    x[0] = WT_FFA_SUCCESS64;
+    wt_ffa_reply_clear_ext(WT_FFA_PARTITION_INFO_GET_REGS, x);
+    check(ext_equal(x, 0x7777777777777777ull),
+          "FFA_PARTITION_INFO_GET_REGS keeps the descriptors it returns in x8-x17");
+    x[0] = WT_FFA_MSG_SEND_DIRECT_RESP2;
+    wt_ffa_reply_clear_ext(WT_FFA_MSG_SEND_DIRECT_REQ2, x);
+    check(ext_equal(x, 0x7777777777777777ull),
+          "a RESP2 keeps its x8-x17 payload");
+    x[0] = WT_FFA_ERROR;
+    wt_ffa_reply_clear_ext(WT_FFA_MSG_SEND_DIRECT_REQ2, x);
+    check(ext_equal(x, 0u), "an error answering a REQ2 returns x8-x17 zero");
+}
+
 /* FFA_RUN (14.3): w1 names the endpoint and the vCPU of it to run; each
  * endpoint here has the single execution context 0. */
 static void run_target_rows(void)
@@ -775,6 +814,7 @@ int main(void)
 
     direct_message_rows();
     run_target_rows();
+    reply_ext_rows();
     msg2_rows();
     partition_info_rows();
     manifest_record_rows();

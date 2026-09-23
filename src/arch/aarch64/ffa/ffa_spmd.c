@@ -94,13 +94,18 @@ void wt_ffa_spmd_console_call(uint64_t* x, unsigned int is64)
 
     if (((count & 0xFFFFFF00u) != 0u) || (count < 1u) || (count > max)) {
         reply_error((wt_ffa_regs_t*)x, WT_FFA_INVALID_PARAMETERS);
-        return;
     }
-    for (i = 0u; i < count; i++) {
-        reg = x[2u + (i / per_reg)];
-        wt_platform_console_putc((char)((reg >> (8u * (i % per_reg))) & 0xFFu));
+    else {
+        for (i = 0u; i < count; i++) {
+            reg = x[2u + (i / per_reg)];
+            wt_platform_console_putc(
+                (char)((reg >> (8u * (i % per_reg))) & 0xFFu));
+        }
+        reply_success((wt_ffa_regs_t*)x, 0u, 0u);
     }
-    reply_success((wt_ffa_regs_t*)x, 0u, 0u);
+    if (is64 != 0u) {
+        wt_ffa_reply_clear_ext(WT_FFA_CONSOLE_LOG64, x);
+    }
 }
 
 #if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
@@ -291,7 +296,13 @@ int wt_ffa_spmd_ns_forward(uint64_t* x)
          (fid == WT_FFA_MSG_SEND_DIRECT_REQ2)) &&
         (wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) != 0)) {
         reply_error((wt_ffa_regs_t*)x, WT_FFA_INVALID_PARAMETERS);
+        wt_ffa_reply_clear_ext(fid, x);
         return 0;
+    }
+    /* Only x0-x7 travel, and an 8-register reply leaves x8-x17 as here. */
+    if (wt_ffa_fid_in_range(fid) &&
+        (wt_ffa_msg_reg_count(fid) == WT_FFA_MSG_REGS)) {
+        wt_ffa_reply_clear_ext(fid, x);
     }
     return 1;
 }

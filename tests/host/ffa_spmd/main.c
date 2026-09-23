@@ -141,6 +141,28 @@ static int ns_range_total(uint32_t first, uint32_t last)
     return 1;
 }
 
+static void fill_ext(uint64_t* x)
+{
+    unsigned int i;
+
+    memset(x, 0, 18u * sizeof(x[0]));
+    for (i = 8u; i < 18u; i++) {
+        x[i] = 0x5A5A0000u + i;
+    }
+}
+
+static int ext_filled(const uint64_t* x)
+{
+    unsigned int i;
+
+    for (i = 8u; i < 18u; i++) {
+        if (x[i] != (0x5A5A0000u + i)) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* The SPMD relays a Normal-world direct request only after the NS-physical
  * checks of 7.4.2, so no forwarded request speaks with a Secure sender id. */
 static void ns_forward_rows(void)
@@ -176,6 +198,30 @@ static void ns_forward_rows(void)
     x[3] = 1u;
     check(wt_ffa_spmd_ns_forward(x) == 1 && (uint32_t)x[0] == WT_FFA_RXTX_MAP64,
           "a forwarded call that is not a direct request passes through");
+
+    fill_ext(x);
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ64;
+    x[1] = ((uint64_t)WT_FFA_ID_SP_FIRST << 16) | 0x8003u;
+    check(wt_ffa_spmd_ns_forward(x) == 0 && rest_zero(x, 8u, 17u),
+          "a refused SMC64 request comes back with x8-x17 zero");
+    fill_ext(x);
+    x[0] = WT_FFA_MEM_SHARE64;
+    check(wt_ffa_spmd_ns_forward(x) == 1 && rest_zero(x, 8u, 17u),
+          "a forwarded SMC64 call's x8-x17 are cleared, as its reply carries "
+          "only x0-x7");
+    fill_ext(x);
+    x[0] = WT_FFA_MEM_SHARE32;
+    check(wt_ffa_spmd_ns_forward(x) == 1 && ext_filled(x),
+          "a forwarded SMC32 call keeps x8-x17, which SMCCC preserves");
+    fill_ext(x);
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ2;
+    x[1] = ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16) | WT_FFA_ID_SP_FIRST;
+    check(wt_ffa_spmd_ns_forward(x) == 1 && ext_filled(x),
+          "a forwarded REQ2 keeps its x8-x17 payload");
+    fill_ext(x);
+    x[0] = 0xC3000102u;
+    check(wt_ffa_spmd_ns_forward(x) == 1 && ext_filled(x),
+          "a forwarded call outside the FF-A ranges keeps x8-x17");
 }
 
 static uint32_t ns_version_call(uint32_t asked)
@@ -369,15 +415,21 @@ int main(void)
     check((uint32_t)frame[0] == WT_FFA_SUCCESS32 && rest_zero(frame, 1u, 7u) &&
           strcmp(g_console, expect) == 0 && frame[18] == 0x5555u,
           "SMC64 console log prints 128 characters from x2-x17 and leaves x18 alone");
+    check(rest_zero(frame, 8u, 17u),
+          "the SMC64 reply returns x8-x17 zero, not the logged characters (11.2)");
 
     reset_console();
     memset(frame, 0, sizeof(frame));
     frame[0] = WT_FFA_CONSOLE_LOG64;
     frame[1] = 129u;
+    for (i = 8u; i < 18u; i++) {
+        frame[i] = 0x4141414141414141ull;
+    }
     wt_ffa_spmd_console_call(frame, 1u);
     check((uint32_t)frame[0] == WT_FFA_ERROR &&
-          (int32_t)(uint32_t)frame[2] == WT_FFA_INVALID_PARAMETERS && g_console_len == 0u,
-          "count 129 on SMC64 is INVALID_PARAMETERS");
+          (int32_t)(uint32_t)frame[2] == WT_FFA_INVALID_PARAMETERS &&
+          g_console_len == 0u && rest_zero(frame, 8u, 17u),
+          "count 129 on SMC64 is INVALID_PARAMETERS, with x8-x17 zero");
 
     ns_forward_rows();
     ns_version_rows();

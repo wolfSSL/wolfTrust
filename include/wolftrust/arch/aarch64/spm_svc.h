@@ -59,6 +59,7 @@
 /* Saved S-EL0 register state of one partition, indexed by coroutine id. */
 typedef struct wt_sp_arch {
     wt_trap_frame_t frame;
+    uint64_t tpidr_el0;
 } wt_sp_arch_t;
 
 /* Set while an S-EL1 exception handler runs on a partition's behalf. */

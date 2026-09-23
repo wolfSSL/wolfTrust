@@ -1,0 +1,48 @@
+diff --git a/test/v1.0/direct_messaging/ffa_direct_message_error/ffa_direct_message_error_client.c b/test/v1.0/direct_messaging/ffa_direct_message_error/ffa_direct_message_error_client.c
+index 8ed2e4c..f7bb5ed 100644
+--- a/test/v1.0/direct_messaging/ffa_direct_message_error/ffa_direct_message_error_client.c
++++ b/test/v1.0/direct_messaging/ffa_direct_message_error/ffa_direct_message_error_client.c
+@@ -87,7 +87,8 @@ uint32_t ffa_direct_message_error_client(uint32_t test_run_data)
+     if (val_is_ffa_feature_supported(FFA_MSG_SEND_DIRECT_REQ_32) == VAL_SUCCESS)
+     {
+         val_memset(&payload, 0, sizeof(ffa_args_t));
+-        payload.arg1 = val_get_endpoint_id(client_logical_id | (uint32_t)info[i].id << 16);
++        payload.arg1 = ((uint32_t)val_get_endpoint_id(client_logical_id) << 16) |
++                       info[i].id;
+         LOG(DBG, "Sending direct msg to epid=0x%x", info[i].id);
+         val_ffa_msg_send_direct_req_32(&payload);
+         if ((payload.fid != FFA_ERROR_32) || (payload.arg2 != FFA_ERROR_DENIED))
+@@ -100,7 +101,8 @@ uint32_t ffa_direct_message_error_client(uint32_t test_run_data)
+     else if (val_is_ffa_feature_supported(FFA_MSG_SEND_DIRECT_REQ_64) == VAL_SUCCESS)
+     {
+         val_memset(&payload, 0, sizeof(ffa_args_t));
+-        payload.arg1 = val_get_endpoint_id(client_logical_id | (uint32_t)info[i].id << 16);
++        payload.arg1 = ((uint32_t)val_get_endpoint_id(client_logical_id) << 16) |
++                       info[i].id;
+         LOG(DBG, "Sending direct msg to epid=0x%x", info[i].id);
+         val_ffa_msg_send_direct_req_64(&payload);
+         if ((payload.fid != FFA_ERROR_32) || (payload.arg2 != FFA_ERROR_DENIED))
+diff --git a/test/v1.0/direct_messaging/ffa_direct_message_error1/ffa_direct_message_error1_client.c b/test/v1.0/direct_messaging/ffa_direct_message_error1/ffa_direct_message_error1_client.c
+index e0f004c..53bc91c 100644
+--- a/test/v1.0/direct_messaging/ffa_direct_message_error1/ffa_direct_message_error1_client.c
++++ b/test/v1.0/direct_messaging/ffa_direct_message_error1/ffa_direct_message_error1_client.c
+@@ -87,7 +87,8 @@ uint32_t ffa_direct_message_error1_client(uint32_t test_run_data)
+     if (val_is_ffa_feature_supported(FFA_MSG_SEND_DIRECT_REQ_32) == VAL_SUCCESS)
+     {
+         val_memset(&payload, 0, sizeof(ffa_args_t));
+-        payload.arg1 = val_get_endpoint_id(client_logical_id | (uint32_t)info[i].id << 16);
++        payload.arg1 = ((uint32_t)val_get_endpoint_id(client_logical_id) << 16) |
++                       info[i].id;
+         LOG(DBG, "Sending direct req to epid=0x%x", info[i].id, 0);
+         val_ffa_msg_send_direct_req_32(&payload);
+         if ((payload.fid != FFA_ERROR_32) || (payload.arg2 != FFA_ERROR_DENIED))
+@@ -101,7 +102,8 @@ uint32_t ffa_direct_message_error1_client(uint32_t test_run_data)
+     else if (val_is_ffa_feature_supported(FFA_MSG_SEND_DIRECT_REQ_64) == VAL_SUCCESS)
+     {
+         val_memset(&payload, 0, sizeof(ffa_args_t));
+-        payload.arg1 = val_get_endpoint_id(client_logical_id | (uint32_t)info[i].id << 16);
++        payload.arg1 = ((uint32_t)val_get_endpoint_id(client_logical_id) << 16) |
++                       info[i].id;
+         LOG(DBG, "Sending direct req to epid=0x%x", info[i].id);
+         val_ffa_msg_send_direct_req_64(&payload);
+         if ((payload.fid != FFA_ERROR_32) || (payload.arg2 != FFA_ERROR_DENIED))

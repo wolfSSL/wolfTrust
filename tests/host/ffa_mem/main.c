@@ -1430,6 +1430,10 @@ static int g_co_a;
 static int g_co_b;
 static int g_co_c;
 static unsigned int g_domain_fails;
+static unsigned int g_cleans;
+static uint64_t g_clean_va;
+static uint64_t g_clean_size;
+static int g_clean_zeroed;
 
 #define CO_A ((struct wt_co*)(void*)&g_co_a)
 #define CO_B ((struct wt_co*)(void*)&g_co_b)
@@ -1443,6 +1447,24 @@ void wt_mmu_switch_ttbr0(uint64_t ttbr0)
 void wt_mmu_tlbi_asid(uint64_t asid)
 {
     (void)asid;
+}
+
+/* Records the last range the relayer cleaned, and whether it still held the
+ * zeros when it did. */
+void wt_mmu_dcache_clean_inval(uint64_t va, uint64_t size)
+{
+    const uint8_t* p = (const uint8_t*)(uintptr_t)va;
+    uint64_t i;
+
+    g_cleans++;
+    g_clean_va = va;
+    g_clean_size = size;
+    g_clean_zeroed = 1;
+    for (i = 0u; i < size; i++) {
+        if (p[i] != 0u) {
+            g_clean_zeroed = 0;
+        }
+    }
 }
 
 void wt_domain_fail(int code)
@@ -1983,6 +2005,45 @@ static void relay_zero_rows(void)
     check(g_domain_fails == 0u, "zero: no domain operation failed closed");
 }
 
+/* Non-zero when the last clean covered exactly page pg, after it was zeroed. */
+static int cleaned(unsigned int pg)
+{
+    return (g_cleans != 0u) && (g_clean_va == (uint64_t)page(pg)) &&
+           (g_clean_size == WT_TABLES_PAGE_SIZE) && (g_clean_zeroed != 0);
+}
+
+/* WT-FFA-0009 (each wipe is cleaned to the point of coherency so memory, not
+ * just the SPMC's cache, holds the zeros, 1.11.4.1). */
+static void relay_clean_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint64_t h;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "clean: fixture");
+        return;
+    }
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    g_cleans = 0u;
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW,
+                   WT_FFA_MEM_FLAG_ZERO, &ret);
+    check(ret == 0 && cleaned(PG_RW),
+          "clean: a lend that asks for zeroing cleans the zeroed page");
+    g_cleans = 0u;
+    check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+          g_cleans == 0u,
+          "clean: the retrieve that follows neither wipes nor cleans it again");
+    check(relay_relinquish(h, WT_FFA_MEM_RELINQ_FLAG_ZERO) == 0 &&
+          cleaned(PG_RW),
+          "clean: a relinquish that asks for zeroing cleans the zeroed page");
+    g_cleans = 0u;
+    check(wt_spm_mem_reclaim(h, RELAY_ID_A, WT_FFA_MEM_RELINQ_FLAG_ZERO) == 0 &&
+          cleaned(PG_RW),
+          "clean: a reclaim that asks for zeroing cleans the zeroed page");
+}
+
 /* WT-FFA-0009 (a partition that faults gives up what it borrowed, zeroed if
  * its retrieve asked, Table 1.22 bit[2], and what it owns comes back). */
 static void relay_teardown_rows(void)
@@ -2121,6 +2182,7 @@ int main(void)
     relay_attr_rows();
     relay_perm_rows();
     relay_zero_rows();
+    relay_clean_rows();
     relay_region_rows();
     relay_teardown_rows();
     relay_unbind_rows();

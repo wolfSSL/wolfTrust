@@ -245,13 +245,16 @@ static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
     }
 }
 
+/* The zeros go out to memory, not just the SPMC's cache (1.11.4.1). */
 static void zero_regions(const wt_ffa_mem_handle_entry_t* e)
 {
+    uint64_t size;
     uint32_t i;
 
     for (i = 0u; i < (uint32_t)e->region_count; i++) {
-        (void)memset((void*)(uintptr_t)e->regions[i].base, 0,
-                     (size_t)e->regions[i].page_count * WT_FFA_MEM_PAGE_SIZE);
+        size = (uint64_t)e->regions[i].page_count * WT_FFA_MEM_PAGE_SIZE;
+        (void)memset((void*)(uintptr_t)e->regions[i].base, 0, (size_t)size);
+        wt_mmu_dcache_clean_inval(e->regions[i].base, size);
     }
 }
 

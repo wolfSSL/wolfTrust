@@ -68,3 +68,25 @@ wt_mmu_tlbi_asid:
     dsb     ish
     isb
     ret
+
+/* void wt_mmu_dcache_clean_inval(uint64_t va, uint64_t size): every data cache
+ * line of the range, stepped by the smallest line CTR_EL0 reports, then a
+ * full-system barrier so the memory itself holds what was written. */
+    .globl wt_mmu_dcache_clean_inval
+wt_mmu_dcache_clean_inval:
+    cbz     x1, 2f
+    mrs     x3, CTR_EL0
+    ubfx    x3, x3, #16, #4
+    mov     x2, #4
+    lsl     x2, x2, x3
+    add     x1, x0, x1
+    sub     x3, x2, #1
+    bic     x0, x0, x3
+1:
+    dc      civac, x0
+    add     x0, x0, x2
+    cmp     x0, x1
+    b.lo    1b
+2:
+    dsb     sy
+    ret

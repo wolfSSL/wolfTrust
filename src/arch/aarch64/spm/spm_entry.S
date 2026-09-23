@@ -68,6 +68,9 @@ wt_spm_entry:
     ldr     x9, =__spm_stack_top
     mov     sp, x9
     msr     TPIDRRO_EL0, xzr
+    /* Trap FP/SIMD, SVE, and SME at S-EL1/S-EL0 so the Normal world's vector
+     * state is never read or clobbered across a world switch. */
+    msr     CPACR_EL1, xzr
     isb
     WT_SPM_INIT_BAND __data_lma, __data_start, __data_end, __bss_start, __bss_end
     WT_SPM_INIT_BAND _si_keystore, _s_keystore, _e_keystore_data, _s_keystore_bss, _e_keystore

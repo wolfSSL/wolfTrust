@@ -132,6 +132,9 @@ int32_t wt_ffa_notif_bitmap_create(uint16_t caller, uint32_t vm_id,
     if (vm->has_bitmap != 0u) {
         return WT_FFA_DENIED;
     }
+    if (vcpu_count > WT_FFA_NOTIF_MAX_VCPUS) {
+        return WT_FFA_NO_MEMORY;
+    }
     vm->has_bitmap = 1u;
     return 0;
 }

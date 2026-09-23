@@ -116,6 +116,12 @@ static void bitmap_rows(void)
           WT_FFA_INVALID_PARAMETERS, "destroy with an unknown VM id is refused");
     check(wt_ffa_notif_bitmap_destroy(VM0, VM0) == WT_FFA_DENIED,
           "destroy before any create is DENIED");
+    check(wt_ffa_notif_bitmap_create(VM0, VM0, 2u) == WT_FFA_NO_MEMORY,
+          "create for more vCPUs than the one context held is refused");
+    check(wt_ffa_notif_bitmap_create(VM0, VM0, 0xFFFFFFFFu) ==
+          WT_FFA_NO_MEMORY, "and so is the largest count");
+    check(wt_ffa_notif_bind(VM0, IDS(SP1, VM0), 0u, BIT(3)) == WT_FFA_DENIED,
+          "the refused create left no bitmap to bind into");
     check(wt_ffa_notif_bitmap_create(VM0, VM0, 1u) == 0, "create succeeds");
     check(wt_ffa_notif_bitmap_create(VM0, VM0, 1u) == WT_FFA_DENIED,
           "a second create is DENIED");

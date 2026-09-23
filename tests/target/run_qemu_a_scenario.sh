@@ -555,6 +555,10 @@ case "$scenario" in
     # EL2, and an inherited virtual MPIDR would misname the boot core.
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "NS-EL1 did not find the GIC system-register interface off" '\[NS\] icc_sre_el1 BAD'
+    if [ "$GIC" = 3 ]; then
+      expect "NS-EL1 read ICC_SRE_EL1 with SRE set under the GICv3" "[NS] icc_sre_el1 sre=1"
+    fi
     expect "the Normal world read the PSCI version from the SPMD" "[NS] psci version 1.1"
     refute_re "no PSCI call returned an off-spec value" '\[NS\] psci BAD'
     expect "SMCCC_VERSION reported 1.2 and x4-x7 survived a PSCI call" "[NS] smccc version 1.2"

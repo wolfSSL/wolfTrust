@@ -199,6 +199,7 @@ static void guest_direct(void)
     put_hex((uint32_t)r3);
     put_str("\r\n");
 }
+
 #endif
 
 #if defined(WT_NS_GUEST_PSA)
@@ -1172,6 +1173,29 @@ static int smccc_walk(uint64_t self)
     return ok;
 }
 
+/* With a GIC system-register interface, NS-EL1 reaches ICC_SRE_EL1 and finds
+ * SRE set: an implemented EL2 neither traps it nor forces the legacy one. */
+static void gic_sre_probe(void)
+{
+    uint64_t pfr0;
+    uint64_t sre;
+
+    __asm__ volatile("mrs %0, id_aa64pfr0_el1" : "=r"(pfr0));
+    if (((pfr0 >> 24) & 0xFu) == 0u) {
+        put_str("[NS] gic sysreg interface absent\r\n");
+        return;
+    }
+    __asm__ volatile("mrs %0, icc_sre_el1" : "=r"(sre));
+    if ((sre & 1u) != 0u) {
+        put_str("[NS] icc_sre_el1 sre=1\r\n");
+    }
+    else {
+        put_str("[NS] icc_sre_el1 BAD 0x");
+        put_hex((uint32_t)sre);
+        put_str("\r\n");
+    }
+}
+
 /* The mandatory PSCI 1.1 set as a boot-core-only Normal world sees it. */
 static void psci_walk(void)
 {
@@ -1302,6 +1326,7 @@ void ns_main(void)
 #endif
 
 #if defined(WT_NS_GUEST_PSCI)
+    gic_sre_probe();
     psci_walk();
 #endif
 

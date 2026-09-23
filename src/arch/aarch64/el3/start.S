@@ -125,14 +125,17 @@ primary:
     ubfx    x1, x1, #8, #4
     cbz     x1, 15f
 #if defined(WT_EL3_EL2_DIRTY_PROBE) && (WT_EL3_EL2_DIRTY_PROBE == 1)
-    /* Test only: stand in for a stage that left SMC trapped and a foreign
-     * virtual MPIDR behind. */
+    /* Test only: stand in for a stage that left SMC trapped, a foreign
+     * virtual MPIDR, and the EL2 GIC system-register interface off behind. */
     mov     x0, #HCR_EL2_RW
     orr     x0, x0, #(1 << 19)
     msr     HCR_EL2, x0
     mrs     x0, MPIDR_EL1
     eor     x0, x0, #0x100
     msr     VMPIDR_EL2, x0
+#if defined(WT_GIC_VERSION) && (WT_GIC_VERSION == 3)
+    msr     ICC_SRE_EL2, xzr
+#endif
 #endif
     mov     x0, #HCR_EL2_RW
     msr     HCR_EL2, x0

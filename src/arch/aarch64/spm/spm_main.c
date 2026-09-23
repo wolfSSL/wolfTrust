@@ -59,6 +59,7 @@ const wt_system_manifest_t* wt_generated_manifest_get(void);
 #endif
 
 extern uint8_t _e_secure_text[];
+extern uint8_t _e_secure_rodata[];
 extern uint8_t __image_end[];
 extern uint8_t __spm_ram_end[];
 extern uint8_t _e_keystore[];
@@ -294,9 +295,17 @@ static void enable_mmu(uint64_t boot_info_pa)
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC | WT_DOMAIN_FILL_SHARED;
     n++;
     fill[n].base = (uintptr_t)_e_secure_text;
-    fill[n].size = page_up((uintptr_t)__image_end) - (uintptr_t)_e_secure_text;
+    fill[n].size = (uintptr_t)_e_secure_rodata - (uintptr_t)_e_secure_text;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_DOMAIN_FILL_SHARED;
     n++;
+    /* Load images of initialized data (function pointers too) stay EL1-only. */
+    if (page_up((uintptr_t)__image_end) > (uintptr_t)_e_secure_rodata) {
+        fill[n].base = (uintptr_t)_e_secure_rodata;
+        fill[n].size = page_up((uintptr_t)__image_end) -
+                       (uintptr_t)_e_secure_rodata;
+        fill[n].attributes = WT_MEM_ATTR_READ;
+        n++;
+    }
     fill[n].base = (uintptr_t)WT_SPM_RAM_PA;
     fill[n].size = page_up((uintptr_t)__spm_ram_end) - (uintptr_t)WT_SPM_RAM_PA;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;

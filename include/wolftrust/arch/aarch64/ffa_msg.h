@@ -71,6 +71,11 @@ int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst);
  * (4.7), so another vCPU id is INVALID_PARAMETERS (Table 14.14). */
 int wt_ffa_run_target(uint32_t w1, uint16_t* id);
 
+/* Write msg (x0-x7, or x0-x17 for REQ2/RESP2) into the saved registers x of
+ * the call it answers, x[0] naming that call; an SMC64 caller's x8-x17 the
+ * message does not fill come back zero (11.2). */
+void wt_ffa_msg_deliver(uint64_t* x, const uint64_t* msg);
+
 /* 13.2.3.2: the SPMD hands a Normal-world FFA_VERSION to an S-EL1 SPMC as a
  * framework direct request from the SPMD (Table 13.7, w3 = the version asked)
  * and the SPMC answers with a framework direct response (Table 13.8, w3 = the

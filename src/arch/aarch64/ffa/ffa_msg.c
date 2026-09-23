@@ -116,6 +116,20 @@ int wt_ffa_run_target(uint32_t w1, uint16_t* id)
     return ((w1 & 0xFFFFu) == 0u) ? 0 : WT_FFA_INVALID_PARAMETERS;
 }
 
+void wt_ffa_msg_deliver(uint64_t* x, const uint64_t* msg)
+{
+    uint32_t call = (uint32_t)x[0];
+    unsigned int count = wt_ffa_msg_reg_count(msg[0]);
+    unsigned int i;
+
+    for (i = 0u; i < count; i++) {
+        x[i] = msg[i];
+    }
+    if (count == WT_FFA_MSG_REGS) {
+        wt_ffa_reply_clear_ext(call, x);
+    }
+}
+
 #define WT_FFA_FWK_SPMD_TO_SPMC \
     (((uint32_t)WT_FFA_ID_SPMD << 16) | (uint32_t)WT_FFA_ID_SPMC)
 #define WT_FFA_FWK_SPMC_TO_SPMD \

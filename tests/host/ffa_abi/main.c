@@ -193,6 +193,48 @@ static void reply_ext_rows(void)
     check(ext_equal(x, 0u), "an error answering a REQ2 returns x8-x17 zero");
 }
 
+/* 11.2: a message written into the saved registers of the call it answers
+ * (x[0] names that call) fills x8-x17 only for REQ2/RESP2; an SMC64 caller's
+ * other x8-x17 come back zero, an SMC32 caller's are its own. */
+static void msg_deliver_rows(void)
+{
+    uint64_t x[WT_FFA_MSG_REGS_EXT];
+    uint64_t msg[WT_FFA_MSG_REGS_EXT];
+
+    memset(msg, 0x55, sizeof(msg));
+    memset(x, 0x77, sizeof(x));
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ2;
+    msg[0] = WT_FFA_ERROR;
+    wt_ffa_msg_deliver(x, msg);
+    check(x[0] == WT_FFA_ERROR && x[7] == 0x5555555555555555ull &&
+              ext_equal(x, 0u),
+          "an error answering a blocked REQ2 returns x8-x17 zero, not its payload");
+    memset(x, 0x77, sizeof(x));
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ2;
+    msg[0] = WT_FFA_MSG_SEND_DIRECT_RESP2;
+    wt_ffa_msg_deliver(x, msg);
+    check(ext_equal(x, 0x5555555555555555ull),
+          "a RESP2 answering a blocked REQ2 delivers its own x8-x17");
+    memset(x, 0x77, sizeof(x));
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ32;
+    msg[0] = WT_FFA_YIELD;
+    wt_ffa_msg_deliver(x, msg);
+    check(x[0] == WT_FFA_YIELD && ext_equal(x, 0x7777777777777777ull),
+          "a blocked SMC32 caller keeps its own x8-x17");
+    memset(x, 0x77, sizeof(x));
+    x[0] = WT_FFA_MSG_SEND_DIRECT_RESP2;
+    msg[0] = WT_FFA_MSG_SEND_DIRECT_REQ64;
+    wt_ffa_msg_deliver(x, msg);
+    check(x[0] == WT_FFA_MSG_SEND_DIRECT_REQ64 && ext_equal(x, 0u),
+          "a REQ64 to a partition waiting in RESP2 clears that response's x8-x17");
+    memset(x, 0x77, sizeof(x));
+    x[0] = WT_FFA_MSG_WAIT;
+    msg[0] = WT_FFA_MSG_SEND_DIRECT_REQ2;
+    wt_ffa_msg_deliver(x, msg);
+    check(ext_equal(x, 0x5555555555555555ull),
+          "a REQ2 to a partition waiting in FFA_MSG_WAIT carries its x8-x17");
+}
+
 /* FFA_RUN (14.3): w1 names the endpoint and the vCPU of it to run; each
  * endpoint here has the single execution context 0. */
 static void run_target_rows(void)
@@ -815,6 +857,7 @@ int main(void)
     direct_message_rows();
     run_target_rows();
     reply_ext_rows();
+    msg_deliver_rows();
     msg2_rows();
     partition_info_rows();
     manifest_record_rows();

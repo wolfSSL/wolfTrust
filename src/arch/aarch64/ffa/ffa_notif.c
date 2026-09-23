@@ -335,10 +335,13 @@ int32_t wt_ffa_notif_get(uint16_t caller, uint32_t w1, uint32_t flags,
         out->from_vm = receiver->pend_vm;
         receiver->pend_vm = 0u;
     }
-    if ((flags & (WT_FFA_NOTIF_GET_FLAG_SPM | WT_FFA_NOTIF_GET_FLAG_HYP)) !=
-        0u) {
-        out->framework = receiver->pend_fw;
-        receiver->pend_fw = 0u;
+    if ((flags & WT_FFA_NOTIF_GET_FLAG_SPM) != 0u) {
+        out->framework |= receiver->pend_fw & WT_FFA_NOTIF_FW_SPM_MASK;
+        receiver->pend_fw &= ~WT_FFA_NOTIF_FW_SPM_MASK;
+    }
+    if ((flags & WT_FFA_NOTIF_GET_FLAG_HYP) != 0u) {
+        out->framework |= receiver->pend_fw & WT_FFA_NOTIF_FW_HYP_MASK;
+        receiver->pend_fw &= ~WT_FFA_NOTIF_FW_HYP_MASK;
     }
     if (ep_pending(receiver) == 0u) {
         receiver->info_reported = 0u;

@@ -314,12 +314,27 @@ static void get_rows(void)
     check(wt_ffa_notif_frame_rx_full(SP2, 0) == 0,
           "a Normal-world message pends RX-full for SP2");
     check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_HYP, &got) == 0,
-          "either framework flag drains it");
+          "the Hypervisor framework flag drains it");
     check(got.framework == WT_FFA_NOTIF_FW_NS_RX_FULL,
           "a Normal-world sender's RX-full is bit 32");
     check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_SPM, &got) == 0,
           "a second drain succeeds");
     check(got.framework == 0u, "and is empty");
+    check((wt_ffa_notif_frame_rx_full(SP2, 1) == 0) &&
+          (wt_ffa_notif_frame_rx_full(SP2, 0) == 0),
+          "both framework halves pend for SP2");
+    check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_SPM, &got) == 0,
+          "the SPM framework flag alone drains");
+    check(got.framework == WT_FFA_NOTIF_FW_SPM_RX_FULL,
+          "only the SPM half comes back");
+    check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_HYP, &got) == 0,
+          "the Hypervisor framework flag alone drains");
+    check(got.framework == WT_FFA_NOTIF_FW_NS_RX_FULL,
+          "the Hypervisor half was left pending for it");
+    check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_SPM |
+                           WT_FFA_NOTIF_GET_FLAG_HYP, &got) == 0,
+          "both framework flags drain");
+    check(got.framework == 0u, "and both halves are empty");
 }
 
 static void info_rows(void)

@@ -45,9 +45,12 @@
 #define WT_FFA_NOTIF_GET_FLAG_HYP     (1u << 3)
 #define WT_FFA_NOTIF_GET_FLAG_ALL     0xFu
 
-/* The 64-bit framework bitmap: bit 0 is the RX-buffer-full the SPM pends for
- * a Secure sender's message, bit 32 the one the Normal world's relayer pends;
- * a GET returns the whole bitmap in w6/w7. */
+/* The 64-bit framework bitmap: the SPM's half [31:0] (w6 of a GET) and the
+ * Hypervisor's [63:32] (w7), each drained only by its own GET flag (16.6).
+ * RX-full is bit 0 for a Secure sender's message and bit 32 for a Normal-world
+ * sender's (10.8.1). */
+#define WT_FFA_NOTIF_FW_SPM_MASK      0x00000000FFFFFFFFull
+#define WT_FFA_NOTIF_FW_HYP_MASK      0xFFFFFFFF00000000ull
 #define WT_FFA_NOTIF_FW_SPM_RX_FULL   (1ull << 0)
 #define WT_FFA_NOTIF_FW_NS_RX_FULL    (1ull << 32)
 

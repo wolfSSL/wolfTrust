@@ -395,11 +395,11 @@ assert through `tests/target/lib/expect.sh`.
 | `ffa-sint` | A Secure interrupt is signaled to its owning partition while it waits and queued while it runs |
 | `ns-smoke`, `ffa-discovery` | The Normal-world payload runs at NS-EL1, negotiates FF-A 1.2 with the SPMD, and discovers the partitions through the SPMC |
 | `ffa-guest-direct` | A Normal-world direct request reaches a Secure partition and echoes back |
-| `psci` | The Normal world checks the mandatory PSCI 1.1 calls as a boot-core-only system sees them (`CPU_ON`, `CPU_OFF`, `AFFINITY_INFO`, `CPU_SUSPEND`, the migrate queries, `PSCI_FEATURES`), `SMCCC_VERSION` 1.2 with `SMCCC_ARCH_FEATURES` and `x4`-`x7` preserved across a PSCI call, and powers off through the SPMD |
+| `psci` | The Normal world reads `ICC_SRE_EL1` with SRE set under a GICv3, checks the mandatory PSCI 1.1 calls as a boot-core-only system sees them (`CPU_ON`, `CPU_OFF`, `AFFINITY_INFO`, `CPU_SUSPEND`, the migrate queries, `PSCI_FEATURES`), `SMCCC_VERSION` 1.2 with `SMCCC_ARCH_FEATURES` and `x4`-`x7` preserved across a PSCI call, and powers off through the SPMD |
 | `ffa-preempt` | A core-standby `CPU_SUSPEND` wakes on the Secure tick, the tick preempts the Normal world at EL3, the SPMC services it, and the Normal world resumes |
 | `resetneg` | A Normal-world `SYSTEM_RESET` re-enters the boot chain once and the second reset ends the run; both boots count every parked secondary (two cores on `virt`) |
 | `secramneg` | A Normal-world read of Secure RAM is refused (SKIP on `xlnx-versal-virt`, whose model has no XMPU or RISAF) |
-| `el2dirtyneg` | The `psci` checks on a monitor that starts on EL2 state an earlier stage left dirty (SMC trapped, a foreign virtual MPIDR); `virt` turns EL2 on for it |
+| `el2dirtyneg` | The `psci` checks on a monitor that starts on EL2 state an earlier stage left dirty (SMC trapped, a foreign virtual MPIDR, `ICC_SRE_EL2` clear); `virt` turns EL2 on for it |
 | `smcfuzz` | Every unimplemented SMC function id from the Normal world is refused cleanly (`-1` sign-extended through all of `x0` for an SMC64 id), and an SMC32 call with junk in its upper register halves is read as `w1`-`w7` |
 | `ffa-memneg` | Malformed memory transactions from the Normal world are refused, as is a share sent before an RX/TX pair is mapped or naming a dynamically allocated buffer; a reclaimed handle is dead, and a share sent in two fragments completes under the handle its first fragment reserved |
 | `hsmattackneg` | Under `hsm`, a forged wolfHSM client id cannot reach the attestation key and an NVM-group request never reaches the server; SKIP under `native`, which links no wolfHSM wire |

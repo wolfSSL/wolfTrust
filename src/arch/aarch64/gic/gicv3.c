@@ -60,6 +60,8 @@
 #define WAKE_POLL_LIMIT 1000000u
 
 WT_SYSREG_WRITE(icc_sre_el3, "ICC_SRE_EL3")
+WT_SYSREG_WRITE(icc_sre_el2, "ICC_SRE_EL2")
+WT_SYSREG_READ(id_aa64pfr0_el1, "ID_AA64PFR0_EL1")
 WT_SYSREG_WRITE(icc_sre_el1, "ICC_SRE_EL1")
 WT_SYSREG_WRITE(icc_pmr_el1, "ICC_PMR_EL1")
 WT_SYSREG_READ(icc_pmr_el1, "ICC_PMR_EL1")
@@ -168,6 +170,12 @@ static void gicv3_init_secure(void)
 
     wt_write_icc_sre_el3(ICC_SRE_SRE | ICC_SRE_DFB | ICC_SRE_DIB | ICC_SRE_EN);
     wt_isb();
+    /* An implemented EL2, even unused, gates NS-EL1's ICC_SRE_EL1 and SRE. */
+    if (((wt_read_id_aa64pfr0_el1() >> 8) & 0xFu) != 0u) {
+        wt_write_icc_sre_el2(ICC_SRE_SRE | ICC_SRE_DFB | ICC_SRE_DIB |
+                             ICC_SRE_EN);
+        wt_isb();
+    }
 
     *gicd(GICD_CTLR) = 0u;
     gicd_wait_rwp();

@@ -96,8 +96,11 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt|resetneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
+  # A secondary parks through the warm reset: the re-entered boot core must
+  # count it again.
+  resetneg:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
     exit 0 ;;
@@ -620,6 +623,13 @@ case "$scenario" in
     expect "the first reset re-entered the boot chain" "[EL3] psci system_reset reboot"
     expect "the monitor booted the chain a second time" "[EL3] wolfTrust monitor cntfrq="
     expect "the second reset ended the run through the boot-flag path" "[EL3] psci system_reset done"
+    parked=$(grep -Fao " secondaries parked mask=$expected_mask" "$log" | wc -l | tr -d ' ')
+    if [ "$parked" -eq 2 ]; then
+      check_pass "both boots counted every secondary parked ($cpus cores)"
+    else
+      check_fail "both boots counted every secondary parked ($cpus cores)" \
+        "mask=$expected_mask on $parked of 2 boots"
+    fi
     expect "the re-entered chain exited cleanly" "[EXPECT BKPT] Success"
     ;;
   secramneg)

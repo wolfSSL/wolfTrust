@@ -106,6 +106,69 @@ int wt_ffa_mem_attributes_check(uint16_t attributes)
     return ret;
 }
 
+/* Normal memory shareability in DEN0140 1.10.4 precedence order. */
+static uint32_t share_rank(uint16_t attributes)
+{
+    uint32_t share = (uint32_t)attributes & WT_FFA_MEM_ATTR_SHARE_MASK;
+    uint32_t rank = 0u;
+
+    if (share == WT_FFA_MEM_ATTR_SHARE_INNER) {
+        rank = 1u;
+    }
+    else if (share == WT_FFA_MEM_ATTR_SHARE_OUTER) {
+        rank = 2u;
+    }
+    return rank;
+}
+
+/* Non-zero when valid, specified attributes asked are the same as or less
+ * permissive than the Normal memory attributes limit, each attribute on its
+ * own (1.10.4: Device < Normal, Non-cacheable < Write-Back, Non-shareable <
+ * Inner Shareable < Outer Shareable). */
+static int attributes_within(uint16_t asked, uint16_t limit)
+{
+    uint32_t type = (uint32_t)asked & WT_FFA_MEM_ATTR_TYPE_MASK;
+    int within = 0;
+
+    if (((uint32_t)limit & WT_FFA_MEM_ATTR_TYPE_MASK) ==
+        WT_FFA_MEM_ATTR_TYPE_NORMAL) {
+        if (type == WT_FFA_MEM_ATTR_TYPE_DEVICE) {
+            within = 1;
+        }
+        else if (type == WT_FFA_MEM_ATTR_TYPE_NORMAL) {
+            within = (((uint32_t)asked & WT_FFA_MEM_ATTR_CACHE_MASK) <=
+                      ((uint32_t)limit & WT_FFA_MEM_ATTR_CACHE_MASK)) &&
+                     (share_rank(asked) <= share_rank(limit));
+        }
+    }
+    return within;
+}
+
+int wt_ffa_mem_send_attributes(uint16_t attributes, uint16_t* out)
+{
+    int ret = 0;
+
+    if ((out == NULL) ||
+        ((attributes & (WT_FFA_MEM_ATTR_RSVD_MASK | WT_FFA_MEM_ATTR_NS)) != 0u) ||
+        (wt_ffa_mem_attributes_check(attributes) != 0)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    else if ((attributes & WT_FFA_MEM_ATTR_TYPE_MASK) == 0u) {
+        attributes = (uint16_t)WT_FFA_MEM_ATTR_RELAYER;
+    }
+    else if (attributes_within(attributes,
+                               (uint16_t)WT_FFA_MEM_ATTR_RELAYER) == 0) {
+        ret = WT_FFA_DENIED;
+    }
+    else if (attributes != (uint16_t)WT_FFA_MEM_ATTR_RELAYER) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    if (ret == 0) {
+        *out = attributes;
+    }
+    return ret;
+}
+
 int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
                          const wt_ffa_mem_build_t* in, size_t* out_len)
 {
@@ -793,6 +856,7 @@ void wt_ffa_mem_registry_init(wt_ffa_mem_registry_t* reg)
         reg->entries[i].retrieved = 0u;
         reg->entries[i].region_count = 0u;
         reg->entries[i].borrower_count = 0u;
+        reg->entries[i].attributes = 0u;
     }
     reg->next_handle = 1u;
 }
@@ -833,6 +897,7 @@ int wt_ffa_mem_share_register_as(wt_ffa_mem_registry_t* reg,
             reg->entries[i].retrieved = 0u;
             reg->entries[i].tag = 0u;
             reg->entries[i].owner_cookie = 0u;
+            reg->entries[i].attributes = 0u;
             reg->entries[i].borrower_count = 1u;
             reg->entries[i].borrowers[0].id = borrower;
             reg->entries[i].borrowers[0].permissions =
@@ -1023,6 +1088,16 @@ void wt_ffa_mem_handle_set_meta(wt_ffa_mem_registry_t* reg, uint64_t handle,
     if (e != NULL) {
         e->tag = tag;
         e->owner_cookie = owner_cookie;
+    }
+}
+
+void wt_ffa_mem_handle_set_attributes(wt_ffa_mem_registry_t* reg,
+                                      uint64_t handle, uint16_t attributes)
+{
+    wt_ffa_mem_handle_entry_t* e = (reg != NULL) ? find_handle(reg, handle) : NULL;
+
+    if (e != NULL) {
+        e->attributes = attributes;
     }
 }
 
@@ -1300,6 +1375,17 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
     }
     if (ret == 0) {
         ret = wt_ffa_mem_attributes_check(rq->attributes);
+    }
+    /* Attributes a borrower states are held against those its memory is
+     * mapped with: more permissive ones fail validation (1.10.4.2 items 1 and
+     * 2), less permissive ones the relayer cannot map (item 5). */
+    if ((ret == 0) && ((rq->attributes & WT_FFA_MEM_ATTR_TYPE_MASK) != 0u)) {
+        if (attributes_within(rq->attributes, e->attributes) == 0) {
+            ret = WT_FFA_DENIED;
+        }
+        else if (rq->attributes != e->attributes) {
+            ret = WT_FFA_INVALID_PARAMETERS;
+        }
     }
     /* Every other borrower named must carry the data access the lender gave
      * it (1.10.2 item 1). */

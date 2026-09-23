@@ -125,6 +125,10 @@
 #define WT_FFA_MEM_ATTR_TYPE_NORMAL     (0x2u << WT_FFA_MEM_ATTR_TYPE_SHIFT)
 #define WT_FFA_MEM_ATTR_NS              (1u << 6)   /* non-secure memory */
 #define WT_FFA_MEM_ATTR_RSVD_MASK       0xFF80u     /* bits[15:7] must be zero */
+/* What the relayer's stage 1 tables map every borrower with. */
+#define WT_FFA_MEM_ATTR_RELAYER         (WT_FFA_MEM_ATTR_TYPE_NORMAL | \
+                                         WT_FFA_MEM_ATTR_CACHE_WB | \
+                                         WT_FFA_MEM_ATTR_SHARE_INNER)
 
 /* The memory management operation, derived from the FF-A function id by the
  * caller. Ordered to match the transaction-type field encoding (Table 5.21). */
@@ -202,6 +206,14 @@ typedef struct wt_ffa_mem_build {
  * must-not-be-used, and the bits a Device or unspecified type leaves reserved
  * are zero. Returns 0 or WT_FFA_INVALID_PARAMETERS (1.10.4.2 item 5). */
 int wt_ffa_mem_attributes_check(uint16_t attributes);
+
+/* The attributes the borrowers of a lend or share map with, from the valid
+ * attributes its sender stated (DEN0140 1.10.4.2): an unspecified type leaves
+ * them to the relayer, which maps only WT_FFA_MEM_ATTR_RELAYER. Returns 0 with
+ * *out set, WT_FFA_DENIED for more permissive attributes than that (item 1),
+ * or WT_FFA_INVALID_PARAMETERS for less permissive ones it cannot map, such
+ * as Device, non-cacheable, or non-shareable memory (item 5). */
+int wt_ffa_mem_send_attributes(uint16_t attributes, uint16_t* out);
 
 /* Lay out a single-receiver memory transaction descriptor for op into buf
  * (header, one endpoint access descriptor, composite header, constituents).
@@ -379,6 +391,7 @@ typedef struct wt_ffa_mem_handle_entry {
     uint32_t owner_cookie; /* relayer cookie: the owner's own mapping */
     uint16_t owner;
     uint16_t borrower;     /* the first borrower */
+    uint16_t attributes;   /* Table 1.18 bits[5:0] every borrower maps with */
     uint8_t  state;
     uint8_t  retrieved;    /* borrowers currently holding the region */
     uint8_t  region_count;
@@ -468,6 +481,11 @@ int wt_ffa_mem_receiver_impdef(const uint8_t* buf, size_t len,
 void wt_ffa_mem_handle_set_meta(wt_ffa_mem_registry_t* reg, uint64_t handle,
                                 uint64_t tag, uint32_t owner_cookie);
 
+/* Record the attributes (wt_ffa_mem_send_attributes) the borrowers of a live
+ * handle map with; a retrieve request is held against them. */
+void wt_ffa_mem_handle_set_attributes(wt_ffa_mem_registry_t* reg,
+                                      uint64_t handle, uint16_t attributes);
+
 /* Name a further borrower of a live handle nobody has retrieved yet. Returns 0,
  * WT_FFA_INVALID_PARAMETERS for an unknown handle, the owner, or a repeat, or
  * WT_FFA_NO_MEMORY past WT_FFA_MEM_MAX_BORROWERS. */
@@ -523,12 +541,13 @@ uint32_t wt_ffa_mem_type_flag(uint8_t state);
  * implementation-defined bytes it repeats, no borrower is named twice and
  * without the bypass flag each of them is named (1.11.3.3), the Non-retrieval
  * Borrower flag is clear in the receiver's own entry and set in every other
- * (Table 1.17), the tag, flags, transaction type, and attributes agree, and
- * every other borrower named carries the data access the lender gave it.
- * Returns 0,
- * WT_FFA_INVALID_PARAMETERS for a field the request got wrong, or
- * WT_FFA_DENIED for Device memory (only Normal memory is ever sent) or another
- * borrower's data access that is not the lender's. */
+ * (Table 1.17), the tag, flags, and transaction type agree, attributes it
+ * states are the transaction's own (1.10.4.2), and every other borrower named
+ * carries the data access the lender gave it. Returns 0,
+ * WT_FFA_INVALID_PARAMETERS for a field the request got wrong or attributes
+ * less permissive than the transaction's (item 5), or WT_FFA_DENIED for Device
+ * memory (only Normal memory is ever sent), more permissive attributes, or
+ * another borrower's data access that is not the lender's. */
 int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
                                   const wt_ffa_mem_retrieve_req_t* rq,
                                   uint16_t receiver);

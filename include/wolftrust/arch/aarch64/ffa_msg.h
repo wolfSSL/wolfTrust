@@ -69,8 +69,10 @@ int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst);
 /* FFA_MSG_SEND2 (16.4): the v1.2 partition message header at the start of
  * the sender's TX buffer - flags, two reserved words, payload offset, sender
  * and receiver ids (sender bits 31:16), payload size, and the receiver's
- * UUID. w1 carries the sender in bits 31:16 with 15:0 reserved; w2 allows
- * only the delay-SRI flag in bit 1. */
+ * UUID. w1 bits 15:0 are reserved. At the NS physical instance w1 bits 31:16
+ * name the sender and w2 allows only the delay-SRI flag in bit 1; at the
+ * secure virtual instance (the SVC conduit) w1 bits 31:16 are MBZ and w2 is
+ * ignored (Table 15.3). */
 #define WT_FFA_MSG2_HEADER_SIZE   40u
 #define WT_FFA_MSG2_FLAG_DELAY_SRI (1u << 1)
 
@@ -84,7 +86,8 @@ typedef struct wt_ffa_msg2 {
 /* Validate the header against the caller and the TX bounds; the receiver's
  * UUID is the caller's to compare once the receiver is known. */
 int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
-                      uint32_t w1, uint32_t w2, wt_ffa_msg2_t* out);
+                      wt_ffa_instance_t inst, uint32_t w1, uint32_t w2,
+                      wt_ffa_msg2_t* out);
 
 /* A header either names the receiver's UUID or leaves it Nil. */
 int wt_ffa_msg2_uuid_ok(const uint8_t* header_uuid, const uint8_t* ep_uuid);

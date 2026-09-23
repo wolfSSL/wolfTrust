@@ -832,6 +832,7 @@ static void ffa_msg_send2(wt_trap_frame_t* frame, const struct wt_co* co)
     ret = wt_spm_msg2_deliver((uint16_t)wt_spm_sp_ffa_id(co),
                               (const uint8_t*)(uintptr_t)mb->tx,
                               mb->pages * (uint32_t)WT_TABLES_PAGE_SIZE,
+                              WT_FFA_INSTANCE_SECURE_VIRTUAL,
                               (uint32_t)frame->x[1], (uint32_t)frame->x[2]);
     if (ret == 0) {
         ffa_success(frame, 0u, 0u);

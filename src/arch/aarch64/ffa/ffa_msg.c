@@ -117,7 +117,8 @@ static uint32_t msg2_read32(const uint8_t* p)
 }
 
 int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
-                      uint32_t w1, uint32_t w2, wt_ffa_msg2_t* out)
+                      wt_ffa_instance_t inst, uint32_t w1, uint32_t w2,
+                      wt_ffa_msg2_t* out)
 {
     uint32_t flags;
     uint32_t sender_receiver;
@@ -127,8 +128,17 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
         (tx_size < WT_FFA_MSG2_HEADER_SIZE)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    if (((w1 & 0xFFFFu) != 0u) ||
-        ((w2 & ~(uint32_t)WT_FFA_MSG2_FLAG_DELAY_SRI) != 0u)) {
+    if ((w1 & 0xFFFFu) != 0u) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    /* Table 15.3: the w1 sender is MBZ and w2 is ignored at the SVC conduit. */
+    if (inst == WT_FFA_INSTANCE_NS_PHYSICAL) {
+        if (((w2 & ~(uint32_t)WT_FFA_MSG2_FLAG_DELAY_SRI) != 0u) ||
+            (((w1 >> 16) != 0u) && ((uint16_t)(w1 >> 16) != caller))) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+    }
+    else if ((w1 >> 16) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     flags = msg2_read32(&tx[0]);
@@ -142,10 +152,7 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
         (msg2_read32(&tx[20]) != 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    /* The header names the caller as sender; w1 repeats it at the physical
-     * instance and is zero at the secure virtual one (16.4). */
-    if ((sender != caller) ||
-        (((w1 >> 16) != 0u) && ((uint16_t)(w1 >> 16) != caller))) {
+    if (sender != caller) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if (sender == out->receiver) {

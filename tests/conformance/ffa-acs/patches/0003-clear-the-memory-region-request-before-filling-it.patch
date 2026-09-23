@@ -71,17 +71,19 @@ index e4f3c28..94b898d 100644
      mem_region_init.sender = sender;
      mem_region_init.receiver = receiver;
 diff --git a/test/v1.0/memory_manage/donate_retrieve_with_address_range/donate_retrieve_with_address_range_server.c b/test/v1.0/memory_manage/donate_retrieve_with_address_range/donate_retrieve_with_address_range_server.c
-index 3eca657..7b4b1a5 100644
+index 3eca657..d1c700a 100644
 --- a/test/v1.0/memory_manage/donate_retrieve_with_address_range/donate_retrieve_with_address_range_server.c
 +++ b/test/v1.0/memory_manage/donate_retrieve_with_address_range/donate_retrieve_with_address_range_server.c
-@@ -190,6 +190,7 @@ uint32_t donate_retrieve_with_address_range_server(ffa_args_t args)
+@@ -190,8 +190,8 @@ uint32_t donate_retrieve_with_address_range_server(ffa_args_t args)
       *            INVALID_PARAMETERS.
       */
      flags = VAL_SET_BITS(flags, 5, 5, 0x11);
-+    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
-     mem_region_init.flags = flags;
+-    mem_region_init.flags = flags;
      val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
++    mem_region_init.flags = flags;
      mem_region_init.memory_region = mb.send;
+     mem_region_init.sender = receiver;
+     mem_region_init.receiver = sender;
 diff --git a/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_client.c b/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_client.c
 index 96f7044..93f99d6 100644
 --- a/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_client.c
@@ -275,17 +277,19 @@ index c894478..e427f30 100644
      mem_region_init.sender = sender;
      mem_region_init.receiver = receiver;
 diff --git a/test/v1.0/memory_manage/lend_retrieve_with_address_range/lend_retrieve_with_address_range_server.c b/test/v1.0/memory_manage/lend_retrieve_with_address_range/lend_retrieve_with_address_range_server.c
-index ae1f831..fc1dc45 100644
+index ae1f831..fb462e2 100644
 --- a/test/v1.0/memory_manage/lend_retrieve_with_address_range/lend_retrieve_with_address_range_server.c
 +++ b/test/v1.0/memory_manage/lend_retrieve_with_address_range/lend_retrieve_with_address_range_server.c
-@@ -101,6 +101,7 @@ uint32_t lend_retrieve_with_address_range_server(ffa_args_t args)
+@@ -101,8 +101,8 @@ uint32_t lend_retrieve_with_address_range_server(ffa_args_t args)
       *            INVALID_PARAMETERS.
       */
      flags = VAL_SET_BITS(flags, 5, 5, 0x11);
-+    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
-     mem_region_init.flags = flags;
+-    mem_region_init.flags = flags;
      val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
++    mem_region_init.flags = flags;
      mem_region_init.memory_region = mb.send;
+     mem_region_init.sender = receiver;
+     mem_region_init.receiver = sender;
 diff --git a/test/v1.0/memory_manage/lend_shareability_attr/lend_shareability_attr_server.c b/test/v1.0/memory_manage/lend_shareability_attr/lend_shareability_attr_server.c
 index 5c14ba9..14fec41 100644
 --- a/test/v1.0/memory_manage/lend_shareability_attr/lend_shareability_attr_server.c
@@ -519,17 +523,19 @@ index 72c86ab..409ba3b 100644
      mem_region_init.sender = sender;
      mem_region_init.receiver = receiver;
 diff --git a/test/v1.0/memory_manage/share_retrieve_with_address_range/share_retrieve_with_address_range_server.c b/test/v1.0/memory_manage/share_retrieve_with_address_range/share_retrieve_with_address_range_server.c
-index 412f0bd..d3840b3 100644
+index 412f0bd..3fb9186 100644
 --- a/test/v1.0/memory_manage/share_retrieve_with_address_range/share_retrieve_with_address_range_server.c
 +++ b/test/v1.0/memory_manage/share_retrieve_with_address_range/share_retrieve_with_address_range_server.c
-@@ -101,6 +101,7 @@ uint32_t share_retrieve_with_address_range_server(ffa_args_t args)
+@@ -101,8 +101,8 @@ uint32_t share_retrieve_with_address_range_server(ffa_args_t args)
       *            INVALID_PARAMETERS.
       */
      flags = VAL_SET_BITS(flags, 5, 5, 0x11);
-+    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
-     mem_region_init.flags = flags;
+-    mem_region_init.flags = flags;
      val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
++    mem_region_init.flags = flags;
      mem_region_init.memory_region = mb.send;
+     mem_region_init.sender = receiver;
+     mem_region_init.receiver = sender;
 diff --git a/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_client.c b/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_client.c
 index e54636f..ffb18a4 100644
 --- a/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_client.c

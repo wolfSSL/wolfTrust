@@ -81,7 +81,7 @@ fragments.
 | --- | --- |
 | 0001 | `up_migrate_capable` is not applicable on a single-PE platform. |
 | 0002 | A memory test read its handle after `FFA_FEATURES` had overwritten it. |
-| 0003 | Memory-region requests were filled without first clearing them. |
+| 0003 | Memory-region requests were filled without first clearing them. The three `*_retrieve_with_address_range` servers cleared theirs only after setting the alignment-hint flag, erasing it, so the flag is now set after the clear. |
 | 0004 | The platform describes its own endpoint properties. |
 | 0005 | The build forwards the partition-message UUID field setting. |
 | 0006 | An indirect-messaging test packed physical endpoint ids into logical-id fields. |

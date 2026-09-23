@@ -295,8 +295,8 @@ wt_sp_ffa_discover:
     uxth    w20, w2                     /* match count (w2) */
     ldrh    w21, [x19]                  /* first descriptor's partition id */
     orr     x1, x20, x21, lsl #16       /* token = first_id<<16 | count */
-    movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3800101) */
-    movk    w0, #0xC380, lsl #16
+    movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3000101) */
+    movk    w0, #0xC300, lsl #16
     svc     #0
 1:  b       1b
 
@@ -328,8 +328,8 @@ wt_sp_ffa_borrow:
     ldr     w1, [x21]                   /* the four seeded bytes */
     mov     w5, #0xEE
     strb    w5, [x21, #4]               /* reply written through the mapping */
-    movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3800101) */
-    movk    w0, #0xC380, lsl #16
+    movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3000101) */
+    movk    w0, #0xC300, lsl #16
     svc     #0
     str     x20, [x22]                  /* relinquish descriptor: handle */
     str     wzr, [x22, #8]              /* flags */
@@ -342,7 +342,7 @@ wt_sp_ffa_borrow:
     svc     #0
 2:  mov     x1, x0                      /* yield the FF-A status */
     movz    w0, #0x0101
-    movk    w0, #0xC380, lsl #16
+    movk    w0, #0xC300, lsl #16
     svc     #0
 1:  b       1b
 
@@ -351,11 +351,11 @@ wt_sp_ffa_borrow:
     .globl wt_sp_el0_probe
 wt_sp_el0_probe:
     mov     w0, #0x0101
-    movk    w0, #0xC380, lsl #16
+    movk    w0, #0xC300, lsl #16
     mov     x1, #0x5A
     svc     #0
     mov     w0, #0x0101
-    movk    w0, #0xC380, lsl #16
+    movk    w0, #0xC300, lsl #16
     mov     x1, #0xA5
     svc     #0
 1:  b       1b

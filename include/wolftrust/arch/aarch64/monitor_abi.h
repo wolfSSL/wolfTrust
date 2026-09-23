@@ -25,12 +25,12 @@
 
 /* S-EL1 -> EL3 monitor calls: SMC64 OEM function ids, accepted only from
  * the Secure world; a Non-secure caller gets WT_MON_NOT_SUPPORTED. */
-#define WT_MON_FID_RESUME_NS     0xC3800000u
-#define WT_MON_FID_LAUNCH_NS     0xC3800001u
-#define WT_MON_FID_PANIC         0xC3800002u
-#define WT_MON_FID_SYSTEM_RESET  0xC3800003u
-#define WT_MON_FID_EXIT          0xC3800004u
-#define WT_MON_FID_SET_TICK_HZ   0xC3800005u
+#define WT_MON_FID_RESUME_NS     0xC3000000u
+#define WT_MON_FID_LAUNCH_NS     0xC3000001u
+#define WT_MON_FID_PANIC         0xC3000002u
+#define WT_MON_FID_SYSTEM_RESET  0xC3000003u
+#define WT_MON_FID_EXIT          0xC3000004u
+#define WT_MON_FID_SET_TICK_HZ   0xC3000005u
 
 #define WT_MON_NOT_SUPPORTED     0xFFFFFFFFFFFFFFFFull
 

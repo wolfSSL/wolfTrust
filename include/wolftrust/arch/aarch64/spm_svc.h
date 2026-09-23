@@ -40,13 +40,13 @@
 #endif
 
 /* x0 = this id, x1 = wt_spm_call_t*, x8 = call->op; x0 = gate status out. */
-#define WT_SPM_SVC_FID_CALL  0xC3800100u
+#define WT_SPM_SVC_FID_CALL  0xC3000100u
 /* Scheduler yield from a partition; x1 carries a token the SPMC records. */
-#define WT_SPM_SVC_FID_YIELD 0xC3800101u
+#define WT_SPM_SVC_FID_YIELD 0xC3000101u
 /* Test-timer service for the ACS platform layer: arm a Secure interrupt
  * (x1 = intid, x2 = deadline in milliseconds) or stop the caller's own. */
-#define WT_SPM_SVC_FID_TIMER_ARM  0xC3800102u
-#define WT_SPM_SVC_FID_TIMER_STOP 0xC3800103u
+#define WT_SPM_SVC_FID_TIMER_ARM  0xC3000102u
+#define WT_SPM_SVC_FID_TIMER_STOP 0xC3000103u
 
 /* The para-virtual interrupt controls of the ACS partition support layer
  * (Hafnium's values), taken at the SVC gate: enable claims an interrupt for

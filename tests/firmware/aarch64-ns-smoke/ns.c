@@ -297,7 +297,8 @@ static void guest_hsm_attack(void)
     if (rc == WH_ERROR_OK) {
         do {
             rc = wh_Client_RecvResponse(&g_hsm_client, &rGroup, &rAction,
-                                        &rSize, nvmbuf);
+                                        &rSize, (uint16_t)sizeof(nvmbuf),
+                                        nvmbuf);
         } while ((rc == WH_ERROR_NOTREADY) && (guard-- > 0));
     }
     if (rc != WH_ERROR_OK) {

@@ -13,7 +13,7 @@ root="$(cd "$(dirname "$0")/.." && pwd)"
 ALLOW="$root/tools/el3-symbols.allow"
 DENY='^(wt_ffm_|wt_spm_|wt_monitor_|wt_hsm_|wt_attest|wt_vault|wt_its_|wt_ps_|wt_fwu|wt_vnet|wc_|wh_|psa_)'
 
-# audit <allow-file> < nm-listing : prints offenders, returns their count
+# audit <allow-file> < nm-listing : prints offenders, fails if there are any
 audit() {
   local allow="$1" pats defined undefined bad=0 hit
   pats="$(grep -vE '^[[:space:]]*(#|$)' "$allow")"
@@ -33,7 +33,7 @@ audit() {
     echo "  core, service, or crypto symbol defined inside the EL3 archive: $hit"
     bad=$((bad + 1))
   done < <(printf '%s\n' "$defined" | grep -E "$DENY" || true)
-  return "$bad"
+  [ "$bad" -eq 0 ]
 }
 
 selftest() {
@@ -45,6 +45,9 @@ selftest() {
   case "$out" in *"allow-list: wt_ffm_call"*) ;; *) echo "SELFTEST FAIL: wt_ffm_call not flagged"; fails=$((fails + 1)) ;; esac
   case "$out" in *"EL3 archive: wt_spm_init"*) ;; *) echo "SELFTEST FAIL: wt_spm_init not flagged"; fails=$((fails + 1)) ;; esac
   case "$out" in *"EL3 archive: wt_hsm_helper"*) ;; *) echo "SELFTEST FAIL: local wt_hsm_helper not flagged"; fails=$((fails + 1)) ;; esac
+  # A shell status wraps modulo 256, so exactly 256 offenders must still fail.
+  out="$(awk 'BEGIN { print "big.o:"; for (i = 0; i < 256; i++) printf "%016x T wt_spm_leak%d\n", i * 4, i }' \
+    | audit "$ALLOW")" && { echo "SELFTEST FAIL: 256 offenders accepted"; fails=$((fails + 1)); }
   if [ "$fails" -ne 0 ]; then echo "SELFTEST: $fails failure(s)"; exit 1; fi
   echo "SELFTEST: ok"
   exit 0

@@ -58,6 +58,8 @@ acs_deviations="ffa_partition_info_get_lsp"
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
 . "$repo/tests/target/lib/expect.sh"
+# Crypto engine of the secure image and the Normal-world guest: native or hsm.
+. "$repo/tests/target/lib/engine.sh"
 
 MACHINE="${MACHINE:-virt}"
 GIC="${GIC:-3}"
@@ -81,6 +83,11 @@ case "$MACHINE" in
   versal-virt) tag="versal-virt"; target=versal ;;
   *) echo "unsupported MACHINE=$MACHINE (virt or versal-virt)" >&2; exit 2 ;;
 esac
+
+if [ "$scenario" = hsmattackneg ] && [ "$WT_ENGINE" = native ]; then
+  echo "SKIP: qemu-a/hsmattackneg (native engine): the native engine links no wolfHSM client wire, server, or message handlers, so the forged COMM_INIT and NVM-group attack surface does not exist"
+  exit 0
+fi
 
 # cpus = cores the image expects to see (boot core + parked secondaries).
 # versal-virt models 2 A72 + 2 R5 and QEMU refuses fewer than 4 CPUs there;
@@ -212,7 +219,7 @@ else
       WT_NS_GUEST_ECHO="$ns_echo" WT_NS_GUEST_PSCI="$ns_psci" \
       WT_NS_PREEMPT="$ns_preempt" WT_NS_GUEST_PSA="$ns_psa" \
       WT_NS_GUEST_ID="$ns_id" WT_NS_GUEST_FUZZ="$ns_fuzz" \
-      WT_NS_HSM_ATTACK="$ns_hsmattack" \
+      WT_NS_HSM_ATTACK="$ns_hsmattack" WT_ENGINE="$WT_ENGINE" \
       WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
       WT_NS_GUEST_RESET="$ns_reset" WT_NS_GUEST_MEMNEG="$ns_memneg" \
       WT_NS_GUEST_STORAGE="$ns_storage" WT_RUN_CONFORMANCE="$ns_conf" \
@@ -224,8 +231,12 @@ else
   fi
   if [ -n "$acs_suite" ]; then
     acs_out="$build/acs"
+    # FF-A ids follow coroutine creation order; the hsm engine's guest-0
+    # wolfHSM server tasklet takes one slot ahead of the ACS partitions.
+    acs_id_base=0x8008
+    [ "$WT_ENGINE" = hsm ] && acs_id_base=0x8009
     SUITE="$acs_suite" TOOLPREFIX="$TOOLPREFIX" \
-      WT_ACS_SP_ID_BASE="${WT_ACS_SP_ID_BASE:-0x8009}" \
+      WT_ACS_SP_ID_BASE="${WT_ACS_SP_ID_BASE:-$acs_id_base}" \
       "$repo/tests/conformance/ffa-acs/build_acs.sh" "$MACHINE" "$acs_out" >/dev/null
     ns_bin="$acs_out/vm1.bin"
     # The suite requires its NVM to read 0xFF at power-on.
@@ -555,7 +566,11 @@ case "$scenario" in
     expect "an unknown service was refused by the gateway" "[NS] psa connect refused"
     refute_re "the data-carrying call was not misjudged" '\[NS\] psa call BAD'
     expect "the guest completed a data-carrying psa_call through the routed gateway" "[NS] psa call ok"
-    expect "the wolfHSM client echoed a packet through the relay partition and the wolfHSM server" "[NS] hsm echo ok"
+    if [ "$WT_ENGINE" = hsm ]; then
+      expect "the wolfHSM client echoed a packet through the relay partition and the wolfHSM server" "[NS] hsm echo ok"
+    else
+      expect "the native crypto client drew distinct random blocks from the crypto partition" "[NS] native random ok"
+    fi
     expect "the guest closed its handle" "[NS] psa close ok"
     expect "the Normal-world guest reached the services and finished" "[NS] guest$guest_id ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
@@ -566,7 +581,11 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the SPMC completed initialization" "[SPM] partitions ready n=6"
-    expect "the wolfHSM relay still serves the guest" "[NS] hsm echo ok"
+    if [ "$WT_ENGINE" = hsm ]; then
+      expect "the wolfHSM relay still serves the guest" "[NS] hsm echo ok"
+    else
+      expect "the native crypto service still serves the guest" "[NS] native random ok"
+    fi
     expect "the guest ran to completion under fail-closed attestation" "[NS] guest0 ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;

@@ -124,7 +124,20 @@ SRCS += $(ROOT)/src/client/psa_ffm_client.c \
     $(ROOT)/src/arch/aarch64/ffa/psa_ffa_transport_arch.c \
     $(ROOT)/src/arch/aarch64/common/libc_min.c
 endif
-ifeq ($(WT_NS_GUEST_PSA),1)
+# The crypto engine of the matching secure build picks the guest's client.
+WT_ENGINE ?= native
+ifneq ($(words $(WT_ENGINE))/$(filter native hsm,$(WT_ENGINE)),1/$(WT_ENGINE))
+$(error unsupported WT_ENGINE='$(WT_ENGINE)' (want native or hsm))
+endif
+ifeq ($(WT_NS_HSM_ATTACK)/$(WT_ENGINE),1/native)
+$(error WT_NS_HSM_ATTACK=1 drives the wolfHSM wire and needs WT_ENGINE=hsm)
+endif
+ifeq ($(WT_NS_GUEST_PSA)/$(WT_ENGINE),1/native)
+CFLAGS += -DWT_NS_GUEST_PSA=1 -DWT_NS_GUEST_ID=$(WT_NS_GUEST_ID) \
+    -DWT_NS_ENGINE_NATIVE=1
+SRCS += $(ROOT)/src/client/crypto_native_client.c
+endif
+ifeq ($(WT_NS_GUEST_PSA)/$(WT_ENGINE),1/hsm)
 CFLAGS += -DWT_NS_GUEST_PSA=1 -DWT_NS_GUEST_ID=$(WT_NS_GUEST_ID) \
     -DWOLFHSM_CFG -I. -I$(WOLFHSM_DIR)
 SRCS += $(ROOT)/src/client/hsm_psa_transport.c \

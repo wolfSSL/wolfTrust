@@ -790,42 +790,42 @@ static void retrieve_check_rows(void)
         return;
     }
     make_rq(&rq, e, 1u);
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == 0,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
           "a request naming the borrower with the owner's tag is accepted");
     rq.flags = WT_FFA_MEM_FLAG_TYPE_LEND;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == 0,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
           "a request stating the transaction's own type is accepted");
     rq.flags = WT_FFA_MEM_FLAG_TYPE_SHARE;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "a request stating another transaction type is INVALID_PARAMETERS");
     make_rq(&rq, e, 1u);
     rq.tag = 0x78ull;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "a request with another tag is INVALID_PARAMETERS");
     make_rq(&rq, e, 1u);
     rq.flags = 1u << 11;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "a reserved retrieve flag is INVALID_PARAMETERS");
     make_rq(&rq, e, 1u);
     rq.flags = WT_FFA_MEM_FLAG_BYPASS_BORROWERS;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "the bypass flag with a single borrower is INVALID_PARAMETERS");
     make_rq(&rq, e, 1u);
     rq.attributes = (uint16_t)(WT_FFA_MEM_ATTR_TYPE_NORMAL |
                                WT_FFA_MEM_ATTR_CACHE_MASK |
                                WT_FFA_MEM_ATTR_SHARE_INNER | WT_FFA_MEM_ATTR_NS);
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "a request that sets the NS bit is INVALID_PARAMETERS");
     rq.attributes = (uint16_t)WT_FFA_MEM_ATTR_TYPE_DEVICE;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_DENIED,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_DENIED,
           "a request for Device memory is DENIED");
     make_rq(&rq, e, 1u);
     rq.receivers[0] = 0x8009u;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "a request naming an endpoint that is not a borrower is INVALID_PARAMETERS");
     make_rq(&rq, e, 1u);
     rq.impdef[0][3] = 0x5Au;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "a request that does not repeat the implementation-defined bytes is INVALID_PARAMETERS");
 
     e = make_entry(&reg, WT_FFA_MEM_OP_SHARE, 2u);
@@ -835,7 +835,7 @@ static void retrieve_check_rows(void)
     }
     make_rq(&rq, e, 1u);
     rq.flags = WT_FFA_MEM_FLAG_BYPASS_BORROWERS;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == 0,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
           "with several borrowers the bypass flag lets the caller name only itself");
 }
 
@@ -870,7 +870,7 @@ static void time_slice_rows(void)
     if (e != NULL) {
         make_rq(&rq, e, 1u);
         rq.flags = WT_FFA_MEM_FLAG_TIME_SLICE;
-        check(wt_ffa_mem_retrieve_req_check(e, &rq) ==
+        check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
                   WT_FFA_INVALID_PARAMETERS,
               "a retrieve request that asks for time slicing is INVALID_PARAMETERS");
     }
@@ -1011,20 +1011,87 @@ static void attribute_rows(void)
     }
     make_rq(&rq, e, 1u);
     rq.attributes = 0x2Fu;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == 0,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
           "a retrieve request for Normal write-back inner-shareable memory is accepted");
     rq.attributes = 0x30u;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "a retrieve request for the reserved memory type is INVALID_PARAMETERS");
     rq.attributes = 0x2Bu;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "a retrieve request with a reserved Normal cacheability is INVALID_PARAMETERS");
     rq.attributes = 0x0Cu;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "a retrieve request with an unspecified type and cacheability bits set is INVALID_PARAMETERS");
     rq.attributes = 0x1Fu;
-    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_DENIED,
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_DENIED,
           "a retrieve request for Device memory is DENIED before its reserved bits are read");
+}
+
+/* WT-FFA-0009 (the endpoint access descriptor flags byte, 1.10.1). */
+static void access_flag_rows(void)
+{
+    static wt_ffa_mem_registry_t reg;
+    const wt_ffa_mem_handle_entry_t* e;
+    wt_ffa_mem_retrieve_req_t rq;
+    wt_ffa_mem_txn_t txn;
+    uint8_t buf[256];
+    size_t len = 0u;
+
+    len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
+    buf[48u + WT_FFA_MEM_ACC_OFF_FLAGS] = WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a share whose access descriptor sets a flag is INVALID_PARAMETERS");
+    len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_LEND, 0u);
+    buf[48u + WT_FFA_MEM_ACC_OFF_FLAGS] = 0x80u;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "every bit of a lend's access descriptor flags is MBZ");
+    len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_DONATE, 0u);
+    buf[48u + WT_FFA_MEM_ACC_OFF_FLAGS] = 0x02u;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_DONATE, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "every bit of a donate's access descriptor flags is MBZ");
+
+    (void)wt_ffa_mem_retrieve_req_build(buf, sizeof(buf), 0x77ull, 0u, 0x8002u,
+                                        0x02u, &len);
+    buf[48u + WT_FFA_MEM_ACC_OFF_FLAGS] = 0x81u;
+    check(wt_ffa_mem_retrieve_req_parse_ex(buf, len, &rq) == 0 &&
+          rq.access_flags[0] == 0x81u,
+          "a retrieve request yields each access descriptor's flags");
+
+    e = make_entry(&reg, WT_FFA_MEM_OP_LEND, 1u);
+    check(e != NULL, "a single-borrower lend registers");
+    if (e == NULL) {
+        return;
+    }
+    make_rq(&rq, e, 1u);
+    rq.access_flags[0] = WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "the only borrower marking itself a non-retrieval borrower is INVALID_PARAMETERS");
+    rq.access_flags[0] = 0xFEu;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
+          "the SBZ flag bits of a retrieve request are ignored");
+
+    e = make_entry(&reg, WT_FFA_MEM_OP_SHARE, 2u);
+    check(e != NULL, "a two-borrower share registers");
+    if (e == NULL) {
+        return;
+    }
+    make_rq(&rq, e, 2u);
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
+          "naming both borrowers with no flags set is accepted");
+    rq.access_flags[1] = WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
+          "the other borrower's entry may be marked a non-retrieval borrower");
+    rq.access_flags[0] = WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "the caller's own entry marked a non-retrieval borrower is INVALID_PARAMETERS");
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "the rule follows the caller, whichever entry is its own");
 }
 
 int main(void)
@@ -1045,6 +1112,7 @@ int main(void)
     time_slice_rows();
     send_handle_rows();
     attribute_rows();
+    access_flag_rows();
 
     printf("ffa_mem: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

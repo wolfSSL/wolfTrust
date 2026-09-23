@@ -24,7 +24,8 @@ SECTIONS
     .rodata : {
         KEEP(*(.wt_guest_meas))
         *(.rodata .rodata.*)
-        . = ALIGN(16);
+        . = ALIGN(4096);
+        _e_secure_rodata = .;
     } > IMAGE
 
     .keystore_data : {

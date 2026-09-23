@@ -19,9 +19,10 @@
  */
 
 /* WT-FFA-0001 / WT-FFA-0002 (SPMD rows): the Secure physical instance
- * dispatcher replies per 13.2 (version), 13.3 (features), 13.10/13.11
- * (ids), 13.12 (console log, both conventions), zeroes every unused result
- * register, and answers unknown function ids with NOT_SUPPORTED. */
+ * dispatcher replies per 13.2 (version, locked after the SPMC's first other
+ * call), 13.3 (features), 13.10/13.11 (ids), 13.12 (console log, both
+ * conventions), zeroes every unused result register, and answers unknown
+ * function ids with NOT_SUPPORTED. */
 
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/ffa.h"
@@ -154,6 +155,21 @@ int main(void)
     call(&r, WT_FFA_VERSION, 0x80010002u);
     check((int32_t)(uint32_t)r.x[0] == WT_FFA_NOT_SUPPORTED,
           "FFA_VERSION with bit 31 set is NOT_SUPPORTED");
+    call(&r, WT_FFA_VERSION, WT_FFA_VERSION_MAKE(1u, 1u));
+    check((uint32_t)r.x[0] == WT_FFA_VERSION_1_2,
+          "the SPMC may renegotiate before its first other call");
+    wt_ffa_spmd_secure_note(WT_FFA_VERSION);
+    call(&r, WT_FFA_VERSION, WT_FFA_VERSION_1_2);
+    check((uint32_t)r.x[0] == WT_FFA_VERSION_1_2,
+          "FFA_VERSION itself does not end the SPMC's negotiation");
+    wt_ffa_spmd_secure_note(WT_FFA_ID_GET);
+    call(&r, WT_FFA_VERSION, WT_FFA_VERSION_MAKE(1u, 1u));
+    check((int32_t)(uint32_t)r.x[0] == WT_FFA_NOT_SUPPORTED &&
+              rest_zero(r.x, 1u, 7u),
+          "after the SPMC's first other call a different version is NOT_SUPPORTED");
+    call(&r, WT_FFA_VERSION, WT_FFA_VERSION_1_2);
+    check((uint32_t)r.x[0] == WT_FFA_VERSION_1_2,
+          "and the version it settled on is still accepted");
 
     call(&r, WT_FFA_FEATURES, WT_FFA_VERSION);
     check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 && rest_zero(r.x, 1u, 7u),

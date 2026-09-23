@@ -30,6 +30,7 @@
 
 static unsigned int g_spmc_ready;
 static wt_ffa_version_state_t g_ns_version;
+static wt_ffa_version_state_t g_spmc_version;
 
 static void reply_error(wt_ffa_regs_t* r, int32_t code)
 {
@@ -211,6 +212,14 @@ void wt_ffa_spmd_ns_note(uint32_t fid)
     }
 }
 
+/* Any SPMC call but FFA_VERSION settles the version it negotiated (13.2). */
+void wt_ffa_spmd_secure_note(uint32_t fid)
+{
+    if (wt_ffa_fid_in_range(fid) && (fid != WT_FFA_VERSION)) {
+        wt_ffa_version_lock(&g_spmc_version, WT_FFA_VERSION_1_2);
+    }
+}
+
 /* NS-instance FIDs the SPMD cannot answer alone (it has no manifest and owns
  * no mailbox): they are forwarded to the SPMC. */
 int wt_ffa_spmd_ns_forwards(uint32_t fid)
@@ -354,8 +363,8 @@ int wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
             for (i = 1u; i < 8u; i++) {
                 r->x[i] = 0u;
             }
-            r->x[0] = (uint64_t)(uint32_t)wt_ffa_version_reply(w1,
-                                                               WT_FFA_VERSION_1_2);
+            r->x[0] = (uint64_t)(uint32_t)wt_ffa_version_negotiate(
+                &g_spmc_version, w1, WT_FFA_VERSION_1_2);
             break;
         case WT_FFA_FEATURES:
             if (WT_FFA_FEATURES_IS_FID(w1) && spmd_implements(w1)) {

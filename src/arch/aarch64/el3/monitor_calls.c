@@ -97,9 +97,7 @@ static void ns_fiq(wt_el3_frame_t* frame)
     wt_el3_world_preempt_to_secure(frame, intid);
 }
 
-/* An SMC taken at the NS physical instance (SCR_EL3.NS was set): FF-A calls go
- * to the SPMD NS dispatch, everything else is an SMCCC unknown function for
- * now (PSCI lands in a later B3 slice). */
+/* A Normal-world SMC: relayed to the SPMC, or PSCI/SMCCC/FF-A served here. */
 static void ns_smc(wt_el3_frame_t* frame)
 {
     wt_ffa_regs_t regs;

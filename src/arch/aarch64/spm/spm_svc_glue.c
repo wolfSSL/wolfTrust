@@ -49,6 +49,8 @@
 #include <string.h>
 
 #define WT_ESR_EC_SVC64 0x15u
+/* A partition's RX and TX buffers are one 4K page each. */
+#define WT_SP_RXTX_PAGES 1u
 
 wt_trap_frame_t* volatile g_wt_spm_live_frame;
 struct wt_co* volatile g_wt_spm_handler_co;
@@ -312,7 +314,7 @@ static void ffa_rxtx_map(wt_trap_frame_t* frame, const struct wt_co* co)
         return;
     }
     if ((mb->mapped == 0u) &&
-        ((w3 != 1u) || (sp_owns_writable_page(co, tx) == 0) ||
+        ((w3 != WT_SP_RXTX_PAGES) || (sp_owns_writable_page(co, tx) == 0) ||
          (sp_owns_writable_page(co, rx) == 0))) {
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
@@ -704,7 +706,8 @@ static int sp_implements(uint32_t fid)
 }
 
 /* FFA_FEATURES (13.3): exactly the function ids this instance serves; no
- * optional feature id is implemented. */
+ * optional feature id is implemented. FFA_RXTX_MAP reports the one-page
+ * buffer limit ffa_rxtx_map enforces (7.2.2.3). */
 static void ffa_features(wt_trap_frame_t* frame)
 {
     uint32_t query = (uint32_t)frame->x[1];
@@ -719,6 +722,10 @@ static void ffa_features(wt_trap_frame_t* frame)
         else {
             ffa_success(frame, WT_FFA_FEATURES_RETRIEVE_NS_BIT, 0u);
         }
+    }
+    else if ((query == WT_FFA_RXTX_MAP32) || (query == WT_FFA_RXTX_MAP64)) {
+        ffa_success(frame, WT_FFA_FEATURES_RXTX_MAX_PAGES(WT_SP_RXTX_PAGES),
+                    0u);
     }
     else if (WT_FFA_FEATURES_IS_FID(query) && (sp_implements(query) != 0)) {
         ffa_success(frame, 0u, 0u);

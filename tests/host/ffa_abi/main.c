@@ -558,6 +558,11 @@ int main(void)
           WT_FFA_VERSION_MAJOR_OF(WT_FFA_VERSION_1_2) == 1u &&
           WT_FFA_VERSION_MINOR_OF(WT_FFA_VERSION_1_2) == 2u,
           "version 1.2 encodes as major 1 minor 2");
+    check(WT_FFA_FEATURES_RXTX_MAX_PAGES(1u) == 0x00010000u &&
+          (WT_FFA_FEATURES_RXTX_MAX_PAGES(1u) & 0x3u) == 0u &&
+          WT_FFA_FEATURES_RXTX_MAX_PAGES(0u) == 0u,
+          "FFA_FEATURES(FFA_RXTX_MAP) puts the page limit in w2 bits[31:16] "
+          "with a 4K minimum in bits[1:0]");
     check(wt_ffa_version_reply(WT_FFA_VERSION_1_2, WT_FFA_VERSION_1_2) ==
               (int32_t)WT_FFA_VERSION_1_2,
           "a 1.2 caller is told 1.2");

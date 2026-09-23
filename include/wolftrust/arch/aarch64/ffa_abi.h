@@ -198,6 +198,9 @@ static inline int32_t wt_ffa_version_negotiate(wt_ffa_version_state_t* st,
 #define WT_FFA_SRI_INTID              8u
 /* FFA_MEM_RETRIEVE_REQ: bit 1 in (caller) and out (SPMC) = NS bit is used. */
 #define WT_FFA_FEATURES_RETRIEVE_NS_BIT 0x2u
+/* FFA_RXTX_MAP: w2 bits[1:0] = 0 for a 4K minimum and alignment, bits[31:16]
+ * = the most pages per buffer (0 = no limit). */
+#define WT_FFA_FEATURES_RXTX_MAX_PAGES(n) (((uint32_t)(n) & 0xFFFFu) << 16)
 
 /* FFA_PARTITION_INFO_GET_REGS answers in x0-x17 although it is asked in
  * x0-x3, so a relayer decides a reply's width from what it forwarded too. */

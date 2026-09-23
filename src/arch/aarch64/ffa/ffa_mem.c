@@ -1219,6 +1219,8 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
     const wt_ffa_mem_borrower_t* named;
     uint32_t type;
     uint32_t i;
+    uint32_t j;
+    int repeated = 0;
     int ret = 0;
 
     if ((e == NULL) || (rq == NULL) ||
@@ -1239,6 +1241,19 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
             ((rq->access_flags[i] & WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL) != 0u)) {
             ret = WT_FFA_INVALID_PARAMETERS;
         }
+        for (j = 0u; j < i; j++) {
+            if (rq->receivers[j] == rq->receivers[i]) {
+                repeated = 1;
+            }
+        }
+    }
+    /* Every entry is a borrower, so the same count with no repeat is the
+     * lender's whole list. */
+    if ((ret == 0) && ((rq->flags & WT_FFA_MEM_FLAG_BYPASS_BORROWERS) == 0u) &&
+        (e->borrower_count > 1u) &&
+        ((rq->receiver_count != (uint32_t)e->borrower_count) ||
+         (repeated != 0))) {
+        ret = WT_FFA_INVALID_PARAMETERS;
     }
     if (ret == 0) {
         type = rq->flags & WT_FFA_MEM_FLAG_TYPE_MASK;

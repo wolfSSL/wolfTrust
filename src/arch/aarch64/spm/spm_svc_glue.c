@@ -977,6 +977,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
 
     if (ec != WT_ESR_EC_SVC64) {
         report_partition_fault(frame);
+        wt_spm_mem_endpoint_teardown(co);
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
         /* The Arm isolation tests fault inside a partition on purpose and
          * expect a system restart (val resumes off its NVM boot flag); the

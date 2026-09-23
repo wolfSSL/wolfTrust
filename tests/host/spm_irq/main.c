@@ -1,0 +1,212 @@
+/* main.c
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* S-EL1 Group 0 interrupt routing (DEN0077A Ch.9, Table 9.1): a Secure
+ * interrupt a partition declared is queued (and its waiting owner signaled)
+ * whether the FIQ is taken from an S-EL0 partition or at S-EL1 itself, and
+ * the tick the boot proofs wait on is still recorded. */
+
+#include "wolftrust/arch/aarch64/context.h"
+#include "wolftrust/arch/aarch64/el3.h"
+#include "wolftrust/arch/aarch64/gic.h"
+#include "wolftrust/arch/aarch64/spm_svc.h"
+
+#include <stdint.h>
+#include <stdio.h>
+#include <string.h>
+
+#define OWNED_SPI   41u
+#define STRAY_SPI   45u
+
+uint64_t g_host_cntpct;
+unsigned int g_host_fiq_masked;
+volatile uint32_t g_wt_spm_sint_queued;
+extern volatile uint32_t g_wt_spm_tick_intid;
+
+void wt_spm_fiq(void);
+void wt_spm_lower_fiq(wt_trap_frame_t* frame);
+
+static int checks;
+static int failures;
+static int g_owner_token;
+static uint32_t g_next_intid;
+static uint32_t g_eoi;
+static struct wt_co* g_queued_for;
+static uint32_t g_queued_for_id;
+static uint32_t g_queued_any;
+static int g_signal_needed;
+static int g_signal_asked;
+static wt_trap_frame_t* g_preempted;
+
+#define OWNER ((struct wt_co*)(void*)&g_owner_token)
+
+static void check(int ok, const char* what)
+{
+    checks++;
+    if (ok) {
+        printf("  [check] PASS  %s\n", what);
+    }
+    else {
+        failures++;
+        printf("  [check] FAIL  %s\n", what);
+    }
+}
+
+static void gic_none(void)
+{
+}
+
+static void gic_id(uint32_t intid)
+{
+    (void)intid;
+}
+
+static void gic_prio(uint32_t intid, uint8_t priority)
+{
+    (void)intid;
+    (void)priority;
+}
+
+static uint32_t gic_ack(void)
+{
+    return g_next_intid;
+}
+
+static void gic_eoi(uint32_t intid)
+{
+    g_eoi = intid;
+}
+
+static uint32_t gic_pmr(uint32_t pmr)
+{
+    return pmr;
+}
+
+static const struct wt_gic_ops g_host_gic = {
+    gic_none, gic_id, gic_id, gic_id, gic_prio, gic_ack, gic_eoi, gic_id,
+    gic_id, gic_pmr, 2u
+};
+const struct wt_gic_ops* const wt_gic = &g_host_gic;
+
+void wt_el3_timer_arm_ms(uint32_t ms)
+{
+    (void)ms;
+}
+
+void wt_el3_timer_disable(void)
+{
+}
+
+struct wt_co* wt_spm_sint_owner(uint32_t intid)
+{
+    return (intid == OWNED_SPI) ? OWNER : NULL;
+}
+
+void wt_spm_sint_queue_for(struct wt_co* co, uint32_t intid)
+{
+    g_queued_for = co;
+    g_queued_for_id = intid;
+}
+
+void wt_spm_sint_queue(uint32_t intid)
+{
+    g_queued_any = intid;
+}
+
+int wt_spm_sint_signal_needed(struct wt_co* owner)
+{
+    g_signal_asked = (owner == OWNER) ? 1 : 0;
+    return g_signal_needed;
+}
+
+void wt_spm_preempt_from_fiq(wt_trap_frame_t* frame)
+{
+    g_preempted = frame;
+}
+
+void wt_spm_preempt_from_irq(wt_trap_frame_t* frame)
+{
+    (void)frame;
+}
+
+int wt_spm_current_is_partition(void)
+{
+    return 0;
+}
+
+static void reset(uint32_t intid, int signal_needed)
+{
+    g_next_intid = intid;
+    g_eoi = 0u;
+    g_queued_for = NULL;
+    g_queued_for_id = 0u;
+    g_queued_any = 0u;
+    g_signal_needed = signal_needed;
+    g_signal_asked = 0;
+    g_preempted = NULL;
+    g_wt_spm_tick_intid = 0u;
+}
+
+int main(void)
+{
+    wt_trap_frame_t frame;
+
+    printf("spm_irq: Secure interrupt routing at S-EL1\n");
+    memset(&frame, 0, sizeof(frame));
+
+    reset(OWNED_SPI, 1);
+    wt_spm_lower_fiq(&frame);
+    check(g_queued_for == OWNER && g_queued_for_id == OWNED_SPI &&
+              g_signal_asked == 1 && g_preempted == &frame &&
+              g_eoi == OWNED_SPI,
+          "from S-EL0 a declared interrupt is queued for its owner and the "
+          "running partition preempted to signal it");
+
+    reset(OWNED_SPI, 1);
+    wt_spm_fiq();
+    check(g_queued_for == OWNER && g_queued_for_id == OWNED_SPI &&
+              g_signal_asked == 1 && g_eoi == OWNED_SPI,
+          "at S-EL1 a declared interrupt is queued and its waiting owner "
+          "signaled too, never dropped");
+    check(g_preempted == NULL,
+          "with no partition running at S-EL1 nothing is preempted");
+    check(g_wt_spm_tick_intid == OWNED_SPI,
+          "the id taken is still recorded for the boot proofs");
+
+    reset(STRAY_SPI, 0);
+    wt_spm_fiq();
+    check(g_queued_any == STRAY_SPI && g_queued_for == NULL,
+          "an undeclared interrupt takes the same queue path as from S-EL0");
+
+    reset(WT_GIC_INTID_SECURE_TIMER, 0);
+    wt_spm_fiq();
+    check(g_wt_spm_tick_intid == WT_GIC_INTID_SECURE_TIMER &&
+              g_eoi == WT_GIC_INTID_SECURE_TIMER && g_queued_any == 0u &&
+              g_queued_for == NULL,
+          "the secure tick at S-EL1 is recorded for the tick proof, not routed");
+
+    reset(WT_GIC_INTID_SPURIOUS, 0);
+    wt_spm_fiq();
+    check(g_wt_spm_tick_intid == 0u && g_eoi == 0u && g_queued_any == 0u,
+          "a spurious acknowledge is neither ended nor routed");
+
+    printf("spm_irq: %d checks, %d failures\n", checks, failures);
+    return (failures == 0) ? 0 : 1;
+}

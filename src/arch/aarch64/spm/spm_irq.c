@@ -57,12 +57,6 @@ static uint32_t ack_group0_tick(void)
     return intid;
 }
 
-/* Current-EL FIQ: the SPMC itself was running, so acknowledge and resume. */
-void wt_spm_fiq(void)
-{
-    (void)ack_group0_tick();
-}
-
 /* Lower-EL FIQ: an S-EL0 partition was running. The scheduling tick preempts
  * it (an NS-Int, DEV-04) and the handler does not return here; any other
  * declared Secure interrupt is queued for the partition and delivered as
@@ -79,7 +73,7 @@ static void wt_spm_declared_irq(uint32_t intid, wt_trap_frame_t* frame)
      * partition that was running is preempted to let the SPMC do it. */
     if (owner != NULL) {
         wt_spm_sint_queue_for(owner, intid);
-        if (wt_spm_sint_signal_needed(owner) != 0) {
+        if ((wt_spm_sint_signal_needed(owner) != 0) && (frame != NULL)) {
             wt_spm_preempt_from_fiq(frame);
         }
         return;
@@ -91,6 +85,19 @@ static void wt_spm_declared_irq(uint32_t intid, wt_trap_frame_t* frame)
     }
 #endif
     wt_spm_sint_queue(intid);
+}
+
+/* Current-EL FIQ: the SPMC itself was running (only the boot proofs unmask
+ * FIQ at S-EL1), so acknowledge and resume; a declared interrupt still takes
+ * the routing above, with no partition to preempt. */
+void wt_spm_fiq(void)
+{
+    uint32_t intid = ack_group0_tick();
+
+    if ((intid != WT_GIC_INTID_SECURE_TIMER) &&
+        (intid != WT_GIC_INTID_SPURIOUS)) {
+        wt_spm_declared_irq(intid, NULL);
+    }
 }
 
 void wt_spm_lower_fiq(wt_trap_frame_t* frame)

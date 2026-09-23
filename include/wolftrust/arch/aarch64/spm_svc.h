@@ -231,6 +231,10 @@ uint16_t wt_spm_ffa_native_id(size_t index);
  * delivering into its RX; NULL when the slot has none. */
 struct wt_ffa_mailbox* wt_spm_sp_mailbox_of(const struct wt_co* co);
 
+/* Forget a slot's negotiated FF-A version and RX/TX pair, so a partition
+ * started in it negotiates and maps its own. */
+void wt_spm_sp_ffa_reset(const struct wt_co* co);
+
 /* FFA_MSG_SEND2 delivery from either conduit: validate the partition message
  * in the caller's TX against the rules of the instance it was invoked at and
  * copy it into the receiver's RX. */

@@ -948,6 +948,7 @@ void wt_co_arch_init_stack(struct wt_co *co, wt_co_entry_fn entry, void *arg)
     g_init_seen[co->id - 1u] = 0u;
     g_created[co->id - 1u] = co;
     (void)memset(&g_sp_msg[co->id - 1u], 0, sizeof(g_sp_msg[0]));
+    wt_spm_sp_ffa_reset(co);
     (void)memset(&a->frame, 0, sizeof(a->frame));
     a->tpidr_el0 = 0u;
     a->frame.x[0] = (uint64_t)(uintptr_t)arg;

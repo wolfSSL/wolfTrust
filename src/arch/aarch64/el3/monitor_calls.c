@@ -115,8 +115,10 @@ static void ns_smc(wt_el3_frame_t* frame)
         }
         return;
     }
-    /* PSCI power management is served by the SPMD directly (WT-FFM-0067). */
-    if (wt_psci_fid_in_range(fid)) {
+    /* PSCI power management is served by the SPMD directly (WT-FFM-0067),
+     * with the SMCCC version and feature queries. */
+    if (wt_psci_fid_in_range(fid) || (fid == WT_SMCCC_VERSION) ||
+        (fid == WT_SMCCC_ARCH_FEATURES)) {
         for (i = 0u; i < 8u; i++) {
             regs.x[i] = frame->x[i];
         }

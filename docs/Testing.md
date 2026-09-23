@@ -395,7 +395,7 @@ assert through `tests/target/lib/expect.sh`.
 | `ffa-sint` | A Secure interrupt is signaled to its owning partition while it waits and queued while it runs |
 | `ns-smoke`, `ffa-discovery` | The Normal-world payload runs at NS-EL1, negotiates FF-A 1.2 with the SPMD, and discovers the partitions through the SPMC |
 | `ffa-guest-direct` | A Normal-world direct request reaches a Secure partition and echoes back |
-| `psci` | The Normal world checks the mandatory PSCI 1.1 calls as a boot-core-only system sees them (`CPU_ON`, `CPU_OFF`, `AFFINITY_INFO`, `CPU_SUSPEND`, the migrate queries, `PSCI_FEATURES`) and powers off through the SPMD |
+| `psci` | The Normal world checks the mandatory PSCI 1.1 calls as a boot-core-only system sees them (`CPU_ON`, `CPU_OFF`, `AFFINITY_INFO`, `CPU_SUSPEND`, the migrate queries, `PSCI_FEATURES`), `SMCCC_VERSION` 1.2 with `SMCCC_ARCH_FEATURES` and `x4`-`x7` preserved across a PSCI call, and powers off through the SPMD |
 | `ffa-preempt` | A core-standby `CPU_SUSPEND` wakes on the Secure tick, the tick preempts the Normal world at EL3, the SPMC services it, and the Normal world resumes |
 | `resetneg` | A Normal-world `SYSTEM_RESET` re-enters the boot chain once and the second reset ends the run; both boots count every parked secondary (two cores on `virt`) |
 | `secramneg` | A Normal-world read of Secure RAM is refused (SKIP on `xlnx-versal-virt`, whose model has no XMPU or RISAF) |

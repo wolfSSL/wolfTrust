@@ -591,7 +591,7 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     if ((borrower == NULL) || (b == NULL) || (borrower->retrieved != 0u)) {
         return WT_FFA_DENIED;
     }
-    ret = wt_ffa_mem_retrieve_req_check(e, &rq);
+    ret = wt_ffa_mem_retrieve_req_check(e, &rq, receiver);
     if (ret != 0) {
         return ret;
     }

@@ -254,6 +254,9 @@ int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
         if (access_reserved_clear(acc, txn.access_desc_size) == 0) {
             return WT_FFA_INVALID_PARAMETERS;
         }
+        if (acc[WT_FFA_MEM_ACC_OFF_FLAGS] != 0u) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
         if ((perms & WT_FFA_MEM_PERM_RSVD_MASK) != 0u) {
             return WT_FFA_INVALID_PARAMETERS;
         }
@@ -526,6 +529,7 @@ int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
         }
         out->receivers[i] = (uint16_t)rd_u16(&acc[WT_FFA_MEM_ACC_OFF_RECEIVER]);
         out->permissions[i] = acc[WT_FFA_MEM_ACC_OFF_PERMS];
+        out->access_flags[i] = acc[WT_FFA_MEM_ACC_OFF_FLAGS];
         for (j = 0u; j < WT_FFA_MEM_IMPDEF_SIZE; j++) {
             out->impdef[i][j] = (acc_size == WT_FFA_MEM_ACCESS_SIZE_V12)
                                     ? acc[WT_FFA_MEM_ACC_OFF_IMPDEF + j] : 0u;
@@ -1209,7 +1213,8 @@ static int bytes_equal(const uint8_t* a, const uint8_t* b, uint32_t len)
 }
 
 int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
-                                  const wt_ffa_mem_retrieve_req_t* rq)
+                                  const wt_ffa_mem_retrieve_req_t* rq,
+                                  uint16_t receiver)
 {
     const wt_ffa_mem_borrower_t* named;
     uint32_t type;
@@ -1227,6 +1232,11 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
         if ((named == NULL) ||
             (bytes_equal(named->impdef, rq->impdef[i],
                          WT_FFA_MEM_IMPDEF_SIZE) == 0)) {
+            ret = WT_FFA_INVALID_PARAMETERS;
+        }
+        /* Covers a single borrower too: its only entry is the caller's. */
+        if ((rq->receivers[i] == receiver) &&
+            ((rq->access_flags[i] & WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL) != 0u)) {
             ret = WT_FFA_INVALID_PARAMETERS;
         }
     }

@@ -61,6 +61,10 @@
 #define WT_FFA_MEM_ACC_OFF_COMP_OFF     4u   /* u32 offset to the composite descriptor */
 /* [8, 16) reserved, must be zero. */
 
+/* Access descriptor flags byte (DEN0140 1.10.1): MBZ in a lend/donate/share;
+ * in a retrieve request bit 0 marks an entry that names another borrower. */
+#define WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL (1u << 0)
+
 /* Composite memory region header field offsets (Table 5.13). */
 #define WT_FFA_MEM_COMP_OFF_PAGES       0u   /* u32 total page count */
 #define WT_FFA_MEM_COMP_OFF_COUNT       4u   /* u32 constituent count */
@@ -288,6 +292,7 @@ typedef struct wt_ffa_mem_retrieve_req {
     uint16_t receivers[3];
     uint8_t  permissions[3];
     uint8_t  impdef[3][16];
+    uint8_t  access_flags[3];
 } wt_ffa_mem_retrieve_req_t;
 
 int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
@@ -505,13 +510,15 @@ int wt_ffa_mem_handle_reclaim(wt_ffa_mem_registry_t* reg, uint64_t handle,
 /* The transaction-type flag (Table 1.23 bits[4:3]) of a live handle's state. */
 uint32_t wt_ffa_mem_type_flag(uint8_t state);
 
-/* Hold a parsed retrieve request against the transaction its handle names
- * (DEN0140 2.4.1.2): every named endpoint is a borrower whose
- * implementation-defined bytes it repeats, and the tag, flags, transaction
- * type, and attributes agree. Returns 0, WT_FFA_INVALID_PARAMETERS for a
- * field the request got wrong, or WT_FFA_DENIED for Device memory (only Normal
- * memory is ever sent). */
+/* Hold receiver's parsed retrieve request against the transaction its handle
+ * names (DEN0140 2.4.1.2): every named endpoint is a borrower whose
+ * implementation-defined bytes it repeats, the receiver's own entry does not
+ * mark it a non-retrieval borrower, and the tag, flags, transaction type, and
+ * attributes agree. Returns 0, WT_FFA_INVALID_PARAMETERS for a field the
+ * request got wrong, or WT_FFA_DENIED for Device memory (only Normal memory is
+ * ever sent). */
 int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
-                                  const wt_ffa_mem_retrieve_req_t* rq);
+                                  const wt_ffa_mem_retrieve_req_t* rq,
+                                  uint16_t receiver);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_MEM_H */

@@ -915,6 +915,19 @@ static void write_tpidrro(uint64_t value)
     __asm__ volatile("msr TPIDRRO_EL0, %0\n\tisb" : : "r"(value));
 }
 
+static uint64_t read_tpidr(void)
+{
+    uint64_t value;
+
+    __asm__ volatile("mrs %0, TPIDR_EL0" : "=r"(value));
+    return value;
+}
+
+static void write_tpidr(uint64_t value)
+{
+    __asm__ volatile("msr TPIDR_EL0, %0" : : "r"(value));
+}
+
 void wt_co_arch_init_stack(struct wt_co *co, wt_co_entry_fn entry, void *arg)
 {
     uintptr_t top = ((uintptr_t)co->stack_base + co->stack_size) &
@@ -936,6 +949,7 @@ void wt_co_arch_init_stack(struct wt_co *co, wt_co_entry_fn entry, void *arg)
     g_created[co->id - 1u] = co;
     (void)memset(&g_sp_msg[co->id - 1u], 0, sizeof(g_sp_msg[0]));
     (void)memset(&a->frame, 0, sizeof(a->frame));
+    a->tpidr_el0 = 0u;
     a->frame.x[0] = (uint64_t)(uintptr_t)arg;
     a->frame.elr = (uint64_t)(uintptr_t)entry;
     a->frame.sp_el0 = (uint64_t)top;
@@ -950,7 +964,7 @@ extern uint64_t g_wt_sp_kernel_ctx[14];
  * entered it. That is the scheduler on the bootstrap stack, or, for an
  * SP-to-SP message, the exception handler of the partition whose call is being
  * served: the callee's unwind slot, the handler bookkeeping, the current
- * coroutine, and the caller's translation table and thread id are all
+ * coroutine, and the caller's translation table and thread ids are all
  * single-valued, so they are parked here and restored as soon as `to` comes
  * back so the caller's handler completes (and may itself block) as if the
  * nested run never happened. From the scheduler this reduces to the bootstrap. */
@@ -963,6 +977,7 @@ void wt_co_arch_enter(struct wt_co *to)
     uint32_t handler_depth = g_wt_spm_handler_depth;
     struct wt_co *handler_co = g_wt_spm_handler_co;
     struct wt_co *prev = (handler_depth != 0u) ? handler_co : &g_wt_co_bootstrap;
+    uint64_t tpidr = 0u;
     uint32_t pmr = 0u;
     unsigned int masked = 0u;
 
@@ -972,6 +987,8 @@ void wt_co_arch_enter(struct wt_co *to)
     }
     if (to->unprivileged != 0u) {
         write_tpidrro((uint64_t)to->id);
+        tpidr = read_tpidr();
+        write_tpidr(sp_arch(to)->tpidr_el0);
         if (g_ns_queued[to->id - 1u] != 0u) {
             pmr = wt_gic->swap_pmr(WT_SP_PMR_MASK_NS);
             masked = 1u;
@@ -980,6 +997,8 @@ void wt_co_arch_enter(struct wt_co *to)
         if (masked != 0u) {
             (void)wt_gic->swap_pmr(pmr);
         }
+        sp_arch(to)->tpidr_el0 = read_tpidr();
+        write_tpidr(tpidr);
     }
     else {
         wt_co_arch_switch(&g_wt_co_bootstrap.sp, to->sp);

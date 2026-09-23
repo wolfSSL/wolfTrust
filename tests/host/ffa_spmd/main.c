@@ -140,6 +140,43 @@ static int ns_range_total(uint32_t first, uint32_t last)
     return 1;
 }
 
+/* The SPMD relays a Normal-world direct request only after the NS-physical
+ * checks of 7.4.2, so no forwarded request speaks with a Secure sender id. */
+static void ns_forward_rows(void)
+{
+    uint64_t x[18];
+
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ32;
+    x[1] = ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16) | WT_FFA_ID_SP_FIRST;
+    x[3] = 0x1234u;
+    check(wt_ffa_spmd_ns_forward(x) == 1 &&
+              (uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32 && x[3] == 0x1234u,
+          "a well-formed Normal-world direct request is forwarded unchanged");
+
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ32;
+    x[1] = ((uint64_t)WT_FFA_ID_SPMD << 16) | WT_FFA_ID_SPMC;
+    x[2] = 0x80000008u;
+    x[3] = WT_FFA_VERSION_MAKE(1u, 0u);
+    check(wt_ffa_spmd_ns_forward(x) == 0 &&
+              is_error((const wt_ffa_regs_t*)x, WT_FFA_INVALID_PARAMETERS),
+          "a Normal-world request claiming the SPMD's id is refused, not forwarded");
+
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ2;
+    x[1] = ((uint64_t)WT_FFA_ID_SP_FIRST << 16) | 0x8003u;
+    check(wt_ffa_spmd_ns_forward(x) == 0 &&
+              is_error((const wt_ffa_regs_t*)x, WT_FFA_INVALID_PARAMETERS),
+          "a Normal-world REQ2 with a Secure sender is refused too");
+
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_RXTX_MAP64;
+    x[3] = 1u;
+    check(wt_ffa_spmd_ns_forward(x) == 1 && (uint32_t)x[0] == WT_FFA_RXTX_MAP64,
+          "a forwarded call that is not a direct request passes through");
+}
+
 int main(void)
 {
     wt_ffa_regs_t r;
@@ -256,6 +293,7 @@ int main(void)
           (int32_t)(uint32_t)frame[2] == WT_FFA_INVALID_PARAMETERS && g_console_len == 0u,
           "count 129 on SMC64 is INVALID_PARAMETERS");
 
+    ns_forward_rows();
 
     check(ns_range_total(WT_FFA_FID32_FIRST, WT_FFA_FID32_LAST) &&
           ns_range_total(WT_FFA_FID64_FIRST, WT_FFA_FID64_LAST),

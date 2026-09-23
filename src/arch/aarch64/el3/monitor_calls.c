@@ -110,7 +110,9 @@ static void ns_smc(wt_el3_frame_t* frame)
     /* Discovery and guest-to-SP messaging need the SPMC (the SPMD has no
      * manifest): forward the call and run the Secure world. */
     if (wt_ffa_spmd_ns_forwards(fid)) {
-        wt_el3_world_forward_to_secure(frame);
+        if (wt_ffa_spmd_ns_forward(frame->x) != 0) {
+            wt_el3_world_forward_to_secure(frame);
+        }
         return;
     }
     /* PSCI power management is served by the SPMD directly (WT-FFM-0067). */

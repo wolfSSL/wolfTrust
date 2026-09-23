@@ -87,6 +87,9 @@ void wt_ffa_spmd_secure_note(uint32_t fid);
 /* Non-zero when an NS-instance FID must be forwarded to the SPMC rather than
  * answered by the SPMD (partition discovery, guest-to-SP messaging). */
 int wt_ffa_spmd_ns_forwards(uint32_t fid);
+/* A call wt_ffa_spmd_ns_forwards selected, in the saved frame x[0..17]: 1 to
+ * forward x to the SPMC, or 0 when the SPMD has answered it in x instead. */
+int wt_ffa_spmd_ns_forward(uint64_t* x);
 /* Non-zero when an SMC from the SPMC is the reply to a forwarded NS call. */
 int wt_ffa_spmd_is_ns_reply(uint32_t fid);
 /* Non-zero when an SMC from the SPMC yields the CPU back to the Normal world. */

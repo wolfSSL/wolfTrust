@@ -266,6 +266,22 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid)
     }
 }
 
+/* 7.4.2: the SPMD relays a direct request only from the Normal world to a
+ * Secure endpoint, so nothing it forwards carries a Secure sender id. */
+int wt_ffa_spmd_ns_forward(uint64_t* x)
+{
+    uint32_t fid = (uint32_t)x[0];
+
+    if (((fid == WT_FFA_MSG_SEND_DIRECT_REQ32) ||
+         (fid == WT_FFA_MSG_SEND_DIRECT_REQ64) ||
+         (fid == WT_FFA_MSG_SEND_DIRECT_REQ2)) &&
+        (wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) != 0)) {
+        reply_error((wt_ffa_regs_t*)x, WT_FFA_INVALID_PARAMETERS);
+        return 0;
+    }
+    return 1;
+}
+
 /* An SMC from the SPMC that is the reply to a call the SPMD forwarded from the
  * Normal world; it is routed back to the waiting Normal world. */
 int wt_ffa_spmd_is_ns_reply(uint32_t fid)

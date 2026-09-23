@@ -36,16 +36,23 @@
 #include <string.h>
 
 #define WT_SPM_MEM_MAX_BIND 8u
-/* Borrower mapping cookie: the entry existed before the grant. */
-#define WT_SPM_MEM_MAP_WAS_MAPPED 0x1u
+/* Borrower mapping cookie: region i's entry existed before the grant. */
+#define WT_SPM_MEM_MAP_REGION(i)  (1u << (i))
 /* Borrower mapping cookie: the retrieve granted read-only data access. */
 #define WT_SPM_MEM_MAP_RO         0x10u
 /* Owner cookie, above the send flags it keeps: a borrower asked for the memory
  * to be zeroed, which happens once no borrower maps it any more. */
 #define WT_SPM_MEM_COOKIE_ZERO_PENDING 0x80000000u
-/* Owner cookie: the owner itself only reads the memory, so nothing may wipe it
- * and a lend gives it back read-only. */
+/* Owner cookie: the owner itself only reads some of the memory, so nothing may
+ * wipe it or hand out write access to it. */
 #define WT_SPM_MEM_COOKIE_OWNER_RO     0x40000000u
+/* Owner cookie: region i is one the owner only reads; a reclaim gives it back
+ * read-only. */
+#define WT_SPM_MEM_COOKIE_OWNER_RO_REGION(i) (0x01000000u << (i))
+
+#if WT_FFA_MEM_MAX_REGIONS > 4u
+#error "the relayer cookies hold one bit per region for at most four regions"
+#endif
 
 static wt_ffa_mem_registry_t g_reg;
 static wt_spm_mem_binding_t g_bind[WT_SPM_MEM_MAX_BIND];
@@ -219,7 +226,7 @@ static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
                                   (uintptr_t)e->regions[i].base,
                                   e->regions[i].page_count,
                                   ((e->owner_cookie &
-                                    WT_SPM_MEM_COOKIE_OWNER_RO) != 0u)
+                                    WT_SPM_MEM_COOKIE_OWNER_RO_REGION(i)) != 0u)
                                       ? WT_MEM_ATTR_READ
                                       : (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE),
                                   &was_mapped);
@@ -260,10 +267,10 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     wt_ffa_mem_region_t regs[WT_FFA_MEM_MAX_REGIONS];
     uint32_t n = 0u;
     uint32_t i;
+    uint32_t owner_ro = 0u;
     uint16_t receiver = 0u;
     uint8_t perms = 0u;
     int access = WT_DOMAIN_ACCESS_NONE;
-    int owner_ro = 0;
     int ret;
 
     if (out_handle == NULL) {
@@ -309,7 +316,7 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     for (i = 0u; (ret == 0) && (i < n); i++) {
         access = sender_owns(sender, &regs[i]);
         if (access == WT_DOMAIN_ACCESS_RO) {
-            owner_ro = 1;
+            owner_ro |= WT_SPM_MEM_COOKIE_OWNER_RO_REGION(i);
         }
         regs[i].ns = id_is_secure(sender) ? 0u : 1u;
         /* A donate makes the receiver the owner, with full data access. */
@@ -327,7 +334,7 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     }
     /* An owner that only reads the memory cannot have it wiped, nor hand out
      * write access it does not hold (Table 5.20, 10.10.2). */
-    if ((ret == 0) && (owner_ro != 0)) {
+    if ((ret == 0) && (owner_ro != 0u)) {
         if ((txn.flags & WT_FFA_MEM_FLAG_ZERO) != 0u) {
             ret = WT_FFA_DENIED;
         }
@@ -375,9 +382,10 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
         /* The cookie keeps the owner's flags: it may ask for the memory to be
          * zeroed before a borrower sees it. */
         wt_ffa_mem_handle_set_meta(&g_reg, *out_handle, txn.tag,
-                                   txn.flags | ((owner_ro != 0)
-                                                    ? WT_SPM_MEM_COOKIE_OWNER_RO
-                                                    : 0u));
+                                   txn.flags | owner_ro |
+                                       ((owner_ro != 0u)
+                                            ? WT_SPM_MEM_COOKIE_OWNER_RO
+                                            : 0u));
         if (wt_ffa_mem_handle_lookup(&g_reg, *out_handle, &e) == 0) {
             owner_access(e, 0);
         }
@@ -569,6 +577,23 @@ static int alignment_hint_ok(const wt_ffa_mem_handle_entry_t* e, uint32_t flags)
     return 0;
 }
 
+/* Take the first count regions of e back out of a borrower's table, each to
+ * the entry it held before the grant. */
+static void borrower_unmap(const wt_spm_mem_binding_t* b,
+                           const wt_ffa_mem_handle_entry_t* e, uint8_t mapping,
+                           uint32_t count)
+{
+    uint32_t i;
+
+    for (i = 0u; i < count; i++) {
+        (void)wt_domain_revoke(b->dom->regions, b->dom->region_count,
+                               (uintptr_t)e->regions[i].base,
+                               e->regions[i].page_count,
+                               ((mapping & WT_SPM_MEM_MAP_REGION(i)) != 0u) ? 1
+                                                                            : 0);
+    }
+}
+
 static void zero_regions(const wt_ffa_mem_handle_entry_t* e)
 {
     uint32_t i;
@@ -591,6 +616,7 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     uint32_t attributes;
     uint32_t i;
     uint32_t done = 0u;
+    uint8_t mapping = 0u;
     uint8_t perms = 0u;
     uint8_t asked = 0u;
     int named = 0;
@@ -691,6 +717,9 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     if ((perms & WT_FFA_MEM_PERM_DATA_MASK) == WT_FFA_MEM_PERM_DATA_RW) {
         attributes |= WT_MEM_ATTR_WRITE;
     }
+    else {
+        mapping |= (uint8_t)WT_SPM_MEM_MAP_RO;
+    }
     if (e->regions[0].ns != 0u) {
         attributes |= WT_TABLES_ATTR_NS;
     }
@@ -702,22 +731,17 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
             ret = WT_FFA_NO_MEMORY;
         }
         else {
+            if (was_mapped != 0) {
+                mapping |= (uint8_t)WT_SPM_MEM_MAP_REGION(i);
+            }
             done++;
         }
     }
     if (ret != 0) {
-        for (i = 0u; i < done; i++) {
-            (void)wt_domain_revoke(b->dom->regions, b->dom->region_count,
-                                   (uintptr_t)e->regions[i].base,
-                                   e->regions[i].page_count, was_mapped);
-        }
+        borrower_unmap(b, e, mapping, done);
         return ret;
     }
-    borrower->mapping = (uint8_t)(((was_mapped != 0) ? WT_SPM_MEM_MAP_WAS_MAPPED
-                                                     : 0u) |
-                                  (((perms & WT_FFA_MEM_PERM_DATA_MASK) ==
-                                    WT_FFA_MEM_PERM_DATA_RO) ? WT_SPM_MEM_MAP_RO
-                                                             : 0u));
+    borrower->mapping = mapping;
     ret = wt_ffa_mem_handle_retrieve(&g_reg, rq.handle, receiver);
     /* A donate hands ownership over for good: the region is now the receiver's
      * own writable memory (the owner's access was dropped at donate time), so
@@ -736,7 +760,6 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)
     uint64_t handle = 0u;
     uint32_t flags = 0u;
     uint32_t cookie;
-    uint32_t i;
     uint16_t ep = 0u;
     int ret;
 
@@ -770,13 +793,7 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)
     if (ret != 0) {
         return ret;
     }
-    for (i = 0u; i < (uint32_t)e->region_count; i++) {
-        (void)wt_domain_revoke(b->dom->regions, b->dom->region_count,
-                               (uintptr_t)e->regions[i].base,
-                               e->regions[i].page_count,
-                               ((borrower->mapping &
-                                 WT_SPM_MEM_MAP_WAS_MAPPED) != 0u) ? 1 : 0);
-    }
+    borrower_unmap(b, e, borrower->mapping, (uint32_t)e->region_count);
     /* The flag here, not the one at retrieve, decides; with several borrowers
      * the wipe waits until the last of them has been unmapped (Table 11.26). */
     cookie = e->owner_cookie;

@@ -128,8 +128,12 @@ static void bitmap_rows(void)
     check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_SP, &got) == 0,
           "the VM drains the pending bit");
     check(got.from_sp == BIT(3), "the drained bitmap is the signaled bit");
+    check(wt_ffa_notif_bitmap_destroy(VM0, VM0) == WT_FFA_DENIED,
+          "destroy with a bound notification is DENIED");
+    check(wt_ffa_notif_unbind(VM0, IDS(SP1, VM0), 0u, BIT(3)) == 0,
+          "the refused destroy left the binding in place to unbind");
     check(wt_ffa_notif_bitmap_destroy(VM0, VM0) == 0,
-          "destroy succeeds once drained");
+          "destroy succeeds once unbound and drained");
     check(wt_ffa_notif_bitmap_destroy(VM0, VM0) == WT_FFA_DENIED,
           "destroy again is DENIED");
 }

@@ -136,7 +136,6 @@ int32_t wt_ffa_notif_bitmap_destroy(uint16_t caller, uint32_t vm_id)
 {
     wt_notif_ep_t* callerp = ep_find(caller);
     wt_notif_ep_t* vm;
-    unsigned int b;
 
     if ((callerp != NULL) && (callerp->secure != 0u)) {
         return WT_FFA_NOT_SUPPORTED;
@@ -154,16 +153,11 @@ int32_t wt_ffa_notif_bitmap_destroy(uint16_t caller, uint32_t vm_id)
     if (vm->has_bitmap == 0u) {
         return WT_FFA_DENIED;
     }
-    /* 17.6: refused while notifications are pending in it. */
-    if (ep_pending(vm) != 0u) {
+    /* Only a masked (nothing bound) and non-pending bitmap may go. */
+    if ((vm->bound_mask != 0u) || (ep_pending(vm) != 0u)) {
         return WT_FFA_DENIED;
     }
     vm->has_bitmap = 0u;
-    vm->bound_mask = 0u;
-    vm->bound_pcpu = 0u;
-    for (b = 0u; b < WT_FFA_NOTIF_COUNT; b++) {
-        vm->bound_sender[b] = 0u;
-    }
     return 0;
 }
 

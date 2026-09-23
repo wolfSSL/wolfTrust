@@ -42,7 +42,8 @@ class GeneratorTest(unittest.TestCase):
              "--address-bits", "32"],
             check=False, capture_output=True, text=True)
 
-    def compile_generated(self, output, executable, defines=()):
+    def compile_generated(self, output, executable, defines=(),
+                          main=TEST_DIR / "generated_main.c"):
         command = shlex.split(os.environ.get("CC", "cc"))
         command.extend(defines)
         command.extend([
@@ -51,7 +52,7 @@ class GeneratorTest(unittest.TestCase):
             str(ROOT / "src" / "domain.c"),
             str(ROOT / "src" / "manifest.c"),
             str(output / "wolftrust_manifest_generated.c"),
-            str(TEST_DIR / "generated_main.c"), "-o", str(executable),
+            str(main), "-o", str(executable),
         ])
         return subprocess.run(command, check=False, capture_output=True,
                               text=True)
@@ -409,11 +410,38 @@ class GeneratorTest(unittest.TestCase):
                 output, root / "generated", ("-DWT_SPM_TABLE_POOL_PAGES=4096U",))
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
 
-    def test_manifest_without_ffa_emits_no_ffa_symbols(self):
+    def test_64_bit_manifest_without_ffa_links_an_empty_table(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             output = root / "output"
+            main = root / "ffa_main.c"
+            main.write_text(
+                "#include \"wolftrust_manifest_generated.h\"\n"
+                "#include \"wolftrust/arch/aarch64/ffa_manifest.h\"\n"
+                "int main(void)\n"
+                "{\n"
+                "    size_t count = 1U;\n"
+                "    const wt_ffa_partition_manifest_t* parts =\n"
+                "        wt_generated_ffa_partitions_get(&count);\n"
+                "    return ((parts != NULL) && (count == 0U)) ? 0 : 1;\n"
+                "}\n", encoding="utf-8")
             self.assertEqual(self.run_generator_64(FIXTURE, output).returncode, 0)
+            generated = (output / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            self.assertIn("wt_generated_ffa_partitions_get(size_t* count)",
+                          generated)
+            compiled = self.compile_generated(
+                output, root / "ffa_empty", ("-DWT_SPM_TABLE_POOL_PAGES=4096U",),
+                main)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            ran = subprocess.run([str(root / "ffa_empty")], check=False)
+            self.assertEqual(ran.returncode, 0)
+
+    def test_32_bit_manifest_emits_no_ffa_symbols(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "output"
+            self.assertEqual(self.run_generator(FIXTURE, output).returncode, 0)
             generated = (output / "wolftrust_manifest_generated.c").read_text(
                 encoding="utf-8")
             self.assertNotIn("ffa", generated)

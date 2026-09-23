@@ -329,7 +329,8 @@ static void ffa_rxtx_map(wt_trap_frame_t* frame, const struct wt_co* co)
         return;
     }
     if ((mb->mapped == 0u) &&
-        ((w3 != WT_SP_RXTX_PAGES) || (sp_owns_writable_page(co, tx) == 0) ||
+        ((WT_FFA_RXTX_PAGE_COUNT(w3) != WT_SP_RXTX_PAGES) ||
+         (sp_owns_writable_page(co, tx) == 0) ||
          (sp_owns_writable_page(co, rx) == 0))) {
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;

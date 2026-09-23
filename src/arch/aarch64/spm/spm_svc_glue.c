@@ -348,8 +348,9 @@ static void ffa_rxtx_unmap(wt_trap_frame_t* frame, const struct wt_co* co)
 
 /* A direct request from a partition (15.2): only to another FF-A endpoint the
  * SPMC hosts that takes this kind of request (DENIED otherwise, Tables 15.8
- * and 15.16), which must be waiting. The caller blocks; its callee's response
- * (or FFA_YIELD) is written into its frame before it resumes. */
+ * and 15.16), which must be waiting, and only from a listed partition that
+ * advertises sending it (7.4 relayer rule 2). The caller blocks; its callee's
+ * response (or FFA_YIELD) is written into its frame before it resumes. */
 static void ffa_direct_req(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     struct wt_co* target;
@@ -360,6 +361,10 @@ static void ffa_direct_req(wt_trap_frame_t* frame, const struct wt_co* co)
     if ((ret == 0) &&
         (wt_ffa_direct_sender(frame->x[1]) != wt_spm_sp_ffa_id(co))) {
         ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((ret == 0) &&
+        (wt_spm_partition_props(wt_spm_sp_ffa_id(co), &props) == 0)) {
+        ret = wt_ffa_direct_req_allowed(props, (uint32_t)frame->x[0], 0);
     }
     if (ret == 0) {
         ret = wt_spm_partition_props(receiver, &props);

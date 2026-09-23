@@ -42,8 +42,9 @@ class GeneratorTest(unittest.TestCase):
              "--address-bits", "32"],
             check=False, capture_output=True, text=True)
 
-    def compile_generated(self, output, executable):
+    def compile_generated(self, output, executable, defines=()):
         command = shlex.split(os.environ.get("CC", "cc"))
+        command.extend(defines)
         command.extend([
             "-std=c99", "-Wall", "-Wextra", "-Werror", "-pedantic",
             "-I" + str(ROOT / "include"), "-I" + str(output),
@@ -334,6 +335,34 @@ class GeneratorTest(unittest.TestCase):
                 encoding="utf-8")
             self.assertIn("#define WT_GENERATED_TABLE_POOL_PAGES 14U", header)
 
+    def test_64_bit_source_refuses_a_table_pool_below_the_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "pool.json"
+            output = root / "output"
+            source.write_text(json.dumps(self.ffa_manifest()), encoding="utf-8")
+
+            result = self.run_generator_64(source, output,
+                                           ("--spm-table-pages", "4"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            header = (output / "wolftrust_manifest_generated.h").read_text(
+                encoding="utf-8")
+            need = int(header.split("WT_GENERATED_TABLE_POOL_PAGES ")[1]
+                       .split("U")[0])
+            for defines, ok in ((("-DWT_SPM_TABLE_POOL_PAGES={}U".format(need),),
+                                 True),
+                                (("-DWT_SPM_TABLE_POOL_PAGES={}U".format(
+                                    need - 1),), False),
+                                ((), False)):
+                compiled = self.compile_generated(output, root / "generated",
+                                                  defines)
+                if ok:
+                    self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                else:
+                    self.assertNotEqual(compiled.returncode, 0, defines)
+                    self.assertIn("WT_GENERATED_TABLE_POOL_PAGES",
+                                  compiled.stderr, defines)
+
     def test_32_bit_header_has_no_table_pool(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
@@ -376,7 +405,8 @@ class GeneratorTest(unittest.TestCase):
             self.assertIn(".messaging = 1U", generated)
             self.assertIn("wt_generated_ffa_partitions_get(size_t* count)",
                           generated)
-            compiled = self.compile_generated(output, root / "generated")
+            compiled = self.compile_generated(
+                output, root / "generated", ("-DWT_SPM_TABLE_POOL_PAGES=4096U",))
             self.assertEqual(compiled.returncode, 0, compiled.stderr)
 
     def test_manifest_without_ffa_emits_no_ffa_symbols(self):

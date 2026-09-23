@@ -1012,6 +1012,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         frame->x[0] = 0u;
         wt_co_block();
     }
+#if defined(WT_FFA_ACS) && (WT_FFA_ACS == 1)
     else if (fid == WT_SPM_HVC_INTERRUPT_ENABLE) {
         sint = (uint32_t)frame->x[1];
         if (wt_spm_sint_own((struct wt_co*)co, sint,
@@ -1045,6 +1046,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         wt_spm_twdog_stop((const struct wt_co*)co);
         frame->x[0] = 0u;
     }
+#endif
     else if (fid == WT_FFA_MSG_WAIT) {
         /* 8.2/8.5: the partition enters the waiting state; the next direct
          * request is delivered as this call's return registers. A Secure

@@ -1422,6 +1422,7 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
         case WT_FFA_MSG_SEND2:
             ns_msg_send2(r);
             break;
+#if defined(WT_FFA_ACS) && (WT_FFA_ACS == 1)
         case WT_SPM_SVC_FID_TIMER_ARM:
             /* The ACS platform layer's test timer, from the Normal world:
              * the armed id keeps its Normal-world group so its expiry
@@ -1434,6 +1435,7 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
             wt_spm_twdog_stop(NULL);
             ns_reply(r, 0, 0u, 0u);
             break;
+#endif
         default:
             wt_el3_puts("[SPM] unexpected event x0=0x");
             wt_el3_puthex(r->x[0], 8u);

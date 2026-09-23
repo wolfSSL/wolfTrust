@@ -845,7 +845,8 @@ static const uint32_t g_fuzz_fids[] = {
     WT_FFA_CONSOLE_LOG32, WT_FFA_CONSOLE_LOG64,
     WT_FFA_FID32_LAST, WT_FFA_FID64_LAST,
     WT_PSCI_CPU_FREEZE, WT_PSCI_SYSTEM_SUSPEND64, WT_PSCI_FID32_LAST,
-    0x82000000u, 0x8F000000u, 0xC3000000u
+    0x82000000u, 0x8F000000u, 0xC3000000u,
+    0xC3000102u /* the ACS test timer: absent outside ACS builds */
 };
 
 static int fuzz_refused(uint32_t fid, const uint64_t* o)

@@ -244,6 +244,9 @@ static void set_rows(void)
           "an unbound id is DENIED");
     check(wt_ffa_notif_set(VM0, IDS(VM0, SP2), 0x4u, BIT(12)) ==
           WT_FFA_INVALID_PARAMETERS, "reserved flag bits are refused");
+    check(wt_ffa_notif_set(VM0, IDS(VM0, SP2), WT_FFA_NOTIF_FLAG_DELAY_SRI,
+                           BIT(12)) == WT_FFA_INVALID_PARAMETERS,
+          "the delay-SRI hint from the Normal world is refused");
     check(wt_ffa_notif_set(VM0, IDS(VM0, SP2),
                            WT_FFA_NOTIF_FLAG_PER_VCPU | (1u << 16), BIT(13)) ==
           WT_FFA_INVALID_PARAMETERS,

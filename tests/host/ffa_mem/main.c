@@ -884,6 +884,8 @@ static const wt_ffa_mem_handle_entry_t* make_entry(wt_ffa_mem_registry_t* reg,
         }
     }
     wt_ffa_mem_handle_set_meta(reg, h, 0x77ull, 0u);
+    wt_ffa_mem_handle_set_attributes(reg, h,
+                                     (uint16_t)WT_FFA_MEM_ATTR_RELAYER);
     if (wt_ffa_mem_handle_lookup(reg, h, &e) != 0) {
         return NULL;
     }
@@ -1175,6 +1177,59 @@ static void attribute_rows(void)
     rq.attributes = 0x1Fu;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_DENIED,
           "a retrieve request for Device memory is DENIED before its reserved bits are read");
+    rq.attributes = 0x2Eu;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_DENIED,
+          "a retrieve request for outer-shareable memory the lender made inner-shareable is DENIED");
+    rq.attributes = 0x27u;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a retrieve request for non-cacheable memory, which the relayer cannot map, is INVALID_PARAMETERS");
+    rq.attributes = 0x2Cu;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a retrieve request for non-shareable memory, which the relayer cannot map, is INVALID_PARAMETERS");
+    rq.attributes = 0x00u;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
+          "a retrieve request that leaves the attributes unspecified is accepted");
+    wt_ffa_mem_handle_set_attributes(&reg, e->handle, 0u);
+    rq.attributes = 0x2Fu;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_DENIED,
+          "a transaction with no recorded attributes is held to none");
+}
+
+/* WT-FFA-0009 (the attributes a lend or share names are those every borrower
+ * maps with, DEN0140 1.10.4.2). */
+static void send_attribute_rows(void)
+{
+    static const uint16_t denied[] = { 0x2Eu, 0x26u };
+    static const uint16_t unmappable[] = {
+        0x27u, 0x24u, 0x2Cu, 0x10u, 0x14u, 0x18u, 0x1Cu
+    };
+    uint16_t out = 0u;
+    size_t i;
+    int ok;
+
+    check(wt_ffa_mem_send_attributes(0x00u, &out) == 0 &&
+          out == (uint16_t)WT_FFA_MEM_ATTR_RELAYER,
+          "a send that leaves the attributes unspecified gets the relayer's Normal write-back inner-shareable");
+    out = 0u;
+    check(wt_ffa_mem_send_attributes(0x2Fu, &out) == 0 && out == 0x2Fu,
+          "a send of Normal write-back inner-shareable memory keeps its attributes");
+    ok = 1;
+    for (i = 0u; i < sizeof(denied) / sizeof(denied[0]); i++) {
+        ok = ok && (wt_ffa_mem_send_attributes(denied[i], &out) == WT_FFA_DENIED);
+    }
+    check(ok, "a send of outer-shareable memory, more permissive than the relayer maps, is DENIED");
+    ok = 1;
+    for (i = 0u; i < sizeof(unmappable) / sizeof(unmappable[0]); i++) {
+        ok = ok && (wt_ffa_mem_send_attributes(unmappable[i], &out) ==
+                    WT_FFA_INVALID_PARAMETERS);
+    }
+    check(ok, "a send of non-cacheable, non-shareable, or Device memory, which the relayer cannot map, is INVALID_PARAMETERS");
+    check(wt_ffa_mem_send_attributes(0x2Bu, &out) == WT_FFA_INVALID_PARAMETERS &&
+          wt_ffa_mem_send_attributes(0x6Fu, &out) == WT_FFA_INVALID_PARAMETERS &&
+          wt_ffa_mem_send_attributes(0x2Fu, NULL) == WT_FFA_INVALID_PARAMETERS,
+          "a reserved encoding, the NS bit, or no output is INVALID_PARAMETERS");
 }
 
 /* WT-FFA-0009 (the endpoint access descriptor flags byte, 1.10.1). */
@@ -1476,10 +1531,12 @@ static int relay_reset(void)
            (g_domain_fails == 0u);
 }
 
-/* A descriptor sending n constituents from A to B. */
-static int relay_build(uint8_t* desc, size_t cap, wt_ffa_mem_op_t op,
-                       const wt_ffa_mem_constituent_t* c, uint32_t n,
-                       uint8_t perms, uint32_t flags, size_t* len)
+/* A descriptor sending n constituents from A to B with the given memory
+ * region attributes. */
+static int relay_build_attrs(uint8_t* desc, size_t cap, wt_ffa_mem_op_t op,
+                             const wt_ffa_mem_constituent_t* c, uint32_t n,
+                             uint8_t perms, uint32_t flags, uint16_t attributes,
+                             size_t* len)
 {
     wt_ffa_mem_build_t in;
 
@@ -1491,7 +1548,16 @@ static int relay_build(uint8_t* desc, size_t cap, wt_ffa_mem_op_t op,
     in.receiver = RELAY_ID_B;
     in.permissions = perms;
     in.flags = flags;
+    in.attributes = attributes;
     return wt_ffa_mem_txn_build(desc, cap, &in, len);
+}
+
+/* A descriptor sending n constituents from A to B. */
+static int relay_build(uint8_t* desc, size_t cap, wt_ffa_mem_op_t op,
+                       const wt_ffa_mem_constituent_t* c, uint32_t n,
+                       uint8_t perms, uint32_t flags, size_t* len)
+{
+    return relay_build_attrs(desc, cap, op, c, n, perms, flags, 0u, len);
 }
 
 /* Send n constituents from A to B; *ret gets the relayer's answer. */
@@ -1632,6 +1698,87 @@ static void relay_owner_rows(void)
                      &ret);
     check(ret == WT_FFA_DENIED && ((clock() - t0) < CLOCKS_PER_SEC),
           "owner: a range running past the sender's pages is DENIED at the first page it lacks");
+}
+
+/* B's retrieve of h asking for the given attributes; *resp_attrs gets the
+ * attributes the response reports. */
+static int relay_retrieve_attrs(uint64_t h, uint16_t attributes,
+                                uint16_t* resp_attrs)
+{
+    uint8_t req[128];
+    uint8_t resp[256];
+    size_t len = 0u;
+    size_t resp_len = 0u;
+    int ret;
+
+    ret = wt_ffa_mem_retrieve_req_build(req, sizeof(req), h, RELAY_ID_A,
+                                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW,
+                                        &len);
+    if (ret == 0) {
+        req[WT_FFA_MEM_TXN_OFF_ATTRS] = (uint8_t)(attributes & 0xFFu);
+        req[WT_FFA_MEM_TXN_OFF_ATTRS + 1u] = (uint8_t)(attributes >> 8);
+        ret = wt_spm_mem_retrieve(req, len, RELAY_ID_B, resp, sizeof(resp),
+                                  &resp_len);
+    }
+    if (ret == 0) {
+        *resp_attrs = (uint16_t)(resp[WT_FFA_MEM_TXN_OFF_ATTRS] |
+                                 (resp[WT_FFA_MEM_TXN_OFF_ATTRS + 1u] << 8));
+    }
+    return ret;
+}
+
+/* WT-FFA-0009 (a lend or share keeps the attributes its borrowers map with,
+ * holds each retrieve request to them, and reports them, 1.10.4.2). */
+static void relay_attr_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint8_t desc[256];
+    uint64_t h = 0u;
+    uint16_t got = 0u;
+    size_t len = 0u;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "attr: fixture");
+        return;
+    }
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    (void)relay_build_attrs(desc, sizeof(desc), WT_FFA_MEM_OP_SHARE, c, 1u,
+                            WT_FFA_MEM_PERM_DATA_RW, 0u, 0x27u, &len);
+    check(wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_SHARE, RELAY_ID_A, &h) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "attr: a share of non-cacheable memory, which the relayer cannot map, is INVALID_PARAMETERS");
+    (void)relay_build_attrs(desc, sizeof(desc), WT_FFA_MEM_OP_SHARE, c, 1u,
+                            WT_FFA_MEM_PERM_DATA_RW, 0u, 0x2Eu, &len);
+    check(wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_SHARE, RELAY_ID_A, &h) ==
+              WT_FFA_DENIED,
+          "attr: a share of outer-shareable memory is DENIED");
+    (void)relay_build_attrs(desc, sizeof(desc), WT_FFA_MEM_OP_SHARE, c, 1u,
+                            WT_FFA_MEM_PERM_DATA_RW, 0u, 0x2Fu, &len);
+    ret = wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_SHARE, RELAY_ID_A, &h);
+    check(ret == 0,
+          "attr: neither refused share held the page, and a Normal write-back inner-shareable share of it is accepted");
+    check(relay_retrieve_attrs(h, 0x27u, &got) == WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
+          "attr: a retrieve asking for non-cacheable memory is INVALID_PARAMETERS and maps nothing");
+    check(relay_retrieve_attrs(h, 0x2Eu, &got) == WT_FFA_DENIED &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
+          "attr: a retrieve asking for more than the lender gave is DENIED and maps nothing");
+    check(relay_retrieve_attrs(h, 0x2Fu, &got) == 0 && got == 0x2Fu &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "attr: a retrieve asking for the lender's attributes maps them and reports them");
+    check(relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "attr: the share ends");
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    got = 0u;
+    check(ret == 0 && relay_retrieve_attrs(h, 0u, &got) == 0 && got == 0x2Fu &&
+          relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "attr: a lend to one borrower reports the Normal write-back inner-shareable mapping the relayer chose");
+    check(g_domain_fails == 0u, "attr: no domain operation failed closed");
 }
 
 /* WT-FFA-0009 (relinquish holds the zero flag against the access the borrower
@@ -1856,10 +2003,12 @@ int main(void)
     time_slice_rows();
     send_handle_rows();
     attribute_rows();
+    send_attribute_rows();
     access_flag_rows();
     borrower_list_rows();
     relay_rows();
     relay_owner_rows();
+    relay_attr_rows();
     relay_perm_rows();
     relay_region_rows();
     relay_teardown_rows();

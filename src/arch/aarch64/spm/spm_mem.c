@@ -275,6 +275,7 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     uint32_t i;
     uint32_t owner_ro = 0u;
     uint16_t receiver = 0u;
+    uint16_t attributes = 0u;
     uint8_t perms = 0u;
     int access = WT_DOMAIN_ACCESS_NONE;
     int ret;
@@ -338,6 +339,9 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
             ret = WT_FFA_DENIED;
         }
     }
+    if (ret == 0) {
+        ret = wt_ffa_mem_send_attributes(txn.attributes, &attributes);
+    }
     /* An owner that only reads the memory cannot have it wiped, nor hand out
      * write access it does not hold (Table 5.20, 10.10.2). */
     if ((ret == 0) && (owner_ro != 0u)) {
@@ -392,6 +396,7 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
                                        ((owner_ro != 0u)
                                             ? WT_SPM_MEM_COOKIE_OWNER_RO
                                             : 0u));
+        wt_ffa_mem_handle_set_attributes(&g_reg, *out_handle, attributes);
         if (wt_ffa_mem_handle_lookup(&g_reg, *out_handle, &e) == 0) {
             owner_access(e, 0);
         }
@@ -704,9 +709,7 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     in.op = WT_FFA_MEM_OP_SHARE;
     in.sender = e->owner;
     in.receiver = receiver;
-    in.attributes = (uint16_t)(WT_FFA_MEM_ATTR_TYPE_NORMAL |
-                               (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT) |
-                               WT_FFA_MEM_ATTR_SHARE_INNER |
+    in.attributes = (uint16_t)(e->attributes |
                                ((e->regions[0].ns != 0u) ? WT_FFA_MEM_ATTR_NS : 0u));
     in.permissions = perms;
     in.access_desc_size = (uint8_t)rq.access_desc_size;

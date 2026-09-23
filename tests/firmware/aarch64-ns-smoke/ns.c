@@ -204,7 +204,8 @@ static int guest_hsm_echo(void)
     g_hsm_comm_cfg.transport_cb = &wt_hsm_psa_transport_cb;
     g_hsm_comm_cfg.transport_context = &g_hsm_tx;
     g_hsm_comm_cfg.transport_config = &g_hsm_tx_cfg;
-    g_hsm_comm_cfg.client_id = 0u;
+    /* wolfHSM refuses client id 0; the Secure side binds the real identity */
+    g_hsm_comm_cfg.client_id = 1u;
     g_hsm_client_cfg.comm = &g_hsm_comm_cfg;
 
     rc = wh_Client_Init(&g_hsm_client, &g_hsm_client_cfg);

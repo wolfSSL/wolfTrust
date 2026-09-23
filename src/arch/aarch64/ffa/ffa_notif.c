@@ -210,10 +210,9 @@ int32_t wt_ffa_notif_unbind(uint16_t caller, uint32_t w1, uint32_t w2,
     wt_notif_ep_t* receiver = ep_find(receiver_id);
     unsigned int b;
 
+    /* w2 is Reserved (SBZ): the callee ignores it rather than refusing. */
+    (void)w2;
     if ((sender == NULL) || (receiver == NULL)) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
-    if (w2 != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if (bitmap == 0u) {
@@ -222,15 +221,17 @@ int32_t wt_ffa_notif_unbind(uint16_t caller, uint32_t w1, uint32_t w2,
     if (receiver_id != caller) {
         return WT_FFA_DENIED;
     }
-    /* Every named id must currently be bound to this sender. */
     if ((receiver->bound_mask & bitmap) != bitmap) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     for (b = 0u; b < WT_FFA_NOTIF_COUNT; b++) {
         if (((bitmap & (1ull << b)) != 0u) &&
             (receiver->bound_sender[b] != sender_id)) {
-            return WT_FFA_INVALID_PARAMETERS;
+            return WT_FFA_DENIED;
         }
+    }
+    if (((receiver->pend_sp | receiver->pend_vm) & bitmap) != 0u) {
+        return WT_FFA_DENIED;
     }
     for (b = 0u; b < WT_FFA_NOTIF_COUNT; b++) {
         if ((bitmap & (1ull << b)) != 0u) {

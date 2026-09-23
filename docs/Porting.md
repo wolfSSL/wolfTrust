@@ -5,16 +5,15 @@ and board-specific execution. The fully silicon-validated build tuple is
 `armv8m-stm32h563`. A second Armv8-M tuple, `armv8m-mimxrt700` (external
 octal-NOR execute-in-place), is in hardware bring-up and reuses the
 architecture adapter unchanged; see the [STM32H5 Guide](STM32H5-Guide.md) and
-[MIMXRT700 Guide](MIMXRT700-Guide.md) for the two worked examples. Support for
-additional Cortex-M ports is an intended extension point. Such ports may reuse
-common policy and service code and an existing architecture adapter when their
+[MIMXRT700 Guide](MIMXRT700-Guide.md) for the two worked examples. A third
+tuple, `aarch64` with the `qemuvirt` and `versal` targets, is validated under
+QEMU (`versal` builds the `xlnx-versal-virt` model today). Support for
+additional ports is an intended extension point. Such ports may reuse common
+policy and service code and an existing architecture adapter when their
 execution and protection models match.
 
-Cortex-A support is an architectural goal, not a current capability. It will
-require a new adapter and changes to current internal execution and protection
-contracts. The design goal is to preserve the public manifest, service, IPC,
-and PSA API contracts. Every new port must report its actual capabilities and
-must not claim security properties until they are tested on that target.
+Every new port must report its actual capabilities and must not claim
+security properties until they are tested on that target.
 
 ## Port layers
 
@@ -198,14 +197,26 @@ worked examples above give a concrete map for each board.
 
 ## AArch64 targets
 
-An AArch64 SoC port adds `mk/target-<soc>.mk` (the EL3 text and RAM bands,
-the boot CPU count, whether the loader already configured the UART and the
-counter frequency) and `port/<soc>/memory_map.h`, `el3_board.c`, and
-`uart.c`. The EL3 monitor archive `libwt_el3.a` may reference only the port
-hooks listed in `tools/el3-symbols.allow` (`wt_platform_board_init`, the
+An AArch64 SoC port adds:
+
+- `mk/target-<soc>.mk`: the EL3 text and RAM bands, the Secure EL1 bands
+  (SPMC image, RAM, keystore, RX/TX pages, shared page, boot-information
+  page, and stage-1 table pool), the boot CPU count, and whether the loader
+  already configured the UART and the counter frequency;
+- `port/<soc>/memory_map.h`, `el3_board.c`, and `uart.c` for the monitor;
+- `port/<soc>/manifest.json`, whose optional `ffa` section gives each Secure
+  Partition's FF-A properties (see [Building](Building.md)).
+
+The QEMU targets share their Secure EL1 platform code in
+`port/common/aarch64/`: the `wolftrust/platform.h` operations, the partition
+entry table, a RAM-backed NVM, and a test entropy source that a silicon port
+must replace. The EL3 monitor archive `libwt_el3.a` may reference only the
+port hooks listed in `tools/el3-symbols.allow` (`wt_platform_board_init`, the
 console pair) and must define no SPM, service, or crypto code; the link rule
-runs `tools/check-el3-symbols.sh` on every build. The Secure EL1 side of the
-port arrives with the SPM bring-up.
+runs `tools/check-el3-symbols.sh` on every build. A silicon port must also
+fence the Secure bands from the Normal world in hardware (a TZASC, XMPU, or
+RISAF): QEMU `virt` models the fence with its secure memory, and
+`xlnx-versal-virt` does not model one.
 
 ## Validation checklist
 

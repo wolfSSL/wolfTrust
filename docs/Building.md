@@ -1,9 +1,11 @@
 # Building
 
-The supported Secure build tuple is Armv8-M on STM32H563. The root Makefile
-includes `mk/target-stm32h563.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk`
-(target facts, architecture facts, and the shared build in that order) and
-cross-compiles a freestanding Cortex-M33 image.
+The default Secure build tuple is Armv8-M on STM32H563; `ARCH=aarch64` builds
+the Cortex-A monitor and SPMC instead (see
+[AArch64 monitor and SPMC images](#aarch64-monitor-and-spmc-images)). The root
+Makefile includes `mk/target-<soc>.mk`, `mk/arch-<arch>.mk`, and
+`mk/common.mk` (target facts, architecture facts, and the shared build in that
+order) and cross-compiles a freestanding image.
 
 ## Prerequisites
 
@@ -79,7 +81,7 @@ tuning variables (`WT_VNET_POOL_SLOTS`, `WT_VNET_FRAME_MAX`,
 `WT_CONF_DIAG_TRAP` variables. Use a fresh `BUILD_DIR` or clean the active
 output directory before changing an option that the recipe does not record.
 
-## AArch64 EL3 monitor image
+## AArch64 monitor and SPMC images
 
 ```sh
 make ARCH=aarch64 TARGET=qemuvirt                            # virt, GICv3, cortex-a72
@@ -91,7 +93,8 @@ The AArch64 build produces two images. `el3-image` is the monitor: the
 archive `build/libwt_el3.a` (audited by `tools/check-el3-symbols.sh` at link
 time) linked whole into `build/wolftrust_el3.elf` and `build/wolftrust_el3.bin`.
 `secure-image` is the Secure EL1 SPMC, `build/wolftrust.elf` and
-`build/wolftrust.bin`: the neutral core, the services, wolfCrypt and wolfHSM,
+`build/wolftrust.bin`: the neutral core, the services, wolfCrypt and the selected
+[crypto engine](Crypto-Engines.md),
 the AArch64 Secure EL1 layer, and the port, linked by
 `src/arch/aarch64/spm/wolftrust.ld` into the SPM image, RAM, and keystore
 bands that `mk/target-<soc>.mk` defines. On QEMU virt the runner places the
@@ -116,7 +119,7 @@ make WT_CONFORMANCE=1
 ```
 
 The generator is constrained to FF-M framework version `0x0100`,
-feature mask `0x1` (connection-based IPC), and 32-bit addresses.
+feature mask `0x1` (connection-based IPC), and 32-bit addresses on Armv8-M.
 Unsupported capabilities or an invalid resource layout stop the build.
 
 AArch64 manifests (`--address-bits 64`) may add an optional top-level

@@ -28,7 +28,10 @@ CFLAGS := \
     -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic
 CFLAGS += $(EXTRA_CFLAGS)
 
-SRCS := $(ROOT)/src/arch/aarch64/ffa/ffa_mem.c main.c
+SRCS := $(ROOT)/src/arch/aarch64/ffa/ffa_mem.c \
+    $(ROOT)/src/arch/aarch64/spm/spm_mem.c \
+    $(ROOT)/src/arch/aarch64/spm/domain.c \
+    $(ROOT)/src/arch/aarch64/spm/tables.c main.c
 TEST_BIN := $(BUILD_DIR)/test_ffa_mem
 
 .PHONY: all run compilers sanitize valgrind clean

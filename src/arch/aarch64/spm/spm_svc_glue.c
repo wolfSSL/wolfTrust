@@ -1187,6 +1187,9 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     else {
         ffa_not_supported(frame);
     }
+    if (wt_ffa_fid_in_range(fid)) {
+        wt_ffa_reply_clear_ext(fid, frame->x);
+    }
 
     g_wt_spm_handler_depth--;
     g_wt_spm_live_frame = NULL;

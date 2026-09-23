@@ -134,6 +134,7 @@ static void ns_smc(wt_el3_frame_t* frame)
         for (i = 0u; i < 8u; i++) {
             frame->x[i] = regs.x[i];
         }
+        wt_ffa_reply_clear_ext(fid, frame->x);
         return;
     }
     frame->x[0] = WT_MON_NOT_SUPPORTED;
@@ -176,6 +177,7 @@ static void secure_smc(wt_el3_frame_t* frame)
         for (i = 0u; i < 8u; i++) {
             frame->x[i] = regs.x[i];
         }
+        wt_ffa_reply_clear_ext(fid, frame->x);
         return;
     }
     frame->x[0] = wt_el3_monitor_call(fid, frame->x[1]);

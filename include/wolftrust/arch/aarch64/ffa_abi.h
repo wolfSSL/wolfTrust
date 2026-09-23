@@ -245,6 +245,22 @@ static inline unsigned int wt_ffa_msg_reg_count(uint64_t x0)
                                                    : WT_FFA_MSG_REGS;
 }
 
+/* x8-x17 of the reply in x to a call: an SMC64 caller gets them as Reserved
+ * (MBZ) results unless the reply extends into them (11.2); an SMC32 caller's
+ * are preserved across the call (SMCCC 2.6), so they are left alone. */
+static inline void wt_ffa_reply_clear_ext(uint32_t call, uint64_t* x)
+{
+    unsigned int i;
+
+    if (((call & 0x40000000u) == 0u) ||
+        (wt_ffa_reply_is_ext(call, (uint32_t)x[0]) != 0)) {
+        return;
+    }
+    for (i = WT_FFA_MSG_REGS; i < WT_FFA_MSG_REGS_EXT; i++) {
+        x[i] = 0u;
+    }
+}
+
 /* A 32-bit function id carries w1-w7 only (SMCCC): a relayer hands the
  * receiver the low halves and never leaks the sender's upper register bits. */
 static inline void wt_ffa_regs_normalize(uint64_t* x)

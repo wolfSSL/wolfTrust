@@ -114,13 +114,19 @@ int wt_arch_ns_check_writable(const void* address, size_t size)
     return wt_spm_ns_window_ok((uintptr_t)address, size);
 }
 
+static uint32_t g_req_fid;
+static uint32_t g_resp_fid;
+
 /* The SMC seam: a direct request to the PSA endpoint lands in the SPMC
  * front-end; anything else is refused as the SPMD would. */
 void wt_ffa_transport_smc(wt_ffa_regs_t* r)
 {
-    if (((uint32_t)r->x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32) &&
+    g_req_fid = (uint32_t)r->x[0];
+    if ((((uint32_t)r->x[0] == WT_FFA_MSG_SEND_DIRECT_REQ64) ||
+         ((uint32_t)r->x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32)) &&
         (wt_ffa_direct_receiver(r->x[1]) == WT_FFA_ID_PSA)) {
         (void)wt_spm_psa_framework(r);
+        g_resp_fid = (uint32_t)r->x[0];
         return;
     }
     r->x[0] = WT_FFA_ERROR;
@@ -192,19 +198,27 @@ static void check(int ok, const char* what)
     }
 }
 
+/* Hand one crafted direct request of the given width to the SPMC front-end. */
+static void crafted(wt_ffa_regs_t* r, uint32_t fid, uint32_t op, uint64_t x4,
+                    uint64_t x5)
+{
+    memset(r, 0, sizeof(*r));
+    r->x[0] = fid;
+    r->x[1] = ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16) | WT_FFA_ID_PSA;
+    r->x[3] = op;
+    r->x[4] = x4;
+    r->x[5] = x5;
+    (void)wt_spm_psa_framework(r);
+}
+
 /* Drive one crafted Call through the SPMC front-end with the given vector block
  * address and handle; returns the psa_status_t the guest would see. */
 static psa_status_t crafted_call(uint64_t block, psa_handle_t handle)
 {
     wt_ffa_regs_t r;
 
-    memset(&r, 0, sizeof(r));
-    r.x[0] = WT_FFA_MSG_SEND_DIRECT_REQ32;
-    r.x[1] = ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16) | WT_FFA_ID_PSA;
-    r.x[3] = WT_PSA_FFA_OP_CALL;
-    r.x[4] = block;
-    r.x[5] = ((uint64_t)(uint32_t)PSA_IPC_CALL << 32) | (uint64_t)(uint32_t)handle;
-    (void)wt_spm_psa_framework(&r);
+    crafted(&r, WT_FFA_MSG_SEND_DIRECT_REQ64, WT_PSA_FFA_OP_CALL, block,
+            ((uint64_t)(uint32_t)PSA_IPC_CALL << 32) | (uint64_t)(uint32_t)handle);
     return (psa_status_t)(int32_t)(uint32_t)r.x[3];
 }
 
@@ -220,6 +234,7 @@ int main(void)
         0x8e, 0x27, 0xa4, 0xb5, 0x0a, 0x49, 0x84, 0x66
     };
     static uint8_t area[1024] __attribute__((aligned(16)));
+    wt_ffa_regs_t r;
     wt_ffm_veneer_iovec_t* block;
     wt_ffm_veneer_iovec_t local;
     psa_handle_t handle;
@@ -256,6 +271,9 @@ int main(void)
     wt_spm_psa_init(0u, ~(uint64_t)0);
     check(psa_framework_version() == PSA_FRAMEWORK_VERSION,
           "psa_framework_version comes from the core over the transport");
+    check((g_req_fid == WT_FFA_MSG_SEND_DIRECT_REQ64) &&
+              (g_resp_fid == WT_FFA_MSG_SEND_DIRECT_RESP64),
+          "the client sends FFA_MSG_SEND_DIRECT_REQ64 and is answered with RESP64");
     check(psa_version(TEST_HSM_SID) == 1u,
           "psa_version of SERVICE_HSM is 1 through the gateway");
     check(psa_version(0x9999u) == PSA_VERSION_NONE,
@@ -307,6 +325,33 @@ int main(void)
     check(crafted_call((uint64_t)(uintptr_t)&local, handle) == PSA_ERROR_PROGRAMMER_ERROR,
           "a vector block outside the Non-secure window is refused before it is read");
     wt_spm_psa_init(0u, ~(uint64_t)0);
+
+    /* 7.2.1 / 11 rule 3: an SMC32 message is w0-w7, so the upper halves of
+     * x4/x5 are ignored and a Call's 64-bit block address and type cannot ride
+     * it. */
+    crafted(&r, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_PSA_FFA_OP_CONNECT,
+            0xDEADBEEF00000000ull | TEST_HSM_SID, 0xFFFFFFFF00000001ull);
+    handle = (psa_handle_t)(int32_t)(uint32_t)r.x[3];
+    check(((uint32_t)r.x[0] == WT_FFA_MSG_SEND_DIRECT_RESP32) &&
+              PSA_HANDLE_IS_VALID(handle),
+          "an SMC32 Connect reads w4/w5 only and is answered with RESP32");
+    block->out[0].len = 32u;
+    crafted(&r, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_PSA_FFA_OP_CALL,
+            (uint64_t)(uintptr_t)block,
+            ((uint64_t)(uint32_t)PSA_IPC_CALL << 32) | (uint64_t)(uint32_t)handle);
+    check(((uint32_t)r.x[0] == WT_FFA_ERROR) &&
+              ((int32_t)(uint32_t)r.x[2] == WT_FFA_INVALID_PARAMETERS) &&
+              (r.x[3] == 0u),
+          "an SMC32 Call is INVALID_PARAMETERS: it cannot carry the block address and type");
+    check(crafted_call((uint64_t)(uintptr_t)block, handle) == PSA_SUCCESS,
+          "the connection an SMC32 Connect opened serves an SMC64 Call");
+    crafted(&r, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_PSA_FFA_OP_CLOSE,
+            0xA5A5A5A500000000ull | (uint64_t)(uint32_t)handle, 0u);
+    check(((uint32_t)r.x[0] == WT_FFA_MSG_SEND_DIRECT_RESP32) &&
+              ((psa_status_t)(int32_t)(uint32_t)r.x[3] == PSA_SUCCESS) &&
+              (crafted_call((uint64_t)(uintptr_t)block, handle) ==
+                   PSA_ERROR_PROGRAMMER_ERROR),
+          "an SMC32 Close takes the handle from w4 and closes the connection");
 
     printf("psa_ffa_transport: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

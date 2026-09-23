@@ -28,8 +28,8 @@
 #include "wolftrust/arch/aarch64/psa_ffa_transport.h"
 
 /* AArch64 binding of the PSA client transport: the client op rides the payload
- * words of an FF-A direct request to WT_FFA_ID_PSA (op in w3, arguments in
- * x4/x5), and the SPMC answers with the result in w3 of the direct response.
+ * words of an FFA_MSG_SEND_DIRECT_REQ64 to WT_FFA_ID_PSA (op in w3, arguments
+ * in x4/x5), and the SPMC answers with the result in w3 of the RESP64.
  * The SPMC side is the AArch64 twin of the Armv8-M CMSE veneers: it hands each
  * operation to the neutral FF-M gateway (src/arch/common/ffm_gateway.c), whose
  * core copies a call's vectors itself (psa_read/psa_write) after the NS-window

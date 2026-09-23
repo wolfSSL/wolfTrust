@@ -59,11 +59,14 @@ int wt_spm_ns_window_ok(uintptr_t base, size_t len)
 
 int wt_spm_psa_framework(wt_ffa_regs_t* r)
 {
+    uint32_t fid = (uint32_t)r->x[0];
     uint32_t op = (uint32_t)r->x[3];
     uint32_t a0 = (uint32_t)r->x[4];
     uint32_t a1 = (uint32_t)r->x[5];
     uint16_t sender = wt_ffa_direct_sender(r->x[1]);
-    int32_t result;
+    int is64 = (fid == WT_FFA_MSG_SEND_DIRECT_REQ64);
+    int32_t result = 0;
+    int ok = 1;
     unsigned int i;
 
     switch (op) {
@@ -81,25 +84,33 @@ int wt_spm_psa_framework(wt_ffa_regs_t* r)
             result = (int32_t)PSA_SUCCESS;
             break;
         case WT_PSA_FFA_OP_CALL:
-            /* x4 = the Non-secure address of the client's vector block (the
-             * gateway checks it against the window before reading it), x5 =
-             * handle in bits 31:0 and type in bits 63:32. */
+            /* x4 = the client's Non-secure vector block, x5 = handle (31:0)
+             * and type (63:32); an SMC32 request carries only w4/w5 (7.2.1). */
+            if (is64 == 0) {
+                ok = 0;
+                break;
+            }
             result = wt_ffm_gateway_call((int32_t)(uint32_t)r->x[5],
                                          (int32_t)(uint32_t)(r->x[5] >> 32),
                                          (wt_ffm_veneer_iovec_t*)(uintptr_t)r->x[4]);
             break;
         default:
-            for (i = 0u; i < 8u; i++) {
-                r->x[i] = 0u;
-            }
-            r->x[0] = WT_FFA_ERROR;
-            r->x[2] = (uint64_t)(uint32_t)WT_FFA_INVALID_PARAMETERS;
-            return -1;
+            ok = 0;
+            break;
+    }
+    if (ok == 0) {
+        for (i = 0u; i < 8u; i++) {
+            r->x[i] = 0u;
+        }
+        r->x[0] = WT_FFA_ERROR;
+        r->x[2] = (uint64_t)(uint32_t)WT_FFA_INVALID_PARAMETERS;
+        return -1;
     }
     for (i = 0u; i < 8u; i++) {
         r->x[i] = 0u;
     }
-    r->x[0] = WT_FFA_MSG_SEND_DIRECT_RESP32;
+    r->x[0] = (is64 != 0) ? WT_FFA_MSG_SEND_DIRECT_RESP64
+                          : WT_FFA_MSG_SEND_DIRECT_RESP32;
     r->x[1] = ((uint64_t)WT_FFA_ID_PSA << 16) | sender;
     r->x[3] = (uint64_t)(uint32_t)result;
     return 0;

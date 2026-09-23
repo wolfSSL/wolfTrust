@@ -187,12 +187,13 @@ static size_t partinfo_collect(void)
 /* FFA_PARTITION_INFO_GET (6.1) for either instance: x = the call's registers,
  * mb = the caller's mailbox, whose RX buffer must be mapped and free for
  * descriptors (a count needs none). */
-int wt_spm_partition_info(const uint64_t* x, wt_ffa_mailbox_t* mb,
-                          uint32_t* count, uint32_t* size)
+int wt_spm_partition_info(const uint64_t* x, uint32_t caller_version,
+                          wt_ffa_mailbox_t* mb, uint32_t* count, uint32_t* size)
 {
     size_t n = partinfo_collect();
 
-    return wt_ffa_partinfo_get(x, mb, g_partinfo, n, count, size);
+    return wt_ffa_partinfo_get(x, caller_version, mb, g_partinfo, n, count,
+                               size);
 }
 
 /* FFA_PARTITION_INFO_GET_REGS for either instance: UUID in x1/x2, start index
@@ -239,11 +240,24 @@ static void ffa_partition_info_get_regs(wt_trap_frame_t* frame)
     }
 }
 
-static void ffa_partition_info_get(wt_trap_frame_t* frame)
+static wt_ffa_version_state_t g_sp_version[WT_CO_MAX];
+
+/* The version a partition negotiated, which its data structures follow. */
+static uint32_t sp_version(const struct wt_co* co)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return WT_FFA_VERSION_1_2;
+    }
+    return wt_ffa_version_of(&g_sp_version[co->id - 1u], WT_FFA_VERSION_1_2);
+}
+
+static void ffa_partition_info_get(wt_trap_frame_t* frame,
+                                   const struct wt_co* co)
 {
     uint32_t count = 0u;
     uint32_t size = 0u;
-    int ret = wt_spm_partition_info(frame->x, sp_mailbox(), &count, &size);
+    int ret = wt_spm_partition_info(frame->x, sp_version(co), sp_mailbox(),
+                                    &count, &size);
 
     if (ret != 0) {
         ffa_error(frame, ret);
@@ -640,9 +654,6 @@ static void ffa_mem_reclaim(wt_trap_frame_t* frame)
     ffa_success(frame, 0u, 0u);
 }
 
-/* FFA_VERSION (13.2): the result is returned in w0 alone. */
-static wt_ffa_version_state_t g_sp_version[WT_CO_MAX];
-
 void wt_spm_sp_ffa_reset(const struct wt_co* co)
 {
     if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
@@ -652,6 +663,7 @@ void wt_spm_sp_ffa_reset(const struct wt_co* co)
     (void)memset(&g_sp_mailbox[co->id - 1u], 0, sizeof(g_sp_mailbox[0]));
 }
 
+/* FFA_VERSION (13.2): the result is returned in w0 alone. */
 static void ffa_version(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     uint32_t requested = (uint32_t)frame->x[1];
@@ -1133,7 +1145,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         ffa_rxtx_unmap(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_PARTITION_INFO_GET) {
-        ffa_partition_info_get(frame);
+        ffa_partition_info_get(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_PARTITION_INFO_GET_REGS) {
         ffa_partition_info_get_regs(frame);

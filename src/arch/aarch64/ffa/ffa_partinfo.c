@@ -133,8 +133,12 @@ static int uuid_equal(const uint8_t* a, const uint8_t* b)
 static void write_desc(uint8_t* dst, uint32_t desc_size,
                        const wt_ffa_partinfo_entry_t* p, int nil)
 {
+    uint32_t props = p->properties;
     unsigned int i;
 
+    if (desc_size < WT_FFA_PARTINFO_DESC_V11) {
+        props &= WT_FFA_PARTINFO_PROP_V10_MASK;
+    }
     for (i = 0u; i < desc_size; i++) {
         dst[i] = 0u;
     }
@@ -142,10 +146,10 @@ static void write_desc(uint8_t* dst, uint32_t desc_size,
     dst[1] = (uint8_t)((p->id >> 8) & 0xFFu);
     dst[2] = (uint8_t)(p->exec_contexts & 0xFFu);
     dst[3] = (uint8_t)((p->exec_contexts >> 8) & 0xFFu);
-    dst[4] = (uint8_t)(p->properties & 0xFFu);
-    dst[5] = (uint8_t)((p->properties >> 8) & 0xFFu);
-    dst[6] = (uint8_t)((p->properties >> 16) & 0xFFu);
-    dst[7] = (uint8_t)((p->properties >> 24) & 0xFFu);
+    dst[4] = (uint8_t)(props & 0xFFu);
+    dst[5] = (uint8_t)((props >> 8) & 0xFFu);
+    dst[6] = (uint8_t)((props >> 16) & 0xFFu);
+    dst[7] = (uint8_t)((props >> 24) & 0xFFu);
     if ((nil != 0) && (desc_size >= WT_FFA_PARTINFO_DESC_V11)) {
         for (i = 0u; i < 16u; i++) {
             dst[8u + i] = p->uuid[i];
@@ -189,7 +193,8 @@ int wt_ffa_partinfo_write(uint8_t* rx, size_t rx_size, uint32_t caller_version,
     return 0;
 }
 
-int wt_ffa_partinfo_get(const uint64_t* x, wt_ffa_mailbox_t* mb,
+int wt_ffa_partinfo_get(const uint64_t* x, uint32_t caller_version,
+                        wt_ffa_mailbox_t* mb,
                         const wt_ffa_partinfo_entry_t* parts, size_t n,
                         uint32_t* count, uint32_t* size)
 {
@@ -211,7 +216,7 @@ int wt_ffa_partinfo_get(const uint64_t* x, wt_ffa_mailbox_t* mb,
         uuid[4u * i + 2u] = (uint8_t)((word >> 16) & 0xFFu);
         uuid[4u * i + 3u] = (uint8_t)((word >> 24) & 0xFFu);
     }
-    ret = wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, parts, n, uuid,
+    ret = wt_ffa_partinfo_write(NULL, 0u, caller_version, parts, n, uuid,
                                 flags | WT_FFA_PARTINFO_FLAG_COUNT, count,
                                 size);
     if ((ret == 0) && (*count == 0u)) {
@@ -225,7 +230,7 @@ int wt_ffa_partinfo_get(const uint64_t* x, wt_ffa_mailbox_t* mb,
     }
     ret = wt_ffa_partinfo_write((uint8_t*)(uintptr_t)mb->rx,
                                 (size_t)mb->pages * WT_FFA_MEM_PAGE_SIZE,
-                                WT_FFA_VERSION_1_2, parts, n, uuid, flags,
+                                caller_version, parts, n, uuid, flags,
                                 count, size);
     if (ret != 0) {
         (void)wt_ffa_mailbox_rx_release(mb);

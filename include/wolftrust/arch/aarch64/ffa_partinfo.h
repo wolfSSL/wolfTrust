@@ -46,6 +46,8 @@
 #define WT_FFA_PARTINFO_PROP_AARCH64     0x100u
 #define WT_FFA_PARTINFO_PROP_REQ2_RECV   0x200u
 #define WT_FFA_PARTINFO_PROP_REQ2_SEND   0x400u
+/* The v1.0 descriptor defines only bits 2:0 of the properties (Table 18.22). */
+#define WT_FFA_PARTINFO_PROP_V10_MASK    0x7u
 
 typedef struct wt_ffa_partinfo_entry {
     uint16_t id;
@@ -86,20 +88,24 @@ int wt_ffa_direct_req_allowed(uint32_t props, uint32_t fid, int receive);
  * and the descriptors' UUID field is then zero (Table 6.1). flags bit 0 returns only the count (no descriptors written). On success 0 is
  * returned with *out_count set and *out_desc_size set to the per-descriptor
  * size (0 for a count-only request). The producer zeroes every descriptor byte
- * it does not fill (7.2.2). WT_FFA_INVALID_PARAMETERS for a reserved flag bit;
- * WT_FFA_NO_MEMORY if rx cannot hold the matching descriptors. */
+ * it does not fill (7.2.2); a v1.0 caller's descriptor carries only the
+ * property bits Table 18.22 defines. WT_FFA_INVALID_PARAMETERS for a reserved
+ * flag bit; WT_FFA_NO_MEMORY if rx cannot hold the matching descriptors. */
 int wt_ffa_partinfo_write(uint8_t* rx, size_t rx_size, uint32_t caller_version,
                           const wt_ffa_partinfo_entry_t* parts, size_t n,
                           const uint8_t* uuid16, uint32_t flags,
                           uint32_t* out_count, uint32_t* out_desc_size);
 
 /* FFA_PARTITION_INFO_GET (13.8) over parts: x = the call's registers (UUID in
- * w1-w4, flags in w5). A count needs no buffer; descriptors go to the RX
- * buffer of the caller's mailbox mb and take its ownership. BUSY when that RX
- * buffer is not mapped or not free (Table 13.36); INVALID_PARAMETERS for a
- * UUID nothing matches, found before the RX buffer changes hands. */
+ * w1-w4, flags in w5), caller_version = the FF-A version the caller negotiated
+ * (the descriptor layout follows it, 18.5.3). A count needs no buffer;
+ * descriptors go to the RX buffer of the caller's mailbox mb and take its
+ * ownership. BUSY when that RX buffer is not mapped or not free (Table 13.36);
+ * INVALID_PARAMETERS for a UUID nothing matches, found before the RX buffer
+ * changes hands. */
 struct wt_ffa_mailbox;
-int wt_ffa_partinfo_get(const uint64_t* x, struct wt_ffa_mailbox* mb,
+int wt_ffa_partinfo_get(const uint64_t* x, uint32_t caller_version,
+                        struct wt_ffa_mailbox* mb,
                         const wt_ffa_partinfo_entry_t* parts, size_t n,
                         uint32_t* count, uint32_t* size);
 

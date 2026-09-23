@@ -197,10 +197,12 @@ void wt_spm_twdog_stop(const struct wt_co* owner);
 void wt_spm_twdog_tick(void);
 int wt_spm_current_is_partition(void);
 
-/* FFA_PARTITION_INFO_GET for either instance; see spm_svc_glue.c. */
+/* FFA_PARTITION_INFO_GET for either instance, at the caller's negotiated
+ * version; see spm_svc_glue.c. */
 struct wt_ffa_mailbox;
-int wt_spm_partition_info(const uint64_t* x, struct wt_ffa_mailbox* mb,
-                          uint32_t* count, uint32_t* size);
+int wt_spm_partition_info(const uint64_t* x, uint32_t caller_version,
+                          struct wt_ffa_mailbox* mb, uint32_t* count,
+                          uint32_t* size);
 int wt_spm_partition_info_regs(const uint64_t* x, uint64_t* out18);
 /* The Table 6.2 properties discovery lists for id, or INVALID_PARAMETERS for
  * an id it does not list. */

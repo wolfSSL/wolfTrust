@@ -522,9 +522,11 @@ uint32_t wt_ffa_mem_type_flag(uint8_t state);
  * implementation-defined bytes it repeats, without the bypass flag a
  * transaction with several borrowers has each of them named once (1.11.3.3),
  * the receiver's own entry does not mark it a non-retrieval borrower, and the
- * tag, flags, transaction type, and attributes agree. Returns 0,
+ * tag, flags, transaction type, and attributes agree, and every other
+ * borrower named carries the data access the lender gave it. Returns 0,
  * WT_FFA_INVALID_PARAMETERS for a field the request got wrong, or
- * WT_FFA_DENIED for Device memory (only Normal memory is ever sent). */
+ * WT_FFA_DENIED for Device memory (only Normal memory is ever sent) or another
+ * borrower's data access that is not the lender's. */
 int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
                                   const wt_ffa_mem_retrieve_req_t* rq,
                                   uint16_t receiver);

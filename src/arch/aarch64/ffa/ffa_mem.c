@@ -1294,5 +1294,15 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
     if (ret == 0) {
         ret = wt_ffa_mem_attributes_check(rq->attributes);
     }
+    /* Every other borrower named must carry the data access the lender gave
+     * it (1.10.2 item 1). */
+    for (i = 0u; (ret == 0) && (i < rq->receiver_count); i++) {
+        named = entry_borrower(e, rq->receivers[i]);
+        if ((rq->receivers[i] != receiver) && (named != NULL) &&
+            ((rq->permissions[i] & WT_FFA_MEM_PERM_DATA_MASK) !=
+             (named->permissions & WT_FFA_MEM_PERM_DATA_MASK))) {
+            ret = WT_FFA_DENIED;
+        }
+    }
     return ret;
 }

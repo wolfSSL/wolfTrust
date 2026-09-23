@@ -170,6 +170,8 @@ static void bind_rows(void)
 
 static void unbind_rows(void)
 {
+    wt_ffa_notif_get_result_t got;
+
     printf("[suite] unbind\n");
     fixture();
     check(wt_ffa_notif_bitmap_create(VM0, VM0, 1u) == 0, "create the bitmap");
@@ -177,8 +179,9 @@ static void unbind_rows(void)
           WT_FFA_INVALID_PARAMETERS, "an unknown sender half is refused");
     check(wt_ffa_notif_unbind(VM0, IDS(SP3, BAD_ID), 0u, BIT(0)) ==
           WT_FFA_INVALID_PARAMETERS, "an unknown receiver half is refused");
-    check(wt_ffa_notif_unbind(VM0, IDS(SP3, VM0), 0x10u, BIT(0)) ==
-          WT_FFA_INVALID_PARAMETERS, "a nonzero reserved word is refused");
+    check(wt_ffa_notif_unbind(VM0, IDS(SP3, VM0), 0x10u, 0u) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "a nonzero reserved word with an empty bitmap is refused");
     check(wt_ffa_notif_unbind(VM0, IDS(SP3, VM0), 0u, 0u) ==
           WT_FFA_INVALID_PARAMETERS, "an empty bitmap is refused");
     check(wt_ffa_notif_unbind(VM0, IDS(SP3, VM0), 0u, BIT(5)) ==
@@ -186,14 +189,28 @@ static void unbind_rows(void)
     check(wt_ffa_notif_bind(VM0, IDS(SP1, VM0), 0u, BIT(5)) == 0,
           "bind an id from SP1");
     check(wt_ffa_notif_unbind(VM0, IDS(SP3, VM0), 0u, BIT(5)) ==
-          WT_FFA_INVALID_PARAMETERS,
-          "unbinding with the wrong sender is refused");
+          WT_FFA_DENIED, "unbinding an id bound to another sender is DENIED");
     check(wt_ffa_notif_unbind(SP2, IDS(SP1, VM0), 0u, BIT(5)) ==
           WT_FFA_DENIED, "unbinding another endpoint's ids is DENIED");
-    check(wt_ffa_notif_unbind(VM0, IDS(SP1, VM0), 0u, BIT(5)) == 0,
-          "the receiver unbinds its id");
+    check(wt_ffa_notif_set(SP1, IDS(SP1, VM0), 0u, BIT(5)) == 0,
+          "SP1 signals the id");
+    check(wt_ffa_notif_unbind(VM0, IDS(SP1, VM0), 0u, BIT(5)) ==
+          WT_FFA_DENIED, "unbinding a pending id is DENIED");
+    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_SP, &got) == 0,
+          "the VM drains it");
+    check(got.from_sp == BIT(5), "the refused unbind left it signaled");
+    check(wt_ffa_notif_unbind(VM0, IDS(SP1, VM0), 0x10u, BIT(5)) == 0,
+          "the drained id unbinds and the reserved word is ignored");
     check(wt_ffa_notif_bind(VM0, IDS(SP3, VM0), 0u, BIT(5)) == 0,
           "the freed id can be bound to a new sender");
+    check(wt_ffa_notif_bind(SP2, IDS(VM0, SP2), 0u, BIT(6) | BIT(7)) == 0,
+          "SP2 binds two ids from the VM");
+    check(wt_ffa_notif_set(VM0, IDS(VM0, SP2), 0u, BIT(7)) == 0,
+          "the VM signals one of them");
+    check(wt_ffa_notif_unbind(SP2, IDS(VM0, SP2), 0u, BIT(6) | BIT(7)) ==
+          WT_FFA_DENIED, "one pending id refuses the whole unbind");
+    check(wt_ffa_notif_unbind(SP2, IDS(VM0, SP2), 0u, BIT(6)) == 0,
+          "the idle id was left bound and unbinds alone");
 }
 
 /* The notification_set error rows: SP2 holds bit 12 global and bit 13

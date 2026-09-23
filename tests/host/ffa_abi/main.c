@@ -854,6 +854,12 @@ int main(void)
                                          WT_FFA_FEATURES_RETRIEVE_NS_BIT) == 0,
           "a v1.1+ partition must request the NS bit (DEN0140 1.10.4.1.1), or "
           "the query is NOT_SUPPORTED (13.3)");
+    check(!wt_ffa_ns_bit_used(WT_FFA_VERSION_MAKE(1u, 0u), 0) &&
+              wt_ffa_ns_bit_used(WT_FFA_VERSION_MAKE(1u, 0u), 1) &&
+              wt_ffa_ns_bit_used(WT_FFA_VERSION_MAKE(1u, 1u), 0) &&
+              wt_ffa_ns_bit_used(WT_FFA_VERSION_1_2, 0),
+          "a retrieve response tells a v1.0 partition the NS bit only if it "
+          "asked, a v1.1+ one always (DEN0140 Table 1.19)");
     check(wt_ffa_version_reply(WT_FFA_VERSION_1_2, WT_FFA_VERSION_1_2) ==
               (int32_t)WT_FFA_VERSION_1_2,
           "a 1.2 caller is told 1.2");

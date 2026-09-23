@@ -140,6 +140,19 @@ static int id_is_secure(uint16_t id)
     return (id & 0x8000u) != 0u;
 }
 
+/* The FF-A version endpoint id negotiated, which the descriptors it sends and
+ * receives follow (DEN0077A 18.5.3); the SPMC's own is 1.2. */
+static uint32_t caller_version(uint16_t id)
+{
+    const wt_spm_mem_binding_t* b;
+
+    if (!id_is_secure(id)) {
+        return wt_spm_ns_ffa_version();
+    }
+    b = bind_by_id(id);
+    return (b != NULL) ? wt_spm_sp_ffa_version(b->co) : WT_FFA_VERSION_1_2;
+}
+
 static int ranges_overlap(uint64_t base, uint64_t size, uintptr_t other,
                           size_t other_size)
 {
@@ -296,7 +309,8 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     if (out_handle == NULL) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    ret = wt_ffa_mem_send_validate(desc, len, op, sender, &txn);
+    ret = wt_ffa_mem_send_validate_at(desc, len, op, sender,
+                                      caller_version(sender), &txn);
     /* Nothing here can take memory away from the Normal world, so it cannot
      * give any away for good; a malformed attempt is still told why. */
     if ((ret == 0) && (op == WT_FFA_MEM_OP_DONATE) && !id_is_secure(sender)) {
@@ -460,9 +474,9 @@ int wt_spm_mem_frag_begin(uint8_t op, uint16_t sender, const uint8_t* frag,
     }
     /* A total the descriptor's own headers contradict is an invalid length,
      * not the start of a transfer. */
-    if ((wt_ffa_mem_frag_expected(frag, frag_len,
-                                  (op == WT_SPM_MEM_FRAG_OP_RETRIEVE) ? 1 : 0,
-                                  &size) != 0) &&
+    if ((wt_ffa_mem_frag_expected_at(frag, frag_len,
+                                     (op == WT_SPM_MEM_FRAG_OP_RETRIEVE) ? 1 : 0,
+                                     caller_version(sender), &size) != 0) &&
         (size != (uint64_t)total)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
@@ -633,6 +647,7 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     wt_ffa_mem_constituent_t cons[WT_FFA_MEM_MAX_REGIONS];
     wt_ffa_mem_build_t in;
     uint32_t attributes;
+    uint32_t version = caller_version(receiver);
     uint32_t i;
     uint32_t done = 0u;
     uint8_t mapping = 0u;
@@ -646,7 +661,7 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     if ((resp == NULL) || (out_resp_len == NULL)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    ret = wt_ffa_mem_retrieve_req_parse_ex(req, len, &rq);
+    ret = wt_ffa_mem_retrieve_req_parse_at(req, len, version, &rq);
     if (ret != 0) {
         return ret;
     }
@@ -717,11 +732,16 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     in.op = WT_FFA_MEM_OP_SHARE;
     in.sender = e->owner;
     in.receiver = receiver;
+    /* A v1.0 borrower that never asked for the NS bit is not told it
+     * (DEN0140 Table 1.19 row 5). */
     in.attributes = (uint16_t)(e->attributes |
-                               ((e->regions[0].ns != 0u) ? WT_FFA_MEM_ATTR_NS : 0u));
+                               (((e->regions[0].ns != 0u) &&
+                                 (wt_spm_sp_ffa_ns_bit(b->co) != 0))
+                                    ? WT_FFA_MEM_ATTR_NS : 0u));
     in.permissions = perms;
     in.access_desc_size = (uint8_t)rq.access_desc_size;
     in.impdef = borrower->impdef;
+    in.version = version;
     ret = wt_ffa_mem_txn_build(resp, resp_cap, &in, out_resp_len);
     if (ret != 0) {
         return ret;

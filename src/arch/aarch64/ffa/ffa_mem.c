@@ -80,6 +80,44 @@ static int access_reserved_clear(const uint8_t* acc, uint32_t size)
     return 1;
 }
 
+static int layout_v10(uint32_t version)
+{
+    return (version != 0u) && (version < WT_FFA_VERSION_MAKE(1u, 1u));
+}
+
+/* Where a descriptor laid out for version keeps its access descriptors: Table
+ * 1.20 names their size and offset and reserves [36, 48), the v1.0 layout
+ * fixes them and reserves [24, 28). 0, or INVALID_PARAMETERS for a short
+ * header or a reserved byte set. */
+static int txn_header(const uint8_t* buf, size_t len, uint32_t version,
+                      uint32_t* acc_size, uint32_t* acc_off, uint32_t* hdr)
+{
+    uint32_t i;
+
+    if (layout_v10(version) != 0) {
+        if ((len < WT_FFA_MEM_TXN_HDR_SIZE_V10) ||
+            (rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE]) != 0u)) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+        *acc_size = WT_FFA_MEM_ACCESS_SIZE;
+        *acc_off = WT_FFA_MEM_TXN_HDR_SIZE_V10;
+        *hdr = WT_FFA_MEM_TXN_HDR_SIZE_V10;
+        return 0;
+    }
+    if (len < WT_FFA_MEM_TXN_HDR_SIZE) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    for (i = 36u; i < WT_FFA_MEM_TXN_HDR_SIZE; i++) {
+        if (buf[i] != 0u) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+    }
+    *acc_size = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE]);
+    *acc_off = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET]);
+    *hdr = WT_FFA_MEM_TXN_HDR_SIZE;
+    return 0;
+}
+
 int wt_ffa_mem_attributes_check(uint16_t attributes)
 {
     uint32_t type = (uint32_t)attributes & WT_FFA_MEM_ATTR_TYPE_MASK;
@@ -177,6 +215,7 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
     uint32_t cons_base;
     uint32_t sum = 0u;
     uint32_t acc_size;
+    uint32_t hdr;
     uint32_t i;
     uint8_t* c;
 
@@ -186,11 +225,15 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
     }
     acc_size = (in->access_desc_size != 0u) ? (uint32_t)in->access_desc_size
                                             : WT_FFA_MEM_ACCESS_SIZE;
-    if (access_size_ok(acc_size) == 0) {
+    if ((access_size_ok(acc_size) == 0) ||
+        ((layout_v10(in->version) != 0) &&
+         (acc_size != WT_FFA_MEM_ACCESS_SIZE))) {
         return WT_FFA_INVALID_PARAMETERS;
     }
+    hdr = (layout_v10(in->version) != 0) ? WT_FFA_MEM_TXN_HDR_SIZE_V10
+                                         : WT_FFA_MEM_TXN_HDR_SIZE;
 
-    comp_off = WT_FFA_MEM_TXN_HDR_SIZE + acc_size;
+    comp_off = hdr + acc_size;
     cons_base = comp_off + WT_FFA_MEM_COMPOSITE_HDR_SIZE;
     total = (uint64_t)cons_base +
             (uint64_t)in->constituent_count * WT_FFA_MEM_CONSTITUENT_SIZE;
@@ -207,18 +250,18 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
     wr_u32(&buf[WT_FFA_MEM_TXN_OFF_FLAGS], in->flags);
     wr_u64(&buf[WT_FFA_MEM_TXN_OFF_HANDLE], in->handle);
     wr_u64(&buf[WT_FFA_MEM_TXN_OFF_TAG], in->tag);
-    wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE], acc_size);
+    if (layout_v10(in->version) == 0) {
+        wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE], acc_size);
+        wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET], hdr);
+    }
     wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_COUNT], 1u);
-    wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET], WT_FFA_MEM_TXN_HDR_SIZE);
 
-    wr_u16(&buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_RECEIVER],
-           in->receiver);
-    buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_PERMS] = in->permissions;
-    wr_u32(&buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_COMP_OFF], comp_off);
+    wr_u16(&buf[hdr + WT_FFA_MEM_ACC_OFF_RECEIVER], in->receiver);
+    buf[hdr + WT_FFA_MEM_ACC_OFF_PERMS] = in->permissions;
+    wr_u32(&buf[hdr + WT_FFA_MEM_ACC_OFF_COMP_OFF], comp_off);
     if ((in->impdef != NULL) && (acc_size == WT_FFA_MEM_ACCESS_SIZE_V12)) {
         for (i = 0u; i < WT_FFA_MEM_IMPDEF_SIZE; i++) {
-            buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_IMPDEF + i] =
-                in->impdef[i];
+            buf[hdr + WT_FFA_MEM_ACC_OFF_IMPDEF + i] = in->impdef[i];
         }
     }
 
@@ -241,23 +284,29 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
 int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
                             uint16_t expect_sender, wt_ffa_mem_txn_t* out)
 {
+    return wt_ffa_mem_txn_validate_at(buf, len, op, expect_sender,
+                                      WT_FFA_VERSION_1_2, out);
+}
+
+int wt_ffa_mem_txn_validate_at(const uint8_t* buf, size_t len,
+                               wt_ffa_mem_op_t op, uint16_t expect_sender,
+                               uint32_t version, wt_ffa_mem_txn_t* out)
+{
     wt_ffa_mem_txn_t txn;
     uint64_t acc_end;
     uint64_t cons_base;
     uint64_t cons_end;
     uint32_t comp_off = 0u;
     uint32_t sum_pages = 0u;
+    uint32_t hdr = 0u;
     uint32_t i;
     uint32_t j;
     unsigned int r;
 
-    if ((buf == NULL) || (out == NULL) || (len < WT_FFA_MEM_TXN_HDR_SIZE)) {
+    if ((buf == NULL) || (out == NULL) ||
+        (txn_header(buf, len, version, &txn.access_desc_size,
+                    &txn.access_offset, &hdr) != 0)) {
         return WT_FFA_INVALID_PARAMETERS;
-    }
-    for (i = 36u; i < WT_FFA_MEM_TXN_HDR_SIZE; i++) {
-        if (buf[i] != 0u) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
     }
 
     txn.sender = (uint16_t)rd_u16(&buf[WT_FFA_MEM_TXN_OFF_SENDER]);
@@ -265,9 +314,7 @@ int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
     txn.flags = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_FLAGS]);
     txn.handle = rd_u64(&buf[WT_FFA_MEM_TXN_OFF_HANDLE]);
     txn.tag = rd_u64(&buf[WT_FFA_MEM_TXN_OFF_TAG]);
-    txn.access_desc_size = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE]);
     txn.receiver_count = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_COUNT]);
-    txn.access_offset = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET]);
 
     if (txn.sender != expect_sender) {
         return WT_FFA_DENIED;
@@ -300,7 +347,7 @@ int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
         return WT_FFA_INVALID_PARAMETERS;
     }
 
-    if ((txn.access_offset < WT_FFA_MEM_TXN_HDR_SIZE) ||
+    if ((txn.access_offset < hdr) ||
         ((txn.access_offset % WT_FFA_MEM_ACC_OFFSET_ALIGN) != 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
@@ -416,7 +463,16 @@ int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
 int wt_ffa_mem_send_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
                              uint16_t expect_sender, wt_ffa_mem_txn_t* out)
 {
-    int ret = wt_ffa_mem_txn_validate(buf, len, op, expect_sender, out);
+    return wt_ffa_mem_send_validate_at(buf, len, op, expect_sender,
+                                       WT_FFA_VERSION_1_2, out);
+}
+
+int wt_ffa_mem_send_validate_at(const uint8_t* buf, size_t len,
+                                wt_ffa_mem_op_t op, uint16_t expect_sender,
+                                uint32_t version, wt_ffa_mem_txn_t* out)
+{
+    int ret = wt_ffa_mem_txn_validate_at(buf, len, op, expect_sender, version,
+                                         out);
 
     if ((ret == 0) && (out->handle != 0u)) {
         ret = WT_FFA_INVALID_PARAMETERS;
@@ -557,24 +613,26 @@ int wt_ffa_mem_retrieve_req_build(uint8_t* buf, size_t len, uint64_t handle,
 int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
                                      wt_ffa_mem_retrieve_req_t* out)
 {
+    return wt_ffa_mem_retrieve_req_parse_at(buf, len, WT_FFA_VERSION_1_2, out);
+}
+
+int wt_ffa_mem_retrieve_req_parse_at(const uint8_t* buf, size_t len,
+                                     uint32_t version,
+                                     wt_ffa_mem_retrieve_req_t* out)
+{
     const uint8_t* acc;
-    uint32_t acc_size;
+    uint32_t acc_size = 0u;
     uint32_t count;
-    uint32_t off;
+    uint32_t off = 0u;
+    uint32_t hdr = 0u;
     uint32_t i;
     uint32_t j;
 
-    if ((buf == NULL) || (out == NULL) || (len < WT_FFA_MEM_TXN_HDR_SIZE)) {
+    if ((buf == NULL) || (out == NULL) ||
+        (txn_header(buf, len, version, &acc_size, &off, &hdr) != 0)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    for (i = 36u; i < WT_FFA_MEM_TXN_HDR_SIZE; i++) {
-        if (buf[i] != 0u) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
-    }
-    acc_size = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE]);
     count = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_COUNT]);
-    off = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET]);
     if (access_size_ok(acc_size) == 0) {
         return WT_FFA_NOT_SUPPORTED;
     }
@@ -584,7 +642,7 @@ int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
     if (count > WT_FFA_MEM_MAX_BORROWERS) {
         return WT_FFA_NOT_SUPPORTED;
     }
-    if ((off < WT_FFA_MEM_TXN_HDR_SIZE) ||
+    if ((off < hdr) ||
         ((off % WT_FFA_MEM_ACC_OFFSET_ALIGN) != 0u) ||
         (((uint64_t)off + ((uint64_t)count * acc_size)) != (uint64_t)len)) {
         return WT_FFA_INVALID_PARAMETERS;
@@ -950,18 +1008,28 @@ static void copy_bytes(uint8_t* dst, const uint8_t* src, uint32_t len)
 int wt_ffa_mem_frag_expected(const uint8_t* frag, uint32_t frag_len,
                              int retrieve, uint64_t* size)
 {
-    uint32_t acc_size;
+    return wt_ffa_mem_frag_expected_at(frag, frag_len, retrieve,
+                                       WT_FFA_VERSION_1_2, size);
+}
+
+int wt_ffa_mem_frag_expected_at(const uint8_t* frag, uint32_t frag_len,
+                                int retrieve, uint32_t version, uint64_t* size)
+{
+    uint32_t acc_size = WT_FFA_MEM_ACCESS_SIZE;
     uint32_t acc_count;
-    uint32_t acc_off;
+    uint32_t acc_off = WT_FFA_MEM_TXN_HDR_SIZE_V10;
     uint32_t comp_off;
 
     if ((frag == NULL) || (size == NULL) ||
-        (frag_len < WT_FFA_MEM_TXN_HDR_SIZE)) {
+        (frag_len < ((layout_v10(version) != 0) ? WT_FFA_MEM_TXN_HDR_SIZE_V10
+                                                : WT_FFA_MEM_TXN_HDR_SIZE))) {
         return 0;
     }
-    acc_size = rd_u32(&frag[WT_FFA_MEM_TXN_OFF_ACC_SIZE]);
+    if (layout_v10(version) == 0) {
+        acc_size = rd_u32(&frag[WT_FFA_MEM_TXN_OFF_ACC_SIZE]);
+        acc_off = rd_u32(&frag[WT_FFA_MEM_TXN_OFF_ACC_OFFSET]);
+    }
     acc_count = rd_u32(&frag[WT_FFA_MEM_TXN_OFF_ACC_COUNT]);
-    acc_off = rd_u32(&frag[WT_FFA_MEM_TXN_OFF_ACC_OFFSET]);
     if (retrieve != 0) {
         *size = (uint64_t)acc_off + ((uint64_t)acc_count * acc_size);
         return 1;

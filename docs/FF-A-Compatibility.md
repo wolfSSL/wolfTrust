@@ -23,6 +23,10 @@ by-design deviations are below.
 | Runtime model | 1.2 | `FFA_MSG_WAIT`, `FFA_RUN`, `FFA_YIELD`, `FFA_NORMAL_WORLD_RESUME`, `FFA_INTERRUPT` | `src/arch/aarch64/ffa/ffa_runtime.c`, `src/arch/aarch64/spm/coroutine_aarch64.c` |
 | Console log | 1.2 | `FFA_CONSOLE_LOG` (32 and 64) | `wt_ffa_spmd_console_call`, `ffa_console_log` |
 | Memory management | DEN0140 1.2 | Share, lend, and donate; retrieve, relinquish, reclaim; several borrowers, the 1.2 32-byte access descriptor with implementation-defined bytes, permission and type rules, the zero and alignment-hint flags, and the multi-borrower bypass flag | `src/arch/aarch64/ffa/ffa_mem.c`, `src/arch/aarch64/spm/spm_mem.c` |
+| Fragmented memory transmission | DEN0140 4.1.2 | `FFA_MEM_FRAG_TX`/`FRAG_RX` for share, lend, donate, and retrieve requests from partitions and the Normal world; the handle is reserved with the first fragment and names the region once the descriptor is whole | `wt_ffa_mem_frag_*` in `src/arch/aarch64/ffa/ffa_mem.c`, `wt_spm_mem_frag_*` in `src/arch/aarch64/spm/spm_mem.c` |
+| Notifications | 1.2 Ch.10 | Bitmap create and destroy, bind and unbind, set and get for partition, VM, and framework sources, `FFA_NOTIFICATION_INFO_GET`, and the schedule-receiver interrupt (SGI 8) | `src/arch/aarch64/ffa/ffa_notif.c`, `src/arch/aarch64/spm/spm_main.c` |
+| Indirect messaging | 1.2 | `FFA_MSG_SEND2` from either world into the receiver's RX buffer, with the RX-buffer-full framework notification and per-partition receive properties | `src/arch/aarch64/ffa/ffa_msg.c`, `wt_spm_msg2_deliver` |
+| Interrupts | 1.2 Ch.9 | Secure interrupts signaled to a waiting owner and queued for a running or blocked one (delivered as `FFA_INTERRUPT`); Non-secure interrupts preempt a partition whose manifest signals them and stay pending for one that queues them; GICv2 and GICv3 | `src/arch/aarch64/spm/spm_irq.c`, `src/arch/aarch64/spm/coroutine_aarch64.c` |
 | Memory permissions | 18.3 | `FFA_MEM_PERM_GET`/`SET` during a partition's initialization | `ffa_mem_perm_get`/`set` in `src/arch/aarch64/spm/spm_svc_glue.c` |
 | Boot information | 5.4 | Boot-info blob with an IMPDEF descriptor carrying the wolfBoot handoff | `src/arch/aarch64/ffa/ffa_boot_info.c` |
 
@@ -37,8 +41,10 @@ Each row mirrors the deviation grammar of the internal FF-A alignment register.
 | `FFA_PARTITION_INFO_GET` does not report a TF-A-style EL3 logical partition. | Scoped configuration | wolfTrust has no EL3 logical partition; the ACS `ffa_partition_info_get_lsp` test looks for one and is a recorded deviation. |
 | `FFA_MEM_DONATE` from the Normal world is `NOT_SUPPORTED`; donation is supported between secure partitions. | Scoped | Nothing takes memory away from the Normal world, so it cannot give any away for good; secure-to-secure donation transfers ownership. |
 | A secure partition that donates memory keeps its own mapping until the transaction is handed back, and there is no reclaim for a donate. | Implementation detail | Ownership moves in the relayer's records; the physical mapping is not torn down, which keeps a fixed test-buffer pool consistent. Isolation between distinct partitions is unaffected. |
-| Memory sharing runs on a fixed, build-sized page pool and handle table with a bounded borrower count; fragmented transfers (`FFA_MEM_FRAG_*`) are not implemented. | Stronger resource policy | The zero-allocation SPM rejects excess work rather than expanding at runtime; exhaustion returns `NO_MEMORY`. Bounds are spec-allowed implementation properties advertised through `FFA_FEATURES`. |
-| Indirect messaging (`FFA_MSG_SEND2`) and notifications are not implemented. | Scheduled, not a deviation | Partitions advertise only direct messaging in their properties, so the ACS skips the indirect-messaging tests and the notification group is out of scope; both return `NOT_SUPPORTED` until implemented. |
+| Memory sharing runs on a fixed, build-sized page pool and handle table with a bounded borrower count, and a fragmented descriptor reassembles into one page with one transfer in flight per sender. | Stronger resource policy | The zero-allocation SPM rejects excess work rather than expanding at runtime; exhaustion returns `NO_MEMORY`. A declared total that the first fragment's own headers contradict is `INVALID_PARAMETERS` before any handle is reserved. |
+| A retrieve response is never sent in fragments, so `FFA_MEM_FRAG_RX` from a borrower is `INVALID_PARAMETERS`. | Implementation detail | The largest descriptor the relayer holds fits every RX buffer, so no response fragment is ever outstanding. |
+| Managed exit is not offered; a partition's Non-secure interrupt action is either signaled or queued. | Scoped isolation model | Managed exit applies to S-EL1 partitions; every wolfTrust partition runs at S-EL0. A queued partition runs with the GIC priority mask at the top of the Non-secure range, so Secure interrupts still reach it. |
+| The RX-buffer-full framework notification is set in the SPM half for a Secure sender and in the Hypervisor half for a Normal-world sender. | Interpretation | The verified v1.1 ACS indirect tests expect this split; the one v1.2 test that expects otherwise is marked unverified upstream and does not run. |
 | The PSA and wolfTrust service protocol rides on direct messaging plus shared regions, and wolfTrust-private partition hypercalls use the SMCCC OEM range. | Scoped product surface | Partition-message payloads are wolfTrust-defined (the spec leaves the payload to the sender and receiver); the private hypercalls are IMPDEF interfaces outside the FF-A function-id ranges. |
 | Manifests use the wolfTrust JSON generator and boot information uses an IMPDEF descriptor type. | Integration difference | Allowed by sections 5.2.1 and 5.4; the mandatory partition properties are all present. |
 
@@ -51,12 +57,33 @@ per implemented test group, on the three QEMU cells (`virt` GICv2 Cortex-A35,
 | Group | Result |
 | --- | --- |
 | `setup_discovery` | 14 passed, 1 skipped (single PE), 1 by-design deviation (`ffa_partition_info_get_lsp`) |
-| `direct_messaging` | 3 passed, 3 skipped (indirect messaging not advertised) |
-| `memory_management` | 70 passed, 0 failed |
+| `direct_messaging` | 4 passed, 2 skipped |
+| `memory_manage` | 70 passed, 0 failed |
+| `notifications` | 10 passed |
+| `indirect_messaging` | 2 passed |
+| `interrupts` | 6 passed (every test that applies to S-EL0 partitions) |
 
 The ACS is a conformance oracle only. It is never a source for the wolfTrust
 implementation. A defect in an ACS test itself is corrected by a recorded patch
 under `tests/conformance/ffa-acs/patches/`, applied by `build_acs.sh`, and never
-by changing wolfTrust to match a wrong expectation. The indirect-messaging,
-notification, and interrupt groups are not part of this gate; their tests skip
-or are reported by name.
+by changing wolfTrust to match a wrong expectation. The tests the ACS marks
+unverified upstream (`ACS_FFA_UNVERIFIED`) and the S-EL1-partition tests do not
+run in this configuration.
+
+The pinned ACS has no fragmented-transmission tests, so `FFA_MEM_FRAG_TX`/
+`FRAG_RX` are proven by the host suite (`tests/host/ffa_mem`, every split point)
+and by the `ffa-memneg` scenario, where the Normal world sends a share in two
+fragments.
+
+| Patch | Why |
+| --- | --- |
+| 0001 | `up_migrate_capable` is not applicable on a single-PE platform. |
+| 0002 | A memory test read its handle after `FFA_FEATURES` had overwritten it. |
+| 0003 | Memory-region requests were filled without first clearing them. |
+| 0004 | The platform describes its own endpoint properties. |
+| 0005 | The build forwards the partition-message UUID field setting. |
+| 0006 | An indirect-messaging test packed physical endpoint ids into logical-id fields. |
+| 0007 | GICv2 initialization never probed the CPU interface id (GICv3 only), so every interrupt test asserted during setup. |
+| 0008 | `sp_el0_blocked` packed physical endpoint ids into logical-id fields. |
+| 0009 | A platform may time S-EL0 partition waits on the virtual counter instead of a loop calibrated for another platform. |
+| 0010 | `sp_preempted_el0` set its keep-the-RX-buffer flag after `FFA_MSG_WAIT` instead of before. |

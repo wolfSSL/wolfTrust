@@ -21,7 +21,8 @@
 /* PSCI 1.1 (DEN0022) at the NS physical instance (WT-FFM-0067). The Normal
  * world runs on the boot core only, where the uniprocessor SPMC is resident:
  * the parked secondaries report DISABLED and cannot be turned on, and the boot
- * core cannot be turned off. A PSCI reply is a single value in x0. */
+ * core cannot be turned off. A PSCI reply is a single value in x0. The SMCCC
+ * version and feature calls (DEN0028 7.2, 7.3) are answered here too. */
 
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/ffa.h"
@@ -74,11 +75,12 @@ void wt_el3_system_reset(const char* tag)
     wt_el3_warm_reset();
 }
 
+/* SMCCC 1.1 and later preserve x4-x17 across a call that returns only x0. */
 static void psci_return(wt_ffa_regs_t* r, uint64_t x0)
 {
     unsigned int i;
 
-    for (i = 1u; i < 8u; i++) {
+    for (i = 1u; i < 4u; i++) {
         r->x[i] = 0u;
     }
     r->x[0] = x0;
@@ -172,6 +174,7 @@ static int psci_implements(uint32_t fid)
         case WT_PSCI_SYSTEM_OFF:
         case WT_PSCI_SYSTEM_RESET:
         case WT_PSCI_FEATURES:
+        case WT_SMCCC_VERSION:
             return 1;
         default:
             return 0;
@@ -185,6 +188,15 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
     switch (fid) {
         case WT_PSCI_VERSION:
             psci_return(r, (uint64_t)WT_PSCI_VERSION_1_1);
+            break;
+        case WT_SMCCC_VERSION:
+            psci_return(r, (uint64_t)WT_SMCCC_VERSION_1_2);
+            break;
+        case WT_SMCCC_ARCH_FEATURES:
+            /* No Arm Architecture Service call beyond these two is offered. */
+            psci_return(r, (((uint32_t)r->x[1] == WT_SMCCC_VERSION) ||
+                            ((uint32_t)r->x[1] == WT_SMCCC_ARCH_FEATURES)) ?
+                              0u : (uint64_t)(uint32_t)WT_SMCCC_NOT_SUPPORTED);
             break;
         case WT_PSCI_FEATURES:
             /* Every implemented function reports flags 0: CPU_SUSPEND uses the

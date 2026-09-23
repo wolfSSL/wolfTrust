@@ -920,6 +920,7 @@ static const uint32_t g_fuzz_fids[] = {
     WT_FFA_CONSOLE_LOG32, WT_FFA_CONSOLE_LOG64,
     WT_FFA_FID32_LAST, WT_FFA_FID64_LAST,
     WT_PSCI_CPU_FREEZE, WT_PSCI_SYSTEM_SUSPEND64, WT_PSCI_FID32_LAST,
+    0x80000002u /* SMCCC_ARCH_SOC_ID: not offered */,
     0x82000000u, 0x8F000000u, 0xC3000000u,
     0xC3000102u /* the ACS test timer: absent outside ACS builds */
 };
@@ -1116,6 +1117,61 @@ static int psci_expect(const char* what, uint64_t got, int32_t want)
     return 0;
 }
 
+/* SMCCC 1.1 and later: a call that returns only x0, here AFFINITY_INFO64 on
+ * the boot core, hands x4-x7 back unchanged. */
+static int psci_preserves_x4_x7(uint64_t self)
+{
+    register uint64_t r0 __asm__("x0") = WT_PSCI_AFFINITY_INFO64;
+    register uint64_t r1 __asm__("x1") = self;
+    register uint64_t r2 __asm__("x2") = 0;
+    register uint64_t r3 __asm__("x3") = 0;
+    register uint64_t r4 __asm__("x4") = 0x4444444444444444ull;
+    register uint64_t r5 __asm__("x5") = 0x5555555555555555ull;
+    register uint64_t r6 __asm__("x6") = 0x6666666666666666ull;
+    register uint64_t r7 __asm__("x7") = 0x7777777777777777ull;
+
+    __asm__ volatile("smc #0"
+                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4),
+                       "+r"(r5), "+r"(r6), "+r"(r7)
+                     :
+                     : "x8", "x9", "x10", "x11", "x12", "x13", "x14",
+                       "x15", "x16", "x17", "memory");
+    if (((int32_t)(uint32_t)r0 == WT_PSCI_AFFINITY_ON) &&
+        (r4 == 0x4444444444444444ull) && (r5 == 0x5555555555555555ull) &&
+        (r6 == 0x6666666666666666ull) && (r7 == 0x7777777777777777ull)) {
+        return 1;
+    }
+    put_str("[NS] psci BAD x4-x7 not preserved\r\n");
+    return 0;
+}
+
+/* SMCCC_VERSION, discovered through PSCI_FEATURES (DEN0028 Appendix B), and
+ * SMCCC_ARCH_FEATURES, which must know itself and SMCCC_VERSION (7.3.6). */
+static int smccc_walk(uint64_t self)
+{
+    int ok = 1;
+
+    ok &= psci_expect("features smccc_version",
+                      psci_call(WT_PSCI_FEATURES, WT_SMCCC_VERSION, 0u),
+                      WT_PSCI_SUCCESS);
+    ok &= psci_expect("smccc_version", psci_call(WT_SMCCC_VERSION, 0u, 0u),
+                      (int32_t)WT_SMCCC_VERSION_1_2);
+    ok &= psci_expect("arch_features smccc_version",
+                      psci_call(WT_SMCCC_ARCH_FEATURES, WT_SMCCC_VERSION, 0u),
+                      0);
+    ok &= psci_expect("arch_features arch_features",
+                      psci_call(WT_SMCCC_ARCH_FEATURES, WT_SMCCC_ARCH_FEATURES,
+                                0u), 0);
+    ok &= psci_expect("arch_features workaround_1",
+                      psci_call(WT_SMCCC_ARCH_FEATURES, 0x80008000u, 0u),
+                      WT_SMCCC_NOT_SUPPORTED);
+    ok &= psci_preserves_x4_x7(self);
+    if (ok != 0) {
+        put_str("[NS] smccc version 1.2\r\n");
+    }
+    return ok;
+}
+
 /* The mandatory PSCI 1.1 set as a boot-core-only Normal world sees it. */
 static void psci_walk(void)
 {
@@ -1176,6 +1232,7 @@ static void psci_walk(void)
     ok &= psci_expect("features cpu_freeze",
                       psci_call(WT_PSCI_FEATURES, WT_PSCI_CPU_FREEZE, 0u),
                       WT_PSCI_NOT_SUPPORTED);
+    ok &= smccc_walk(self);
     if (ok != 0) {
         put_str("[NS] psci mandatory set ok\r\n");
     }

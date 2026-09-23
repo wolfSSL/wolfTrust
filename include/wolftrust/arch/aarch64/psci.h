@@ -72,6 +72,12 @@
 /* The one power_state offered (original format): core standby, StateID 0. */
 #define WT_PSCI_STATE_CORE_STANDBY 0u
 
+/* SMCCC Arm Architecture Calls served beside PSCI (DEN0028 7.2, 7.3). */
+#define WT_SMCCC_VERSION        0x80000000u
+#define WT_SMCCC_ARCH_FEATURES  0x80000001u
+#define WT_SMCCC_VERSION_1_2    0x00010002u
+#define WT_SMCCC_NOT_SUPPORTED  (-1)
+
 static inline int wt_psci_fid_in_range(uint32_t fid)
 {
     return ((fid >= WT_PSCI_FID32_FIRST) && (fid <= WT_PSCI_FID32_LAST)) ||

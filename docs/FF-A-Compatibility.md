@@ -30,7 +30,7 @@ by-design deviations are below.
 | Memory permissions | 18.3 | `FFA_MEM_PERM_GET`/`SET` during a partition's initialization | `ffa_mem_perm_get`/`set` in `src/arch/aarch64/spm/spm_svc_glue.c` |
 | Boot information | 5.4 | Boot-info blob with an IMPDEF descriptor carrying the wolfBoot handoff | `src/arch/aarch64/ffa/ffa_boot_info.c` |
 | Power management | PSCI 1.1 (DEN0022D.b) | The mandatory set for a Normal world on the boot core: `CPU_SUSPEND` (core standby), `CPU_OFF` (`DENIED`: the uniprocessor SPMC is resident), `CPU_ON`/`AFFINITY_INFO` (parked secondaries report `DISABLED` and cannot be turned on), `MIGRATE`/`MIGRATE_INFO_TYPE`/`MIGRATE_INFO_UP_CPU` (uniprocessor, not migrate capable), `SYSTEM_OFF`, `SYSTEM_RESET` (through the port's reset hook), `PSCI_FEATURES` | `src/arch/aarch64/el3/psci.c` |
-| SMC calling convention | SMCCC (DEN0028) | Unknown function ids return `-1`; wolfTrust's private monitor and SVC calls sit in the OEM range with the MBZ bits clear | `src/arch/aarch64/el3/monitor_calls.c`, `include/wolftrust/arch/aarch64/monitor_abi.h` |
+| SMC calling convention | SMCCC 1.2 (DEN0028) | `SMCCC_VERSION` reports 1.2 (discoverable through `PSCI_FEATURES`) and `SMCCC_ARCH_FEATURES` answers for itself and `SMCCC_VERSION` only; calls that return only `x0` preserve `x4`-`x17`; an SMC32 call is read as `w1`-`w7`; unknown function ids return `-1`, sign-extended; wolfTrust's private monitor and SVC calls sit in the OEM range with the MBZ bits clear | `src/arch/aarch64/el3/monitor_calls.c`, `include/wolftrust/arch/aarch64/monitor_abi.h` |
 
 ## Intentional differences
 

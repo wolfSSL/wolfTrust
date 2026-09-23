@@ -557,6 +557,7 @@ case "$scenario" in
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the Normal world read the PSCI version from the SPMD" "[NS] psci version 1.1"
     refute_re "no PSCI call returned an off-spec value" '\[NS\] psci BAD'
+    expect "SMCCC_VERSION reported 1.2 and x4-x7 survived a PSCI call" "[NS] smccc version 1.2"
     expect "the mandatory PSCI 1.1 calls answered as a boot-core-only system" "[NS] psci mandatory set ok"
     expect "the Normal world powered off through PSCI" "[EL3] psci system_off"
     expect "the PSCI power-off ended the run cleanly" "[EXPECT BKPT] Success"

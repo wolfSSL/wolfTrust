@@ -107,10 +107,13 @@
 /* Memory region attributes (Table 5.18). */
 #define WT_FFA_MEM_ATTR_SHARE_MASK      0x3u
 #define WT_FFA_MEM_ATTR_SHARE_NON       0x0u
+#define WT_FFA_MEM_ATTR_SHARE_RSVD      0x1u
 #define WT_FFA_MEM_ATTR_SHARE_OUTER     0x2u
 #define WT_FFA_MEM_ATTR_SHARE_INNER     0x3u
 #define WT_FFA_MEM_ATTR_CACHE_SHIFT     2u
 #define WT_FFA_MEM_ATTR_CACHE_MASK      (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT)
+#define WT_FFA_MEM_ATTR_CACHE_NC        (0x1u << WT_FFA_MEM_ATTR_CACHE_SHIFT)
+#define WT_FFA_MEM_ATTR_CACHE_WB        (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT)
 #define WT_FFA_MEM_ATTR_TYPE_SHIFT      4u
 #define WT_FFA_MEM_ATTR_TYPE_MASK       (0x3u << WT_FFA_MEM_ATTR_TYPE_SHIFT)
 #define WT_FFA_MEM_ATTR_TYPE_DEVICE     (0x1u << WT_FFA_MEM_ATTR_TYPE_SHIFT)
@@ -188,6 +191,12 @@ typedef struct wt_ffa_mem_build {
     /* 16 implementation-defined bytes for a v1.2 descriptor, or NULL. */
     const uint8_t* impdef;
 } wt_ffa_mem_build_t;
+
+/* Memory region attributes bits[5:0] (DEN0140 Table 1.18): the type is not
+ * the reserved b'11, a Normal cacheability and shareability are not marked
+ * must-not-be-used, and the bits a Device or unspecified type leaves reserved
+ * are zero. Returns 0 or WT_FFA_INVALID_PARAMETERS (1.10.4.2 item 5). */
+int wt_ffa_mem_attributes_check(uint16_t attributes);
 
 /* Lay out a single-receiver memory transaction descriptor for op into buf
  * (header, one endpoint access descriptor, composite header, constituents).

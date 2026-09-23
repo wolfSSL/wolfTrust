@@ -733,6 +733,7 @@ static int prove_mem_share(uint64_t* out_handle)
     const wt_domain_descriptor_t* d = first_partition_domain();
     uint64_t* arg = (uint64_t*)(uintptr_t)(WT_SPM_RXTX_PA +
                                            WT_FFA_MEM_PAGE_SIZE - 64u);
+    wt_ffa_mailbox_t* mb;
     uint8_t* stack;
     wt_co_t* co;
     int ok;
@@ -759,13 +760,21 @@ static int prove_mem_share(uint64_t* out_handle)
         return 0;
     }
     wt_co_set_domain(co, &g_borrow_domain, 1u);
-    if (wt_spm_mem_bind(WT_FFA_ID_MEM_BORROWER, co, &g_borrow_domain) != 0) {
+    /* The borrower's RX/TX pair is the band its domain maps, registered as
+     * FFA_RXTX_MAP would. */
+    mb = wt_spm_sp_mailbox_of(co);
+    if (wt_ffa_mailbox_map(mb, (uint64_t)WT_SPM_RXTX_PA + WT_FFA_MEM_PAGE_SIZE,
+                           (uint64_t)WT_SPM_RXTX_PA, 1u) != 0) {
         return 0;
     }
-    ok = mem_share_exchange(co, out_handle);
+    ok = (wt_spm_mem_bind(WT_FFA_ID_MEM_BORROWER, co, &g_borrow_domain) == 0)
+             ? mem_share_exchange(co, out_handle) : 0;
     /* The coroutine slot outlives the proof: a partition created in it later
-     * must not inherit the borrower's binding. */
+     * must not inherit the borrower's binding or buffers. */
     wt_spm_mem_unbind(co);
+    if (wt_ffa_mailbox_unmap(mb) != 0) {
+        ok = 0;
+    }
     return ok;
 }
 

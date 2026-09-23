@@ -295,7 +295,7 @@ static void ffa_rx_release(wt_trap_frame_t* frame)
 }
 
 /* RX/TX pairs the partitions registered with FFA_RXTX_MAP (7.2.2), indexed by
- * coroutine id; a partition that never registered uses the SPMC's own band. */
+ * coroutine id; a partition that never registered has no buffer to use. */
 static wt_ffa_mailbox_t g_sp_mailbox[WT_CO_MAX];
 
 struct wt_ffa_mailbox* wt_spm_sp_mailbox_of(const struct wt_co* co)
@@ -325,16 +325,6 @@ static uint8_t* sp_rx(void)
         return (uint8_t*)(uintptr_t)mb->rx;
     }
     return (uint8_t*)(uintptr_t)WT_SPM_RXTX_PA;
-}
-
-static const uint8_t* sp_tx(void)
-{
-    const wt_ffa_mailbox_t* mb = sp_mailbox();
-
-    if ((mb != NULL) && (mb->mapped != 0u)) {
-        return (const uint8_t*)(uintptr_t)mb->tx;
-    }
-    return (const uint8_t*)(uintptr_t)(WT_SPM_RXTX_PA + WT_FFA_MEM_PAGE_SIZE);
 }
 
 /* One page the caller owns and may write, per its current mapping. */
@@ -446,19 +436,27 @@ static void ffa_yield(wt_trap_frame_t* frame)
     wt_co_block();
 }
 
-/* A descriptor handed over in the TX buffer: w1 = total length, w2 = length
- * of the fragment in TX (DEN0140 4.1.2 when shorter), w3/w4 = 0 (not an
- * address). */
-static int tx_descriptor_length(const wt_trap_frame_t* frame, uint32_t* total,
-                                uint32_t* frag)
+/* A descriptor handed over in the caller's TX buffer: w1 = total length,
+ * w2 = length of the fragment in TX (DEN0140 4.1.2 when shorter), w3/w4 = 0
+ * (not an address). */
+static int tx_descriptor(const wt_trap_frame_t* frame, uint32_t* total,
+                         uint32_t* frag, const uint8_t** tx)
 {
+    uint64_t addr = 0u;
+    int ret = 0;
+
     *total = (uint32_t)frame->x[1];
     *frag = (uint32_t)frame->x[2];
     if ((*frag < 1u) || (*frag > *total) || (*frag > WT_FFA_MEM_PAGE_SIZE) ||
-        (frame->x[3] != 0u) || (frame->x[4] != 0u)) {
-        return WT_FFA_INVALID_PARAMETERS;
+        ((frame->x[4] >> 32) != 0u)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
     }
-    return 0;
+    if (ret == 0) {
+        ret = wt_ffa_mem_tx_buffer(sp_mailbox(), frame->x[3],
+                                   (uint32_t)frame->x[4], *frag, &addr);
+    }
+    *tx = (const uint8_t*)(uintptr_t)addr;
+    return ret;
 }
 
 /* Ask the sender for the rest of a descriptor: FFA_MEM_FRAG_RX with the
@@ -486,21 +484,18 @@ static void retrieve_answer(wt_trap_frame_t* frame, uint16_t receiver,
     wt_ffa_mailbox_t* mb = sp_mailbox();
     size_t resp_len = 0u;
     unsigned int i;
-    int acquired = 0;
-    int ret = 0;
+    int ret;
 
-    if ((mb != NULL) && (mb->mapped != 0u)) {
-        ret = wt_ffa_mailbox_rx_acquire(mb);
-        acquired = (ret == 0) ? 1 : 0;
-    }
+    ret = wt_ffa_mailbox_rx_acquire(mb);
     if (ret == 0) {
-        ret = wt_spm_mem_retrieve(req, len, receiver, sp_rx(),
+        ret = wt_spm_mem_retrieve(req, len, receiver,
+                                  (uint8_t*)(uintptr_t)mb->rx,
                                   WT_FFA_MEM_PAGE_SIZE, &resp_len);
-    }
-    if (ret != 0) {
-        if (acquired != 0) {
+        if (ret != 0) {
             (void)wt_ffa_mailbox_rx_release(mb);
         }
+    }
+    if (ret != 0) {
         ffa_error(frame, ret);
         return;
     }
@@ -518,6 +513,7 @@ static void retrieve_answer(wt_trap_frame_t* frame, uint16_t receiver,
 static void ffa_mem_send(wt_trap_frame_t* frame, wt_ffa_mem_op_t op)
 {
     const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    const uint8_t* tx = NULL;
     uint64_t handle = 0u;
     uint32_t total = 0u;
     uint32_t frag = 0u;
@@ -527,9 +523,9 @@ static void ffa_mem_send(wt_trap_frame_t* frame, wt_ffa_mem_op_t op)
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
-    ret = tx_descriptor_length(frame, &total, &frag);
+    ret = tx_descriptor(frame, &total, &frag, &tx);
     if ((ret == 0) && (frag < total)) {
-        ret = wt_spm_mem_frag_begin((uint8_t)op, b->id, sp_tx(), frag, total,
+        ret = wt_spm_mem_frag_begin((uint8_t)op, b->id, tx, frag, total,
                                     &handle);
         if (ret == 0) {
             frag_rx_reply(frame, handle, frag);
@@ -537,7 +533,7 @@ static void ffa_mem_send(wt_trap_frame_t* frame, wt_ffa_mem_op_t op)
         }
     }
     else if (ret == 0) {
-        ret = wt_spm_mem_share(sp_tx(), (size_t)total, op, b->id, &handle);
+        ret = wt_spm_mem_share(tx, (size_t)total, op, b->id, &handle);
     }
     if (ret != 0) {
         ffa_error(frame, ret);
@@ -551,6 +547,7 @@ static void ffa_mem_send(wt_trap_frame_t* frame, wt_ffa_mem_op_t op)
 static void ffa_mem_retrieve(wt_trap_frame_t* frame)
 {
     const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    const uint8_t* tx = NULL;
     uint64_t handle = 0u;
     uint32_t total = 0u;
     uint32_t frag = 0u;
@@ -560,9 +557,9 @@ static void ffa_mem_retrieve(wt_trap_frame_t* frame)
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
-    ret = tx_descriptor_length(frame, &total, &frag);
+    ret = tx_descriptor(frame, &total, &frag, &tx);
     if ((ret == 0) && (frag < total)) {
-        ret = wt_spm_mem_frag_begin(WT_SPM_MEM_FRAG_OP_RETRIEVE, b->id, sp_tx(),
+        ret = wt_spm_mem_frag_begin(WT_SPM_MEM_FRAG_OP_RETRIEVE, b->id, tx,
                                     frag, total, &handle);
         if (ret == 0) {
             frag_rx_reply(frame, handle, frag);
@@ -576,7 +573,7 @@ static void ffa_mem_retrieve(wt_trap_frame_t* frame)
         ffa_error(frame, ret);
         return;
     }
-    retrieve_answer(frame, b->id, sp_tx(), (size_t)total);
+    retrieve_answer(frame, b->id, tx, (size_t)total);
 }
 
 /* FFA_MEM_FRAG_TX (DEN0140 4.1.2.5): the next fragment, in the TX buffer the
@@ -588,6 +585,7 @@ static void ffa_mem_frag_tx(wt_trap_frame_t* frame)
                       ((uint64_t)(uint32_t)frame->x[2] << 32);
     uint32_t len = (uint32_t)frame->x[3];
     const uint8_t* desc;
+    uint64_t tx = 0u;
     uint32_t offset = 0u;
     uint32_t total = 0u;
     uint8_t op = 0u;
@@ -596,7 +594,12 @@ static void ffa_mem_frag_tx(wt_trap_frame_t* frame)
 
     if ((b != NULL) && ((uint32_t)frame->x[4] == 0u) &&
         (len <= WT_FFA_MEM_PAGE_SIZE)) {
-        ret = wt_spm_mem_frag_next(handle, b->id, sp_tx(), len, &offset, &done);
+        ret = wt_ffa_mem_tx_buffer(sp_mailbox(), 0u, 0u, len, &tx);
+    }
+    if (ret == 0) {
+        ret = wt_spm_mem_frag_next(handle, b->id,
+                                   (const uint8_t*)(uintptr_t)tx, len, &offset,
+                                   &done);
     }
     if (ret != 0) {
         ffa_error(frame, ret);
@@ -624,13 +627,19 @@ static void ffa_mem_frag_tx(wt_trap_frame_t* frame)
 static void ffa_mem_relinquish(wt_trap_frame_t* frame)
 {
     const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
+    uint64_t tx = 0u;
     int ret;
 
     if (b == NULL) {
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
-    ret = wt_spm_mem_relinquish(sp_tx(), WT_FFA_MEM_PAGE_SIZE, b->id);
+    ret = wt_ffa_mem_tx_buffer(sp_mailbox(), 0u, 0u, WT_FFA_MEM_PAGE_SIZE,
+                               &tx);
+    if (ret == 0) {
+        ret = wt_spm_mem_relinquish((const uint8_t*)(uintptr_t)tx,
+                                    WT_FFA_MEM_PAGE_SIZE, b->id);
+    }
     if (ret != 0) {
         ffa_error(frame, ret);
         return;

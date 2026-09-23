@@ -708,6 +708,18 @@ int wt_ffa_mailbox_unmap(wt_ffa_mailbox_t* mb)
     return 0;
 }
 
+int wt_ffa_mem_tx_buffer(const wt_ffa_mailbox_t* mb, uint64_t addr,
+                         uint32_t pages, uint32_t len, uint64_t* out_tx)
+{
+    if ((out_tx == NULL) || (addr != 0u) || (pages != 0u) || (mb == NULL) ||
+        (mb->mapped == 0u) ||
+        ((uint64_t)len > ((uint64_t)mb->pages * WT_FFA_MEM_PAGE_SIZE))) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    *out_tx = mb->tx;
+    return 0;
+}
+
 int wt_ffa_mailbox_rx_acquire(wt_ffa_mailbox_t* mb)
 {
     if ((mb == NULL) || (mb->mapped == 0u)) {

@@ -340,6 +340,34 @@ static void mailbox_rows(void)
           "FFA_RXTX_UNMAP forgets the pair and its ownership");
 }
 
+/* WT-FFA-0009 (a memory management descriptor rides in the caller's mapped TX
+ * buffer, DEN0140 2.1.1.2 items 1-2, 2.4.1.2 items 1-2). */
+static void tx_buffer_rows(void)
+{
+    wt_ffa_mailbox_t mb;
+    uint64_t tx = 0u;
+
+    memset(&mb, 0, sizeof(mb));
+    check(wt_ffa_mem_tx_buffer(&mb, 0u, 0u, 64u, &tx) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_ffa_mem_tx_buffer(NULL, 0u, 0u, 64u, &tx) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a caller with no RX/TX pair mapped is INVALID_PARAMETERS");
+    (void)wt_ffa_mailbox_map(&mb, 0x5000ull, 0x7000ull, 1u);
+    check(wt_ffa_mem_tx_buffer(&mb, 0u, 0u, 64u, &tx) == 0 && tx == 0x5000ull,
+          "a mapped caller's descriptor is read from its TX buffer");
+    check(wt_ffa_mem_tx_buffer(&mb, 0u, 0u, WT_FFA_MEM_PAGE_SIZE + 1u, &tx) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a descriptor longer than the TX buffer is INVALID_PARAMETERS");
+    check(wt_ffa_mem_tx_buffer(&mb, 0x9000ull, 0u, 64u, &tx) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_ffa_mem_tx_buffer(&mb, 0u, 1u, 64u, &tx) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_ffa_mem_tx_buffer(&mb, 0x9000ull, 1u, 64u, &tx) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a dynamically allocated buffer address or page count is INVALID_PARAMETERS (4.1.1.3)");
+}
+
 /* WT-FFA-0009 (handle lifetime state). */
 static void registry_rows(void)
 {
@@ -1707,6 +1735,7 @@ int main(void)
     reject_rows();
     rxtx_rows();
     mailbox_rows();
+    tx_buffer_rows();
     registry_rows();
     share_rows();
     constituent_limit_rows();

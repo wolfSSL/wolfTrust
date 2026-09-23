@@ -1,19 +1,21 @@
 # Macros
 
-The STM32H563 build is configured through GNU Make variables. The build turns
-selected values into C preprocessor defines. Defaults below come from
-`mk/target-stm32h563.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk`.
+The build is configured through GNU Make variables. The build turns selected
+values into C preprocessor defines. Defaults below come from
+`mk/target-stm32h563.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk` unless a row
+says otherwise; the AArch64 variables are under
+[AArch64 build options](#aarch64-build-options).
 
 ## Build selection
 
 | Define | Description | Requirement |
 | --- | --- | --- |
-| `ARCH` | Architecture build selector; default `armv8m`. | Must match an `mk/arch-<arch>.mk` fragment; `armv8m` is the only architecture today. |
-| `TARGET` | Target build selector; default `stm32h563`. | Must match an `mk/target-<soc>.mk` fragment; the root Makefile includes it, the architecture fragment, and `mk/common.mk`. |
-| `TOOLPREFIX` | Cross-tool prefix; default `arm-none-eabi-`. | The prefixed GCC, objcopy, nm, and size tools must be available. |
+| `ARCH` | Architecture build selector; default `armv8m`, or `aarch64`. | Must match an `mk/arch-<arch>.mk` fragment. |
+| `TARGET` | Target build selector; default `stm32h563`; `qemuvirt` or `versal` with `ARCH=aarch64`. | Must match an `mk/target-<soc>.mk` fragment; the root Makefile includes it, the architecture fragment, and `mk/common.mk`. |
+| `TOOLPREFIX` | Cross-tool prefix; default `arm-none-eabi-`, or `aarch64-none-elf-` with `ARCH=aarch64`. | The prefixed GCC, objcopy, nm, and size tools must be available. |
 | `BUILD_DIR` | Secure build output directory; default `build`. | Must be writable. |
 | `WT_LTO` | Enable Secure-image link-time optimization; default `1`. | Set to `0` for diagnostics or a non-LTO size comparison. The GNU Arm compiler must support `-flto=auto`. |
-| `WT_ENGINE` | Secure crypto engine: `native` (default) dispatches wolfCrypt directly behind the SERVICE_HSM door with explicitly vault-backed keys stored as `SENSITIVE` and `NONEXPORTABLE` NVM objects; `hsm` links the wolfHSM server as a key-management add-on (server-keystore semantics and an external-HSM offload path). Legacy `WT_ENGINE_HSM=0/1` maps onto the selector. | Both engines share the identical FF-M surface (5 veneers, SIDs, manifest, and L3 bands) and run every applicable CI scenario. Guest builds must use the same engine as the Secure image. See [Crypto Engines](Crypto-Engines.md). |
+| `WT_ENGINE` | Secure crypto engine: `native` (default) dispatches wolfCrypt directly behind the SERVICE_HSM door with explicitly vault-backed keys stored as `SENSITIVE` and `NONEXPORTABLE` NVM objects; `hsm` links the wolfHSM server as a key-management add-on (server-keystore semantics and an external-HSM offload path). Legacy `WT_ENGINE_HSM=0/1` maps onto the selector. | Both engines share the identical FF-M surface (5 veneers, SIDs, manifest, and L3 bands) and run every applicable CI scenario. Guest builds must use the same engine as the Secure image. On AArch64 both engines run every QEMU scenario except `hsmattackneg`, which needs the wolfHSM wire. See [Crypto Engines](Crypto-Engines.md). |
 
 ## Core target configuration
 
@@ -37,6 +39,21 @@ selected values into C preprocessor defines. Defaults below come from
 | `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `1`. | Requires a compatible GNU Arm toolchain. |
 | `WT_WOLFCRYPT_STM32_HASH` | STM32 HASH acceleration selector; default `0`. | Must remain `0`: the Makefile rejects other values because wolfHSM SHA state is not compatible with the peripheral representation. |
 | `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | Use only for conformance builds; the default production manifest is selected at `0`. |
+
+## AArch64 build options
+
+Defaults come from `mk/arch-aarch64.mk` and `mk/target-qemuvirt.mk` or
+`mk/target-versal.mk`.
+
+| Define | Description | Requirement |
+| --- | --- | --- |
+| `WT_CPU` | `-mcpu` for the EL3 and Secure EL1 images; default `cortex-a72`. | The QEMU cells use `cortex-a72` and, on `virt` with GICv2, `cortex-a35`. |
+| `WT_GIC_VERSION` | GIC driver, `2` or `3`; default `3`. | Must match the interrupt controller; `versal` is GICv3. |
+| `WT_PORT_BOOT_CPUS` | Cores the monitor expects at reset; default `2`. The boot core runs the monitor and the rest park at EL3. | Must match the cores the loader starts. |
+| `WT_VERSAL_VIRT` | Selects the QEMU `xlnx-versal-virt` model of the `versal` target; default `1`. | Versal silicon needs `0` and a silicon port. |
+| `WT_SPM_IMAGE_PA`, `WT_SPM_RAM_PA`, `WT_SPM_KEYSTORE_PA`, `WT_SPM_RXTX_PA`, `WT_SPM_SHARE_PA` and their `_SIZE` values; `WT_SPM_BOOT_INFO_PA`, `WT_SPM_TABLE_POOL_PA`, `WT_SPM_TABLE_POOL_PAGES` | Secure EL1 band placement: the SPMC image, its RAM, the keystore band, the partition RX/TX pages, the shared page, the boot-information page, and the stage-1 table pool. | Must lie in Secure memory that the platform fences from the Normal world, must not overlap, and must hold the linked sections; the linker and the table builder refuse overflow. |
+| `WT_QEMU_TEST_ENTROPY` | Seeds the DRBG from a test source; default `1` on the QEMU targets. | Test only. A silicon port must provide a real entropy source and build with `0`. |
+| `WT_EL3_TEST_DRIVER`, `WT_EL3_TEST_HANDOFF`, `WT_FFA_ACS`, `WT_EL3_NS_EL2` | Test builds: the monitor's direct-request driver, a synthetic boot handoff record, the Arm FF-A ACS partitions, and a Normal world entered at NS-EL2 for the ACS. | Never set in production builds; the QEMU runner sets them per scenario. |
 
 ## Image layout
 

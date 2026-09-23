@@ -86,6 +86,20 @@ full matrix on a PR, add its `ci:` label; off-PR against a branch,
 The local box gate `run_m33mu.sh` (a Zephyr+FreeRTOS lifecycle) and the
 `make test-target` loop remain the pre-push mirror of the M33MU jobs.
 
+## AArch64 QEMU
+
+`aarch64-cross-compile.yml` (workflow name **AArch64 cross compilation**) runs
+in `ghcr.io/wolfssl/wolfboot-ci-aarch64` on three cells, `virt-gicv2-a35`,
+`virt-gicv3-a72`, and `versal-virt`, each under `native` and `hsm`:
+
+| Check name | What it proves |
+|------------|----------------|
+| `EL3 smoke on <cell> (<engine>)` | the EL3 image links under the symbol guard, then every QEMU AArch64 scenario runs through `tests/target/run_suite.sh qemu-a` |
+| `FF-A ACS on <cell> (<engine>)` | the Arm FF-A ACS groups (discovery, direct and indirect messaging, memory, notifications, interrupts) at their asserted floors |
+
+To run a scenario locally, use `tests/target/run_qemu_a_scenario.sh <key>`
+with `MACHINE`, `GIC`, `CPU`, and `WT_ENGINE` set as in the workflow.
+
 ## Host unit suites (per-suite checks)
 
 `unit-tests.yml` reads `UNIT_SUITES` from `tests/host/Makefile` (via

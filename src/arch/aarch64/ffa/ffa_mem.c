@@ -80,6 +80,32 @@ static int access_reserved_clear(const uint8_t* acc, uint32_t size)
     return 1;
 }
 
+int wt_ffa_mem_attributes_check(uint16_t attributes)
+{
+    uint32_t type = (uint32_t)attributes & WT_FFA_MEM_ATTR_TYPE_MASK;
+    uint32_t cache = (uint32_t)attributes & WT_FFA_MEM_ATTR_CACHE_MASK;
+    uint32_t share = (uint32_t)attributes & WT_FFA_MEM_ATTR_SHARE_MASK;
+    int ret = 0;
+
+    if (type == WT_FFA_MEM_ATTR_TYPE_NORMAL) {
+        if (((cache != WT_FFA_MEM_ATTR_CACHE_NC) &&
+             (cache != WT_FFA_MEM_ATTR_CACHE_WB)) ||
+            (share == WT_FFA_MEM_ATTR_SHARE_RSVD)) {
+            ret = WT_FFA_INVALID_PARAMETERS;
+        }
+    }
+    else if (type == WT_FFA_MEM_ATTR_TYPE_DEVICE) {
+        if (share != 0u) {
+            ret = WT_FFA_INVALID_PARAMETERS;
+        }
+    }
+    else if ((type == WT_FFA_MEM_ATTR_TYPE_MASK) || (cache != 0u) ||
+             (share != 0u)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    return ret;
+}
+
 int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
                          const wt_ffa_mem_build_t* in, size_t* out_len)
 {
@@ -195,7 +221,7 @@ int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
     if ((txn.attributes & WT_FFA_MEM_ATTR_RSVD_MASK) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    if ((txn.attributes & WT_FFA_MEM_ATTR_TYPE_MASK) == WT_FFA_MEM_ATTR_TYPE_MASK) {
+    if (wt_ffa_mem_attributes_check(txn.attributes) != 0) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     /* The security state is the relayer's to report in a retrieve response; a
@@ -1223,6 +1249,9 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
     if ((ret == 0) && ((rq->attributes & WT_FFA_MEM_ATTR_TYPE_MASK) ==
                        WT_FFA_MEM_ATTR_TYPE_DEVICE)) {
         ret = WT_FFA_DENIED;
+    }
+    if (ret == 0) {
+        ret = wt_ffa_mem_attributes_check(rq->attributes);
     }
     return ret;
 }

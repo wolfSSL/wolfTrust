@@ -947,6 +947,86 @@ static void send_handle_rows(void)
     wt_ffa_mem_frag_reset(&g_frag_row);
 }
 
+/* WT-FFA-0009 (memory region attribute encodings, Table 1.18). */
+static void attribute_rows(void)
+{
+    static const uint16_t valid[] = {
+        0x00u, 0x24u, 0x26u, 0x27u, 0x2Cu, 0x2Eu, 0x2Fu,
+        0x10u, 0x14u, 0x18u, 0x1Cu
+    };
+    static const uint16_t invalid[] = {
+        0x20u, 0x23u, 0x28u, 0x2Bu, 0x25u, 0x2Du,
+        0x11u, 0x1Fu, 0x04u, 0x01u, 0x30u
+    };
+    static wt_ffa_mem_registry_t reg;
+    const wt_ffa_mem_handle_entry_t* e;
+    wt_ffa_mem_retrieve_req_t rq;
+    wt_ffa_mem_txn_t txn;
+    uint8_t buf[256];
+    size_t len;
+    size_t i;
+    int ok;
+
+    ok = 1;
+    for (i = 0u; i < sizeof(valid) / sizeof(valid[0]); i++) {
+        ok = ok && (wt_ffa_mem_attributes_check(valid[i]) == 0);
+    }
+    check(ok, "Normal non-cacheable or write-back memory of any defined shareability, Device memory, and an unspecified type are valid");
+    ok = 1;
+    for (i = 0u; i < sizeof(invalid) / sizeof(invalid[0]); i++) {
+        ok = ok && (wt_ffa_mem_attributes_check(invalid[i]) ==
+                    WT_FFA_INVALID_PARAMETERS);
+    }
+    check(ok, "reserved cacheability, reserved shareability, non-zero reserved bits, and the reserved type are INVALID_PARAMETERS");
+
+    len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
+    buf[2] = 0x2Bu;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a share of Normal memory with a reserved cacheability is INVALID_PARAMETERS");
+    buf[2] = 0x2Du;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a share of Normal memory with the reserved shareability is INVALID_PARAMETERS");
+    buf[2] = 0x13u;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a share of Device memory with shareability bits set is INVALID_PARAMETERS");
+    buf[2] = 0x1Cu;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) == 0,
+          "a share of Device-GRE memory is well formed");
+    len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_LEND, 0u);
+    buf[2] = 0x0Fu;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "an unspecified type with cacheability or shareability bits set is INVALID_PARAMETERS");
+    buf[2] = 0x00u;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) == 0,
+          "an unspecified type with its reserved bits clear is well formed");
+
+    e = make_entry(&reg, WT_FFA_MEM_OP_SHARE, 1u);
+    check(e != NULL, "a share to retrieve registers");
+    if (e == NULL) {
+        return;
+    }
+    make_rq(&rq, e, 1u);
+    rq.attributes = 0x2Fu;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == 0,
+          "a retrieve request for Normal write-back inner-shareable memory is accepted");
+    rq.attributes = 0x30u;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+          "a retrieve request for the reserved memory type is INVALID_PARAMETERS");
+    rq.attributes = 0x2Bu;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+          "a retrieve request with a reserved Normal cacheability is INVALID_PARAMETERS");
+    rq.attributes = 0x0Cu;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+          "a retrieve request with an unspecified type and cacheability bits set is INVALID_PARAMETERS");
+    rq.attributes = 0x1Fu;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_DENIED,
+          "a retrieve request for Device memory is DENIED before its reserved bits are read");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -964,6 +1044,7 @@ int main(void)
     retrieve_check_rows();
     time_slice_rows();
     send_handle_rows();
+    attribute_rows();
 
     printf("ffa_mem: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

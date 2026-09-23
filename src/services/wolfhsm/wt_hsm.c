@@ -71,6 +71,7 @@
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/vault_service.h"
+#include "wolftrust/static_assert.h"
 
 #include "wolftrust/port_nvm.h"
 #include "psa/lifecycle.h"
@@ -402,7 +403,7 @@ int wt_hsm_guest_init(wt_guest_id_t guest_id,
  * server to completion, and returns the captured response. The server's
  * transport callbacks below only ever touch secure memory.
  * ====================================================================== */
-_Static_assert(sizeof(whCommHeader) + WOLFHSM_CFG_COMM_DATA_LEN <=
+WT_STATIC_ASSERT(sizeof(whCommHeader) + WOLFHSM_CFG_COMM_DATA_LEN <=
                    WT_HSM_RELAY_MSG_MAX,
                "wolfHSM packet exceeds the relay capture buffer");
 

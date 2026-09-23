@@ -23,6 +23,7 @@
 #include "wolftrust/ffm_domain.h"
 #include "wolftrust/platform.h"
 #include "wolftrust/arch.h"
+#include "wolftrust/static_assert.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -34,15 +35,15 @@ extern void wt_platform_panic(void);
 #define WT_CO_UNPRIV_OFFSET     40
 #define WT_CO_EXCRET_OFFSET     44
 
-_Static_assert(offsetof(struct wt_co, sp) == WT_CO_SP_OFFSET,
+WT_STATIC_ASSERT(offsetof(struct wt_co, sp) == WT_CO_SP_OFFSET,
                "struct wt_co: sp must be at offset 0");
-_Static_assert(offsetof(struct wt_co, stack_base) == WT_CO_STACK_BASE_OFFSET,
+WT_STATIC_ASSERT(offsetof(struct wt_co, stack_base) == WT_CO_STACK_BASE_OFFSET,
                "struct wt_co: stack_base must be at offset 4");
-_Static_assert(offsetof(struct wt_co, unprivileged) == WT_CO_UNPRIV_OFFSET,
+WT_STATIC_ASSERT(offsetof(struct wt_co, unprivileged) == WT_CO_UNPRIV_OFFSET,
                "struct wt_co: unprivileged must match PendSV asm offset");
-_Static_assert(offsetof(struct wt_co, exc_return) == WT_CO_EXCRET_OFFSET,
+WT_STATIC_ASSERT(offsetof(struct wt_co, exc_return) == WT_CO_EXCRET_OFFSET,
                "struct wt_co: exc_return must match PendSV asm offset");
-_Static_assert(sizeof(uintptr_t) == 4,
+WT_STATIC_ASSERT(sizeof(uintptr_t) == 4,
                "wt_co struct layout assumes 32-bit pointers");
 
 #define WT_EXC_RETURN_S_THREAD_MSP 0xFFFFFFF9u

@@ -21,7 +21,7 @@ ROOT := ../../..
 CC ?= cc
 BUILD_DIR ?= build
 
-CFLAGS := -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
+CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
 TEST := $(BUILD_DIR)/test_rollback

@@ -36,10 +36,11 @@
 #include "psa_manifest/sid.h"
 #include "wolftrust/ffm_veneer.h"
 #include "psa/client.h"
+#include "wolftrust/static_assert.h"
 
 /* The advertised public maximum must be deliverable: one marshalled request
  * (header + block) fits the IPC transfer budget exactly at the boundary. */
-_Static_assert(sizeof(wt_fwu_req_t) + PSA_FWU_MAX_WRITE_SIZE <=
+WT_STATIC_ASSERT(sizeof(wt_fwu_req_t) + PSA_FWU_MAX_WRITE_SIZE <=
                WT_FFM_TRANSFER_BYTES,
                "PSA_FWU_MAX_WRITE_SIZE exceeds the IPC transfer budget");
 #include "psa_manifest/pid.h"

@@ -30,6 +30,7 @@
 #include "wolftrust/arch/armv8m/core_regs.h"
 #include "wolftrust/spm_transport.h"
 #include "wolftrust/monitor.h"
+#include "wolftrust/static_assert.h"
 
 #include "memory_map.h"
 
@@ -50,19 +51,19 @@
 #define WT_EXC_RETURN_SECURITY_MASK        0x40u
 #define WT_EXC_RETURN_SPSEL_PSP            0x04u
 
-_Static_assert(WT_GUEST_CONTEXT_PSP_NS_OFFSET == 32U, "unexpected psp_ns offset");
-_Static_assert(WT_GUEST_CONTEXT_MSP_NS_OFFSET == 36U, "unexpected msp_ns offset");
-_Static_assert(WT_GUEST_CONTEXT_CONTROL_NS_OFFSET == 44U, "unexpected control_ns offset");
-_Static_assert(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET == 48U, "unexpected exc_return offset");
-_Static_assert(WT_GUEST_CONTEXT_PSP_NS_OFFSET == offsetof(wt_guest_context_t, psp_ns),
+WT_STATIC_ASSERT(WT_GUEST_CONTEXT_PSP_NS_OFFSET == 32U, "unexpected psp_ns offset");
+WT_STATIC_ASSERT(WT_GUEST_CONTEXT_MSP_NS_OFFSET == 36U, "unexpected msp_ns offset");
+WT_STATIC_ASSERT(WT_GUEST_CONTEXT_CONTROL_NS_OFFSET == 44U, "unexpected control_ns offset");
+WT_STATIC_ASSERT(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET == 48U, "unexpected exc_return offset");
+WT_STATIC_ASSERT(WT_GUEST_CONTEXT_PSP_NS_OFFSET == offsetof(wt_guest_context_t, psp_ns),
                "wt_guest_context_t layout changed");
-_Static_assert(WT_GUEST_CONTEXT_MSP_NS_OFFSET == offsetof(wt_guest_context_t, msp_ns),
+WT_STATIC_ASSERT(WT_GUEST_CONTEXT_MSP_NS_OFFSET == offsetof(wt_guest_context_t, msp_ns),
                "wt_guest_context_t layout changed");
-_Static_assert(WT_GUEST_CONTEXT_CONTROL_NS_OFFSET == offsetof(wt_guest_context_t, control_ns),
+WT_STATIC_ASSERT(WT_GUEST_CONTEXT_CONTROL_NS_OFFSET == offsetof(wt_guest_context_t, control_ns),
                "wt_guest_context_t layout changed");
-_Static_assert(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET == offsetof(wt_guest_context_t, exc_return),
+WT_STATIC_ASSERT(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET == offsetof(wt_guest_context_t, exc_return),
                "wt_guest_context_t layout changed");
-_Static_assert(WT_GUEST_CONTEXT_PSPLIM_NS_OFFSET == offsetof(wt_guest_context_t, psplim_ns),
+WT_STATIC_ASSERT(WT_GUEST_CONTEXT_PSPLIM_NS_OFFSET == offsetof(wt_guest_context_t, psplim_ns),
                "wt_guest_context_t layout changed");
 
 /* Referenced by inline asm in SysTick_Handler; mark used so -Os does

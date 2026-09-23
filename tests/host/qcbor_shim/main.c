@@ -167,6 +167,9 @@ int main(void)
     QCBOREncodeContext ec;
     UsefulBuf tbsBuf;
     UsefulBufC ub;
+    UsefulBufC pb;
+    UsefulBufC empty;
+    UsefulBufC plen;
     size_t payloadLen;
     size_t tokenLen = 0u;
     int i;
@@ -178,6 +181,7 @@ int main(void)
         0x40,
         0x45
     };
+    static const uint8_t two[] = { 0x01, 0x02 };
 
     if ((wc_InitRng(&rng) != 0) || (wc_ecc_init(&key) != 0) ||
         (wc_ecc_make_key(&rng, 32, &key) != 0)) {
@@ -240,18 +244,12 @@ int main(void)
     QCBOREncode_Init(&ec, tbsBuf);
     QCBOREncode_OpenArray(&ec);
     QCBOREncode_AddSZString(&ec, "Signature1");
-    {
-        UsefulBufC pb;
-        UsefulBufC empty;
-        UsefulBufC plen;
-        static const uint8_t two[] = { 0x01, 0x02 };
-        pb.ptr = two; pb.len = sizeof(two);
-        empty.ptr = NULL; empty.len = 0u;
-        plen.ptr = NULL; plen.len = 5u;
-        QCBOREncode_AddBytes(&ec, pb);
-        QCBOREncode_AddBytes(&ec, empty);
-        QCBOREncode_AddBytesLenOnly(&ec, plen);
-    }
+    pb.ptr = two; pb.len = sizeof(two);
+    empty.ptr = NULL; empty.len = 0u;
+    plen.ptr = NULL; plen.len = 5u;
+    QCBOREncode_AddBytes(&ec, pb);
+    QCBOREncode_AddBytes(&ec, empty);
+    QCBOREncode_AddBytesLenOnly(&ec, plen);
     QCBOREncode_CloseArray(&ec);
     ret = QCBOREncode_Finish(&ec, &tbsOut);
     check((ret == QCBOR_SUCCESS) && (tbsOut.len == sizeof(expected_tbs)) &&

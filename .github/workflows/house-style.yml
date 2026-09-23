@@ -1,0 +1,21 @@
+name: House Style
+
+on:
+  push:
+    branches: [master, main, 'release/**', wolfTrust-dev, wolftfm-l3, wolfpsa-v5.9.1-ci]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  house-style:
+    name: C house-style conventions
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check structured control flow and source conventions
+        run: sh scripts/check_house_style.sh

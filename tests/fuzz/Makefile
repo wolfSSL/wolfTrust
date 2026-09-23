@@ -23,7 +23,7 @@ BUILD_DIR ?= build
 FUZZ_TIME ?= 30
 MAX_LEN ?= 4096
 
-CFLAGS := -std=c11 -O1 -g -Wall -Wextra -pedantic -I$(ROOT)/include \
+CFLAGS := -std=c99 -O1 -g -Wall -Wextra -pedantic -I$(ROOT)/include \
     -fsanitize=fuzzer,address -fno-omit-frame-pointer $(EXTRA_CFLAGS)
 LDFLAGS := -fsanitize=fuzzer,address $(EXTRA_LDFLAGS)
 

@@ -10,6 +10,15 @@ permissions:
   issues: write
 
 jobs:
+  c99:
+    uses: ./.github/workflows/c99-compliance.yml
+
+  house-style:
+    uses: ./.github/workflows/house-style.yml
+
+  empty-brace-scan:
+    uses: ./.github/workflows/empty-brace-scan.yml
+
   unit:
     uses: ./.github/workflows/unit-tests.yml
 

@@ -23,6 +23,7 @@ BUILD_ROOT ?= build
 TEST_KIND ?= unit
 LOG_FILE ?= $(BUILD_ROOT)/logs/$(TEST_KIND).log
 VERBOSE ?= 0
+EXTRA_CFLAGS ?=
 
 ifeq ($(VERBOSE),1)
 SUBMAKE_FLAGS := --no-print-directory
@@ -58,6 +59,7 @@ test:
 		if [ "$(VERBOSE)" = "1" ]; then \
 			if $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean run \
 				CC="$(CC)" BUILD_DIR="$(BUILD_ROOT)/$$suite" \
+				EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
 				2>&1 | tee "$$suite_log"; then \
 				status=0; \
 			else \
@@ -66,6 +68,7 @@ test:
 		else \
 			if $(MAKE) $(SUBMAKE_FLAGS) -C $$suite clean run \
 				CC="$(CC)" BUILD_DIR="$(BUILD_ROOT)/$$suite" \
+				EXTRA_CFLAGS="$(EXTRA_CFLAGS)" \
 				> "$$suite_log" 2>&1; then \
 				status=0; \
 			else \

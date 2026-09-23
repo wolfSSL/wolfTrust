@@ -21,7 +21,7 @@ include mk/common.mk
 
 .DEFAULT_GOAL := all
 
-.PHONY: all secure-image size-report test test-conformance test-target test-hardware fetch-psa-ff-tests \
+.PHONY: all secure-image size-report test c99-check test-conformance test-target test-hardware fetch-psa-ff-tests \
 		clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
@@ -41,6 +41,25 @@ all: $(ARCH_DEFAULT_GOALS)
 
 test:
 	@$(MAKE) --no-print-directory -C tests/host test
+
+C99_CFLAGS := -std=c99 -pedantic-errors -Werror=vla \
+	-D_POSIX_C_SOURCE=200809L
+C99_CC_VERSION := $(shell $(CC) --version 2>/dev/null)
+ifneq ($(findstring clang,$(C99_CC_VERSION)),)
+C99_CFLAGS += -Wno-newline-eof \
+	--system-header-prefix=wolfssl/ \
+	--system-header-prefix=wolfhsm/
+else
+C99_CFLAGS += -isystem $(abspath $(WOLFSSL_DIR)) \
+	-isystem $(abspath $(WOLFHSM_DIR))
+endif
+
+c99-check:
+	@CC="$(CC)" sh tests/c99/check.sh
+	@$(MAKE) --no-print-directory -C tests/host test \
+		TEST_KIND=c99 CC="$(CC)" \
+		BUILD_ROOT="$(abspath $(BUILD_DIR))/c99" \
+		EXTRA_CFLAGS="$(C99_CFLAGS)"
 
 # FF-M target-only scenarios (partition restart, cross-domain isolation) that
 # need a real Cortex-M execution model. Separate from `make test` (host-only),

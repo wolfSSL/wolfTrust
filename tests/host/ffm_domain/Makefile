@@ -25,7 +25,7 @@ BUILD_DIR ?= build
 
 CFLAGS := \
     -I$(ROOT)/include \
-    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic
+    -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic
 CFLAGS += $(EXTRA_CFLAGS)
 
 _WT_SRCS := $(ROOT)/src/ffm_domain.c

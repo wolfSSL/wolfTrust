@@ -27,7 +27,7 @@
 #ifndef USER_SETTINGS_H
 #define USER_SETTINGS_H
 
-/* wc_ecc_get_curve_idx_from_name() calls strcasecmp(); under strict -std=c11
+/* wc_ecc_get_curve_idx_from_name() calls strcasecmp(); under strict -std=c99
  * glibc only declares it from <strings.h>, so pull it in for this host build. */
 #include <strings.h>
 

@@ -1,0 +1,21 @@
+name: Empty Brace Scope Scan
+
+on:
+  push:
+    branches: [master, main, 'release/**', wolfTrust-dev, wolftfm-l3, wolfpsa-v5.9.1-ci]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  empty-brace-scan:
+    name: Empty Brace Scope Scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check for bare C scope blocks
+        run: python3 scripts/check-empty-brace-scopes.py

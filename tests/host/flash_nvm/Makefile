@@ -21,7 +21,7 @@ ROOT := ../../..
 CC ?= cc
 BUILD_DIR ?= build
 
-CFLAGS := -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
+CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -DWT_CONF_NVM_HOST_TEST \
     -I$(ROOT)/include -I$(ROOT)/port/stm32h563/conformance $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)

@@ -418,16 +418,12 @@ static void crypto_task(void *arg)
 
     (void)arg;
 
-    if (guest_crypto_init() != 0) {
-        goto heartbeat;
+    if (guest_crypto_init() == 0) {
+        run_ffm_sha256_kat();
+        run_ffm_rng();
+        run_psa_smoke();
+        run_ffm_negatives();
     }
-
-    run_ffm_sha256_kat();
-    run_ffm_rng();
-    run_psa_smoke();
-    run_ffm_negatives();
-
-heartbeat:
     for (;;) {
         busy_delay(WT_FREERTOS_HEARTBEAT_SPIN);
         uart_puts("freertos_guest1: heartbeat ");

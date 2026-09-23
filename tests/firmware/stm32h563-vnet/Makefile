@@ -59,7 +59,7 @@ CPU_FLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only
 # Guest CFLAGS. -I order matters: our wolfip_config/ overrides
 # lib/wolfIP/config.h. wolfIP itself needs the lib/wolfIP root for
 # `#include "wolfip.h"`-from-its-own-srcs.
-GUEST_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -O2 -g \
+GUEST_CFLAGS := $(CPU_FLAGS) -std=c99 -ffreestanding -fno-builtin -nostdlib -O2 -g \
     -Wall -Wextra -mno-unaligned-access \
     -ffunction-sections -fdata-sections \
     -I$(ROOT)/include \

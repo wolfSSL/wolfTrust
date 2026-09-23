@@ -11,7 +11,7 @@ TARGET ?= stm32h563
 PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
 
 CPU_FLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only
-CFLAGS_COMMON := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -O0 -g -Wall -Wextra
+CFLAGS_COMMON := $(CPU_FLAGS) -std=c99 -ffreestanding -fno-builtin -nostdlib -O0 -g -Wall -Wextra
 CFLAGS_COMMON += -I$(ROOT)/include -I$(PORT_DIR) -I$(ROOT)/lib/wolfhal
 WT_TIMESLICE_MS ?= 2
 EMU_TIMEOUT ?= 300
@@ -130,7 +130,7 @@ HSM_DEFS_GUEST += -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO \
 endif
 endif
 # Switch secure ELF to -Os: wolfCrypt is too slow at -O0 for embedded use.
-SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
+SECURE_CFLAGS := $(CPU_FLAGS) -std=c99 -ffreestanding -fno-builtin -nostdlib -Os -g \
     -Wall -Wextra \
     -I$(ROOT)/include -I$(PORT_DIR) \
     -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS) \
@@ -142,7 +142,7 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING \
     -mcmse \
     $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE)
-NONSECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
+NONSECURE_CFLAGS := $(CPU_FLAGS) -std=c99 -ffreestanding -fno-builtin -nostdlib -Os -g \
     -Wall -Wextra \
     -mno-unaligned-access \
     -ffunction-sections -fdata-sections \

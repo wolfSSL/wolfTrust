@@ -26,6 +26,7 @@
 #include "wolftrust/boot_handoff.h"
 #include "wolftrust/platform.h"
 #include "wolftrust/arch.h"
+#include "wolftrust/static_assert.h"
 
 #include <stddef.h>
 #include <stdio.h>
@@ -33,21 +34,21 @@
 
 #define REGION_SIZE 64u
 
-_Static_assert(sizeof(wt_boot_handoff_t) == 56u, "record is 56 bytes");
-_Static_assert(offsetof(wt_boot_handoff_t, magic) == 0u, "magic offset");
-_Static_assert(offsetof(wt_boot_handoff_t, magic_inverse) == 4u,
+WT_STATIC_ASSERT(sizeof(wt_boot_handoff_t) == 56u, "record is 56 bytes");
+WT_STATIC_ASSERT(offsetof(wt_boot_handoff_t, magic) == 0u, "magic offset");
+WT_STATIC_ASSERT(offsetof(wt_boot_handoff_t, magic_inverse) == 4u,
                "magic_inverse offset");
-_Static_assert(offsetof(wt_boot_handoff_t, version) == 8u, "version offset");
-_Static_assert(offsetof(wt_boot_handoff_t, size) == 10u, "size offset");
-_Static_assert(offsetof(wt_boot_handoff_t, lifecycle) == 12u,
+WT_STATIC_ASSERT(offsetof(wt_boot_handoff_t, version) == 8u, "version offset");
+WT_STATIC_ASSERT(offsetof(wt_boot_handoff_t, size) == 10u, "size offset");
+WT_STATIC_ASSERT(offsetof(wt_boot_handoff_t, lifecycle) == 12u,
                "lifecycle offset");
-_Static_assert(offsetof(wt_boot_handoff_t, image_version) == 16u,
+WT_STATIC_ASSERT(offsetof(wt_boot_handoff_t, image_version) == 16u,
                "image_version offset");
-_Static_assert(offsetof(wt_boot_handoff_t, hash_algorithm) == 20u,
+WT_STATIC_ASSERT(offsetof(wt_boot_handoff_t, hash_algorithm) == 20u,
                "hash_algorithm offset");
-_Static_assert(offsetof(wt_boot_handoff_t, measurement_size) == 22u,
+WT_STATIC_ASSERT(offsetof(wt_boot_handoff_t, measurement_size) == 22u,
                "measurement_size offset");
-_Static_assert(offsetof(wt_boot_handoff_t, measurement) == 24u,
+WT_STATIC_ASSERT(offsetof(wt_boot_handoff_t, measurement) == 24u,
                "measurement offset");
 
 static uint8_t g_region[REGION_SIZE];

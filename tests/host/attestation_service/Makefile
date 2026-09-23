@@ -31,7 +31,7 @@ CFLAGS := \
     -I$(ROOT)/tests/host/wolfhsm_loopback \
     -I$(ROOT)/include \
     -I$(WOLFSSL) \
-    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
+    -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
 

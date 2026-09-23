@@ -45,7 +45,7 @@ class GeneratorTest(unittest.TestCase):
     def compile_generated(self, output, executable):
         command = shlex.split(os.environ.get("CC", "cc"))
         command.extend([
-            "-std=c11", "-Wall", "-Wextra", "-Werror", "-pedantic",
+            "-std=c99", "-Wall", "-Wextra", "-Werror", "-pedantic",
             "-I" + str(ROOT / "include"), "-I" + str(output),
             str(ROOT / "src" / "domain.c"),
             str(ROOT / "src" / "manifest.c"),

@@ -107,7 +107,7 @@ SECURE_CFLAGS_COSE := -I$(WOLFCOSE_DIR)/include \
     -DWOLFCOSE_ENABLE_EAT_PSA_SIGN1_ISSUE
 endif
 
-SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
+SECURE_CFLAGS := $(CPU_FLAGS) -std=c99 -ffreestanding -fno-builtin -nostdlib -Os -g \
     -ffunction-sections -fdata-sections -Wall -Wextra \
     -I$(ROOT)/include -I$(PORT_DIR) \
     -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS) \

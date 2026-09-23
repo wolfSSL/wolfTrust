@@ -41,9 +41,10 @@ CFLAGS := \
     -I$(WOLFSSL) \
     -I$(WOLFHSM) \
     -I$(WOLFCOSE)/include \
-    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
+    -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
+include ../vendor_c99.mk
 
 # wolfCOSE sources are not -pedantic/-Werror clean under this profile; build
 # them with the warnings relaxed while keeping wolfTrust + test code strict.

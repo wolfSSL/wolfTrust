@@ -31,7 +31,7 @@ ARM_TESTS := $(foreach id,$(ARM_TEST_IDS),\
 ARM_TEST_INCLUDES := $(foreach id,$(ARM_TEST_IDS),\
     -I$(ARM_API)/ff/ipc/test_$(id))
 
-CFLAGS := -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
+CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -include psa/client.h -DNONSECURE_TEST_BUILD -DIPC \
     -DSERVER_TEST_DISPATCHER_SID=0x0000FB01U \
     -DSERVER_TEST_DISPATCHER_VERSION=1U \
@@ -48,6 +48,7 @@ CFLAGS := -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I. -I$(ROOT)/include $(ARM_TEST_INCLUDES) \
     -I$(ARM_API)/val/nspe -I$(ARM_API)/val/common \
     -I$(ARM_API)/platform/targets/common/nspe
+CFLAGS += $(EXTRA_CFLAGS)
 TEST := $(BUILD_DIR)/test_psa_ff_upstream
 SRCS := $(ROOT)/src/ffm.c $(ROOT)/src/ffm_api.c $(ROOT)/src/ipc.c \
     main.c $(ARM_TESTS)

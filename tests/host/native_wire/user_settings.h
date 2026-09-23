@@ -33,6 +33,10 @@
 #define ECC_USER_CURVES
 #define ECC_TIMING_RESISTANT
 #define WOLFSSL_SP_MATH_ALL
+/* ISO C99 gate: pin fixed-size SP-math stacks (no VLAs) and pull in
+ * <strings.h> so ecc.c's strcasecmp curve lookup is declared. */
+#define WOLFSSL_SP_NO_DYN_STACK
+#define HAVE_STRINGS_H
 
 #define HAVE_AESGCM
 #define WOLFSSL_SHA256

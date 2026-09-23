@@ -88,6 +88,7 @@ static int test_pool_double_release_and_stale(void)
 {
     vnet_pool_t p;
     uint16_t slot;
+    uint16_t s2;
     uint16_t gen0, gen1;
     vnet_pool_init(&p, g_storage, POOL_N);
 
@@ -100,15 +101,13 @@ static int test_pool_double_release_and_stale(void)
     T_EQ_INT(vnet_pool_release(&p, slot, gen0), WT_VNET_E_DOUBLE_RELEASE);
 
     /* Realloc same slot bumps gen. Old cookie must be rejected. */
-    {
-        uint16_t s2 = vnet_pool_alloc(&p, 20);
-        T_EQ_INT(s2, slot);
-        gen1 = g_storage[slot].gen;
-        T_CHECK(gen1 != gen0);
-        T_EQ_INT(vnet_pool_release(&p, slot, gen0), WT_VNET_E_STALE_COOKIE);
-        T_EQ_INT(vnet_pool_ref(&p, slot, gen0), WT_VNET_E_STALE_COOKIE);
-        T_EQ_INT(vnet_pool_release(&p, slot, gen1), 1);
-    }
+    s2 = vnet_pool_alloc(&p, 20);
+    T_EQ_INT(s2, slot);
+    gen1 = g_storage[slot].gen;
+    T_CHECK(gen1 != gen0);
+    T_EQ_INT(vnet_pool_release(&p, slot, gen0), WT_VNET_E_STALE_COOKIE);
+    T_EQ_INT(vnet_pool_ref(&p, slot, gen0), WT_VNET_E_STALE_COOKIE);
+    T_EQ_INT(vnet_pool_release(&p, slot, gen1), 1);
     return 0;
 }
 

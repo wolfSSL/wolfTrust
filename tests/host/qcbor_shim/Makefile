@@ -35,9 +35,10 @@ CFLAGS := \
     -I$(ROOT)/include \
     -I$(WOLFSSL) \
     -I$(WOLFCOSE)/include \
-    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
+    -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
+include ../vendor_c99.mk
 
 COSE_CFLAGS := $(filter-out -Werror -pedantic,$(CFLAGS))
 
@@ -128,7 +129,7 @@ INTEROP_CFLAGS := \
     -DWOLFCOSE_ENABLE_DEPRECATED_ALGS \
     -I. -I$(ROOT)/include -I$(WOLFSSL) -I$(WOLFCOSE)/include \
     -I$(QCBOR_DIR)/inc -I$(QCBOR_DIR)/inc/qcbor \
-    -std=c11 -O0 -g -Wall -Wextra -Wno-unused-function -Wno-unused-parameter \
+    -std=c99 -O0 -g -Wall -Wextra -Wno-unused-function -Wno-unused-parameter \
     -Wno-implicit-function-declaration
 INTEROP_SRCS := \
     main.c \

@@ -89,6 +89,10 @@
  * ---------------------------------------------------------------------- */
 #define SIZEOF_LONG_LONG 8
 
+/* wolfHSM's pinned wolfCrypt callback ABI uses anonymous aggregates. Keep
+ * that required dependency extension explicit when wolfTrust builds as C99. */
+#define HAVE_ANONYMOUS_INLINE_AGGREGATES 1
+
 /* -------------------------------------------------------------------------
  * Math backend: SP Cortex-M.
  *

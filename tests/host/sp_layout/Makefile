@@ -24,8 +24,9 @@ CC ?= cc
 BUILD_DIR ?= build
 
 CFLAGS := \
+    -I$(ROOT)/include \
     -I$(ROOT)/port/stm32h563 \
-    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic
+    -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic
 CFLAGS += $(EXTRA_CFLAGS)
 
 TEST_BIN := $(BUILD_DIR)/test_sp_layout

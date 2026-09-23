@@ -25,40 +25,41 @@
  * fails here (and the matching ASSERT in secure.ld fails at link). */
 
 #include "memory_map.h"
+#include "wolftrust/static_assert.h"
 
 #include <stdio.h>
 
 /* Every Armv8-M MPU region base is 32-byte aligned. */
-_Static_assert((WT_SP_CRYPTO_STACK_BASE & 0x1FU) == 0U,
+WT_STATIC_ASSERT((WT_SP_CRYPTO_STACK_BASE & 0x1FU) == 0U,
                "crypto SP stack not 32-byte aligned");
-_Static_assert((WT_SP_ATTEST_STACK_BASE & 0x1FU) == 0U,
+WT_STATIC_ASSERT((WT_SP_ATTEST_STACK_BASE & 0x1FU) == 0U,
                "attest SP stack not 32-byte aligned");
-_Static_assert((WT_SP_SECURE_STACK_SIZE & 0x1FU) == 0U,
+WT_STATIC_ASSERT((WT_SP_SECURE_STACK_SIZE & 0x1FU) == 0U,
                "SP stack size not a 32-byte multiple");
 
 /* The carve stays inside the secure RAM window and above the guest region. */
-_Static_assert(WT_SP_SECURE_RAM_BASE >= WT_RAM_S_BASE,
+WT_STATIC_ASSERT(WT_SP_SECURE_RAM_BASE >= WT_RAM_S_BASE,
                "SP secure RAM below the secure RAM window");
-_Static_assert(WT_SP_SECURE_RAM_END <= (WT_RAM_S_BASE + WT_RAM_S_SIZE),
+WT_STATIC_ASSERT(WT_SP_SECURE_RAM_END <= (WT_RAM_S_BASE + WT_RAM_S_SIZE),
                "SP secure RAM overflows the secure RAM window");
 
 /* Partitions are contiguous and non-overlapping, filling the reserved region. */
-_Static_assert(WT_SP_SECURE_RAM_SIZE ==
+WT_STATIC_ASSERT(WT_SP_SECURE_RAM_SIZE ==
                    WT_SP_SECURE_STACK_SIZE * WT_SP_SECURE_STACK_COUNT,
                "SP secure RAM size does not match stack count");
-_Static_assert(WT_SP_CRYPTO_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
+WT_STATIC_ASSERT(WT_SP_CRYPTO_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
                    WT_SP_ATTEST_STACK_BASE,
                "crypto and attest SP stacks overlap or leave a gap");
-_Static_assert(WT_SP_ATTEST_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
+WT_STATIC_ASSERT(WT_SP_ATTEST_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
                    WT_SP_FF_SERVER_STACK_BASE,
                "attest and FF server SP stacks overlap or leave a gap");
-_Static_assert(WT_SP_FF_SERVER_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
+WT_STATIC_ASSERT(WT_SP_FF_SERVER_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
                    WT_SP_FF_DRIVER_STACK_BASE,
                "FF server and driver SP stacks overlap or leave a gap");
-_Static_assert(WT_SP_FF_DRIVER_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
+WT_STATIC_ASSERT(WT_SP_FF_DRIVER_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
                    WT_SP_FF_CLIENT_STACK_BASE,
                "FF driver and client SP stacks overlap or leave a gap");
-_Static_assert(WT_SP_FF_CLIENT_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
+WT_STATIC_ASSERT(WT_SP_FF_CLIENT_STACK_BASE + WT_SP_SECURE_STACK_SIZE ==
                    WT_SP_SECURE_RAM_END,
                "SP stacks do not fill the reserved region");
 

@@ -7,7 +7,7 @@ full M33MU emulator matrix, which runs on every pull request (and nightly).
 
 | Tier | Trigger | Purpose |
 |------|---------|---------|
-| **Fast (per-PR)** | every PR; push to master/main/dev/churn | host unit suites (one check each), Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
+| **Fast (per-PR)** | every PR; push to master/main/dev/churn | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
 | **M33MU matrix** | every PR; push to master/main/wolfTrust-dev; `cron: 0 8 * * *`; `workflow_dispatch` | full M33MU emulator matrix (see below) |
 
 The M33MU workflow (`m33mu.yml`) runs the full matrix on every pull request,

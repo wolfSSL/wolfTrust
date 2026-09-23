@@ -13,5 +13,6 @@
 - [[Porting]]
 - [[Building]]
 - [[Testing]]
+- [[Coding Standard]]
 - [[Project Structure]]
 - [[STM32H5 Guide]]

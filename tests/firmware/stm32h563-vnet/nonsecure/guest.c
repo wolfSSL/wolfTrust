@@ -309,24 +309,22 @@ static int run_guest(uint32_t guest_id)
     int sock = -1;
     int last_seq = 0;
     int next_seq = 1;
+    int tries;
+    volatile uint32_t spin;
     uint32_t next_ping_ms = 200;  /* first ping after a short ARP window */
     uint8_t rx_buf[64];
+    uint8_t mac_ram[6];
 
     wt_uart_puts(id->banner);
 
     /* SERVICE_VNET may be mid-quarantine (a faulted partition restarting
      * under its manifest policy); a transient failure heals, so retry. */
-    {
-        int tries;
-        volatile uint32_t spin;
-
-        rc = -1;
-        for (tries = 0; tries < 50 && rc != 0; tries++) {
-            rc = wt_vnet_psa_open(&g_vnet, WT_VNET_SERVICE_SID,
-                                  WT_VNET_SERVICE_VERSION, &info);
-            if (rc != 0) {
-                for (spin = 0; spin < 200000u; spin++) { }
-            }
+    rc = -1;
+    for (tries = 0; tries < 50 && rc != 0; tries++) {
+        rc = wt_vnet_psa_open(&g_vnet, WT_VNET_SERVICE_SID,
+                              WT_VNET_SERVICE_VERSION, &info);
+        if (rc != 0) {
+            for (spin = 0; spin < 200000u; spin++) { }
         }
     }
     if (rc != 0) { wt_uart_puts("vnet open failed\r\n"); return -1; }
@@ -338,11 +336,8 @@ static int run_guest(uint32_t guest_id)
      * flash, so passing &id->mac (which lives in .rodata) into the call
      * would feed the switch a zeroed MAC. The on-target wolfTrust build
      * works either way; this is the emulator-compatible path. */
-    {
-        uint8_t mac_ram[6];
-        memcpy(mac_ram, id->mac, 6);
-        rc = wt_vnet_psa_set_mac(&g_vnet, mac_ram);
-    }
+    memcpy(mac_ram, id->mac, 6);
+    rc = wt_vnet_psa_set_mac(&g_vnet, mac_ram);
     if (rc != 0) {
         wt_uart_puts("vnet set_mac failed rc=");
         wt_uart_put_u32((uint32_t)(-rc));

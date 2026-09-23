@@ -15,13 +15,15 @@ jobs:
     name: Host tests (ASan and UBSan)
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    container:
+      image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd
     steps:
       - uses: actions/checkout@v4
       - name: Initialize test dependencies
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
-          git submodule update --init --recursive
+          git submodule update --init --recursive --depth 1 --jobs 4
       - name: Run aggregate sanitized host suite
         env:
           ASAN_OPTIONS: detect_leaks=1:strict_string_checks=1

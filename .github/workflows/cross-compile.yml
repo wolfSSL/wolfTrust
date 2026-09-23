@@ -15,20 +15,17 @@ jobs:
     name: Cortex-M33 cross compilation
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     steps:
       - uses: actions/checkout@v4
       - name: Initialize firmware dependencies
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
-          git submodule update --init \
+          git submodule update --init --depth 1 --jobs 4 \
             lib/wolfCOSE lib/wolfHSM lib/wolfPSA lib/wolfSSL \
             lib/wolfhal
-      - name: Install Arm GCC toolchain
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
       - name: Build STM32H563 secure firmware
         run: make -C tests/firmware/stm32h563 all TOOLPREFIX=arm-none-eabi-
       - name: Compile-check the no-attestation secure image (WT_ATTEST_COSE=0)

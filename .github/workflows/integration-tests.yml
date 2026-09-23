@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+defaults:
+  run:
+    # The container's default shell is dash; the wolfPSA step uses pipefail.
+    shell: bash
+
 jobs:
   resolve:
     uses: ./.github/workflows/_resolve-wolfssl.yml
@@ -18,6 +23,8 @@ jobs:
     name: wolfCOSE integration (${{ matrix.name }})
     needs: resolve
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -28,16 +35,25 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
-          git submodule update --init lib/wolfCOSE lib/wolfSSL
+          git submodule update --init --depth 1 --jobs 4 lib/wolfCOSE lib/wolfSSL
       - name: Select wolfSSL ref
         if: matrix.ref != 'pinned'
         run: |
           git -C lib/wolfSSL fetch --no-tags origin "${{ matrix.ref }}"
           git -C lib/wolfSSL checkout --detach FETCH_HEAD
+      - name: Resolve wolfSSL commit
+        id: wssl
+        run: echo "sha=$(git -C lib/wolfSSL rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Cache the wolfSSL build
+        if: matrix.ref != 'master'
+        id: cache-wolfssl
+        uses: actions/cache@v4
+        with:
+          path: .deps/wolfssl
+          key: wolfssl-cryptonly-${{ steps.wssl.outputs.sha }}-v1
       - name: Build wolfSSL
+        if: matrix.ref == 'master' || steps.cache-wolfssl.outputs.cache-hit != 'true'
         run: |
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends automake libtool
           cd lib/wolfSSL
           ./autogen.sh
           ./configure --enable-cryptonly --enable-ecc \
@@ -54,6 +70,8 @@ jobs:
     name: wolfPSA integration (${{ matrix.name }})
     needs: resolve
     runs-on: ubuntu-latest
+    container:
+      image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -64,7 +82,7 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
-          git submodule update --init --recursive
+          git submodule update --init --recursive --depth 1 --jobs 4
       - name: Select wolfSSL ref
         if: matrix.ref != 'pinned'
         run: |
@@ -83,8 +101,6 @@ jobs:
               "$GITHUB_WORKSPACE/lib/wolfPSA/user_settings.h" \
               > "$wolfpsa_settings/user_settings.h"
           fi
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends automake libtool
           cd lib/wolfSSL
           ./autogen.sh
           ./configure --enable-shared --enable-psa --enable-pkcallbacks \

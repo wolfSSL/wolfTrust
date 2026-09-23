@@ -1,0 +1,64 @@
+name: Publish CI image
+
+# Builds docker/wolftrust-ci/Dockerfile and pushes it to
+# ghcr.io/wolfssl/wolftrust-ci:latest so the host build/test jobs just pull the
+# image instead of apt-get installing toolchains on every run.
+#
+# Published out of band, like wolfBoot's CI images: only accepted main/master
+# state (or a manual dispatch) produces :latest. It never runs on a pull
+# request, so PR jobs always pull a known-good image and never race a rebuild.
+
+on:
+  push:
+    branches: [master, main]
+    paths:
+      - 'docker/wolftrust-ci/**'
+      - '.github/workflows/publish-ci-image.yml'
+  workflow_dispatch: {}
+
+concurrency:
+  # Global single group: every push/dispatch publishes the shared :latest tag,
+  # so only one build at a time.
+  group: publish-ci-image
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  publish:
+    # Canonical repo only - forks lack the ghcr push scope.
+    if: github.repository == 'wolfSSL/wolfTrust'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Resolve image SHA
+        id: sha
+        run: echo "image_sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to ghcr.io
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push image
+        uses: docker/build-push-action@v6
+        with:
+          context: docker/wolftrust-ci
+          file: docker/wolftrust-ci/Dockerfile
+          push: true
+          tags: |
+            ghcr.io/wolfssl/wolftrust-ci:latest
+            ghcr.io/wolfssl/wolftrust-ci:latest-${{ steps.sha.outputs.image_sha }}
+          cache-from: type=registry,ref=ghcr.io/wolfssl/wolftrust-ci:latest
+          cache-to: type=inline

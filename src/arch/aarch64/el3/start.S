@@ -23,6 +23,9 @@
 
 #define SCTLR_EL3_INIT  (0x30C50830 | (1 << 12) | (1 << 3))
 #define CNTHCTL_EL2_INIT 0x3
+#define HCR_EL2_RW      0x80000000
+/* No EL2 traps: bits 13, 9 and 7:0 are RES1 (TZ/TSM too without SVE/SME). */
+#define CPTR_EL2_INIT   0x22FF
 /* RW | ST | EA | FIQ: Group 0 interrupts come to EL3 until the Secure world
  * runs (an FIQ whose target EL is below the current EL stays pending). */
 #define SCR_EL3_INIT    0xC0C
@@ -112,6 +115,56 @@ primary:
     mov     x0, #CNTHCTL_EL2_INIT
     msr     CNTHCTL_EL2, x0
 
+    /* EL2 is unused but, when implemented, still applies to NS-EL1: give its
+     * controls known values instead of whatever an earlier stage left. */
+    mrs     x1, ID_AA64PFR0_EL1
+    ubfx    x1, x1, #8, #4
+    cbz     x1, 15f
+#if defined(WT_EL3_EL2_DIRTY_PROBE) && (WT_EL3_EL2_DIRTY_PROBE == 1)
+    /* Test only: stand in for a stage that left SMC trapped and a foreign
+     * virtual MPIDR behind. */
+    mov     x0, #HCR_EL2_RW
+    orr     x0, x0, #(1 << 19)
+    msr     HCR_EL2, x0
+    mrs     x0, MPIDR_EL1
+    eor     x0, x0, #0x100
+    msr     VMPIDR_EL2, x0
+#endif
+    mov     x0, #HCR_EL2_RW
+    msr     HCR_EL2, x0
+    msr     HSTR_EL2, xzr
+    msr     VTTBR_EL2, xzr
+    mrs     x0, MIDR_EL1
+    msr     VPIDR_EL2, x0
+    mrs     x0, MPIDR_EL1
+    msr     VMPIDR_EL2, x0
+    mov     x0, #CPTR_EL2_INIT
+    mrs     x1, ID_AA64PFR0_EL1
+    ubfx    x1, x1, #32, #4
+    cbnz    x1, 10f
+    orr     x0, x0, #(1 << 8)
+10: mrs     x1, ID_AA64PFR1_EL1
+    ubfx    x1, x1, #24, #4
+    cbnz    x1, 11f
+    orr     x0, x0, #(1 << 12)
+11: msr     CPTR_EL2, x0
+    /* MDCR_EL2: no traps; EL1 owns every PMU counter and any SPE/TRBE. */
+    mov     x0, #0
+    mrs     x1, ID_AA64DFR0_EL1
+    ubfx    x2, x1, #8, #4
+    cbz     x2, 12f
+    cmp     x2, #0xf
+    b.eq    12f
+    mrs     x2, PMCR_EL0
+    ubfx    x0, x2, #11, #5
+12: ubfx    x2, x1, #32, #4
+    cbz     x2, 13f
+    orr     x0, x0, #(3 << 12)
+13: ubfx    x2, x1, #44, #4
+    cbz     x2, 14f
+    orr     x0, x0, #(3 << 24)
+14: msr     MDCR_EL2, x0
+15:
     ldr     x0, =__data_lma
     ldr     x1, =__data_start
     ldr     x2, =__data_end
@@ -184,10 +237,7 @@ wt_el3_enter_secure_el1:
  * width; set it for AArch64 or the ERET is an illegal state change. */
     .globl wt_el3_enter_ns
 wt_el3_enter_ns:
-    mrs     x4, HCR_EL2
-    mov     x5, #1
-    lsl     x5, x5, #31
-    orr     x4, x4, x5
+    mov     x4, #HCR_EL2_RW
     msr     HCR_EL2, x4
     msr     SP_EL1, x1
     msr     ELR_EL3, x0
@@ -203,18 +253,19 @@ wt_el3_enter_ns:
     eret
 
 /* void wt_el3_world_eret(const wt_el3_frame_t* frame, uint64_t scr_el3):
- * enter a saved world. Program SCR_EL3 (and HCR_EL2.RW for a Normal-world
- * return so EL1 is AArch64), reset the EL3 stack (this never returns, so the
+ * enter a saved world. Program SCR_EL3 (and HCR_EL2 for a Normal-world
+ * return: RW alone for an EL1 world; an EL2 world, SCR_EL3.HCE, keeps its own
+ * value with RW set), reset the EL3 stack (this never returns, so the
  * handler's stack is abandoned), load the full saved register file plus ELR and
  * SPSR, then ERET. The ISB before the ERET matches wt_el3_enter_ns. */
     .globl wt_el3_world_eret
 wt_el3_world_eret:
     tbz     x1, #0, 1f
-    mrs     x2, HCR_EL2
-    mov     x3, #1
-    lsl     x3, x3, #31
+    mov     x2, #HCR_EL2_RW
+    tbz     x1, #8, 2f
+    mrs     x3, HCR_EL2
     orr     x2, x2, x3
-    msr     HCR_EL2, x2
+2:  msr     HCR_EL2, x2
 1:  msr     SCR_EL3, x1
     ldr     x2, [x0, #248]
     msr     ELR_EL3, x2

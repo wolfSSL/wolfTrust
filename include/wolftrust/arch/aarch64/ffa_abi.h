@@ -188,6 +188,14 @@ static inline int32_t wt_ffa_version_negotiate(wt_ffa_version_state_t* st,
     return reply;
 }
 
+/* The version a caller's data structures are encoded at (18.5.3): the one it
+ * negotiated, or ours when it never asked. */
+static inline uint32_t wt_ffa_version_of(const wt_ffa_version_state_t* st,
+                                         uint32_t ours)
+{
+    return (st->version != 0u) ? st->version : ours;
+}
+
 /* FFA_FEATURES feature ids (13.3, Table 13.14) and the properties this
  * implementation reports. The schedule receiver interrupt is the SGI of
  * 9.4.1, raised for the Normal world when notification work pends; S-EL0

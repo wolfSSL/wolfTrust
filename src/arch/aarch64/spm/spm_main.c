@@ -1061,7 +1061,9 @@ static void ns_partition_info_get(wt_ffa_regs_t* r)
 {
     uint32_t count = 0u;
     uint32_t size = 0u;
-    int ret = wt_spm_partition_info(r->x, &g_ns_mailbox, &count, &size);
+    int ret = wt_spm_partition_info(
+        r->x, wt_ffa_version_of(&g_ns_version, WT_FFA_VERSION_1_2),
+        &g_ns_mailbox, &count, &size);
 
     ns_reply(r, ret, count, size);
 }

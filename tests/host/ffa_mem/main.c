@@ -896,6 +896,57 @@ static void time_slice_rows(void)
           "a reclaim may still ask for the memory to be zeroed");
 }
 
+/* WT-FFA-0009 (the Handle field of a lend/donate/share, 1.11.1: this SPMC
+ * allocates every handle, so a sender leaves it zero). */
+static void send_handle_rows(void)
+{
+    static const wt_ffa_mem_op_t ops[3] = {
+        WT_FFA_MEM_OP_SHARE, WT_FFA_MEM_OP_LEND, WT_FFA_MEM_OP_DONATE
+    };
+    static uint8_t buf[256];
+    static wt_ffa_mem_registry_t reg;
+    wt_ffa_mem_txn_t txn;
+    uint64_t h;
+    size_t len = 0u;
+    uint32_t i;
+    int done = 0;
+    int ok = 1;
+
+    for (i = 0u; i < 3u; i++) {
+        len = make_txn(buf, sizeof(buf), ops[i], 0u);
+        ok = ok && (len != 0u) &&
+             (wt_ffa_mem_send_validate(buf, len, ops[i], 0u, &txn) == 0);
+    }
+    check(ok, "a share, lend, or donate with a zero Handle field is accepted");
+
+    len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
+    put64(&buf[8], 0x55AAull);
+    check(wt_ffa_mem_send_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a send naming a handle of its own is INVALID_PARAMETERS");
+    put64(&buf[8], 0x8000000000000001ull);
+    check(wt_ffa_mem_send_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a send carrying a Hypervisor-allocated handle is INVALID_PARAMETERS");
+    check(wt_ffa_mem_send_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0x9999u,
+                                   &txn) == WT_FFA_DENIED,
+          "a send from the wrong sender is still DENIED first");
+
+    len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_LEND, 0u);
+    wt_ffa_mem_registry_init(&reg);
+    h = wt_ffa_mem_handle_reserve(&reg);
+    ok = (wt_ffa_mem_frag_begin(&g_frag_row, h, 0u, (uint8_t)WT_FFA_MEM_OP_LEND,
+                                buf, 40u, (uint32_t)len) == 0) &&
+         (wt_ffa_mem_frag_add(&g_frag_row, h, 0u, &buf[40],
+                              (uint32_t)len - 40u, &done) == 0) &&
+         (done == 1);
+    check(ok && (h != 0u) &&
+          (wt_ffa_mem_send_validate(g_frag_row.buf, g_frag_row.total,
+                                    WT_FFA_MEM_OP_LEND, 0u, &txn) == 0),
+          "a fragmented send passes with its reserved handle held outside the descriptor");
+    wt_ffa_mem_frag_reset(&g_frag_row);
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -912,6 +963,7 @@ int main(void)
     frag_rows();
     retrieve_check_rows();
     time_slice_rows();
+    send_handle_rows();
 
     printf("ffa_mem: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

@@ -234,7 +234,7 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     if (out_handle == NULL) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    ret = wt_ffa_mem_txn_validate(desc, len, op, sender, &txn);
+    ret = wt_ffa_mem_send_validate(desc, len, op, sender, &txn);
     /* Nothing here can take memory away from the Normal world, so it cannot
      * give any away for good; a malformed attempt is still told why. */
     if ((ret == 0) && (op == WT_FFA_MEM_OP_DONATE) && !id_is_secure(sender)) {

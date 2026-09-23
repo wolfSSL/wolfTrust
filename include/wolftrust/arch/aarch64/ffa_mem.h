@@ -209,6 +209,13 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
 int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
                             uint16_t expect_sender, wt_ffa_mem_txn_t* out);
 
+/* wt_ffa_mem_txn_validate for a lend/donate/share the relayer is asked to
+ * start: its Handle field is zero as well (DEN0140 1.11.1), since this SPMC
+ * allocates every handle and takes none from a Hypervisor. A descriptor sent
+ * in fragments carries its reserved handle in registers, not here. */
+int wt_ffa_mem_send_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
+                             uint16_t expect_sender, wt_ffa_mem_txn_t* out);
+
 /* Read receiver index's endpoint id and permissions from a descriptor that
  * wt_ffa_mem_txn_validate has accepted. */
 int wt_ffa_mem_receiver(const uint8_t* buf, size_t len,

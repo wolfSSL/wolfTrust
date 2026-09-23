@@ -890,9 +890,11 @@ static const wt_ffa_mem_handle_entry_t* make_entry(wt_ffa_mem_registry_t* reg,
     return e;
 }
 
-/* A retrieve request for e naming its first n borrowers in order. */
-static void make_rq(wt_ffa_mem_retrieve_req_t* rq,
-                    const wt_ffa_mem_handle_entry_t* e, uint32_t n)
+/* A retrieve request from self for e naming its first n borrowers in order,
+ * each other borrower marked a non-retrieval borrower. */
+static void make_rq_as(wt_ffa_mem_retrieve_req_t* rq,
+                       const wt_ffa_mem_handle_entry_t* e, uint32_t n,
+                       uint16_t self)
 {
     uint32_t i;
 
@@ -904,7 +906,17 @@ static void make_rq(wt_ffa_mem_retrieve_req_t* rq,
     for (i = 0u; i < n; i++) {
         rq->receivers[i] = (uint16_t)(0x8002u + i);
         rq->permissions[i] = 0x02u;
+        if (rq->receivers[i] != self) {
+            rq->access_flags[i] = WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL;
+        }
     }
+}
+
+/* make_rq_as from the first borrower. */
+static void make_rq(wt_ffa_mem_retrieve_req_t* rq,
+                    const wt_ffa_mem_handle_entry_t* e, uint32_t n)
+{
+    make_rq_as(rq, e, n, 0x8002u);
 }
 
 /* WT-FFA-0009 (a retrieve request held against its transaction, 2.4.1.2). */
@@ -1218,11 +1230,13 @@ static void access_flag_rows(void)
         return;
     }
     make_rq(&rq, e, 2u);
-    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
-          "naming both borrowers with no flags set is accepted");
+    rq.access_flags[1] = 0u;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "naming the other borrower without the non-retrieval flag is INVALID_PARAMETERS");
     rq.access_flags[1] = WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
-          "the other borrower's entry may be marked a non-retrieval borrower");
+          "naming the other borrower as a non-retrieval borrower is accepted");
     rq.access_flags[0] = WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
               WT_FFA_INVALID_PARAMETERS,
@@ -1230,6 +1244,16 @@ static void access_flag_rows(void)
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) ==
               WT_FFA_INVALID_PARAMETERS,
           "the rule follows the caller, whichever entry is its own");
+    rq.access_flags[1] = 0u;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) == 0,
+          "the second borrower retrieves with the first marked non-retrieval");
+    make_rq(&rq, e, 1u);
+    rq.flags = WT_FFA_MEM_FLAG_BYPASS_BORROWERS;
+    rq.receiver_count = 2u;
+    rq.receivers[1] = 0x8003u;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "the bypass flag does not excuse another borrower's clear flag");
 }
 
 /* WT-FFA-0009 (without the bypass flag a retrieve request names the lender's
@@ -1246,11 +1270,16 @@ static void borrower_list_rows(void)
         return;
     }
     make_rq(&rq, e, 2u);
-    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0 &&
-          wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) == 0,
-          "either borrower naming both borrowers is accepted");
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
+          "the first borrower naming both borrowers is accepted");
+    make_rq_as(&rq, e, 2u, 0x8003u);
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) == 0,
+          "the second borrower naming both borrowers is accepted");
+    make_rq(&rq, e, 2u);
     rq.receivers[0] = 0x8003u;
     rq.receivers[1] = 0x8002u;
+    rq.access_flags[0] = WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL;
+    rq.access_flags[1] = 0u;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
           "the borrowers may be named in any order");
     make_rq(&rq, e, 2u);
@@ -1267,6 +1296,7 @@ static void borrower_list_rows(void)
           "naming only itself without the bypass flag is INVALID_PARAMETERS");
     make_rq(&rq, e, 2u);
     rq.receivers[1] = 0x8002u;
+    rq.access_flags[1] = 0u;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
               WT_FFA_INVALID_PARAMETERS,
           "naming one borrower twice in place of the other is INVALID_PARAMETERS");
@@ -1285,18 +1315,31 @@ static void borrower_list_rows(void)
     if (e == NULL) {
         return;
     }
-    make_rq(&rq, e, 3u);
+    make_rq_as(&rq, e, 3u, 0x8003u);
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) == 0,
           "naming all three borrowers is accepted");
-    make_rq(&rq, e, 2u);
+    make_rq_as(&rq, e, 2u, 0x8003u);
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) ==
               WT_FFA_INVALID_PARAMETERS,
           "leaving a borrower out is INVALID_PARAMETERS");
-    make_rq(&rq, e, 3u);
+    make_rq_as(&rq, e, 3u, 0x8003u);
     rq.receivers[2] = 0x8003u;
+    rq.access_flags[2] = 0u;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) ==
               WT_FFA_INVALID_PARAMETERS,
           "a repeat that hides a missing borrower is INVALID_PARAMETERS");
+
+    e = make_entry(&reg, WT_FFA_MEM_OP_LEND, 1u);
+    check(e != NULL, "a single-borrower lend registers");
+    if (e == NULL) {
+        return;
+    }
+    make_rq(&rq, e, 2u);
+    rq.receivers[1] = 0x8002u;
+    rq.access_flags[1] = 0u;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a single borrower naming itself twice is INVALID_PARAMETERS");
 }
 
 /* The relayer maps and zeroes memory at its own address (VA == PA), so the

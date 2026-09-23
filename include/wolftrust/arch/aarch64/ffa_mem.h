@@ -520,11 +520,12 @@ uint32_t wt_ffa_mem_type_flag(uint8_t state);
 
 /* Hold receiver's parsed retrieve request against the transaction its handle
  * names (DEN0140 2.4.1.2): every named endpoint is a borrower whose
- * implementation-defined bytes it repeats, without the bypass flag a
- * transaction with several borrowers has each of them named once (1.11.3.3),
- * the receiver's own entry does not mark it a non-retrieval borrower, and the
- * tag, flags, transaction type, and attributes agree, and every other
- * borrower named carries the data access the lender gave it. Returns 0,
+ * implementation-defined bytes it repeats, no borrower is named twice and
+ * without the bypass flag each of them is named (1.11.3.3), the Non-retrieval
+ * Borrower flag is clear in the receiver's own entry and set in every other
+ * (Table 1.17), the tag, flags, transaction type, and attributes agree, and
+ * every other borrower named carries the data access the lender gave it.
+ * Returns 0,
  * WT_FFA_INVALID_PARAMETERS for a field the request got wrong, or
  * WT_FFA_DENIED for Device memory (only Normal memory is ever sent) or another
  * borrower's data access that is not the lender's. */

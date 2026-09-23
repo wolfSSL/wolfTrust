@@ -1238,6 +1238,8 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
     uint32_t type;
     uint32_t i;
     uint32_t j;
+    int non_retrieval;
+    int own;
     int repeated = 0;
     int ret = 0;
 
@@ -1254,9 +1256,12 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
                          WT_FFA_MEM_IMPDEF_SIZE) == 0)) {
             ret = WT_FFA_INVALID_PARAMETERS;
         }
-        /* Covers a single borrower too: its only entry is the caller's. */
-        if ((rq->receivers[i] == receiver) &&
-            ((rq->access_flags[i] & WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL) != 0u)) {
+        /* Table 1.17 bit[0]: only the caller is retrieved for, so its own
+         * entry has the flag clear and every other borrower's has it set. */
+        own = (rq->receivers[i] == receiver) ? 1 : 0;
+        non_retrieval = ((rq->access_flags[i] &
+                          WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL) != 0u) ? 1 : 0;
+        if (own == non_retrieval) {
             ret = WT_FFA_INVALID_PARAMETERS;
         }
         for (j = 0u; j < i; j++) {
@@ -1267,10 +1272,10 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
     }
     /* Every entry is a borrower, so the same count with no repeat is the
      * lender's whole list. */
-    if ((ret == 0) && ((rq->flags & WT_FFA_MEM_FLAG_BYPASS_BORROWERS) == 0u) &&
-        (e->borrower_count > 1u) &&
-        ((rq->receiver_count != (uint32_t)e->borrower_count) ||
-         (repeated != 0))) {
+    if ((ret == 0) &&
+        ((repeated != 0) ||
+         (((rq->flags & WT_FFA_MEM_FLAG_BYPASS_BORROWERS) == 0u) &&
+          (rq->receiver_count != (uint32_t)e->borrower_count)))) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     if (ret == 0) {

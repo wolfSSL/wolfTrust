@@ -28,6 +28,8 @@
 
 #define WT_GIC_INTID_SPURIOUS  1023u
 #define WT_GIC_INTID_SECURE_TIMER 29u
+/* INTIDs from 1020 are special: no register lies past the last SPI. */
+#define WT_GIC_INTID_LIMIT     1020u
 
 struct wt_gic_ops {
     void (*init_secure)(void);

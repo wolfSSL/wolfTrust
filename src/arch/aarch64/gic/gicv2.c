@@ -61,32 +61,36 @@ static uint32_t line_count(void)
 
 static void gicv2_set_group0(uint32_t intid)
 {
-    volatile uint32_t* reg = gicd(GICD_IGROUPR + (intid / 32u) * 4u);
-
-    *reg &= ~(1u << (intid % 32u));
+    if (intid < WT_GIC_INTID_LIMIT) {
+        *gicd(GICD_IGROUPR + (intid / 32u) * 4u) &= ~(1u << (intid % 32u));
+    }
 }
 
 static void gicv2_enable(uint32_t intid)
 {
-    if (intid >= 32u) {
-        /* A GICv2 SPI is delivered only to a targeted CPU interface; route it
-         * to CPU 0. SGIs and PPIs are per-CPU and need no target. */
-        ((volatile uint8_t*)gicd(GICD_ITARGETSR))[intid] = 0x01u;
+    if (intid < WT_GIC_INTID_LIMIT) {
+        if (intid >= 32u) {
+            /* A GICv2 SPI is delivered only to a targeted CPU interface; route
+             * it to CPU 0. SGIs and PPIs are per-CPU and need no target. */
+            ((volatile uint8_t*)gicd(GICD_ITARGETSR))[intid] = 0x01u;
+        }
+        *gicd(GICD_ISENABLER + (intid / 32u) * 4u) = 1u << (intid % 32u);
     }
-    *gicd(GICD_ISENABLER + (intid / 32u) * 4u) = 1u << (intid % 32u);
 }
 
 static void gicv2_disable(uint32_t intid)
 {
-    *gicd(GICD_ICENABLER + (intid / 32u) * 4u) = 1u << (intid % 32u);
+    if (intid < WT_GIC_INTID_LIMIT) {
+        *gicd(GICD_ICENABLER + (intid / 32u) * 4u) = 1u << (intid % 32u);
+    }
 }
 
 static void gicv2_set_priority(uint32_t intid, uint8_t priority)
 {
-    volatile uint8_t* reg =
-        (volatile uint8_t*)(uintptr_t)(WT_GICD_BASE + GICD_IPRIORITYR + intid);
-
-    *reg = priority;
+    if (intid < WT_GIC_INTID_LIMIT) {
+        *(volatile uint8_t*)(uintptr_t)(WT_GICD_BASE + GICD_IPRIORITYR + intid) =
+            priority;
+    }
 }
 
 static uint32_t gicv2_ack_group0(void)
@@ -121,7 +125,9 @@ static void gicv2_init_secure(void)
  * raise a Secure interrupt without external hardware. */
 static void gicv2_set_pending(uint32_t intid)
 {
-    *gicd(GICD_ISPENDR + (intid / 32u) * 4u) = 1u << (intid % 32u);
+    if (intid < WT_GIC_INTID_LIMIT) {
+        *gicd(GICD_ISPENDR + (intid / 32u) * 4u) = 1u << (intid % 32u);
+    }
 }
 
 /* Raise an SGI for the Normal world on this core: init_secure left every id

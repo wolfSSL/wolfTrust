@@ -192,6 +192,7 @@ uintptr_t wt_platform_probe_address(unsigned int target)
 #define WT_ACS_PROPERTIES_NO_INDIRECT 0x0000070Bu
 
 #define WT_ACS_BAND(n) ((uintptr_t)WT_FFA_ACS_BASE + ((n) * WT_ACS_BAND_SIZE))
+/* The image marks its own data and stack RW with FFA_MEM_PERM_SET at init. */
 #define WT_ACS_IMAGE(n) \
     { WT_ACS_BAND(n), WT_ACS_BAND_SIZE, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC }
 #define WT_ACS_UUID(a, b, c, d) { \

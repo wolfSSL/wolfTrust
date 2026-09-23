@@ -245,6 +245,16 @@ static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
     }
 }
 
+static void zero_regions(const wt_ffa_mem_handle_entry_t* e)
+{
+    uint32_t i;
+
+    for (i = 0u; i < (uint32_t)e->region_count; i++) {
+        (void)memset((void*)(uintptr_t)e->regions[i].base, 0,
+                     (size_t)e->regions[i].page_count * WT_FFA_MEM_PAGE_SIZE);
+    }
+}
+
 /* The access permissions a sender may state (Table 5.14 usage): instruction
  * access is always the relayer's to fill in (it only ever answers
  * not-executable); a share or lend names the data access it grants, a donate
@@ -399,6 +409,11 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
         wt_ffa_mem_handle_set_attributes(&g_reg, *out_handle, attributes);
         if (wt_ffa_mem_handle_lookup(&g_reg, *out_handle, &e) == 0) {
             owner_access(e, 0);
+            /* Once, with the owner's access gone and before any borrower can
+             * map the memory (Table 1.21 bit[0]). */
+            if ((txn.flags & WT_FFA_MEM_FLAG_ZERO) != 0u) {
+                zero_regions(e);
+            }
         }
     }
     return ret;
@@ -605,16 +620,6 @@ static void borrower_unmap(const wt_spm_mem_binding_t* b,
     }
 }
 
-static void zero_regions(const wt_ffa_mem_handle_entry_t* e)
-{
-    uint32_t i;
-
-    for (i = 0u; i < (uint32_t)e->region_count; i++) {
-        (void)memset((void*)(uintptr_t)e->regions[i].base, 0,
-                     (size_t)e->regions[i].page_count * WT_FFA_MEM_PAGE_SIZE);
-    }
-}
-
 int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
                         uint8_t* resp, size_t resp_cap, size_t* out_resp_len)
 {
@@ -717,10 +722,6 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     ret = wt_ffa_mem_txn_build(resp, resp_cap, &in, out_resp_len);
     if (ret != 0) {
         return ret;
-    }
-    /* Zero while the pages are still the SPMC's alone to write. */
-    if (zero != 0) {
-        zero_regions(e);
     }
     attributes = WT_MEM_ATTR_READ;
     if ((perms & WT_FFA_MEM_PERM_DATA_MASK) == WT_FFA_MEM_PERM_DATA_RW) {

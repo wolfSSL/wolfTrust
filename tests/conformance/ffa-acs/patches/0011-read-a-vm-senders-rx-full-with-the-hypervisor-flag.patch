@@ -1,0 +1,39 @@
+diff --git a/test/v1.1/direct_messaging/direct_msg_sp_to_vm/direct_msg_sp_to_vm_server.c b/test/v1.1/direct_messaging/direct_msg_sp_to_vm/direct_msg_sp_to_vm_server.c
+index ad5a809..c1ec11c 100644
+--- a/test/v1.1/direct_messaging/direct_msg_sp_to_vm/direct_msg_sp_to_vm_server.c
++++ b/test/v1.1/direct_messaging/direct_msg_sp_to_vm/direct_msg_sp_to_vm_server.c
+@@ -98,7 +98,7 @@ uint32_t direct_msg_sp_to_vm_server(ffa_args_t args)
+ 
+     val_memset(&payload, 0, sizeof(ffa_args_t));
+     payload.arg1 = sender;
+-    payload.arg2 = FFA_NOTIFICATIONS_FLAG_BITMAP_SPM;
++    payload.arg2 = FFA_NOTIFICATIONS_FLAG_BITMAP_HYP;
+     val_ffa_notification_get(&payload);
+     if (payload.fid == FFA_ERROR_32)
+     {
+diff --git a/test/v1.1/indirect_messaging/ffa_msg_send2/ffa_msg_send2_server.c b/test/v1.1/indirect_messaging/ffa_msg_send2/ffa_msg_send2_server.c
+index 2de2f0d..d41407e 100644
+--- a/test/v1.1/indirect_messaging/ffa_msg_send2/ffa_msg_send2_server.c
++++ b/test/v1.1/indirect_messaging/ffa_msg_send2/ffa_msg_send2_server.c
+@@ -99,7 +99,7 @@ uint32_t ffa_msg_send2_server(ffa_args_t args)
+ 
+     val_memset(&payload, 0, sizeof(ffa_args_t));
+     payload.arg1 = sender;
+-    payload.arg2 = FFA_NOTIFICATIONS_FLAG_BITMAP_SPM;
++    payload.arg2 = FFA_NOTIFICATIONS_FLAG_BITMAP_HYP;
+     val_ffa_notification_get(&payload);
+     if (payload.fid == FFA_ERROR_32)
+     {
+diff --git a/test/v1.2/indirect_messaging/ffa_msg_send2_uuid_checl/ffa_msg_send2_uuid_check_server.c b/test/v1.2/indirect_messaging/ffa_msg_send2_uuid_checl/ffa_msg_send2_uuid_check_server.c
+index 3bed5b8..f49169b 100644
+--- a/test/v1.2/indirect_messaging/ffa_msg_send2_uuid_checl/ffa_msg_send2_uuid_check_server.c
++++ b/test/v1.2/indirect_messaging/ffa_msg_send2_uuid_checl/ffa_msg_send2_uuid_check_server.c
+@@ -99,7 +99,7 @@ uint32_t ffa_msg_send2_uuid_check_server(ffa_args_t args)
+ 
+     val_memset(&payload, 0, sizeof(ffa_args_t));
+     payload.arg1 = sender;
+-    payload.arg2 = FFA_NOTIFICATIONS_FLAG_BITMAP_SPM;
++    payload.arg2 = FFA_NOTIFICATIONS_FLAG_BITMAP_HYP;
+     val_ffa_notification_get(&payload);
+     if (payload.fid == FFA_ERROR_32)
+     {

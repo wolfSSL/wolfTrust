@@ -46,6 +46,7 @@
 
 #include <stddef.h>
 #include <stdint.h>
+#include <string.h>
 
 #define WT_ESR_EC_SVC64 0x15u
 
@@ -669,6 +670,15 @@ static void ffa_mem_reclaim(wt_trap_frame_t* frame)
 
 /* FFA_VERSION (13.2): the result is returned in w0 alone. */
 static wt_ffa_version_state_t g_sp_version[WT_CO_MAX];
+
+void wt_spm_sp_ffa_reset(const struct wt_co* co)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return;
+    }
+    (void)memset(&g_sp_version[co->id - 1u], 0, sizeof(g_sp_version[0]));
+    (void)memset(&g_sp_mailbox[co->id - 1u], 0, sizeof(g_sp_mailbox[0]));
+}
 
 static void ffa_version(wt_trap_frame_t* frame, const struct wt_co* co)
 {

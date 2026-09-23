@@ -144,6 +144,7 @@ static void secure_smc(wt_el3_frame_t* frame)
     unsigned int pending;
     unsigned int i;
 
+    wt_ffa_spmd_secure_note(fid);
     /* The SPMC's answer to a paused Normal world: its reply to a forwarded call
      * (deliver x0-x7) or its yield after handling a preemption (resume as-is). */
     pending = wt_el3_world_ns_pending();

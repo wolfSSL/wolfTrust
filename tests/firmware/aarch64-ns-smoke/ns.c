@@ -382,6 +382,40 @@ static void guest_hsm_attack(void)
 }
 #endif
 
+#if defined(WT_NS_VAULT_SECURED)
+/* SERVICE_ATTEST's IAK public-key query (WT_ATTEST_OP_PUBLIC_KEY). */
+#define WT_NS_ATTEST_OP_PUBLIC_KEY 2
+
+/* vaultrecoversec: the boot met a foreign vault under a locked lifecycle. Had
+ * it reformatted the vault, a fresh IAK would answer this query; it must fail
+ * closed instead. */
+static void guest_vault_secured(void)
+{
+    uint8_t key[65];
+    psa_outvec out;
+    psa_handle_t handle;
+    psa_status_t st;
+
+    out.base = key;
+    out.len = sizeof(key);
+    handle = psa_connect(SERVICE_ATTEST_SID, SERVICE_ATTEST_VERSION);
+    if (!PSA_HANDLE_IS_VALID(handle)) {
+        put_str("[NS] vault attest connect FAIL\r\n");
+        return;
+    }
+    st = psa_call(handle, WT_NS_ATTEST_OP_PUBLIC_KEY, NULL, 0u, &out, 1u);
+    psa_close(handle);
+    if (st == PSA_SUCCESS) {
+        put_str("[NS] vault attest key ISSUED\r\n");
+    }
+    else {
+        put_str("[NS] vault attest refused st=0x");
+        put_hex((uint32_t)st);
+        put_str("\r\n");
+    }
+}
+#endif
+
 static void guest_psa(void)
 {
     uint32_t fw;
@@ -439,6 +473,9 @@ static void guest_psa(void)
     }
 #if defined(WT_NS_HSM_ATTACK) && !defined(WT_NS_ENGINE_NATIVE)
     guest_hsm_attack();
+#endif
+#if defined(WT_NS_VAULT_SECURED)
+    guest_vault_secured();
 #endif
 
     put_str("[NS] guest");

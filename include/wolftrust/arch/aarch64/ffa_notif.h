@@ -104,5 +104,8 @@ int32_t wt_ffa_notif_frame_rx_full(uint16_t receiver, int sender_secure);
  * Normal-world scheduler, cleared when it asks. */
 int wt_ffa_notif_sri_take(void);
 int wt_ffa_notif_sri_pending(void);
+/* Set instead when a partition signals without the delay hint: the SRI is
+ * asserted as its call completes rather than at the next Normal-world entry. */
+int wt_ffa_notif_sri_take_now(void);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_NOTIF_H */

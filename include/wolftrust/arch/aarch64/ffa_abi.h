@@ -206,6 +206,19 @@ static inline uint32_t wt_ffa_version_of(const wt_ffa_version_state_t* st,
 #define WT_FFA_SRI_INTID              8u
 /* FFA_MEM_RETRIEVE_REQ: bit 1 in (caller) and out (SPMC) = NS bit is used. */
 #define WT_FFA_FEATURES_RETRIEVE_NS_BIT 0x2u
+
+/* DEN0140 1.10.4.1.1: a v1.1+ partition must set the NS-bit request in its
+ * FFA_FEATURES(FFA_MEM_RETRIEVE_REQ) input properties; a v1.0 one may leave it
+ * clear (Table 1.19). 0, or INVALID_PARAMETERS. */
+static inline int32_t wt_ffa_features_retrieve_check(uint32_t caller_version,
+                                                     uint32_t input)
+{
+    if ((caller_version >= WT_FFA_VERSION_MAKE(1u, 1u)) &&
+        ((input & WT_FFA_FEATURES_RETRIEVE_NS_BIT) == 0u)) {
+        return (int32_t)WT_FFA_INVALID_PARAMETERS;
+    }
+    return 0;
+}
 /* FFA_RXTX_MAP: w2 bits[1:0] = 0 for a 4K minimum and alignment, bits[31:16]
  * = the most pages per buffer (0 = no limit). */
 #define WT_FFA_FEATURES_RXTX_MAX_PAGES(n) (((uint32_t)(n) & 0xFFFFu) << 16)

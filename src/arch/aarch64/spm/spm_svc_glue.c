@@ -735,16 +735,17 @@ static int sp_implements(uint32_t fid)
 /* FFA_FEATURES (13.3): exactly the function ids this instance serves; no
  * optional feature id is implemented. FFA_RXTX_MAP reports the one-page
  * buffer limit ffa_rxtx_map enforces (7.2.2.3). */
-static void ffa_features(wt_trap_frame_t* frame)
+static void ffa_features(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     uint32_t query = (uint32_t)frame->x[1];
     uint32_t props = (uint32_t)frame->x[2];
+    int32_t ret;
 
     if ((query == WT_FFA_MEM_RETRIEVE_REQ32) ||
         (query == WT_FFA_MEM_RETRIEVE_REQ64)) {
-        /* 13.3: a v1.1+ partition must say it handles the NS bit. */
-        if ((props & WT_FFA_FEATURES_RETRIEVE_NS_BIT) == 0u) {
-            ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        ret = wt_ffa_features_retrieve_check(sp_version(co), props);
+        if (ret != 0) {
+            ffa_error(frame, ret);
         }
         else {
             ffa_success(frame, WT_FFA_FEATURES_RETRIEVE_NS_BIT, 0u);
@@ -1107,7 +1108,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         ffa_version(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_FEATURES) {
-        ffa_features(frame);
+        ffa_features(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_ID_GET) {
         ffa_success(frame, wt_spm_sp_ffa_id((const struct wt_co*)co), 0u);

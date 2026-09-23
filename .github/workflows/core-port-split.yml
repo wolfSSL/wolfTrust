@@ -13,7 +13,7 @@ permissions:
 jobs:
   core-port-split:
     name: core/port split guard + vnet image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15

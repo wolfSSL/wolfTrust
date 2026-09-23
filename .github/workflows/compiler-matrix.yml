@@ -13,7 +13,7 @@ permissions:
 jobs:
   host-unit-tests:
     name: Host tests (${{ matrix.name }})
-    runs-on: ubuntu-24.04
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     strategy:
       fail-fast: false
@@ -47,9 +47,19 @@ jobs:
       - name: Install compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends software-properties-common
-          sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ${{ matrix.package }}
+          sudo apt-get install -y --no-install-recommends software-properties-common wget
+          case "${{ matrix.package }}" in
+            clang-*)
+              # 22.04 carries no clang-17/18; take them from the LLVM apt repository.
+              wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+              pkg='${{ matrix.package }}'
+              sudo bash /tmp/llvm.sh "${pkg#clang-}"
+              ;;
+            *)
+              sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends ${{ matrix.package }}
+              ;;
+          esac
       - name: Run aggregate host test suite
         run: make test CC=${{ matrix.cc }}

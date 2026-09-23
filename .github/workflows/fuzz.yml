@@ -17,7 +17,7 @@ jobs:
   # type here: schedule / manual dispatch get the full 600s soak; PR pushes and
   # merges get the 60s smoke that keeps the required checks fast.
   select:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     outputs:
       matrix: ${{ steps.pick.outputs.matrix }}
     steps:
@@ -38,7 +38,7 @@ jobs:
 
   fuzz:
     needs: select
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     strategy:
       fail-fast: false

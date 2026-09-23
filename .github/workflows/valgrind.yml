@@ -13,7 +13,7 @@ permissions:
 jobs:
   host-valgrind:
     name: Host tests (Valgrind)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
@@ -24,10 +24,7 @@ jobs:
           git submodule update --init --recursive
       - name: Install Valgrind
         run: |
-          sudo apt-get update \
-            -o Dir::Etc::sourcelist="sources.list.d/ubuntu.sources" \
-            -o Dir::Etc::sourceparts="-" \
-            -o APT::Get::List-Cleanup="0"
+          sudo apt-get update
           sudo apt-get install -y --no-install-recommends valgrind
       - name: Run aggregate host suite under Valgrind
         run: make test-valgrind

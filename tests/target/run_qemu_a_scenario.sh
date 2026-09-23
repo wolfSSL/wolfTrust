@@ -539,6 +539,8 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the Normal world read the PSCI version from the SPMD" "[NS] psci version 1.1"
+    refute_re "no PSCI call returned an off-spec value" '\[NS\] psci BAD'
+    expect "the mandatory PSCI 1.1 calls answered as a boot-core-only system" "[NS] psci mandatory set ok"
     expect "the Normal world powered off through PSCI" "[EL3] psci system_off"
     expect "the PSCI power-off ended the run cleanly" "[EXPECT BKPT] Success"
     ;;
@@ -546,6 +548,7 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the Normal world was running" "[NS] spinning"
+    expect "a core-standby CPU_SUSPEND returned SUCCESS on the Secure tick" "[NS] psci standby woke"
     expect "a Secure tick preempted the Normal world at EL3" "[EL3] ns preempted intid=29"
     expect "the SPMC scheduled the Secure interrupt" "[SPM] ns preempt intid=0x1d"
     expect "the Normal world resumed after the preemption" "[NS] resumed after preempt"

@@ -45,6 +45,12 @@ void wt_platform_board_init(void)
 #endif
 }
 
+/* QEMU virt gives the monitor no reset controller: returning lets the
+ * monitor re-enter the boot chain instead. */
+void wt_platform_board_system_reset(void)
+{
+}
+
 const wt_memory_region_t* wt_platform_board_device_regions(size_t* count)
 {
     *count = sizeof(g_device_regions) / sizeof(g_device_regions[0]);

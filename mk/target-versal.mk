@@ -46,6 +46,13 @@ WT_SPM_CONFDATA_SIZE ?= 0x00020000
 WT_NS_IMAGE_PA ?= 0x44000000
 WT_PSA_NS_WINDOW_SIZE ?= 0x00100000
 WT_QEMU_TEST_ENTROPY ?= $(WT_VERSAL_VIRT)
+# The model has no reset controller: a system reset re-enters the boot chain,
+# bounded so a test run ends (the conformance suite resets on every panic test).
+ifeq ($(WT_CONFORMANCE),1)
+WT_EL3_RESET_LIMIT ?= 256
+else
+WT_EL3_RESET_LIMIT ?= 1
+endif
 # The PLM configures the PS UARTs and CNTFRQ_EL0 before EL3 runs.
 WT_UART_SKIP_INIT ?= 1
 WT_PORT_CNTFRQ_KEEP ?= 1
@@ -75,7 +82,8 @@ TARGET_CFLAGS := \
     -DWT_SPM_CONFDATA_SIZE=$(WT_SPM_CONFDATA_SIZE)u \
     -DWT_NS_IMAGE_PA=$(WT_NS_IMAGE_PA)u \
     -DWT_PSA_NS_WINDOW_SIZE=$(WT_PSA_NS_WINDOW_SIZE)u \
-    -DWT_QEMU_TEST_ENTROPY=$(WT_QEMU_TEST_ENTROPY)
+    -DWT_QEMU_TEST_ENTROPY=$(WT_QEMU_TEST_ENTROPY) \
+    -DWT_EL3_RESET_LIMIT=$(WT_EL3_RESET_LIMIT)u
 # No boot loader runs ahead of the monitor under QEMU: synthesize the boot
 # handoff record it would leave (emulator tests only, never production).
 WT_EL3_TEST_HANDOFF ?= 0

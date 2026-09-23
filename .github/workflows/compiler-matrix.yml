@@ -47,13 +47,21 @@ jobs:
       - name: Install compiler
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends software-properties-common wget
+          sudo apt-get install -y --no-install-recommends software-properties-common curl gnupg
           case "${{ matrix.package }}" in
             clang-*)
-              # 22.04 carries no clang-17/18; take them from the LLVM apt repository.
-              wget -qO /tmp/llvm.sh https://apt.llvm.org/llvm.sh
+              # 22.04 carries no clang-17/18: add the signed LLVM apt repository,
+              # pinned to its signing key's fingerprint, and install only clang.
               pkg='${{ matrix.package }}'
-              sudo bash /tmp/llvm.sh "${pkg#clang-}"
+              curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key -o /tmp/llvm.asc
+              fpr=$(gpg --show-keys --with-colons /tmp/llvm.asc | awk -F: '/^fpr/{print $10; exit}')
+              test "$fpr" = "6084F3CF814B57C1CF12EFD515CF4D18AF4F7421"
+              sudo install -d -m 0755 /etc/apt/keyrings
+              sudo gpg --dearmor -o /etc/apt/keyrings/llvm.gpg /tmp/llvm.asc
+              echo "deb [signed-by=/etc/apt/keyrings/llvm.gpg] https://apt.llvm.org/jammy/ llvm-toolchain-jammy-${pkg#clang-} main" | \
+                sudo tee /etc/apt/sources.list.d/llvm.list
+              sudo apt-get update
+              sudo apt-get install -y --no-install-recommends "$pkg"
               ;;
             *)
               sudo add-apt-repository -y ppa:ubuntu-toolchain-r/test

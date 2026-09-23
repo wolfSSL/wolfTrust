@@ -144,15 +144,32 @@ static inline int wt_ffa_version_compatible(uint32_t caller, uint32_t callee)
            (WT_FFA_VERSION_MINOR_OF(caller) <= WT_FFA_VERSION_MINOR_OF(callee));
 }
 
-/* From FF-A 1.1 the callee reports its version only to a compatible caller
- * (13.2.2); a malformed (bit 31) or incompatible request is NOT_SUPPORTED. */
+/* Version a is less than version b (13.2.1). */
+static inline int wt_ffa_version_less(uint32_t a, uint32_t b)
+{
+    return (WT_FFA_VERSION_MAJOR_OF(a) < WT_FFA_VERSION_MAJOR_OF(b)) ||
+           ((WT_FFA_VERSION_MAJOR_OF(a) == WT_FFA_VERSION_MAJOR_OF(b)) &&
+            (WT_FFA_VERSION_MINOR_OF(a) < WT_FFA_VERSION_MINOR_OF(b)));
+}
+
+/* 13.2.2: a compatible caller, or one asking for a later version than ours,
+ * is told ours; one below our major (the callee may pick either answer) and a
+ * malformed (bit 31) request are NOT_SUPPORTED. */
 static inline int32_t wt_ffa_version_reply(uint32_t input, uint32_t ours)
 {
     if (((input & 0x80000000u) != 0u) ||
-        !wt_ffa_version_compatible(input, ours)) {
+        (!wt_ffa_version_compatible(input, ours) &&
+         !wt_ffa_version_less(ours, input))) {
         return (int32_t)WT_FFA_NOT_SUPPORTED;
     }
     return (int32_t)ours;
+}
+
+/* The version a caller that asked for input and was told reply goes on to
+ * use (13.2.1): its own when compatible, else the one it must downgrade to. */
+static inline uint32_t wt_ffa_version_settle(uint32_t input, uint32_t reply)
+{
+    return wt_ffa_version_compatible(input, reply) ? input : reply;
 }
 
 /* One caller's negotiated version (13.2): it may renegotiate until it makes
@@ -173,6 +190,8 @@ static inline void wt_ffa_version_lock(wt_ffa_version_state_t* st, uint32_t ours
     }
 }
 
+/* Once locked, the settled version is the only one the callee supports: a
+ * later version is told it, any other change is NOT_SUPPORTED (13.2.2). */
 static inline int32_t wt_ffa_version_negotiate(wt_ffa_version_state_t* st,
                                                uint32_t input, uint32_t ours)
 {
@@ -182,9 +201,13 @@ static inline int32_t wt_ffa_version_negotiate(wt_ffa_version_state_t* st,
         return reply;
     }
     if (st->locked != 0u) {
-        return (input == st->version) ? reply : (int32_t)WT_FFA_NOT_SUPPORTED;
+        if (input == st->version) {
+            return reply;
+        }
+        return wt_ffa_version_less(st->version, input)
+                   ? (int32_t)st->version : (int32_t)WT_FFA_NOT_SUPPORTED;
     }
-    st->version = input;
+    st->version = wt_ffa_version_settle(input, (uint32_t)reply);
     return reply;
 }
 

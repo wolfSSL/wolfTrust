@@ -661,6 +661,41 @@ static void version_state_rows(void)
     check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 1u),
                                    WT_FFA_VERSION_1_2) == WT_FFA_NOT_SUPPORTED,
           "a caller that never negotiated is held to the callee version");
+
+    st.version = 0u;
+    st.locked = 0u;
+    check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 4u),
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_1_2 &&
+          wt_ffa_version_of(&st, WT_FFA_VERSION_1_2) == WT_FFA_VERSION_1_2,
+          "a caller asking 1.4 is told 1.2 and settles on 1.2, not 1.4");
+    wt_ffa_version_lock(&st, WT_FFA_VERSION_1_2);
+    check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_1_2,
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_1_2 &&
+          wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 4u),
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_1_2 &&
+          wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(2u, 0u),
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_1_2,
+          "once locked it may repeat 1.2, and a later version is told 1.2");
+
+    st.version = 0u;
+    st.locked = 0u;
+    (void)wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 0u),
+                                   WT_FFA_VERSION_1_2);
+    wt_ffa_version_lock(&st, WT_FFA_VERSION_1_2);
+    check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 0u),
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_1_2 &&
+          wt_ffa_version_negotiate(&st, WT_FFA_VERSION_1_2,
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_MAKE(1u, 0u) &&
+          wt_ffa_version_negotiate(&st, 0u, WT_FFA_VERSION_1_2) ==
+              WT_FFA_NOT_SUPPORTED,
+          "a caller locked at 1.0 asking a later version is told 1.0, the only "
+          "version it may use");
 }
 
 
@@ -825,11 +860,15 @@ int main(void)
               (int32_t)WT_FFA_VERSION_1_2,
           "a 1.0 caller is told the callee version 1.2");
     check(wt_ffa_version_reply(WT_FFA_VERSION_MAKE(2u, 0u), WT_FFA_VERSION_1_2) ==
-              WT_FFA_NOT_SUPPORTED &&
+              (int32_t)WT_FFA_VERSION_1_2 &&
           wt_ffa_version_reply(WT_FFA_VERSION_MAKE(1u, 4u), WT_FFA_VERSION_1_2) ==
-              WT_FFA_NOT_SUPPORTED &&
-          wt_ffa_version_reply(0u, WT_FFA_VERSION_1_2) == WT_FFA_NOT_SUPPORTED,
-          "an incompatible caller (other major, newer minor, version zero) is refused");
+              (int32_t)WT_FFA_VERSION_1_2,
+          "a caller at a later major or minor is told the callee's highest "
+          "version, 1.2 (13.2.2)");
+    check(wt_ffa_version_reply(0u, WT_FFA_VERSION_1_2) == WT_FFA_NOT_SUPPORTED &&
+          wt_ffa_version_reply(WT_FFA_VERSION_MAKE(0u, 9u), WT_FFA_VERSION_1_2) ==
+              WT_FFA_NOT_SUPPORTED,
+          "a caller below the callee's major is refused");
     wt_ffa_regs_normalize(x32);
     wt_ffa_regs_normalize(x64);
     check(x32[1] == 0x00008002ull && x32[3] == 0x11255344ull &&

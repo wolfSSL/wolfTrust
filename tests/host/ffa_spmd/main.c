@@ -280,6 +280,15 @@ static void ns_version_rows(void)
     x[0] = WT_FFA_VERSION;
     x[1] = WT_FFA_VERSION_MAKE(2u, 0u);
     (void)wt_ffa_spmd_ns_forward(x);
+    wt_ffa_fwk_version_resp(x, (int32_t)WT_FFA_VERSION_1_2);
+    wt_ffa_spmd_ns_reply(x);
+    check((uint32_t)x[0] == WT_FFA_VERSION_1_2,
+          "a later version is answered with the SPMC's 1.2 (13.2.2)");
+
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_VERSION;
+    x[1] = WT_FFA_VERSION_MAKE(0u, 1u);
+    (void)wt_ffa_spmd_ns_forward(x);
     wt_ffa_fwk_version_resp(x, WT_FFA_NOT_SUPPORTED);
     wt_ffa_spmd_ns_reply(x);
     check((int32_t)(uint32_t)x[0] == WT_FFA_NOT_SUPPORTED,
@@ -304,9 +313,12 @@ static void ns_version_rows(void)
     wt_ffa_spmd_ns_note(WT_FFA_ID_GET);
     check(wt_ffa_spmd_ns_forwards(WT_FFA_VERSION) == 0,
           "after its first other call the SPMD stops forwarding FFA_VERSION");
-    check(ns_version_call(WT_FFA_VERSION_MAKE(1u, 0u)) == WT_FFA_VERSION_1_2 &&
-              (int32_t)ns_version_call(WT_FFA_VERSION_1_2) == WT_FFA_NOT_SUPPORTED,
-          "and holds the Normal world to the 1.0 the SPMC accepted, not a refused one");
+    check(ns_version_call(WT_FFA_VERSION_1_2) == WT_FFA_VERSION_1_2 &&
+              ns_version_call(WT_FFA_VERSION_MAKE(2u, 0u)) == WT_FFA_VERSION_1_2 &&
+              (int32_t)ns_version_call(WT_FFA_VERSION_MAKE(1u, 0u)) ==
+                  WT_FFA_NOT_SUPPORTED,
+          "and holds the Normal world to the 1.2 it settled on for 2.0, not a "
+          "refused one");
 }
 
 int main(void)
@@ -339,6 +351,9 @@ int main(void)
     call(&r, WT_FFA_VERSION, WT_FFA_VERSION_1_2);
     check((uint32_t)r.x[0] == WT_FFA_VERSION_1_2,
           "and the version it settled on is still accepted");
+    call(&r, WT_FFA_VERSION, WT_FFA_VERSION_MAKE(1u, 3u));
+    check((uint32_t)r.x[0] == WT_FFA_VERSION_1_2 && rest_zero(r.x, 1u, 7u),
+          "while a later version is told the settled 1.2 (13.2.2)");
 
     call(&r, WT_FFA_FEATURES, WT_FFA_VERSION);
     check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 && rest_zero(r.x, 1u, 7u),

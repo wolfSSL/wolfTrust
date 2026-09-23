@@ -318,7 +318,8 @@ void wt_ffa_spmd_ns_reply(uint64_t* x)
     g_ns_version_forwarded = 0u;
     result = wt_ffa_fwk_version_result(x);
     if (result >= 0) {
-        g_ns_version.version = g_ns_version_asked;
+        g_ns_version.version = wt_ffa_version_settle(g_ns_version_asked,
+                                                     (uint32_t)result);
     }
     for (i = 0u; i < 8u; i++) {
         x[i] = 0u;

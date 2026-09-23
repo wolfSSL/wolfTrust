@@ -237,7 +237,8 @@ int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
         return WT_FFA_INVALID_PARAMETERS;
     }
 
-    if (txn.access_offset < WT_FFA_MEM_TXN_HDR_SIZE) {
+    if ((txn.access_offset < WT_FFA_MEM_TXN_HDR_SIZE) ||
+        ((txn.access_offset % WT_FFA_MEM_ACC_OFFSET_ALIGN) != 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     acc_end = (uint64_t)txn.access_offset +
@@ -521,6 +522,7 @@ int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
         return WT_FFA_NOT_SUPPORTED;
     }
     if ((off < WT_FFA_MEM_TXN_HDR_SIZE) ||
+        ((off % WT_FFA_MEM_ACC_OFFSET_ALIGN) != 0u) ||
         (((uint64_t)off + ((uint64_t)count * acc_size)) != (uint64_t)len)) {
         return WT_FFA_INVALID_PARAMETERS;
     }

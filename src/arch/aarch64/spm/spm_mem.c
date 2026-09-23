@@ -932,3 +932,18 @@ void wt_spm_mem_endpoint_teardown(const struct wt_co* co)
         }
     }
 }
+
+void wt_spm_mem_unbind(const struct wt_co* co)
+{
+    unsigned int i;
+
+    wt_spm_mem_endpoint_teardown(co);
+    for (i = 0u; i < WT_SPM_MEM_MAX_BIND; i++) {
+        if ((g_bind[i].live != 0u) && (g_bind[i].co == co)) {
+            g_bind[i].co = NULL;
+            g_bind[i].dom = NULL;
+            g_bind[i].id = 0u;
+            g_bind[i].live = 0u;
+        }
+    }
+}

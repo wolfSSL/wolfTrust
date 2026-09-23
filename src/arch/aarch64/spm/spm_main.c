@@ -640,35 +640,19 @@ static uint8_t g_share_desc[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACCESS_SIZE +
                             WT_FFA_MEM_COMPOSITE_HDR_SIZE +
                             WT_FFA_MEM_CONSTITUENT_SIZE];
 
-static int prove_mem_share(uint64_t* out_handle)
+/* The share, the borrower's two runs, and the reclaim, with the borrower
+ * bound to the relayer. */
+static int mem_share_exchange(wt_co_t* co, uint64_t* out_handle)
 {
-    const wt_domain_descriptor_t* d = first_partition_domain();
     volatile uint8_t* share = (volatile uint8_t*)(uintptr_t)WT_SPM_SHARE_PA;
     uint8_t* rx = (uint8_t*)(uintptr_t)WT_SPM_RXTX_PA;
     uint8_t* tx = rx + WT_FFA_MEM_PAGE_SIZE;
     uint64_t* arg = (uint64_t*)(rx + WT_FFA_MEM_PAGE_SIZE - 64u);
     wt_ffa_mem_constituent_t cons;
     wt_ffa_mem_build_t in;
-    uint8_t* stack;
-    wt_co_t* co;
     uint64_t handle = 0u;
     size_t len = 0u;
     size_t req_len = 0u;
-
-    if (d == NULL) {
-        return 0;
-    }
-    stack = (uint8_t*)(uintptr_t)d->stack_base;
-    g_borrow_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
-    g_borrow_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
-    g_borrow_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
-    g_borrow_domain.regions[1].base = (uintptr_t)stack;
-    g_borrow_domain.regions[1].size = (size_t)d->stack_size;
-    g_borrow_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
-    g_borrow_domain.regions[2].base = (uintptr_t)WT_SPM_RXTX_PA;
-    g_borrow_domain.regions[2].size = (size_t)WT_SPM_RXTX_SIZE;
-    g_borrow_domain.regions[2].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
-    g_borrow_domain.region_count = 3u;
 
     share[0] = 0x5Au;
     share[1] = 0xA5u;
@@ -691,16 +675,6 @@ static int prove_mem_share(uint64_t* out_handle)
                                (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT) |
                                WT_FFA_MEM_ATTR_SHARE_INNER);
     in.permissions = (uint8_t)WT_FFA_MEM_PERM_DATA_RW;
-    /* The borrower exists before the share names it. */
-    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
-                                 (wt_co_entry_fn)wt_sp_ffa_borrow, (void*)arg);
-    if (co == NULL) {
-        return 0;
-    }
-    wt_co_set_domain(co, &g_borrow_domain, 1u);
-    if (wt_spm_mem_bind(WT_FFA_ID_MEM_BORROWER, co, &g_borrow_domain) != 0) {
-        return 0;
-    }
     if (wt_ffa_mem_txn_build(g_share_desc, sizeof(g_share_desc), &in, &len) != 0) {
         return 0;
     }
@@ -752,6 +726,47 @@ static int prove_mem_share(uint64_t* out_handle)
     }
     *out_handle = handle;
     return 1;
+}
+
+static int prove_mem_share(uint64_t* out_handle)
+{
+    const wt_domain_descriptor_t* d = first_partition_domain();
+    uint64_t* arg = (uint64_t*)(uintptr_t)(WT_SPM_RXTX_PA +
+                                           WT_FFA_MEM_PAGE_SIZE - 64u);
+    uint8_t* stack;
+    wt_co_t* co;
+    int ok;
+
+    if (d == NULL) {
+        return 0;
+    }
+    stack = (uint8_t*)(uintptr_t)d->stack_base;
+    g_borrow_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
+    g_borrow_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
+    g_borrow_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+    g_borrow_domain.regions[1].base = (uintptr_t)stack;
+    g_borrow_domain.regions[1].size = (size_t)d->stack_size;
+    g_borrow_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_borrow_domain.regions[2].base = (uintptr_t)WT_SPM_RXTX_PA;
+    g_borrow_domain.regions[2].size = (size_t)WT_SPM_RXTX_SIZE;
+    g_borrow_domain.regions[2].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_borrow_domain.region_count = 3u;
+
+    /* The borrower exists before the share names it. */
+    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+                                 (wt_co_entry_fn)wt_sp_ffa_borrow, (void*)arg);
+    if (co == NULL) {
+        return 0;
+    }
+    wt_co_set_domain(co, &g_borrow_domain, 1u);
+    if (wt_spm_mem_bind(WT_FFA_ID_MEM_BORROWER, co, &g_borrow_domain) != 0) {
+        return 0;
+    }
+    ok = mem_share_exchange(co, out_handle);
+    /* The coroutine slot outlives the proof: a partition created in it later
+     * must not inherit the borrower's binding. */
+    wt_spm_mem_unbind(co);
+    return ok;
 }
 
 uint32_t wt_spm_prove_sint(void);

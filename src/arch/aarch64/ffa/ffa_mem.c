@@ -316,6 +316,17 @@ int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
     return 0;
 }
 
+int wt_ffa_mem_send_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
+                             uint16_t expect_sender, wt_ffa_mem_txn_t* out)
+{
+    int ret = wt_ffa_mem_txn_validate(buf, len, op, expect_sender, out);
+
+    if ((ret == 0) && (out->handle != 0u)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    return ret;
+}
+
 int wt_ffa_mem_receiver(const uint8_t* buf, size_t len,
                         const wt_ffa_mem_txn_t* txn, uint32_t index,
                         uint16_t* out_id, uint8_t* out_perms)

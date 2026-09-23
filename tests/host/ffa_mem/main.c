@@ -1214,20 +1214,21 @@ static void borrower_list_rows(void)
 #define RELAY_ID_B       0x8003u
 #define RELAY_RW         (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE)
 /* Pages of the host backing: A's manifest-shared page, the image page every
- * partition maps, A's read-write pages (the first an SPMC fill entry B's
- * table holds EL1-only, the rest absent from B's table), A's read-only page,
- * and B's own page. */
+ * partition maps, A's read-write pages 2-5 (2 and 5 are SPMC fill entries B's
+ * table holds EL1-only, 3 and 4 are absent from B's table), A's read-only
+ * page, and B's own page. */
 #define PG_SHARED 0u
 #define PG_IMAGE  1u
 #define PG_FILL   2u
 #define PG_RW     3u
+#define PG_FILL2  5u
 #define PG_RO     6u
 #define PG_B      8u
 
 static uint8_t g_relay_pool[RELAY_POOL_PAGES * WT_TABLES_PAGE_SIZE]
     __attribute__((aligned(4096)));
 static uint8_t* g_mem;
-static wt_memory_region_t g_relay_fill[1];
+static wt_memory_region_t g_relay_fill[2];
 static wt_secure_domain_t g_dom_a;
 static wt_secure_domain_t g_dom_b;
 static int g_co_a;
@@ -1323,8 +1324,10 @@ static int relay_reset(void)
     g_dom_b.region_count = 1u;
     set_region(&g_relay_fill[0], PG_FILL, 1u,
                RELAY_RW | WT_DOMAIN_FILL_SHARED);
+    set_region(&g_relay_fill[1], PG_FILL2, 1u,
+               RELAY_RW | WT_DOMAIN_FILL_SHARED);
     g_domain_fails = 0u;
-    if (wt_domain_init(g_relay_fill, 1u, g_relay_pool, RELAY_POOL_PA,
+    if (wt_domain_init(g_relay_fill, 2u, g_relay_pool, RELAY_POOL_PA,
                        sizeof(g_relay_pool)) == 0u) {
         return 0;
     }
@@ -1515,6 +1518,68 @@ static void relay_perm_rows(void)
           "perm: it relinquishes without the flag and the owner reclaims the memory intact");
 }
 
+/* WT-FFA-0009 (each region goes back to exactly the entry it replaced, in the
+ * borrower's table and in the owner's). */
+static void relay_region_rows(void)
+{
+    wt_ffa_mem_constituent_t c[3];
+    uint64_t h;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "region: fixture");
+        return;
+    }
+    c[0].address = page(PG_FILL);
+    c[0].page_count = 1u;
+    c[1].address = page(PG_RW);
+    c[1].page_count = 1u;
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 2u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+          relay_relinquish(h, 0u) == 0 && b_entry(PG_FILL) == 1 &&
+          b_entry(PG_RW) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "region: a relinquish keeps the SPMC's entry for a region that had one");
+
+    c[0].address = page(PG_RW);
+    c[1].address = page(PG_FILL);
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 2u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+          relay_relinquish(h, 0u) == 0 && b_entry(PG_RW) == 0 &&
+          b_entry(PG_FILL) == 1 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "region: and leaves no entry behind for a region that had none");
+
+    c[0].address = page(PG_FILL);
+    c[1].address = page(PG_RW);
+    c[2].address = page(PG_RW + 1u);
+    c[2].page_count = 2u;
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 3u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    check(ret == 0 &&
+          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == WT_FFA_NO_MEMORY &&
+          b_entry(PG_FILL) == 1 && b_entry(PG_RW) == 0 &&
+          b_entry(PG_RW + 1u) == 0 && b_entry(PG_FILL2) == 1 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "region: a retrieve that cannot map its last region puts back each earlier one as it was");
+
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    c[1].address = page(PG_RO);
+    c[1].page_count = 1u;
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 2u, WT_FFA_MEM_PERM_DATA_RO, 0u,
+                   &ret);
+    check(ret == 0 && access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
+          access_of(&g_dom_a, PG_RO) == WT_DOMAIN_ACCESS_NONE &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW &&
+          access_of(&g_dom_a, PG_RO) == WT_DOMAIN_ACCESS_RO,
+          "region: a reclaim gives the owner back each region's own access");
+    check(g_domain_fails == 0u, "region: no domain operation failed closed");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -1539,6 +1604,7 @@ int main(void)
     relay_rows();
     relay_owner_rows();
     relay_perm_rows();
+    relay_region_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

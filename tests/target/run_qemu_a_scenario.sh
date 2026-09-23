@@ -148,7 +148,9 @@ else
     ffaacs-*) probe=(WT_EL3_NS_SMOKE=1 WT_FFA_ACS=1 WT_EL3_NS_EL2=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 "WT_SPM_TABLE_POOL_PA=$acs_pool_pa" WT_SPM_TABLE_POOL_PAGES=512) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
-    vaultrecoversec) probe=(WT_EL3_NS_SMOKE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1) ;;
+    # The test handoff's unlocked lifecycle leaves the forced SECURED
+    # lifecycle as the only thing that refuses the reformat.
+    vaultrecoversec) probe=(WT_EL3_NS_SMOKE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1 WT_EL3_TEST_HANDOFF=1) ;;
     ffa-guest-direct) probe=(WT_EL3_NS_SMOKE=1 WT_NS_GUEST_ECHO=1) ;;
     ffa-preempt) probe=(WT_EL3_NS_SMOKE=1 WT_NS_PREEMPT=1) ;;
     # The monitor starts on EL2 state an earlier stage left dirty (SMC trapped,
@@ -190,6 +192,8 @@ else
     ns_hsmattack=0
     [ "$scenario" = hsmattackneg ] && { ns_psa=1; ns_hsmattack=1; }
     [ "$scenario" = vaultrecoversec ] && ns_psa=1
+    ns_vault_secured=0
+    [ "$scenario" = vaultrecoversec ] && ns_vault_secured=1
     ns_fuzz=0
     [ "$scenario" = smcfuzz ] && ns_fuzz=1
     ns_secram=0
@@ -228,6 +232,7 @@ else
       WT_NS_PREEMPT="$ns_preempt" WT_NS_GUEST_PSA="$ns_psa" \
       WT_NS_GUEST_ID="$ns_id" WT_NS_GUEST_FUZZ="$ns_fuzz" \
       WT_NS_HSM_ATTACK="$ns_hsmattack" WT_ENGINE="$WT_ENGINE" \
+      WT_NS_VAULT_SECURED="$ns_vault_secured" \
       WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
       WT_NS_GUEST_RESET="$ns_reset" WT_NS_GUEST_MEMNEG="$ns_memneg" \
       WT_NS_GUEST_STORAGE="$ns_storage" WT_RUN_CONFORMANCE="$ns_conf" \
@@ -593,9 +598,13 @@ case "$scenario" in
   vaultrecoversec)
     # A foreign vault under a locked lifecycle: the reformat is refused and
     # attestation fails closed, but the boot is not bricked and the guest runs.
+    # A reformat would have re-provisioned the IAK, so the IAK query answering
+    # is what a wiped vault looks like from the Normal world.
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the SPMC completed initialization" "[SPM] partitions ready n=6"
+    refute_re "the foreign vault was not reformatted into a fresh IAK" '\[NS\] vault attest key ISSUED'
+    expect "attestation failed closed on the unprovisioned IAK" "[NS] vault attest refused st=0x"
     if [ "$WT_ENGINE" = hsm ]; then
       expect "the wolfHSM relay still serves the guest" "[NS] hsm echo ok"
     else

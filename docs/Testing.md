@@ -404,7 +404,7 @@ assert through `tests/target/lib/expect.sh`.
 | `ffa-memneg` | Malformed memory transactions from the Normal world are refused, as is a share sent before an RX/TX pair is mapped or naming a dynamically allocated buffer; a reclaimed handle is dead, and a share sent in two fragments completes under the handle its first fragment reserved |
 | `hsmattackneg` | Under `hsm`, a forged wolfHSM client id cannot reach the attestation key and an NVM-group request never reaches the server; SKIP under `native`, which links no wolfHSM wire |
 | `attestneg` | Oversized challenges, empty token buffers, misattributed lifecycles, and tampered tokens are rejected; an untampered token verifies in the guest |
-| `vaultrecover`, `vaultrecoversec` | A foreign vault self-heals under an unlocked lifecycle and is refused, failing closed, under a locked one |
+| `vaultrecover`, `vaultrecoversec` | A foreign vault self-heals under an unlocked lifecycle and is refused, failing closed, under a locked one, where the guest's attestation key query is refused as a reformatted vault would not refuse it |
 | `storage` | The Normal world round-trips Internal Trusted Storage through the vault partition |
 | `confboot` | The Arm FF-M IPC suite from the Normal world: 85 passed and 4 skipped on the `virt` cells; 78 and 4 on `xlnx-versal-virt`, where the seven Normal-world fence tests cannot fault without an XMPU model |
 | `devstorage`, `devattest`, `devcrypto` | The Arm dev_apis storage, attestation, and crypto suites from the Normal world over FF-A |

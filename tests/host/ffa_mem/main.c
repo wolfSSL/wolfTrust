@@ -20,14 +20,23 @@
 
 /* WT-FFA-0009: the DEN0140 memory transaction descriptor (lend/donate/share),
  * its composite and constituent sub-descriptors, the relayer validation, the
- * RX/TX buffer geometry, and the memory handle lifetime state machine. */
+ * RX/TX buffer geometry, the memory handle lifetime state machine, and the
+ * SPMC relayer driving real partition tables. */
 
+#define _DEFAULT_SOURCE
+
+#include "wolftrust/arch.h"
+#include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_mem.h"
+#include "wolftrust/arch/aarch64/spm_mem.h"
+#include "wolftrust/arch/aarch64/spm_svc.h"
+#include "wolftrust/arch/aarch64/tables.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/mman.h>
 
 static int checks;
 static int failures;
@@ -1153,6 +1162,228 @@ static void borrower_list_rows(void)
           "a repeat that hides a missing borrower is INVALID_PARAMETERS");
 }
 
+/* The relayer maps and zeroes memory at its own address (VA == PA), so the
+ * host backs the partitions' pages with memory below the table VA limit. */
+#define RELAY_MEM_PAGES  16u
+#define RELAY_POOL_PAGES 64u
+#define RELAY_POOL_PA    0x0E100000ull
+#define RELAY_ID_A       0x8002u
+#define RELAY_ID_B       0x8003u
+#define RELAY_RW         (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE)
+
+static uint8_t g_relay_pool[RELAY_POOL_PAGES * WT_TABLES_PAGE_SIZE]
+    __attribute__((aligned(4096)));
+static uint8_t* g_mem;
+static wt_memory_region_t g_relay_fill[1];
+static wt_secure_domain_t g_dom_a;
+static wt_secure_domain_t g_dom_b;
+static int g_co_a;
+static int g_co_b;
+static unsigned int g_domain_fails;
+
+#define CO_A ((struct wt_co*)(void*)&g_co_a)
+#define CO_B ((struct wt_co*)(void*)&g_co_b)
+
+void wt_mmu_switch_ttbr0(uint64_t ttbr0)
+{
+    (void)ttbr0;
+}
+
+void wt_mmu_tlbi_asid(uint64_t asid)
+{
+    (void)asid;
+}
+
+void wt_domain_fail(int code)
+{
+    (void)code;
+    g_domain_fails++;
+}
+
+struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id)
+{
+    (void)id;
+    return NULL;
+}
+
+static uint8_t* low_pages(size_t size)
+{
+    static const uint64_t hints[] = {
+        0x10000000ull, 0x800000000ull, 0x2000000000ull
+    };
+    void* p;
+    size_t i;
+
+    for (i = 0u; i < sizeof(hints) / sizeof(hints[0]); i++) {
+        p = mmap((void*)(uintptr_t)hints[i], size, PROT_READ | PROT_WRITE,
+                 MAP_PRIVATE | MAP_ANON, -1, 0);
+        if ((p != MAP_FAILED) &&
+            (((uint64_t)(uintptr_t)p + size) <= WT_TABLES_VA_LIMIT)) {
+            return (uint8_t*)p;
+        }
+        if (p != MAP_FAILED) {
+            (void)munmap(p, size);
+        }
+    }
+    return NULL;
+}
+
+static uintptr_t page(unsigned int i)
+{
+    return (uintptr_t)g_mem + ((uintptr_t)i * WT_TABLES_PAGE_SIZE);
+}
+
+static void set_region(wt_memory_region_t* r, unsigned int first,
+                       unsigned int pages, uint32_t attributes)
+{
+    r->base = page(first);
+    r->size = (size_t)pages * WT_TABLES_PAGE_SIZE;
+    r->attributes = attributes;
+}
+
+/* Partition A owns pages 0-3 read-write and page 4 read-only; partition B
+ * owns page 8. Page 0 is an SPMC fill entry, so B's table holds it EL1-only
+ * while pages 1-3 are absent from it. */
+static int relay_reset(void)
+{
+    (void)memset(g_mem, 0, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);
+    (void)memset(&g_dom_a, 0, sizeof(g_dom_a));
+    (void)memset(&g_dom_b, 0, sizeof(g_dom_b));
+    set_region(&g_dom_a.regions[0], 0u, 4u, RELAY_RW);
+    set_region(&g_dom_a.regions[1], 4u, 1u, WT_MEM_ATTR_READ);
+    g_dom_a.region_count = 2u;
+    set_region(&g_dom_b.regions[0], 8u, 1u, RELAY_RW);
+    g_dom_b.region_count = 1u;
+    set_region(&g_relay_fill[0], 0u, 1u, RELAY_RW | WT_DOMAIN_FILL_SHARED);
+    g_domain_fails = 0u;
+    if (wt_domain_init(g_relay_fill, 1u, g_relay_pool, RELAY_POOL_PA,
+                       sizeof(g_relay_pool)) == 0u) {
+        return 0;
+    }
+    wt_arch_program_sp_thread_domain(g_dom_a.regions, g_dom_a.region_count);
+    wt_arch_program_sp_thread_domain(g_dom_b.regions, g_dom_b.region_count);
+    wt_spm_mem_init();
+    return (wt_spm_mem_bind(RELAY_ID_A, CO_A, &g_dom_a) == 0) &&
+           (wt_spm_mem_bind(RELAY_ID_B, CO_B, &g_dom_b) == 0) &&
+           (g_domain_fails == 0u);
+}
+
+/* Send n constituents from A to B; *ret gets the relayer's answer. */
+static uint64_t relay_send(wt_ffa_mem_op_t op, const wt_ffa_mem_constituent_t* c,
+                           uint32_t n, uint8_t perms, uint32_t flags, int* ret)
+{
+    uint8_t desc[256];
+    wt_ffa_mem_build_t in;
+    uint64_t h = 0u;
+    size_t len = 0u;
+
+    (void)memset(&in, 0, sizeof(in));
+    in.constituents = c;
+    in.constituent_count = n;
+    in.op = op;
+    in.sender = RELAY_ID_A;
+    in.receiver = RELAY_ID_B;
+    in.permissions = perms;
+    in.flags = flags;
+    *ret = wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len);
+    if (*ret == 0) {
+        *ret = wt_spm_mem_share(desc, len, op, RELAY_ID_A, &h);
+    }
+    return h;
+}
+
+static int relay_retrieve(uint64_t h, uint8_t perms, uint32_t flags)
+{
+    uint8_t req[128];
+    uint8_t resp[256];
+    size_t len = 0u;
+    size_t resp_len = 0u;
+    int ret;
+
+    ret = wt_ffa_mem_retrieve_req_build(req, sizeof(req), h, RELAY_ID_A,
+                                        RELAY_ID_B, perms, &len);
+    if (ret == 0) {
+        put32(&req[WT_FFA_MEM_TXN_OFF_FLAGS], flags);
+        ret = wt_spm_mem_retrieve(req, len, RELAY_ID_B, resp, sizeof(resp),
+                                  &resp_len);
+    }
+    return ret;
+}
+
+static int relay_relinquish(uint64_t h, uint32_t flags)
+{
+    uint8_t rel[32];
+    size_t len = 0u;
+    int ret;
+
+    ret = wt_ffa_mem_relinquish_build(rel, sizeof(rel), h, flags, RELAY_ID_B,
+                                      &len);
+    if (ret == 0) {
+        ret = wt_spm_mem_relinquish(rel, len, RELAY_ID_B);
+    }
+    return ret;
+}
+
+static int access_of(const wt_secure_domain_t* d, unsigned int pg)
+{
+    return wt_domain_page_access(d->regions, d->region_count, page(pg));
+}
+
+/* What B's table holds at a page it does not reach: 1 for an SPMC EL1-only
+ * entry, 0 for none, -1 for anything else. Probed by a grant and its undo. */
+static int b_entry(unsigned int pg)
+{
+    int was = -1;
+
+    if (wt_domain_grant(g_dom_b.regions, g_dom_b.region_count, page(pg), 1u,
+                        WT_MEM_ATTR_READ, &was) != WT_TABLES_OK) {
+        return -1;
+    }
+    if (wt_domain_revoke(g_dom_b.regions, g_dom_b.region_count, page(pg), 1u,
+                         was) != WT_TABLES_OK) {
+        return -1;
+    }
+    return was;
+}
+
+/* WT-FFA-0009 (the SPMC relayer: a lend maps into the borrower on retrieve,
+ * a relinquish unmaps it, a reclaim hands it back to the owner). */
+static void relay_rows(void)
+{
+    wt_ffa_mem_constituent_t c[2];
+    uint64_t h;
+    int ret = 0;
+
+    g_mem = low_pages((size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);
+    check(g_mem != NULL, "the host backs the relayer's pages below the table VA limit");
+    if (g_mem == NULL) {
+        return;
+    }
+    check(relay_reset(), "two bound partitions over real tables");
+
+    c[0].address = page(1);
+    c[0].page_count = 2u;
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    check(ret == 0 && access_of(&g_dom_a, 1u) == WT_DOMAIN_ACCESS_NONE &&
+          access_of(&g_dom_a, 3u) == WT_DOMAIN_ACCESS_RW,
+          "relayer: a lend takes the lent pages, and only those, from the owner");
+    check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+          access_of(&g_dom_b, 1u) == WT_DOMAIN_ACCESS_RW &&
+          access_of(&g_dom_b, 2u) == WT_DOMAIN_ACCESS_RW,
+          "relayer: a retrieve maps the lent pages into the borrower");
+    check(relay_relinquish(h, 0u) == 0 &&
+          access_of(&g_dom_b, 1u) == WT_DOMAIN_ACCESS_NONE && b_entry(1u) == 0,
+          "relayer: a relinquish unmaps them from the borrower");
+    check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
+          access_of(&g_dom_a, 1u) == WT_DOMAIN_ACCESS_RW &&
+          access_of(&g_dom_a, 2u) == WT_DOMAIN_ACCESS_RW,
+          "relayer: a reclaim gives the owner its access back");
+    check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) != 0,
+          "relayer: a reclaimed handle cannot be retrieved");
+    check(g_domain_fails == 0u, "relayer: no domain operation failed closed");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -1173,7 +1404,11 @@ int main(void)
     attribute_rows();
     access_flag_rows();
     borrower_list_rows();
+    relay_rows();
 
+    if (g_mem != NULL) {
+        (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);
+    }
     printf("ffa_mem: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;
 }

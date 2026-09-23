@@ -53,7 +53,11 @@ wt_el3_start:
     strb    w3, [x2, x1]
     dsb     sy
     sev
+    /* A warm reset re-clears .bss and then signals: report again on every
+     * wake so the re-entered boot core counts this core too. */
 9:  wfe
+    strb    w3, [x2, x1]
+    dsb     sy
     b       9b
 
 primary:

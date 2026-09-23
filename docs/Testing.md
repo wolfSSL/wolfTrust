@@ -397,7 +397,7 @@ assert through `tests/target/lib/expect.sh`.
 | `ffa-guest-direct` | A Normal-world direct request reaches a Secure partition and echoes back |
 | `psci` | The Normal world checks the mandatory PSCI 1.1 calls as a boot-core-only system sees them (`CPU_ON`, `CPU_OFF`, `AFFINITY_INFO`, `CPU_SUSPEND`, the migrate queries, `PSCI_FEATURES`) and powers off through the SPMD |
 | `ffa-preempt` | A core-standby `CPU_SUSPEND` wakes on the Secure tick, the tick preempts the Normal world at EL3, the SPMC services it, and the Normal world resumes |
-| `resetneg` | A Normal-world `SYSTEM_RESET` re-enters the boot chain once and the second reset ends the run |
+| `resetneg` | A Normal-world `SYSTEM_RESET` re-enters the boot chain once and the second reset ends the run; both boots count every parked secondary (two cores on `virt`) |
 | `secramneg` | A Normal-world read of Secure RAM is refused (SKIP on `xlnx-versal-virt`, whose model has no XMPU or RISAF) |
 | `el2dirtyneg` | The `psci` checks on a monitor that starts on EL2 state an earlier stage left dirty (SMC trapped, a foreign virtual MPIDR); `virt` turns EL2 on for it |
 | `smcfuzz` | Every unimplemented SMC function id from the Normal world is refused cleanly (`-1` sign-extended through all of `x0` for an SMC64 id), and an SMC32 call with junk in its upper register halves is read as `w1`-`w7` |

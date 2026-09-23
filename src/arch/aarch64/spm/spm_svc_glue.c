@@ -139,8 +139,11 @@ static void ffa_success(wt_trap_frame_t* frame, uint64_t w2, uint64_t w3)
 
 /* The configured partitions as FFA_PARTITION_INFO_GET source records: each
  * manifest partition under the live id of the partition running in its
- * domain (the id its FFA_ID_GET returns), one not running omitted. */
-static wt_ffa_partinfo_entry_t g_partinfo[16];
+ * domain (the id its FFA_ID_GET returns), one not running omitted, with a
+ * record per exported UUID. */
+#define WT_SPM_PARTINFO_MAX \
+    (WT_FFA_NATIVE_SP_MAX + (WT_CO_MAX * WT_FFA_MANIFEST_MAX_UUIDS))
+static wt_ffa_partinfo_entry_t g_partinfo[WT_SPM_PARTINFO_MAX];
 
 static size_t partinfo_collect(void)
 {

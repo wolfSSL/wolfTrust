@@ -590,7 +590,7 @@ static int prove_preempt(void)
 /* Prove FF-A partition discovery: an S-EL0 partition standing in for the
  * first configured partition (its domain and stack) calls
  * FFA_PARTITION_INFO_GET with a Nil UUID while no other partition exists. The
- * SPMC lists exactly that domain's descriptor, under the id FFA_ID_GET gives
+ * SPMC lists exactly that domain's descriptors, under the id FFA_ID_GET gives
  * the caller, in the RX buffer of the pair mapped for it; the partition reads
  * the count and the first descriptor's id back out at S-EL0. */
 static wt_secure_domain_t g_discover_domain;
@@ -614,7 +614,7 @@ static int prove_partinfo(uint32_t* out_count)
     }
     for (i = 0u; i < np; i++) {
         if (parts[i].domain_id == (uint32_t)d->id) {
-            expect = 1u;
+            expect = parts[i].uuid_count;
         }
     }
     if (expect == 0u) {

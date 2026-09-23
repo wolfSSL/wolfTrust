@@ -115,6 +115,21 @@ This is writable-state isolation inside one linked image. Shared executable
 text is not per-partition code isolation, and the crypto, vault, and attestation
 domains share the keystore data band required by their backends.
 
+### Link-time optimization
+
+The Secure image enables GCC link-time optimization by default. LTO can replace
+the original input-object names with generated objects, so the linker script
+also claims keystore state through its `-fdata-sections` names. CMSE veneers,
+exception handlers, hand-written assembly, and other assembly-referenced
+objects are compiled without LTO so their symbols and calling conventions stay
+stable.
+
+The post-link layout check rejects keystore or VNET writable state outside its
+assigned MPU band, missing exception entries, a linked heap allocator, and an
+RNG timeout object outside privileged SPM RAM. This keeps the optimization from
+weakening the boundaries described above. `WT_LTO=0` disables the optimization
+without changing the memory policy.
+
 ## Per-guest cryptographic keys
 
 The SERVICE_HSM door carries the selected crypto engine's wire (`WT_ENGINE`):

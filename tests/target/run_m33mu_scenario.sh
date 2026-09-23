@@ -842,21 +842,24 @@ case "$scenario" in
   gtzcneg)
     # A privileged NS guest disables its own NS MPU and stores a sentinel
     # into the peer guest's RAM. The GTZC curtain must stop the access at
-    # the fabric: the store either faults the initiating guest (the monitor
-    # restarts it, so the attempt repeats deterministically) or is silently
-    # discarded (RAZ/WI, silicon TZIC behavior). Either way the sentinel
-    # never reads back and the peer guest keeps running (WT-FFM-0011).
+    # the fabric: the store is either silently discarded (RAZ/WI, silicon
+    # TZIC behavior, so the guest reads it back absent) or it faults the
+    # initiating guest, which the monitor contains so guest0 never finishes
+    # its lifecycle. Either way the sentinel never reaches the peer and the
+    # peer guest keeps running (WT-FFM-0011). The fault-path restart count is
+    # timing-dependent (how many contained cycles fit the window), not a
+    # security property, so one attempt with no completion is sufficient.
     refute_re "peer RAM never receives the sentinel" \
       'wolfTrust GTZC peer write LEAKED'
     attempts=$(grep -cF "wolfTrust GTZC bypass probe: attempting peer write" \
       "$log" || true)
     if grep -Fq "wolfTrust GTZC peer write blocked" "$log"; then
       check_pass "peer store blocked without a fault (RAZ/WI)"
-    elif [ "$attempts" -ge 2 ]; then
-      check_pass "peer store faults the initiating guest every attempt ($attempts)"
+    elif [ "$attempts" -ge 1 ] && ! grep -Fq "guest0_psa done" "$log"; then
+      check_pass "peer store faults the initiating guest, contained ($attempts attempt(s))"
     else
       check_fail "NS MPU bypass cannot reach peer guest RAM (WT-FFM-0011)" \
-        "no blocked marker and only $attempts probe attempt(s)"
+        "probe never attempted the store or guest0 completed unfaulted ($attempts attempt(s))"
     fi
     expect "peer guest keeps running through the containment" \
       "freertos_guest1: heartbeat"

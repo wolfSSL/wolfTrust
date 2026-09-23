@@ -51,6 +51,7 @@ The default target builds:
 | `build/wolftrust.elf` | Secure image with symbols |
 | `build/wolftrust.bin` | Flat Secure binary |
 | `build/secure_cmse_implib.o` | CMSE import library for Non-secure linking |
+| `build/wolftrust.map` | Link map used to audit code and isolation-band placement |
 | `build/manifest/wolftrust_manifest_generated.c` | Generated manifest source |
 | `build/manifest/wolftrust_manifest_generated.h` | Generated partition and service constants |
 | `build/nsc-syms.txt` | Symbol list used to enforce the five-veneer gateway |
@@ -96,6 +97,29 @@ make WT_MAX_GUESTS=1
 make BUILD_DIR=build-wrp WT_GUEST_FLASH_WRP=1
 make CONFIG_VNET=y
 ```
+
+Link-time optimization is enabled by default for the Secure image. It lets GCC
+optimize across source-file boundaries while retaining the assembly, CMSE, and
+isolation-band objects that must keep stable linker behavior. Disable it for a
+toolchain diagnostic or an explicit non-LTO comparison:
+
+```sh
+make WT_LTO=0
+```
+
+`WT_LTO` is recorded in `secure_build_mode.stamp`, so changing it rebuilds the
+affected objects. Every Secure link also checks the final ELF for required
+exception entries, zero-heap policy, and writable-state placement.
+
+Use separate output directories when comparing footprints:
+
+```sh
+make BUILD_DIR=build-lto size-report
+make BUILD_DIR=build-no-lto WT_LTO=0 size-report
+```
+
+Record the LTO setting with published size results. The locally measured TF-M
+v2.1.1 comparison builds did not use LTO.
 
 Changing guest count, addresses, or sizes also requires matching manifest,
 guest linker, emulator-load, flash, and measurement-record settings. See

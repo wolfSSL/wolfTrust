@@ -30,8 +30,8 @@ Current suites cover domain and manifest validation, lifecycle, guest
 verification, rollback decisions, IPC and FF-M behavior, SPM policy, gateway
 vectors, Secure Partition layout and recovery, crypto-engine relay and key
 isolation, vault and storage services, attestation and COSE integration,
-firmware update, runtime remeasurement, VNET, public PSA headers, boot-handoff
-record consumption, and negative paths.
+firmware update, runtime remeasurement, linked Secure layout, VNET, public PSA
+headers, boot-handoff record consumption, and negative paths.
 The attestation IAK suite runs wolfHSM NVM with both the default 8-byte and
 STM32H5 16-byte flash programming units.
 
@@ -47,6 +47,30 @@ Valgrind requires the tool on the host. `make test-compilers` reruns all suites
 with the selected `CC` (default `cc`); it does not select multiple compilers.
 Run it once per compiler, for example `make test-compilers CC=clang`.
 Sanitizer support depends on the local toolchain.
+
+## LTO validation
+
+Every Secure link generates `wolftrust.map` and runs the linked-image layout
+check. Compare optimized and diagnostic builds with separate output trees:
+
+```sh
+make BUILD_DIR=build-lto size-report
+make BUILD_DIR=build-no-lto WT_LTO=0 size-report
+```
+
+The default M33MU and hardware commands exercise the LTO image. A release-size
+result is valid only when the applicable target scenarios pass without a fault
+marker. The cross-compilation workflow rebuilds one output tree from explicit
+`WT_LTO=0` to the default `WT_LTO=1`, verifies the build stamp and object
+formats change, checks that isolation-critical objects remain non-LTO, and
+requires the optimized ELF to be smaller. It also injects a forbidden heap
+symbol twice to prove a rejected ELF, flat binary, map, and CMSE import library
+are deleted instead of being reused by the next Make invocation.
+
+The per-PR core/port split workflow builds the `CONFIG_VNET=y` Secure image.
+The per-PR M33MU matrix builds and runs both that VNET layout and the
+`WT_CONFORMANCE=1` `confboot` layout, so the linked-image check covers both
+optional isolation-band configurations in CI.
 
 ## PSA FF conformance
 

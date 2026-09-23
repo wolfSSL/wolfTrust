@@ -37,7 +37,7 @@ UNIT_SUITES := domain manifest lifecycle guest_verify rollback sp_recovery \
     attestation_service attestation attestation_token \
     attestation_golden attestation_negatives attestation_replay \
     attestation_iak ffm_domain sp_layout port_binding boot_handoff spm_gate \
-    flash_nvm ffm_veneer \
+    flash_nvm ffm_veneer secure_layout \
     vault_service storage_service ps_service negatives qcbor_shim \
     fwu_service runtime_verify psa_ffm_client psa_storage_client vnet_relay \
     psa_headers

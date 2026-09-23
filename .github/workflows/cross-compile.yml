@@ -31,6 +31,49 @@ jobs:
             gcc-arm-none-eabi binutils-arm-none-eabi libnewlib-arm-none-eabi
       - name: Build STM32H563 secure firmware
         run: make -C tests/firmware/stm32h563 all TOOLPREFIX=arm-none-eabi-
+      - name: Validate the LTO gate, rebuild, and size reduction
+        run: |
+          make BUILD_DIR=build-lto-toggle WT_LTO=0 secure-image TOOLPREFIX=arm-none-eabi-
+          no_lto_flash=$(arm-none-eabi-size build-lto-toggle/wolftrust.elf | awk 'NR == 2 { print $1 + $2 }')
+          grep -qx 'WT_LTO=0' build-lto-toggle/secure_build_mode.stamp
+          if arm-none-eabi-readelf -SW build-lto-toggle/sec_spm.o | grep -q '\.gnu\.lto_'; then
+            echo 'FAIL: WT_LTO=0 produced an LTO object' >&2
+            exit 1
+          fi
+          make BUILD_DIR=build-lto-toggle secure-image TOOLPREFIX=arm-none-eabi-
+          lto_flash=$(arm-none-eabi-size build-lto-toggle/wolftrust.elf | awk 'NR == 2 { print $1 + $2 }')
+          grep -qx 'WT_LTO=1' build-lto-toggle/secure_build_mode.stamp
+          arm-none-eabi-readelf -SW build-lto-toggle/sec_spm.o | grep -q '\.gnu\.lto_'
+          if arm-none-eabi-readelf -SW build-lto-toggle/sec_runtime.o | grep -q '\.gnu\.lto_'; then
+            echo 'FAIL: isolation-critical object was compiled with LTO' >&2
+            exit 1
+          fi
+          test "$lto_flash" -lt "$no_lto_flash"
+          echo "LTO flash: $no_lto_flash -> $lto_flash bytes"
+      - name: Verify a rejected secure image cannot be reused
+        run: |
+          reject_flag='-Wl,--defsym=malloc=0x0C060800'
+          make BUILD_DIR=build-rejected-layout secure-image TOOLPREFIX=arm-none-eabi-
+          test -e build-rejected-layout/wolftrust.bin
+          touch build-rejected-layout/sec_spm.o
+          if make BUILD_DIR=build-rejected-layout WT_EXTRA_LDFLAGS="$reject_flag" \
+              secure-image TOOLPREFIX=arm-none-eabi-; then
+            echo 'FAIL: forbidden heap symbol was accepted' >&2
+            exit 1
+          fi
+          test ! -e build-rejected-layout/wolftrust.elf
+          test ! -e build-rejected-layout/wolftrust.bin
+          test ! -e build-rejected-layout/wolftrust.map
+          test ! -e build-rejected-layout/secure_cmse_implib.o
+          if make BUILD_DIR=build-rejected-layout WT_EXTRA_LDFLAGS="$reject_flag" \
+              secure-image TOOLPREFIX=arm-none-eabi-; then
+            echo 'FAIL: rejected secure image was reused' >&2
+            exit 1
+          fi
+          test ! -e build-rejected-layout/wolftrust.elf
+          test ! -e build-rejected-layout/wolftrust.bin
+          test ! -e build-rejected-layout/wolftrust.map
+          test ! -e build-rejected-layout/secure_cmse_implib.o
       - name: Compile-check the no-attestation secure image (WT_ATTEST_COSE=0)
         run: make TARGET=stm32h563 WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
       - name: Build the hsm-engine secure image (WT_ENGINE=hsm)

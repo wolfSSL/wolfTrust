@@ -5,12 +5,18 @@ CC := $(TOOLPREFIX)gcc
 OBJCOPY := $(TOOLPREFIX)objcopy
 SIZE := $(TOOLPREFIX)size
 
+# A linked image that fails any post-link security check must not remain a
+# reusable Make target. This also removes every output of the grouped link
+# rule, including the CMSE import library and link map.
+.DELETE_ON_ERROR:
+
 MANIFEST_DIR := $(BUILD_DIR)/manifest
 MANIFEST_STAMP := $(MANIFEST_DIR)/.stamp
 MANIFEST_GEN_C := $(MANIFEST_DIR)/wolftrust_manifest_generated.c
 MANIFEST_GEN_H := $(MANIFEST_DIR)/wolftrust_manifest_generated.h
 SECURE_ELF := $(BUILD_DIR)/wolftrust.elf
 SECURE_BIN := $(BUILD_DIR)/wolftrust.bin
+SECURE_MAP := $(BUILD_DIR)/wolftrust.map
 BUILD_MODE_STAMP := $(BUILD_DIR)/secure_build_mode.stamp
 WOLFHSM_CFG_H := $(BUILD_DIR)/wolfhsm_cfg.h
 
@@ -22,6 +28,18 @@ WT_MAX_GUESTS ?= 2
 # the SP_SMALL math switch; PSPLIM_S faults any real overflow, so this floor
 # is measured, not guessed.
 WT_CO_STACK_SIZE ?= 10240
+WT_LTO ?= 1
+ifneq ($(WT_LTO),0)
+ifneq ($(WT_LTO),1)
+$(error unsupported WT_LTO='$(WT_LTO)' (want 0 or 1))
+endif
+endif
+WT_LTO_CFLAGS :=
+WT_LTO_LDFLAGS :=
+ifeq ($(WT_LTO),1)
+WT_LTO_CFLAGS := -flto=auto
+WT_LTO_LDFLAGS := -flto=auto -Wl,-u,wt_platform_panic
+endif
 # Secure crypto engine. native (the default) calls wolfCrypt directly; hsm
 # links the wolfHSM server as a key-management add-on. Legacy WT_ENGINE_HSM
 # values map onto the selector.
@@ -116,7 +134,7 @@ SECURE_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     $(TARGET_CFLAGS) \
     $(ARCH_CFLAGS) \
     $(HSM_INCLUDES_SECURE) $(HSM_DEFS_SECURE) $(SECURE_CFLAGS_COSE) \
-    -I$(MANIFEST_DIR)
+    -I$(MANIFEST_DIR) $(WT_LTO_CFLAGS)
 SECURE_CFLAGS += $(WT_EXTRA_CFLAGS)
 
 ifeq ($(CONFIG_VNET),y)
@@ -342,6 +360,34 @@ ALL_SECURE_OBJS := $(strip \
     $(ARCH_TREE_OBJS) \
     $(MANIFEST_OBJ))
 
+# LTO cannot safely rewrite objects whose symbols are consumed by inline
+# assembly or synthesized by the CMSE linker. Native engine and VNET objects
+# that own filename-selected isolation bands retain their object identity.
+ifeq ($(WT_LTO),1)
+WT_LTO_WOLFCRYPT_EXCLUDED_OBJS := \
+    $(BUILD_DIR)/wc_sec_sp_cortexm.o \
+    $(BUILD_DIR)/wc_sec_thumb2-aes-asm_c.o \
+    $(BUILD_DIR)/wc_sec_thumb2-sha256-asm_c.o
+WT_LTO_SECURE_EXCLUDED_OBJS := \
+    $(BUILD_DIR)/sec_ivt.o \
+    $(BUILD_DIR)/sec_runtime.o \
+    $(BUILD_DIR)/wt_sec_coroutine_armv8m.o \
+    $(BUILD_DIR)/wt_sec_ffm_nsc.o \
+    $(BUILD_DIR)/wt_sec_guest_context_armv8m.o \
+    $(BUILD_DIR)/wt_sec_sp_fault_armv8m.o \
+    $(BUILD_DIR)/wt_sec_spm_svc.o
+WT_LTO_NATIVE_BAND_OBJS := $(filter \
+    $(BUILD_DIR)/wt_sec_crypto_native.o \
+    $(BUILD_DIR)/wt_sec_keyvault.o \
+    $(BUILD_DIR)/wt_sec_native_wire.o \
+    $(BUILD_DIR)/wt_sec_nvm_store.o,$(ALL_SECURE_OBJS))
+WT_LTO_VNET_BAND_OBJS := $(filter \
+    $(BUILD_DIR)/wt_sec_vnet_%.o,$(ALL_SECURE_OBJS))
+$(WT_LTO_WOLFCRYPT_EXCLUDED_OBJS): HSM_LIB_CFLAGS += -fno-lto
+$(WT_LTO_SECURE_EXCLUDED_OBJS) $(WT_LTO_NATIVE_BAND_OBJS) \
+        $(WT_LTO_VNET_BAND_OBJS): SECURE_CFLAGS += -fno-lto
+endif
+
 # Arm PSA-FF conformance partitions (P3a): the unmodified upstream server and
 # client partitions plus the i001/i002 test bodies, compiled into the secure
 # image and scheduled as SPs. P3c regenerates the test lists over the full run
@@ -555,6 +601,9 @@ CONF_SEC_OBJS := \
     $(BUILD_DIR)/conf_sec_test_i088.o \
     $(BUILD_DIR)/conf_sec_test_supp_i088.o
 ALL_SECURE_OBJS += $(CONF_SEC_OBJS)
+ifeq ($(WT_LTO),1)
+$(CONF_SEC_OBJS): SECURE_CFLAGS += -fno-lto
+endif
 
 # The upstream sources only exist after the fetch; the empty-recipe rule tells
 # make the fetch stamp produces them so the conf_sec pattern rules can fire.
@@ -1335,6 +1384,7 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_GUEST0_FLASH_SIZE=$(WT_GUEST0_FLASH_SIZE)' \
 		'WT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE)' \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
+		'WT_LTO=$(WT_LTO)' \
 		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
 		'WT_CONFORMANCE=$(WT_CONFORMANCE)' \
 		'CONFIG_VNET=$(CONFIG_VNET)' \
@@ -1448,12 +1498,15 @@ $(BUILD_DIR)/sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_M
 $(BUILD_DIR)/sec_%.o: $(ROOT)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(SECURE_ELF) $(ARCH_LINK_OUTPUTS) &: $(ALL_SECURE_OBJS) $(SECURE_LD) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(SECURE_ELF) $(SECURE_MAP) $(ARCH_LINK_OUTPUTS) &: $(ALL_SECURE_OBJS) $(SECURE_LD) \
+		$(ROOT)/tools/check_secure_layout.py $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(RM) $(SECURE_BIN)
 	$(CC) $(SECURE_CFLAGS) \
 		$(TARGET_LDFLAGS) \
 		-Wl,--defsym=WT_VNET_DATA_LENGTH=$(WT_VNET_DATA_LENGTH) \
 		-Wl,-T$(SECURE_LD) \
-		-Wl,--gc-sections $(WT_EXTRA_LDFLAGS) \
+		-Wl,--gc-sections -Wl,-Map=$(SECURE_MAP),--cref \
+		$(WT_LTO_LDFLAGS) $(WT_EXTRA_LDFLAGS) \
 		$(ARCH_LDFLAGS) \
 		-o $(SECURE_ELF) $(ALL_SECURE_OBJS) -lgcc
 	$(arch_image_checks)

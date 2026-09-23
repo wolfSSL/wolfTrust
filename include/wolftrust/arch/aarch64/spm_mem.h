@@ -52,6 +52,10 @@ int wt_spm_mem_bind(uint16_t id, struct wt_co* co, wt_secure_domain_t* dom);
 /* The binding of the calling partition, or NULL if it has none. */
 const wt_spm_mem_binding_t* wt_spm_mem_binding(const struct wt_co* co);
 
+/* Release everything the partition holds (wt_spm_mem_endpoint_teardown) and
+ * forget its binding, so a coroutine reused later starts unbound. */
+void wt_spm_mem_unbind(const struct wt_co* co);
+
 /* Owner side: validate desc as a lend or share from sender and register it.
  * Returns 0 with *out_handle set, or a WT_FFA_* negative. */
 int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,

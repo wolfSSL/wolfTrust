@@ -1669,6 +1669,35 @@ static void relay_teardown_rows(void)
     check(g_domain_fails == 0u, "teardown: no domain operation failed closed");
 }
 
+/* WT-FFA-0009 (a binding the SPMC made for a boot self-test is dropped with
+ * what it holds, so a partition reusing the coroutine starts unbound). */
+static void relay_unbind_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint64_t h;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "unbind: fixture");
+        return;
+    }
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+          wt_spm_mem_binding(CO_B) != NULL,
+          "unbind: a bound borrower holds a lent page");
+    wt_spm_mem_unbind(CO_B);
+    check(wt_spm_mem_binding(CO_B) == NULL &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
+          wt_spm_mem_binding(CO_A) != NULL,
+          "unbind: the coroutine loses its binding and the page it held, no other");
+    check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == WT_FFA_DENIED &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "unbind: the unbound endpoint cannot retrieve and the owner reclaims");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -1695,6 +1724,7 @@ int main(void)
     relay_perm_rows();
     relay_region_rows();
     relay_teardown_rows();
+    relay_unbind_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

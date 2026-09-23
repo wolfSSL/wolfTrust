@@ -277,17 +277,6 @@ static wt_ffa_mailbox_t* sp_mailbox(void)
     return &g_sp_mailbox[co->id - 1u];
 }
 
-/* The calling partition's RX and TX buffers. */
-static uint8_t* sp_rx(void)
-{
-    const wt_ffa_mailbox_t* mb = sp_mailbox();
-
-    if ((mb != NULL) && (mb->mapped != 0u)) {
-        return (uint8_t*)(uintptr_t)mb->rx;
-    }
-    return (uint8_t*)(uintptr_t)WT_SPM_RXTX_PA;
-}
-
 /* One page the caller owns and may write, per its current mapping. */
 static int sp_owns_writable_page(const struct wt_co* co, uintptr_t va)
 {

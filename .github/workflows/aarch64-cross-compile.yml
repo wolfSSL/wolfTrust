@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   qemu-a-smoke:
-    name: EL3 smoke on ${{ matrix.cell.name }}
+    name: EL3 smoke on ${{ matrix.cell.name }} (${{ matrix.engine }})
     runs-on: ubuntu-22.04
     timeout-minutes: 30
     container:
@@ -24,7 +24,9 @@ jobs:
           - { name: virt-gicv2-a35, machine: virt, target: qemuvirt, gic: 2, cpu: cortex-a35, smp: 2 }
           - { name: virt-gicv3-a72, machine: virt, target: qemuvirt, gic: 3, cpu: cortex-a72, smp: 2 }
           - { name: versal-virt, machine: versal-virt, target: versal, gic: 3, cpu: cortex-a72, smp: 4 }
+        engine: [native, hsm]
     env:
+      WT_ENGINE: ${{ matrix.engine }}
       MACHINE: ${{ matrix.cell.machine }}
       GIC: ${{ matrix.cell.gic }}
       CPU: ${{ matrix.cell.cpu }}
@@ -94,7 +96,7 @@ jobs:
           cat logs/target-storage.log || true
 
   qemu-a-ffa-acs:
-    name: FF-A ACS on ${{ matrix.cell.name }}
+    name: FF-A ACS on ${{ matrix.cell.name }} (${{ matrix.engine }})
     runs-on: ubuntu-22.04
     timeout-minutes: 60
     container:
@@ -106,7 +108,9 @@ jobs:
           - { name: virt-gicv2-a35, machine: virt, target: qemuvirt, gic: 2, cpu: cortex-a35, smp: 2 }
           - { name: virt-gicv3-a72, machine: virt, target: qemuvirt, gic: 3, cpu: cortex-a72, smp: 2 }
           - { name: versal-virt, machine: versal-virt, target: versal, gic: 3, cpu: cortex-a72, smp: 4 }
+        engine: [native, hsm]
     env:
+      WT_ENGINE: ${{ matrix.engine }}
       MACHINE: ${{ matrix.cell.machine }}
       GIC: ${{ matrix.cell.gic }}
       CPU: ${{ matrix.cell.cpu }}

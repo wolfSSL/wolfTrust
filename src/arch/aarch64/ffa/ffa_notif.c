@@ -250,6 +250,7 @@ int32_t wt_ffa_notif_set(uint16_t caller, uint32_t w1, uint32_t flags,
 {
     uint16_t sender_id = WT_FFA_NOTIF_W1_HIGH(w1);
     uint16_t receiver_id = WT_FFA_NOTIF_W1_LOW(w1);
+    wt_notif_ep_t* callerp = ep_find(caller);
     wt_notif_ep_t* sender = ep_find(sender_id);
     wt_notif_ep_t* receiver = ep_find(receiver_id);
     uint32_t per_vcpu = flags & WT_FFA_NOTIF_FLAG_PER_VCPU;
@@ -261,6 +262,11 @@ int32_t wt_ffa_notif_set(uint16_t caller, uint32_t w1, uint32_t flags,
         return WT_FFA_INVALID_PARAMETERS;
     }
     if ((flags & WT_FFA_NOTIF_SET_MBZ) != 0u) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    /* 16.5.1: the delay hint exists only at the Secure virtual instance. */
+    if (((flags & WT_FFA_NOTIF_FLAG_DELAY_SRI) != 0u) &&
+        ((callerp == NULL) || (callerp->secure == 0u))) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     /* One execution context: vCPU 0 is the only target, and naming one at

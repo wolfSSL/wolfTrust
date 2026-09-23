@@ -131,9 +131,10 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
     if ((w1 & 0xFFFFu) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    /* Table 15.3: the w1 sender is MBZ and w2 is ignored at the SVC conduit. */
+    /* Table 15.3: the w1 sender is MBZ and w2 is ignored at the SVC conduit;
+     * the delay-SRI hint is MBZ outside the Secure virtual instance (16.5.1). */
     if (inst == WT_FFA_INSTANCE_NS_PHYSICAL) {
-        if (((w2 & ~(uint32_t)WT_FFA_MSG2_FLAG_DELAY_SRI) != 0u) ||
+        if ((w2 != 0u) ||
             (((w1 >> 16) != 0u) && ((uint16_t)(w1 >> 16) != caller))) {
             return WT_FFA_INVALID_PARAMETERS;
         }

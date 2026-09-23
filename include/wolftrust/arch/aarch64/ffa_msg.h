@@ -70,9 +70,9 @@ int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst);
  * the sender's TX buffer - flags, two reserved words, payload offset, sender
  * and receiver ids (sender bits 31:16), payload size, and the receiver's
  * UUID. w1 bits 15:0 are reserved. At the NS physical instance w1 bits 31:16
- * name the sender and w2 allows only the delay-SRI flag in bit 1; at the
- * secure virtual instance (the SVC conduit) w1 bits 31:16 are MBZ and w2 is
- * ignored (Table 15.3). */
+ * name the sender and w2 is MBZ (the delay-SRI hint in bit 1 is Secure
+ * virtual only, 16.5.1); at the secure virtual instance (the SVC conduit) w1
+ * bits 31:16 are MBZ and w2 is ignored (Table 15.3). */
 #define WT_FFA_MSG2_HEADER_SIZE   40u
 #define WT_FFA_MSG2_FLAG_DELAY_SRI (1u << 1)
 

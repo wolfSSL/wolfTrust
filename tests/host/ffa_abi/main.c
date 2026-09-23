@@ -352,10 +352,11 @@ static void msg2_rows(void)
           WT_FFA_INVALID_PARAMETERS, "reserved w1 bits are refused");
     check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0x1u, &m) ==
           WT_FFA_INVALID_PARAMETERS,
-          "at the NS physical instance flags beyond delay-SRI are refused");
+          "at the NS physical instance reserved flags are refused");
     check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u,
-                            WT_FFA_MSG2_FLAG_DELAY_SRI, &m) == 0,
-          "the delay-SRI flag is accepted");
+                            WT_FFA_MSG2_FLAG_DELAY_SRI, &m) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "and so is the delay-SRI hint, Secure virtual only");
     check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, sv, 0u, 0u, &m) ==
           WT_FFA_INVALID_PARAMETERS,
           "a header sender other than the caller is refused");

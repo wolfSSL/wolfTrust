@@ -187,6 +187,7 @@ static void partition_info_rows(void)
     uint32_t count;
     uint32_t size;
     int ret;
+    int ok;
     unsigned int i;
 
     check(wt_ffa_partinfo_desc_size(WT_FFA_VERSION_MAKE(1u, 0u)) ==
@@ -218,10 +219,18 @@ static void partition_info_rows(void)
           rd_u16(&rx[2u * WT_FFA_PARTINFO_DESC_V11]) == 0x8004u,
           "descriptors pack back to back at the descriptor size");
 
+    for (i = 0u; i < sizeof(rx); i++) {
+        rx[i] = 0xEEu;
+    }
     ret = wt_ffa_partinfo_write(rx, sizeof(rx), WT_FFA_VERSION_1_2, parts, 3u,
                                 parts[1].uuid, 0u, &count, &size);
     check(ret == 0 && count == 1u && rd_u16(&rx[0]) == 0x8003u,
           "a specific UUID returns only the matching partition");
+    ok = 1;
+    for (i = 8u; i < WT_FFA_PARTINFO_DESC_V11; i++) {
+        ok = ok && (rx[i] == 0u);
+    }
+    check(ok, "a specific-UUID query leaves the descriptor UUID field zero (MBZ)");
 
     ret = wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, parts, 3u, nil,
                                 WT_FFA_PARTINFO_FLAG_COUNT, &count, &size);
@@ -250,19 +259,27 @@ static void partition_info_rows(void)
     check(ret == 0 && (regs[3] & 0xFFFFu) == parts[2].id &&
               ((regs[2] >> 16) & 0xFFFFu) == 2u && regs[6] == 0u,
           "a start index resumes the listing there");
+    ret = wt_ffa_partinfo_regs(parts, 3u, nil, 0u, 0u, regs);
+    check(ret == 0 && (uint8_t)regs[4] == parts[0].uuid[0] &&
+              (uint8_t)(regs[5] >> 56) == parts[0].uuid[15] &&
+              (uint8_t)regs[10] == parts[2].uuid[0],
+          "a Nil-UUID query returns each UUID in two registers");
     ret = wt_ffa_partinfo_regs(parts, 3u, parts[1].uuid, 0u, 0u, regs);
     check(ret == 0 && (regs[2] & 0xFFFFu) == 0u &&
               (regs[3] & 0xFFFFu) == parts[1].id &&
-              (uint8_t)regs[4] == parts[1].uuid[0] &&
-              (uint8_t)(regs[5] >> 56) == parts[1].uuid[15],
-          "a UUID selects its partition and is returned in two registers");
+              regs[4] == 0u && regs[5] == 0u,
+          "a specific UUID selects its partition with the UUID registers zero (MBZ)");
     check(wt_ffa_partinfo_regs(parts, 3u, nil, 3u, 0u, regs) ==
-              WT_FFA_INVALID_PARAMETERS &&
-          wt_ffa_partinfo_regs(parts, 3u, nil, 0u, 1u, regs) ==
               WT_FFA_INVALID_PARAMETERS &&
           wt_ffa_partinfo_regs(parts, 3u, rx, 0u, 0u, regs) ==
               WT_FFA_INVALID_PARAMETERS,
-          "a start past the end, a foreign tag, or an unknown UUID is refused");
+          "a start past the end or an unknown UUID is refused");
+    check(wt_ffa_partinfo_regs(parts, 3u, nil, 0u, 1u, regs) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a nonzero tag at start index 0 is INVALID_PARAMETERS (MBZ)");
+    check(wt_ffa_partinfo_regs(parts, 3u, nil, 1u, 1u, regs) == WT_FFA_RETRY &&
+          wt_ffa_partinfo_regs(parts, 3u, nil, 1u, 0u, regs) == 0,
+          "a continuation with a tag the callee did not hand out is RETRY");
 }
 
 /* WT-FFA-0002 (version renegotiation, 13.2). */

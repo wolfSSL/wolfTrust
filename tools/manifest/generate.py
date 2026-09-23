@@ -864,13 +864,21 @@ def emit_ffa(lines, ffa):
              c_uint(FFA_NS_INTERRUPT_ACTION[entry["ns_interrupt_action"]])),
             ("boot_info_register", c_uint(entry["boot_info_register"])),
         )))
+    count = len(entries)
+    if count == 0:
+        # The SPMC always calls the accessor: hand it a real, empty table.
+        entries.append(c_struct(
+            (("uuids", "NULL"),) +
+            tuple((name, c_uint(0)) for name in (
+                "domain_id", "uuid_count", "execution_contexts", "runtime_el",
+                "messaging", "ns_interrupt_action", "boot_info_register"))))
     table = emit_array(lines,
         "wt_ffa_partition_manifest_t wt_generated_ffa_partitions[{}]".format(
             len(entries)), entries)
     lines.extend((
         "const wt_ffa_partition_manifest_t* wt_generated_ffa_partitions_get("
         "size_t* count)",
-        "{", "    *count = {}U;".format(len(entries)),
+        "{", "    *count = {}U;".format(count),
         "    return {};".format(table), "}", ""))
 
 
@@ -1094,6 +1102,8 @@ def main():
             validate_ffa(ffa, manifest)
         if args.address_bits == "64":
             pool_pages = table_pool_pages(manifest, args.spm_table_pages)
+            if ffa is None:
+                ffa = {"partitions": []}
         source = generate_source(manifest, hashlib.sha256(input_bytes).digest(),
                                  ffa, pool_pages)
         args.output.mkdir(parents=True, exist_ok=True)

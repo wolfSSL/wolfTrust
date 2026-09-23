@@ -127,14 +127,14 @@ AArch64 manifests (`--address-bits 64`) may add an optional top-level
 partition properties of DEN0077A Table 5.1 (`uuids`, `execution_contexts`,
 `runtime_el`, `messaging`, `ns_interrupt_action`, `boot_info_register`).
 The generator emits them as a separate `wt_generated_ffa_partitions` table
-declared by `wolftrust/arch/aarch64/ffa_manifest.h`; manifests without the
-section generate exactly what they did before, and a 32-bit target rejects
-the section. 64-bit targets also get `WT_GENERATED_TABLE_POOL_PAGES` in the
-generated header: the 4 KB pages the stage-1 tables need (one table per
-partition, sized from its memory resources and stack, plus the SPMC's own
-table pages from `--spm-table-pages` and a spare set). The count is a lower
-bound, and the generated source fails the build when the target's
-`WT_SPM_TABLE_POOL_PAGES` is smaller.
+declared by `wolftrust/arch/aarch64/ffa_manifest.h`; a 64-bit manifest
+without the section gets an empty table (count 0), 32-bit output is
+unchanged, and a 32-bit target rejects the section. 64-bit targets also get
+`WT_GENERATED_TABLE_POOL_PAGES` in the generated header: the 4 KB pages the
+stage-1 tables need (one table per partition, sized from its memory resources
+and stack, plus the SPMC's own table pages from `--spm-table-pages` and a spare
+set). The count is a lower bound, and the generated source fails the build when
+the target's `WT_SPM_TABLE_POOL_PAGES` is smaller.
 
 ## Build controls
 

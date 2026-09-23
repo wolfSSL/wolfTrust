@@ -1195,6 +1195,14 @@ static void borrower_list_rows(void)
     rq.receivers[1] = 0x8002u;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
           "the borrowers may be named in any order");
+    make_rq(&rq, e, 2u);
+    rq.permissions[1] = WT_FFA_MEM_PERM_DATA_RO;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_DENIED,
+          "naming the other borrower with access the lender did not give it is DENIED");
+    rq.permissions[1] = WT_FFA_MEM_PERM_DATA_RW | WT_FFA_MEM_PERM_INSTR_NX;
+    rq.permissions[0] = WT_FFA_MEM_PERM_DATA_RO;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
+          "the caller's own entry may ask for less; the other's data access matches");
     make_rq(&rq, e, 1u);
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
               WT_FFA_INVALID_PARAMETERS,

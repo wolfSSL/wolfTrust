@@ -331,6 +331,13 @@ int wt_ffa_mailbox_map(wt_ffa_mailbox_t* mb, uint64_t tx, uint64_t rx,
                        uint32_t w3);
 /* INVALID_PARAMETERS when no pair is mapped. */
 int wt_ffa_mailbox_unmap(wt_ffa_mailbox_t* mb);
+/* Where a memory management call's descriptor of len bytes sits: the caller's
+ * TX buffer (DEN0140 2.1.1.2 items 1-2), as no dynamically allocated buffer is
+ * supported (4.1.1.3), so addr and pages (w3/x3, w4) are zero. Returns 0 with
+ * *out_tx set, or INVALID_PARAMETERS for a buffer address or size, no mapped
+ * pair, or a descriptor longer than the TX buffer. */
+int wt_ffa_mem_tx_buffer(const wt_ffa_mailbox_t* mb, uint64_t addr,
+                         uint32_t pages, uint32_t len, uint64_t* out_tx);
 /* DENIED when no pair is mapped, BUSY while the endpoint still owns RX. */
 int wt_ffa_mailbox_rx_acquire(wt_ffa_mailbox_t* mb);
 /* DENIED unless the endpoint owns a full RX buffer. */

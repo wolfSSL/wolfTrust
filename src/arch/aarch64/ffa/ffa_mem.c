@@ -741,9 +741,9 @@ int wt_ffa_rxtx_validate(uint64_t tx, uint64_t rx, uint32_t pages)
 int wt_ffa_mailbox_map(wt_ffa_mailbox_t* mb, uint64_t tx, uint64_t rx,
                        uint32_t w3)
 {
-    uint32_t pages = w3 & 0x3Fu;
+    uint32_t pages = WT_FFA_RXTX_PAGE_COUNT(w3);
 
-    if ((mb == NULL) || ((w3 & 0xFFFFFFC0u) != 0u)) {
+    if (mb == NULL) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if (mb->mapped != 0u) {

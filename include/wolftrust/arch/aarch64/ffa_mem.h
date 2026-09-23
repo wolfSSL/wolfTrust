@@ -338,8 +338,12 @@ typedef struct wt_ffa_mailbox {
     uint8_t rx_full;
 } wt_ffa_mailbox_t;
 
-/* w3 is the raw FFA_RXTX_MAP page-count word (bits 31:6 SBZ). DENIED when a
- * pair is already mapped, INVALID_PARAMETERS for bad geometry. */
+/* The page count in an FFA_RXTX_MAP w3; bits[31:6] are SBZ, which the callee
+ * ignores (Table 13.25, 11.2). */
+#define WT_FFA_RXTX_PAGE_COUNT(w3)      ((uint32_t)(w3) & 0x3Fu)
+
+/* w3 is the raw FFA_RXTX_MAP page-count word. DENIED when a pair is already
+ * mapped, INVALID_PARAMETERS for bad geometry. */
 int wt_ffa_mailbox_map(wt_ffa_mailbox_t* mb, uint64_t tx, uint64_t rx,
                        uint32_t w3);
 /* INVALID_PARAMETERS when no pair is mapped. */

@@ -374,9 +374,9 @@ static void mailbox_rows(void)
           "FFA_RX_RELEASE with nothing mapped is DENIED");
     check(wt_ffa_mailbox_rx_acquire(&mb) == WT_FFA_DENIED,
           "an unmapped RX buffer cannot be acquired");
-    check(wt_ffa_mailbox_map(&mb, 0x1000ull, 0x3000ull, 0x40u | 1u) ==
-              WT_FFA_INVALID_PARAMETERS,
-          "reserved bits above the page count are SBZ");
+    check(wt_ffa_mailbox_map(&mb, 0x1000ull, 0x3000ull, 0xFFFFFFC0u | 1u) ==
+              0 && mb.pages == 1u && wt_ffa_mailbox_unmap(&mb) == 0,
+          "reserved SBZ bits above the page count are ignored (Table 13.25)");
     check(wt_ffa_mailbox_map(&mb, 0x1001ull, 0x3000ull, 1u) ==
               WT_FFA_INVALID_PARAMETERS && mb.mapped == 0u,
           "bad geometry maps nothing");

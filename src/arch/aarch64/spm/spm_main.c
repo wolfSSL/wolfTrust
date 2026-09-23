@@ -1068,15 +1068,20 @@ static void ns_partition_info_get(wt_ffa_regs_t* r)
     ns_reply(r, ret, count, size);
 }
 
-/* FFA_RUN forwarded from the Normal world: w1 bits 31:16 name the endpoint;
- * what it hands back (response, FFA_YIELD, FFA_MSG_WAIT) is the reply. */
+/* FFA_RUN forwarded from the Normal world: w1 names the endpoint and its
+ * vCPU; what it hands back (response, FFA_YIELD, FFA_MSG_WAIT) is the reply. */
 static void ns_run(wt_ffa_regs_ext_t* e)
 {
     uint64_t out[WT_FFA_MSG_REGS_EXT];
-    struct wt_co* co =
-        wt_spm_ffa_native_by_id((uint16_t)((uint32_t)e->base.x[1] >> 16));
-    int ret = (co != NULL) ? wt_spm_ffa_run(co, WT_FFA_ID_NS_PRIMARY, out)
+    struct wt_co* co = NULL;
+    uint16_t id = 0u;
+    int ret = wt_ffa_run_target((uint32_t)e->base.x[1], &id);
+
+    if (ret == 0) {
+        co = wt_spm_ffa_native_by_id(id);
+        ret = (co != NULL) ? wt_spm_ffa_run(co, WT_FFA_ID_NS_PRIMARY, out)
                            : WT_FFA_INVALID_PARAMETERS;
+    }
 
     if (ret != 0) {
         ns_reply(&e->base, ret, 0u, 0u);

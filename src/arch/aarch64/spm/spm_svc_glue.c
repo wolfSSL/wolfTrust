@@ -402,9 +402,12 @@ static void ffa_direct_req(wt_trap_frame_t* frame, const struct wt_co* co)
  * direct request this partition sent it. */
 static void ffa_run(wt_trap_frame_t* frame, const struct wt_co* co)
 {
-    struct wt_co* target =
-        wt_spm_ffa_native_by_id((uint16_t)((uint32_t)frame->x[1] >> 16));
-    int ret = wt_spm_ffa_sp_call(co, target, NULL);
+    uint16_t id = 0u;
+    int ret = wt_ffa_run_target((uint32_t)frame->x[1], &id);
+
+    if (ret == 0) {
+        ret = wt_spm_ffa_sp_call(co, wt_spm_ffa_native_by_id(id), NULL);
+    }
 
     if (ret != 0) {
         ffa_error(frame, ret);

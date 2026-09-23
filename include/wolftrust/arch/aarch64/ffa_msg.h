@@ -66,6 +66,11 @@ void wt_ffa_direct_build(uint64_t* x, uint32_t fid, uint16_t sender,
 int wt_ffa_direct_req_check(const uint64_t* x, wt_ffa_instance_t inst);
 int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst);
 
+/* FFA_RUN target (14.3, Table 14.13): w1 bits 31:16 name the endpoint and bits
+ * 15:0 its vCPU. Every endpoint here is UP with the single execution context 0
+ * (4.7), so another vCPU id is INVALID_PARAMETERS (Table 14.14). */
+int wt_ffa_run_target(uint32_t w1, uint16_t* id);
+
 /* 13.2.3.2: the SPMD hands a Normal-world FFA_VERSION to an S-EL1 SPMC as a
  * framework direct request from the SPMD (Table 13.7, w3 = the version asked)
  * and the SPMC answers with a framework direct response (Table 13.8, w3 = the

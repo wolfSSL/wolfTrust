@@ -110,6 +110,12 @@ int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst)
     return 0;
 }
 
+int wt_ffa_run_target(uint32_t w1, uint16_t* id)
+{
+    *id = (uint16_t)(w1 >> 16);
+    return ((w1 & 0xFFFFu) == 0u) ? 0 : WT_FFA_INVALID_PARAMETERS;
+}
+
 #define WT_FFA_FWK_SPMD_TO_SPMC \
     (((uint32_t)WT_FFA_ID_SPMD << 16) | (uint32_t)WT_FFA_ID_SPMC)
 #define WT_FFA_FWK_SPMC_TO_SPMD \

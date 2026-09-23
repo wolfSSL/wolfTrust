@@ -154,6 +154,21 @@ static void direct_message_rows(void)
           "a well-formed RESP2 returns to the Normal-world requester");
 }
 
+/* FFA_RUN (14.3): w1 names the endpoint and the vCPU of it to run; each
+ * endpoint here has the single execution context 0. */
+static void run_target_rows(void)
+{
+    uint16_t id = 0u;
+
+    check(wt_ffa_run_target(0x80020000u, &id) == 0 && id == 0x8002u,
+          "FFA_RUN names its target endpoint in w1 bits[31:16], vCPU 0");
+    id = 0u;
+    check(wt_ffa_run_target(0x80020001u, &id) == WT_FFA_INVALID_PARAMETERS &&
+              wt_ffa_run_target(0x8002FFFFu, &id) == WT_FFA_INVALID_PARAMETERS,
+          "a vCPU id other than the endpoint's one execution context is "
+          "INVALID_PARAMETERS (Table 14.14)");
+}
+
 static uint32_t rd_u16(const uint8_t* p)
 {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8);
@@ -759,6 +774,7 @@ int main(void)
           "FFA_FEATURES tells function ids from feature ids by bit 31");
 
     direct_message_rows();
+    run_target_rows();
     msg2_rows();
     partition_info_rows();
     manifest_record_rows();

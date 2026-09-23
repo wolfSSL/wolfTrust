@@ -282,6 +282,64 @@ static void reject_rows(void)
           "a reserved transaction flag bit is INVALID_PARAMETERS");
 }
 
+/* Move everything after the header of a descriptor in buf by bytes, fixing up
+ * the access array offset and, for a send, its composite offset. */
+static size_t shift_access(uint8_t* buf, size_t len, uint32_t by,
+                           int composite)
+{
+    size_t i;
+
+    for (i = len; i > WT_FFA_MEM_TXN_HDR_SIZE; i--) {
+        buf[i - 1u + by] = buf[i - 1u];
+    }
+    memset(&buf[WT_FFA_MEM_TXN_HDR_SIZE], 0, by);
+    put32(&buf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET], WT_FFA_MEM_TXN_HDR_SIZE + by);
+    if (composite != 0) {
+        put32(&buf[WT_FFA_MEM_TXN_HDR_SIZE + by + WT_FFA_MEM_ACC_OFF_COMP_OFF],
+              WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACCESS_SIZE + by);
+    }
+    return len + by;
+}
+
+/* WT-FFA-0009 (the access descriptor array sits at a 16-byte aligned offset,
+ * Table 1.20). */
+static void access_offset_rows(void)
+{
+    uint8_t buf[256];
+    wt_ffa_mem_retrieve_req_t rq;
+    wt_ffa_mem_txn_t txn;
+    size_t len = 0u;
+
+    len = shift_access(buf, make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u),
+                       16u, 1);
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) == 0 &&
+          txn.access_offset == 64u && txn.composite_offset == 80u,
+          "a share whose access array sits at a later 16-byte aligned offset is accepted");
+    len = shift_access(buf, make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u),
+                       1u, 1);
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a share whose access array offset is 49 is INVALID_PARAMETERS");
+    len = shift_access(buf, make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_LEND, 0u),
+                       8u, 1);
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a lend whose access array is only 8-byte aligned is INVALID_PARAMETERS");
+
+    (void)wt_ffa_mem_retrieve_req_build(buf, sizeof(buf), 0x77ull, 0u, 0x8002u,
+                                        0x02u, &len);
+    len = shift_access(buf, len, 16u, 0);
+    check(wt_ffa_mem_retrieve_req_parse_ex(buf, len, &rq) == 0 &&
+          rq.receivers[0] == 0x8002u,
+          "a retrieve request whose access array sits at offset 64 is accepted");
+    (void)wt_ffa_mem_retrieve_req_build(buf, sizeof(buf), 0x77ull, 0u, 0x8002u,
+                                        0x02u, &len);
+    len = shift_access(buf, len, 1u, 0);
+    check(wt_ffa_mem_retrieve_req_parse_ex(buf, len, &rq) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a retrieve request whose access array offset is 49 is INVALID_PARAMETERS");
+}
+
 /* WT-FFA-0009 (RX/TX buffer geometry, 7.2.1). */
 static void rxtx_rows(void)
 {
@@ -1741,6 +1799,7 @@ int main(void)
     fid_rows();
     txn_rows();
     reject_rows();
+    access_offset_rows();
     rxtx_rows();
     mailbox_rows();
     tx_buffer_rows();

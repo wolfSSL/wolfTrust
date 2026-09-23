@@ -53,6 +53,7 @@
 #define WT_FFA_MEM_TXN_OFF_ACC_COUNT    28u  /* u32 access descriptor count */
 #define WT_FFA_MEM_TXN_OFF_ACC_OFFSET   32u  /* u32 offset to the access array */
 /* [36, 48) reserved, must be zero. */
+#define WT_FFA_MEM_ACC_OFFSET_ALIGN     16u  /* the access array offset's alignment */
 
 /* Endpoint memory access descriptor field offsets (Table 5.16). */
 #define WT_FFA_MEM_ACC_OFF_RECEIVER     0u   /* u16 receiver endpoint id */

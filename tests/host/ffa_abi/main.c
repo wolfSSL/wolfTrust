@@ -295,6 +295,20 @@ static void manifest_record_rows(void)
         uuids, 4u, 1u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_DIRECT,
         WT_FFA_NS_INTERRUPT_QUEUED, 0u
     };
+    static const wt_ffa_uuid_t uuids2[2] = {
+        { { 0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u,
+            0x18u, 0x19u, 0x1au, 0x1bu, 0x1cu, 0x1du, 0x1eu, 0x1fu } },
+        { { 0x20u, 0x21u, 0x22u, 0x23u, 0x24u, 0x25u, 0x26u, 0x27u,
+            0x28u, 0x29u, 0x2au, 0x2bu, 0x2cu, 0x2du, 0x2eu, 0x2fu } }
+    };
+    static const wt_ffa_partition_manifest_t two = {
+        uuids2, 7u, 2u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_DIRECT,
+        WT_FFA_NS_INTERRUPT_QUEUED, 0u
+    };
+    static const wt_ffa_partition_manifest_t none = {
+        uuids2, 8u, 0u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_DIRECT,
+        WT_FFA_NS_INTERRUPT_QUEUED, 0u
+    };
     static const uint8_t nil[16] = { 0 };
     wt_ffa_partinfo_entry_t out[2];
     uint32_t count = 0u;
@@ -323,6 +337,29 @@ static void manifest_record_rows(void)
                                 WT_FFA_PARTINFO_FLAG_COUNT, &count, &size) ==
               0 && count == 0u,
           "an empty listing counts zero");
+
+    n = 99u;
+    ret = wt_ffa_partinfo_from_manifest(&two, 0x8005u, out, 2u, &n);
+    check(ret == 0 && n == 2u && out[0].id == 0x8005u &&
+              out[1].id == 0x8005u &&
+              memcmp(out[0].uuid, uuids2[0].bytes, 16u) == 0 &&
+              memcmp(out[1].uuid, uuids2[1].bytes, 16u) == 0,
+          "a partition exporting two UUIDs gets a record per UUID under one id");
+    check(wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, out, n, nil,
+                                WT_FFA_PARTINFO_FLAG_COUNT, &count, &size) ==
+              0 && count == 2u,
+          "a Nil-UUID count covers every exported UUID");
+    check(wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, out, n,
+                                uuids2[1].bytes, WT_FFA_PARTINFO_FLAG_COUNT,
+                                &count, &size) == 0 && count == 1u,
+          "the second UUID finds the partition too");
+    n = 99u;
+    check(wt_ffa_partinfo_from_manifest(&two, 0x8005u, out, 1u, &n) ==
+              WT_FFA_NO_MEMORY && n == 0u,
+          "room for fewer records than UUIDs is NO_MEMORY");
+    check(wt_ffa_partinfo_from_manifest(&none, 0x8006u, out, 2u, &n) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a partition exporting no UUID is refused");
 }
 
 /* FFA_PARTITION_INFO_GET through the caller's mailbox (13.8, Table 13.36):

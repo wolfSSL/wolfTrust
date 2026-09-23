@@ -57,6 +57,7 @@ int wt_ffa_partinfo_from_manifest(const wt_ffa_partition_manifest_t* part,
                                   uint16_t id, wt_ffa_partinfo_entry_t* out,
                                   size_t cap, size_t* out_n)
 {
+    uint32_t u;
     unsigned int j;
 
     if ((part == NULL) || (out_n == NULL)) {
@@ -66,16 +67,22 @@ int wt_ffa_partinfo_from_manifest(const wt_ffa_partition_manifest_t* part,
     if (id == 0u) {
         return 0;
     }
-    if ((out == NULL) || (cap < 1u)) {
+    if ((part->uuids == NULL) || (part->uuid_count == 0u) ||
+        (part->uuid_count > WT_FFA_MANIFEST_MAX_UUIDS)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((out == NULL) || (cap < part->uuid_count)) {
         return WT_FFA_NO_MEMORY;
     }
-    out->id = id;
-    out->exec_contexts = (uint16_t)part->execution_contexts;
-    out->properties = wt_ffa_partinfo_props(part->messaging);
-    for (j = 0u; j < 16u; j++) {
-        out->uuid[j] = (part->uuid_count > 0u) ? part->uuids[0].bytes[j] : 0u;
+    for (u = 0u; u < part->uuid_count; u++) {
+        out[u].id = id;
+        out[u].exec_contexts = (uint16_t)part->execution_contexts;
+        out[u].properties = wt_ffa_partinfo_props(part->messaging);
+        for (j = 0u; j < 16u; j++) {
+            out[u].uuid[j] = part->uuids[u].bytes[j];
+        }
     }
-    *out_n = 1u;
+    *out_n = part->uuid_count;
     return 0;
 }
 

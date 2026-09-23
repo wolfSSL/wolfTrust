@@ -60,8 +60,9 @@ uint32_t wt_ffa_partinfo_props(uint32_t messaging);
 
 /* Discovery records for one manifest partition under the live endpoint id of
  * the partition running in its domain; none when id is 0 (nothing runs there).
- * Returns 0 with *out_n records written to out, or WT_FFA_NO_MEMORY when out
- * cannot hold them. */
+ * One record per exported UUID, all with that id (6.2.2). Returns 0 with
+ * *out_n records written to out, WT_FFA_NO_MEMORY when out cannot hold them,
+ * or WT_FFA_INVALID_PARAMETERS for a partition exporting no UUID or too many. */
 int wt_ffa_partinfo_from_manifest(const wt_ffa_partition_manifest_t* part,
                                   uint16_t id, wt_ffa_partinfo_entry_t* out,
                                   size_t cap, size_t* out_n);

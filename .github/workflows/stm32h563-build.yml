@@ -16,7 +16,7 @@ concurrency:
 jobs:
   wolfboot-m33mu:
     name: wolfBoot signed boot and rollback
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -75,7 +75,7 @@ jobs:
 
   wolfboot-wolftrust-m33mu:
     name: wolfTrust ${{ matrix.guest }} lifecycle
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:
@@ -266,7 +266,7 @@ jobs:
 
   wolfboot-wolftrust-m33mu-scenarios:
     name: ${{ matrix.scenario.name }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     strategy:
       fail-fast: false
       matrix:

@@ -13,7 +13,7 @@ permissions:
 jobs:
   qemu-a-smoke:
     name: EL3 smoke on ${{ matrix.cell.name }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-aarch64:v1.15
@@ -95,7 +95,7 @@ jobs:
 
   qemu-a-ffa-acs:
     name: FF-A ACS on ${{ matrix.cell.name }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-aarch64:v1.15

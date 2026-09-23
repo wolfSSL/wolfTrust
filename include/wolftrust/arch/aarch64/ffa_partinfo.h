@@ -36,12 +36,16 @@
 
 /* WT_FFA_PARTINFO_FLAG_COUNT (w5 bit 0, count-only) lives in ffa_abi.h. */
 
-/* Partition properties (Table 6.2): direct request receipt/sending, indirect
- * messaging, notification receipt. */
+/* Partition properties (Table 6.2): FFA_MSG_SEND_DIRECT_REQ receipt/sending,
+ * indirect messaging, notification receipt, AArch64 execution state, and
+ * FFA_MSG_SEND_DIRECT_REQ2 receipt/sending. */
 #define WT_FFA_PARTINFO_PROP_DIRECT_RECV 0x1u
 #define WT_FFA_PARTINFO_PROP_DIRECT_SEND 0x2u
 #define WT_FFA_PARTINFO_PROP_INDIRECT    0x4u
 #define WT_FFA_PARTINFO_PROP_NOTIF       0x8u
+#define WT_FFA_PARTINFO_PROP_AARCH64     0x100u
+#define WT_FFA_PARTINFO_PROP_REQ2_RECV   0x200u
+#define WT_FFA_PARTINFO_PROP_REQ2_SEND   0x400u
 
 typedef struct wt_ffa_partinfo_entry {
     uint16_t id;
@@ -60,7 +64,8 @@ uint32_t wt_ffa_partinfo_props(uint32_t messaging);
 
 /* Discovery records for one manifest partition under the live endpoint id of
  * the partition running in its domain; none when id is 0 (nothing runs there).
- * One record per exported UUID, all with that id (6.2.2). Returns 0 with
+ * One record per exported UUID, all with that id (6.2.2); every manifest
+ * partition runs in AArch64 at S-EL0 (Table 6.2 bit 8). Returns 0 with
  * *out_n records written to out, WT_FFA_NO_MEMORY when out cannot hold them,
  * or WT_FFA_INVALID_PARAMETERS for a partition exporting no UUID or too many. */
 int wt_ffa_partinfo_from_manifest(const wt_ffa_partition_manifest_t* part,

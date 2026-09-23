@@ -77,7 +77,8 @@ int wt_ffa_partinfo_from_manifest(const wt_ffa_partition_manifest_t* part,
     for (u = 0u; u < part->uuid_count; u++) {
         out[u].id = id;
         out[u].exec_contexts = (uint16_t)part->execution_contexts;
-        out[u].properties = wt_ffa_partinfo_props(part->messaging);
+        out[u].properties = wt_ffa_partinfo_props(part->messaging) |
+                            WT_FFA_PARTINFO_PROP_AARCH64;
         for (j = 0u; j < 16u; j++) {
             out[u].uuid[j] = part->uuids[u].bytes[j];
         }

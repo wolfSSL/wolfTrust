@@ -622,22 +622,24 @@ static void guest_conformance(void)
 #include "wolftrust/arch/aarch64/ffa_mem.h"
 
 /* A page the guest offers to share (its content is irrelevant to descriptor
- * validation) and the descriptor buffer, both in the guest's NS window so the
- * SPMC can read the descriptor it points the relayer at. */
+ * validation) and its RX/TX pair, all in the guest's NS window; every
+ * descriptor is written into the TX buffer. */
 static uint8_t g_memneg_page[4096] __attribute__((aligned(4096)));
-static uint8_t g_memneg_desc[256];
+static uint8_t g_memneg_desc[4096] __attribute__((aligned(4096)));
+static uint8_t g_memneg_rx[4096] __attribute__((aligned(4096)));
 
-/* FFA_MEM_SHARE with the descriptor at an explicit NS address in x3 (7.3): the
- * SPMD forwards it, the SPMC reads and validates the descriptor. Returns the
- * FF-A status (x0); w2 and w3 carry the handle on success, w2 the error code. */
-static uint32_t mem_share_smc(uint64_t addr, uint32_t len, uint64_t* w2,
-                              uint64_t* w3)
+/* FFA_MEM_SHARE naming the descriptor's buffer in x3/w4 (both zero for the TX
+ * buffer, DEN0140 4.1.1.3): the SPMD forwards it, the SPMC reads and validates
+ * the descriptor. Returns the FF-A status (x0); w2 and w3 carry the handle on
+ * success, w2 the error code. */
+static uint32_t mem_share_buf_smc(uint64_t addr, uint64_t pages, uint32_t len,
+                                  uint64_t* w2, uint64_t* w3)
 {
     register uint64_t r0 __asm__("x0") = WT_FFA_MEM_SHARE32;
     register uint64_t r1 __asm__("x1") = len;
     register uint64_t r2 __asm__("x2") = len;
     register uint64_t r3 __asm__("x3") = addr;
-    register uint64_t r4 __asm__("x4") = 1u;
+    register uint64_t r4 __asm__("x4") = pages;
 
     __asm__ volatile("smc #0"
                      : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4)
@@ -647,6 +649,11 @@ static uint32_t mem_share_smc(uint64_t addr, uint32_t len, uint64_t* w2,
     *w2 = r2;
     *w3 = r3;
     return (uint32_t)r0;
+}
+
+static uint32_t mem_share_smc(uint32_t len, uint64_t* w2, uint64_t* w3)
+{
+    return mem_share_buf_smc(0u, 0u, len, w2, w3);
 }
 
 static uint32_t mem_reclaim_smc(uint64_t handle)
@@ -739,8 +746,8 @@ static int memfrag_share(void)
     x[0] = WT_FFA_MEM_SHARE32;
     x[1] = len;
     x[2] = split;
-    x[3] = (uint64_t)(uintptr_t)g_memneg_desc;
-    x[4] = 1u;
+    x[3] = 0u;
+    x[4] = 0u;
     smc5(x);
     handle = (x[1] & 0xFFFFFFFFu) | ((x[2] & 0xFFFFFFFFu) << 32);
     ok = ((uint32_t)x[0] == WT_FFA_MEM_FRAG_RX) && ((uint32_t)x[3] == split) &&
@@ -784,15 +791,28 @@ static int memneg_refused(uint32_t len)
     uint64_t w2 = 0u;
     uint64_t w3 = 0u;
 
-    return mem_share_smc((uint64_t)(uintptr_t)g_memneg_desc, len, &w2, &w3) ==
-           WT_FFA_ERROR;
+    return mem_share_smc(len, &w2, &w3) == WT_FFA_ERROR;
 }
 
-/* Offer a well-formed FFA_MEM_SHARE (accepted, a handle returned), then a set of
- * malformed descriptors (each refused with no crash), reclaim the good handle,
- * and confirm a second reclaim of the now-dead handle is refused. */
+/* A well-formed share the SPMC must refuse as INVALID_PARAMETERS for how it
+ * names its buffer. */
+static int memneg_bad_buffer(uint64_t addr, uint64_t pages, uint32_t len)
+{
+    uint64_t w2 = 0u;
+    uint64_t w3 = 0u;
+
+    return (mem_share_buf_smc(addr, pages, len, &w2, &w3) == WT_FFA_ERROR) &&
+           ((int32_t)(uint32_t)w2 == WT_FFA_INVALID_PARAMETERS);
+}
+
+/* Before its RX/TX pair is mapped a share is INVALID_PARAMETERS; after, offer
+ * a well-formed FFA_MEM_SHARE (accepted, a handle returned), then a set of
+ * malformed descriptors and dynamically allocated buffers (each refused with
+ * no crash), reclaim the good handle, and confirm a second reclaim of the
+ * now-dead handle is refused. */
 static void guest_memneg(void)
 {
+    uint64_t x[5];
     uint64_t handle;
     uint64_t w2 = 0u;
     uint64_t w3 = 0u;
@@ -804,12 +824,27 @@ static void guest_memneg(void)
         put_str("[NS] memneg BAD build\r\n");
         return;
     }
-    if (mem_share_smc((uint64_t)(uintptr_t)g_memneg_desc, len, &w2, &w3) !=
-        WT_FFA_SUCCESS32) {
+    ok = ok && memneg_bad_buffer(0u, 0u, len);  /* no RX/TX pair mapped */
+    x[0] = WT_FFA_RXTX_MAP64;
+    x[1] = (uint64_t)(uintptr_t)g_memneg_desc;
+    x[2] = (uint64_t)(uintptr_t)g_memneg_rx;
+    x[3] = 1u;
+    x[4] = 0u;
+    smc5(x);
+    if ((uint32_t)x[0] != WT_FFA_SUCCESS32) {
+        put_str("[NS] memneg BAD rxtx map\r\n");
+        return;
+    }
+    if (mem_share_smc(len, &w2, &w3) != WT_FFA_SUCCESS32) {
         put_str("[NS] memneg BAD share\r\n");
         return;
     }
     handle = (w2 & 0xFFFFFFFFu) | (w3 << 32);
+
+    (void)memneg_build();
+    ok = ok && memneg_bad_buffer((uint64_t)(uintptr_t)g_memneg_desc, 1u, len);
+    ok = ok && memneg_bad_buffer((uint64_t)(uintptr_t)g_memneg_desc, 0u, len);
+    ok = ok && memneg_bad_buffer(0u, 1u, len);
 
     (void)memneg_build();
     g_memneg_desc[80] = 1u;                 /* misaligned constituent base */

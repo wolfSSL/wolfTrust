@@ -1105,29 +1105,27 @@ static void ns_handle_reply(wt_ffa_regs_t* r, int ret, uint64_t handle)
     }
 }
 
-/* FFA_MEM_SHARE forwarded from the Normal world (7.3): the guest's descriptor
- * is at the NS address in x3 with length in x1, both inside the SPMC's
- * Non-secure window. Validate and register it; reply with the handle in w2/w3
- * or an error. A malformed descriptor is refused, never a crash. The reply
- * SMC's return is the next event. */
+/* FFA_MEM_SHARE / LEND / DONATE forwarded from the Normal world: the guest's
+ * descriptor (length in w1, this fragment's in w2) is in its TX buffer inside
+ * the SPMC's Non-secure window; w3/x3 and w4 name no dynamically allocated
+ * buffer, which FFA_FEATURES does not offer. Validate and register it; reply
+ * with the handle in w2/w3 or an error. A malformed descriptor is refused,
+ * never a crash. The reply SMC's return is the next event. */
 static void ns_mem_send(wt_ffa_regs_t* r, wt_ffa_mem_op_t op)
 {
-    uint64_t addr = r->x[3];
+    uint64_t addr = 0u;
     uint32_t total = (uint32_t)r->x[1];
     uint32_t frag = (uint32_t)r->x[2];
     uint64_t handle = 0u;
     int ret;
 
-    /* x3 = 0 names the descriptor in the guest's TX buffer (11.1). */
-    if ((addr == 0u) && (g_ns_mailbox.mapped != 0u) &&
-        (frag <= (g_ns_mailbox.pages * WT_FFA_MEM_PAGE_SIZE))) {
-        addr = g_ns_mailbox.tx;
-    }
-    if ((frag < 1u) || (frag > total) ||
-        (ns_range_ok(addr, (uint64_t)frag) == 0)) {
+    ret = wt_ffa_mem_tx_buffer(&g_ns_mailbox, r->x[3], (uint32_t)r->x[4], frag,
+                               &addr);
+    if ((ret == 0) && ((frag < 1u) || (frag > total) ||
+                       (ns_range_ok(addr, (uint64_t)frag) == 0))) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
-    else if (frag < total) {
+    if ((ret == 0) && (frag < total)) {
         ret = wt_spm_mem_frag_begin((uint8_t)op, WT_FFA_ID_NS_PRIMARY,
                                     (const uint8_t*)(uintptr_t)addr, frag,
                                     total, &handle);
@@ -1137,7 +1135,7 @@ static void ns_mem_send(wt_ffa_regs_t* r, wt_ffa_mem_op_t op)
             return;
         }
     }
-    else {
+    else if (ret == 0) {
         ret = wt_spm_mem_share((const uint8_t*)(uintptr_t)addr, (size_t)total,
                                op, WT_FFA_ID_NS_PRIMARY, &handle);
     }

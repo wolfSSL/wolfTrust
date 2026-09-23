@@ -24,6 +24,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "wolftrust/arch/aarch64/ffa_manifest.h"
+
 /* FFA_PARTITION_INFO_GET partition information descriptors (DEN0077A 1.2 6.1,
  * Table 6.1) written into a caller's RX buffer (7.2). A descriptor is the
  * partition id, its execution-context count, and a properties word; from FF-A
@@ -55,6 +57,14 @@ uint32_t wt_ffa_partinfo_desc_size(uint32_t caller_version);
 /* Properties word for a partition from its manifest messaging kind
  * (WT_FFA_MESSAGING_DIRECT / _INDIRECT). */
 uint32_t wt_ffa_partinfo_props(uint32_t messaging);
+
+/* Discovery records for one manifest partition under the live endpoint id of
+ * the partition running in its domain; none when id is 0 (nothing runs there).
+ * Returns 0 with *out_n records written to out, or WT_FFA_NO_MEMORY when out
+ * cannot hold them. */
+int wt_ffa_partinfo_from_manifest(const wt_ffa_partition_manifest_t* part,
+                                  uint16_t id, wt_ffa_partinfo_entry_t* out,
+                                  size_t cap, size_t* out_n);
 
 /* Write the descriptors matching uuid16 into rx (7.2/6.1). A Nil UUID (all
  * zero) matches every partition; otherwise only those whose UUID equals it,

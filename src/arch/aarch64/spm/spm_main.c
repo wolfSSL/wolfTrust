@@ -587,23 +587,35 @@ static int prove_preempt(void)
     return preempted;
 }
 
-/* Prove FF-A partition discovery: an S-EL0 partition calls
- * FFA_PARTITION_INFO_GET with a Nil UUID, the SPMC writes a descriptor per
- * configured partition into the partition's RX buffer, and the partition reads
- * the count and the first descriptor's id back out at S-EL0. */
+/* Prove FF-A partition discovery: an S-EL0 partition standing in for the
+ * first configured partition (its domain and stack) calls
+ * FFA_PARTITION_INFO_GET with a Nil UUID while no other partition exists. The
+ * SPMC lists exactly that domain's descriptor, under the id FFA_ID_GET gives
+ * the caller, in the partition's RX buffer; the partition reads the count and
+ * the first descriptor's id back out at S-EL0. */
 static wt_secure_domain_t g_discover_domain;
 
 static int prove_partinfo(uint32_t* out_count)
 {
     const wt_domain_descriptor_t* d = first_partition_domain();
     const wt_ffa_partition_manifest_t* parts;
+    uint32_t expect = 0u;
     size_t np = 0u;
+    size_t i;
     uint8_t* stack;
     wt_co_t* co;
     uint64_t token;
 
     parts = wt_generated_ffa_partitions_get(&np);
-    if ((d == NULL) || (parts == NULL) || (np == 0u)) {
+    if ((d == NULL) || (parts == NULL)) {
+        return 0;
+    }
+    for (i = 0u; i < np; i++) {
+        if (parts[i].domain_id == (uint32_t)d->id) {
+            expect = 1u;
+        }
+    }
+    if (expect == 0u) {
         return 0;
     }
     stack = (uint8_t*)(uintptr_t)d->stack_base;
@@ -617,6 +629,7 @@ static int prove_partinfo(uint32_t* out_count)
     g_discover_domain.regions[2].size = (size_t)WT_SPM_RXTX_SIZE;
     g_discover_domain.regions[2].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     g_discover_domain.region_count = 3u;
+    g_discover_domain.domain_id = d->id;
     co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
                                  (wt_co_entry_fn)wt_sp_ffa_discover,
                                  (void*)(uintptr_t)WT_SPM_RXTX_PA);
@@ -630,12 +643,11 @@ static int prove_partinfo(uint32_t* out_count)
     }
     token = wt_spm_yield_token();
     *out_count = (uint32_t)(token & 0xFFFFu);
-    /* The partition read the first descriptor's id from its RX buffer at S-EL0;
-     * the SPMC assigns ids from WT_FFA_ID_SP_FIRST in creation order. */
-    if ((uint32_t)((token >> 16) & 0xFFFFu) != (uint32_t)WT_FFA_ID_SP_FIRST) {
+    if ((uint32_t)((token >> 16) & 0xFFFFu) !=
+        (uint32_t)wt_spm_sp_ffa_id((struct wt_co*)co)) {
         return 0;
     }
-    return (*out_count == (uint32_t)np) ? 1 : 0;
+    return (*out_count == expect) ? 1 : 0;
 }
 
 /* Prove FF-A memory sharing end to end: the SPMC (owner) seeds the share page

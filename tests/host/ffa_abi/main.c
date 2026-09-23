@@ -282,6 +282,48 @@ static void partition_info_rows(void)
           "a continuation with a tag the callee did not hand out is RETRY");
 }
 
+/* Discovery records from the manifest: the id is the live endpoint id of the
+ * partition running in the domain, and a domain nothing runs in is omitted. */
+static void manifest_record_rows(void)
+{
+    static const wt_ffa_uuid_t uuids[1] = {
+        { { 0x4fu, 0xd3u, 0xdau, 0x63u, 0x10u, 0x2cu, 0x5eu, 0xf8u,
+            0x9eu, 0xadu, 0x37u, 0x6bu, 0xd7u, 0x22u, 0xc3u, 0x37u } }
+    };
+    static const wt_ffa_partition_manifest_t part = {
+        uuids, 4u, 1u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_DIRECT,
+        WT_FFA_NS_INTERRUPT_QUEUED, 0u
+    };
+    static const uint8_t nil[16] = { 0 };
+    wt_ffa_partinfo_entry_t out[2];
+    uint32_t count = 0u;
+    uint32_t size = 0u;
+    size_t n = 99u;
+    int ret;
+
+    ret = wt_ffa_partinfo_from_manifest(&part, 0x8002u, out, 2u, &n);
+    check(ret == 0 && n == 1u && out[0].id == 0x8002u &&
+              out[0].exec_contexts == 1u &&
+              memcmp(out[0].uuid, uuids[0].bytes, 16u) == 0,
+          "a manifest partition is listed under its live id with its UUID");
+    check(wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, out, n,
+                                uuids[0].bytes, WT_FFA_PARTINFO_FLAG_COUNT,
+                                &count, &size) == 0 && count == 1u,
+          "its UUID finds that record");
+    n = 99u;
+    ret = wt_ffa_partinfo_from_manifest(&part, 0u, out, 2u, &n);
+    check(ret == 0 && n == 0u,
+          "a domain no live partition runs in is omitted");
+    n = 99u;
+    ret = wt_ffa_partinfo_from_manifest(&part, 0x8007u, out, 0u, &n);
+    check(ret == WT_FFA_NO_MEMORY && n == 0u,
+          "no room for the record is NO_MEMORY");
+    check(wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, out, 0u, nil,
+                                WT_FFA_PARTINFO_FLAG_COUNT, &count, &size) ==
+              0 && count == 0u,
+          "an empty listing counts zero");
+}
+
 /* WT-FFA-0002 (version renegotiation, 13.2). */
 static void version_state_rows(void)
 {
@@ -486,6 +528,7 @@ int main(void)
     direct_message_rows();
     msg2_rows();
     partition_info_rows();
+    manifest_record_rows();
     version_state_rows();
 
     printf("ffa_abi: %d checks, %d failures\n", checks, failures);

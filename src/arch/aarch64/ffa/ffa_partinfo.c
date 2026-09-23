@@ -52,6 +52,32 @@ uint32_t wt_ffa_partinfo_props(uint32_t messaging)
     return props;
 }
 
+int wt_ffa_partinfo_from_manifest(const wt_ffa_partition_manifest_t* part,
+                                  uint16_t id, wt_ffa_partinfo_entry_t* out,
+                                  size_t cap, size_t* out_n)
+{
+    unsigned int j;
+
+    if ((part == NULL) || (out_n == NULL)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    *out_n = 0u;
+    if (id == 0u) {
+        return 0;
+    }
+    if ((out == NULL) || (cap < 1u)) {
+        return WT_FFA_NO_MEMORY;
+    }
+    out->id = id;
+    out->exec_contexts = (uint16_t)part->execution_contexts;
+    out->properties = wt_ffa_partinfo_props(part->messaging);
+    for (j = 0u; j < 16u; j++) {
+        out->uuid[j] = (part->uuid_count > 0u) ? part->uuids[0].bytes[j] : 0u;
+    }
+    *out_n = 1u;
+    return 0;
+}
+
 static int uuid_is_nil(const uint8_t* u)
 {
     unsigned int i;

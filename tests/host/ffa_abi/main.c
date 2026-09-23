@@ -321,6 +321,8 @@ static void manifest_record_rows(void)
               out[0].exec_contexts == 1u &&
               memcmp(out[0].uuid, uuids[0].bytes, 16u) == 0,
           "a manifest partition is listed under its live id with its UUID");
+    check((out[0].properties & WT_FFA_PARTINFO_PROP_AARCH64) != 0u,
+          "a manifest partition reports the AArch64 execution state (bit 8)");
     check(wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, out, n,
                                 uuids[0].bytes, WT_FFA_PARTINFO_FLAG_COUNT,
                                 &count, &size) == 0 && count == 1u,

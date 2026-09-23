@@ -77,7 +77,7 @@ static int uuid_equal(const uint8_t* a, const uint8_t* b)
 }
 
 static void write_desc(uint8_t* dst, uint32_t desc_size,
-                       const wt_ffa_partinfo_entry_t* p)
+                       const wt_ffa_partinfo_entry_t* p, int nil)
 {
     unsigned int i;
 
@@ -92,7 +92,7 @@ static void write_desc(uint8_t* dst, uint32_t desc_size,
     dst[5] = (uint8_t)((p->properties >> 8) & 0xFFu);
     dst[6] = (uint8_t)((p->properties >> 16) & 0xFFu);
     dst[7] = (uint8_t)((p->properties >> 24) & 0xFFu);
-    if (desc_size >= WT_FFA_PARTINFO_DESC_V11) {
+    if ((nil != 0) && (desc_size >= WT_FFA_PARTINFO_DESC_V11)) {
         for (i = 0u; i < 16u; i++) {
             dst[8u + i] = p->uuid[i];
         }
@@ -125,7 +125,7 @@ int wt_ffa_partinfo_write(uint8_t* rx, size_t rx_size, uint32_t caller_version,
             if ((rx == NULL) || ((off + desc_size) > rx_size)) {
                 return WT_FFA_NO_MEMORY;
             }
-            write_desc(&rx[off], desc_size, &parts[i]);
+            write_desc(&rx[off], desc_size, &parts[i], nil);
             off += desc_size;
         }
         count++;
@@ -157,8 +157,12 @@ int wt_ffa_partinfo_regs(const wt_ffa_partinfo_entry_t* parts, size_t n,
     size_t i;
     int nil;
 
-    if ((parts == NULL) || (uuid16 == NULL) || (out18 == NULL) || (tag != 0u)) {
+    if ((parts == NULL) || (uuid16 == NULL) || (out18 == NULL)) {
         return WT_FFA_INVALID_PARAMETERS;
+    }
+    /* The callee's tag is always 0: MBZ at start 0, stale after it (13.9.2). */
+    if (tag != 0u) {
+        return (start == 0u) ? WT_FFA_INVALID_PARAMETERS : WT_FFA_RETRY;
     }
     for (i = 0u; i < 18u; i++) {
         out18[i] = 0u;
@@ -173,8 +177,10 @@ int wt_ffa_partinfo_regs(const wt_ffa_partinfo_entry_t* parts, size_t n,
             out18[reg] = (uint64_t)parts[i].id |
                          ((uint64_t)parts[i].exec_contexts << 16) |
                          ((uint64_t)parts[i].properties << 32);
-            out18[reg + 1u] = uuid_half(&parts[i].uuid[0]);
-            out18[reg + 2u] = uuid_half(&parts[i].uuid[8]);
+            if (nil != 0) {
+                out18[reg + 1u] = uuid_half(&parts[i].uuid[0]);
+                out18[reg + 2u] = uuid_half(&parts[i].uuid[8]);
+            }
             written++;
         }
         matches++;

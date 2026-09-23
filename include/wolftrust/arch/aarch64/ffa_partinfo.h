@@ -57,8 +57,8 @@ uint32_t wt_ffa_partinfo_desc_size(uint32_t caller_version);
 uint32_t wt_ffa_partinfo_props(uint32_t messaging);
 
 /* Write the descriptors matching uuid16 into rx (7.2/6.1). A Nil UUID (all
- * zero) matches every partition; otherwise only those whose UUID equals it.
- * flags bit 0 returns only the count (no descriptors written). On success 0 is
+ * zero) matches every partition; otherwise only those whose UUID equals it,
+ * and the descriptors' UUID field is then zero (Table 6.1). flags bit 0 returns only the count (no descriptors written). On success 0 is
  * returned with *out_count set and *out_desc_size set to the per-descriptor
  * size (0 for a count-only request). The producer zeroes every descriptor byte
  * it does not fill (7.2.2). WT_FFA_INVALID_PARAMETERS for a reserved flag bit;
@@ -70,10 +70,11 @@ int wt_ffa_partinfo_write(uint8_t* rx, size_t rx_size, uint32_t caller_version,
 
 /* FFA_PARTITION_INFO_GET_REGS (13.9): up to five matching descriptors per
  * call in out[3..17], three registers each (id, contexts and properties; then
- * the UUID), from the start index on. out[2] packs the last index, the index of
- * the last descriptor returned, the tag and the descriptor size. The list never
- * changes, so the tag is zero. INVALID_PARAMETERS for a UUID nothing matches,
- * a start index past the end, or a tag that is not the one handed out. */
+ * the UUID, zero for a specific-UUID query), from the start index on. out[2]
+ * packs the last index, the index of the last descriptor returned, the tag and
+ * the descriptor size. The list never changes, so the tag is zero.
+ * INVALID_PARAMETERS for a UUID nothing matches, a start index past the end,
+ * or a nonzero tag at start 0 (MBZ); RETRY for a nonzero tag after it. */
 #define WT_FFA_PARTINFO_REGS_PER_CALL 5u
 int wt_ffa_partinfo_regs(const wt_ffa_partinfo_entry_t* parts, size_t n,
                          const uint8_t* uuid16, uint16_t start, uint16_t tag,

@@ -1404,6 +1404,7 @@ static void borrower_list_rows(void)
 #define RELAY_POOL_PA    0x0E100000ull
 #define RELAY_ID_A       0x8002u
 #define RELAY_ID_B       0x8003u
+#define RELAY_ID_C       0x8004u
 #define RELAY_RW         (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE)
 /* Pages of the host backing: A's manifest-shared page, the image page every
  * partition maps, A's read-write pages 2-5 (2 and 5 are SPMC fill entries B's
@@ -1416,6 +1417,7 @@ static void borrower_list_rows(void)
 #define PG_FILL2  5u
 #define PG_RO     6u
 #define PG_B      8u
+#define PG_C      9u
 
 static uint8_t g_relay_pool[RELAY_POOL_PAGES * WT_TABLES_PAGE_SIZE]
     __attribute__((aligned(4096)));
@@ -1423,12 +1425,15 @@ static uint8_t* g_mem;
 static wt_memory_region_t g_relay_fill[2];
 static wt_secure_domain_t g_dom_a;
 static wt_secure_domain_t g_dom_b;
+static wt_secure_domain_t g_dom_c;
 static int g_co_a;
 static int g_co_b;
+static int g_co_c;
 static unsigned int g_domain_fails;
 
 #define CO_A ((struct wt_co*)(void*)&g_co_a)
 #define CO_B ((struct wt_co*)(void*)&g_co_b)
+#define CO_C ((struct wt_co*)(void*)&g_co_c)
 
 void wt_mmu_switch_ttbr0(uint64_t ttbr0)
 {
@@ -1505,6 +1510,7 @@ static int relay_reset(void)
     (void)memset(g_mem, 0, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);
     (void)memset(&g_dom_a, 0, sizeof(g_dom_a));
     (void)memset(&g_dom_b, 0, sizeof(g_dom_b));
+    (void)memset(&g_dom_c, 0, sizeof(g_dom_c));
     set_region(&g_dom_a.regions[0], PG_FILL, 4u, RELAY_RW);
     set_region(&g_dom_a.regions[1], PG_RO, 1u, WT_MEM_ATTR_READ);
     set_region(&g_dom_a.regions[2], PG_SHARED, 1u,
@@ -1514,6 +1520,8 @@ static int relay_reset(void)
     g_dom_a.region_count = 4u;
     set_region(&g_dom_b.regions[0], PG_B, 1u, RELAY_RW);
     g_dom_b.region_count = 1u;
+    set_region(&g_dom_c.regions[0], PG_C, 1u, RELAY_RW);
+    g_dom_c.region_count = 1u;
     set_region(&g_relay_fill[0], PG_FILL, 1u,
                RELAY_RW | WT_DOMAIN_FILL_SHARED);
     set_region(&g_relay_fill[1], PG_FILL2, 1u,
@@ -1525,9 +1533,11 @@ static int relay_reset(void)
     }
     wt_arch_program_sp_thread_domain(g_dom_a.regions, g_dom_a.region_count);
     wt_arch_program_sp_thread_domain(g_dom_b.regions, g_dom_b.region_count);
+    wt_arch_program_sp_thread_domain(g_dom_c.regions, g_dom_c.region_count);
     wt_spm_mem_init();
     return (wt_spm_mem_bind(RELAY_ID_A, CO_A, &g_dom_a) == 0) &&
            (wt_spm_mem_bind(RELAY_ID_B, CO_B, &g_dom_b) == 0) &&
+           (wt_spm_mem_bind(RELAY_ID_C, CO_C, &g_dom_c) == 0) &&
            (g_domain_fails == 0u);
 }
 
@@ -1873,6 +1883,106 @@ static void relay_region_rows(void)
     check(g_domain_fails == 0u, "region: no domain operation failed closed");
 }
 
+/* Append C as a second receiver, with B's permissions, to the send descriptor
+ * relay_build laid out in desc; returns the new length. */
+static size_t add_receiver_c(uint8_t* desc, size_t len)
+{
+    const size_t acc = WT_FFA_MEM_TXN_HDR_SIZE;
+    const size_t comp = acc + WT_FFA_MEM_ACCESS_SIZE;
+    size_t i;
+
+    for (i = len; i > comp; i--) {
+        desc[i - 1u + WT_FFA_MEM_ACCESS_SIZE] = desc[i - 1u];
+    }
+    memcpy(&desc[comp], &desc[acc], WT_FFA_MEM_ACCESS_SIZE);
+    desc[comp + WT_FFA_MEM_ACC_OFF_RECEIVER] = (uint8_t)(RELAY_ID_C & 0xFFu);
+    desc[comp + WT_FFA_MEM_ACC_OFF_RECEIVER + 1u] = (uint8_t)(RELAY_ID_C >> 8);
+    put32(&desc[acc + WT_FFA_MEM_ACC_OFF_COMP_OFF],
+          (uint32_t)(comp + WT_FFA_MEM_ACCESS_SIZE));
+    put32(&desc[comp + WT_FFA_MEM_ACC_OFF_COMP_OFF],
+          (uint32_t)(comp + WT_FFA_MEM_ACCESS_SIZE));
+    put32(&desc[WT_FFA_MEM_TXN_OFF_ACC_COUNT], 2u);
+    return len + WT_FFA_MEM_ACCESS_SIZE;
+}
+
+/* who (B or C) retrieves h read-write, naming the other as a non-retrieval
+ * borrower. */
+static int relay_retrieve_of_two(uint64_t h, uint16_t who)
+{
+    uint8_t req[128];
+    uint8_t resp[256];
+    uint16_t other = (who == RELAY_ID_B) ? RELAY_ID_C : RELAY_ID_B;
+    size_t len = 0u;
+    size_t resp_len = 0u;
+    int ret;
+
+    ret = wt_ffa_mem_retrieve_req_build(req, sizeof(req), h, RELAY_ID_A, who,
+                                        WT_FFA_MEM_PERM_DATA_RW, &len);
+    if (ret == 0) {
+        memcpy(&req[len], &req[WT_FFA_MEM_TXN_HDR_SIZE], WT_FFA_MEM_ACCESS_SIZE);
+        req[len + WT_FFA_MEM_ACC_OFF_RECEIVER] = (uint8_t)(other & 0xFFu);
+        req[len + WT_FFA_MEM_ACC_OFF_RECEIVER + 1u] = (uint8_t)(other >> 8);
+        req[len + WT_FFA_MEM_ACC_OFF_FLAGS] =
+            (uint8_t)WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL;
+        put32(&req[WT_FFA_MEM_TXN_OFF_ACC_COUNT], 2u);
+        ret = wt_spm_mem_retrieve(req, len + WT_FFA_MEM_ACCESS_SIZE, who, resp,
+                                  sizeof(resp), &resp_len);
+    }
+    return ret;
+}
+
+static int relay_relinquish_as(uint64_t h, uint16_t who)
+{
+    uint8_t rel[32];
+    size_t len = 0u;
+    int ret;
+
+    ret = wt_ffa_mem_relinquish_build(rel, sizeof(rel), h, 0u, who, &len);
+    if (ret == 0) {
+        ret = wt_spm_mem_relinquish(rel, len, who);
+    }
+    return ret;
+}
+
+/* WT-FFA-0009 (memory the owner asked to be zeroed is zeroed once, after the
+ * owner's access is gone and before any borrower maps it, Table 1.21 bit[0]
+ * and 1.11.4.1). */
+static void relay_zero_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint8_t desc[256];
+    uint8_t* p;
+    uint64_t h = 0u;
+    size_t len = 0u;
+    int ret;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "zero: fixture");
+        return;
+    }
+    p = (uint8_t*)page(PG_RW);
+    p[0] = 0x5Au;
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    ret = relay_build(desc, sizeof(desc), WT_FFA_MEM_OP_LEND, c, 1u,
+                      WT_FFA_MEM_PERM_DATA_RW, WT_FFA_MEM_FLAG_ZERO, &len);
+    if (ret == 0) {
+        len = add_receiver_c(desc, len);
+        ret = wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_LEND, RELAY_ID_A, &h);
+    }
+    check(ret == 0 && relay_retrieve_of_two(h, RELAY_ID_B) == 0 && p[0] == 0u,
+          "zero: the owner's data is gone before the first borrower maps the lent page");
+    p[0] = 0xB0u;
+    check(relay_retrieve_of_two(h, RELAY_ID_C) == 0 && p[0] == 0xB0u &&
+          access_of(&g_dom_c, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "zero: a second borrower's retrieve leaves what the first one wrote");
+    check(relay_relinquish_as(h, RELAY_ID_B) == 0 &&
+          relay_relinquish_as(h, RELAY_ID_C) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 && p[0] == 0xB0u,
+          "zero: nothing wipes the page again when the borrowers let go");
+    check(g_domain_fails == 0u, "zero: no domain operation failed closed");
+}
+
 /* WT-FFA-0009 (a partition that faults gives up what it borrowed, zeroed if
  * its retrieve asked, Table 1.22 bit[2], and what it owns comes back). */
 static void relay_teardown_rows(void)
@@ -2010,6 +2120,7 @@ int main(void)
     relay_owner_rows();
     relay_attr_rows();
     relay_perm_rows();
+    relay_zero_rows();
     relay_region_rows();
     relay_teardown_rows();
     relay_unbind_rows();

@@ -29,6 +29,9 @@
 #include "psa/client.h"
 #include "psa/error.h"
 #include "psa_manifest/sid.h"
+#if defined(WT_NS_ENGINE_NATIVE)
+#include "wolftrust/crypto_native_client.h"
+#else
 #include "wolfhsm/wh_client.h"
 #include "wolfhsm/wh_error.h"
 #if defined(WT_NS_HSM_ATTACK)
@@ -36,6 +39,7 @@
 #include "wolfhsm/wh_message_nvm.h"
 #endif
 #include "wolftrust/hsm_psa_transport.h"
+#endif
 #ifndef WT_NS_GUEST_ID
 #define WT_NS_GUEST_ID 0
 #endif
@@ -182,6 +186,39 @@ static void guest_direct(void)
  * transport every Armv8-M guest uses (src/client/hsm_psa_transport.c) for one
  * echo through the relay partition and the wolfHSM server - the Secure side
  * only ever sees SPM-mediated copies of the guest's vectors. */
+#if defined(WT_NS_ENGINE_NATIVE)
+/* Native engine: two random draws over the native crypto wire, each a
+ * header in-vector and a data out-vector copied by the SPM. */
+static int guest_native_random(void)
+{
+    uint8_t a[32];
+    uint8_t b[32];
+    uint8_t any = 0u;
+    uint8_t diff = 0u;
+    psa_status_t st;
+    uint32_t i;
+
+    for (i = 0u; i < sizeof(a); i++) {
+        a[i] = 0u;
+        b[i] = 0u;
+    }
+    st = wt_crypto_native_random(a, sizeof(a));
+    if (st == PSA_SUCCESS) {
+        st = wt_crypto_native_random(b, sizeof(b));
+    }
+    put_str("[NS] native random st=0x");
+    put_hex((uint32_t)st);
+    put_str("\r\n");
+    if (st != PSA_SUCCESS) {
+        return 0;
+    }
+    for (i = 0u; i < sizeof(a); i++) {
+        any |= a[i];
+        diff |= (uint8_t)(a[i] ^ b[i]);
+    }
+    return (any != 0u) && (diff != 0u);
+}
+#else
 static const uint8_t g_hsm_echo_in[] = "wolfTrust FF-A SERVICE_HSM relay echo";
 static wt_hsm_psa_transport_ctx_t g_hsm_tx;
 static const wt_hsm_psa_transport_cfg_t g_hsm_tx_cfg = {
@@ -237,8 +274,9 @@ static int guest_hsm_echo(void)
     (void)wh_Client_Cleanup(&g_hsm_client);
     return ok;
 }
+#endif
 
-#if defined(WT_NS_HSM_ATTACK)
+#if defined(WT_NS_HSM_ATTACK) && !defined(WT_NS_ENGINE_NATIVE)
 /* Compromised-guest probe: a COMM_INIT forging the attestation-reserved client
  * id must not reach the committed IAK (key 0xF0), a raw NVM-group request must
  * never reach the server, and the guest's own relay namespace still works. */
@@ -361,14 +399,21 @@ static void guest_psa(void)
         put_str("[NS] psa close ok\r\n");
     }
 
+#if defined(WT_NS_ENGINE_NATIVE)
+    if (guest_native_random() != 0) {
+        put_str("[NS] psa call ok\r\n");
+        put_str("[NS] native random ok\r\n");
+    }
+#else
     if (guest_hsm_echo() != 0) {
         put_str("[NS] psa call ok\r\n");
         put_str("[NS] hsm echo ok\r\n");
     }
+#endif
     else {
         put_str("[NS] psa call BAD\r\n");
     }
-#if defined(WT_NS_HSM_ATTACK)
+#if defined(WT_NS_HSM_ATTACK) && !defined(WT_NS_ENGINE_NATIVE)
     guest_hsm_attack();
 #endif
 

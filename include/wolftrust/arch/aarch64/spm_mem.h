@@ -90,4 +90,10 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint);
  * flags word (bit 0 zeroes the memory first). */
 int wt_spm_mem_reclaim(uint64_t handle, uint16_t owner, uint32_t flags);
 
+/* A bound partition faulted: unmap everything it retrieved (zeroing what its
+ * retrieve asked to be zeroed), take back what it owns and no borrower holds,
+ * leave what a borrower still holds to end with that borrower, and drop any
+ * descriptor it was still sending in fragments. */
+void wt_spm_mem_endpoint_teardown(const struct wt_co* co);
+
 #endif /* WOLFTRUST_ARCH_AARCH64_SPM_MEM_H */

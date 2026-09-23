@@ -1339,14 +1339,12 @@ static int relay_reset(void)
            (g_domain_fails == 0u);
 }
 
-/* Send n constituents from A to B; *ret gets the relayer's answer. */
-static uint64_t relay_send(wt_ffa_mem_op_t op, const wt_ffa_mem_constituent_t* c,
-                           uint32_t n, uint8_t perms, uint32_t flags, int* ret)
+/* A descriptor sending n constituents from A to B. */
+static int relay_build(uint8_t* desc, size_t cap, wt_ffa_mem_op_t op,
+                       const wt_ffa_mem_constituent_t* c, uint32_t n,
+                       uint8_t perms, uint32_t flags, size_t* len)
 {
-    uint8_t desc[256];
     wt_ffa_mem_build_t in;
-    uint64_t h = 0u;
-    size_t len = 0u;
 
     (void)memset(&in, 0, sizeof(in));
     in.constituents = c;
@@ -1356,7 +1354,18 @@ static uint64_t relay_send(wt_ffa_mem_op_t op, const wt_ffa_mem_constituent_t* c
     in.receiver = RELAY_ID_B;
     in.permissions = perms;
     in.flags = flags;
-    *ret = wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len);
+    return wt_ffa_mem_txn_build(desc, cap, &in, len);
+}
+
+/* Send n constituents from A to B; *ret gets the relayer's answer. */
+static uint64_t relay_send(wt_ffa_mem_op_t op, const wt_ffa_mem_constituent_t* c,
+                           uint32_t n, uint8_t perms, uint32_t flags, int* ret)
+{
+    uint8_t desc[256];
+    uint64_t h = 0u;
+    size_t len = 0u;
+
+    *ret = relay_build(desc, sizeof(desc), op, c, n, perms, flags, &len);
     if (*ret == 0) {
         *ret = wt_spm_mem_share(desc, len, op, RELAY_ID_A, &h);
     }
@@ -1580,6 +1589,86 @@ static void relay_region_rows(void)
     check(g_domain_fails == 0u, "region: no domain operation failed closed");
 }
 
+/* WT-FFA-0009 (a partition that faults gives up what it borrowed, zeroed if
+ * its retrieve asked, Table 1.22 bit[2], and what it owns comes back). */
+static void relay_teardown_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint8_t desc[256];
+    uint8_t* wiped;
+    uint8_t* kept;
+    uint64_t h1;
+    uint64_t h2;
+    uint64_t fh = 0u;
+    uint32_t offset = 0u;
+    size_t len = 0u;
+    int done = 0;
+    int ret = 0;
+    int ret2 = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "teardown: fixture");
+        return;
+    }
+    wiped = (uint8_t*)page(PG_RW);
+    kept = (uint8_t*)page(PG_RW + 1u);
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    h1 = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                    &ret);
+    c[0].address = page(PG_RW + 1u);
+    h2 = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                    &ret2);
+    wiped[0] = 0x5Au;
+    kept[0] = 0x5Au;
+    check(ret == 0 && ret2 == 0 &&
+          relay_retrieve(h1, WT_FFA_MEM_PERM_DATA_RW,
+                         WT_FFA_MEM_FLAG_ZERO_AFTER) == 0 &&
+          relay_retrieve(h2, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0,
+          "teardown: the borrower holds two lent pages, one to be zeroed after");
+    wt_spm_mem_endpoint_teardown(CO_B);
+    check(access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
+          access_of(&g_dom_b, PG_RW + 1u) == WT_DOMAIN_ACCESS_NONE &&
+          b_entry(PG_RW) == 0 && b_entry(PG_RW + 1u) == 0,
+          "teardown: a faulted borrower's table loses every page it retrieved");
+    check(wiped[0] == 0u && kept[0] == 0x5Au,
+          "teardown: only the page its retrieve asked to be zeroed is wiped");
+    check(wt_spm_mem_reclaim(h1, RELAY_ID_A, 0u) == 0 &&
+          wt_spm_mem_reclaim(h2, RELAY_ID_A, 0u) == 0 &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "teardown: the owner reclaims what the faulted borrower held");
+
+    c[0].address = page(PG_RW);
+    h1 = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                    &ret);
+    c[0].address = page(PG_FILL2);
+    h2 = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                    &ret2);
+    check(ret == 0 && ret2 == 0 &&
+          relay_retrieve(h2, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0,
+          "teardown: the owner lends two pages, the borrower retrieves one");
+    (void)relay_build(desc, sizeof(desc), WT_FFA_MEM_OP_LEND, c, 1u,
+                      WT_FFA_MEM_PERM_DATA_RW, 0u, &len);
+    check(wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_A, desc,
+                                40u, (uint32_t)len, &fh) == 0,
+          "teardown: the owner starts a descriptor in fragments");
+    wt_spm_mem_endpoint_teardown(CO_A);
+    check(access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW &&
+          wt_spm_mem_reclaim(h1, RELAY_ID_A, 0u) == WT_FFA_INVALID_PARAMETERS,
+          "teardown: what a faulted owner lent and nobody retrieved comes back to it");
+    check(wt_spm_mem_frag_next(fh, RELAY_ID_A, &desc[40], (uint32_t)len - 40u,
+                               &offset, &done) == WT_FFA_INVALID_PARAMETERS,
+          "teardown: its unfinished fragmented descriptor is dropped");
+    check(access_of(&g_dom_b, PG_FILL2) == WT_DOMAIN_ACCESS_RW &&
+          access_of(&g_dom_a, PG_FILL2) == WT_DOMAIN_ACCESS_NONE,
+          "teardown: what a borrower still maps stays mapped");
+    check(relay_relinquish(h2, 0u) == 0 && b_entry(PG_FILL2) == 1 &&
+          access_of(&g_dom_a, PG_FILL2) == WT_DOMAIN_ACCESS_RW &&
+          wt_spm_mem_reclaim(h2, RELAY_ID_A, 0u) == WT_FFA_INVALID_PARAMETERS,
+          "teardown: the last borrower to relinquish ends it and the owner gets it back");
+    check(g_domain_fails == 0u, "teardown: no domain operation failed closed");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -1605,6 +1694,7 @@ int main(void)
     relay_owner_rows();
     relay_perm_rows();
     relay_region_rows();
+    relay_teardown_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

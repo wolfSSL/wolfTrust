@@ -40,6 +40,9 @@
 #define WT_SPM_MEM_MAP_REGION(i)  (1u << (i))
 /* Borrower mapping cookie: the retrieve granted read-only data access. */
 #define WT_SPM_MEM_MAP_RO         0x10u
+/* Borrower mapping cookie: the retrieve asked for a wipe once the borrower
+ * lets go, which a relinquish may override but a fault cannot. */
+#define WT_SPM_MEM_MAP_ZERO_AFTER 0x20u
 /* Owner cookie, above the send flags it keeps: a borrower asked for the memory
  * to be zeroed, which happens once no borrower maps it any more. */
 #define WT_SPM_MEM_COOKIE_ZERO_PENDING 0x80000000u
@@ -49,6 +52,9 @@
 /* Owner cookie: region i is one the owner only reads; a reclaim gives it back
  * read-only. */
 #define WT_SPM_MEM_COOKIE_OWNER_RO_REGION(i) (0x01000000u << (i))
+/* Owner cookie: the owner faulted while a borrower held the memory; the last
+ * borrower to let go ends the transaction. */
+#define WT_SPM_MEM_COOKIE_OWNER_GONE   0x20000000u
 
 #if WT_FFA_MEM_MAX_REGIONS > 4u
 #error "the relayer cookies hold one bit per region for at most four regions"
@@ -720,6 +726,9 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     else {
         mapping |= (uint8_t)WT_SPM_MEM_MAP_RO;
     }
+    if ((rq.flags & WT_FFA_MEM_FLAG_ZERO_AFTER) != 0u) {
+        mapping |= (uint8_t)WT_SPM_MEM_MAP_ZERO_AFTER;
+    }
     if (e->regions[0].ns != 0u) {
         attributes |= WT_TABLES_ATTR_NS;
     }
@@ -750,6 +759,29 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
         (void)wt_ffa_mem_handle_free(&g_reg, rq.handle);
     }
     return ret;
+}
+
+/* A borrower has let go: with several borrowers a wipe waits until the last
+ * of them has been unmapped (Table 11.26), and a transaction whose owner is
+ * gone ends with it. */
+static void borrower_released(uint64_t handle,
+                              const wt_ffa_mem_handle_entry_t* e,
+                              uint32_t cookie)
+{
+    wt_ffa_mem_handle_entry_t snapshot;
+
+    if (((cookie & WT_SPM_MEM_COOKIE_ZERO_PENDING) != 0u) &&
+        (e->retrieved == 0u)) {
+        zero_regions(e);
+        cookie &= ~WT_SPM_MEM_COOKIE_ZERO_PENDING;
+    }
+    wt_ffa_mem_handle_set_meta(&g_reg, handle, e->tag, cookie);
+    if (((cookie & WT_SPM_MEM_COOKIE_OWNER_GONE) != 0u) &&
+        (e->retrieved == 0u)) {
+        snapshot = *e;
+        (void)wt_ffa_mem_handle_free(&g_reg, handle);
+        owner_access(&snapshot, 1);
+    }
 }
 
 int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)
@@ -794,17 +826,12 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)
         return ret;
     }
     borrower_unmap(b, e, borrower->mapping, (uint32_t)e->region_count);
-    /* The flag here, not the one at retrieve, decides; with several borrowers
-     * the wipe waits until the last of them has been unmapped (Table 11.26). */
+    /* The flag here, not the one at retrieve, decides. */
     cookie = e->owner_cookie;
     if ((flags & WT_FFA_MEM_RELINQ_FLAG_ZERO) != 0u) {
         cookie |= WT_SPM_MEM_COOKIE_ZERO_PENDING;
     }
-    if (((cookie & WT_SPM_MEM_COOKIE_ZERO_PENDING) != 0u) && (e->retrieved == 0u)) {
-        zero_regions(e);
-        cookie &= ~WT_SPM_MEM_COOKIE_ZERO_PENDING;
-    }
-    wt_ffa_mem_handle_set_meta(&g_reg, handle, e->tag, cookie);
+    borrower_released(handle, e, cookie);
     return 0;
 }
 
@@ -836,4 +863,72 @@ int wt_spm_mem_reclaim(uint64_t handle, uint16_t owner, uint32_t flags)
     }
     owner_access(&snapshot, 1);
     return 0;
+}
+
+/* A borrower that faulted lets go of everything it retrieved, zeroed where
+ * its retrieve asked (Table 1.22 bit[2]). */
+static void borrower_teardown(const wt_spm_mem_binding_t* b, uint64_t handle)
+{
+    const wt_ffa_mem_handle_entry_t* e;
+    wt_ffa_mem_borrower_t* borrower;
+    uint32_t cookie;
+
+    borrower = wt_ffa_mem_handle_borrower(&g_reg, handle, b->id);
+    if ((borrower == NULL) || (borrower->retrieved == 0u) ||
+        (wt_ffa_mem_handle_lookup(&g_reg, handle, &e) != 0) ||
+        (wt_ffa_mem_handle_relinquish(&g_reg, handle, b->id) != 0)) {
+        return;
+    }
+    borrower_unmap(b, e, borrower->mapping, (uint32_t)e->region_count);
+    cookie = e->owner_cookie;
+    if ((borrower->mapping & WT_SPM_MEM_MAP_ZERO_AFTER) != 0u) {
+        cookie |= WT_SPM_MEM_COOKIE_ZERO_PENDING;
+    }
+    borrower_released(handle, e, cookie);
+}
+
+/* An owner that faulted takes back what no borrower holds; what a borrower
+ * still maps ends when the last of them lets go. */
+static void owner_teardown(uint16_t owner, uint64_t handle)
+{
+    const wt_ffa_mem_handle_entry_t* e;
+    wt_ffa_mem_handle_entry_t snapshot;
+
+    if ((wt_ffa_mem_handle_lookup(&g_reg, handle, &e) != 0) ||
+        (e->owner != owner)) {
+        return;
+    }
+    if (e->retrieved != 0u) {
+        wt_ffa_mem_handle_set_meta(&g_reg, handle, e->tag,
+                                   e->owner_cookie |
+                                       WT_SPM_MEM_COOKIE_OWNER_GONE);
+        return;
+    }
+    snapshot = *e;
+    if (wt_ffa_mem_handle_reclaim(&g_reg, handle, owner) == 0) {
+        owner_access(&snapshot, 1);
+    }
+}
+
+void wt_spm_mem_endpoint_teardown(const struct wt_co* co)
+{
+    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(co);
+    uint64_t handle;
+    unsigned int i;
+
+    if (b == NULL) {
+        return;
+    }
+    for (i = 0u; i < WT_SPM_MEM_FRAG_SLOTS; i++) {
+        if ((g_frag[i].active != 0u) && (g_frag[i].sender == b->id)) {
+            wt_ffa_mem_frag_reset(&g_frag[i]);
+        }
+    }
+    for (i = 0u; i < WT_FFA_MEM_MAX_HANDLES; i++) {
+        if (g_reg.entries[i].state != (uint8_t)WT_FFA_MEM_STATE_FREE) {
+            handle = g_reg.entries[i].handle;
+            borrower_teardown(b, handle);
+            owner_teardown(b->id, handle);
+        }
+    }
 }

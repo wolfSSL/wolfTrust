@@ -256,8 +256,10 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid)
         case WT_FFA_NOTIFICATION_INFO_GET32:
         case WT_FFA_NOTIFICATION_INFO_GET64:
         case WT_FFA_MSG_SEND2:
+#if defined(WT_FFA_ACS) && (WT_FFA_ACS == 1)
         case WT_SPM_SVC_FID_TIMER_ARM:
         case WT_SPM_SVC_FID_TIMER_STOP:
+#endif
             return 1;
         default:
             return 0;

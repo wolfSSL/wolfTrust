@@ -790,11 +790,14 @@ int wt_spm_sint_own(struct wt_co* co, uint32_t intid, unsigned int enable)
 {
     unsigned int i;
 
-    if ((co == NULL) || (intid < 32u)) {
+    if ((co == NULL) || (intid < 32u) || (intid >= WT_GIC_INTID_LIMIT)) {
         return -1;
     }
     for (i = 0u; i < WT_SPM_SINT_OWNERS; i++) {
         if (g_sint_owner_id[i] == intid) {
+            if (g_sint_owner_co[i] != co) {
+                return -1;
+            }
             g_sint_owner_co[i] = (enable != 0u) ? co : NULL;
             if (enable == 0u) {
                 g_sint_owner_id[i] = 0u;
@@ -803,7 +806,7 @@ int wt_spm_sint_own(struct wt_co* co, uint32_t intid, unsigned int enable)
         }
     }
     if (enable == 0u) {
-        return 0;
+        return -1;
     }
     for (i = 0u; i < WT_SPM_SINT_OWNERS; i++) {
         if (g_sint_owner_id[i] == 0u) {

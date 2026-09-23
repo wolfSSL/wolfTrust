@@ -145,7 +145,8 @@ int wt_spm_twdog_arm(uint32_t intid, uint32_t ms)
             slot = i;
         }
     }
-    if ((intid == 0u) || (slot == WT_SPM_TWDOG_SLOTS)) {
+    if ((intid == 0u) || (intid >= WT_GIC_INTID_LIMIT) ||
+        (slot == WT_SPM_TWDOG_SLOTS)) {
         return -1;
     }
     g_twdog_deadline[slot] = wt_read_cntpct_el0() +

@@ -591,15 +591,17 @@ static int prove_preempt(void)
  * first configured partition (its domain and stack) calls
  * FFA_PARTITION_INFO_GET with a Nil UUID while no other partition exists. The
  * SPMC lists exactly that domain's descriptor, under the id FFA_ID_GET gives
- * the caller, in the partition's RX buffer; the partition reads the count and
- * the first descriptor's id back out at S-EL0. */
+ * the caller, in the RX buffer of the pair mapped for it; the partition reads
+ * the count and the first descriptor's id back out at S-EL0. */
 static wt_secure_domain_t g_discover_domain;
 
 static int prove_partinfo(uint32_t* out_count)
 {
     const wt_domain_descriptor_t* d = first_partition_domain();
     const wt_ffa_partition_manifest_t* parts;
+    wt_ffa_mailbox_t* mb;
     uint32_t expect = 0u;
+    uint32_t ran;
     size_t np = 0u;
     size_t i;
     uint8_t* stack;
@@ -637,8 +639,16 @@ static int prove_partinfo(uint32_t* out_count)
         return 0;
     }
     wt_co_set_domain(co, &g_discover_domain, 1u);
+    mb = wt_spm_sp_mailbox_of((const struct wt_co*)co);
+    if ((mb == NULL) ||
+        (wt_ffa_mailbox_map(mb, (uint64_t)WT_SPM_RXTX_PA + WT_FFA_MEM_PAGE_SIZE,
+                            (uint64_t)WT_SPM_RXTX_PA, 1u) != 0)) {
+        return 0;
+    }
     wt_co_wake(co);
-    if (wt_co_run(co) != 1u) {
+    ran = wt_co_run(co);
+    /* Its slot is reused by a real partition, which maps its own pair. */
+    if ((wt_ffa_mailbox_unmap(mb) != 0) || (ran != 1u)) {
         return 0;
     }
     token = wt_spm_yield_token();
@@ -1025,9 +1035,7 @@ static void ns_partition_info_get(wt_ffa_regs_t* r)
 {
     uint32_t count = 0u;
     uint32_t size = 0u;
-    int ret = wt_spm_partition_info(r->x, &g_ns_mailbox,
-                                    (uint8_t*)(uintptr_t)g_ns_mailbox.rx,
-                                    &count, &size);
+    int ret = wt_spm_partition_info(r->x, &g_ns_mailbox, &count, &size);
 
     ns_reply(r, ret, count, size);
 }

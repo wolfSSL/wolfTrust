@@ -23,6 +23,7 @@
 
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_manifest.h"
+#include "wolftrust/arch/aarch64/ffa_mem.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/ffa_partinfo.h"
 
@@ -324,6 +325,74 @@ static void manifest_record_rows(void)
           "an empty listing counts zero");
 }
 
+/* FFA_PARTITION_INFO_GET through the caller's mailbox (13.8, Table 13.36):
+ * descriptors need its RX buffer mapped and free, a count needs none. */
+static void partition_info_mailbox_rows(void)
+{
+    static const wt_ffa_partinfo_entry_t parts[2] = {
+        { 0x8002u, 1u, 0u,
+          { 0x01,0x02,0x03,0x04,0x05,0x06,0x07,0x08,
+            0x09,0x0A,0x0B,0x0C,0x0D,0x0E,0x0F,0x10 } },
+        { 0x8003u, 1u, 0u,
+          { 0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,
+            0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,0x20 } }
+    };
+    static _Alignas(4096) uint8_t pair[2][4096];
+    wt_ffa_mailbox_t mb;
+    uint64_t x[8] = { WT_FFA_PARTITION_INFO_GET, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
+    uint32_t count = 0u;
+    uint32_t size = 0u;
+    int ret;
+
+    memset(&mb, 0, sizeof(mb));
+    memset(pair, 0xEE, sizeof(pair));
+    x[5] = WT_FFA_PARTINFO_FLAG_COUNT;
+    ret = wt_ffa_partinfo_get(x, NULL, parts, 2u, &count, &size);
+    check(ret == 0 && count == 2u && size == 0u,
+          "a count-only query needs no RX buffer");
+    x[5] = 0u;
+    check(wt_ffa_partinfo_get(x, NULL, parts, 2u, &count, &size) ==
+              WT_FFA_BUSY &&
+          wt_ffa_partinfo_get(x, &mb, parts, 2u, &count, &size) ==
+              WT_FFA_BUSY && pair[1][0] == 0xEEu,
+          "descriptors with no RX buffer mapped are BUSY and written nowhere");
+
+    check(wt_ffa_mailbox_map(&mb, (uint64_t)(uintptr_t)pair[0],
+                             (uint64_t)(uintptr_t)pair[1], 1u) == 0,
+          "the caller maps its RX/TX pair");
+    ret = wt_ffa_partinfo_get(x, &mb, parts, 2u, &count, &size);
+    check(ret == 0 && count == 2u && size == WT_FFA_PARTINFO_DESC_V11 &&
+              rd_u16(&pair[1][0]) == 0x8002u &&
+              rd_u16(&pair[1][WT_FFA_PARTINFO_DESC_V11]) == 0x8003u &&
+              mb.rx_full != 0u,
+          "descriptors land in the mapped RX buffer, which the caller now owns");
+    check(wt_ffa_partinfo_get(x, &mb, parts, 2u, &count, &size) ==
+              WT_FFA_BUSY,
+          "a second query before RX_RELEASE is BUSY");
+    check(wt_ffa_mailbox_rx_release(&mb) == 0 &&
+          wt_ffa_partinfo_get(x, &mb, parts, 2u, &count, &size) == 0,
+          "after RX_RELEASE the buffer takes descriptors again");
+    check(wt_ffa_mailbox_rx_release(&mb) == 0,
+          "the caller hands RX back after reading");
+
+    x[1] = 0xDEADBEEFu;
+    check(wt_ffa_partinfo_get(x, &mb, parts, 2u, &count, &size) ==
+              WT_FFA_INVALID_PARAMETERS && mb.rx_full == 0u,
+          "an unknown UUID is refused before the RX buffer changes hands");
+    x[1] = 0x14131211u;
+    x[2] = 0x18171615u;
+    x[3] = 0x1C1B1A19u;
+    x[4] = 0x201F1E1Du;
+    ret = wt_ffa_partinfo_get(x, &mb, parts, 2u, &count, &size);
+    check(ret == 0 && count == 1u && rd_u16(&pair[1][0]) == 0x8003u,
+          "a UUID in w1-w4 selects its partition");
+    check(wt_ffa_mailbox_rx_release(&mb) == 0 &&
+          wt_ffa_mailbox_unmap(&mb) == 0 &&
+          wt_ffa_partinfo_get(x, &mb, parts, 2u, &count, &size) ==
+              WT_FFA_BUSY,
+          "once the pair is unmapped, descriptors are BUSY again");
+}
+
 /* WT-FFA-0002 (version renegotiation, 13.2). */
 static void version_state_rows(void)
 {
@@ -529,6 +598,7 @@ int main(void)
     msg2_rows();
     partition_info_rows();
     manifest_record_rows();
+    partition_info_mailbox_rows();
     version_state_rows();
 
     printf("ffa_abi: %d checks, %d failures\n", checks, failures);

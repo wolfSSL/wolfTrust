@@ -594,6 +594,12 @@ int wt_ffa_mem_relinquish_parse_ex(const uint8_t* buf, size_t len,
     return ret;
 }
 
+int wt_ffa_mem_reclaim_flags_check(uint32_t flags)
+{
+    return ((flags & ~WT_FFA_MEM_RELINQ_FLAG_MASK) != 0u)
+               ? WT_FFA_INVALID_PARAMETERS : 0;
+}
+
 int wt_ffa_rxtx_validate(uint64_t tx, uint64_t rx, uint32_t pages)
 {
     uint64_t span;

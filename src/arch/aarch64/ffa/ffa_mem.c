@@ -1121,3 +1121,91 @@ int wt_ffa_mem_handle_reclaim(wt_ffa_mem_registry_t* reg, uint64_t handle,
     e->handle = WT_FFA_MEM_HANDLE_INVALID;
     return 0;
 }
+
+uint32_t wt_ffa_mem_type_flag(uint8_t state)
+{
+    uint32_t flag;
+
+    switch (state) {
+        case (uint8_t)WT_FFA_MEM_STATE_LENT:
+            flag = WT_FFA_MEM_FLAG_TYPE_LEND;
+            break;
+        case (uint8_t)WT_FFA_MEM_STATE_DONATED:
+            flag = WT_FFA_MEM_FLAG_TYPE_DONATE;
+            break;
+        default:
+            flag = WT_FFA_MEM_FLAG_TYPE_SHARE;
+            break;
+    }
+    return flag;
+}
+
+static const wt_ffa_mem_borrower_t* entry_borrower(
+    const wt_ffa_mem_handle_entry_t* e, uint16_t id)
+{
+    uint32_t i;
+
+    for (i = 0u; i < (uint32_t)e->borrower_count; i++) {
+        if (e->borrowers[i].id == id) {
+            return &e->borrowers[i];
+        }
+    }
+    return NULL;
+}
+
+static int bytes_equal(const uint8_t* a, const uint8_t* b, uint32_t len)
+{
+    uint32_t i;
+
+    for (i = 0u; i < len; i++) {
+        if (a[i] != b[i]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
+                                  const wt_ffa_mem_retrieve_req_t* rq)
+{
+    const wt_ffa_mem_borrower_t* named;
+    uint32_t type;
+    uint32_t i;
+    int ret = 0;
+
+    if ((e == NULL) || (rq == NULL) ||
+        (rq->receiver_count > WT_FFA_MEM_MAX_BORROWERS)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    /* FF-A 1.2: what the owner attached for a borrower is repeated by whoever
+     * names that borrower in a retrieve request. */
+    for (i = 0u; (ret == 0) && (i < rq->receiver_count); i++) {
+        named = entry_borrower(e, rq->receivers[i]);
+        if ((named == NULL) ||
+            (bytes_equal(named->impdef, rq->impdef[i],
+                         WT_FFA_MEM_IMPDEF_SIZE) == 0)) {
+            ret = WT_FFA_INVALID_PARAMETERS;
+        }
+    }
+    if (ret == 0) {
+        type = rq->flags & WT_FFA_MEM_FLAG_TYPE_MASK;
+        if ((rq->tag != e->tag) ||
+            ((rq->flags & ~(WT_FFA_MEM_FLAG_SEND_MASK |
+                            WT_FFA_MEM_FLAG_TYPE_MASK |
+                            WT_FFA_MEM_FLAG_ZERO_AFTER |
+                            WT_FFA_MEM_FLAG_BYPASS_BORROWERS)) != 0u) ||
+            (((rq->flags & WT_FFA_MEM_FLAG_BYPASS_BORROWERS) != 0u) &&
+             (e->borrower_count == 1u)) ||
+            ((type != 0u) && (type != wt_ffa_mem_type_flag(e->state))) ||
+            ((rq->attributes &
+              (WT_FFA_MEM_ATTR_RSVD_MASK | WT_FFA_MEM_ATTR_NS)) != 0u)) {
+            ret = WT_FFA_INVALID_PARAMETERS;
+        }
+    }
+    /* Well formed, but not what was sent: only Normal memory is ever lent. */
+    if ((ret == 0) && ((rq->attributes & WT_FFA_MEM_ATTR_TYPE_MASK) ==
+                       WT_FFA_MEM_ATTR_TYPE_DEVICE)) {
+        ret = WT_FFA_DENIED;
+    }
+    return ret;
+}

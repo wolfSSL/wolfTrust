@@ -256,6 +256,16 @@ MAX_NAME = 63
 TABLE_L2_SHIFT = 30
 TABLE_L3_SHIFT = 21
 TABLE_SPARE_PAGES = 3
+# The count is a lower bound (the SPMC's shared fill is not counted per
+# table), so a pool below it fails the build rather than the boot.
+TABLE_POOL_CHECK = (
+    "#if !defined(WT_SPM_TABLE_POOL_PAGES) || \\",
+    "    (WT_SPM_TABLE_POOL_PAGES < WT_GENERATED_TABLE_POOL_PAGES)",
+    "#error \"WT_SPM_TABLE_POOL_PAGES is below this manifest's "
+    "WT_GENERATED_TABLE_POOL_PAGES\"",
+    "#endif",
+    "",
+)
 
 
 def policy_range_end(base, size, word_max, description):
@@ -864,13 +874,15 @@ def emit_ffa(lines, ffa):
         "    return {};".format(table), "}", ""))
 
 
-def generate_source(manifest, digest, ffa=None):
+def generate_source(manifest, digest, ffa=None, pool_pages=None):
     lines = [FILE_HEADER.format(name="wolftrust_manifest_generated.c"),
              "/* Normalized manifest SHA-256: {} */".format(digest.hex()),
              "#include \"wolftrust_manifest_generated.h\"", ""]
     if ffa is not None:
         lines[-2:] = ["#include \"wolftrust_manifest_generated.h\"",
                       "#include \"wolftrust/arch/aarch64/ffa_manifest.h\"", ""]
+    if pool_pages is not None:
+        lines.extend(TABLE_POOL_CHECK)
     digest_values = ["0x{:02x}U".format(value) for value in digest]
     emit_array(lines, "uint8_t wt_generated_digest[32]", digest_values)
     domain_values = [emit_domain(lines, domain, index)
@@ -1083,7 +1095,7 @@ def main():
         if args.address_bits == "64":
             pool_pages = table_pool_pages(manifest, args.spm_table_pages)
         source = generate_source(manifest, hashlib.sha256(input_bytes).digest(),
-                                 ffa)
+                                 ffa, pool_pages)
         args.output.mkdir(parents=True, exist_ok=True)
         psa_manifest = args.output / "psa_manifest"
         psa_manifest.mkdir(parents=True, exist_ok=True)

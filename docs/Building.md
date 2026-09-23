@@ -132,7 +132,9 @@ section generate exactly what they did before, and a 32-bit target rejects
 the section. 64-bit targets also get `WT_GENERATED_TABLE_POOL_PAGES` in the
 generated header: the 4 KB pages the stage-1 tables need (one table per
 partition, sized from its memory resources and stack, plus the SPMC's own
-table pages from `--spm-table-pages` and a spare set).
+table pages from `--spm-table-pages` and a spare set). The count is a lower
+bound, and the generated source fails the build when the target's
+`WT_SPM_TABLE_POOL_PAGES` is smaller.
 
 ## Build controls
 

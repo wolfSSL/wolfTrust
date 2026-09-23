@@ -49,18 +49,22 @@ wt_mmu_enable:
     isb
     ret
 
-/* void wt_mmu_switch_ttbr0(uint64_t ttbr0): distinct ASIDs, no TLBI. */
+/* void wt_mmu_switch_ttbr0(uint64_t ttbr0): distinct ASIDs, no TLBI; the DSB
+ * publishes a table built just before its first use. */
     .globl wt_mmu_switch_ttbr0
 wt_mmu_switch_ttbr0:
+    dsb     ishst
     msr     TTBR0_EL1, x0
     isb
     ret
 
-/* void wt_mmu_tlbi_asid(uint64_t asid): drop one domain's cached entries. */
+/* void wt_mmu_tlbi_asid(uint64_t asid): drop one domain's cached entries once
+ * the caller's descriptor stores are visible to the walker. */
     .globl wt_mmu_tlbi_asid
 wt_mmu_tlbi_asid:
     lsl     x0, x0, #48
-    tlbi    aside1, x0
-    dsb     sy
+    dsb     ishst
+    tlbi    aside1is, x0
+    dsb     ish
     isb
     ret

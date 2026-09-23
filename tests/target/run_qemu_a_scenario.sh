@@ -627,6 +627,8 @@ case "$scenario" in
     refute_re "no function id was mishandled" '\[NS\] smcfuzz BAD'
     refute_re "the sweep did not fall short" '\[NS\] smcfuzz FAIL'
     expect "every unimplemented function id from the Normal world was refused cleanly" "[NS] smcfuzz ok swept="
+    refute_re "no SMC32 call was read with its upper register halves" '\[NS\] smc32 upper halves BAD'
+    expect "an SMC32 call's junk upper register halves were ignored" "[NS] smc32 upper halves ignored"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   ffa-memneg)

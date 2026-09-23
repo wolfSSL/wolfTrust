@@ -399,7 +399,7 @@ assert through `tests/target/lib/expect.sh`.
 | `ffa-preempt` | A core-standby `CPU_SUSPEND` wakes on the Secure tick, the tick preempts the Normal world at EL3, the SPMC services it, and the Normal world resumes |
 | `resetneg` | A Normal-world `SYSTEM_RESET` re-enters the boot chain once and the second reset ends the run |
 | `secramneg` | A Normal-world read of Secure RAM is refused (SKIP on `xlnx-versal-virt`, whose model has no XMPU or RISAF) |
-| `smcfuzz` | Every unimplemented SMC function id from the Normal world is refused cleanly |
+| `smcfuzz` | Every unimplemented SMC function id from the Normal world is refused cleanly, and an SMC32 call with junk in its upper register halves is read as `w1`-`w7` |
 | `ffa-memneg` | Malformed memory transactions from the Normal world are refused, as is a share sent before an RX/TX pair is mapped or naming a dynamically allocated buffer; a reclaimed handle is dead, and a share sent in two fragments completes under the handle its first fragment reserved |
 | `hsmattackneg` | Under `hsm`, a forged wolfHSM client id cannot reach the attestation key and an NVM-group request never reaches the server; SKIP under `native`, which links no wolfHSM wire |
 | `attestneg` | Oversized challenges, empty token buffers, misattributed lifecycles, and tampered tokens are rejected; an untampered token verifies in the guest |

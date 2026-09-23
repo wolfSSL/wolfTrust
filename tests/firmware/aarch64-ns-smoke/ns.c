@@ -143,6 +143,30 @@ static uint32_t partition_count(void)
     return (uint32_t)r2;
 }
 
+#if defined(WT_NS_GUEST_MEMNEG) || defined(WT_NS_GUEST_FUZZ)
+/* One SMC with x0-x4 in and x0-x4 back, for the fragment exchange and the
+ * SMC32 register probe. */
+static void smc5(uint64_t* x)
+{
+    register uint64_t r0 __asm__("x0") = x[0];
+    register uint64_t r1 __asm__("x1") = x[1];
+    register uint64_t r2 __asm__("x2") = x[2];
+    register uint64_t r3 __asm__("x3") = x[3];
+    register uint64_t r4 __asm__("x4") = x[4];
+
+    __asm__ volatile("smc #0"
+                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4)
+                     :
+                     : "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13",
+                       "x14", "x15", "x16", "x17", "memory");
+    x[0] = r0;
+    x[1] = r1;
+    x[2] = r2;
+    x[3] = r3;
+    x[4] = r4;
+}
+#endif
+
 #if defined(WT_NS_GUEST_ECHO)
 /* Send an FF-A direct request to the Secure echo partition and check it
  * complements the payload (7.4): proves the guest->SP->guest message path
@@ -702,27 +726,6 @@ static uint32_t memneg_build(void)
     return (uint32_t)len;
 }
 
-/* One SMC with x0-x4 in and x0-x4 back, for the fragment exchange. */
-static void smc5(uint64_t* x)
-{
-    register uint64_t r0 __asm__("x0") = x[0];
-    register uint64_t r1 __asm__("x1") = x[1];
-    register uint64_t r2 __asm__("x2") = x[2];
-    register uint64_t r3 __asm__("x3") = x[3];
-    register uint64_t r4 __asm__("x4") = x[4];
-
-    __asm__ volatile("smc #0"
-                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4)
-                     :
-                     : "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13",
-                       "x14", "x15", "x16", "x17", "memory");
-    x[0] = r0;
-    x[1] = r1;
-    x[2] = r2;
-    x[3] = r3;
-    x[4] = r4;
-}
-
 /* Send a well-formed share in two fragments through the same buffer (DEN0140
  * 4.1.2): the SPMC asks for the rest with FFA_MEM_FRAG_RX under the handle it
  * reserved, refuses a fragment for any other handle, and completes the share
@@ -893,6 +896,41 @@ static int fuzz_refused(uint32_t fid, const uint64_t* o)
     return (uint32_t)o[0] == 0xFFFFFFFFu;
 }
 
+/* An SMC32 call carries W1-W7 only (SMCCC 3.1): an RXTX_MAP32 whose buffer
+ * addresses arrive with junk in the upper register halves still maps them. */
+static uint8_t g_fuzz_tx[4096] __attribute__((aligned(4096)));
+static uint8_t g_fuzz_rx[4096] __attribute__((aligned(4096)));
+
+static void guest_smc32_upper(void)
+{
+    uint64_t x[5];
+    uint32_t st;
+
+    x[0] = WT_FFA_RXTX_MAP32;
+    x[1] = 0xA5A5A5A500000000ull | (uint64_t)(uintptr_t)g_fuzz_tx;
+    x[2] = 0x5A5A5A5A00000000ull | (uint64_t)(uintptr_t)g_fuzz_rx;
+    x[3] = 0xFFFFFFFF00000001ull;
+    x[4] = 0u;
+    smc5(x);
+    st = (uint32_t)x[0];
+    x[0] = WT_FFA_RXTX_UNMAP;
+    x[1] = 0u;
+    x[2] = 0u;
+    x[3] = 0u;
+    x[4] = 0u;
+    smc5(x);
+    if ((st == WT_FFA_SUCCESS32) && ((uint32_t)x[0] == WT_FFA_SUCCESS32)) {
+        put_str("[NS] smc32 upper halves ignored\r\n");
+    }
+    else {
+        put_str("[NS] smc32 upper halves BAD map=0x");
+        put_hex(st);
+        put_str(" unmap=0x");
+        put_hex((uint32_t)x[0]);
+        put_str("\r\n");
+    }
+}
+
 static void guest_fuzz(void)
 {
     uint64_t o[4];
@@ -923,6 +961,7 @@ static void guest_fuzz(void)
         put_dec(ok);
         put_str("\r\n");
     }
+    guest_smc32_upper();
 }
 #endif
 

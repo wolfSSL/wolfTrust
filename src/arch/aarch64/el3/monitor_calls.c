@@ -201,6 +201,9 @@ void wt_el3_exception(uint64_t kind, wt_el3_frame_t* frame)
     ec = WT_ESR_EC(esr);
     if ((kind == WT_EL3_VEC_LOWER64_SYNC) &&
         ((ec == WT_ESR_EC_SMC64) || (ec == WT_ESR_EC_SMC32))) {
+        /* An SMC32 call carries W1-W7 only (SMCCC 3.1): no handler, and no
+         * world a call is relayed to, sees the caller's upper halves. */
+        wt_ffa_regs_normalize(frame->x);
         if ((wt_read_scr_el3() & WT_SCR_NS) != 0u) {
             ns_smc(frame);
             return;

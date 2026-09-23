@@ -844,7 +844,7 @@ static const uint32_t g_fuzz_fids[] = {
     WT_FFA_RX_ACQUIRE,
     WT_FFA_CONSOLE_LOG32, WT_FFA_CONSOLE_LOG64,
     WT_FFA_FID32_LAST, WT_FFA_FID64_LAST,
-    WT_PSCI_CPU_OFF, WT_PSCI_MIGRATE_INFO_TYPE, WT_PSCI_FID32_LAST,
+    WT_PSCI_CPU_FREEZE, WT_PSCI_SYSTEM_SUSPEND64, WT_PSCI_FID32_LAST,
     0x82000000u, 0x8F000000u, 0xC3000000u
 };
 
@@ -970,9 +970,42 @@ static int discover(uint32_t* count)
 #if defined(WT_NS_GUEST_PSCI)
 /* Read the PSCI version from the SPMD, then power off through PSCI (WT-FFM-0067):
  * SYSTEM_OFF does not return, so the SPMD ends the run. */
+static uint64_t psci_call(uint32_t fid, uint64_t a1, uint64_t a2)
+{
+    register uint64_t r0 __asm__("x0") = fid;
+    register uint64_t r1 __asm__("x1") = a1;
+    register uint64_t r2 __asm__("x2") = a2;
+    register uint64_t r3 __asm__("x3") = 0;
+
+    __asm__ volatile("smc #0"
+                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3)
+                     :
+                     : "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12",
+                       "x13", "x14", "x15", "x16", "x17", "memory");
+    return r0;
+}
+
+static int psci_expect(const char* what, uint64_t got, int32_t want)
+{
+    if ((int32_t)(uint32_t)got == want) {
+        return 1;
+    }
+    put_str("[NS] psci BAD ");
+    put_str(what);
+    put_str(" x0=0x");
+    put_hex((uint32_t)got);
+    put_str("\r\n");
+    return 0;
+}
+
+/* The mandatory PSCI 1.1 set as a boot-core-only Normal world sees it. */
 static void psci_walk(void)
 {
     uint64_t o[4];
+    uint64_t self;
+    uint64_t parked;
+    int32_t neighbour;
+    int ok = 1;
 
     ffa_smc(WT_PSCI_VERSION, 0u, o);
     put_str("[NS] psci version ");
@@ -980,6 +1013,54 @@ static void psci_walk(void)
     put_char('.');
     put_dec((uint32_t)(o[0] & 0xFFFFu));
     put_str("\r\n");
+
+    __asm__ volatile("mrs %0, mpidr_el1" : "=r"(self));
+    self &= 0x000000FF00FFFFFFull;
+    parked = self ^ 1u;
+    ok &= psci_expect("cpu_on self", psci_call(WT_PSCI_CPU_ON64, self, 0u),
+                      WT_PSCI_ALREADY_ON);
+    ok &= psci_expect("cpu_on bogus",
+                      psci_call(WT_PSCI_CPU_ON64, self | 0x00FF0000u, 0u),
+                      WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect("affinity self",
+                      psci_call(WT_PSCI_AFFINITY_INFO64, self, 0u),
+                      WT_PSCI_AFFINITY_ON);
+    /* The neighbour core is a parked secondary (DISABLED, cannot be turned
+     * on) or, on a single-core port, no core at all (INVALID_PARAMETERS). */
+    neighbour = (int32_t)(uint32_t)psci_call(WT_PSCI_AFFINITY_INFO64, parked, 0u);
+    if ((neighbour != WT_PSCI_DISABLED) && (neighbour != WT_PSCI_INVALID_PARAMS)) {
+        ok &= psci_expect("affinity neighbour", (uint64_t)(uint32_t)neighbour,
+                          WT_PSCI_DISABLED);
+    }
+    ok &= psci_expect("cpu_on neighbour", psci_call(WT_PSCI_CPU_ON64, parked, 0u),
+                      (neighbour == WT_PSCI_DISABLED) ?
+                          WT_PSCI_INTERNAL_FAILURE : WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect("affinity level1",
+                      psci_call(WT_PSCI_AFFINITY_INFO64, self, 1u),
+                      WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect("cpu_off", psci_call(WT_PSCI_CPU_OFF, 0u, 0u),
+                      WT_PSCI_DENIED);
+    ok &= psci_expect("suspend powerdown",
+                      psci_call(WT_PSCI_CPU_SUSPEND64, 0x00010000u, 0u),
+                      WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect("migrate", psci_call(WT_PSCI_MIGRATE64, self, 0u),
+                      WT_PSCI_DENIED);
+    ok &= psci_expect("migrate_info_type",
+                      psci_call(WT_PSCI_MIGRATE_INFO_TYPE, 0u, 0u),
+                      (int32_t)WT_PSCI_TOS_UP_NOT_MIGRATABLE);
+    if (psci_call(WT_PSCI_MIGRATE_INFO_UP_CPU64, 0u, 0u) != self) {
+        put_str("[NS] psci BAD migrate_info_up_cpu\r\n");
+        ok = 0;
+    }
+    ok &= psci_expect("features cpu_suspend",
+                      psci_call(WT_PSCI_FEATURES, WT_PSCI_CPU_SUSPEND64, 0u),
+                      WT_PSCI_SUCCESS);
+    ok &= psci_expect("features cpu_freeze",
+                      psci_call(WT_PSCI_FEATURES, WT_PSCI_CPU_FREEZE, 0u),
+                      WT_PSCI_NOT_SUPPORTED);
+    if (ok != 0) {
+        put_str("[NS] psci mandatory set ok\r\n");
+    }
     ffa_smc(WT_PSCI_SYSTEM_OFF, 0u, o);
 }
 #endif
@@ -989,6 +1070,7 @@ static void psci_walk(void)
  * runs; the preemption is handled at EL3 and the loop resumes to completion. */
 static void ns_spin(void)
 {
+    uint64_t o[4];
     uint64_t freq;
     uint64_t start;
     uint64_t now;
@@ -996,6 +1078,11 @@ static void ns_spin(void)
     __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
     __asm__ volatile("mrs %0, cntpct_el0" : "=r"(start));
     put_str("[NS] spinning\r\n");
+    /* Core standby: the monitor's WFI wakes on the armed Secure tick. */
+    ffa_smc(WT_PSCI_CPU_SUSPEND64, WT_PSCI_STATE_CORE_STANDBY, o);
+    if ((uint32_t)o[0] == (uint32_t)WT_PSCI_SUCCESS) {
+        put_str("[NS] psci standby woke\r\n");
+    }
     do {
         __asm__ volatile("mrs %0, cntpct_el0" : "=r"(now));
     } while ((now - start) < (freq / 5u));

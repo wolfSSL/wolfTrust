@@ -25,23 +25,31 @@
 
 /* PSCI (Arm DEN0022) function ids: the SMCCC Standard Secure Service range
  * 0x84000000-0x8400001F (SMC32) and 0xC4000000-0xC400001F (SMC64), below the
- * FF-A range so the SPMD routes by id. wolfTrust serves the subset a
- * single-core Normal-world guest needs (WT-FFM-0067). */
+ * FF-A range so the SPMD routes by id. The Normal world runs on the boot core
+ * only, next to the uniprocessor SPMC (WT-FFM-0067). */
 #define WT_PSCI_FID32_FIRST     0x84000000u
 #define WT_PSCI_FID32_LAST      0x8400001Fu
 #define WT_PSCI_FID64_FIRST     0xC4000000u
 #define WT_PSCI_FID64_LAST      0xC400001Fu
 
 #define WT_PSCI_VERSION         0x84000000u
+#define WT_PSCI_CPU_SUSPEND32   0x84000001u
+#define WT_PSCI_CPU_SUSPEND64   0xC4000001u
 #define WT_PSCI_CPU_OFF         0x84000002u
 #define WT_PSCI_CPU_ON32        0x84000003u
 #define WT_PSCI_CPU_ON64        0xC4000003u
 #define WT_PSCI_AFFINITY_INFO32 0x84000004u
 #define WT_PSCI_AFFINITY_INFO64 0xC4000004u
+#define WT_PSCI_MIGRATE32       0x84000005u
+#define WT_PSCI_MIGRATE64       0xC4000005u
 #define WT_PSCI_MIGRATE_INFO_TYPE 0x84000006u
+#define WT_PSCI_MIGRATE_INFO_UP_CPU32 0x84000007u
+#define WT_PSCI_MIGRATE_INFO_UP_CPU64 0xC4000007u
 #define WT_PSCI_SYSTEM_OFF      0x84000008u
 #define WT_PSCI_SYSTEM_RESET    0x84000009u
 #define WT_PSCI_FEATURES        0x8400000Au
+#define WT_PSCI_CPU_FREEZE      0x8400000Bu
+#define WT_PSCI_SYSTEM_SUSPEND64 0xC400000Eu
 
 /* PSCI 1.1 (major 1, minor 1). */
 #define WT_PSCI_VERSION_1_1     0x00010001u
@@ -51,9 +59,18 @@
 #define WT_PSCI_NOT_SUPPORTED    (-1)
 #define WT_PSCI_INVALID_PARAMS   (-2)
 #define WT_PSCI_DENIED           (-3)
+#define WT_PSCI_ALREADY_ON       (-4)
+#define WT_PSCI_INTERNAL_FAILURE (-6)
+#define WT_PSCI_DISABLED         (-8)
 
 /* AFFINITY_INFO states: the running core is ON. */
 #define WT_PSCI_AFFINITY_ON      0
+
+/* MIGRATE_INFO_TYPE 1: a uniprocessor Trusted OS that cannot migrate. */
+#define WT_PSCI_TOS_UP_NOT_MIGRATABLE 1u
+
+/* The one power_state offered (original format): core standby, StateID 0. */
+#define WT_PSCI_STATE_CORE_STANDBY 0u
 
 static inline int wt_psci_fid_in_range(uint32_t fid)
 {
@@ -67,8 +84,8 @@ struct wt_ffa_regs;
 void wt_psci_ns_call(struct wt_ffa_regs* r);
 
 /* EL3 system reset shared by the NS PSCI SYSTEM_RESET and the Secure world's
- * WT_MON_FID_SYSTEM_RESET: re-enters the boot chain while the .noinit boot
- * counter allows it, then ends the run; tag names the requester in the log. */
+ * WT_MON_FID_SYSTEM_RESET: the port resets the SoC, or the chain re-enters
+ * where the platform has no reset controller; tag names the requester. */
 void wt_el3_system_reset(const char* tag);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_PSCI_H */

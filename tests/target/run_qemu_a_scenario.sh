@@ -696,7 +696,8 @@ case "$scenario" in
     passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
-    : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"
+    sim_error=$(printf '%s' "$flat" | grep -oE 'TOTAL SIM ERROR[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
+    : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"; : "${sim_error:=-1}"
     # Every failure must be a named, by-design deviation.
     unexpected=""
     for name in $(grep -aE 'TEST:|RESULT: FAILED' "$log" | grep -a -B1 'RESULT: FAILED' |
@@ -706,10 +707,12 @@ case "$scenario" in
         *) unexpected="$unexpected $name" ;;
       esac
     done
-    if [ -z "$unexpected" ] && [ "$failed" -ge 0 ] && [ "$passed" -ge "$acs_floor" ]; then
-      check_pass "FF-A ACS $acs_suite: ${passed} passed, ${skipped} skipped, ${failed} by-design deviation(s)"
+    # A SIM ERROR is a test that could not run to a verdict: never by design.
+    if [ -z "$unexpected" ] && [ "$failed" -ge 0 ] && [ "$sim_error" = 0 ] && \
+       [ "$passed" -ge "$acs_floor" ]; then
+      check_pass "FF-A ACS $acs_suite: ${passed} passed, ${skipped} skipped, ${failed} by-design deviation(s), 0 sim errors"
     else
-      check_fail "FF-A ACS $acs_suite" "passed=$passed (want >= $acs_floor) skipped=$skipped failed=$failed unexpected:${unexpected:- none}"
+      check_fail "FF-A ACS $acs_suite" "passed=$passed (want >= $acs_floor) skipped=$skipped failed=$failed sim_error=$sim_error (want 0) unexpected:${unexpected:- none}"
     fi
     expect "the dispatcher ended the run" "END OF ACS"
     ;;

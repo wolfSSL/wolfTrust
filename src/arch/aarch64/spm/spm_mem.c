@@ -759,8 +759,9 @@ int wt_spm_mem_reclaim(uint64_t handle, uint16_t owner, uint32_t flags)
     wt_ffa_mem_handle_entry_t snapshot;
     int ret;
 
-    if ((flags & ~WT_FFA_MEM_RELINQ_FLAG_MASK) != 0u) {
-        return WT_FFA_INVALID_PARAMETERS;
+    ret = wt_ffa_mem_reclaim_flags_check(flags);
+    if (ret != 0) {
+        return ret;
     }
     ret = wt_ffa_mem_handle_lookup(&g_reg, handle, &e);
     if (ret != 0) {

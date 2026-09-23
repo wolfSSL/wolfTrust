@@ -839,6 +839,63 @@ static void retrieve_check_rows(void)
           "with several borrowers the bypass flag lets the caller name only itself");
 }
 
+/* WT-FFA-0009 (time slicing, DEN0140 4.1.3, is not implemented, so its flag
+ * is INVALID_PARAMETERS in every call that carries it). */
+static void time_slice_rows(void)
+{
+    static const wt_ffa_mem_op_t ops[3] = {
+        WT_FFA_MEM_OP_SHARE, WT_FFA_MEM_OP_LEND, WT_FFA_MEM_OP_DONATE
+    };
+    static wt_ffa_mem_registry_t reg;
+    const wt_ffa_mem_handle_entry_t* e;
+    wt_ffa_mem_retrieve_req_t rq;
+    wt_ffa_mem_txn_t txn;
+    uint8_t buf[256];
+    uint64_t h = 0u;
+    uint16_t ep = 0u;
+    size_t len = 0u;
+    uint32_t i;
+    int ok = 1;
+
+    for (i = 0u; i < 3u; i++) {
+        len = make_txn(buf, sizeof(buf), ops[i], WT_FFA_MEM_FLAG_TIME_SLICE);
+        ok = ok && (len != 0u) &&
+             (wt_ffa_mem_txn_validate(buf, len, ops[i], 0u, &txn) ==
+              WT_FFA_INVALID_PARAMETERS);
+    }
+    check(ok, "a share, lend, or donate that asks for time slicing is INVALID_PARAMETERS");
+
+    e = make_entry(&reg, WT_FFA_MEM_OP_LEND, 1u);
+    check(e != NULL, "a lend to retrieve registers");
+    if (e != NULL) {
+        make_rq(&rq, e, 1u);
+        rq.flags = WT_FFA_MEM_FLAG_TIME_SLICE;
+        check(wt_ffa_mem_retrieve_req_check(e, &rq) ==
+                  WT_FFA_INVALID_PARAMETERS,
+              "a retrieve request that asks for time slicing is INVALID_PARAMETERS");
+    }
+
+    (void)wt_ffa_mem_relinquish_build(buf, sizeof(buf), 0x1234ull, 0u, 0x8002u,
+                                      &len);
+    put32(&buf[8], WT_FFA_MEM_FLAG_TIME_SLICE);
+    check(wt_ffa_mem_relinquish_parse(buf, len, &h, &ep) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a relinquish that asks for time slicing is INVALID_PARAMETERS");
+    check(wt_ffa_mem_relinquish_build(buf, sizeof(buf), 0x1234ull,
+                                      WT_FFA_MEM_FLAG_TIME_SLICE, 0x8002u,
+                                      &len) == WT_FFA_INVALID_PARAMETERS,
+          "the relinquish builder refuses the time-slicing flag");
+    check(wt_ffa_mem_reclaim_flags_check(WT_FFA_MEM_FLAG_TIME_SLICE) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_ffa_mem_reclaim_flags_check(WT_FFA_MEM_FLAG_TIME_SLICE |
+                                         WT_FFA_MEM_RELINQ_FLAG_ZERO) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a reclaim that asks for time slicing is INVALID_PARAMETERS");
+    check(wt_ffa_mem_reclaim_flags_check(0u) == 0 &&
+          wt_ffa_mem_reclaim_flags_check(WT_FFA_MEM_RELINQ_FLAG_ZERO) == 0,
+          "a reclaim may still ask for the memory to be zeroed");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -854,6 +911,7 @@ int main(void)
     borrower_rows();
     frag_rows();
     retrieve_check_rows();
+    time_slice_rows();
 
     printf("ffa_mem: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

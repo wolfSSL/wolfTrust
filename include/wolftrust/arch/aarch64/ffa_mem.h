@@ -99,9 +99,9 @@
 #define WT_FFA_MEM_FLAG_TYPE_LEND       (0x2u << WT_FFA_MEM_FLAG_TYPE_SHIFT)
 #define WT_FFA_MEM_FLAG_TYPE_DONATE     (0x3u << WT_FFA_MEM_FLAG_TYPE_SHIFT)
 #define WT_FFA_MEM_FLAG_ALIGN_MASK      (0x1Fu << 5)  /* bits[9:5] alignment hint */
-/* Flag bits a sender may set in a lend/donate/share request. */
+/* Flag bits a sender may set in a lend/donate/share request. Time slicing
+ * (DEN0140 4.1.3) is not implemented, so its flag is refused in every call. */
 #define WT_FFA_MEM_FLAG_SEND_MASK       (WT_FFA_MEM_FLAG_ZERO | \
-                                         WT_FFA_MEM_FLAG_TIME_SLICE | \
                                          WT_FFA_MEM_FLAG_ALIGN_MASK)
 
 /* Memory region attributes (Table 5.18). */
@@ -167,7 +167,7 @@ typedef struct wt_ffa_mem_txn {
 #define WT_FFA_MEM_RELINQ_OFF_COUNT     12u  /* u32 endpoint count */
 #define WT_FFA_MEM_RELINQ_OFF_ENDPOINTS 16u  /* u16 each */
 #define WT_FFA_MEM_RELINQ_HDR_SIZE      16u
-#define WT_FFA_MEM_RELINQ_FLAG_MASK     0x3u /* zero memory, time slicing */
+#define WT_FFA_MEM_RELINQ_FLAG_MASK     0x1u /* zero memory; no time slicing */
 #define WT_FFA_MEM_RELINQ_FLAG_ZERO     0x1u
 
 /* Inputs to build a single-receiver lend/donate/share descriptor; handle is
@@ -276,6 +276,10 @@ typedef struct wt_ffa_mem_retrieve_req {
 
 int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
                                      wt_ffa_mem_retrieve_req_t* out);
+
+/* FFA_MEM_RECLAIM flags (Table 2.31): only the zero-memory bit may be set.
+ * Returns 0 or WT_FFA_INVALID_PARAMETERS. */
+int wt_ffa_mem_reclaim_flags_check(uint32_t flags);
 
 /* Parse a relinquish descriptor with exactly one endpoint. Returns 0,
  * WT_FFA_NOT_SUPPORTED for more than one endpoint, or

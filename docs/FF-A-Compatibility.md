@@ -16,7 +16,7 @@ by-design deviations are below.
 | Interface or behavior | Version | Status | Repository evidence |
 | --- | --- | --- | --- |
 | Version negotiation | FF-A 1.2 | `FFA_VERSION` refuses an incompatible version and locks the negotiated one after the caller's first other call | `wt_ffa_version_negotiate` in `include/wolftrust/arch/aarch64/ffa_abi.h` |
-| Feature and id discovery | 1.2 | `FFA_FEATURES`, `FFA_ID_GET`, `FFA_SPM_ID_GET` supported; `FFA_FEATURES` reports the schedule-receiver interrupt and the memory-retrieve NS-bit property | `src/arch/aarch64/ffa/ffa_spmd.c`, `src/arch/aarch64/spm/spm_svc_glue.c` |
+| Feature and id discovery | 1.2 | `FFA_FEATURES`, `FFA_ID_GET`, `FFA_SPM_ID_GET` supported; `FFA_FEATURES` reports the schedule-receiver interrupt, the memory-retrieve NS-bit property, and a partition's one-page RX/TX buffer limit | `src/arch/aarch64/ffa/ffa_spmd.c`, `src/arch/aarch64/spm/spm_svc_glue.c` |
 | Partition discovery | 1.2 | `FFA_PARTITION_INFO_GET` (buffer form) and `FFA_PARTITION_INFO_GET_REGS` (register form), Nil-UUID and by-UUID | `src/arch/aarch64/ffa/ffa_partinfo.c`, `wt_spm_partition_info` |
 | RX/TX buffers | 1.2 | `FFA_RXTX_MAP`, `FFA_RXTX_UNMAP`, `FFA_RX_RELEASE`, with per-endpoint RX ownership | mailbox helpers in `src/arch/aarch64/ffa/ffa_mem.c` |
 | Direct messaging | 1.2 | `FFA_MSG_SEND_DIRECT_REQ`/`RESP` (32 and 64), `FFA_MSG_SEND_DIRECT_REQ2`/`RESP2`, partition to partition and Normal world to partition | `src/arch/aarch64/ffa/ffa_msg.c`, `src/arch/aarch64/spm/coroutine_aarch64.c` |

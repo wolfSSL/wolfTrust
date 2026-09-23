@@ -725,6 +725,120 @@ static void frag_rows(void)
           "a retrieve request states its length from its access descriptors");
 }
 
+/* A transaction from owner 0 to borrowers 0x8002 onwards with tag 0x77. */
+static const wt_ffa_mem_handle_entry_t* make_entry(wt_ffa_mem_registry_t* reg,
+                                                   wt_ffa_mem_op_t op,
+                                                   uint32_t borrowers)
+{
+    wt_ffa_mem_region_t region = { 0x40000000ull, 1u, 0x02u, 1u };
+    const wt_ffa_mem_handle_entry_t* e = NULL;
+    uint64_t h = 0u;
+    uint32_t i;
+
+    wt_ffa_mem_registry_init(reg);
+    if (wt_ffa_mem_share_register(reg, op, 0u, 0x8002u, &region, 1u, &h) != 0) {
+        return NULL;
+    }
+    for (i = 1u; i < borrowers; i++) {
+        if (wt_ffa_mem_handle_add_borrower(reg, h, (uint16_t)(0x8002u + i),
+                                           0x02u) != 0) {
+            return NULL;
+        }
+    }
+    wt_ffa_mem_handle_set_meta(reg, h, 0x77ull, 0u);
+    if (wt_ffa_mem_handle_lookup(reg, h, &e) != 0) {
+        return NULL;
+    }
+    return e;
+}
+
+/* A retrieve request for e naming its first n borrowers in order. */
+static void make_rq(wt_ffa_mem_retrieve_req_t* rq,
+                    const wt_ffa_mem_handle_entry_t* e, uint32_t n)
+{
+    uint32_t i;
+
+    memset(rq, 0, sizeof(*rq));
+    rq->handle = e->handle;
+    rq->tag = 0x77ull;
+    rq->receiver_count = n;
+    rq->access_desc_size = WT_FFA_MEM_ACCESS_SIZE;
+    for (i = 0u; i < n; i++) {
+        rq->receivers[i] = (uint16_t)(0x8002u + i);
+        rq->permissions[i] = 0x02u;
+    }
+}
+
+/* WT-FFA-0009 (a retrieve request held against its transaction, 2.4.1.2). */
+static void retrieve_check_rows(void)
+{
+    static wt_ffa_mem_registry_t reg;
+    const wt_ffa_mem_handle_entry_t* e;
+    wt_ffa_mem_retrieve_req_t rq;
+
+    check(wt_ffa_mem_type_flag((uint8_t)WT_FFA_MEM_STATE_SHARED) ==
+              WT_FFA_MEM_FLAG_TYPE_SHARE &&
+          wt_ffa_mem_type_flag((uint8_t)WT_FFA_MEM_STATE_LENT) ==
+              WT_FFA_MEM_FLAG_TYPE_LEND &&
+          wt_ffa_mem_type_flag((uint8_t)WT_FFA_MEM_STATE_DONATED) ==
+              WT_FFA_MEM_FLAG_TYPE_DONATE,
+          "each live handle state reports its transaction type");
+
+    e = make_entry(&reg, WT_FFA_MEM_OP_LEND, 1u);
+    check(e != NULL, "a single-borrower lend registers");
+    if (e == NULL) {
+        return;
+    }
+    make_rq(&rq, e, 1u);
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == 0,
+          "a request naming the borrower with the owner's tag is accepted");
+    rq.flags = WT_FFA_MEM_FLAG_TYPE_LEND;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == 0,
+          "a request stating the transaction's own type is accepted");
+    rq.flags = WT_FFA_MEM_FLAG_TYPE_SHARE;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+          "a request stating another transaction type is INVALID_PARAMETERS");
+    make_rq(&rq, e, 1u);
+    rq.tag = 0x78ull;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+          "a request with another tag is INVALID_PARAMETERS");
+    make_rq(&rq, e, 1u);
+    rq.flags = 1u << 11;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+          "a reserved retrieve flag is INVALID_PARAMETERS");
+    make_rq(&rq, e, 1u);
+    rq.flags = WT_FFA_MEM_FLAG_BYPASS_BORROWERS;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+          "the bypass flag with a single borrower is INVALID_PARAMETERS");
+    make_rq(&rq, e, 1u);
+    rq.attributes = (uint16_t)(WT_FFA_MEM_ATTR_TYPE_NORMAL |
+                               WT_FFA_MEM_ATTR_CACHE_MASK |
+                               WT_FFA_MEM_ATTR_SHARE_INNER | WT_FFA_MEM_ATTR_NS);
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+          "a request that sets the NS bit is INVALID_PARAMETERS");
+    rq.attributes = (uint16_t)WT_FFA_MEM_ATTR_TYPE_DEVICE;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_DENIED,
+          "a request for Device memory is DENIED");
+    make_rq(&rq, e, 1u);
+    rq.receivers[0] = 0x8009u;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+          "a request naming an endpoint that is not a borrower is INVALID_PARAMETERS");
+    make_rq(&rq, e, 1u);
+    rq.impdef[0][3] = 0x5Au;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == WT_FFA_INVALID_PARAMETERS,
+          "a request that does not repeat the implementation-defined bytes is INVALID_PARAMETERS");
+
+    e = make_entry(&reg, WT_FFA_MEM_OP_SHARE, 2u);
+    check(e != NULL, "a two-borrower share registers");
+    if (e == NULL) {
+        return;
+    }
+    make_rq(&rq, e, 1u);
+    rq.flags = WT_FFA_MEM_FLAG_BYPASS_BORROWERS;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq) == 0,
+          "with several borrowers the bypass flag lets the caller name only itself");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -739,6 +853,7 @@ int main(void)
     retrieve_rows();
     borrower_rows();
     frag_rows();
+    retrieve_check_rows();
 
     printf("ffa_mem: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

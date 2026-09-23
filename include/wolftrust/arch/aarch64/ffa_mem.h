@@ -482,4 +482,16 @@ int wt_ffa_mem_handle_relinquish(wt_ffa_mem_registry_t* reg, uint64_t handle,
 int wt_ffa_mem_handle_reclaim(wt_ffa_mem_registry_t* reg, uint64_t handle,
                               uint16_t owner);
 
+/* The transaction-type flag (Table 1.23 bits[4:3]) of a live handle's state. */
+uint32_t wt_ffa_mem_type_flag(uint8_t state);
+
+/* Hold a parsed retrieve request against the transaction its handle names
+ * (DEN0140 2.4.1.2): every named endpoint is a borrower whose
+ * implementation-defined bytes it repeats, and the tag, flags, transaction
+ * type, and attributes agree. Returns 0, WT_FFA_INVALID_PARAMETERS for a
+ * field the request got wrong, or WT_FFA_DENIED for Device memory (only Normal
+ * memory is ever sent). */
+int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
+                                  const wt_ffa_mem_retrieve_req_t* rq);
+
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_MEM_H */

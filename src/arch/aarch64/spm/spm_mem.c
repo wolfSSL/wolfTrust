@@ -476,24 +476,6 @@ int wt_spm_mem_frag_share(uint64_t handle, uint16_t sender)
     return ret;
 }
 
-static uint32_t type_flag(uint8_t state)
-{
-    uint32_t flag;
-
-    switch (state) {
-        case (uint8_t)WT_FFA_MEM_STATE_LENT:
-            flag = WT_FFA_MEM_FLAG_TYPE_LEND;
-            break;
-        case (uint8_t)WT_FFA_MEM_STATE_DONATED:
-            flag = WT_FFA_MEM_FLAG_TYPE_DONATE;
-            break;
-        default:
-            flag = WT_FFA_MEM_FLAG_TYPE_SHARE;
-            break;
-    }
-    return flag;
-}
-
 /* What the borrower asked for against what the owner granted it (11.4.2):
  * it may ask for less, never for more, and never for execution. */
 static int effective_permissions(int exclusive, uint8_t granted, uint8_t asked,
@@ -567,13 +549,11 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
 {
     const wt_ffa_mem_handle_entry_t* e;
     wt_ffa_mem_borrower_t* borrower;
-    wt_ffa_mem_borrower_t* other;
     wt_spm_mem_binding_t* b;
     wt_ffa_mem_retrieve_req_t rq;
     wt_ffa_mem_constituent_t cons[WT_FFA_MEM_MAX_REGIONS];
     wt_ffa_mem_build_t in;
     uint32_t attributes;
-    uint32_t type;
     uint32_t i;
     uint32_t done = 0u;
     uint8_t perms = 0u;
@@ -611,31 +591,9 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     if ((borrower == NULL) || (b == NULL) || (borrower->retrieved != 0u)) {
         return WT_FFA_DENIED;
     }
-    /* FF-A 1.2: what the owner attached for a borrower is repeated by whoever
-     * names that borrower in a retrieve request. */
-    for (i = 0u; i < rq.receiver_count; i++) {
-        other = wt_ffa_mem_handle_borrower(&g_reg, rq.handle, rq.receivers[i]);
-        if ((other == NULL) ||
-            (memcmp(other->impdef, rq.impdef[i], sizeof(other->impdef)) != 0)) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
-    }
-    type = rq.flags & WT_FFA_MEM_FLAG_TYPE_MASK;
-    if ((rq.tag != e->tag) ||
-        ((rq.flags & ~(WT_FFA_MEM_FLAG_SEND_MASK | WT_FFA_MEM_FLAG_TYPE_MASK |
-                       WT_FFA_MEM_FLAG_ZERO_AFTER |
-                       WT_FFA_MEM_FLAG_BYPASS_BORROWERS)) != 0u) ||
-        (((rq.flags & WT_FFA_MEM_FLAG_BYPASS_BORROWERS) != 0u) &&
-         (e->borrower_count == 1u)) ||
-        ((type != 0u) && (type != type_flag(e->state))) ||
-        ((rq.attributes & (WT_FFA_MEM_ATTR_RSVD_MASK | WT_FFA_MEM_ATTR_NS)) !=
-         0u)) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
-    /* Well formed, but not what was sent: only Normal memory is ever lent. */
-    if ((rq.attributes & WT_FFA_MEM_ATTR_TYPE_MASK) ==
-        WT_FFA_MEM_ATTR_TYPE_DEVICE) {
-        return WT_FFA_DENIED;
+    ret = wt_ffa_mem_retrieve_req_check(e, &rq);
+    if (ret != 0) {
+        return ret;
     }
     ret = effective_permissions(
         ((e->state == (uint8_t)WT_FFA_MEM_STATE_DONATED) ||
@@ -674,7 +632,8 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     in.tag = e->tag;
     in.handle = rq.handle;
     zero = ((e->owner_cookie & WT_FFA_MEM_FLAG_ZERO) != 0u) ? 1 : 0;
-    in.flags = type_flag(e->state) | ((zero != 0) ? WT_FFA_MEM_FLAG_ZERO : 0u);
+    in.flags = wt_ffa_mem_type_flag(e->state) |
+               ((zero != 0) ? WT_FFA_MEM_FLAG_ZERO : 0u);
     in.op = WT_FFA_MEM_OP_SHARE;
     in.sender = e->owner;
     in.receiver = receiver;

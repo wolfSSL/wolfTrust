@@ -232,13 +232,14 @@ static inline uint32_t wt_ffa_version_of(const wt_ffa_version_state_t* st,
 
 /* DEN0140 1.10.4.1.1: a v1.1+ partition must set the NS-bit request in its
  * FFA_FEATURES(FFA_MEM_RETRIEVE_REQ) input properties; a v1.0 one may leave it
- * clear (Table 1.19). 0, or INVALID_PARAMETERS. */
+ * clear (Table 1.19). An invalid query is NOT_SUPPORTED, the only error 13.3
+ * gives FFA_FEATURES. 0, or NOT_SUPPORTED. */
 static inline int32_t wt_ffa_features_retrieve_check(uint32_t caller_version,
                                                      uint32_t input)
 {
     if ((caller_version >= WT_FFA_VERSION_MAKE(1u, 1u)) &&
         ((input & WT_FFA_FEATURES_RETRIEVE_NS_BIT) == 0u)) {
-        return (int32_t)WT_FFA_INVALID_PARAMETERS;
+        return (int32_t)WT_FFA_NOT_SUPPORTED;
     }
     return 0;
 }

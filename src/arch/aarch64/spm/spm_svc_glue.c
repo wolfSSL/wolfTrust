@@ -135,8 +135,9 @@ static void ffa_success(wt_trap_frame_t* frame, uint64_t w2, uint64_t w3)
     frame->x[3] = w3;
 }
 
-/* The configured partitions as FFA_PARTITION_INFO_GET source records: the FF-A
- * id follows creation order (0x8002 up), matching the ids the SPMC assigns. */
+/* The configured partitions as FFA_PARTITION_INFO_GET source records: each
+ * manifest partition under the live id of the partition running in its
+ * domain (the id its FFA_ID_GET returns), one not running omitted. */
 static wt_ffa_partinfo_entry_t g_partinfo[16];
 
 static size_t partinfo_collect(void)
@@ -146,6 +147,7 @@ static size_t partinfo_collect(void)
     size_t native_count = 0u;
     size_t part_count = 0u;
     size_t cap = sizeof(g_partinfo) / sizeof(g_partinfo[0]);
+    size_t added = 0u;
     size_t n = 0u;
     size_t i;
     unsigned int j;
@@ -166,15 +168,13 @@ static size_t partinfo_collect(void)
     if (parts == NULL) {
         return 0u;
     }
-    for (i = 0u; (i < part_count) && (n < cap); i++) {
-        g_partinfo[n].id = (uint16_t)(WT_FFA_ID_SP_FIRST + i);
-        g_partinfo[n].exec_contexts = (uint16_t)parts[i].execution_contexts;
-        g_partinfo[n].properties = wt_ffa_partinfo_props(parts[i].messaging);
-        for (j = 0u; j < 16u; j++) {
-            g_partinfo[n].uuid[j] = (parts[i].uuid_count > 0u) ?
-                                    parts[i].uuids[0].bytes[j] : 0u;
+    for (i = 0u; i < part_count; i++) {
+        if (wt_ffa_partinfo_from_manifest(
+                &parts[i], wt_spm_sp_ffa_id_of_domain(parts[i].domain_id),
+                &g_partinfo[n], cap - n, &added) != 0) {
+            return 0u;
         }
-        n++;
+        n += added;
     }
     return n;
 }

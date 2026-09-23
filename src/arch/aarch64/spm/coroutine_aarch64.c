@@ -355,6 +355,24 @@ struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id)
     return g_created[slot];
 }
 
+/* The live endpoint id of the partition confined to a manifest domain, or 0
+ * when no created partition runs in it. */
+uint16_t wt_spm_sp_ffa_id_of_domain(uint32_t domain_id)
+{
+    const struct wt_co* co;
+    unsigned int i;
+
+    for (i = 0u; i < WT_CO_MAX; i++) {
+        co = g_created[i];
+        if ((co != NULL) && (co->id != 0u) && (co->unprivileged != 0u) &&
+            (co->domain != NULL) &&
+            ((uint32_t)co->domain->domain_id == domain_id)) {
+            return wt_spm_sp_ffa_id(co);
+        }
+    }
+    return 0u;
+}
+
 /* Non-zero until the partition's first block, which completes its init. */
 int wt_spm_sp_initializing(const struct wt_co* co)
 {

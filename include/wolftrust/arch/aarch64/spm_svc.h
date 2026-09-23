@@ -91,6 +91,7 @@ uint32_t wt_spm_sp_init_count(void);
  * its initialization (before its first block). */
 uint16_t wt_spm_sp_ffa_id(const struct wt_co* co);
 struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id);
+uint16_t wt_spm_sp_ffa_id_of_domain(uint32_t domain_id);
 int wt_spm_sp_initializing(const struct wt_co* co);
 
 /* The boot handoff record the FF-A boot information named, if any. */

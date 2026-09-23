@@ -938,11 +938,16 @@ static void ns_reply_regs(wt_ffa_regs_ext_t* e, const uint64_t* out)
 
 /* Nothing to run on the Secure side: every event the SPMD delivers is
  * reported until the Secure virtual instance dispatches them. */
+/* The SPMC's own receivers, the PSA framework endpoint and the test echo
+ * partition, answer FFA_MSG_SEND_DIRECT_REQ32/64 only. */
+#define WT_SPM_DIRECT_REQ_ONLY WT_FFA_PARTINFO_PROP_DIRECT_RECV
+
 /* A direct request the SPMD relayed from the Normal world: validate it at the
  * NS-physical instance, deliver it to the waiting receiver, and send the
  * partition's response back with FFA_MSG_SEND_DIRECT_RESP32; that SMC's
- * return is the next event. A request no partition can take is answered with
- * FFA_ERROR instead. */
+ * return is the next event. A request is answered with FFA_ERROR instead:
+ * DENIED when the receiver does not take that kind of request (Tables 15.8
+ * and 15.16), INVALID_PARAMETERS when its id names no endpoint. */
 static void direct_request(wt_ffa_regs_ext_t* e)
 {
     uint64_t req[WT_FFA_MSG_REGS_EXT];
@@ -950,6 +955,8 @@ static void direct_request(wt_ffa_regs_ext_t* e)
     wt_ffa_regs_t* r = &e->base;
     struct wt_co* co = NULL;
     uint16_t receiver = wt_ffa_direct_receiver(r->x[1]);
+    uint32_t fid = (uint32_t)r->x[0];
+    uint32_t props = 0u;
     int ret = wt_ffa_direct_req_check(r->x, WT_FFA_INSTANCE_NS_PHYSICAL);
     unsigned int i;
 
@@ -962,17 +969,26 @@ static void direct_request(wt_ffa_regs_ext_t* e)
         (wt_ffa_direct_sender(r->x[1]) != WT_FFA_ID_NS_PRIMARY)) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
-    if (ret == 0 && receiver == WT_FFA_ID_PSA) {
-        (void)wt_spm_psa_framework(r);
-        return;
+    if ((ret == 0) && (receiver == WT_FFA_ID_PSA)) {
+        ret = wt_ffa_direct_req_allowed(WT_SPM_DIRECT_REQ_ONLY, fid, 1);
+        if (ret == 0) {
+            (void)wt_spm_psa_framework(r);
+            return;
+        }
+    }
+    if ((ret == 0) && (receiver == WT_FFA_ID_ECHO)) {
+        co = wt_spm_ffa_echo_partition();
+        props = WT_SPM_DIRECT_REQ_ONLY;
+        ret = (co != NULL) ? 0 : WT_FFA_INVALID_PARAMETERS;
+    }
+    else if (ret == 0) {
+        ret = wt_spm_partition_props(receiver, &props);
+        co = wt_spm_ffa_native_by_id(receiver);
     }
     if (ret == 0) {
-        if (receiver == WT_FFA_ID_ECHO) {
-            co = wt_spm_ffa_echo_partition();
-        }
-        else {
-            co = wt_spm_ffa_native_by_id(receiver);
-        }
+        ret = wt_ffa_direct_req_allowed(props, fid, 1);
+    }
+    if (ret == 0) {
         for (i = 0u; i < WT_FFA_MSG_REGS; i++) {
             req[i] = r->x[i];
         }

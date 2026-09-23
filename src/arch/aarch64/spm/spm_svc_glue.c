@@ -213,6 +213,15 @@ int wt_spm_partition_info_regs(const uint64_t* x, uint64_t* out18)
                                 (uint16_t)((x[3] >> 16) & 0xFFFFu), out18);
 }
 
+/* The Table 6.2 properties discovery lists for id: 0, or INVALID_PARAMETERS
+ * for an id that names no listed partition. */
+int wt_spm_partition_props(uint16_t id, uint32_t* props)
+{
+    size_t n = partinfo_collect();
+
+    return wt_ffa_partinfo_props_of(g_partinfo, n, id, props);
+}
+
 static wt_ffa_mailbox_t* sp_mailbox(void);
 
 static void ffa_partition_info_get_regs(wt_trap_frame_t* frame)
@@ -338,11 +347,14 @@ static void ffa_rxtx_unmap(wt_trap_frame_t* frame, const struct wt_co* co)
 }
 
 /* A direct request from a partition (15.2): only to another FF-A endpoint the
- * SPMC hosts, which must be waiting. The caller blocks; its callee's response
+ * SPMC hosts that takes this kind of request (DENIED otherwise, Tables 15.8
+ * and 15.16), which must be waiting. The caller blocks; its callee's response
  * (or FFA_YIELD) is written into its frame before it resumes. */
 static void ffa_direct_req(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     struct wt_co* target;
+    uint16_t receiver = wt_ffa_direct_receiver(frame->x[1]);
+    uint32_t props = 0u;
     int ret = wt_ffa_direct_req_check(frame->x, WT_FFA_INSTANCE_SECURE_VIRTUAL);
 
     if ((ret == 0) &&
@@ -350,7 +362,13 @@ static void ffa_direct_req(wt_trap_frame_t* frame, const struct wt_co* co)
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     if (ret == 0) {
-        target = wt_spm_ffa_native_by_id(wt_ffa_direct_receiver(frame->x[1]));
+        ret = wt_spm_partition_props(receiver, &props);
+    }
+    if (ret == 0) {
+        ret = wt_ffa_direct_req_allowed(props, (uint32_t)frame->x[0], 1);
+    }
+    if (ret == 0) {
+        target = wt_spm_ffa_native_by_id(receiver);
         ret = wt_spm_ffa_sp_call(co, target, frame->x);
     }
     if (ret != 0) {

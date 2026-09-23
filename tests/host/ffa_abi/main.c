@@ -196,11 +196,6 @@ static void partition_info_rows(void)
           wt_ffa_partinfo_desc_size(WT_FFA_VERSION_1_2) ==
               WT_FFA_PARTINFO_DESC_V11,
           "a 1.0 caller gets 8-byte descriptors, a 1.1+ caller 24-byte with the UUID");
-    check(wt_ffa_partinfo_props(WT_FFA_MESSAGING_DIRECT) ==
-              (WT_FFA_PARTINFO_PROP_DIRECT_RECV | WT_FFA_PARTINFO_PROP_DIRECT_SEND) &&
-          wt_ffa_partinfo_props(WT_FFA_MESSAGING_INDIRECT) ==
-              WT_FFA_PARTINFO_PROP_INDIRECT,
-          "properties reflect the manifest messaging kind");
 
     for (i = 0u; i < sizeof(rx); i++) {
         rx[i] = 0xEEu;
@@ -323,6 +318,9 @@ static void manifest_record_rows(void)
           "a manifest partition is listed under its live id with its UUID");
     check((out[0].properties & WT_FFA_PARTINFO_PROP_AARCH64) != 0u,
           "a manifest partition reports the AArch64 execution state (bit 8)");
+    check(out[0].properties == WT_FFA_PARTINFO_PROP_AARCH64,
+          "a manifest partition declaring direct messaging advertises no FF-A "
+          "messaging, since its services are reached through the PSA endpoint");
     check(wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, out, n,
                                 uuids[0].bytes, WT_FFA_PARTINFO_FLAG_COUNT,
                                 &count, &size) == 0 && count == 1u,
@@ -362,6 +360,62 @@ static void manifest_record_rows(void)
     check(wt_ffa_partinfo_from_manifest(&none, 0x8006u, out, 2u, &n) ==
               WT_FFA_INVALID_PARAMETERS,
           "a partition exporting no UUID is refused");
+}
+
+/* Tables 6.2, 15.8 and 15.16: a direct request goes only to an endpoint that
+ * takes that kind (DENIED otherwise), and an id no partition has is
+ * INVALID_PARAMETERS. */
+static void direct_permission_rows(void)
+{
+    static const wt_ffa_partinfo_entry_t parts[3] = {
+        { 0x8008u, 1u, 0x70Fu, { 0x01 } },
+        { 0x8002u, 1u, WT_FFA_PARTINFO_PROP_AARCH64, { 0x02 } },
+        { 0x8002u, 1u, WT_FFA_PARTINFO_PROP_NOTIF, { 0x03 } }
+    };
+    const uint32_t native = 0x70Fu;
+    const uint32_t manifest = WT_FFA_PARTINFO_PROP_AARCH64;
+    const uint32_t req_only = WT_FFA_PARTINFO_PROP_DIRECT_RECV;
+    uint32_t props = 99u;
+
+    check(wt_ffa_partinfo_props_of(parts, 3u, 0x8008u, &props) == 0 &&
+              props == 0x70Fu,
+          "a listed partition's properties are found by its id");
+    check(wt_ffa_partinfo_props_of(parts, 3u, 0x8002u, &props) == 0 &&
+              props == (WT_FFA_PARTINFO_PROP_AARCH64 |
+                        WT_FFA_PARTINFO_PROP_NOTIF),
+          "a partition listed once per UUID has the union of its records");
+    check(wt_ffa_partinfo_props_of(parts, 3u, 0x8009u, &props) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_ffa_partinfo_props_of(parts, 0u, 0x8008u, &props) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "an id no partition has is INVALID_PARAMETERS");
+
+    check(wt_ffa_direct_req_allowed(native, WT_FFA_MSG_SEND_DIRECT_REQ32, 1) ==
+              0 &&
+          wt_ffa_direct_req_allowed(native, WT_FFA_MSG_SEND_DIRECT_REQ64, 1) ==
+              0 &&
+          wt_ffa_direct_req_allowed(native, WT_FFA_MSG_SEND_DIRECT_REQ2, 1) ==
+              0 &&
+          wt_ffa_direct_req_allowed(native, WT_FFA_MSG_SEND_DIRECT_REQ2, 0) ==
+              0,
+          "an endpoint advertising both kinds takes and sends both");
+    check(wt_ffa_direct_req_allowed(manifest, WT_FFA_MSG_SEND_DIRECT_REQ32,
+                                    1) == WT_FFA_DENIED &&
+          wt_ffa_direct_req_allowed(manifest, WT_FFA_MSG_SEND_DIRECT_REQ64,
+                                    1) == WT_FFA_DENIED &&
+          wt_ffa_direct_req_allowed(manifest, WT_FFA_MSG_SEND_DIRECT_REQ2,
+                                    1) == WT_FFA_DENIED,
+          "a request to an endpoint that takes none is DENIED");
+    check(wt_ffa_direct_req_allowed(req_only, WT_FFA_MSG_SEND_DIRECT_REQ32,
+                                    1) == 0 &&
+          wt_ffa_direct_req_allowed(req_only, WT_FFA_MSG_SEND_DIRECT_REQ2,
+                                    1) == WT_FFA_DENIED,
+          "FFA_MSG_SEND_DIRECT_REQ receipt does not imply REQ2 receipt");
+    check(wt_ffa_direct_req_allowed(req_only, WT_FFA_MSG_SEND_DIRECT_REQ32,
+                                    0) == WT_FFA_DENIED &&
+          wt_ffa_direct_req_allowed(WT_FFA_PARTINFO_PROP_REQ2_SEND,
+                                    WT_FFA_MSG_SEND_DIRECT_REQ2, 0) == 0,
+          "sending is judged on the send bits, not the receive bits");
 }
 
 /* FFA_PARTITION_INFO_GET through the caller's mailbox (13.8, Table 13.36):
@@ -643,6 +697,7 @@ int main(void)
     partition_info_rows();
     manifest_record_rows();
     partition_info_mailbox_rows();
+    direct_permission_rows();
     version_state_rows();
 
     printf("ffa_abi: %d checks, %d failures\n", checks, failures);

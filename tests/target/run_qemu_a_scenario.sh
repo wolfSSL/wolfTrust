@@ -43,7 +43,7 @@ acs_suite=""
 acs_floor=0
 case "$scenario" in
   ffaacs-discovery) acs_suite=setup_discovery; acs_floor=14 ;;
-  ffaacs-direct)    acs_suite=direct_messaging; acs_floor=4 ;;
+  ffaacs-direct)    acs_suite=direct_messaging; acs_floor=5 ;;
   ffaacs-memory)    acs_suite=memory_manage; acs_floor=70 ;;
   ffaacs-notify)    acs_suite=notifications; acs_floor=10 ;;
   ffaacs-indirect)  acs_suite=indirect_messaging; acs_floor=2 ;;

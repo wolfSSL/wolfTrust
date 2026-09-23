@@ -202,6 +202,9 @@ struct wt_ffa_mailbox;
 int wt_spm_partition_info(const uint64_t* x, struct wt_ffa_mailbox* mb,
                           uint32_t* count, uint32_t* size);
 int wt_spm_partition_info_regs(const uint64_t* x, uint64_t* out18);
+/* The Table 6.2 properties discovery lists for id, or INVALID_PARAMETERS for
+ * an id it does not list. */
+int wt_spm_partition_props(uint16_t id, uint32_t* props);
 
 /* FF-A native partitions: separately built S-EL0 images that speak FF-A
  * directly rather than hosting an FF-M service (the FF-A ACS endpoints). The

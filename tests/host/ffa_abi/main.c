@@ -847,12 +847,13 @@ int main(void)
           "a v1.0 partition may query FFA_MEM_RETRIEVE_REQ with or without "
           "requesting the NS bit (DEN0140 Table 1.19)");
     check(wt_ffa_features_retrieve_check(WT_FFA_VERSION_MAKE(1u, 1u), 0u) ==
-              WT_FFA_INVALID_PARAMETERS &&
+              WT_FFA_NOT_SUPPORTED &&
           wt_ffa_features_retrieve_check(WT_FFA_VERSION_1_2, 0u) ==
-              WT_FFA_INVALID_PARAMETERS &&
+              WT_FFA_NOT_SUPPORTED &&
           wt_ffa_features_retrieve_check(WT_FFA_VERSION_1_2,
                                          WT_FFA_FEATURES_RETRIEVE_NS_BIT) == 0,
-          "a v1.1+ partition must request the NS bit (DEN0140 1.10.4.1.1)");
+          "a v1.1+ partition must request the NS bit (DEN0140 1.10.4.1.1), or "
+          "the query is NOT_SUPPORTED (13.3)");
     check(wt_ffa_version_reply(WT_FFA_VERSION_1_2, WT_FFA_VERSION_1_2) ==
               (int32_t)WT_FFA_VERSION_1_2,
           "a 1.2 caller is told 1.2");

@@ -326,8 +326,6 @@ static void info_rows(void)
 {
     wt_ffa_notif_info_result_t info;
     wt_ffa_notif_get_result_t got;
-    uint16_t id;
-    unsigned int i;
 
     printf("[suite] info-get\n");
     fixture();
@@ -343,20 +341,53 @@ static void info_rows(void)
     check(info.w2 == WT_FFA_NOTIF_INFO_COUNT(1u),
           "one all-global list and no more pending");
     check(info.regs[0] == SP2, "the list is the bare endpoint id");
+    check(wt_ffa_notif_info_get(VM0, 1, &info) == WT_FFA_NO_DATA,
+          "a list already returned is not returned again");
+    check(wt_ffa_notif_info_get(VM0, 0, &info) == WT_FFA_NO_DATA,
+          "nor through the other convention");
+    check(wt_ffa_notif_set(VM0, IDS(VM0, SP2), 0u, BIT(12)) == 0,
+          "the VM signals the still-pending id again");
+    check(wt_ffa_notif_info_get(VM0, 1, &info) == WT_FFA_NO_DATA,
+          "re-signaling a pending id adds no new list");
     check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_VM, &got) == 0,
           "SP2 drains");
     check(wt_ffa_notif_info_get(VM0, 1, &info) == WT_FFA_NO_DATA,
           "drained work disappears from the list");
+    check(wt_ffa_notif_set(VM0, IDS(VM0, SP2), 0u, BIT(12)) == 0,
+          "the VM signals the drained id afresh");
+    check(wt_ffa_notif_info_get(VM0, 1, &info) == 0, "the scheduler asks");
+    check((info.w2 == WT_FFA_NOTIF_INFO_COUNT(1u)) && (info.regs[0] == SP2),
+          "a drain then a new signal re-arms the list");
     check(wt_ffa_notif_bind(SP2, IDS(VM0, SP2), WT_FFA_NOTIF_FLAG_PER_VCPU,
                             BIT(13)) == 0, "SP2 binds a per-vCPU id");
     check(wt_ffa_notif_set(VM0, IDS(VM0, SP2), WT_FFA_NOTIF_FLAG_PER_VCPU,
-                           BIT(13)) == 0, "the VM signals it");
+                           BIT(13)) == 0,
+          "the VM signals it while the global list is out");
     check(wt_ffa_notif_info_get(VM0, 1, &info) == 0, "the scheduler asks");
     check(info.w2 == (WT_FFA_NOTIF_INFO_COUNT(1u) | (1u << 12)),
-          "the list carries one vCPU id");
+          "a newly pended id re-arms the list, now with one vCPU id");
     check(info.regs[0] == SP2, "endpoint id then vCPU 0");
-    check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_VM, &got) == 0,
-          "SP2 drains");
+    check(wt_ffa_notif_info_get(VM0, 1, &info) == WT_FFA_NO_DATA,
+          "and it too goes out once");
+    check(wt_ffa_notif_frame_rx_full(SP2, 0) == 0,
+          "a message pends RX-full for SP2");
+    check(wt_ffa_notif_info_get(VM0, 1, &info) == 0, "the scheduler asks");
+    check((info.w2 == (WT_FFA_NOTIF_INFO_COUNT(1u) | (1u << 12))) &&
+          (info.regs[0] == SP2), "every message re-arms its receiver");
+    check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_ALL, &got) == 0,
+          "SP2 drains every class");
+    check(wt_ffa_notif_info_get(VM0, 1, &info) == WT_FFA_NO_DATA,
+          "nothing is left to report");
+    check(wt_ffa_notif_bind(SP3, IDS(VM0, SP3), WT_FFA_NOTIF_FLAG_PER_VCPU,
+                            BIT(0)) == 0,
+          "SP3 binds per-vCPU the id RX-full shares");
+    check(wt_ffa_notif_frame_rx_full(SP3, 1) == 0,
+          "a Secure sender's message pends RX-full for SP3");
+    check(wt_ffa_notif_info_get(VM0, 1, &info) == 0, "the scheduler asks");
+    check((info.w2 == WT_FFA_NOTIF_INFO_COUNT(1u)) && (info.regs[0] == SP3),
+          "a framework notification is global");
+    check(wt_ffa_notif_get(SP3, SP3, WT_FFA_NOTIF_GET_FLAG_SPM, &got) == 0,
+          "SP3 drains it");
     check(wt_ffa_notif_bind(SP3, IDS(VM0, SP3), 0u, BIT(1)) == 0,
           "SP3 binds a global id");
     check(wt_ffa_notif_bind(SP1, IDS(VM0, SP1), 0u, BIT(2)) == 0,
@@ -364,35 +395,90 @@ static void info_rows(void)
     check(wt_ffa_notif_set(VM0, IDS(VM0, SP3), 0u, BIT(1)) == 0 &&
           wt_ffa_notif_set(VM0, IDS(VM0, SP1), 0u, BIT(2)) == 0,
           "the VM signals both");
-    check(wt_ffa_notif_info_get(VM0, 1, &info) == 0, "the scheduler asks");
-    check(info.w2 == WT_FFA_NOTIF_INFO_COUNT(2u), "two all-global lists");
-    check(info.regs[0] == ((uint64_t)SP3 << 16 | SP1),
-          "ids pack four to a doubleword in table order");
     check(wt_ffa_notif_info_get(VM0, 0, &info) == 0, "the 32-bit form asks");
+    check(info.w2 == WT_FFA_NOTIF_INFO_COUNT(2u), "two all-global lists");
     check((info.regs[0] == ((uint64_t)SP3 << 16 | SP1)) &&
-          (info.regs[1] == 0u), "ids pack two to a word");
+          (info.regs[1] == 0u), "ids pack two to a word in table order");
+}
 
-    /* Truncation: more pending receivers than the 32-bit form's ten slots. */
+/* n partitions behind the NS endpoint, each holding one pending id from the
+ * VM; returns how many were set up. */
+static unsigned int pend_many(unsigned int n, uint32_t flags)
+{
+    unsigned int i;
+    uint16_t id;
+
     wt_ffa_notif_reset();
-    check(wt_ffa_notif_register(VM0, 0) == 0, "register the NS endpoint");
-    for (i = 0u; i < 11u; i++) {
+    if (wt_ffa_notif_register(VM0, 0) != 0) {
+        return 0u;
+    }
+    for (i = 0u; i < n; i++) {
         id = (uint16_t)(WT_FFA_ID_SP_FIRST + i);
         if (wt_ffa_notif_register(id, 1) != 0) {
             break;
         }
-        if (wt_ffa_notif_bind((uint16_t)id, IDS(VM0, id), 0u, BIT(0)) != 0) {
+        if (wt_ffa_notif_bind(id, IDS(VM0, id), flags, BIT(0)) != 0) {
             break;
         }
-        if (wt_ffa_notif_set(VM0, IDS(VM0, id), 0u, BIT(0)) != 0) {
+        if (wt_ffa_notif_set(VM0, IDS(VM0, id), flags, BIT(0)) != 0) {
             break;
         }
     }
-    check(i == 11u, "eleven partitions each hold pending work");
+    return i;
+}
+
+static uint64_t pack(unsigned int first, unsigned int count)
+{
+    uint64_t v = 0u;
+    unsigned int i;
+
+    for (i = 0u; i < count; i++) {
+        v |= (uint64_t)(WT_FFA_ID_SP_FIRST + first + i) << (16u * i);
+    }
+    return v;
+}
+
+static void info_page_rows(void)
+{
+    wt_ffa_notif_info_result_t info;
+    uint64_t sizes = 0u;
+    unsigned int i;
+
+    printf("[suite] info-get pagination\n");
+    check(pend_many(11u, 0u) == 11u,
+          "eleven partitions each hold a global id");
     check(wt_ffa_notif_info_get(VM0, 0, &info) == 0, "the 32-bit form asks");
     check(info.w2 == (WT_FFA_NOTIF_INFO_COUNT(10u) | WT_FFA_NOTIF_INFO_MORE),
           "ten lists fit and more remain");
+    check((info.regs[0] == pack(0u, 2u)) && (info.regs[4] == pack(8u, 2u)),
+          "the ten ids fill w3 through w7");
+    check(wt_ffa_notif_info_get(VM0, 0, &info) == 0,
+          "the scheduler asks again");
+    check((info.w2 == WT_FFA_NOTIF_INFO_COUNT(1u)) &&
+          (info.regs[0] == pack(10u, 1u)),
+          "the next call resumes at the eleventh list and clears more");
+    check(wt_ffa_notif_info_get(VM0, 0, &info) == WT_FFA_NO_DATA,
+          "every list has gone out once");
+
+    check(pend_many(11u, 0u) == 11u, "the same eleven afresh");
     check(wt_ffa_notif_info_get(VM0, 1, &info) == 0, "the 64-bit form asks");
     check(info.w2 == WT_FFA_NOTIF_INFO_COUNT(11u), "all eleven fit");
+    check((info.regs[0] == pack(0u, 4u)) && (info.regs[2] == pack(8u, 3u)),
+          "ids pack four to a doubleword");
+
+    check(pend_many(6u, WT_FFA_NOTIF_FLAG_PER_VCPU) == 6u,
+          "six partitions each hold a per-vCPU id");
+    for (i = 0u; i < 5u; i++) {
+        sizes |= 1ull << (12u + (2u * i));
+    }
+    check(wt_ffa_notif_info_get(VM0, 0, &info) == 0, "the 32-bit form asks");
+    check(info.w2 == (WT_FFA_NOTIF_INFO_COUNT(5u) | sizes |
+                      WT_FFA_NOTIF_INFO_MORE),
+          "five two-id lists fill the ten slots and more remain");
+    check(wt_ffa_notif_info_get(VM0, 0, &info) == 0,
+          "the scheduler asks again");
+    check((info.w2 == (WT_FFA_NOTIF_INFO_COUNT(1u) | (1u << 12))) &&
+          (info.regs[0] == pack(5u, 1u)), "the sixth list follows alone");
 }
 
 int main(void)
@@ -407,6 +493,7 @@ int main(void)
     set_rows();
     get_rows();
     info_rows();
+    info_page_rows();
 
     printf("ffa_notif: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

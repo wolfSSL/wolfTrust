@@ -39,6 +39,7 @@ typedef struct wt_notif_ep {
     uint8_t secure;
     uint8_t has_bitmap;
     uint8_t used;
+    uint8_t info_reported;
 } wt_notif_ep_t;
 
 static wt_notif_ep_t g_eps[WT_FFA_NOTIF_MAX_EP];
@@ -79,6 +80,7 @@ void wt_ffa_notif_reset(void)
         g_eps[i].secure = 0u;
         g_eps[i].has_bitmap = 0u;
         g_eps[i].used = 0u;
+        g_eps[i].info_reported = 0u;
     }
     g_sri_pending = 0u;
 }
@@ -252,6 +254,7 @@ int32_t wt_ffa_notif_set(uint16_t caller, uint32_t w1, uint32_t flags,
     wt_notif_ep_t* receiver = ep_find(receiver_id);
     uint32_t per_vcpu = flags & WT_FFA_NOTIF_FLAG_PER_VCPU;
     uint16_t vcpu = (uint16_t)WT_FFA_NOTIF_SET_VCPU(flags);
+    uint64_t fresh;
     unsigned int b;
 
     if ((sender == NULL) || (receiver == NULL)) {
@@ -284,10 +287,16 @@ int32_t wt_ffa_notif_set(uint16_t caller, uint32_t w1, uint32_t flags,
         }
     }
     if (sender->secure != 0u) {
+        fresh = bitmap & ~receiver->pend_sp;
         receiver->pend_sp |= bitmap;
     }
     else {
+        fresh = bitmap & ~receiver->pend_vm;
         receiver->pend_vm |= bitmap;
+    }
+    /* Re-signaling a still-pending id has no effect, so no new list. */
+    if (fresh != 0u) {
+        receiver->info_reported = 0u;
     }
     g_sri_pending = 1u;
     return 0;
@@ -331,6 +340,9 @@ int32_t wt_ffa_notif_get(uint16_t caller, uint32_t w1, uint32_t flags,
         out->framework = receiver->pend_fw;
         receiver->pend_fw = 0u;
     }
+    if (ep_pending(receiver) == 0u) {
+        receiver->info_reported = 0u;
+    }
     return 0;
 }
 
@@ -338,6 +350,7 @@ int32_t wt_ffa_notif_info_get(uint16_t caller, int is64,
                               wt_ffa_notif_info_result_t* out)
 {
     wt_notif_ep_t* callerp = ep_find(caller);
+    wt_notif_ep_t* ep;
     unsigned int slots_per_reg = (is64 != 0) ? 4u : 2u;
     unsigned int max_slots = WT_FFA_NOTIF_INFO_MAX_REGS * slots_per_reg;
     unsigned int slot = 0u;
@@ -360,22 +373,30 @@ int32_t wt_ffa_notif_info_get(uint16_t caller, int is64,
     }
     out->w2 = 0u;
     for (i = 0u; i < WT_FFA_NOTIF_MAX_EP; i++) {
-        if ((g_eps[i].used == 0u) || (ep_pending(&g_eps[i]) == 0u)) {
+        ep = &g_eps[i];
+        /* A list goes out once; only new pending work re-arms it. */
+        if ((ep->used == 0u) || (ep->info_reported != 0u) ||
+            (ep_pending(ep) == 0u)) {
             continue;
         }
         /* One list per endpoint: the id alone for global work, id plus
-         * vCPU 0 when a per-vCPU notification is pending. */
-        size = ((ep_pending(&g_eps[i]) & g_eps[i].bound_pcpu) != 0u) ? 1u : 0u;
+         * vCPU 0 when a per-vCPU notification is pending. Framework
+         * notifications are always global. */
+        size = 0u;
+        if (((ep->pend_sp | ep->pend_vm) & ep->bound_pcpu) != 0u) {
+            size = 1u;
+        }
         need = 1u + size;
         if ((slot + need) > max_slots) {
             more = 1u;
             break;
         }
         out->regs[slot / slots_per_reg] |=
-            (uint64_t)g_eps[i].id << (16u * (slot % slots_per_reg));
+            (uint64_t)ep->id << (16u * (slot % slots_per_reg));
         slot += need;
         sizes |= (uint64_t)(size & 0x3u) << (12u + (2u * lists));
         lists++;
+        ep->info_reported = 1u;
     }
     if (lists == 0u) {
         return WT_FFA_NO_DATA;
@@ -394,6 +415,8 @@ int32_t wt_ffa_notif_frame_rx_full(uint16_t receiver_id, int sender_secure)
     }
     receiver->pend_fw |= (sender_secure != 0) ? WT_FFA_NOTIF_FW_SPM_RX_FULL
                                               : WT_FFA_NOTIF_FW_NS_RX_FULL;
+    /* Every message is new work the receiver must be run for. */
+    receiver->info_reported = 0u;
     g_sri_pending = 1u;
     return 0;
 }

@@ -388,6 +388,16 @@ int main(void)
               WT_TABLES_ERROR_ALIGN,
           "window: executable and unaligned grants are refused");
 
+    wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, 4u * WT_TABLES_PAGE_SIZE);
+    check(build(&t2, 6u, g_sp, 1u, &pool) == WT_TABLES_OK &&
+          wt_tables_pool_pages_used(&pool) == 4u &&
+          wt_tables_grant_el0(&t2, &pool, 0x0E3FF000u, 2u, RW, &mapped) ==
+              WT_TABLES_ERROR_POOL &&
+          wt_tables_walk(&t2, &pool, 0x0E3FF000u, &w) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          wt_tables_walk(&t2, &pool, 0x0E201000u, &w) == WT_TABLES_OK,
+          "window: a grant the pool runs dry on leaves none of its pages mapped");
+
     wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, 2u * WT_TABLES_PAGE_SIZE);
     check(build(&t2, 6u, g_sp, 1u, &pool) == WT_TABLES_ERROR_POOL,
           "pool exhaustion fails the build");

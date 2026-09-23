@@ -371,6 +371,7 @@ int wt_tables_grant_el0(wt_tables_t* t, wt_tables_pool_t* pool, uint64_t va,
     uint64_t* entry;
     uint64_t end;
     uint64_t at;
+    uint64_t undo;
     int64_t pte;
     size_t mapped = 0u;
     int ret = window_range_ok(t, va, pages);
@@ -400,14 +401,25 @@ int wt_tables_grant_el0(wt_tables_t* t, wt_tables_pool_t* pool, uint64_t va,
     if ((mapped != 0u) && (mapped != pages)) {
         return WT_TABLES_ERROR_OVERLAP;
     }
-    for (at = va; (at < end) && (ret == WT_TABLES_OK);
-         at += WT_TABLES_PAGE_SIZE) {
+    at = va;
+    while ((at < end) && (ret == WT_TABLES_OK)) {
         if (mapped != 0u) {
             entry = l3_entry(t, pool, at);
             *entry = (uint64_t)pte | (*entry & PTE_ADDR_MASK);
         }
         else {
             ret = map_page(t, pool, at, (uint64_t)pte);
+        }
+        if (ret == WT_TABLES_OK) {
+            at += WT_TABLES_PAGE_SIZE;
+        }
+    }
+    /* A table page the pool could not supply leaves the window unmapped. */
+    for (undo = va; (ret != WT_TABLES_OK) && (undo < at);
+         undo += WT_TABLES_PAGE_SIZE) {
+        entry = l3_entry(t, pool, undo);
+        if (entry != NULL) {
+            *entry = 0u;
         }
     }
     *was_mapped = (mapped != 0u) ? 1 : 0;

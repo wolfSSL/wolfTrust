@@ -830,6 +830,10 @@ static void ffa_notif_set(wt_trap_frame_t* frame, const struct wt_co* co)
                                    (uint32_t)frame->x[2], bitmap);
 
     if (ret == 0) {
+        if (wt_ffa_notif_sri_take_now() != 0) {
+            wt_gic->raise_ns_sgi(WT_FFA_SRI_INTID);
+            wt_el3_puts("[SPM] sri sgi\r\n");
+        }
         ffa_success(frame, 0u, 0u);
     }
     else {

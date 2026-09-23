@@ -44,6 +44,7 @@ typedef struct wt_notif_ep {
 
 static wt_notif_ep_t g_eps[WT_FFA_NOTIF_MAX_EP];
 static uint8_t g_sri_pending;
+static uint8_t g_sri_now;
 
 static wt_notif_ep_t* ep_find(uint16_t id)
 {
@@ -83,6 +84,7 @@ void wt_ffa_notif_reset(void)
         g_eps[i].info_reported = 0u;
     }
     g_sri_pending = 0u;
+    g_sri_now = 0u;
 }
 
 int wt_ffa_notif_register(uint16_t id, int secure)
@@ -304,7 +306,15 @@ int32_t wt_ffa_notif_set(uint16_t caller, uint32_t w1, uint32_t flags,
     if (fresh != 0u) {
         receiver->info_reported = 0u;
     }
-    g_sri_pending = 1u;
+    /* 16.5.1: a partition that does not delay has the SRI asserted as its
+     * call completes; a delayed one waits for the next Normal-world entry. */
+    if ((sender->secure != 0u) &&
+        ((flags & WT_FFA_NOTIF_FLAG_DELAY_SRI) == 0u)) {
+        g_sri_now = 1u;
+    }
+    else {
+        g_sri_pending = 1u;
+    }
     return 0;
 }
 
@@ -447,4 +457,12 @@ int wt_ffa_notif_sri_take(void)
 int wt_ffa_notif_sri_pending(void)
 {
     return (int)g_sri_pending;
+}
+
+int wt_ffa_notif_sri_take_now(void)
+{
+    int was = (int)g_sri_now;
+
+    g_sri_now = 0u;
+    return was;
 }

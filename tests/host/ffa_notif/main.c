@@ -264,9 +264,25 @@ static void set_rows(void)
     check(wt_ffa_notif_set(VM0, IDS(VM0, SP2),
                            WT_FFA_NOTIF_FLAG_PER_VCPU, BIT(13)) == 0,
           "the VM signals SP2's per-vCPU id on vCPU 0");
+    check(wt_ffa_notif_sri_take() == 1, "the VM's signals latch the SRI");
+    check(wt_ffa_notif_sri_take_now() == 0,
+          "a Normal-world signal never asks for it at once");
     check(wt_ffa_notif_set(SP1, IDS(SP1, VM0), WT_FFA_NOTIF_FLAG_DELAY_SRI,
                            BIT(0)) == 0,
           "SP1 signals the VM with a delayed SRI");
+    check(wt_ffa_notif_sri_take_now() == 0,
+          "a delayed signal does not assert the SRI as the call completes");
+    check(wt_ffa_notif_sri_pending() == 1,
+          "it waits for the next Normal-world entry");
+    check(wt_ffa_notif_set(SP1, IDS(SP1, VM0), 0u, BIT(0)) == 0,
+          "SP1 signals the VM again without the delay hint");
+    check(wt_ffa_notif_sri_take_now() == 1,
+          "the SRI is asserted as that call completes");
+    check(wt_ffa_notif_sri_take_now() == 0, "once");
+    check(wt_ffa_notif_sri_take() == 1,
+          "and the earlier delayed latch is still pending");
+    check(wt_ffa_notif_sri_take() == 0,
+          "until the Normal-world entry takes it");
 }
 
 static void get_rows(void)

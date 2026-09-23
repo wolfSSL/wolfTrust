@@ -893,6 +893,10 @@ static int fuzz_refused(uint32_t fid, const uint64_t* o)
         return ((uint32_t)o[0] == WT_FFA_ERROR) &&
                ((int32_t)(uint32_t)o[2] == WT_FFA_NOT_SUPPORTED);
     }
+    /* SMCCC 5.2: -1 sign-extended, so an SMC64 id reads all of x0 set. */
+    if ((fid & 0x40000000u) != 0u) {
+        return o[0] == 0xFFFFFFFFFFFFFFFFull;
+    }
     return (uint32_t)o[0] == 0xFFFFFFFFu;
 }
 
@@ -947,6 +951,8 @@ static void guest_fuzz(void)
             put_str("[NS] smcfuzz BAD fid=0x");
             put_hex(g_fuzz_fids[i]);
             put_str(" x0=0x");
+            put_hex((uint32_t)(o[0] >> 32));
+            put_str("_");
             put_hex((uint32_t)o[0]);
             put_str("\r\n");
         }

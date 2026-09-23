@@ -232,7 +232,8 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
             wt_el3_system_reset("psci");
             break;
         default:
-            psci_return(r, (uint64_t)(uint32_t)WT_PSCI_NOT_SUPPORTED);
+            /* SMCCC 5.2: the unknown-function result is -1 sign-extended. */
+            psci_return(r, (uint64_t)(int64_t)WT_PSCI_NOT_SUPPORTED);
             break;
     }
 }

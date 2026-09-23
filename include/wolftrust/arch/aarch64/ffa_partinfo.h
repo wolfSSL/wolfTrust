@@ -58,19 +58,28 @@ typedef struct wt_ffa_partinfo_entry {
  * before 1.1, 24 from 1.1 (the UUID was added to the descriptor). */
 uint32_t wt_ffa_partinfo_desc_size(uint32_t caller_version);
 
-/* Properties word for a partition from its manifest messaging kind
- * (WT_FFA_MESSAGING_DIRECT / _INDIRECT). */
-uint32_t wt_ffa_partinfo_props(uint32_t messaging);
-
 /* Discovery records for one manifest partition under the live endpoint id of
  * the partition running in its domain; none when id is 0 (nothing runs there).
- * One record per exported UUID, all with that id (6.2.2); every manifest
- * partition runs in AArch64 at S-EL0 (Table 6.2 bit 8). Returns 0 with
+ * One record per exported UUID, all with that id (6.2.2). Its services are
+ * reached through the PSA framework endpoint and the FF-M gate, never by FF-A
+ * messaging to its own id, so a record advertises only the AArch64 execution
+ * state it runs in at S-EL0 (Table 6.2 bit 8). Returns 0 with
  * *out_n records written to out, WT_FFA_NO_MEMORY when out cannot hold them,
  * or WT_FFA_INVALID_PARAMETERS for a partition exporting no UUID or too many. */
 int wt_ffa_partinfo_from_manifest(const wt_ffa_partition_manifest_t* part,
                                   uint16_t id, wt_ffa_partinfo_entry_t* out,
                                   size_t cap, size_t* out_n);
+
+/* The properties listed for id, OR-ed over its records (one per UUID): 0 with
+ * *props set, or INVALID_PARAMETERS when no record has that id. */
+int wt_ffa_partinfo_props_of(const wt_ffa_partinfo_entry_t* parts, size_t n,
+                             uint16_t id, uint32_t* props);
+
+/* Whether an endpoint with these properties takes (receive != 0) or may send
+ * a direct request of kind fid: bits 0/1 for FFA_MSG_SEND_DIRECT_REQ32/64,
+ * bits 9/10 for FFA_MSG_SEND_DIRECT_REQ2 (Table 6.2). 0, or DENIED (Tables
+ * 15.8 and 15.16). */
+int wt_ffa_direct_req_allowed(uint32_t props, uint32_t fid, int receive);
 
 /* Write the descriptors matching uuid16 into rx (7.2/6.1). A Nil UUID (all
  * zero) matches every partition; otherwise only those whose UUID equals it,

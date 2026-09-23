@@ -17,9 +17,9 @@ by-design deviations are below.
 | --- | --- | --- | --- |
 | Version negotiation | FF-A 1.2 | `FFA_VERSION` refuses an incompatible version and locks the negotiated one after the caller's first other call | `wt_ffa_version_negotiate` in `include/wolftrust/arch/aarch64/ffa_abi.h` |
 | Feature and id discovery | 1.2 | `FFA_FEATURES`, `FFA_ID_GET`, `FFA_SPM_ID_GET` supported; `FFA_FEATURES` reports the schedule-receiver interrupt, the memory-retrieve NS-bit property, and a partition's one-page RX/TX buffer limit | `src/arch/aarch64/ffa/ffa_spmd.c`, `src/arch/aarch64/spm/spm_svc_glue.c` |
-| Partition discovery | 1.2 | `FFA_PARTITION_INFO_GET` (buffer form) and `FFA_PARTITION_INFO_GET_REGS` (register form), Nil-UUID and by-UUID | `src/arch/aarch64/ffa/ffa_partinfo.c`, `wt_spm_partition_info` |
+| Partition discovery | 1.2 | `FFA_PARTITION_INFO_GET` (buffer form) and `FFA_PARTITION_INFO_GET_REGS` (register form), Nil-UUID and by-UUID; each partition is listed under its live endpoint id with the properties it really has, so a PSA partition, whose services are reached through the PSA framework endpoint and the FF-M gate, advertises only its AArch64 execution state | `src/arch/aarch64/ffa/ffa_partinfo.c`, `wt_spm_partition_info` |
 | RX/TX buffers | 1.2 | `FFA_RXTX_MAP`, `FFA_RXTX_UNMAP`, `FFA_RX_RELEASE`, with per-endpoint RX ownership | mailbox helpers in `src/arch/aarch64/ffa/ffa_mem.c` |
-| Direct messaging | 1.2 | `FFA_MSG_SEND_DIRECT_REQ`/`RESP` (32 and 64), `FFA_MSG_SEND_DIRECT_REQ2`/`RESP2`, partition to partition and Normal world to partition | `src/arch/aarch64/ffa/ffa_msg.c`, `src/arch/aarch64/spm/coroutine_aarch64.c` |
+| Direct messaging | 1.2 | `FFA_MSG_SEND_DIRECT_REQ`/`RESP` (32 and 64), `FFA_MSG_SEND_DIRECT_REQ2`/`RESP2`, partition to partition and Normal world to partition; a request to an endpoint that does not take that kind of request is `DENIED`, one to an id that names no endpoint `INVALID_PARAMETERS` | `src/arch/aarch64/ffa/ffa_msg.c`, `src/arch/aarch64/spm/coroutine_aarch64.c` |
 | Runtime model | 1.2 | `FFA_MSG_WAIT`, `FFA_RUN`, `FFA_YIELD`, `FFA_NORMAL_WORLD_RESUME`, `FFA_INTERRUPT` | `src/arch/aarch64/ffa/ffa_runtime.c`, `src/arch/aarch64/spm/coroutine_aarch64.c` |
 | Console log | 1.2 | `FFA_CONSOLE_LOG` (32 and 64) | `wt_ffa_spmd_console_call`, `ffa_console_log` |
 | Memory management | DEN0140 1.2 | Share, lend, and donate; retrieve, relinquish, reclaim; several borrowers, the 1.2 32-byte access descriptor with implementation-defined bytes, permission and type rules, the zero and alignment-hint flags, and the multi-borrower bypass flag | `src/arch/aarch64/ffa/ffa_mem.c`, `src/arch/aarch64/spm/spm_mem.c` |
@@ -59,7 +59,7 @@ per implemented test group, on the three QEMU cells (`virt` GICv2 Cortex-A35,
 | Group | Result |
 | --- | --- |
 | `setup_discovery` | 14 passed, 1 skipped (single PE), 1 by-design deviation (`ffa_partition_info_get_lsp`) |
-| `direct_messaging` | 4 passed, 2 skipped |
+| `direct_messaging` | 5 passed, 1 skipped |
 | `memory_manage` | 70 passed, 0 failed |
 | `notifications` | 10 passed |
 | `indirect_messaging` | 2 passed |

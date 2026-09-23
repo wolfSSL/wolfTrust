@@ -39,20 +39,6 @@ uint32_t wt_ffa_partinfo_desc_size(uint32_t caller_version)
     return WT_FFA_PARTINFO_DESC_V10;
 }
 
-uint32_t wt_ffa_partinfo_props(uint32_t messaging)
-{
-    uint32_t props = 0u;
-
-    if (messaging == WT_FFA_MESSAGING_DIRECT) {
-        props |= WT_FFA_PARTINFO_PROP_DIRECT_RECV |
-                 WT_FFA_PARTINFO_PROP_DIRECT_SEND;
-    }
-    if (messaging == WT_FFA_MESSAGING_INDIRECT) {
-        props |= WT_FFA_PARTINFO_PROP_INDIRECT;
-    }
-    return props;
-}
-
 int wt_ffa_partinfo_from_manifest(const wt_ffa_partition_manifest_t* part,
                                   uint16_t id, wt_ffa_partinfo_entry_t* out,
                                   size_t cap, size_t* out_n)
@@ -77,14 +63,47 @@ int wt_ffa_partinfo_from_manifest(const wt_ffa_partition_manifest_t* part,
     for (u = 0u; u < part->uuid_count; u++) {
         out[u].id = id;
         out[u].exec_contexts = (uint16_t)part->execution_contexts;
-        out[u].properties = wt_ffa_partinfo_props(part->messaging) |
-                            WT_FFA_PARTINFO_PROP_AARCH64;
+        out[u].properties = WT_FFA_PARTINFO_PROP_AARCH64;
         for (j = 0u; j < 16u; j++) {
             out[u].uuid[j] = part->uuids[u].bytes[j];
         }
     }
     *out_n = part->uuid_count;
     return 0;
+}
+
+int wt_ffa_partinfo_props_of(const wt_ffa_partinfo_entry_t* parts, size_t n,
+                             uint16_t id, uint32_t* props)
+{
+    size_t i;
+    int ret = WT_FFA_INVALID_PARAMETERS;
+
+    if (props == NULL) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    *props = 0u;
+    for (i = 0u; (parts != NULL) && (i < n); i++) {
+        if (parts[i].id == id) {
+            *props |= parts[i].properties;
+            ret = 0;
+        }
+    }
+    return ret;
+}
+
+int wt_ffa_direct_req_allowed(uint32_t props, uint32_t fid, int receive)
+{
+    uint32_t need;
+
+    if (fid == WT_FFA_MSG_SEND_DIRECT_REQ2) {
+        need = (receive != 0) ? WT_FFA_PARTINFO_PROP_REQ2_RECV
+                              : WT_FFA_PARTINFO_PROP_REQ2_SEND;
+    }
+    else {
+        need = (receive != 0) ? WT_FFA_PARTINFO_PROP_DIRECT_RECV
+                              : WT_FFA_PARTINFO_PROP_DIRECT_SEND;
+    }
+    return ((props & need) != 0u) ? 0 : WT_FFA_DENIED;
 }
 
 static int uuid_is_nil(const uint8_t* u)

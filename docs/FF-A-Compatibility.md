@@ -90,3 +90,4 @@ fragments.
 | 0009 | A platform may time S-EL0 partition waits on the virtual counter instead of a loop calibrated for another platform. |
 | 0010 | `sp_preempted_el0` set its keep-the-RX-buffer flag after `FFA_MSG_WAIT` instead of before. |
 | 0011 | `direct_msg_sp_to_vm`, `ffa_msg_send2` and `ffa_msg_send2_uuid_check` read a VM sender's RX-buffer-full from w7 after an `FFA_NOTIFICATION_GET` that asked only for the SPM framework bitmap. Section 10.8.1 pends that notification in the Hypervisor framework bitmap, and section 16.6 says w7 is ignored unless the Hypervisor flag is set, so they now ask with the Hypervisor flag. |
+| 0012 | `ffa_direct_message_error` and `ffa_direct_message_error1` passed the sender's logical id OR-ed with the receiver's id shifted left into the logical-id lookup, reading far past the endpoint table, instead of packing the sender's endpoint id over the receiver's. They now pack the ids as `ffa_msg_send_error` does. |

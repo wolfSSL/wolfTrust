@@ -74,8 +74,8 @@ uint32_t pal_ap_virt_refclk_dis(bool int_mask)
 /* The SPMC's test-timer service: a deadline against its scheduling tick that
  * makes the named interrupt pending on expiry. A partition reaches it by SVC,
  * the Normal-world dispatcher by SMC, through the same conduit helper. */
-#define WT_ACS_SVC_TIMER_ARM  0xC3800102U
-#define WT_ACS_SVC_TIMER_STOP 0xC3800103U
+#define WT_ACS_SVC_TIMER_ARM  0xC3000102U
+#define WT_ACS_SVC_TIMER_STOP 0xC3000103U
 
 smc_ret_values asm_smc64(uint32_t fid, u_register_t arg1, u_register_t arg2,
                          u_register_t arg3, u_register_t arg4,

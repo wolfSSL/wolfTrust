@@ -22,7 +22,7 @@
  * blob: point VBAR_EL1 at a table that reports every exception to EL3, take
  * the SPM stack, call wt_spm_main(blob). */
 
-#define WT_MON_FID_PANIC 0xC3800002
+#define WT_MON_FID_PANIC 0xC3000002
 
 /* Panic code 0xE0 + slot names the vector that fired. */
     .macro WT_SPM_VECTOR_PANIC slot

@@ -71,7 +71,7 @@ selftest() {
   printf 'void wt_arch_init(void)\n{\n}\n' > "$dir/portdef.c"
   printf 'static void x(void)\n{\n    wt_arch_init();\n}\n' > "$dir/portcall.c"
   printf 'unsigned fid = 0x84000063u; /* 0xC4000066 */\n' > "$dir/fid.c"
-  printf 'unsigned id = 0x8000u; unsigned oem = 0xC3800004u;\n' > "$dir/nofid.c"
+  printf 'unsigned id = 0x8000u; unsigned oem = 0xC3000004u;\n' > "$dir/nofid.c"
   check() { # expect(hit|clean) regex file
     local got
     got="$(strip_comments "$3" | grep -cE "$2" || true)"

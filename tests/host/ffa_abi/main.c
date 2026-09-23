@@ -400,7 +400,7 @@ int main(void)
           !wt_ffa_fid_in_range(WT_FFA_FID32_LAST + 1u) &&
           !wt_ffa_fid_in_range(WT_FFA_FID64_FIRST - 1u) &&
           !wt_ffa_fid_in_range(WT_FFA_FID64_LAST + 1u) &&
-          !wt_ffa_fid_in_range(0xC3800004u) &&
+          !wt_ffa_fid_in_range(0xC3000004u) &&
           wt_ffa_fid_in_range(WT_FFA_FID32_LAST) &&
           wt_ffa_fid_in_range(WT_FFA_FID64_FIRST),
           "range check excludes neighbours and the OEM test calls");

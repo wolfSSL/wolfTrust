@@ -37,6 +37,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <time.h>
 
 static int checks;
 static int failures;
@@ -1212,6 +1213,16 @@ static void borrower_list_rows(void)
 #define RELAY_ID_A       0x8002u
 #define RELAY_ID_B       0x8003u
 #define RELAY_RW         (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE)
+/* Pages of the host backing: A's manifest-shared page, the image page every
+ * partition maps, A's read-write pages (the first an SPMC fill entry B's
+ * table holds EL1-only, the rest absent from B's table), A's read-only page,
+ * and B's own page. */
+#define PG_SHARED 0u
+#define PG_IMAGE  1u
+#define PG_FILL   2u
+#define PG_RW     3u
+#define PG_RO     6u
+#define PG_B      8u
 
 static uint8_t g_relay_pool[RELAY_POOL_PAGES * WT_TABLES_PAGE_SIZE]
     __attribute__((aligned(4096)));
@@ -1246,6 +1257,19 @@ struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id)
 {
     (void)id;
     return NULL;
+}
+
+static uintptr_t page(unsigned int i);
+
+size_t wt_platform_sp_shared_regions(wt_memory_region_t* regions, size_t max)
+{
+    if ((regions == NULL) || (max < 1u)) {
+        return 0u;
+    }
+    regions[0].base = page(PG_IMAGE);
+    regions[0].size = WT_TABLES_PAGE_SIZE;
+    regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+    return 1u;
 }
 
 static uint8_t* low_pages(size_t size)
@@ -1283,20 +1307,22 @@ static void set_region(wt_memory_region_t* r, unsigned int first,
     r->attributes = attributes;
 }
 
-/* Partition A owns pages 0-3 read-write and page 4 read-only; partition B
- * owns page 8. Page 0 is an SPMC fill entry, so B's table holds it EL1-only
- * while pages 1-3 are absent from it. */
 static int relay_reset(void)
 {
     (void)memset(g_mem, 0, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);
     (void)memset(&g_dom_a, 0, sizeof(g_dom_a));
     (void)memset(&g_dom_b, 0, sizeof(g_dom_b));
-    set_region(&g_dom_a.regions[0], 0u, 4u, RELAY_RW);
-    set_region(&g_dom_a.regions[1], 4u, 1u, WT_MEM_ATTR_READ);
-    g_dom_a.region_count = 2u;
-    set_region(&g_dom_b.regions[0], 8u, 1u, RELAY_RW);
+    set_region(&g_dom_a.regions[0], PG_FILL, 4u, RELAY_RW);
+    set_region(&g_dom_a.regions[1], PG_RO, 1u, WT_MEM_ATTR_READ);
+    set_region(&g_dom_a.regions[2], PG_SHARED, 1u,
+               RELAY_RW | WT_MEMORY_ATTR_SHARED);
+    set_region(&g_dom_a.regions[3], PG_IMAGE, 1u,
+               WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC);
+    g_dom_a.region_count = 4u;
+    set_region(&g_dom_b.regions[0], PG_B, 1u, RELAY_RW);
     g_dom_b.region_count = 1u;
-    set_region(&g_relay_fill[0], 0u, 1u, RELAY_RW | WT_DOMAIN_FILL_SHARED);
+    set_region(&g_relay_fill[0], PG_FILL, 1u,
+               RELAY_RW | WT_DOMAIN_FILL_SHARED);
     g_domain_fails = 0u;
     if (wt_domain_init(g_relay_fill, 1u, g_relay_pool, RELAY_POOL_PA,
                        sizeof(g_relay_pool)) == 0u) {
@@ -1403,27 +1429,60 @@ static void relay_rows(void)
     }
     check(relay_reset(), "two bound partitions over real tables");
 
-    c[0].address = page(1);
+    c[0].address = page(PG_RW);
     c[0].page_count = 2u;
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                    &ret);
-    check(ret == 0 && access_of(&g_dom_a, 1u) == WT_DOMAIN_ACCESS_NONE &&
-          access_of(&g_dom_a, 3u) == WT_DOMAIN_ACCESS_RW,
+    check(ret == 0 && access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
+          access_of(&g_dom_a, PG_RW + 2u) == WT_DOMAIN_ACCESS_RW,
           "relayer: a lend takes the lent pages, and only those, from the owner");
     check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
-          access_of(&g_dom_b, 1u) == WT_DOMAIN_ACCESS_RW &&
-          access_of(&g_dom_b, 2u) == WT_DOMAIN_ACCESS_RW,
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW &&
+          access_of(&g_dom_b, PG_RW + 1u) == WT_DOMAIN_ACCESS_RW,
           "relayer: a retrieve maps the lent pages into the borrower");
     check(relay_relinquish(h, 0u) == 0 &&
-          access_of(&g_dom_b, 1u) == WT_DOMAIN_ACCESS_NONE && b_entry(1u) == 0,
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
+          b_entry(PG_RW) == 0,
           "relayer: a relinquish unmaps them from the borrower");
     check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
-          access_of(&g_dom_a, 1u) == WT_DOMAIN_ACCESS_RW &&
-          access_of(&g_dom_a, 2u) == WT_DOMAIN_ACCESS_RW,
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW &&
+          access_of(&g_dom_a, PG_RW + 1u) == WT_DOMAIN_ACCESS_RW,
           "relayer: a reclaim gives the owner its access back");
     check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) != 0,
           "relayer: a reclaimed handle cannot be retrieved");
     check(g_domain_fails == 0u, "relayer: no domain operation failed closed");
+}
+
+/* WT-FFA-0009 (only memory the sender owns outright may be sent, 10.10). */
+static void relay_owner_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    clock_t t0;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "owner: fixture");
+        return;
+    }
+    c[0].address = page(PG_IMAGE);
+    c[0].page_count = 1u;
+    (void)relay_send(WT_FFA_MEM_OP_SHARE, c, 1u, WT_FFA_MEM_PERM_DATA_RO, 0u,
+                     &ret);
+    check(ret == WT_FFA_DENIED,
+          "owner: the image every partition maps is DENIED, though the sender reaches it");
+    c[0].address = page(PG_SHARED);
+    (void)relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                     &ret);
+    check(ret == WT_FFA_DENIED &&
+          access_of(&g_dom_a, PG_SHARED) == WT_DOMAIN_ACCESS_RW,
+          "owner: a region the manifest marks shared is DENIED and stays mapped");
+    c[0].address = page(PG_RW + 2u);
+    c[0].page_count = 0xFFFFFFFFu;
+    t0 = clock();
+    (void)relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RO, 0u,
+                     &ret);
+    check(ret == WT_FFA_DENIED && ((clock() - t0) < CLOCKS_PER_SEC),
+          "owner: a range running past the sender's pages is DENIED at the first page it lacks");
 }
 
 int main(void)
@@ -1448,6 +1507,7 @@ int main(void)
     access_flag_rows();
     borrower_list_rows();
     relay_rows();
+    relay_owner_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

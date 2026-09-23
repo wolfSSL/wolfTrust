@@ -125,6 +125,37 @@ static int id_is_secure(uint16_t id)
     return (id & 0x8000u) != 0u;
 }
 
+static int ranges_overlap(uint64_t base, uint64_t size, uintptr_t other,
+                          size_t other_size)
+{
+    return (base < ((uint64_t)other + (uint64_t)other_size)) &&
+           ((uint64_t)other < (base + size));
+}
+
+/* The image every partition executes and memory a manifest marks shared are
+ * no one partition's own, even where its table reaches them at EL0. */
+static int common_memory(const wt_secure_domain_t* dom, uint64_t base,
+                         uint64_t size)
+{
+    wt_memory_region_t shared[4];
+    size_t n = wt_platform_sp_shared_regions(shared, 4u);
+    size_t i;
+
+    for (i = 0u; i < n; i++) {
+        if (ranges_overlap(base, size, shared[i].base, shared[i].size)) {
+            return 1;
+        }
+    }
+    for (i = 0u; i < dom->region_count; i++) {
+        if (((dom->regions[i].attributes & WT_MEMORY_ATTR_SHARED) != 0u) &&
+            ranges_overlap(base, size, dom->regions[i].base,
+                           dom->regions[i].size)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 /* Only memory the sender owns outright may be sent (10.10): Non-secure memory
  * inside the window the SPMC maps, or pages a partition reaches at EL0. The
  * result is the least access it has over the range (WT_DOMAIN_ACCESS_*). The
@@ -146,10 +177,12 @@ static int sender_owns(uint16_t sender, const wt_ffa_mem_region_t* r)
                                                   : WT_DOMAIN_ACCESS_NONE;
     }
     b = bind_by_id(sender);
-    if (b == NULL) {
+    if ((b == NULL) || (common_memory(b->dom, r->base, size) != 0)) {
         return WT_DOMAIN_ACCESS_NONE;
     }
-    for (at = r->base; at < (r->base + size); at += WT_FFA_MEM_PAGE_SIZE) {
+    for (at = r->base;
+         (at < (r->base + size)) && (access != WT_DOMAIN_ACCESS_NONE);
+         at += WT_FFA_MEM_PAGE_SIZE) {
         page = wt_domain_page_access(b->dom->regions, b->dom->region_count,
                                      (uintptr_t)at);
         if (page < access) {

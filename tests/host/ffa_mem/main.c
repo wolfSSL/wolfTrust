@@ -455,6 +455,48 @@ static void share_rows(void)
           "a share with more regions than the cap is refused");
 }
 
+/* WT-FFA-0009 (the constituent count is held to what a handle captures
+ * before any pairwise overlap scan runs). */
+static void constituent_limit_rows(void)
+{
+    static wt_ffa_mem_constituent_t cons[4096];
+    static uint8_t buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACCESS_SIZE +
+                       WT_FFA_MEM_COMPOSITE_HDR_SIZE +
+                       (4096u * WT_FFA_MEM_CONSTITUENT_SIZE)];
+    wt_ffa_mem_build_t in;
+    wt_ffa_mem_txn_t txn;
+    size_t len = 0u;
+    uint32_t i;
+
+    for (i = 0u; i < 4096u; i++) {
+        cons[i].address = 0x40000000ull + ((uint64_t)i * WT_FFA_MEM_PAGE_SIZE);
+        cons[i].page_count = 1u;
+    }
+    memset(&in, 0, sizeof(in));
+    in.constituents = cons;
+    in.op = WT_FFA_MEM_OP_SHARE;
+    in.receiver = 0x8002u;
+    in.attributes = 0x2Fu;
+    in.permissions = 0x06u;
+    in.constituent_count = WT_FFA_MEM_MAX_REGIONS;
+    check(wt_ffa_mem_txn_build(buf, sizeof(buf), &in, &len) == 0 &&
+          wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) == 0,
+          "a descriptor with as many constituents as a handle holds is valid");
+    in.constituent_count = WT_FFA_MEM_MAX_REGIONS + 1u;
+    check(wt_ffa_mem_txn_build(buf, sizeof(buf), &in, &len) == 0 &&
+          wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
+              WT_FFA_NO_MEMORY,
+          "one constituent more than a handle holds is NO_MEMORY");
+    for (i = 0u; i < 4096u; i++) {
+        cons[i].address = 0x40000000ull;
+    }
+    in.constituent_count = 4096u;
+    check(wt_ffa_mem_txn_build(buf, sizeof(buf), &in, &len) == 0 &&
+          wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
+              WT_FFA_NO_MEMORY,
+          "thousands of overlapping constituents are NO_MEMORY before any pair is compared");
+}
+
 /* WT-FFA-0009 (retrieve request and relinquish descriptors, and the handle a
  * retrieve response carries). */
 static void retrieve_rows(void)
@@ -1395,6 +1437,7 @@ int main(void)
     mailbox_rows();
     registry_rows();
     share_rows();
+    constituent_limit_rows();
     retrieve_rows();
     borrower_rows();
     frag_rows();

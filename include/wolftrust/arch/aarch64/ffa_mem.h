@@ -217,8 +217,8 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
  * to the declared page count, and the permissions and attributes are legal.
  * On success 0 is returned and *out holds the parsed header. Otherwise a
  * WT_FFA_* negative: DENIED for a wrong sender, NOT_SUPPORTED for an access
- * descriptor size this SPMC cannot parse, INVALID_PARAMETERS for any malformed
- * field. */
+ * descriptor size this SPMC cannot parse, NO_MEMORY for more constituents than
+ * WT_FFA_MEM_MAX_REGIONS, INVALID_PARAMETERS for any malformed field. */
 int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
                             uint16_t expect_sender, wt_ffa_mem_txn_t* out);
 

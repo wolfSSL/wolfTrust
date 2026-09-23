@@ -110,6 +110,44 @@ int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst)
     return 0;
 }
 
+#define WT_FFA_FWK_SPMD_TO_SPMC \
+    (((uint32_t)WT_FFA_ID_SPMD << 16) | (uint32_t)WT_FFA_ID_SPMC)
+#define WT_FFA_FWK_SPMC_TO_SPMD \
+    (((uint32_t)WT_FFA_ID_SPMC << 16) | (uint32_t)WT_FFA_ID_SPMD)
+
+void wt_ffa_fwk_version_req(uint64_t* x, uint32_t version)
+{
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_SPMD,
+                        WT_FFA_ID_SPMC, NULL);
+    x[2] = WT_FFA_FWK_VERSION_REQ;
+    x[3] = version;
+}
+
+int wt_ffa_fwk_version_is_req(const uint64_t* x)
+{
+    return ((uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32) &&
+           ((uint32_t)x[1] == WT_FFA_FWK_SPMD_TO_SPMC) &&
+           ((uint32_t)x[2] == WT_FFA_FWK_VERSION_REQ);
+}
+
+void wt_ffa_fwk_version_resp(uint64_t* x, int32_t result)
+{
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP32, WT_FFA_ID_SPMC,
+                        WT_FFA_ID_SPMD, NULL);
+    x[2] = WT_FFA_FWK_VERSION_RESP;
+    x[3] = (uint64_t)(uint32_t)result;
+}
+
+int32_t wt_ffa_fwk_version_result(const uint64_t* x)
+{
+    if (((uint32_t)x[0] != WT_FFA_MSG_SEND_DIRECT_RESP32) ||
+        ((uint32_t)x[1] != WT_FFA_FWK_SPMC_TO_SPMD) ||
+        ((uint32_t)x[2] != WT_FFA_FWK_VERSION_RESP)) {
+        return (int32_t)WT_FFA_NOT_SUPPORTED;
+    }
+    return (int32_t)(uint32_t)x[3];
+}
+
 static uint32_t msg2_read32(const uint8_t* p)
 {
     return (uint32_t)p[0] | ((uint32_t)p[1] << 8) |

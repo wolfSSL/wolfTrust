@@ -27,6 +27,7 @@
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/ffa_msg.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -177,6 +178,91 @@ static void ns_forward_rows(void)
           "a forwarded call that is not a direct request passes through");
 }
 
+static uint32_t ns_version_call(uint32_t asked)
+{
+    wt_ffa_regs_t r;
+
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_VERSION;
+    r.x[1] = asked;
+    wt_ffa_spmd_ns_call(&r);
+    return (uint32_t)r.x[0];
+}
+
+/* 13.2.3.2: until the Normal world locks its version, each FFA_VERSION it
+ * makes reaches the SPMC as the Table 13.7 message, and the SPMC's Table 13.8
+ * answer is what the Normal world gets back. */
+static void ns_version_rows(void)
+{
+    uint64_t x[18];
+    unsigned int i;
+    int ok;
+
+    check(wt_ffa_spmd_ns_forwards(WT_FFA_VERSION) == 1,
+          "a Normal-world FFA_VERSION is forwarded while its version is open");
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_VERSION;
+    x[1] = WT_FFA_VERSION_MAKE(1u, 0u);
+    x[5] = 0x55u;
+    check(wt_ffa_spmd_ns_forward(x) == 1 &&
+              (uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32 &&
+              (uint32_t)x[1] == 0x80018000u && (uint32_t)x[2] == 0x80000008u &&
+              (uint32_t)x[3] == WT_FFA_VERSION_MAKE(1u, 0u) &&
+              rest_zero(x, 4u, 7u) && wt_ffa_fwk_version_is_req(x),
+          "it goes to the SPMC as the Table 13.7 framework message");
+
+    wt_ffa_fwk_version_resp(x, (int32_t)WT_FFA_VERSION_1_2);
+    check((uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_RESP32 &&
+              (uint32_t)x[1] == 0x80008001u && (uint32_t)x[2] == 0x80000009u &&
+              (uint32_t)x[3] == WT_FFA_VERSION_1_2 && rest_zero(x, 4u, 7u),
+          "the SPMC answers with the Table 13.8 framework message");
+    wt_ffa_spmd_ns_reply(x);
+    check((uint32_t)x[0] == WT_FFA_VERSION_1_2 && rest_zero(x, 1u, 7u),
+          "the Normal world gets the SPMC's answer in w0 with x1-x7 zero");
+
+    for (i = 0u; i < 8u; i++) {
+        x[i] = 0xA0u + i;
+    }
+    wt_ffa_spmd_ns_reply(x);
+    ok = 1;
+    for (i = 0u; i < 8u; i++) {
+        ok = ok && (x[i] == (0xA0u + i));
+    }
+    check(ok, "a reply to any other forwarded call is returned untouched");
+
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_VERSION;
+    x[1] = WT_FFA_VERSION_MAKE(2u, 0u);
+    (void)wt_ffa_spmd_ns_forward(x);
+    wt_ffa_fwk_version_resp(x, WT_FFA_NOT_SUPPORTED);
+    wt_ffa_spmd_ns_reply(x);
+    check((int32_t)(uint32_t)x[0] == WT_FFA_NOT_SUPPORTED,
+          "a version the SPMC refuses is NOT_SUPPORTED for the Normal world");
+
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_VERSION;
+    x[1] = WT_FFA_VERSION_1_2;
+    (void)wt_ffa_spmd_ns_forward(x);
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_SUCCESS32;
+    wt_ffa_spmd_ns_reply(x);
+    check((int32_t)(uint32_t)x[0] == WT_FFA_NOT_SUPPORTED,
+          "an answer that is not a Table 13.8 message is NOT_SUPPORTED");
+
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ32;
+    x[1] = 0x80018000u;
+    check(!wt_ffa_fwk_version_is_req(x),
+          "a partition message between the same ids is not the version message");
+
+    wt_ffa_spmd_ns_note(WT_FFA_ID_GET);
+    check(wt_ffa_spmd_ns_forwards(WT_FFA_VERSION) == 0,
+          "after its first other call the SPMD stops forwarding FFA_VERSION");
+    check(ns_version_call(WT_FFA_VERSION_MAKE(1u, 0u)) == WT_FFA_VERSION_1_2 &&
+              (int32_t)ns_version_call(WT_FFA_VERSION_1_2) == WT_FFA_NOT_SUPPORTED,
+          "and holds the Normal world to the 1.0 the SPMC accepted, not a refused one");
+}
+
 int main(void)
 {
     wt_ffa_regs_t r;
@@ -294,6 +380,7 @@ int main(void)
           "count 129 on SMC64 is INVALID_PARAMETERS");
 
     ns_forward_rows();
+    ns_version_rows();
 
     check(ns_range_total(WT_FFA_FID32_FIRST, WT_FFA_FID32_LAST) &&
           ns_range_total(WT_FFA_FID64_FIRST, WT_FFA_FID64_LAST),

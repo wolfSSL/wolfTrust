@@ -66,6 +66,20 @@ void wt_ffa_direct_build(uint64_t* x, uint32_t fid, uint16_t sender,
 int wt_ffa_direct_req_check(const uint64_t* x, wt_ffa_instance_t inst);
 int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst);
 
+/* 13.2.3.2: the SPMD hands a Normal-world FFA_VERSION to an S-EL1 SPMC as a
+ * framework direct request from the SPMD (Table 13.7, w3 = the version asked)
+ * and the SPMC answers with a framework direct response (Table 13.8, w3 = the
+ * FFA_VERSION result the Normal world is given). */
+#define WT_FFA_FWK_VERSION_REQ  (WT_FFA_DIRECT_FRAMEWORK_BIT | 0x08u)
+#define WT_FFA_FWK_VERSION_RESP (WT_FFA_DIRECT_FRAMEWORK_BIT | 0x09u)
+
+void wt_ffa_fwk_version_req(uint64_t* x, uint32_t version);
+int wt_ffa_fwk_version_is_req(const uint64_t* x);
+void wt_ffa_fwk_version_resp(uint64_t* x, int32_t result);
+/* The result a Table 13.8 response carries, or NOT_SUPPORTED for any other
+ * message. */
+int32_t wt_ffa_fwk_version_result(const uint64_t* x);
+
 /* FFA_MSG_SEND2 (16.4): the v1.2 partition message header at the start of
  * the sender's TX buffer - flags, two reserved words, payload offset, sender
  * and receiver ids (sender bits 31:16), payload size, and the receiver's

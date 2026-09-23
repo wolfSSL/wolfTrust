@@ -31,6 +31,9 @@
 static unsigned int g_spmc_ready;
 static wt_ffa_version_state_t g_ns_version;
 static wt_ffa_version_state_t g_spmc_version;
+/* The FFA_VERSION input forwarded to the SPMC, awaiting its Table 13.8 answer. */
+static uint32_t g_ns_version_asked;
+static uint8_t g_ns_version_forwarded;
 
 static void reply_error(wt_ffa_regs_t* r, int32_t code)
 {
@@ -225,6 +228,10 @@ void wt_ffa_spmd_secure_note(uint32_t fid)
 int wt_ffa_spmd_ns_forwards(uint32_t fid)
 {
     switch (fid) {
+        case WT_FFA_VERSION:
+            /* 13.2.3.2: the SPMC chooses what the Normal world negotiates; once
+             * that is locked the SPMD answers a repeat itself. */
+            return (g_ns_version.locked == 0u) ? 1 : 0;
         case WT_FFA_RXTX_MAP32:
         case WT_FFA_RXTX_MAP64:
         case WT_FFA_RXTX_UNMAP:
@@ -266,12 +273,19 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid)
     }
 }
 
-/* 7.4.2: the SPMD relays a direct request only from the Normal world to a
- * Secure endpoint, so nothing it forwards carries a Secure sender id. */
+/* FFA_VERSION reaches the SPMC as the Table 13.7 framework message. 7.4.2:
+ * the SPMD relays a direct request only from the Normal world to a Secure
+ * endpoint, so nothing it forwards carries a Secure sender id. */
 int wt_ffa_spmd_ns_forward(uint64_t* x)
 {
     uint32_t fid = (uint32_t)x[0];
 
+    if (fid == WT_FFA_VERSION) {
+        g_ns_version_asked = (uint32_t)x[1];
+        g_ns_version_forwarded = 1u;
+        wt_ffa_fwk_version_req(x, g_ns_version_asked);
+        return 1;
+    }
     if (((fid == WT_FFA_MSG_SEND_DIRECT_REQ32) ||
          (fid == WT_FFA_MSG_SEND_DIRECT_REQ64) ||
          (fid == WT_FFA_MSG_SEND_DIRECT_REQ2)) &&
@@ -280,6 +294,25 @@ int wt_ffa_spmd_ns_forward(uint64_t* x)
         return 0;
     }
     return 1;
+}
+
+void wt_ffa_spmd_ns_reply(uint64_t* x)
+{
+    int32_t result;
+    unsigned int i;
+
+    if (g_ns_version_forwarded == 0u) {
+        return;
+    }
+    g_ns_version_forwarded = 0u;
+    result = wt_ffa_fwk_version_result(x);
+    if (result >= 0) {
+        g_ns_version.version = g_ns_version_asked;
+    }
+    for (i = 0u; i < 8u; i++) {
+        x[i] = 0u;
+    }
+    x[0] = (uint64_t)(uint32_t)result;
 }
 
 /* An SMC from the SPMC that is the reply to a call the SPMD forwarded from the

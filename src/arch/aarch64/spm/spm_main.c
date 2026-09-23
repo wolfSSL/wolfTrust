@@ -1009,6 +1009,16 @@ static void direct_request(wt_ffa_regs_ext_t* e)
  * RX buffer, so the pair and its ownership live here, not in the SPMD. */
 static wt_ffa_mailbox_t g_ns_mailbox;
 
+/* The version the Normal world negotiated (13.2.3.2): the SPMD forwards each
+ * FFA_VERSION it makes until that version is locked. */
+static wt_ffa_version_state_t g_ns_version;
+
+static void ns_version(wt_ffa_regs_t* r)
+{
+    wt_ffa_fwk_version_resp(r->x, wt_ffa_version_negotiate(
+        &g_ns_version, (uint32_t)r->x[3], WT_FFA_VERSION_1_2));
+}
+
 static int ns_range_ok(uint64_t addr, uint64_t len)
 {
     uint64_t base = (uint64_t)WT_NS_IMAGE_PA;
@@ -1407,7 +1417,12 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
         case WT_FFA_MSG_SEND_DIRECT_REQ32:
         case WT_FFA_MSG_SEND_DIRECT_REQ64:
         case WT_FFA_MSG_SEND_DIRECT_REQ2:
-            direct_request(e);
+            if (wt_ffa_fwk_version_is_req(r->x) != 0) {
+                ns_version(r);
+            }
+            else {
+                direct_request(e);
+            }
             break;
         case WT_FFA_RUN:
             ns_run(e);

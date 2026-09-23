@@ -151,6 +151,7 @@ static void secure_smc(wt_el3_frame_t* frame)
      * (deliver x0-x7) or its yield after handling a preemption (resume as-is). */
     pending = wt_el3_world_ns_pending();
     if ((pending == WT_NS_PENDING_REPLY) && (wt_ffa_spmd_is_ns_reply(fid) != 0)) {
+        wt_ffa_spmd_ns_reply(frame->x);
         wt_el3_world_return_to_ns(frame);
         return;
     }

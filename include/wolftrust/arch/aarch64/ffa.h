@@ -90,6 +90,10 @@ int wt_ffa_spmd_ns_forwards(uint32_t fid);
 /* A call wt_ffa_spmd_ns_forwards selected, in the saved frame x[0..17]: 1 to
  * forward x to the SPMC, or 0 when the SPMD has answered it in x instead. */
 int wt_ffa_spmd_ns_forward(uint64_t* x);
+/* The SPMC's reply to a forwarded call, in its saved frame, before it is
+ * returned: the Table 13.8 answer to a forwarded FFA_VERSION becomes that
+ * call's result in w0 (13.2.3.2); any other reply is left as it is. */
+void wt_ffa_spmd_ns_reply(uint64_t* x);
 /* Non-zero when an SMC from the SPMC is the reply to a forwarded NS call. */
 int wt_ffa_spmd_is_ns_reply(uint32_t fid);
 /* Non-zero when an SMC from the SPMC yields the CPU back to the Normal world. */

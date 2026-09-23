@@ -31,6 +31,8 @@
 
 #define WT_FFA_NOTIF_MAX_EP           12u
 #define WT_FFA_NOTIF_COUNT            64u
+/* Per-vCPU notification state exists for one execution context only. */
+#define WT_FFA_NOTIF_MAX_VCPUS        1u
 
 /* FFA_NOTIFICATION_BIND / FFA_NOTIFICATION_SET w2 flags. */
 #define WT_FFA_NOTIF_FLAG_PER_VCPU    (1u << 0)

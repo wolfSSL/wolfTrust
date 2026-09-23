@@ -31,6 +31,9 @@ SECTIONS
         . = ALIGN(16);
         _s_keystore = .;
         *wt_hsm.o(.data .data.*)
+        *nvm_store.o(.data .data.*)
+        *crypto_native.o(.data .data.*)
+        *keyvault.o(.data .data.*)
         *wt_hsm_lock.o(.data .data.*)
         *wt_hsm_seal.o(.data .data.*)
         *wt_hsm_vault.o(.data .data.*)
@@ -51,6 +54,9 @@ SECTIONS
     .keystore_bss (NOLOAD) : {
         _s_keystore_bss = .;
         *wt_hsm.o(.bss .bss.* COMMON)
+        *nvm_store.o(.bss .bss.* COMMON)
+        *crypto_native.o(.bss .bss.* COMMON)
+        *keyvault.o(.bss .bss.* COMMON)
         *wt_hsm_lock.o(.bss .bss.* COMMON)
         *wt_hsm_seal.o(.bss .bss.* COMMON)
         *wt_hsm_vault.o(.bss .bss.* COMMON)

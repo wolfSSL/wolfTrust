@@ -241,6 +241,9 @@ static void ffa_partition_info_get_regs(wt_trap_frame_t* frame)
 }
 
 static wt_ffa_version_state_t g_sp_version[WT_CO_MAX];
+/* What a partition's last FFA_FEATURES(FFA_MEM_RETRIEVE_REQ) asked about the
+ * NS bit (DEN0140 1.10.4.1.1). */
+static uint8_t g_sp_ns_bit[WT_CO_MAX];
 
 /* The version a partition negotiated, which its data structures follow. */
 static uint32_t sp_version(const struct wt_co* co)
@@ -249,6 +252,21 @@ static uint32_t sp_version(const struct wt_co* co)
         return WT_FFA_VERSION_1_2;
     }
     return wt_ffa_version_of(&g_sp_version[co->id - 1u], WT_FFA_VERSION_1_2);
+}
+
+uint32_t wt_spm_sp_ffa_version(const struct wt_co* co)
+{
+    return sp_version(co);
+}
+
+int wt_spm_sp_ffa_ns_bit(const struct wt_co* co)
+{
+    int asked = 0;
+
+    if ((co != NULL) && (co->id != 0u) && (co->id <= WT_CO_MAX)) {
+        asked = (g_sp_ns_bit[co->id - 1u] != 0u) ? 1 : 0;
+    }
+    return wt_ffa_ns_bit_used(sp_version(co), asked);
 }
 
 static void ffa_partition_info_get(wt_trap_frame_t* frame,
@@ -664,6 +682,7 @@ void wt_spm_sp_ffa_reset(const struct wt_co* co)
         return;
     }
     (void)memset(&g_sp_version[co->id - 1u], 0, sizeof(g_sp_version[0]));
+    g_sp_ns_bit[co->id - 1u] = 0u;
     (void)memset(&g_sp_mailbox[co->id - 1u], 0, sizeof(g_sp_mailbox[0]));
 }
 
@@ -752,6 +771,8 @@ static void ffa_features(wt_trap_frame_t* frame, const struct wt_co* co)
             ffa_error(frame, ret);
         }
         else {
+            g_sp_ns_bit[co->id - 1u] =
+                ((props & WT_FFA_FEATURES_RETRIEVE_NS_BIT) != 0u) ? 1u : 0u;
             ffa_success(frame, WT_FFA_FEATURES_RETRIEVE_NS_BIT, 0u);
         }
     }

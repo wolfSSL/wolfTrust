@@ -241,6 +241,15 @@ struct wt_ffa_mailbox* wt_spm_sp_mailbox_of(const struct wt_co* co);
  * started in it negotiates and maps its own. */
 void wt_spm_sp_ffa_reset(const struct wt_co* co);
 
+/* The FF-A version a partition, or the Normal world, negotiated (13.2), which
+ * the data structures exchanged with it follow (DEN0077A 18.5.3). */
+uint32_t wt_spm_sp_ffa_version(const struct wt_co* co);
+uint32_t wt_spm_ns_ffa_version(void);
+/* Non-zero when a partition is told the security state of memory it retrieves:
+ * from v1.1 always, at v1.0 only once its FFA_FEATURES(FFA_MEM_RETRIEVE_REQ)
+ * asked for it (DEN0140 1.10.4.1.1, Table 1.19). */
+int wt_spm_sp_ffa_ns_bit(const struct wt_co* co);
+
 /* FFA_MSG_SEND2 delivery from either conduit: validate the partition message
  * in the caller's TX against the rules of the instance it was invoked at and
  * copy it into the receiver's RX. */

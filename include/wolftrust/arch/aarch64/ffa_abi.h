@@ -243,6 +243,12 @@ static inline int32_t wt_ffa_features_retrieve_check(uint32_t caller_version,
     }
     return 0;
 }
+/* DEN0140 Table 1.19: a retrieve response carries the NS bit to a v1.1+
+ * partition, and to a v1.0 one only if its FFA_FEATURES query asked for it. */
+static inline int wt_ffa_ns_bit_used(uint32_t caller_version, int requested)
+{
+    return (caller_version >= WT_FFA_VERSION_MAKE(1u, 1u)) || (requested != 0);
+}
 /* FFA_RXTX_MAP: w2 bits[1:0] = 0 for a 4K minimum and alignment, bits[31:16]
  * = the most pages per buffer (0 = no limit). */
 #define WT_FFA_FEATURES_RXTX_MAX_PAGES(n) (((uint32_t)(n) & 0xFFFFu) << 16)

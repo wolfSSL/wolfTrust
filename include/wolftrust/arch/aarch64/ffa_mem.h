@@ -24,7 +24,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Arm FF-A Memory Management (DEN0140) v1.1/v1.2 transaction descriptors: the
+/* Arm FF-A Memory Management (DEN0140) v1.0-v1.2 transaction descriptors: the
  * lend/donate/share memory transaction descriptor and its endpoint access,
  * composite, and constituent sub-descriptors, plus the relayer validation a
  * 1.2 SPMC runs before it acts on a transaction. Pure functions over
@@ -34,6 +34,10 @@
 
 /* Fixed byte sizes of the v1.1 descriptor layout. */
 #define WT_FFA_MEM_TXN_HDR_SIZE         48u  /* transaction descriptor header */
+/* The FF-A v1.0 header (DEN0140 Table 4.17) has no access descriptor size or
+ * offset: its 16-byte access descriptors follow at 32, and bytes [24, 28) are
+ * reserved. A v1.0 caller's descriptors use it (DEN0077A 18.5.3). */
+#define WT_FFA_MEM_TXN_HDR_SIZE_V10     32u
 #define WT_FFA_MEM_ACCESS_SIZE          16u  /* endpoint memory access descriptor */
 /* FF-A 1.2 grew it by 16 implementation-defined bytes ahead of the reserved
  * tail; a descriptor names its own size, so both layouts are accepted. */
@@ -199,6 +203,9 @@ typedef struct wt_ffa_mem_build {
     uint8_t  access_desc_size;
     /* 16 implementation-defined bytes for a v1.2 descriptor, or NULL. */
     const uint8_t* impdef;
+    /* The reader's FF-A version: 1.0 selects the v1.0 layout, 0 or any later
+     * version Table 1.20. */
+    uint32_t version;
 } wt_ffa_mem_build_t;
 
 /* Memory region attributes bits[5:0] (DEN0140 Table 1.18): the type is not
@@ -235,12 +242,21 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
 int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
                             uint16_t expect_sender, wt_ffa_mem_txn_t* out);
 
+/* wt_ffa_mem_txn_validate for a descriptor laid out for FF-A version: a 1.0
+ * caller's in the v1.0 layout, any later one's in Table 1.20. */
+int wt_ffa_mem_txn_validate_at(const uint8_t* buf, size_t len,
+                               wt_ffa_mem_op_t op, uint16_t expect_sender,
+                               uint32_t version, wt_ffa_mem_txn_t* out);
+
 /* wt_ffa_mem_txn_validate for a lend/donate/share the relayer is asked to
  * start: its Handle field is zero as well (DEN0140 1.11.1), since this SPMC
  * allocates every handle and takes none from a Hypervisor. A descriptor sent
  * in fragments carries its reserved handle in registers, not here. */
 int wt_ffa_mem_send_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
                              uint16_t expect_sender, wt_ffa_mem_txn_t* out);
+int wt_ffa_mem_send_validate_at(const uint8_t* buf, size_t len,
+                                wt_ffa_mem_op_t op, uint16_t expect_sender,
+                                uint32_t version, wt_ffa_mem_txn_t* out);
 
 /* Read receiver index's endpoint id and permissions from a descriptor that
  * wt_ffa_mem_txn_validate has accepted. */
@@ -309,6 +325,10 @@ typedef struct wt_ffa_mem_retrieve_req {
 } wt_ffa_mem_retrieve_req_t;
 
 int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
+                                     wt_ffa_mem_retrieve_req_t* out);
+/* wt_ffa_mem_retrieve_req_parse_ex for a request laid out for FF-A version. */
+int wt_ffa_mem_retrieve_req_parse_at(const uint8_t* buf, size_t len,
+                                     uint32_t version,
                                      wt_ffa_mem_retrieve_req_t* out);
 
 /* FFA_MEM_RECLAIM flags (Table 2.31): only the zero-memory bit may be set.
@@ -457,6 +477,9 @@ void wt_ffa_mem_frag_reset(wt_ffa_mem_frag_t* f);
  * *size set, or 0 when the fragment is too short to tell. */
 int wt_ffa_mem_frag_expected(const uint8_t* frag, uint32_t frag_len,
                              int retrieve, uint64_t* size);
+/* wt_ffa_mem_frag_expected for a descriptor laid out for FF-A version. */
+int wt_ffa_mem_frag_expected_at(const uint8_t* frag, uint32_t frag_len,
+                                int retrieve, uint32_t version, uint64_t* size);
 
 /* Allocate a unique handle for a validated transaction, with no captured
  * region set. Returns 0 with *out_handle set, or WT_FFA_NO_MEMORY when the

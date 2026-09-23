@@ -68,6 +68,8 @@ static void put64(uint8_t* p, uint64_t v)
     put32(&p[4], (uint32_t)((v >> 32) & 0xFFFFFFFFu));
 }
 
+#define V10 WT_FFA_VERSION_MAKE(1u, 0u)
+
 /* Encode a canonical two-constituent transaction for op with the given flags:
  * sender 0, borrower 0x8002, normal NS memory, read-write no-execute. The
  * constituents are page-aligned, adjacent, and total five pages. */
@@ -1397,6 +1399,100 @@ static void borrower_list_rows(void)
           "a single borrower naming itself twice is INVALID_PARAMETERS");
 }
 
+static uint32_t get32(const uint8_t* p)
+{
+    return (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) |
+           ((uint32_t)p[3] << 24);
+}
+
+/* A single-receiver retrieve request in the FF-A v1.0 layout (DEN0140 Table
+ * 4.17): a 32-byte header, then one 16-byte access descriptor. */
+static size_t v10_retrieve_req(uint8_t* buf, uint64_t handle, uint16_t owner,
+                               uint16_t receiver, uint8_t perms)
+{
+    memset(buf, 0, 48u);
+    buf[WT_FFA_MEM_TXN_OFF_SENDER] = (uint8_t)(owner & 0xFFu);
+    buf[WT_FFA_MEM_TXN_OFF_SENDER + 1u] = (uint8_t)(owner >> 8);
+    put64(&buf[WT_FFA_MEM_TXN_OFF_HANDLE], handle);
+    put32(&buf[WT_FFA_MEM_TXN_OFF_ACC_COUNT], 1u);
+    buf[32] = (uint8_t)(receiver & 0xFFu);
+    buf[33] = (uint8_t)(receiver >> 8);
+    buf[32u + WT_FFA_MEM_ACC_OFF_PERMS] = perms;
+    return 48u;
+}
+
+/* WT-FFA-0009 (a v1.0 caller's memory transaction descriptors use the v1.0
+ * layout, DEN0077A 18.5.3 and DEN0140 4.2.1). */
+static void v10_rows(void)
+{
+    static const wt_ffa_mem_constituent_t cons[1] = { { 0x40000000ull, 2u } };
+    wt_ffa_mem_build_t in;
+    wt_ffa_mem_txn_t txn;
+    wt_ffa_mem_retrieve_req_t rq;
+    uint8_t buf[128];
+    uint8_t req[64];
+    uint64_t size = 0u;
+    size_t len = 0u;
+
+    memset(&in, 0, sizeof(in));
+    in.constituents = cons;
+    in.constituent_count = 1u;
+    in.op = WT_FFA_MEM_OP_LEND;
+    in.sender = 0x8002u;
+    in.receiver = 0x8003u;
+    in.permissions = WT_FFA_MEM_PERM_DATA_RW;
+    in.version = V10;
+    check(wt_ffa_mem_txn_build(buf, sizeof(buf), &in, &len) == 0 &&
+              len == 80u && get32(&buf[24]) == 0u && get32(&buf[28]) == 1u &&
+              buf[32] == 0x03u && buf[33] == 0x80u &&
+              get32(&buf[32u + WT_FFA_MEM_ACC_OFF_COMP_OFF]) == 48u &&
+              get32(&buf[48]) == 2u && get32(&buf[64]) == 0x40000000u,
+          "v1.0: a descriptor for a v1.0 reader has no access descriptor size "
+          "or offset, and its access descriptors start at 32 (Table 4.17)");
+    check(wt_ffa_mem_txn_validate_at(buf, len, WT_FFA_MEM_OP_LEND, 0x8002u,
+                                     V10, &txn) == 0 &&
+              txn.access_offset == 32u && txn.access_desc_size == 16u &&
+              txn.composite_offset == 48u && txn.total_page_count == 2u,
+          "v1.0: a v1.0 caller's lend is read in its own layout (18.5.3)");
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0x8002u,
+                                  &txn) != 0,
+          "v1.0: the same bytes are no Table 1.20 descriptor");
+    check((wt_ffa_mem_frag_expected_at(buf, 64u, 0, V10, &size) == 1) &&
+              (size == (uint64_t)len),
+          "v1.0: a first fragment in the v1.0 layout names the whole length");
+    buf[24] = 1u;
+    check(wt_ffa_mem_txn_validate_at(buf, len, WT_FFA_MEM_OP_LEND, 0x8002u,
+                                     V10, &txn) == WT_FFA_INVALID_PARAMETERS,
+          "v1.0: the reserved word at offset 24 is MBZ");
+    buf[24] = 0u;
+    buf[3] = 1u;
+    check(wt_ffa_mem_txn_validate_at(buf, len, WT_FFA_MEM_OP_LEND, 0x8002u,
+                                     V10, &txn) == WT_FFA_INVALID_PARAMETERS,
+          "v1.0: the reserved byte after the one-byte attributes is MBZ");
+    in.version = 0u;
+    check(wt_ffa_mem_txn_build(buf, sizeof(buf), &in, &len) == 0 &&
+              wt_ffa_mem_txn_validate_at(buf, len, WT_FFA_MEM_OP_LEND, 0x8002u,
+                                         V10, &txn) ==
+                  WT_FFA_INVALID_PARAMETERS,
+          "v1.0: a Table 1.20 descriptor from a v1.0 caller is refused");
+
+    len = v10_retrieve_req(req, 0x1234ull, 0x8002u, 0x8003u,
+                           WT_FFA_MEM_PERM_DATA_RW);
+    check(wt_ffa_mem_retrieve_req_parse_at(req, len, V10, &rq) == 0 &&
+              rq.receiver_count == 1u && rq.receivers[0] == 0x8003u &&
+              rq.access_desc_size == 16u && rq.handle == 0x1234ull &&
+              rq.sender == 0x8002u &&
+              rq.permissions[0] == WT_FFA_MEM_PERM_DATA_RW,
+          "v1.0: a v1.0 retrieve request is read in its own layout");
+    check(wt_ffa_mem_retrieve_req_parse_ex(req, len, &rq) ==
+              WT_FFA_NOT_SUPPORTED,
+          "v1.0: the same request read as Table 1.20 names no access "
+          "descriptor size");
+    check((wt_ffa_mem_frag_expected_at(req, 40u, 1, V10, &size) == 1) &&
+              (size == (uint64_t)len),
+          "v1.0: a v1.0 retrieve request's first fragment names its length");
+}
+
 /* The relayer maps and zeroes memory at its own address (VA == PA), so the
  * host backs the partitions' pages with memory below the table VA limit. */
 #define RELAY_MEM_PAGES  16u
@@ -1477,6 +1573,32 @@ struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id)
 {
     (void)id;
     return NULL;
+}
+
+/* The versions A, B, and the Normal world negotiated, and whether B asked for
+ * the NS bit, as the SVC gate and the SPMC report them. */
+static uint32_t g_ver_a = WT_FFA_VERSION_1_2;
+static uint32_t g_ver_b = WT_FFA_VERSION_1_2;
+static uint32_t g_ver_ns = WT_FFA_VERSION_1_2;
+static int g_ns_bit_b;
+
+uint32_t wt_spm_sp_ffa_version(const struct wt_co* co)
+{
+    if (co == CO_A) {
+        return g_ver_a;
+    }
+    return (co == CO_B) ? g_ver_b : WT_FFA_VERSION_1_2;
+}
+
+uint32_t wt_spm_ns_ffa_version(void)
+{
+    return g_ver_ns;
+}
+
+int wt_spm_sp_ffa_ns_bit(const struct wt_co* co)
+{
+    return wt_ffa_ns_bit_used(wt_spm_sp_ffa_version(co),
+                              (co == CO_B) ? g_ns_bit_b : 0);
 }
 
 static uintptr_t page(unsigned int i);
@@ -2124,6 +2246,130 @@ static void relay_teardown_rows(void)
     check(g_domain_fails == 0u, "teardown: no domain operation failed closed");
 }
 
+/* B retrieves h from owner with a v1.0 retrieve request. */
+static int relay_retrieve_v10(uint64_t h, uint16_t owner, uint8_t* resp,
+                              size_t* resp_len)
+{
+    uint8_t req[64];
+    size_t len = v10_retrieve_req(req, h, owner, RELAY_ID_B,
+                                  WT_FFA_MEM_PERM_DATA_RW);
+
+    return wt_spm_mem_retrieve(req, len, RELAY_ID_B, resp, 256u, resp_len);
+}
+
+static uint8_t ns_bit_told(uint64_t h, int* ret)
+{
+    uint8_t resp[256];
+    size_t resp_len = 0u;
+
+    memset(resp, 0, sizeof(resp));
+    *ret = relay_retrieve_v10(h, WT_FFA_ID_NS_PRIMARY, resp, &resp_len);
+    if (*ret == 0) {
+        *ret = relay_relinquish(h, 0u);
+    }
+    return (uint8_t)(resp[WT_FFA_MEM_TXN_OFF_ATTRS] & WT_FFA_MEM_ATTR_NS);
+}
+
+/* WT-FFA-0009 (the relayer reads and answers each endpoint in the layout of
+ * the version it negotiated, DEN0077A 18.5.3, and tells a v1.0 borrower the
+ * NS bit only if it asked, DEN0140 Table 1.19). */
+static void relay_v10_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    wt_ffa_mem_build_t in;
+    uint8_t desc[256];
+    uint8_t resp[256];
+    uint64_t h = 0u;
+    uint64_t fh = 0u;
+    size_t len = 0u;
+    size_t resp_len = 0u;
+    uint32_t offset = 0u;
+    uint8_t told;
+    int done = 0;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "v1.0: fixture");
+        return;
+    }
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    memset(&in, 0, sizeof(in));
+    in.constituents = c;
+    in.constituent_count = 1u;
+    in.op = WT_FFA_MEM_OP_LEND;
+    in.sender = RELAY_ID_A;
+    in.receiver = RELAY_ID_B;
+    in.permissions = WT_FFA_MEM_PERM_DATA_RW;
+    in.version = V10;
+    g_ver_a = V10;
+    g_ver_b = V10;
+    (void)wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len);
+    check(wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_LEND, RELAY_ID_A, &h) == 0,
+          "v1.0: the relayer takes a lend from a v1.0 owner in its layout");
+    memset(resp, 0xA5, sizeof(resp));
+    check(relay_retrieve_v10(h, RELAY_ID_A, resp, &resp_len) == 0 &&
+              resp_len == 80u && get32(&resp[24]) == 0u &&
+              get32(&resp[28]) == 1u && resp[32] == (RELAY_ID_B & 0xFFu) &&
+              get32(&resp[32u + WT_FFA_MEM_ACC_OFF_COMP_OFF]) == 48u &&
+              get32(&resp[WT_FFA_MEM_TXN_OFF_HANDLE]) == (uint32_t)h &&
+              get32(&resp[64]) == (uint32_t)page(PG_RW) &&
+              access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "v1.0: a v1.0 borrower's retrieve is mapped and answered in the v1.0 "
+          "layout");
+    check(relay_relinquish(h, 0u) == 0 &&
+              wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "v1.0: the lend ends");
+
+    (void)wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len);
+    check(wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_A, desc,
+                                64u, (uint32_t)len, &fh) == 0 &&
+              wt_spm_mem_frag_next(fh, RELAY_ID_A, &desc[64],
+                                   (uint32_t)len - 64u, &offset, &done) == 0 &&
+              done == 1 && wt_spm_mem_frag_share(fh, RELAY_ID_A) == 0 &&
+              wt_spm_mem_reclaim(fh, RELAY_ID_A, 0u) == 0,
+          "v1.0: a v1.0 owner's lend sent in fragments is taken in its layout");
+
+    wt_spm_mem_ns_window(page(10u), 2u * WT_TABLES_PAGE_SIZE);
+    g_ver_ns = V10;
+    c[0].address = page(10u);
+    in.op = WT_FFA_MEM_OP_SHARE;
+    in.sender = WT_FFA_ID_NS_PRIMARY;
+    (void)wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len);
+    check(wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_SHARE,
+                           WT_FFA_ID_NS_PRIMARY, &h) == 0,
+          "v1.0: a v1.0 Normal world shares its memory in the v1.0 layout");
+    told = ns_bit_told(h, &ret);
+    check(ret == 0 && told == 0u,
+          "v1.0: a v1.0 borrower that never asked for the NS bit is not told "
+          "it (Table 1.19 row 5)");
+    g_ns_bit_b = 1;
+    told = ns_bit_told(h, &ret);
+    check(ret == 0 && told != 0u,
+          "v1.0: one that asked through FFA_FEATURES is told it (row 6)");
+    g_ns_bit_b = 0;
+    g_ver_b = WT_FFA_VERSION_1_2;
+    memset(resp, 0, sizeof(resp));
+    ret = wt_ffa_mem_retrieve_req_build(desc, sizeof(desc), h,
+                                        WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
+                                        WT_FFA_MEM_PERM_DATA_RW, &len);
+    if (ret == 0) {
+        ret = wt_spm_mem_retrieve(desc, len, RELAY_ID_B, resp, sizeof(resp),
+                                  &resp_len);
+    }
+    check(ret == 0 &&
+              (resp[WT_FFA_MEM_TXN_OFF_ATTRS] & WT_FFA_MEM_ATTR_NS) != 0u &&
+              relay_relinquish(h, 0u) == 0,
+          "v1.0: a v1.1+ borrower is always told it (row 7)");
+    check(wt_spm_mem_reclaim(h, WT_FFA_ID_NS_PRIMARY, 0u) == 0,
+          "v1.0: the Normal world reclaims its share");
+    g_ver_a = WT_FFA_VERSION_1_2;
+    g_ver_b = WT_FFA_VERSION_1_2;
+    g_ver_ns = WT_FFA_VERSION_1_2;
+    g_ns_bit_b = 0;
+    check(g_domain_fails == 0u, "v1.0: no domain operation failed closed");
+}
+
 /* WT-FFA-0009 (a binding the SPMC made for a boot self-test is dropped with
  * what it holds, so a partition reusing the coroutine starts unbound). */
 static void relay_unbind_rows(void)
@@ -2177,6 +2423,7 @@ int main(void)
     send_attribute_rows();
     access_flag_rows();
     borrower_list_rows();
+    v10_rows();
     relay_rows();
     relay_owner_rows();
     relay_attr_rows();
@@ -2185,6 +2432,7 @@ int main(void)
     relay_clean_rows();
     relay_region_rows();
     relay_teardown_rows();
+    relay_v10_rows();
     relay_unbind_rows();
 
     if (g_mem != NULL) {

@@ -1019,6 +1019,11 @@ static void ns_version(wt_ffa_regs_t* r)
         &g_ns_version, (uint32_t)r->x[3], WT_FFA_VERSION_1_2));
 }
 
+uint32_t wt_spm_ns_ffa_version(void)
+{
+    return wt_ffa_version_of(&g_ns_version, WT_FFA_VERSION_1_2);
+}
+
 static int ns_range_ok(uint64_t addr, uint64_t len)
 {
     uint64_t base = (uint64_t)WT_NS_IMAGE_PA;
@@ -1061,9 +1066,8 @@ static void ns_partition_info_get(wt_ffa_regs_t* r)
 {
     uint32_t count = 0u;
     uint32_t size = 0u;
-    int ret = wt_spm_partition_info(
-        r->x, wt_ffa_version_of(&g_ns_version, WT_FFA_VERSION_1_2),
-        &g_ns_mailbox, &count, &size);
+    int ret = wt_spm_partition_info(r->x, wt_spm_ns_ffa_version(),
+                                    &g_ns_mailbox, &count, &size);
 
     ns_reply(r, ret, count, size);
 }

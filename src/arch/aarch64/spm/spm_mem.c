@@ -38,6 +38,8 @@
 #define WT_SPM_MEM_MAX_BIND 8u
 /* Borrower mapping cookie: the entry existed before the grant. */
 #define WT_SPM_MEM_MAP_WAS_MAPPED 0x1u
+/* Borrower mapping cookie: the retrieve granted read-only data access. */
+#define WT_SPM_MEM_MAP_RO         0x10u
 /* Owner cookie, above the send flags it keeps: a borrower asked for the memory
  * to be zeroed, which happens once no borrower maps it any more. */
 #define WT_SPM_MEM_COOKIE_ZERO_PENDING 0x80000000u
@@ -711,7 +713,11 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
         }
         return ret;
     }
-    borrower->mapping = (uint8_t)((was_mapped != 0) ? WT_SPM_MEM_MAP_WAS_MAPPED : 0u);
+    borrower->mapping = (uint8_t)(((was_mapped != 0) ? WT_SPM_MEM_MAP_WAS_MAPPED
+                                                     : 0u) |
+                                  (((perms & WT_FFA_MEM_PERM_DATA_MASK) ==
+                                    WT_FFA_MEM_PERM_DATA_RO) ? WT_SPM_MEM_MAP_RO
+                                                             : 0u));
     ret = wt_ffa_mem_handle_retrieve(&g_reg, rq.handle, receiver);
     /* A donate hands ownership over for good: the region is now the receiver's
      * own writable memory (the owner's access was dropped at donate time), so
@@ -750,14 +756,13 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)
     if ((borrower == NULL) || (b == NULL) || (borrower->retrieved == 0u)) {
         return WT_FFA_DENIED;
     }
-    /* The zero-memory flag is MBZ for shared memory (Table 11.26); of lent
-     * memory only a sole writer may have it wiped. */
+    /* The zero-memory flag is MBZ for shared memory (Table 11.26), and for a
+     * borrower whose retrieve left it read-only access (Table 2.25). */
     if ((flags & WT_FFA_MEM_RELINQ_FLAG_ZERO) != 0u) {
         if (e->state == (uint8_t)WT_FFA_MEM_STATE_SHARED) {
             return WT_FFA_INVALID_PARAMETERS;
         }
-        if ((borrower->permissions & WT_FFA_MEM_PERM_DATA_MASK) ==
-            WT_FFA_MEM_PERM_DATA_RO) {
+        if ((borrower->mapping & WT_SPM_MEM_MAP_RO) != 0u) {
             return WT_FFA_DENIED;
         }
     }

@@ -179,54 +179,15 @@ static size_t partinfo_collect(void)
     return n;
 }
 
-/* FFA_PARTITION_INFO_GET (6.1) for either instance: x = the call's registers
- * (UUID in w1-w4, flags in w5), mb = the caller's mailbox (NULL for a caller
- * on the SPMC's own band), rx = where descriptors go. A UUID nothing matches
- * is INVALID_PARAMETERS; descriptors take RX ownership, a count does not. */
-int wt_spm_partition_info(const uint64_t* x, wt_ffa_mailbox_t* mb, uint8_t* rx,
+/* FFA_PARTITION_INFO_GET (6.1) for either instance: x = the call's registers,
+ * mb = the caller's mailbox, whose RX buffer must be mapped and free for
+ * descriptors (a count needs none). */
+int wt_spm_partition_info(const uint64_t* x, wt_ffa_mailbox_t* mb,
                           uint32_t* count, uint32_t* size)
 {
     size_t n = partinfo_collect();
-    uint8_t uuid[16];
-    uint32_t word;
-    uint32_t flags = (uint32_t)x[5];
-    size_t i;
-    int ret;
 
-    if (n == 0u) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
-    for (i = 0u; i < 4u; i++) {
-        word = (uint32_t)x[1u + i];
-        uuid[4u * i + 0u] = (uint8_t)(word & 0xFFu);
-        uuid[4u * i + 1u] = (uint8_t)((word >> 8) & 0xFFu);
-        uuid[4u * i + 2u] = (uint8_t)((word >> 16) & 0xFFu);
-        uuid[4u * i + 3u] = (uint8_t)((word >> 24) & 0xFFu);
-    }
-    /* Count first: it validates the flags and finds a UUID nothing matches
-     * before the RX buffer changes hands. */
-    ret = wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, g_partinfo, n,
-                                uuid, flags | WT_FFA_PARTINFO_FLAG_COUNT, count,
-                                size);
-    if ((ret == 0) && (*count == 0u)) {
-        ret = WT_FFA_INVALID_PARAMETERS;
-    }
-    if ((ret != 0) || ((flags & WT_FFA_PARTINFO_FLAG_COUNT) != 0u)) {
-        return ret;
-    }
-    if (mb != NULL) {
-        ret = wt_ffa_mailbox_rx_acquire(mb);
-        if (ret != 0) {
-            return (ret == WT_FFA_DENIED) ? WT_FFA_BUSY : ret;
-        }
-    }
-    ret = wt_ffa_partinfo_write(rx, (size_t)WT_FFA_MEM_PAGE_SIZE,
-                                WT_FFA_VERSION_1_2, g_partinfo, n, uuid, flags,
-                                count, size);
-    if ((ret != 0) && (mb != NULL)) {
-        (void)wt_ffa_mailbox_rx_release(mb);
-    }
-    return ret;
+    return wt_ffa_partinfo_get(x, mb, g_partinfo, n, count, size);
 }
 
 /* FFA_PARTITION_INFO_GET_REGS for either instance: UUID in x1/x2, start index
@@ -248,7 +209,6 @@ int wt_spm_partition_info_regs(const uint64_t* x, uint64_t* out18)
 }
 
 static wt_ffa_mailbox_t* sp_mailbox(void);
-static uint8_t* sp_rx(void);
 
 static void ffa_partition_info_get_regs(wt_trap_frame_t* frame)
 {
@@ -267,15 +227,10 @@ static void ffa_partition_info_get_regs(wt_trap_frame_t* frame)
 
 static void ffa_partition_info_get(wt_trap_frame_t* frame)
 {
-    wt_ffa_mailbox_t* mb = sp_mailbox();
     uint32_t count = 0u;
     uint32_t size = 0u;
-    int ret;
+    int ret = wt_spm_partition_info(frame->x, sp_mailbox(), &count, &size);
 
-    if ((mb != NULL) && (mb->mapped == 0u)) {
-        mb = NULL;
-    }
-    ret = wt_spm_partition_info(frame->x, mb, sp_rx(), &count, &size);
     if (ret != 0) {
         ffa_error(frame, ret);
         return;

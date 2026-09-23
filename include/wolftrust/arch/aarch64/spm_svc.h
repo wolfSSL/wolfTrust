@@ -200,7 +200,7 @@ int wt_spm_current_is_partition(void);
 /* FFA_PARTITION_INFO_GET for either instance; see spm_svc_glue.c. */
 struct wt_ffa_mailbox;
 int wt_spm_partition_info(const uint64_t* x, struct wt_ffa_mailbox* mb,
-                          uint8_t* rx, uint32_t* count, uint32_t* size);
+                          uint32_t* count, uint32_t* size);
 int wt_spm_partition_info_regs(const uint64_t* x, uint64_t* out18);
 
 /* FF-A native partitions: separately built S-EL0 images that speak FF-A

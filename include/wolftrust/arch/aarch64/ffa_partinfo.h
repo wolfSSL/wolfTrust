@@ -78,6 +78,16 @@ int wt_ffa_partinfo_write(uint8_t* rx, size_t rx_size, uint32_t caller_version,
                           const uint8_t* uuid16, uint32_t flags,
                           uint32_t* out_count, uint32_t* out_desc_size);
 
+/* FFA_PARTITION_INFO_GET (13.8) over parts: x = the call's registers (UUID in
+ * w1-w4, flags in w5). A count needs no buffer; descriptors go to the RX
+ * buffer of the caller's mailbox mb and take its ownership. BUSY when that RX
+ * buffer is not mapped or not free (Table 13.36); INVALID_PARAMETERS for a
+ * UUID nothing matches, found before the RX buffer changes hands. */
+struct wt_ffa_mailbox;
+int wt_ffa_partinfo_get(const uint64_t* x, struct wt_ffa_mailbox* mb,
+                        const wt_ffa_partinfo_entry_t* parts, size_t n,
+                        uint32_t* count, uint32_t* size);
+
 /* FFA_PARTITION_INFO_GET_REGS (13.9): up to five matching descriptors per
  * call in out[3..17], three registers each (id, contexts and properties; then
  * the UUID, zero for a specific-UUID query), from the start index on. out[2]

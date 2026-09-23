@@ -25,6 +25,7 @@
 #include "wolftrust/arch/aarch64/ffa_partinfo.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_manifest.h"
+#include "wolftrust/arch/aarch64/ffa_mem.h"
 
 uint32_t wt_ffa_partinfo_desc_size(uint32_t caller_version)
 {
@@ -159,6 +160,50 @@ int wt_ffa_partinfo_write(uint8_t* rx, size_t rx_size, uint32_t caller_version,
     *out_count = count;
     *out_desc_size = (count_only != 0) ? 0u : desc_size;
     return 0;
+}
+
+int wt_ffa_partinfo_get(const uint64_t* x, wt_ffa_mailbox_t* mb,
+                        const wt_ffa_partinfo_entry_t* parts, size_t n,
+                        uint32_t* count, uint32_t* size)
+{
+    uint8_t uuid[16];
+    uint32_t word;
+    uint32_t flags;
+    unsigned int i;
+    int ret;
+
+    if ((x == NULL) || (parts == NULL) || (n == 0u) || (count == NULL) ||
+        (size == NULL)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    flags = (uint32_t)x[5];
+    for (i = 0u; i < 4u; i++) {
+        word = (uint32_t)x[1u + i];
+        uuid[4u * i + 0u] = (uint8_t)(word & 0xFFu);
+        uuid[4u * i + 1u] = (uint8_t)((word >> 8) & 0xFFu);
+        uuid[4u * i + 2u] = (uint8_t)((word >> 16) & 0xFFu);
+        uuid[4u * i + 3u] = (uint8_t)((word >> 24) & 0xFFu);
+    }
+    ret = wt_ffa_partinfo_write(NULL, 0u, WT_FFA_VERSION_1_2, parts, n, uuid,
+                                flags | WT_FFA_PARTINFO_FLAG_COUNT, count,
+                                size);
+    if ((ret == 0) && (*count == 0u)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((ret != 0) || ((flags & WT_FFA_PARTINFO_FLAG_COUNT) != 0u)) {
+        return ret;
+    }
+    if (wt_ffa_mailbox_rx_acquire(mb) != 0) {
+        return WT_FFA_BUSY;
+    }
+    ret = wt_ffa_partinfo_write((uint8_t*)(uintptr_t)mb->rx,
+                                (size_t)mb->pages * WT_FFA_MEM_PAGE_SIZE,
+                                WT_FFA_VERSION_1_2, parts, n, uuid, flags,
+                                count, size);
+    if (ret != 0) {
+        (void)wt_ffa_mailbox_rx_release(mb);
+    }
+    return ret;
 }
 
 static uint64_t uuid_half(const uint8_t* u)

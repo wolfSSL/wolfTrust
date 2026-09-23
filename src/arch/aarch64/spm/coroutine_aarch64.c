@@ -28,6 +28,7 @@
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/ffa_notif.h"
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
@@ -441,23 +442,31 @@ int wt_spm_ffa_sp_yielded_to(const struct wt_co* co, uint16_t caller)
             (m->requester == caller)) ? 1 : 0;
 }
 
+/* Hand a blocked partition an 8-register event (fid, w1) as the return of the
+ * call it is blocked in. */
+static void deliver_event(struct wt_co* co, uint32_t fid, uint64_t w1)
+{
+    uint64_t msg[WT_FFA_MSG_REGS];
+    unsigned int i;
+
+    for (i = 0u; i < WT_FFA_MSG_REGS; i++) {
+        msg[i] = 0u;
+    }
+    msg[0] = fid;
+    msg[1] = w1;
+    wt_ffa_msg_deliver(sp_arch(co)->frame.x, msg);
+}
+
 /* Stage a queued Secure interrupt for delivery: its FFA_INTERRUPT becomes the
  * return of the call the partition is blocked in. Returns 1 if one was. */
 static unsigned int sint_stage(struct wt_co* co)
 {
     uint32_t sint = wt_spm_sint_take_pending(co);
-    wt_sp_arch_t* a;
-    unsigned int i;
 
     if (sint == 0u) {
         return 0u;
     }
-    a = sp_arch(co);
-    for (i = 0u; i < 8u; i++) {
-        a->frame.x[i] = 0u;
-    }
-    a->frame.x[0] = WT_FFA_INTERRUPT;
-    a->frame.x[1] = (uint64_t)sint;
+    deliver_event(co, WT_FFA_INTERRUPT, (uint64_t)sint);
     wt_spm_sint_set_delivered(co, sint);
     return 1u;
 }
@@ -546,7 +555,6 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
     struct wt_co* waiting;
     unsigned int depth = 1u;
     unsigned int deliver = 0u;
-    unsigned int count;
     unsigned int i;
     uint32_t reason = WT_FFA_SP_EXIT_NONE;
     int root_ret = 0;
@@ -609,10 +617,7 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
             out[0] = WT_FFA_ERROR;
             out[2] = (uint64_t)(uint32_t)ret;
         }
-        count = wt_ffa_msg_reg_count(out[0]);
-        for (i = 0u; i < count; i++) {
-            sp_arch(caller)->frame.x[i] = out[i];
-        }
+        wt_ffa_msg_deliver(sp_arch(caller)->frame.x, out);
         if (deliver != 0u) {
             chain[depth] = top;
             detached[depth] = 1u;
@@ -634,11 +639,8 @@ static void endpoint_load_request(struct wt_co* co, const uint64_t* req)
     wt_sp_arch_t* a = sp_arch(co);
     wt_sp_msg_t* m = &g_sp_msg[co->id - 1u];
     unsigned int count = wt_ffa_msg_reg_count(req[0]);
-    unsigned int i;
 
-    for (i = 0u; i < count; i++) {
-        a->frame.x[i] = req[i];
-    }
+    wt_ffa_msg_deliver(a->frame.x, req);
     wt_ffa_regs_normalize(a->frame.x);
     m->busy = 1u;
     m->req2 = (count == WT_FFA_MSG_REGS_EXT) ? 1u : 0u;
@@ -735,9 +737,7 @@ int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
  * (it sees FFA_RUN as the return of its FFA_MSG_WAIT). */
 int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
 {
-    wt_sp_arch_t* a;
     wt_sp_msg_t* m;
-    unsigned int i;
 
     if ((co == NULL) || (out == NULL) || (co->unprivileged == 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
@@ -762,12 +762,7 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
         return WT_FFA_DENIED;
     }
     else {
-        a = sp_arch(co);
-        for (i = 0u; i < 8u; i++) {
-            a->frame.x[i] = 0u;
-        }
-        a->frame.x[0] = WT_FFA_RUN;
-        a->frame.x[1] = (uint64_t)wt_spm_sp_ffa_id(co) << 16;
+        deliver_event(co, WT_FFA_RUN, (uint64_t)wt_spm_sp_ffa_id(co) << 16);
     }
     return run_endpoint(co, out);
 }
@@ -910,8 +905,6 @@ int wt_spm_sint_signal_needed(struct wt_co* owner)
 int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid)
 {
     uint64_t out[WT_FFA_MSG_REGS_EXT];
-    wt_sp_arch_t* a;
-    unsigned int i;
 
     if ((co == NULL) || (co->unprivileged == 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
@@ -919,12 +912,7 @@ int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid)
     if (endpoint_waiting(co) == 0) {
         return WT_FFA_BUSY;
     }
-    a = sp_arch(co);
-    for (i = 0u; i < 8u; i++) {
-        a->frame.x[i] = 0u;
-    }
-    a->frame.x[0] = WT_FFA_INTERRUPT;
-    a->frame.x[1] = (uint64_t)intid;
+    deliver_event(co, WT_FFA_INTERRUPT, (uint64_t)intid);
     return (run_endpoint(co, out) == WT_FFA_ABORTED) ? WT_FFA_ABORTED : 0;
 }
 

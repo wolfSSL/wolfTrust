@@ -284,14 +284,17 @@ static void get_rows(void)
           "a vCPU beyond the single context is refused");
     check(wt_ffa_notif_get(VM0, VM0, 0x10000u, &got) ==
           WT_FFA_INVALID_PARAMETERS, "reserved flag bits are refused");
-    check(wt_ffa_notif_get(VM0, SP2, WT_FFA_NOTIF_GET_FLAG_VM, &got) ==
+    check(wt_ffa_notif_get(VM0, SP2, WT_FFA_NOTIF_GET_FLAG_SP, &got) ==
           WT_FFA_DENIED, "reading another endpoint's bitmap is DENIED");
     check(wt_ffa_notif_set(SP1, IDS(SP1, VM0), 0u, BIT(0)) == 0,
           "SP1 signals the VM");
     check(wt_ffa_notif_set(VM0, IDS(VM0, SP2), 0u, BIT(12)) == 0,
           "the VM signals SP2");
-    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_VM, &got) == 0,
-          "the VM asks for the wrong source class");
+    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_VM, &got) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "the VM-class flag is MBZ at the NS physical instance");
+    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_HYP, &got) ==
+          WT_FFA_INVALID_PARAMETERS, "and so is the Hypervisor flag");
     check((got.from_vm == 0u) && (got.from_sp == 0u),
           "and gets nothing without disturbing the pending bit");
     check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_SP, &got) == 0,
@@ -335,6 +338,12 @@ static void get_rows(void)
                            WT_FFA_NOTIF_GET_FLAG_HYP, &got) == 0,
           "both framework flags drain");
     check(got.framework == 0u, "and both halves are empty");
+    check(wt_ffa_notif_frame_rx_full(VM0, 1) == 0,
+          "a partition's message pends RX-full for the Normal world");
+    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_SPM, &got) == 0,
+          "the Normal world asks for the SPM framework half");
+    check(got.framework == WT_FFA_NOTIF_FW_SPM_RX_FULL,
+          "and reads the partition's RX-full in w6");
 }
 
 static void info_rows(void)

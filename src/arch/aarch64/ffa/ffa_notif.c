@@ -307,6 +307,7 @@ int32_t wt_ffa_notif_get(uint16_t caller, uint32_t w1, uint32_t flags,
 {
     uint16_t vcpu = WT_FFA_NOTIF_W1_HIGH(w1);
     uint16_t receiver_id = WT_FFA_NOTIF_W1_LOW(w1);
+    wt_notif_ep_t* callerp = ep_find(caller);
     wt_notif_ep_t* receiver = ep_find(receiver_id);
 
     if (out == NULL) {
@@ -322,6 +323,11 @@ int32_t wt_ffa_notif_get(uint16_t caller, uint32_t w1, uint32_t flags,
         return WT_FFA_INVALID_PARAMETERS;
     }
     if ((flags & ~(uint32_t)WT_FFA_NOTIF_GET_FLAG_ALL) != 0u) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    /* 16.6: the VM and Hypervisor flags are MBZ at the NS physical instance. */
+    if (((flags & (WT_FFA_NOTIF_GET_FLAG_VM | WT_FFA_NOTIF_GET_FLAG_HYP)) !=
+         0u) && ((callerp == NULL) || (callerp->secure == 0u))) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if (receiver_id != caller) {

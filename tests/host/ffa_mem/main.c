@@ -1485,6 +1485,36 @@ static void relay_owner_rows(void)
           "owner: a range running past the sender's pages is DENIED at the first page it lacks");
 }
 
+/* WT-FFA-0009 (relinquish holds the zero flag against the access the borrower
+ * was given at retrieve, Table 2.25 bit[0]). */
+static void relay_perm_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint8_t* p;
+    uint64_t h;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "perm: fixture");
+        return;
+    }
+    p = (uint8_t*)page(PG_RW);
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    p[0] = 0xA5u;
+    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RO, 0u) == 0 &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RO,
+          "perm: a borrower granted read-write may retrieve read-only");
+    check(relay_relinquish(h, WT_FFA_MEM_RELINQ_FLAG_ZERO) == WT_FFA_DENIED &&
+          p[0] == 0xA5u && access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RO,
+          "perm: a borrower that retrieved read-only is DENIED the zero flag at relinquish");
+    check(relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 && p[0] == 0xA5u,
+          "perm: it relinquishes without the flag and the owner reclaims the memory intact");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -1508,6 +1538,7 @@ int main(void)
     borrower_list_rows();
     relay_rows();
     relay_owner_rows();
+    relay_perm_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

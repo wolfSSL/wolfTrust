@@ -2704,6 +2704,80 @@ static void relay_zero_rows(void)
     check(g_domain_fails == 0u, "zero: no domain operation failed closed");
 }
 
+/* who (B or C) relinquishes h asking for it to be zeroed after. */
+static int relay_relinquish_zero_as(uint64_t h, uint16_t who)
+{
+    uint8_t rel[32];
+    size_t len = 0u;
+    int ret;
+
+    ret = wt_ffa_mem_relinquish_build(rel, sizeof(rel), h,
+                                      WT_FFA_MEM_RELINQ_FLAG_ZERO, who, &len);
+    if (ret == 0) {
+        ret = wt_spm_mem_relinquish(rel, len, who);
+    }
+    return ret;
+}
+
+/* WT-FFA-0009 (with several borrowers, a wipe any of them asks for runs once
+ * the last is unmapped: the relayer zeroes memory only once no other component
+ * maps it, DEN0140 1.11.4.1 and Table 2.25 bit[0]). */
+static void relay_multi_zero_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint8_t desc[256];
+    uint8_t* p;
+    uint64_t h = 0u;
+    size_t len = 0u;
+    int ret;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "multi zero: fixture");
+        return;
+    }
+    p = (uint8_t*)page(PG_RW);
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    ret = relay_build(desc, sizeof(desc), WT_FFA_MEM_OP_LEND, c, 1u,
+                      WT_FFA_MEM_PERM_DATA_RW, 0u, &len);
+    if (ret == 0) {
+        len = add_receiver_c(desc, len);
+        ret = wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_LEND, RELAY_ID_A, &h);
+    }
+    check(ret == 0 && relay_retrieve_of_two(h, RELAY_ID_B) == 0 &&
+          relay_retrieve_of_two(h, RELAY_ID_C) == 0,
+          "multi zero: two borrowers map one lent page");
+    p[0] = 0x77u;
+    g_cleans = 0u;
+    check(relay_relinquish_zero_as(h, RELAY_ID_B) == 0 && p[0] == 0x77u &&
+          g_cleans == 0u && access_of(&g_dom_c, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "multi zero: the first to let go asking for a wipe leaves the page intact for the borrower still mapping it");
+    check(relay_relinquish_as(h, RELAY_ID_C) == 0 && p[0] == 0u &&
+          cleaned(PG_RW),
+          "multi zero: the wipe runs when the last borrower is unmapped, though it did not ask");
+    check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "multi zero: the owner reclaims the wiped page");
+    ret = relay_build(desc, sizeof(desc), WT_FFA_MEM_OP_LEND, c, 1u,
+                      WT_FFA_MEM_PERM_DATA_RW, 0u, &len);
+    if (ret == 0) {
+        len = add_receiver_c(desc, len);
+        ret = wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_LEND, RELAY_ID_A, &h);
+    }
+    check(ret == 0 && relay_retrieve_of_two(h, RELAY_ID_B) == 0 &&
+          relay_retrieve_of_two(h, RELAY_ID_C) == 0,
+          "multi zero: the two borrowers map it again");
+    p[0] = 0x66u;
+    g_cleans = 0u;
+    check(relay_relinquish_as(h, RELAY_ID_C) == 0 && p[0] == 0x66u &&
+          g_cleans == 0u &&
+          relay_relinquish_zero_as(h, RELAY_ID_B) == 0 && p[0] == 0u &&
+          cleaned(PG_RW),
+          "multi zero: in the other order the last to let go asks for the wipe, which runs at once");
+    check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
+          g_domain_fails == 0u,
+          "multi zero: the owner reclaims it and no domain operation failed closed");
+}
+
 /* Non-zero when the last clean covered exactly page pg, after it was zeroed. */
 static int cleaned(unsigned int pg)
 {
@@ -3755,6 +3829,7 @@ int main(void)
     relay_attr_rows();
     relay_perm_rows();
     relay_zero_rows();
+    relay_multi_zero_rows();
     relay_clean_rows();
     relay_region_rows();
     relay_donate_rows();

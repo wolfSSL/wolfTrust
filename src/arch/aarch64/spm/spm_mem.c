@@ -695,6 +695,7 @@ static int alignment_hint_ok(const wt_ffa_mem_handle_entry_t* e, uint32_t flags)
     if ((flags & WT_FFA_MEM_FLAG_ALIGN_VALID) == 0u) {
         return (hint == 0u) ? 0 : WT_FFA_INVALID_PARAMETERS;
     }
+    /* DEN0140 Table 1.22 Bits[8:5]: pinned text reads 2*n x 4KB. */
     boundary = (hint == 0u) ? WT_FFA_MEM_PAGE_SIZE
                             : ((uint64_t)hint * 2u * WT_FFA_MEM_PAGE_SIZE);
     for (i = 0u; i < (uint32_t)e->region_count; i++) {

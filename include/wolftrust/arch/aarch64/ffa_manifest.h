@@ -37,6 +37,8 @@
 #define WT_FFA_MESSAGING_INDIRECT       2u
 #define WT_FFA_NS_INTERRUPT_SIGNALED    0u
 #define WT_FFA_NS_INTERRUPT_QUEUED      1u
+/* Table 5.10: no register carries an FF-A boot information blob address. */
+#define WT_FFA_BOOT_INFO_NONE           0xFFFFFFFFu
 
 /* Bytes in the textual order of the canonical UUID string. */
 typedef struct wt_ffa_uuid {

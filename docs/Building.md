@@ -130,8 +130,8 @@ partition properties of DEN0077A Table 5.1 (`ffa_version`, `uuids`,
 The generator accepts only what the SPMC implements for these partitions: FF-A
 `1.2`, one execution context, `S-EL0`, messaging `none` (their services are reached
 through the SPMC's PSA endpoint, not by FF-A messages to the partition),
-`signaled`, and boot information in register 0; any other value stops the
-build.
+`signaled`, and boot information register `none` (the SPMC hands these
+partitions no FF-A boot information blob); any other value stops the build.
 The generator emits them as a separate `wt_generated_ffa_partitions` table
 declared by `wolftrust/arch/aarch64/ffa_manifest.h`; a 64-bit manifest
 without the section gets an empty table (count 0), 32-bit output is

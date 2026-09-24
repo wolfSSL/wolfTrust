@@ -134,7 +134,7 @@ FFA_PARTITION_SCHEMA = {
     "runtime_el": STRING,
     "messaging": STRING,
     "ns_interrupt_action": STRING,
-    "boot_info_register": UINT,
+    "boot_info_register": STRING,
 }
 FFA_SCHEMA = {
     "partitions": [FFA_PARTITION_SCHEMA],
@@ -143,11 +143,13 @@ FFA_SCHEMA = {
 # the version the SPMC holds a partition to until it negotiates, runs at S-EL0,
 # takes no FF-A messages (its services are reached through the SPMC's PSA
 # endpoint, so discovery lists neither messaging method), has its Non-secure
-# interrupts signaled, and takes its boot information in x0.
+# interrupts signaled, and is handed no FF-A boot information (its entry
+# register carries the partition id, not a blob address).
 FFA_VERSIONS = {"1.2": 0x00010002}
 FFA_RUNTIME_EL = {"S-EL0": 0}
 FFA_MESSAGING = {"none": 0}
 FFA_NS_INTERRUPT_ACTION = {"signaled": 0}
+FFA_BOOT_INFO_REGISTER = {"none": 0xffffffff}
 FFA_MAX_UUIDS = 4
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -845,8 +847,8 @@ def validate_ffa(ffa, manifest):
             policy_error(path + " messaging must be none")
         if entry["ns_interrupt_action"] not in FFA_NS_INTERRUPT_ACTION:
             policy_error(path + " ns_interrupt_action must be signaled")
-        if entry["boot_info_register"] != 0:
-            policy_error(path + " boot_info_register must be 0")
+        if entry["boot_info_register"] not in FFA_BOOT_INFO_REGISTER:
+            policy_error(path + " boot_info_register must be none")
 
 
 def uuid_bytes(uuid):
@@ -871,7 +873,8 @@ def emit_ffa(lines, ffa):
             ("messaging", c_uint(FFA_MESSAGING[entry["messaging"]])),
             ("ns_interrupt_action",
              c_uint(FFA_NS_INTERRUPT_ACTION[entry["ns_interrupt_action"]])),
-            ("boot_info_register", c_uint(entry["boot_info_register"])),
+            ("boot_info_register",
+             c_uint(FFA_BOOT_INFO_REGISTER[entry["boot_info_register"]])),
             ("ffa_version", c_uint(FFA_VERSIONS[entry["ffa_version"]])),
         )))
     count = len(entries)

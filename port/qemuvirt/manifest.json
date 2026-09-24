@@ -506,7 +506,7 @@
         "runtime_el": "S-EL0",
         "messaging": "none",
         "ns_interrupt_action": "signaled",
-        "boot_info_register": 0
+        "boot_info_register": "none"
       },
       {
         "domain_id": 4,
@@ -518,7 +518,7 @@
         "runtime_el": "S-EL0",
         "messaging": "none",
         "ns_interrupt_action": "signaled",
-        "boot_info_register": 0
+        "boot_info_register": "none"
       },
       {
         "domain_id": 5,
@@ -530,7 +530,7 @@
         "runtime_el": "S-EL0",
         "messaging": "none",
         "ns_interrupt_action": "signaled",
-        "boot_info_register": 0
+        "boot_info_register": "none"
       },
       {
         "domain_id": 6,
@@ -542,7 +542,7 @@
         "runtime_el": "S-EL0",
         "messaging": "none",
         "ns_interrupt_action": "signaled",
-        "boot_info_register": 0
+        "boot_info_register": "none"
       },
       {
         "domain_id": 7,
@@ -554,7 +554,7 @@
         "runtime_el": "S-EL0",
         "messaging": "none",
         "ns_interrupt_action": "signaled",
-        "boot_info_register": 0
+        "boot_info_register": "none"
       },
       {
         "domain_id": 8,
@@ -566,7 +566,7 @@
         "runtime_el": "S-EL0",
         "messaging": "none",
         "ns_interrupt_action": "signaled",
-        "boot_info_register": 0
+        "boot_info_register": "none"
       }
     ]
   }

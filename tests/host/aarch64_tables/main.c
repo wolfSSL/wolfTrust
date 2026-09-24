@@ -363,6 +363,11 @@ int main(void)
     check(wt_tables_grant_el0(&t, &pool, 0x0E045000u, 1u, RW, &mapped) ==
               WT_TABLES_ERROR_OVERLAP,
           "window: a page EL0 already reaches is never granted over");
+    check(wt_tables_grant_el0(&t, &pool, (uint64_t)POOL_PA, 1u, RW, &mapped) ==
+              WT_TABLES_ERROR_OVERLAP &&
+          walk_is(&t, &pool, (uint64_t)POOL_PA, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 0u),
+          "window: a global EL1-only page is never granted over, and stays as it was");
     check(wt_tables_revoke_el0(&t, &pool, 0x0E045000u, 1u, 1) == WT_TABLES_OK &&
           walk_is(&t, &pool, 0x0E045000u, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),

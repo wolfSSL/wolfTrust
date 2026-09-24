@@ -370,12 +370,13 @@ static void enable_mmu(uint64_t boot_info_pa)
     }
 #if defined(WT_EL3_NS_SMOKE)
     /* A guest's psa_call buffers live in Non-secure RAM: map the window
-     * EL1-only and Non-secure so the SPMC (never a partition) can copy them. */
+     * EL1-only and Non-secure so the SPMC can copy them. A retrieve maps its
+     * pages at EL0, so the window is non-global in every table. */
     if (n < WT_SPMC_MAX_FILL) {
         fill[n].base = (uintptr_t)WT_NS_IMAGE_PA;
         fill[n].size = (size_t)WT_PSA_NS_WINDOW_SIZE;
         fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
-                             WT_TABLES_ATTR_NS;
+                             WT_TABLES_ATTR_NS | WT_TABLES_ATTR_NG;
         n++;
     }
 #endif

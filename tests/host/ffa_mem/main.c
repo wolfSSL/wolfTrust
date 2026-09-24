@@ -2353,8 +2353,9 @@ static void relay_self_rows(void)
     check(relay_self_send(WT_FFA_MEM_OP_SHARE, 0, WT_FFA_MEM_PERM_DATA_RO,
                           WT_FFA_MEM_PERM_DATA_RW, PG_RW, &h) == 0 &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, WT_FFA_MEM_RELINQ_FLAG_ZERO) == 0 &&
-          cleaned(PG_RW) && g_clean_a_access == WT_DOMAIN_ACCESS_RW,
-          "self: a reclaim that zeroes a page the lender kept reading wipes it through the write access it got back");
+          cleaned(PG_RW) && g_clean_a_access == WT_DOMAIN_ACCESS_NONE &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "self: a reclaim that zeroes a page the lender kept reading wipes it with no EL0 access left, then gives write access back");
     check(relay_self_send(WT_FFA_MEM_OP_SHARE, 0, WT_FFA_MEM_PERM_DATA_RW,
                           WT_FFA_MEM_PERM_DATA_RO, PG_RO, &h) ==
               WT_FFA_DENIED &&
@@ -2672,6 +2673,9 @@ static void relay_clean_rows(void)
     check(wt_spm_mem_reclaim(h, RELAY_ID_A, WT_FFA_MEM_RELINQ_FLAG_ZERO) == 0 &&
           cleaned(PG_RW),
           "clean: a reclaim that asks for zeroing cleans the zeroed page");
+    check(g_clean_a_access == WT_DOMAIN_ACCESS_NONE &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "clean: that wipe runs before the owner's mapping comes back (Table 2.31 bit[0])");
 }
 
 /* WT-FFA-0009 (a partition that faults gives up what it borrowed, zeroed if

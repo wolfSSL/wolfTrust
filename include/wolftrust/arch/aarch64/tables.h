@@ -153,6 +153,10 @@ int wt_tables_hold_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
                        uint64_t va, size_t pages, int keep_read);
 int wt_tables_release_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
                           uint64_t va, size_t pages);
+/* Held pages lose any EL0 access keep_read left them, as a hold without it
+ * would have, and keep what release puts back. */
+int wt_tables_withdraw_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
+                           uint64_t va, size_t pages);
 
 void wt_mmu_enable(uint64_t ttbr0, uint64_t mair, uint64_t tcr);
 void wt_mmu_switch_ttbr0(uint64_t ttbr0);

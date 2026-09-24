@@ -352,11 +352,16 @@ static int receiver_state(uint16_t id)
     return (int)wt_spm_sp_unavailable(co);
 }
 
+#define WT_SPM_MEM_OWNER_HOLD     0
+#define WT_SPM_MEM_OWNER_RELEASE  1
+#define WT_SPM_MEM_OWNER_WITHDRAW 2
+
 /* A lend or donate takes the owner's own access away until it reclaims
  * (10.10.1), and a share it named itself read-only in lowers it to reading
  * (2.3.1.2 item 10); a reclaim puts back each page exactly as it was (1.10.2
- * item 4). Only a partition's access is the SPMC's to take. */
-static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
+ * item 4), withdrawing even that reading while it wipes. Only a partition's
+ * access is the SPMC's to take. */
+static void owner_access(const wt_ffa_mem_handle_entry_t* e, int how)
 {
     const wt_spm_mem_binding_t* b = bind_by_id(e->owner);
     int keep_read = (e->state == (uint8_t)WT_FFA_MEM_STATE_SHARED) ? 1 : 0;
@@ -367,11 +372,17 @@ static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
         return;
     }
     for (i = 0u; i < (uint32_t)e->region_count; i++) {
-        if (give != 0) {
+        if (how == WT_SPM_MEM_OWNER_RELEASE) {
             (void)wt_domain_owner_release(b->dom->regions,
                                           b->dom->region_count,
                                           (uintptr_t)e->regions[i].base,
                                           e->regions[i].page_count);
+        }
+        else if (how == WT_SPM_MEM_OWNER_WITHDRAW) {
+            (void)wt_domain_owner_withdraw(b->dom->regions,
+                                           b->dom->region_count,
+                                           (uintptr_t)e->regions[i].base,
+                                           e->regions[i].page_count);
         }
         else {
             (void)wt_domain_owner_hold(b->dom->regions, b->dom->region_count,
@@ -579,7 +590,7 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
                                             : 0u));
         wt_ffa_mem_handle_set_attributes(&g_reg, *out_handle, attributes);
         if (wt_ffa_mem_handle_lookup(&g_reg, *out_handle, &e) == 0) {
-            owner_access(e, 0);
+            owner_access(e, WT_SPM_MEM_OWNER_HOLD);
             /* Once, with the owner's access gone and before any borrower can
              * map the memory (Table 1.21 bit[0]). */
             if ((txn.flags & WT_FFA_MEM_FLAG_ZERO) != 0u) {
@@ -1317,13 +1328,14 @@ int wt_spm_mem_reclaim(uint64_t handle, uint16_t owner, uint32_t flags)
     if (ret != 0) {
         return ret;
     }
-    /* The wipe runs in the owner's own call, so no one sees the memory before
-     * it; a share that named the owner read-only left its entry, which this
-     * wipe goes through, read-only at S-EL1 too until the access comes back. */
-    owner_access(&snapshot, 1);
+    /* The wipe comes before the owner's mapping does (Table 2.31 bit[0]), and
+     * goes through S-EL1-only entries: one a share left EL0 read-only is
+     * read-only at S-EL1 too. */
     if ((flags & WT_FFA_MEM_RELINQ_FLAG_ZERO) != 0u) {
+        owner_access(&snapshot, WT_SPM_MEM_OWNER_WITHDRAW);
         zero_regions(&snapshot);
     }
+    owner_access(&snapshot, WT_SPM_MEM_OWNER_RELEASE);
     return 0;
 }
 

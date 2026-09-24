@@ -1236,8 +1236,9 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
 }
 
 /* A borrower has let go: with several borrowers a wipe waits until the last
- * of them has been unmapped (Table 11.26), and a transaction whose owner is
- * gone ends with it, its memory left to the SPM. */
+ * of them has been unmapped, as the relayer zeroes memory only once no other
+ * component maps it (DEN0140 1.11.4.1), and a transaction whose owner is gone
+ * ends with it, its memory left to the SPM. */
 static void borrower_released(uint64_t handle,
                               const wt_ffa_mem_handle_entry_t* e,
                               uint32_t cookie)
@@ -1281,8 +1282,8 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)
     if ((borrower == NULL) || (b == NULL) || (borrower->retrieved == 0u)) {
         return WT_FFA_DENIED;
     }
-    /* The zero-memory flag is MBZ for shared memory (Table 11.26), and for a
-     * borrower whose retrieve left it read-only access (Table 2.25). */
+    /* The zero-memory flag is MBZ for shared memory, and for a borrower
+     * whose retrieve left it read-only access (Table 2.25). */
     if ((flags & WT_FFA_MEM_RELINQ_FLAG_ZERO) != 0u) {
         if (e->state == (uint8_t)WT_FFA_MEM_STATE_SHARED) {
             return WT_FFA_INVALID_PARAMETERS;

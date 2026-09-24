@@ -831,6 +831,19 @@ int wt_ffa_mailbox_unmap(wt_ffa_mailbox_t* mb)
     return 0;
 }
 
+int wt_ffa_mailbox_overlaps(const wt_ffa_mailbox_t* mb, uint64_t base,
+                            uint64_t size)
+{
+    uint64_t span;
+
+    if ((mb == NULL) || (mb->mapped == 0u) || (size == 0u)) {
+        return 0;
+    }
+    span = (uint64_t)mb->pages * WT_FFA_MEM_PAGE_SIZE;
+    return (((base < (mb->tx + span)) && (mb->tx < (base + size))) ||
+            ((base < (mb->rx + span)) && (mb->rx < (base + size)))) ? 1 : 0;
+}
+
 int wt_ffa_mem_tx_buffer(const wt_ffa_mailbox_t* mb, uint64_t addr,
                          uint32_t pages, uint32_t len, uint64_t* out_tx)
 {

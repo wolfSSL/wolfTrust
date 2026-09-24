@@ -1034,15 +1034,22 @@ static int ns_range_ok(uint64_t addr, uint64_t len)
             (len <= (limit - addr))) ? 1 : 0;
 }
 
+int wt_spm_ns_mailbox_overlaps(uint64_t base, uint64_t size)
+{
+    return wt_ffa_mailbox_overlaps(&g_ns_mailbox, base, size);
+}
+
 /* FFA_RXTX_MAP from the Normal world: both buffers must lie in the window of
- * Non-secure memory the SPMC maps. */
+ * Non-secure memory the SPMC maps, clear of every memory transaction. */
 static void ns_rxtx_map(wt_ffa_regs_t* r)
 {
     uint64_t span = (uint64_t)((uint32_t)r->x[3] & 0x3Fu) * WT_FFA_MEM_PAGE_SIZE;
     int ret = 0;
 
     if ((g_ns_mailbox.mapped == 0u) &&
-        ((ns_range_ok(r->x[1], span) == 0) || (ns_range_ok(r->x[2], span) == 0))) {
+        ((ns_range_ok(r->x[1], span) == 0) || (ns_range_ok(r->x[2], span) == 0) ||
+         (wt_spm_mem_in_transaction(r->x[1], span) != 0) ||
+         (wt_spm_mem_in_transaction(r->x[2], span) != 0))) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     if (ret == 0) {

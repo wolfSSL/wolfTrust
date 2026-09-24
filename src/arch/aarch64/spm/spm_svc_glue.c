@@ -308,6 +308,18 @@ struct wt_ffa_mailbox* wt_spm_sp_mailbox_of(const struct wt_co* co)
     return &g_sp_mailbox[co->id - 1u];
 }
 
+int wt_spm_mailbox_overlaps(uint64_t base, uint64_t size)
+{
+    unsigned int i;
+
+    for (i = 0u; i < WT_CO_MAX; i++) {
+        if (wt_ffa_mailbox_overlaps(&g_sp_mailbox[i], base, size) != 0) {
+            return 1;
+        }
+    }
+    return wt_spm_ns_mailbox_overlaps(base, size);
+}
+
 static wt_ffa_mailbox_t* sp_mailbox(void)
 {
     const struct wt_co* co = (const struct wt_co*)wt_co_current();
@@ -333,7 +345,8 @@ static int sp_owns_writable_page(const struct wt_co* co, uintptr_t va)
 }
 
 /* FFA_RXTX_MAP (13.5): x1 = TX, x2 = RX, w3 = page count. The pair must be
- * two distinct writable pages of the caller's own memory. */
+ * two distinct writable pages of the caller's own memory that no memory
+ * transaction covers. */
 static void ffa_rxtx_map(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     wt_ffa_mailbox_t* mb = sp_mailbox();
@@ -349,7 +362,9 @@ static void ffa_rxtx_map(wt_trap_frame_t* frame, const struct wt_co* co)
     if ((mb->mapped == 0u) &&
         ((WT_FFA_RXTX_PAGE_COUNT(w3) != WT_SP_RXTX_PAGES) ||
          (sp_owns_writable_page(co, tx) == 0) ||
-         (sp_owns_writable_page(co, rx) == 0))) {
+         (sp_owns_writable_page(co, rx) == 0) ||
+         (wt_spm_mem_in_transaction((uint64_t)tx, WT_TABLES_PAGE_SIZE) != 0) ||
+         (wt_spm_mem_in_transaction((uint64_t)rx, WT_TABLES_PAGE_SIZE) != 0))) {
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }

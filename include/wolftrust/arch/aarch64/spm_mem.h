@@ -94,6 +94,16 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint);
  * flags word (bit 0 zeroes the memory first). */
 int wt_spm_mem_reclaim(uint64_t handle, uint16_t owner, uint32_t flags);
 
+/* Non-zero when [base, base + size) holds a page some memory transaction still
+ * covers: no RX/TX pair may be mapped over it. */
+int wt_spm_mem_in_transaction(uint64_t base, uint64_t size);
+
+/* Provided by the SVC glue and the Normal-world dispatcher: non-zero when
+ * [base, base + size) holds a page of an RX/TX pair a partition, or the Normal
+ * world, has mapped with the SPMC. */
+int wt_spm_mailbox_overlaps(uint64_t base, uint64_t size);
+int wt_spm_ns_mailbox_overlaps(uint64_t base, uint64_t size);
+
 /* A bound partition faulted: unmap everything it retrieved (zeroing what its
  * retrieve asked to be zeroed), take back what it owns and no borrower holds,
  * leave what a borrower still holds to end with that borrower, and drop any

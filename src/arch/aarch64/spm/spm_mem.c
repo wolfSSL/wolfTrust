@@ -344,9 +344,14 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
             owner_ro = 1;
         }
         regs[i].ns = id_is_secure(sender) ? 0u : 1u;
+        /* A mapped RX/TX pair is the SPMC's to write and read until it is
+         * unmapped (DEN0077A 7.2.2.2), so it is never the sender's to hand on. */
         if ((access == WT_DOMAIN_ACCESS_NONE) ||
             (wt_ffa_mem_registry_overlaps(&g_reg, regs[i].base,
-                                          regs[i].page_count) != 0)) {
+                                          regs[i].page_count) != 0) ||
+            (wt_spm_mailbox_overlaps(regs[i].base,
+                                     (uint64_t)regs[i].page_count *
+                                         WT_FFA_MEM_PAGE_SIZE) != 0)) {
             ret = WT_FFA_DENIED;
         }
     }
@@ -427,6 +432,13 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
         }
     }
     return ret;
+}
+
+int wt_spm_mem_in_transaction(uint64_t base, uint64_t size)
+{
+    return wt_ffa_mem_registry_overlaps(&g_reg, base,
+                                        (uint32_t)((size + WT_FFA_MEM_PAGE_SIZE -
+                                                    1u) / WT_FFA_MEM_PAGE_SIZE));
 }
 
 int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,

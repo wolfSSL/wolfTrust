@@ -1349,10 +1349,22 @@ static void borrower_list_rows(void)
     rq.permissions[1] = WT_FFA_MEM_PERM_DATA_RO;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_DENIED,
           "naming the other borrower with access the lender did not give it is DENIED");
-    rq.permissions[1] = WT_FFA_MEM_PERM_DATA_RW | WT_FFA_MEM_PERM_INSTR_NX;
+    rq.permissions[1] = WT_FFA_MEM_PERM_DATA_RW;
     rq.permissions[0] = WT_FFA_MEM_PERM_DATA_RO;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == 0,
           "the caller's own entry may ask for less; the other's data access matches");
+    rq.permissions[1] = WT_FFA_MEM_PERM_DATA_RW | WT_FFA_MEM_PERM_INSTR_NX;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "naming the other borrower's instruction access is INVALID_PARAMETERS (1.10.3 item 1)");
+    rq.permissions[1] = WT_FFA_MEM_PERM_DATA_RW | WT_FFA_MEM_PERM_INSTR_X;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "so is naming it executable");
+    rq.permissions[1] = WT_FFA_MEM_PERM_DATA_RSVD;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "and a reserved data access for the other borrower");
     make_rq(&rq, e, 1u);
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
               WT_FFA_INVALID_PARAMETERS,

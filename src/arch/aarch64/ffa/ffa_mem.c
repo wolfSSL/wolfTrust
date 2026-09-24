@@ -1420,6 +1420,15 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
         if (own == non_retrieval) {
             ret = WT_FFA_INVALID_PARAMETERS;
         }
+        /* Another borrower exists only in a share or a lend to several, where
+         * every instruction access is left unspecified (1.10.3 item 1). */
+        if ((own == 0) &&
+            (((rq->permissions[i] & WT_FFA_MEM_PERM_INSTR_MASK) !=
+              WT_FFA_MEM_PERM_INSTR_NOT_SPEC) ||
+             ((rq->permissions[i] & WT_FFA_MEM_PERM_DATA_MASK) ==
+              WT_FFA_MEM_PERM_DATA_RSVD))) {
+            ret = WT_FFA_INVALID_PARAMETERS;
+        }
         for (j = 0u; j < i; j++) {
             if (rq->receivers[j] == rq->receivers[i]) {
                 repeated = 1;

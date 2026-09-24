@@ -30,7 +30,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define POOL_PAGES 32u
+#define POOL_PAGES 64u
 #define POOL_PA    0x0E041000ull
 
 static int checks;
@@ -82,8 +82,51 @@ static const wt_memory_region_t g_fill[] = {
     { 0x00000000u, 0x20000u, RX | WT_DOMAIN_FILL_SHARED },
     { 0x0E000000u, 0x40000u, RW },
     { (uintptr_t)POOL_PA, POOL_PAGES * WT_TABLES_PAGE_SIZE, RW },
-    { 0x09040000u, 0x1000u, RW | WT_MEM_ATTR_DEVICE }
+    { 0x09040000u, 0x1000u, RW | WT_MEM_ATTR_DEVICE },
+    { 0x0E500000u, 0x2000u, RW | WT_DOMAIN_FILL_SHARED | WT_DOMAIN_FILL_OWNED }
 };
+
+/* Exactly the owned band: its owner's table takes it over. */
+static const wt_memory_region_t g_sp_owned_exact[] = {
+    { 0x0E500000u, 0x2000u, RW }
+};
+
+/* A wider region over the owned band is someone else claiming it. */
+static const wt_memory_region_t g_sp_owned_cover[] = {
+    { 0x0E4FF000u, 0x4000u, RW }
+};
+
+/* Public text, a band of domain 3, an SPMC band, and SPM RAM. */
+static const wt_memory_region_t g_own_fill[] = {
+    { 0x0E100000u, 0x10000u, RX | WT_DOMAIN_FILL_SHARED },
+    { 0x0E240000u, 0x4000u, RW | WT_DOMAIN_FILL_SHARED | WT_DOMAIN_FILL_OWNED },
+    { 0x0E2A0000u, 0x4000u, RW | WT_DOMAIN_FILL_SHARED | WT_DOMAIN_FILL_OWNED },
+    { 0x0E200000u, 0x40000u, RW }
+};
+static const uint32_t g_own_owner[] = { 0u, 3u, WT_DOMAIN_ID_INVALID, 0u };
+
+static void owner_rows(void)
+{
+    const size_t n = sizeof(g_own_fill) / sizeof(g_own_fill[0]);
+
+    check(wt_domain_fill_foreign(g_own_fill, g_own_owner, n, 3u, 0x0E240000u,
+                                 0x4000u) == 0 &&
+          wt_domain_fill_foreign(g_own_fill, g_own_owner, n, 3u, 0x0E100000u,
+                                 0x100000u) == 0,
+          "a partition may name its own band and the public image");
+    check(wt_domain_fill_foreign(g_own_fill, g_own_owner, n, 4u, 0x0E243000u,
+                                 0x2000u) != 0 &&
+          wt_domain_fill_foreign(g_own_fill, g_own_owner, n, 4u, 0x0E200000u,
+                                 0x100000u) != 0,
+          "one page of, or a range covering, another partition's band is refused");
+    check(wt_domain_fill_foreign(g_own_fill, g_own_owner, n, 3u, 0x0E2A0000u,
+                                 0x4000u) != 0,
+          "no manifest partition may name an SPMC, echo, or native band, even exactly");
+    check(wt_domain_fill_foreign(g_own_fill, g_own_owner, n, 3u,
+                                 (uintptr_t)UINTPTR_MAX - 0xFFFu, 0x2000u) != 0,
+          "a range that wraps is refused");
+}
+
 
 /* Covers the shared text fill entry exactly: allowed, replaces it. */
 static const wt_memory_region_t g_sp_shared[] = {
@@ -162,6 +205,8 @@ int main(void)
     uint64_t sp1;
     size_t used;
     unsigned int switches;
+    unsigned int fails;
+    size_t built;
     uint32_t attrs;
 
     printf("WT-PORT-0014 (AArch64 domain operations)\n");
@@ -250,6 +295,20 @@ int main(void)
           wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, &attrs) ==
               WT_TABLES_OK && attrs == RW,
           "a page a transaction holds reads back as no access, and its own access once released");
+
+    fails = g_fails;
+    switches = g_switches;
+    built = wt_domain_tables_built();
+    wt_arch_program_sp_thread_domain(g_sp_owned_cover, 1u);
+    check(g_fails == fails + 1u && g_last_fail == WT_DOMAIN_FAIL_BUILD &&
+          g_switches == switches && wt_domain_tables_built() == built,
+          "a region wider than an owned band never takes it over: the build fails");
+    wt_arch_program_sp_thread_domain(g_sp_owned_exact, 1u);
+    check(g_fails == fails + 1u && g_switches == switches + 1u &&
+          wt_domain_tables_built() == built + 1u &&
+          wt_domain_page_owned(g_sp_owned_exact, 1u, 0x0E501000u) != 0,
+          "the region that is exactly the owned band takes it over at EL0");
+    owner_rows();
 
     check(wt_domain_pool_pages_used() <= POOL_PAGES, "pool accounting stays inside the pool");
 

@@ -53,6 +53,18 @@ static int covers(const wt_memory_region_t* outer,
            (outer_end >= outer->base) && (inner_end >= inner->base);
 }
 
+static int takes_over(const wt_memory_region_t* region,
+                      const wt_memory_region_t* fill)
+{
+    if ((fill->attributes & WT_DOMAIN_FILL_SHARED) == 0u) {
+        return 0;
+    }
+    if ((fill->attributes & WT_DOMAIN_FILL_OWNED) != 0u) {
+        return (region->base == fill->base) && (region->size == fill->size);
+    }
+    return covers(region, fill);
+}
+
 static size_t partition_fill(wt_domain_entry_t* e,
                              const wt_memory_region_t* regions, size_t count)
 {
@@ -63,12 +75,10 @@ static size_t partition_fill(wt_domain_entry_t* e,
 
     for (i = 0u; (i < g_fill_count) && (n < WT_DOMAIN_MAX_FILL); i++) {
         replaced = 0;
-        if ((g_fill[i].attributes & WT_DOMAIN_FILL_SHARED) != 0u) {
-            for (j = 0u; j < count; j++) {
-                if (covers(&regions[j], &g_fill[i])) {
-                    replaced = 1;
-                    break;
-                }
+        for (j = 0u; j < count; j++) {
+            if (takes_over(&regions[j], &g_fill[i])) {
+                replaced = 1;
+                break;
             }
         }
         if (!replaced) {
@@ -141,6 +151,28 @@ int wt_domain_spm_band(const wt_domain_descriptor_t* d, size_t i,
         band->attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     }
     return ret;
+}
+
+int wt_domain_fill_foreign(const wt_memory_region_t* fill,
+                           const uint32_t* owners, size_t fill_count,
+                           uint32_t owner, uintptr_t base, size_t size)
+{
+    uint64_t end = (uint64_t)base + (uint64_t)size;
+    uint64_t fill_end;
+    size_t i;
+
+    if ((fill == NULL) || (owners == NULL) || (end < (uint64_t)base)) {
+        return 1;
+    }
+    for (i = 0u; i < fill_count; i++) {
+        fill_end = (uint64_t)fill[i].base + (uint64_t)fill[i].size;
+        if (((fill[i].attributes & WT_DOMAIN_FILL_OWNED) != 0u) &&
+            (owners[i] != owner) && ((uint64_t)base < fill_end) &&
+            ((uint64_t)fill[i].base < end)) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 uint64_t wt_domain_init(const wt_memory_region_t* fill, size_t fill_count,

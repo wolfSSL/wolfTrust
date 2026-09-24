@@ -384,7 +384,7 @@ class GeneratorTest(unittest.TestCase):
             "runtime_el": "S-EL0",
             "messaging": "none",
             "ns_interrupt_action": "signaled",
-            "boot_info_register": 0,
+            "boot_info_register": "none",
         }]}
         return manifest
 
@@ -406,6 +406,7 @@ class GeneratorTest(unittest.TestCase):
             self.assertIn("0xb4U, 0xb5U, 0x67U, 0x1eU", generated)
             self.assertIn(".messaging = 0U", generated)
             self.assertIn(".ffa_version = 65538U", generated)
+            self.assertIn(".boot_info_register = 4294967295U", generated)
             self.assertIn("wt_generated_ffa_partitions_get(size_t* count)",
                           generated)
             compiled = self.compile_generated(
@@ -474,7 +475,7 @@ class GeneratorTest(unittest.TestCase):
             ("ns_interrupt_action", "drop", "ns_interrupt_action"),
             ("ns_interrupt_action", "queued", "must be signaled"),
             ("boot_info_register", 4, "boot_info_register"),
-            ("boot_info_register", 1, "boot_info_register must be 0"),
+            ("boot_info_register", "x0", "boot_info_register must be none"),
         )
         for field, value, message in cases:
             with tempfile.TemporaryDirectory() as temporary:

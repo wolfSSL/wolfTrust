@@ -31,6 +31,9 @@
 
 #define WT_FFA_DIRECT_FRAMEWORK_BIT 0x80000000u
 #define WT_FFA_DIRECT_PAYLOAD_WORDS 5u
+/* Tables 15.7/15.11: a partition message clears the framework bit and the MBZ
+ * bits 7:0 of w2; bits 30:8 are SBZ, ignored by the relayer. */
+#define WT_FFA_DIRECT_FLAGS_MBZ (WT_FFA_DIRECT_FRAMEWORK_BIT | 0xFFu)
 
 /* The instance a message is relayed at decides which world each endpoint is:
  * the SPMD relays Normal world to Secure, the SPMC relays partition to
@@ -65,6 +68,10 @@ void wt_ffa_direct_build(uint64_t* x, uint32_t fid, uint16_t sender,
  * does not relay for). */
 int wt_ffa_direct_req_check(const uint64_t* x, wt_ffa_instance_t inst);
 int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst);
+
+/* Clear the SBZ fields of a checked partition message before it is handed to
+ * its receiver: w2 of a REQ/RESP, x2/x3 of a RESP2 (a REQ2's are its UUID). */
+void wt_ffa_direct_clear_sbz(uint64_t* x);
 
 /* FFA_RUN target (14.3, Table 14.13): w1 bits 31:16 name the endpoint and bits
  * 15:0 its vCPU. Every endpoint here is UP with the single execution context 0

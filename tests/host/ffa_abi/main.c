@@ -96,8 +96,17 @@ static void direct_message_rows(void)
     x[2] = WT_FFA_DIRECT_FRAMEWORK_BIT;
     check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) ==
               WT_FFA_INVALID_PARAMETERS,
-          "a partition request with a non-zero w2 is INVALID_PARAMETERS");
-    x[2] = 0u;
+          "a request with the framework bit set is INVALID_PARAMETERS");
+    x[2] = 0x1u;
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a partition request with w2 bits 7:0 set (MBZ) is INVALID_PARAMETERS");
+    x[2] = 0x7FFFFF00u;
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0,
+          "the SBZ w2 bits 30:8 of a partition request are ignored");
+    wt_ffa_direct_clear_sbz(x);
+    check(x[2] == 0u && (uint32_t)x[3] == payload[0],
+          "and cleared before the request reaches its receiver");
 
     wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_SP_FIRST,
                         WT_FFA_ID_SP_FIRST, payload);
@@ -129,6 +138,16 @@ static void direct_message_rows(void)
               WT_FFA_INVALID_PARAMETERS,
           "a response frame is not accepted as a request");
 
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP32, WT_FFA_ID_SP_FIRST,
+                        WT_FFA_ID_NS_PRIMARY, payload);
+    x[2] = 0x7FFFFF00u;
+    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) == 0,
+          "the SBZ w2 bits 30:8 of a partition response are ignored");
+    x[2] = 0xFFFFu;
+    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "but a response with w2 bits 7:0 set (MBZ) is INVALID_PARAMETERS");
+
     wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP32, WT_FFA_ID_NS_PRIMARY,
                         WT_FFA_ID_SP_FIRST, payload);
     check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) ==
@@ -140,18 +159,22 @@ static void direct_message_rows(void)
     x[2] = 0x1122334455667788ull;
     check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0,
           "FFA_MSG_SEND_DIRECT_REQ2 carries a UUID in x2, not a reserved word");
+    wt_ffa_direct_clear_sbz(x);
+    check(x[2] == 0x1122334455667788ull,
+          "and its UUID reaches the receiver intact");
     check(wt_ffa_msg_reg_count(x[0]) == WT_FFA_MSG_REGS_EXT &&
               wt_ffa_msg_reg_count(WT_FFA_MSG_SEND_DIRECT_REQ64) ==
                   WT_FFA_MSG_REGS,
           "only REQ2 and RESP2 relay x8-x17");
     wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP2, WT_FFA_ID_SP_FIRST,
                         WT_FFA_ID_NS_PRIMARY, payload);
-    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) ==
-              WT_FFA_INVALID_PARAMETERS,
-          "FFA_MSG_SEND_DIRECT_RESP2 keeps x2 and x3 zero");
-    x[3] = 0u;
+    x[2] = 0x5555u;
     check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0,
-          "a well-formed RESP2 returns to the Normal-world requester");
+          "a RESP2 with its SBZ x2 and x3 set returns to the Normal-world "
+          "requester");
+    wt_ffa_direct_clear_sbz(x);
+    check(x[2] == 0u && x[3] == 0u && (uint32_t)x[4] == payload[1],
+          "with x2 and x3 cleared");
 }
 
 static int ext_equal(const uint64_t* x, uint64_t v)

@@ -1,0 +1,46 @@
+diff --git a/test/v1.1/interrupts/sp_preempted_el0/sp_preempted_el0_server.c b/test/v1.1/interrupts/sp_preempted_el0/sp_preempted_el0_server.c
+index bb1a627..8e06eb4 100644
+--- a/test/v1.1/interrupts/sp_preempted_el0/sp_preempted_el0_server.c
++++ b/test/v1.1/interrupts/sp_preempted_el0/sp_preempted_el0_server.c
+@@ -180,6 +180,8 @@ uint32_t sp_preempted_el0_server(ffa_args_t args)
+         LOG(ERROR, "DIRECT_REQ_32 not received fid %x", payload.fid);
+         status = status ? status : VAL_ERROR_POINT(10);
+     }
++    /* FFA_MSG_WAIT handed the RX buffer back: its w2 is SBZ (DEN0077A 14.1). */
++    goto rxtx_unmap;
+ 
+ 
+ rx_release:
+diff --git a/test/v1.1/interrupts/sp_waiting_el0/sp_waiting_el0_server.c b/test/v1.1/interrupts/sp_waiting_el0/sp_waiting_el0_server.c
+index 940e581..6e94de6 100644
+--- a/test/v1.1/interrupts/sp_waiting_el0/sp_waiting_el0_server.c
++++ b/test/v1.1/interrupts/sp_waiting_el0/sp_waiting_el0_server.c
+@@ -163,6 +163,8 @@ uint32_t sp_waiting_el0_server(ffa_args_t args)
+         LOG(ERROR, "DIRECT_REQ_32 not received fid %x", payload.fid);
+         status = status ? status : VAL_ERROR_POINT(8);
+     }
++    /* FFA_MSG_WAIT handed the RX buffer back: its w2 is SBZ (DEN0077A 14.1). */
++    goto rxtx_unmap;
+ 
+ 
+ rx_release:
+diff --git a/test/v1.2/setup_discovery/ffa_msg_wait_rx_buff_rel/ffa_msg_wait_rx_buff_rel_server.c b/test/v1.2/setup_discovery/ffa_msg_wait_rx_buff_rel/ffa_msg_wait_rx_buff_rel_server.c
+index 8ae0ae8..ffccc35 100644
+--- a/test/v1.2/setup_discovery/ffa_msg_wait_rx_buff_rel/ffa_msg_wait_rx_buff_rel_server.c
++++ b/test/v1.2/setup_discovery/ffa_msg_wait_rx_buff_rel/ffa_msg_wait_rx_buff_rel_server.c
+@@ -155,10 +155,12 @@ uint32_t ffa_msg_wait_rx_buff_rel_server(ffa_args_t args)
+         goto rx_release;
+     }
+ 
+-    /* Release rx buffer for new memory transaction */
+-    if (val_rx_release())
++    /* w2 is SBZ (DEN0077A 14.1), so the wait handed the RX buffer back */
++    val_memset(&payload, 0, sizeof(ffa_args_t));
++    val_ffa_rx_release(&payload);
++    if ((payload.fid != FFA_ERROR_32) || (payload.arg2 != FFA_ERROR_DENIED))
+     {
+-        LOG(ERROR, "val_rx_release failed");
++        LOG(ERROR, "RX_RELEASE after FFA_MSG_WAIT must be DENIED fid 0x%x", payload.fid);
+         status = status ? status : VAL_ERROR_POINT(10);
+     }
+ 

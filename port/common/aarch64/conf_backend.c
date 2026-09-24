@@ -45,7 +45,6 @@ extern uint8_t _e_conf_client_data[];
 extern uint8_t _s_conf_driver_data[];
 extern uint8_t _e_conf_driver_data[];
 
-#define WT_CONF_NVM_SIZE  0x200u
 #define WT_CONF_NVM_MAGIC 0x774E564Du /* "wNVM" */
 #define WT_CONF_UART_INTID 63u
 

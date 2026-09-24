@@ -22,13 +22,16 @@
  * conformance DRIVER PAL. The real flash controller code (hsm_flash.c) is
  * target-only, so this drives the genuine pal_driver_intf.c shadow logic
  * against a faithful flash model that keeps its contents across a simulated
- * reset — proving load-on-boot, write-through, and reload semantics. */
+ * reset — proving load-on-boot, write-through, and reload semantics. Built
+ * once per port, each with its own PAL and pal_config.h. */
+
+#include "pal_config.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-/* PAL entry points under test (port/stm32h563/conformance/pal_driver_intf.c). */
+/* PAL entry points under test (the port's conformance/pal_driver_intf.c). */
 int pal_nvmem_write(uintptr_t base, uint32_t offset, void *buffer, int size);
 int pal_nvmem_read(uintptr_t base, uint32_t offset, void *buffer, int size);
 void wt_conf_drv_nvm_test_reset(void);
@@ -88,11 +91,14 @@ static void check(int cond, const char *name)
     }
 }
 
+#define NVM_BYTES ((uint32_t)(NVMEM_0_END - NVMEM_0_START + 1u))
+
 int main(void)
 {
     uint8_t boot[4];
     uint8_t data[8];
     uint8_t readback[8];
+    uint8_t edge = 0x5Au;
 
     flash_power_on();
 
@@ -124,6 +130,18 @@ int main(void)
     (void)memset(readback, 0, sizeof(readback));
     check(pal_nvmem_read(0u, 16u, readback, 8) == 1, "flag read after reset");
     check(memcmp(readback, "FLAGDATA", 8) == 0, "flag field survives reset");
+
+    /* Every byte pal_config.h advertises is backed, and none past it. */
+    check(pal_nvmem_write(0u, NVM_BYTES - 1u, &edge, 1) == 1,
+          "the last advertised NVMEM byte is writable");
+    wt_conf_drv_nvm_test_reset();
+    readback[0] = 0u;
+    check(pal_nvmem_read(0u, NVM_BYTES - 1u, readback, 1) == 1 &&
+          readback[0] == 0x5Au, "and reads back after a reset");
+    check(pal_nvmem_write(0u, NVM_BYTES, &edge, 1) == 0,
+          "the first byte past the advertised range is refused");
+    check(pal_nvmem_read(0u, NVM_BYTES, readback, 1) == 0,
+          "and cannot be read");
 
     /* A fresh power-on with a blank sector reads back the 0xFF erased state,
      * matching the pre-flash RAM store's power-on behaviour. */

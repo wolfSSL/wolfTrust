@@ -261,19 +261,17 @@ wt_el3_enter_ns:
     eret
 
 /* void wt_el3_world_eret(const wt_el3_frame_t* frame, uint64_t scr_el3):
- * enter a saved world. Program SCR_EL3 (and HCR_EL2 for a Normal-world
- * return: RW alone for an EL1 world; an EL2 world, SCR_EL3.HCE, keeps its own
- * value with RW set), reset the EL3 stack (this never returns, so the
- * handler's stack is abandoned), load the full saved register file plus ELR and
- * SPSR, then ERET. The ISB before the ERET matches wt_el3_enter_ns. */
+ * enter a saved world. Program SCR_EL3 (and HCR_EL2 = RW for a Normal world at
+ * EL1; an EL2 world, SCR_EL3.HCE, owns HCR_EL2 and may run its EL1 in
+ * AArch32), reset the EL3 stack (this never returns, so the handler's stack is
+ * abandoned), load the full saved register file plus ELR and SPSR, then ERET.
+ * The ISB before the ERET matches wt_el3_enter_ns. */
     .globl wt_el3_world_eret
 wt_el3_world_eret:
     tbz     x1, #0, 1f
+    tbnz    x1, #8, 1f
     mov     x2, #HCR_EL2_RW
-    tbz     x1, #8, 2f
-    mrs     x3, HCR_EL2
-    orr     x2, x2, x3
-2:  msr     HCR_EL2, x2
+    msr     HCR_EL2, x2
 1:  msr     SCR_EL3, x1
     ldr     x2, [x0, #248]
     msr     ELR_EL3, x2

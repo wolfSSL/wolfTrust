@@ -393,13 +393,13 @@ int main(void)
               WT_TABLES_ERROR_ALIGN,
           "window: executable and unaligned grants are refused");
 
-    check(wt_tables_hold_el0(&t, &pool, 0x0E200000u, 3u) == WT_TABLES_OK &&
+    check(wt_tables_hold_el0(&t, &pool, 0x0E200000u, 3u, 0) == WT_TABLES_OK &&
           walk_is(&t, &pool, 0x0E200000u, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_EL1_RO, 1u, 1u, 1u) &&
           walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
           "hold: an owner's code and data pages lose EL0 access and execution");
-    check(wt_tables_hold_el0(&t, &pool, 0x0E200000u, 1u) ==
+    check(wt_tables_hold_el0(&t, &pool, 0x0E200000u, 1u, 0) ==
               WT_TABLES_ERROR_UNMAPPED &&
           wt_tables_revoke_el0(&t, &pool, 0x0E200000u, 1u, 1) ==
               WT_TABLES_ERROR_UNMAPPED,
@@ -412,9 +412,18 @@ int main(void)
           walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_ALL_RW, 1u, 1u, 1u),
           "release: each page gets back exactly its own access and execution");
+    check(wt_tables_hold_el0(&t, &pool, 0x0E202000u, 1u, 1) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 1u, 1u, 1u) &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x0E202000u, 1u, RW) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          wt_tables_release_el0(&t, &pool, 0x0E202000u, 1u) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RW, 1u, 1u, 1u),
+          "hold: a page held for reading stays EL0 read-only, is never re-permissioned, and is released read-write");
     check(wt_tables_release_el0(&t, &pool, 0x0E202000u, 1u) ==
               WT_TABLES_ERROR_UNMAPPED &&
-          wt_tables_hold_el0(&t, &pool, 0x0E044000u, 2u) ==
+          wt_tables_hold_el0(&t, &pool, 0x0E044000u, 2u, 0) ==
               WT_TABLES_ERROR_UNMAPPED &&
           walk_is(&t, &pool, 0x0E045000u, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),

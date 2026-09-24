@@ -52,6 +52,11 @@
 /* Owner cookie: the owner faulted while a borrower held the memory; the last
  * borrower to let go ends the transaction. */
 #define WT_SPM_MEM_COOKIE_OWNER_GONE   0x20000000u
+/* Owner cookie: a share named the owner itself read-only, so it keeps only
+ * read access until it reclaims. */
+#define WT_SPM_MEM_COOKIE_SELF_RO      0x10000000u
+/* No endpoint memory access descriptor index. */
+#define WT_SPM_MEM_NO_INDEX            0xFFFFFFFFu
 
 #if WT_FFA_MEM_MAX_REGIONS > 4u
 #error "the borrower mapping cookie holds one bit per region, four at most"
@@ -274,14 +279,17 @@ static int receiver_known(uint16_t id)
 }
 
 /* A lend or donate takes the owner's own access away until it reclaims
- * (10.10.1), and a reclaim puts back each page exactly as it was (1.10.2 item
- * 4); a share leaves it. Only a partition's access is the SPMC's to take. */
+ * (10.10.1), and a share it named itself read-only in lowers it to reading
+ * (2.3.1.2 item 10); a reclaim puts back each page exactly as it was (1.10.2
+ * item 4). Only a partition's access is the SPMC's to take. */
 static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
 {
     const wt_spm_mem_binding_t* b = bind_by_id(e->owner);
+    int keep_read = (e->state == (uint8_t)WT_FFA_MEM_STATE_SHARED) ? 1 : 0;
     uint32_t i;
 
-    if ((b == NULL) || (e->state == (uint8_t)WT_FFA_MEM_STATE_SHARED)) {
+    if ((b == NULL) || ((keep_read != 0) &&
+                        ((e->owner_cookie & WT_SPM_MEM_COOKIE_SELF_RO) == 0u))) {
         return;
     }
     for (i = 0u; i < (uint32_t)e->region_count; i++) {
@@ -294,7 +302,7 @@ static void owner_access(const wt_ffa_mem_handle_entry_t* e, int give)
         else {
             (void)wt_domain_owner_hold(b->dom->regions, b->dom->region_count,
                                        (uintptr_t)e->regions[i].base,
-                                       e->regions[i].page_count);
+                                       e->regions[i].page_count, keep_read);
         }
     }
 }
@@ -340,7 +348,10 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     wt_ffa_mem_region_t regs[WT_FFA_MEM_MAX_REGIONS];
     uint32_t n = 0u;
     uint32_t i;
+    uint32_t self = WT_SPM_MEM_NO_INDEX;
+    uint32_t first = WT_SPM_MEM_NO_INDEX;
     int owner_ro = 0;
+    int self_ro = 0;
     uint16_t receiver = 0u;
     uint16_t attributes = 0u;
     uint8_t perms = 0u;
@@ -357,6 +368,19 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     }
     for (i = 0u; (ret == 0) && (i < txn.receiver_count); i++) {
         ret = wt_ffa_mem_receiver(desc, len, &txn, i, &receiver, &perms);
+        /* A share may name the lender itself, once, with the data access it
+         * keeps while the memory is shared (1.11.3.1). */
+        if ((ret == 0) && (receiver == sender) &&
+            (op == WT_FFA_MEM_OP_SHARE) && (self == WT_SPM_MEM_NO_INDEX)) {
+            self = i;
+            self_ro = ((perms & WT_FFA_MEM_PERM_DATA_MASK) ==
+                       WT_FFA_MEM_PERM_DATA_RO) ? 1 : 0;
+            ret = send_permissions_ok(op, perms);
+            continue;
+        }
+        if ((ret == 0) && (first == WT_SPM_MEM_NO_INDEX)) {
+            first = i;
+        }
         /* Secure memory never leaves the Secure world (10.10.2). */
         if ((ret == 0) && id_is_secure(sender) && !id_is_secure(receiver)) {
             ret = WT_FFA_DENIED;
@@ -370,6 +394,9 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
             ret = send_permissions_ok(op, perms);
         }
     }
+    if ((ret == 0) && (first == WT_SPM_MEM_NO_INDEX)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
     /* Memory that becomes one receiver's alone (a donate, a lend to a single
      * borrower) has its type chosen by that receiver; a share or a lend to
      * several names it (Table 5.18 usage). */
@@ -380,7 +407,7 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     if (ret == 0) {
-        ret = wt_ffa_mem_regions_from_txn(desc, len, &txn, 0u, regs,
+        ret = wt_ffa_mem_regions_from_txn(desc, len, &txn, first, regs,
                                           WT_FFA_MEM_MAX_REGIONS, &n);
     }
     for (i = 0u; (ret == 0) && (i < n); i++) {
@@ -414,7 +441,8 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
         ret = wt_ffa_mem_send_attributes(txn.attributes, &attributes);
     }
     /* An owner that only reads the memory cannot have it wiped, nor hand out
-     * write access it does not hold (Table 5.20, 10.10.2). */
+     * write access it does not hold, to a borrower or to itself (Table 5.20,
+     * 10.10.2, 1.10.2 item 1). */
     if ((ret == 0) && (owner_ro != 0)) {
         if ((txn.flags & WT_FFA_MEM_FLAG_ZERO) != 0u) {
             ret = WT_FFA_DENIED;
@@ -428,7 +456,7 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
         }
     }
     if (ret == 0) {
-        ret = wt_ffa_mem_receiver(desc, len, &txn, 0u, &receiver, &perms);
+        ret = wt_ffa_mem_receiver(desc, len, &txn, first, &receiver, &perms);
     }
     if ((ret == 0) && (reserved != 0u)) {
         ret = wt_ffa_mem_share_register_as(&g_reg, op, sender, receiver, regs,
@@ -441,7 +469,10 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
         ret = wt_ffa_mem_share_register(&g_reg, op, sender, receiver, regs, n,
                                         out_handle);
     }
-    for (i = 1u; (ret == 0) && (i < txn.receiver_count); i++) {
+    for (i = first + 1u; (ret == 0) && (i < txn.receiver_count); i++) {
+        if (i == self) {
+            continue;
+        }
         ret = wt_ffa_mem_receiver(desc, len, &txn, i, &receiver, &perms);
         if (ret == 0) {
             ret = wt_ffa_mem_handle_add_borrower(&g_reg, *out_handle, receiver,
@@ -466,6 +497,9 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
                                    txn.flags |
                                        ((owner_ro != 0)
                                             ? WT_SPM_MEM_COOKIE_OWNER_RO
+                                            : 0u) |
+                                       ((self_ro != 0)
+                                            ? WT_SPM_MEM_COOKIE_SELF_RO
                                             : 0u));
         wt_ffa_mem_handle_set_attributes(&g_reg, *out_handle, attributes);
         if (wt_ffa_mem_handle_lookup(&g_reg, *out_handle, &e) == 0) {

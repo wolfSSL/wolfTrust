@@ -273,7 +273,7 @@ int wt_domain_revoke(const wt_memory_region_t* regions, size_t count,
 }
 
 int wt_domain_owner_hold(const wt_memory_region_t* regions, size_t count,
-                         uintptr_t va, size_t pages)
+                         uintptr_t va, size_t pages, int keep_read)
 {
     wt_domain_entry_t* e = find_built(regions, count);
     int ret;
@@ -281,7 +281,8 @@ int wt_domain_owner_hold(const wt_memory_region_t* regions, size_t count,
     if ((g_ready == 0u) || (e == NULL) || (regions == NULL)) {
         return WT_TABLES_ERROR_ARGUMENT;
     }
-    ret = wt_tables_hold_el0(&e->table, &g_pool, (uint64_t)va, pages);
+    ret = wt_tables_hold_el0(&e->table, &g_pool, (uint64_t)va, pages,
+                             keep_read);
     wt_mmu_tlbi_asid((uint64_t)e->table.asid);
     return ret;
 }

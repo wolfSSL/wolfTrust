@@ -37,6 +37,7 @@ typedef struct wt_notif_ep {
     uint16_t bound_sender[WT_FFA_NOTIF_COUNT];
     uint16_t id;
     uint8_t secure;
+    int32_t gone;
     uint8_t has_bitmap;
     uint8_t used;
     uint8_t info_reported;
@@ -82,6 +83,7 @@ void wt_ffa_notif_reset(void)
         g_eps[i].has_bitmap = 0u;
         g_eps[i].used = 0u;
         g_eps[i].info_reported = 0u;
+        g_eps[i].gone = 0;
     }
     g_sri_pending = 0u;
     g_sri_now = 0u;
@@ -96,6 +98,7 @@ int wt_ffa_notif_register(uint16_t id, int secure)
     }
     for (i = 0u; i < WT_FFA_NOTIF_MAX_EP; i++) {
         if (g_eps[i].used == 0u) {
+            g_eps[i].gone = 0;
             g_eps[i].id = id;
             g_eps[i].secure = (secure != 0) ? 1u : 0u;
             /* Partition bitmaps exist from creation; a VM's is made by the
@@ -106,6 +109,36 @@ int wt_ffa_notif_register(uint16_t id, int secure)
         }
     }
     return -1;
+}
+
+void wt_ffa_notif_retire(uint16_t id, int32_t code)
+{
+    wt_notif_ep_t* ep = ep_find(id);
+    unsigned int i;
+    unsigned int b;
+
+    for (i = 0u; i < WT_FFA_NOTIF_MAX_EP; i++) {
+        for (b = 0u; b < WT_FFA_NOTIF_COUNT; b++) {
+            if ((g_eps[i].used != 0u) && (g_eps[i].bound_sender[b] == id) &&
+                ((g_eps[i].bound_mask & (1ull << b)) != 0u)) {
+                g_eps[i].bound_sender[b] = 0u;
+                g_eps[i].bound_mask &= ~(1ull << b);
+                g_eps[i].bound_pcpu &= ~(1ull << b);
+            }
+        }
+    }
+    if (ep != NULL) {
+        for (b = 0u; b < WT_FFA_NOTIF_COUNT; b++) {
+            ep->bound_sender[b] = 0u;
+        }
+        ep->bound_mask = 0u;
+        ep->bound_pcpu = 0u;
+        ep->pend_sp = 0u;
+        ep->pend_vm = 0u;
+        ep->pend_fw = 0u;
+        ep->info_reported = 0u;
+        ep->gone = code;
+    }
 }
 
 int32_t wt_ffa_notif_bitmap_create(uint16_t caller, uint32_t vm_id,
@@ -183,6 +216,9 @@ int32_t wt_ffa_notif_bind(uint16_t caller, uint32_t w1, uint32_t flags,
     if ((bitmap == 0u) || (sender_id == receiver_id)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
+    if (sender->gone != 0) {
+        return sender->gone;
+    }
     /* A receiver binds its own ids; nothing acts on another's behalf. */
     if (receiver_id != caller) {
         return WT_FFA_DENIED;
@@ -221,6 +257,9 @@ int32_t wt_ffa_notif_unbind(uint16_t caller, uint32_t w1, uint32_t w2,
     }
     if (bitmap == 0u) {
         return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (sender->gone != 0) {
+        return sender->gone;
     }
     if (receiver_id != caller) {
         return WT_FFA_DENIED;
@@ -278,6 +317,9 @@ int32_t wt_ffa_notif_set(uint16_t caller, uint32_t w1, uint32_t flags,
     }
     if (bitmap == 0u) {
         return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (receiver->gone != 0) {
+        return receiver->gone;
     }
     if (sender_id != caller) {
         return WT_FFA_DENIED;

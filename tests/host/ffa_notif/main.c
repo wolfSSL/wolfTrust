@@ -551,6 +551,43 @@ static void info_page_rows(void)
           (info.regs[0] == pack(5u, 1u)), "the sixth list follows alone");
 }
 
+/* An endpoint out of service: its own bindings and pending state go, and so
+ * does every binding naming it the sender; its id stays recognized, and a
+ * BIND/UNBIND naming it the sender or a SET to it answers the code it was
+ * retired with, ABORTED for one that aborted (Tables 16.12, 16.16, 16.20). */
+static void abort_rows(void)
+{
+    wt_ffa_notif_get_result_t got;
+    wt_ffa_notif_info_result_t info;
+
+    printf("[suite] abort\n");
+    fixture();
+    check(wt_ffa_notif_bitmap_create(VM0, VM0, 1u) == 0 &&
+          wt_ffa_notif_bind(VM0, IDS(SP1, VM0), 0u, BIT(0)) == 0 &&
+          wt_ffa_notif_bind(SP1, IDS(VM0, SP1), 0u, BIT(3)) == 0 &&
+          wt_ffa_notif_bind(SP2, IDS(SP3, SP2), 0u, BIT(4)) == 0 &&
+          wt_ffa_notif_set(VM0, IDS(VM0, SP1), 0u, BIT(3)) == 0,
+          "SP1 binds from the VM and the VM from SP1, and the VM signals SP1");
+    wt_ffa_notif_retire(SP1, WT_FFA_ABORTED);
+    check(wt_ffa_notif_set(VM0, IDS(VM0, SP1), 0u, BIT(3)) == WT_FFA_ABORTED,
+          "a SET to an endpoint that has aborted is ABORTED");
+    check(wt_ffa_notif_bind(VM0, IDS(SP1, VM0), 0u, BIT(1)) == WT_FFA_ABORTED &&
+          wt_ffa_notif_unbind(VM0, IDS(SP1, VM0), 0u, BIT(0)) ==
+              WT_FFA_ABORTED,
+          "a BIND or UNBIND naming it the sender is ABORTED");
+    check(wt_ffa_notif_bind(VM0, IDS(SP2, VM0), 0u, BIT(0)) == 0,
+          "the id it had bound at the VM is free for another sender");
+    check(wt_ffa_notif_info_get(VM0, 1, &info) == WT_FFA_NO_DATA,
+          "nothing it had pending is listed for the scheduler");
+    check(wt_ffa_notif_set(SP3, IDS(SP3, SP2), 0u, BIT(4)) == 0 &&
+          wt_ffa_notif_get(SP2, IDS(0u, SP2), WT_FFA_NOTIF_GET_FLAG_SP,
+                           &got) == 0 && got.from_sp == BIT(4),
+          "other endpoints' bindings go on");
+    wt_ffa_notif_retire(SP2, WT_FFA_DENIED);
+    check(wt_ffa_notif_set(SP3, IDS(SP3, SP2), 0u, BIT(4)) == WT_FFA_DENIED,
+          "one that failed initialization answers DENIED instead");
+}
+
 int main(void)
 {
     printf("WT-FFA-0013 (FF-A notification bitmaps, binding, signaling)\n");
@@ -564,6 +601,7 @@ int main(void)
     get_rows();
     info_rows();
     info_page_rows();
+    abort_rows();
 
     printf("ffa_notif: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

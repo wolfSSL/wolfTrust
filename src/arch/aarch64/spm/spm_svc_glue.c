@@ -1026,10 +1026,11 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
          * quarantine below would leave the server dead for every later test. */
         wt_platform_system_reset();
 #endif
-        /* Route a partition fault through the core's restart policy; if it is
-         * not a scheduled SP (e.g. the boot self-test) quarantine it here. */
+        /* Route a partition fault through the core's restart policy; one
+         * that is not a scheduled SP (an FF-A native, a boot self-test) is
+         * retired here. */
         if (wt_spm_sp_fault(co) != WT_FFM_SUCCESS) {
-            wt_co_mark_faulted(co);
+            wt_spm_sp_retire((struct wt_co*)co);
         }
         g_wt_spm_live_frame = NULL;
         g_wt_spm_handler_depth = 0u;

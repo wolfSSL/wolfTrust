@@ -90,6 +90,7 @@ static uint8_t g_ns_inherited[WT_CO_MAX];
 static wt_sp_arch_t* sp_arch(const struct wt_co *co);
 static int endpoint_waiting(const struct wt_co* co);
 static struct wt_co* sint_take_waiting_owner(void);
+static void sp_release(struct wt_co* co, int32_t code);
 static int run_endpoint_from(struct wt_co* co, struct wt_co* callee,
                              uint64_t* out, uint8_t spmc);
 /* The endpoint a blocking partition's direct request or FFA_RUN names. */
@@ -111,6 +112,7 @@ static uint8_t g_init_seen[WT_CO_MAX];
  * is how an FF-M partition, which makes no FF-A calls, completes its init. */
 static uint8_t g_init_gate[WT_CO_MAX];
 static uint8_t g_faulted_once[WT_CO_MAX];
+static uint8_t g_retired[WT_CO_MAX];
 static struct wt_co* g_created[WT_CO_MAX];
 static uint32_t g_partitions_initialized;
 
@@ -506,6 +508,7 @@ void wt_spm_sp_init_failed(struct wt_co* co, int32_t code)
         return;
     }
     g_init_seen[co->id - 1u] = WT_SP_INIT_FAILED;
+    sp_release(co, WT_FFA_DENIED);
     if (g_wt_spm_partitions_live != 0u) {
         wt_el3_puts("[SP] init failed id=0x");
         wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + co->id, 4u);
@@ -861,6 +864,9 @@ int wt_spm_ffa_sp_call(const struct wt_co* caller, struct wt_co* target,
         (target->unprivileged == 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
+    if (wt_spm_sp_unavailable(target) == WT_FFA_ABORTED) {
+        return WT_FFA_ABORTED;
+    }
     if (wt_spm_sp_initializing(caller) != 0) {
         ret = wt_ffa_rt_init_call((req != NULL) ? (uint32_t)req[0] : WT_FFA_RUN,
                                   (g_init_seen[target->id - 1u] ==
@@ -904,6 +910,9 @@ int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
     if ((co == NULL) || (req == NULL) || (resp == NULL) || (co->unprivileged == 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
+    if (wt_spm_sp_unavailable(co) == WT_FFA_ABORTED) {
+        return WT_FFA_ABORTED;
+    }
     if (req2_uuid_ok(co, req) == 0) {
         return WT_FFA_INVALID_PARAMETERS;
     }
@@ -925,6 +934,9 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
 
     if ((co == NULL) || (out == NULL) || (co->unprivileged == 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (wt_spm_sp_unavailable(co) == WT_FFA_ABORTED) {
+        return WT_FFA_ABORTED;
     }
     if (wt_spm_sp_failed_init(co) != 0) {
         return WT_FFA_DENIED;
@@ -1068,6 +1080,51 @@ uint32_t wt_spm_sint_take_pending(const struct wt_co* co)
     return intid;
 }
 
+/* A partition out of service lets go of every Secure interrupt it owns, what
+ * was queued for it, its direct-message state, RX/TX pair, and memory
+ * transactions, and its notification bindings, which answer code for it. */
+static void sp_release(struct wt_co* co, int32_t code)
+{
+    unsigned int i;
+
+    wt_spm_mem_endpoint_teardown(co);
+    for (i = 0u; i < WT_SPM_SINT_OWNERS; i++) {
+        if ((g_sint_owner_co[i] == co) && (g_sint_owner_id[i] != 0u)) {
+            wt_gic->disable(g_sint_owner_id[i]);
+            g_sint_owner_co[i] = NULL;
+            g_sint_owner_id[i] = 0u;
+        }
+    }
+    wt_spm_twdog_stop(co);
+    (void)memset(&g_sp_sint_pending[co->id - 1u], 0,
+                 sizeof(g_sp_sint_pending[0]));
+    g_sint_delivered[co->id - 1u] = 0u;
+    (void)memset(&g_sp_msg[co->id - 1u], 0, sizeof(g_sp_msg[0]));
+    wt_spm_sp_ffa_reset(co);
+    wt_ffa_notif_retire(wt_spm_sp_ffa_id(co), code);
+}
+
+void wt_spm_sp_retire(struct wt_co* co)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return;
+    }
+    wt_co_mark_faulted((wt_co_t*)co);
+    g_retired[co->id - 1u] = 1u;
+    sp_release(co, WT_FFA_ABORTED);
+}
+
+int32_t wt_spm_sp_unavailable(const struct wt_co* co)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return 0;
+    }
+    if (g_retired[co->id - 1u] != 0u) {
+        return WT_FFA_ABORTED;
+    }
+    return (wt_spm_sp_failed_init(co) != 0) ? WT_FFA_DENIED : 0;
+}
+
 /* A waiting partition owed a queued Secure interrupt, staged for delivery;
  * clears the signal request once none is left. */
 static struct wt_co* sint_take_waiting_owner(void)
@@ -1152,6 +1209,7 @@ void wt_co_arch_init_stack(struct wt_co *co, wt_co_entry_fn entry, void *arg)
 
     /* The S-EL0 form of the same start: the domain flag arrives later. */
     g_init_seen[co->id - 1u] = WT_SP_INIT_PENDING;
+    g_retired[co->id - 1u] = 0u;
     g_init_gate[co->id - 1u] = 0u;
     g_created[co->id - 1u] = co;
     (void)memset(&g_sp_msg[co->id - 1u], 0, sizeof(g_sp_msg[0]));

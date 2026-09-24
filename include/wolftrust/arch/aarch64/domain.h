@@ -38,9 +38,12 @@
  * regions cover one flagged WT_DOMAIN_FILL_SHARED entirely, in which case
  * the partition's mapping (EL0 + EL1) replaces it. Partial cover still
  * fails. A shareable range is mapped non-global in every table (it is the
- * builder's WT_TABLES_ATTR_NG hint) so no ASID inherits another's entry. */
+ * builder's WT_TABLES_ATTR_NG hint) so no ASID inherits another's entry. One
+ * also flagged WT_DOMAIN_FILL_OWNED is a single endpoint's own memory: only a
+ * region exactly equal to it takes it over, and one that covers more fails. */
 #define WT_DOMAIN_MAX_FILL   32u
 #define WT_DOMAIN_FILL_SHARED WT_TABLES_ATTR_NG
+#define WT_DOMAIN_FILL_OWNED  0x10000000u
 
 #define WT_DOMAIN_FAIL_INIT   1
 #define WT_DOMAIN_FAIL_BUILD  2
@@ -57,6 +60,13 @@ int wt_domain_stack_band(const wt_domain_descriptor_t* d,
  * maps it EL1-only. Returns 0 with *band set, or -1. */
 int wt_domain_spm_band(const wt_domain_descriptor_t* d, size_t i,
                        wt_memory_region_t* band);
+
+/* Non-zero when [base, base + size) reaches an owned fill entry that owners
+ * (one per fill entry) gives to anyone but owner: memory a partition's
+ * manifest may not name, since its table would take that entry over. */
+int wt_domain_fill_foreign(const wt_memory_region_t* fill,
+                           const uint32_t* owners, size_t fill_count,
+                           uint32_t owner, uintptr_t base, size_t size);
 
 /* Builds the SPM-only table over the pool; returns its TTBR0 or 0. The
  * fill list is kept and mapped EL1-only into every partition table. */

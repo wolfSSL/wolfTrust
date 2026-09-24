@@ -44,6 +44,7 @@
 #include "wolftrust/boot.h"
 #include "wolftrust/ffm_domain.h"
 #include "wolftrust/manifest.h"
+#include "wolftrust/platform.h"
 #include "wolftrust/sched/coroutine.h"
 
 #include <string.h>
@@ -70,6 +71,10 @@ int wt_spm_prove_tick(void);
 
 /* The fill list outlives init: every partition table maps it EL1-only. */
 static wt_memory_region_t g_fill[WT_SPMC_MAX_FILL];
+/* The manifest domain each owned fill entry belongs to; WT_DOMAIN_ID_INVALID
+ * marks one no manifest partition may name (the SPMC's, the echo's, a native
+ * partition's). */
+static uint32_t g_fill_owner[WT_SPMC_MAX_FILL];
 
 static void spmc_fail(const char* what, uint64_t value)
 {
@@ -253,7 +258,8 @@ static size_t add_echo_band(wt_memory_region_t* fill, size_t n,
     g_wt_spm_echo_stack_size = band_size;
     fill[n].base = g_wt_spm_echo_stack_base;
     fill[n].size = (size_t)band_size;
-    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
+                         WT_DOMAIN_FILL_SHARED | WT_DOMAIN_FILL_OWNED;
     return n + 1u;
 }
 #else
@@ -285,7 +291,7 @@ static size_t add_native_bands(wt_memory_region_t* fill, size_t n)
             fill[n].base = list[i].regions[j].base;
             fill[n].size = list[i].regions[j].size;
             fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
-                                 WT_DOMAIN_FILL_SHARED;
+                                 WT_DOMAIN_FILL_SHARED | WT_DOMAIN_FILL_OWNED;
             n++;
         }
     }
@@ -298,6 +304,44 @@ static size_t add_native_bands(wt_memory_region_t* fill, size_t n)
     return n;
 }
 #endif
+
+/* No manifest partition may name memory an owned fill entry gives another
+ * endpoint (the manifest validator never sees the echo, native, or SPMC
+ * bands), since its table would take that entry over. */
+static void check_fill_owners(const wt_system_manifest_t* manifest,
+                              const wt_memory_region_t* fill, size_t n)
+{
+    const wt_domain_descriptor_t* d;
+    const wt_memory_resource_t* r;
+    wt_memory_region_t grants[WT_MAX_MEMORY_REGIONS];
+    size_t count = 0u;
+    size_t i;
+    size_t j;
+
+    for (i = 0u; i < manifest->domain_count; i++) {
+        d = &manifest->domains[i];
+        if (d->domain_class != WT_DOMAIN_CLASS_SECURE_PARTITION) {
+            continue;
+        }
+        for (j = 0u; j < d->memory_resource_count; j++) {
+            r = &d->memory_resources[j];
+            if (wt_domain_fill_foreign(fill, g_fill_owner, n, (uint32_t)d->id,
+                                       r->base, r->size) != 0) {
+                spmc_fail("fill owner", (uint64_t)d->id);
+            }
+        }
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+        count = wt_platform_conf_sp_grants((int32_t)d->id, grants, 0u,
+                                           WT_MAX_MEMORY_REGIONS);
+#endif
+        for (j = 0u; j < count; j++) {
+            if (wt_domain_fill_foreign(fill, g_fill_owner, n, (uint32_t)d->id,
+                                       grants[j].base, grants[j].size) != 0) {
+                spmc_fail("fill owner", (uint64_t)d->id);
+            }
+        }
+    }
+}
 
 static void enable_mmu(uint64_t boot_info_pa)
 {
@@ -314,9 +358,13 @@ static void enable_mmu(uint64_t boot_info_pa)
     uintptr_t last_end = 0u;
     uintptr_t band_size = 0u;
 
-    /* Shareable entries: a partition whose manifest region covers one takes
-     * it over (EL0 + EL1); the SPM RAM band, boot page, pool, and devices
-     * stay EL1-only in every table. */
+    /* Shareable entries: a partition whose regions cover one takes it over
+     * (EL0 + EL1), and an owned one only the region that is exactly it; the
+     * SPM RAM band, boot page, pool, and devices stay EL1-only in every
+     * table. */
+    for (i = 0u; i < WT_SPMC_MAX_FILL; i++) {
+        g_fill_owner[i] = WT_DOMAIN_ID_INVALID;
+    }
     fill[n].base = (uintptr_t)WT_SPM_IMAGE_PA;
     fill[n].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC | WT_DOMAIN_FILL_SHARED;
@@ -351,13 +399,15 @@ static void enable_mmu(uint64_t boot_info_pa)
      * S-EL0, so it is shareable and taken over by that partition's table. */
     fill[n].base = (uintptr_t)WT_SPM_RXTX_PA;
     fill[n].size = (size_t)WT_SPM_RXTX_SIZE;
-    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
+                         WT_DOMAIN_FILL_SHARED | WT_DOMAIN_FILL_OWNED;
     n++;
     /* The memory-sharing self-test page: the SPMC seeds it at S-EL1 and a
      * partition maps it at S-EL0 only through FFA_MEM_RETRIEVE_REQ. */
     fill[n].base = (uintptr_t)WT_SPM_SHARE_PA;
     fill[n].size = (size_t)WT_SPM_SHARE_SIZE;
-    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
+                         WT_DOMAIN_FILL_SHARED | WT_DOMAIN_FILL_OWNED;
     n++;
     /* Every partition resource the SPMC itself writes from EL1 (the stack it
      * seeds and scrubs, a data band the fault scrub clears), whole; the owner
@@ -372,7 +422,9 @@ static void enable_mmu(uint64_t boot_info_pa)
             if (wt_domain_spm_band(d, j, &band) == 0) {
                 fill_check(n);
                 fill[n] = band;
-                fill[n].attributes |= WT_DOMAIN_FILL_SHARED;
+                fill[n].attributes |= WT_DOMAIN_FILL_SHARED |
+                                      WT_DOMAIN_FILL_OWNED;
+                g_fill_owner[n] = (uint32_t)d->id;
                 n++;
             }
         }
@@ -414,6 +466,7 @@ static void enable_mmu(uint64_t boot_info_pa)
                          WT_TABLES_ATTR_NS | WT_TABLES_ATTR_NG;
     n++;
 #endif
+    check_fill_owners(manifest, fill, n);
 
     ttbr0 = wt_domain_init(fill, n, (uint8_t*)(uintptr_t)WT_SPM_TABLE_POOL_PA,
                            WT_SPM_TABLE_POOL_PA,

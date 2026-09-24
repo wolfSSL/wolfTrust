@@ -209,8 +209,9 @@ uint32_t wt_spm_ns_sint_take(void);
 
 /* The test-timer service: arm makes the interrupt pending at its deadline
  * (see spm_irq.c for when a Normal-world one lands); stop clears the caller's
- * own timers (owner NULL for the Normal world's). */
-int wt_spm_twdog_arm(uint32_t intid, uint32_t ms);
+ * own timers (owner NULL for the Normal world's). A partition arms only an
+ * interrupt it owns, the Normal world only an SPI no partition may claim. */
+int wt_spm_twdog_arm(const struct wt_co* caller, uint32_t intid, uint32_t ms);
 void wt_spm_twdog_stop(const struct wt_co* owner);
 void wt_spm_twdog_tick(void);
 int wt_spm_current_is_partition(void);
@@ -232,6 +233,7 @@ int wt_spm_partition_props(uint16_t id, uint32_t* props);
  * and reports it through FFA_PARTITION_INFO_GET. Conformance builds only. */
 #define WT_FFA_NATIVE_SP_MAX     4u
 #define WT_FFA_NATIVE_SP_REGIONS 4u
+#define WT_FFA_NATIVE_SP_INTIDS  2u
 
 typedef struct wt_ffa_native_sp {
     uintptr_t entry;
@@ -244,7 +246,15 @@ typedef struct wt_ffa_native_sp {
     /* FF-A "Action in response to a Non-secure interrupt": 0 queued (masked
      * while the partition runs), 2 signaled (preempts to the Normal world). */
     uint8_t ns_int_action;
+    /* The Secure interrupts the partition may claim, all others refused. */
+    uint32_t intids[WT_FFA_NATIVE_SP_INTIDS];
+    uint32_t intid_count;
 } wt_ffa_native_sp_t;
+
+/* Non-zero when sp declares intid as one it may claim. */
+int wt_spm_native_declares(const wt_ffa_native_sp_t* sp, uint32_t intid);
+/* Non-zero when some native partition declares intid. */
+int wt_spm_sint_declared_any(uint32_t intid);
 
 const wt_ffa_native_sp_t* wt_platform_ffa_native_partitions(size_t* count);
 const wt_ffa_native_sp_t* wt_spm_ffa_native_list(size_t* count);

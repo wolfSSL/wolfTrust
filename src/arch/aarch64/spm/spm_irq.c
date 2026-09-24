@@ -182,11 +182,43 @@ void wt_spm_lower_irq(wt_trap_frame_t* frame)
 static uint32_t g_twdog_intid[WT_SPM_TWDOG_SLOTS];
 static uint64_t g_twdog_deadline[WT_SPM_TWDOG_SLOTS];
 
-int wt_spm_twdog_arm(uint32_t intid, uint32_t ms)
+int wt_spm_native_declares(const wt_ffa_native_sp_t* sp, uint32_t intid)
+{
+    uint32_t i;
+
+    if ((sp == NULL) || (sp->intid_count > WT_FFA_NATIVE_SP_INTIDS)) {
+        return 0;
+    }
+    for (i = 0u; i < sp->intid_count; i++) {
+        if (sp->intids[i] == intid) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* A partition's timer raises only an interrupt it owns; the Normal world's
+ * only an SPI no partition owns or may claim. */
+static int twdog_arm_allowed(const struct wt_co* caller, uint32_t intid)
+{
+    if ((intid < 32u) || (intid >= WT_GIC_INTID_LIMIT)) {
+        return 0;
+    }
+    if (caller != NULL) {
+        return (wt_spm_sint_owner(intid) == caller) ? 1 : 0;
+    }
+    return ((wt_spm_sint_owner(intid) == NULL) &&
+            (wt_spm_sint_declared_any(intid) == 0)) ? 1 : 0;
+}
+
+int wt_spm_twdog_arm(const struct wt_co* caller, uint32_t intid, uint32_t ms)
 {
     unsigned int slot = WT_SPM_TWDOG_SLOTS;
     unsigned int i;
 
+    if (twdog_arm_allowed(caller, intid) == 0) {
+        return -1;
+    }
     for (i = 0u; i < WT_SPM_TWDOG_SLOTS; i++) {
         if (g_twdog_intid[i] == intid) {
             slot = i;

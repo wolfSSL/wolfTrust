@@ -34,6 +34,8 @@
 
 #define OWNED_SPI   41u
 #define STRAY_SPI   45u
+#define CLAIMABLE_SPI 56u
+#define NS_TEST_SPI 59u
 
 uint64_t g_host_cntpct;
 unsigned int g_host_fiq_masked;
@@ -56,6 +58,8 @@ static int g_signal_asked;
 static wt_trap_frame_t* g_preempted;
 
 #define OWNER ((struct wt_co*)(void*)&g_owner_token)
+static int g_other_token;
+#define OTHER ((struct wt_co*)(void*)&g_other_token)
 
 static void check(int ok, const char* what)
 {
@@ -151,6 +155,11 @@ int wt_spm_current_is_partition(void)
     return 0;
 }
 
+int wt_spm_sint_declared_any(uint32_t intid)
+{
+    return ((intid == OWNED_SPI) || (intid == CLAIMABLE_SPI)) ? 1 : 0;
+}
+
 static void reset(uint32_t intid, int signal_needed)
 {
     g_next_intid = intid;
@@ -194,6 +203,43 @@ static void fifo_rows(void)
     check(ok != 0 && wt_spm_sint_fifo_push(&q, 100u) == -1 &&
               wt_spm_sint_fifo_pop(&q) == 32u,
           "a full queue refuses another id and keeps what it holds");
+}
+
+/* The ACS test partitions' para-virtual interrupt controls: a partition may
+ * claim only an interrupt the platform declares for it, and the test timer
+ * raises only an interrupt its caller owns (the Normal world: only an SPI no
+ * partition owns or may claim). */
+static void authorization_rows(void)
+{
+    wt_ffa_native_sp_t sp;
+
+    memset(&sp, 0, sizeof(sp));
+    sp.intids[0] = CLAIMABLE_SPI;
+    sp.intid_count = 1u;
+    check(wt_spm_native_declares(&sp, CLAIMABLE_SPI) == 1,
+          "a partition may claim the interrupt its platform declares");
+    check(wt_spm_native_declares(&sp, STRAY_SPI) == 0 &&
+              wt_spm_native_declares(NULL, CLAIMABLE_SPI) == 0,
+          "but no other, and nothing without a declaration");
+    sp.intid_count = WT_FFA_NATIVE_SP_INTIDS + 1u;
+    check(wt_spm_native_declares(&sp, CLAIMABLE_SPI) == 0,
+          "a declaration past its bound declares nothing");
+
+    check(wt_spm_twdog_arm(OWNER, OWNED_SPI, 1u) == 0,
+          "the owner arms the timer for its own interrupt");
+    wt_spm_twdog_stop(OWNER);
+    check(wt_spm_twdog_arm(OTHER, OWNED_SPI, 1u) == -1,
+          "another partition cannot raise that interrupt");
+    check(wt_spm_twdog_arm(OWNER, STRAY_SPI, 1u) == -1,
+          "nor can the owner raise an interrupt it does not own");
+    check(wt_spm_twdog_arm(NULL, OWNED_SPI, 1u) == -1 &&
+              wt_spm_twdog_arm(NULL, CLAIMABLE_SPI, 1u) == -1,
+          "the Normal world cannot raise a partition's interrupt, claimed or not");
+    check(wt_spm_twdog_arm(NULL, WT_GIC_INTID_SECURE_TIMER, 1u) == -1,
+          "nor a private interrupt");
+    check(wt_spm_twdog_arm(NULL, NS_TEST_SPI, 1u) == 0,
+          "the Normal world arms its own test interrupt");
+    wt_spm_twdog_stop(NULL);
 }
 
 int main(void)
@@ -249,6 +295,7 @@ int main(void)
           "with nothing pending it reports spurious and ends nothing");
 
     fifo_rows();
+    authorization_rows();
 
     printf("spm_irq: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

@@ -190,6 +190,10 @@ uintptr_t wt_platform_probe_address(unsigned int target)
  * not: the suite expects DENIED when one is sent to a non-receiver. */
 #define WT_ACS_PROPERTIES   0x0000070Fu
 #define WT_ACS_PROPERTIES_NO_INDIRECT 0x0000070Bu
+/* The suite's trusted watchdog (its PLATFORM_TWDOG_INTID): any test partition
+ * may be the one to claim it, and none may claim another interrupt. */
+#define WT_ACS_TWDOG_INTID  56u
+#define WT_ACS_INTIDS       { WT_ACS_TWDOG_INTID }, 1u
 
 #define WT_ACS_BAND(n) ((uintptr_t)WT_FFA_ACS_BASE + ((n) * WT_ACS_BAND_SIZE))
 /* The image marks its own data and stack RW with FFA_MEM_PERM_SET at init. */
@@ -216,28 +220,32 @@ static const wt_ffa_native_sp_t g_acs_partitions[] = {
         3u,
         WT_ACS_UUID(0x1e67b5b4u, 0xe14f904au, 0x13fb1fb8u, 0xcbdae1dau),
         WT_ACS_PROPERTIES,
-        2u /* SP1: Non-secure interrupts are signaled (preempt). */
+        2u, /* SP1: Non-secure interrupts are signaled (preempt). */
+        WT_ACS_INTIDS
     },
     {
         WT_ACS_ENTRY(1u), WT_ACS_STACK(1u), WT_ACS_STACK_SIZE,
         { WT_ACS_IMAGE(1u) }, 1u,
         WT_ACS_UUID(0x092358d1u, 0xb94723f0u, 0x64447c82u, 0xc88f57f5u),
         WT_ACS_PROPERTIES,
-        2u /* SP2: signaled. */
+        2u, /* SP2: signaled. */
+        WT_ACS_INTIDS
     },
     {
         WT_ACS_ENTRY(2u), WT_ACS_STACK(2u), WT_ACS_STACK_SIZE,
         { WT_ACS_IMAGE(2u) }, 1u,
         WT_ACS_UUID(0x735cb579u, 0xb9448c1du, 0xe1619385u, 0xd2d80a77u),
         WT_ACS_PROPERTIES_NO_INDIRECT,
-        0u /* SP3: Non-secure interrupts are queued. */
+        0u, /* SP3: Non-secure interrupts are queued. */
+        WT_ACS_INTIDS
     },
     {
         WT_ACS_ENTRY(3u), WT_ACS_STACK(3u), WT_ACS_STACK_SIZE,
         { WT_ACS_IMAGE(3u) }, 1u,
         WT_ACS_UUID(0x2658cda4u, 0xcf6713e1u, 0x49cd10f9u, 0x31ef6813u),
         WT_ACS_PROPERTIES_NO_INDIRECT,
-        0u /* SP4: Non-secure interrupts are queued. */
+        0u, /* SP4: Non-secure interrupts are queued. */
+        WT_ACS_INTIDS
     }
 };
 

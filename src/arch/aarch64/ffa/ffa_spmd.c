@@ -384,6 +384,7 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
                 reply_success(r, WT_FFA_FEATURES_RETRIEVE_NS_BIT, 0u);
             }
             else if (WT_FFA_FEATURES_IS_FID(w1) && ns_implements(w1)) {
+                /* w3[5:0] caps RXTX_MAP at 63 pages: no limit (Tbl 13.25). */
                 reply_success(r, 0u, 0u);
             }
             else {

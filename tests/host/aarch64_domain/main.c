@@ -190,6 +190,9 @@ int main(void)
           wt_domain_set_permissions(g_sp0, 2u, 0x0E000000u, 1u, RW) ==
               WT_TABLES_ERROR_UNMAPPED && g_tlbis == 1u,
           "another partition's page, a range past the region end, and SPM memory are refused");
+    check(wt_domain_get_permissions(g_sp0, 2u, 0x0E201001u, &attrs) ==
+              WT_TABLES_ERROR_ALIGN,
+          "a base address off its translation granule is refused (DEN0140 Table 2.37)");
     check(wt_domain_set_permissions(g_bad, 1u, 0x0E000000u, 1u, RW) ==
               WT_TABLES_ERROR_ARGUMENT &&
           wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, NULL) ==

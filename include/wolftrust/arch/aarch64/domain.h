@@ -56,7 +56,8 @@ size_t wt_domain_tables_built(void);
 size_t wt_domain_pool_pages_used(void);
 
 /* FFA_MEM_PERM_SET/GET on an already-built domain: the range must lie inside
- * one of the domain's own memory regions; WT_TABLES_* result codes. */
+ * one of the domain's own memory regions and start on a page; WT_TABLES_*
+ * result codes. */
 int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
                               uintptr_t va, size_t pages, uint32_t attributes);
 int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,

@@ -988,7 +988,8 @@ static void ffa_mem_perm_set(wt_trap_frame_t* frame, const struct wt_co* co)
     ffa_success(frame, 0u, 0u);
 }
 
-/* FFA_MEM_PERM_GET (18.3.1): w1 = base VA; the permissions return in w2. */
+/* FFA_MEM_PERM_GET (18.3.1): w1 = base VA of a page, else INVALID_PARAMETERS;
+ * the permissions return in w2. */
 static void ffa_mem_perm_get(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     uint32_t attributes = 0u;

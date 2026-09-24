@@ -312,6 +312,9 @@ int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
         (attributes == NULL)) {
         return WT_TABLES_ERROR_ARGUMENT;
     }
+    if ((va % WT_TABLES_PAGE_SIZE) != 0u) {
+        return WT_TABLES_ERROR_ALIGN;
+    }
     if (!owns_range(regions, count, va, 1u)) {
         return WT_TABLES_ERROR_UNMAPPED;
     }

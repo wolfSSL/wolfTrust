@@ -787,17 +787,17 @@ static void ffa_features(wt_trap_frame_t* frame, const struct wt_co* co)
     }
 }
 
-/* FFA_CONSOLE_LOG (13.12): w1 = count, characters packed from w2/x2 upward;
- * 1..24 over w2-w7, 1..128 over x2-x17. */
+/* FFA_CONSOLE_LOG (13.12): w1 = count (bits 31:8 SBZ), characters packed
+ * from w2/x2 upward; 1..24 over w2-w7, 1..128 over x2-x17. */
 static void ffa_console_log(wt_trap_frame_t* frame, unsigned int is64)
 {
-    uint32_t count = (uint32_t)frame->x[1];
+    uint32_t count = (uint32_t)frame->x[1] & 0xFFu;
     unsigned int per_reg = (is64 != 0u) ? 8u : 4u;
     unsigned int max = (is64 != 0u) ? 128u : 24u;
     unsigned int i;
     uint64_t reg;
 
-    if (((count & 0xFFFFFF00u) != 0u) || (count < 1u) || (count > max)) {
+    if ((count < 1u) || (count > max)) {
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }

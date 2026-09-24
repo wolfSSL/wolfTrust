@@ -87,13 +87,13 @@ unsigned int wt_ffa_spmd_spmc_ready(void)
  * upward; 1..24 characters over w2-w7, 1..128 over x2-x17. */
 void wt_ffa_spmd_console_call(uint64_t* x, unsigned int is64)
 {
-    uint32_t count = (uint32_t)x[1];
+    uint32_t count = (uint32_t)x[1] & 0xFFu;
     unsigned int per_reg = (is64 != 0u) ? 8u : 4u;
     unsigned int max = (is64 != 0u) ? 128u : 24u;
     unsigned int i;
     uint64_t reg;
 
-    if (((count & 0xFFFFFF00u) != 0u) || (count < 1u) || (count > max)) {
+    if ((count < 1u) || (count > max)) {
         reply_error((wt_ffa_regs_t*)x, WT_FFA_INVALID_PARAMETERS);
     }
     else {

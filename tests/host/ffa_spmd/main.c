@@ -426,9 +426,16 @@ int main(void)
     call(&r, WT_FFA_CONSOLE_LOG32, 25u);
     check(is_error(&r, WT_FFA_INVALID_PARAMETERS) && g_console_len == 0u,
           "count 25 on SMC32 is INVALID_PARAMETERS");
-    call(&r, WT_FFA_CONSOLE_LOG32, 0x100u | 3u);
+    call(&r, WT_FFA_CONSOLE_LOG32, 0x100u);
     check(is_error(&r, WT_FFA_INVALID_PARAMETERS) && g_console_len == 0u,
-          "reserved bits 31:8 of the count are SBZ");
+          "the count is bits 7:0 alone, so 0x100 counts no character");
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_CONSOLE_LOG32;
+    r.x[1] = 0xFFFFFF03u;
+    r.x[2] = 0x00434241u;
+    wt_ffa_spmd_secure_call(&r);
+    check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 && strcmp(g_console, "ABC") == 0,
+          "the SBZ bits 31:8 of the count are ignored");
 
     reset_console();
     memset(frame, 0, sizeof(frame));

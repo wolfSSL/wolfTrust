@@ -231,8 +231,8 @@ static void set_rows(void)
     check(wt_ffa_notif_bind(SP2, IDS(VM0, SP2), WT_FFA_NOTIF_FLAG_PER_VCPU,
                             BIT(13)) == 0,
           "SP2 binds bit 13 per-vCPU from the VM");
-    check(wt_ffa_notif_bind(VM0, IDS(SP1, VM0), 0u, BIT(0)) == 0,
-          "the VM binds bit 0 global from SP1");
+    check(wt_ffa_notif_bind(VM0, IDS(SP1, VM0), 0u, BIT(0) | BIT(1)) == 0,
+          "the VM binds bits 0 and 1 global from SP1");
     check(wt_ffa_notif_set(VM0, IDS(VM0, BAD_ID), 0u, BIT(12)) ==
           WT_FFA_INVALID_PARAMETERS, "an unknown receiver is refused");
     check(wt_ffa_notif_set(VM0, IDS(BAD_ID, SP2), 0u, BIT(12)) ==
@@ -267,6 +267,10 @@ static void set_rows(void)
     check(wt_ffa_notif_sri_pending() == 1, "the signal latches the SRI");
     check(wt_ffa_notif_sri_take() == 1, "the latch reads once");
     check(wt_ffa_notif_sri_take() == 0, "and clears");
+    check(wt_ffa_notif_set(VM0, IDS(VM0, SP2), 0u, BIT(12)) == 0,
+          "the VM signals the still-pending id again");
+    check(wt_ffa_notif_sri_pending() == 0,
+          "which has no effect: no second SRI (10.5 rule 3)");
     check(wt_ffa_notif_set(VM0, IDS(VM0, SP2),
                            WT_FFA_NOTIF_FLAG_PER_VCPU, BIT(13)) == 0,
           "the VM signals SP2's per-vCPU id on vCPU 0");
@@ -281,7 +285,11 @@ static void set_rows(void)
     check(wt_ffa_notif_sri_pending() == 1,
           "it waits for the next Normal-world entry");
     check(wt_ffa_notif_set(SP1, IDS(SP1, VM0), 0u, BIT(0)) == 0,
-          "SP1 signals the VM again without the delay hint");
+          "SP1 signals the still-pending id again without the delay hint");
+    check(wt_ffa_notif_sri_take_now() == 0,
+          "which has no effect, so it asserts no SRI at once");
+    check(wt_ffa_notif_set(SP1, IDS(SP1, VM0), 0u, BIT(1)) == 0,
+          "SP1 signals a new id without the delay hint");
     check(wt_ffa_notif_sri_take_now() == 1,
           "the SRI is asserted as that call completes");
     check(wt_ffa_notif_sri_take_now() == 0, "once");

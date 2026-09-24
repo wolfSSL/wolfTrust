@@ -112,6 +112,37 @@ static void ffa_direct_resp(wt_trap_frame_t* frame, const struct wt_co* co)
     wt_co_block();
 }
 
+/* 15.2/15.4: the callee may complete the direct request it is processing with
+ * FFA_SUCCESS in place of a response, every other register MBZ; its requester
+ * is handed that FFA_SUCCESS and the callee waits for the next message. */
+static void ffa_direct_success(wt_trap_frame_t* frame, const struct wt_co* co)
+{
+    uint32_t fid = (uint32_t)frame->x[0];
+    unsigned int n = (fid == WT_FFA_SUCCESS64) ? WT_FFA_MSG_REGS_EXT :
+                                                 WT_FFA_MSG_REGS;
+    uint16_t requester = 0u;
+    uint16_t self = 0u;
+    unsigned int i;
+
+    if (wt_spm_ffa_sp_requester(co, &requester, &self) == 0) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    for (i = 1u; i < n; i++) {
+        if (frame->x[i] != 0u) {
+            ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+            return;
+        }
+    }
+    for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
+        g_wt_ffa_direct_resp[i] = 0u;
+    }
+    g_wt_ffa_direct_resp[0] = fid;
+    g_wt_ffa_direct_resp_ready = 1u;
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_RESP;
+    wt_co_block();
+}
+
 static void report_partition_fault(const wt_trap_frame_t* frame)
 {
     char line[80];
@@ -1103,6 +1134,9 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if (fid == WT_FFA_ERROR) {
         ffa_init_failed(frame, co);
+    }
+    else if ((fid == WT_FFA_SUCCESS32) || (fid == WT_FFA_SUCCESS64)) {
+        ffa_direct_success(frame, (const struct wt_co*)co);
     }
     else if ((fid == WT_FFA_MSG_SEND_DIRECT_RESP32) ||
              (fid == WT_FFA_MSG_SEND_DIRECT_RESP64) ||

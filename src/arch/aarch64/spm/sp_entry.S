@@ -410,7 +410,10 @@ wt_sp_el0_probe:
  * with it. Before its first wait it checks that an SVC32 call is read from
  * w1-w7 alone (FFA_MEM_PERM_GET32 on its own stack page, with junk above the
  * address in x1, must succeed) and that the SPMC, which scheduled its init,
- * refuses its FFA_YIELD with DENIED (8.5 rule 4); either failing faults it. */
+ * refuses its FFA_YIELD with DENIED (8.5 rule 4); either failing faults it.
+ * A request whose first payload word is 0x5CCE is completed with FFA_SUCCESS
+ * instead of a response (15.2), after checking that one with a nonzero w3
+ * (MBZ) is refused. */
     .section .text.wt_sp_ffa_echo, "ax"
     .globl wt_sp_ffa_echo
 wt_sp_ffa_echo:
@@ -445,7 +448,37 @@ wt_sp_ffa_echo:
     orr     w5, w1, w2
     cbz     w5, 0b                      /* interrupt: acknowledge and re-wait */
     udf     #0
-2:  lsr     x2, x1, #16                 /* original sender */
+2:  movz    w5, #0x5CCE
+    cmp     w3, w5
+    b.ne    3f
+    movz    w0, #0x0061                 /* FFA_SUCCESS32 (0x84000061) */
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0
+    mov     x2, #0
+    mov     x3, #1                      /* MBZ: must be refused */
+    mov     x4, #0
+    mov     x5, #0
+    mov     x6, #0
+    mov     x7, #0
+    svc     #0
+    movz    w4, #0x0060                 /* FFA_ERROR (0x84000060) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    9b
+    cmn     w2, #2                      /* INVALID_PARAMETERS (-2) */
+    b.ne    9b
+    movz    w0, #0x0061
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0
+    mov     x2, #0
+    mov     x3, #0
+    mov     x4, #0
+    mov     x5, #0
+    mov     x6, #0
+    mov     x7, #0
+    svc     #0
+    b       1b
+3:  lsr     x2, x1, #16                 /* original sender */
     ubfx    x1, x1, #0, #16             /* original receiver = our id */
     orr     x1, x2, x1, lsl #16         /* reply w1 = our_id<<16 | sender */
     mvn     x3, x3                      /* echo ~payload */

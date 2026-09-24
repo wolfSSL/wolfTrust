@@ -138,9 +138,12 @@ FFA_PARTITION_SCHEMA = {
 FFA_SCHEMA = {
     "partitions": [FFA_PARTITION_SCHEMA],
 }
-FFA_RUNTIME_EL = {"S-EL0": 0, "S-EL1": 1}
-FFA_MESSAGING = {"direct": 1, "indirect": 2}
-FFA_NS_INTERRUPT_ACTION = {"signaled": 0, "queued": 1}
+# Only the values the SPMC honours: every manifest partition runs at S-EL0,
+# is reached by direct messaging, has its Non-secure interrupts signaled, and
+# takes its boot information in x0.
+FFA_RUNTIME_EL = {"S-EL0": 0}
+FFA_MESSAGING = {"direct": 1}
+FFA_NS_INTERRUPT_ACTION = {"signaled": 0}
 FFA_MAX_UUIDS = 4
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
@@ -831,13 +834,13 @@ def validate_ffa(ffa, manifest):
         if entry["execution_contexts"] != 1:
             policy_error(path + " supports one execution context only")
         if entry["runtime_el"] not in FFA_RUNTIME_EL:
-            policy_error(path + " runtime_el must be S-EL0 or S-EL1")
+            policy_error(path + " runtime_el must be S-EL0")
         if entry["messaging"] not in FFA_MESSAGING:
-            policy_error(path + " messaging must be direct or indirect")
+            policy_error(path + " messaging must be direct")
         if entry["ns_interrupt_action"] not in FFA_NS_INTERRUPT_ACTION:
-            policy_error(path + " ns_interrupt_action must be signaled or queued")
-        if entry["boot_info_register"] > 3:
-            policy_error(path + " boot_info_register must be 0 to 3")
+            policy_error(path + " ns_interrupt_action must be signaled")
+        if entry["boot_info_register"] != 0:
+            policy_error(path + " boot_info_register must be 0")
 
 
 def uuid_bytes(uuid):

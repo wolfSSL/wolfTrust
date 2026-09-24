@@ -463,9 +463,13 @@ class GeneratorTest(unittest.TestCase):
             ("domain_id", 250, "unknown domain"),
             ("execution_contexts", 2, "one execution context"),
             ("runtime_el", "EL2", "runtime_el"),
+            ("runtime_el", "S-EL1", "runtime_el must be S-EL0"),
             ("messaging", "smoke", "messaging"),
+            ("messaging", "indirect", "messaging must be direct"),
             ("ns_interrupt_action", "drop", "ns_interrupt_action"),
+            ("ns_interrupt_action", "queued", "must be signaled"),
             ("boot_info_register", 4, "boot_info_register"),
+            ("boot_info_register", 1, "boot_info_register must be 0"),
         )
         for field, value, message in cases:
             with tempfile.TemporaryDirectory() as temporary:

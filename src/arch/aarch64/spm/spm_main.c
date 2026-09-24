@@ -527,6 +527,10 @@ static int prove_ffa_direct(void)
     static const uint32_t second[WT_FFA_DIRECT_PAYLOAD_WORDS] = {
         0x0000C3C3u, 0u, 0u, 0u, 0u
     };
+    static const uint32_t complete[WT_FFA_DIRECT_PAYLOAD_WORDS] = {
+        0x00005CCEu, 0u, 0u, 0u, 0u
+    };
+    unsigned int i;
     const wt_domain_descriptor_t* d = first_partition_domain();
     uint64_t req[WT_FFA_MSG_REGS_EXT];
     uint64_t resp[WT_FFA_MSG_REGS_EXT];
@@ -579,6 +583,26 @@ static int prove_ffa_direct(void)
     if (((uint32_t)resp[0] != WT_FFA_MSG_SEND_DIRECT_RESP32) ||
         ((uint32_t)resp[3] != (uint32_t)~second[0]) ||
         (wt_co_state(co) != WT_CO_BLOCKED)) {
+        return 0;
+    }
+
+    /* 15.2: completed with FFA_SUCCESS instead, the echo waits once more. */
+    wt_ffa_direct_build(req, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_SP_FIRST, complete);
+    if ((wt_spm_ffa_direct_deliver((struct wt_co*)co, req, resp) != 0) ||
+        ((uint32_t)resp[0] != WT_FFA_SUCCESS32)) {
+        return 0;
+    }
+    for (i = 1u; i < WT_FFA_MSG_REGS; i++) {
+        if (resp[i] != 0u) {
+            return 0;
+        }
+    }
+    wt_ffa_direct_build(req, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_SP_FIRST, first);
+    if ((wt_spm_ffa_direct_deliver((struct wt_co*)co, req, resp) != 0) ||
+        ((uint32_t)resp[0] != WT_FFA_MSG_SEND_DIRECT_RESP32) ||
+        ((uint32_t)resp[3] != (uint32_t)~first[0])) {
         return 0;
     }
     return 1;

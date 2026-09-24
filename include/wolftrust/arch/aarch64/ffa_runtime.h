@@ -72,6 +72,15 @@ int wt_ffa_rt_error_check(const uint64_t* x);
  * x = x0-x7. 0, or INVALID_PARAMETERS. */
 int wt_ffa_rt_yield_check(const uint64_t* x);
 
+/* FFA_MSG_WAIT flags (w2, Table 14.3): bit 0 keeps the caller's RX buffer. */
+#define WT_FFA_MSG_WAIT_RETAIN_RX 0x1u
+
+/* FFA_MSG_WAIT from a partition that negotiated version (14.1): 1 when the
+ * call hands its RX buffer back, 0 when a v1.2 caller keeps it with the
+ * Retain RX Buffer Ownership flag; bits[31:1] and an earlier caller's w2 are
+ * SBZ and ignored. x = x0-x7. */
+int wt_ffa_rt_msg_wait_releases_rx(uint32_t version, const uint64_t* x);
+
 const char *wt_ffa_rt_state_name(wt_ffa_rt_state_t state);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_RUNTIME_H */

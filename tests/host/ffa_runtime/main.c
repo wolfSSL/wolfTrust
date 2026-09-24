@@ -239,6 +239,35 @@ static void status_encoding_rows(void)
     x[3] = 0u;
 }
 
+/* FFA_MSG_WAIT's Retain RX Buffer Ownership flag (DEN0077A 1.2 REL0 Table
+ * 14.3): w2 bit 0 keeps the buffer for a v1.2 caller; w2 was SBZ before. */
+static void msg_wait_rx_rows(void)
+{
+    uint64_t x[8] = { 0 };
+
+    x[0] = WT_FFA_MSG_WAIT;
+    check(wt_ffa_rt_msg_wait_releases_rx(WT_FFA_VERSION_1_2, x) == 1,
+          "MSG_WAIT with the retain flag clear hands the RX buffer back");
+    x[2] = WT_FFA_MSG_WAIT_RETAIN_RX;
+    check(wt_ffa_rt_msg_wait_releases_rx(WT_FFA_VERSION_1_2, x) == 0,
+          "MSG_WAIT with w2 bit 0 set keeps a v1.2 caller's RX buffer");
+    x[2] = 0xFFFFFFFFull;
+    check(wt_ffa_rt_msg_wait_releases_rx(WT_FFA_VERSION_1_2, x) == 0,
+          "SBZ w2 bits[31:1] do not cancel the retain flag");
+    x[2] = 0xFFFFFFFEull | 0xFFFFFFFF00000000ull;
+    check(wt_ffa_rt_msg_wait_releases_rx(WT_FFA_VERSION_1_2, x) == 1,
+          "only w2 bit 0 retains: SBZ bits and the upper half are ignored");
+    x[2] = WT_FFA_MSG_WAIT_RETAIN_RX;
+    x[1] = 0xFFFFFFFFull;
+    x[3] = 0xFFFFFFFFull;
+    x[7] = 0xFFFFFFFFull;
+    check(wt_ffa_rt_msg_wait_releases_rx(WT_FFA_VERSION_1_2, x) == 0,
+          "SBZ w1 and w3-w7 do not change the retain decision");
+    check(wt_ffa_rt_msg_wait_releases_rx(0x00010001u, x) == 1 &&
+          wt_ffa_rt_msg_wait_releases_rx(0x00010000u, x) == 1,
+          "a v1.1 or v1.0 caller's SBZ w2 never keeps the RX buffer");
+}
+
 int main(void)
 {
     wt_ffa_rt_state_t s = WT_FFA_RT_RUNNING;
@@ -249,6 +278,7 @@ int main(void)
     run_chain();
     init_model_rows();
     status_encoding_rows();
+    msg_wait_rx_rows();
 
     /* A NULL state pointer and an out-of-range event are rejected without a
      * side effect. */

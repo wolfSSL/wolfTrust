@@ -2374,6 +2374,19 @@ static void relay_perm_set_rows(void)
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_IMAGE), 1u,
                               WT_FFA_PERM_DATA_RO) == WT_FFA_INVALID_PARAMETERS,
           "perm set: code every partition runs is INVALID_PARAMETERS (Table 2.41)");
+    check(wt_spm_mem_rxtx_ok(&g_dom_a, page(PG_SHARED)) == 0,
+          "rxtx: memory its manifest shares with another partition is never its RX/TX buffer");
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_SHARED), 1u,
+                              WT_FFA_PERM_DATA_NONE) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_SHARED), 1u,
+                              WT_FFA_PERM_DATA_RO) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_a, PG_SHARED) == WT_DOMAIN_ACCESS_RW,
+          "perm set: nor is it the partition's own to re-permission (INVALID_PARAMETERS)");
+    check(wt_spm_mem_perm_get(&g_dom_a, page(PG_SHARED), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN),
+          "perm get: it still reads back its access to memory it shares (Table 2.37)");
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
                               WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) ==
               WT_FFA_INVALID_PARAMETERS &&

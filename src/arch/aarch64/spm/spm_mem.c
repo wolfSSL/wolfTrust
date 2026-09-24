@@ -595,11 +595,11 @@ static const wt_spm_mem_binding_t* bind_by_dom(const wt_secure_domain_t* dom)
     return NULL;
 }
 
-/* The page at is the partition's own: its manifest names it, or a donate made
- * it the receiver's (Owner-EA, DEN0140 2.4.1.2 item 12), which is a page its
- * table still gives it that no live transaction covers and no manifest
- * shares. */
-static int partition_owns(const wt_secure_domain_t* dom, uint64_t at)
+/* The page at is one the partition may access as its own memory: its
+ * manifest names it, or a donate made it the receiver's (Owner-EA, DEN0140
+ * 2.4.1.2 item 12), which is a page its table still gives it that no live
+ * transaction covers and no manifest shares. */
+static int partition_reaches(const wt_secure_domain_t* dom, uint64_t at)
 {
     if (manifest_covers(dom, at) != 0) {
         return 1;
@@ -609,6 +609,14 @@ static int partition_owns(const wt_secure_domain_t* dom, uint64_t at)
                                   (uintptr_t)at) != 0) &&
             (common_memory(dom, at, WT_FFA_MEM_PAGE_SIZE) == 0) &&
             (wt_ffa_mem_registry_overlaps(&g_reg, at, 1u) == 0)) ? 1 : 0;
+}
+
+/* Of those, the pages that are the partition's alone: never the image every
+ * partition runs or memory its manifest shares with another. */
+static int partition_owns(const wt_secure_domain_t* dom, uint64_t at)
+{
+    return ((common_memory(dom, at, WT_FFA_MEM_PAGE_SIZE) == 0) &&
+            (partition_reaches(dom, at) != 0)) ? 1 : 0;
 }
 
 int wt_spm_mem_rxtx_ok(const wt_secure_domain_t* dom, uint64_t va)
@@ -631,7 +639,7 @@ int wt_spm_mem_perm_get(const wt_secure_domain_t* dom, uint64_t va,
 
     if ((dom == NULL) || (perm == NULL) || (va >= WT_TABLES_VA_LIMIT) ||
         ((va % WT_FFA_MEM_PAGE_SIZE) != 0u) ||
-        (partition_owns(dom, va) == 0) ||
+        (partition_reaches(dom, va) == 0) ||
         (wt_domain_get_permissions(dom->regions, dom->region_count,
                                    (uintptr_t)va, &attributes) !=
          WT_TABLES_OK)) {

@@ -57,6 +57,19 @@ void wt_mmu_tlbi_asid(uint64_t asid)
     g_tlbis++;
 }
 
+static uint64_t g_sync_va;
+static uint64_t g_sync_size;
+static uint64_t g_sync_ttbr0;
+static unsigned int g_syncs;
+
+void wt_mmu_sync_icache(uint64_t va, uint64_t size)
+{
+    g_sync_va = va;
+    g_sync_size = size;
+    g_sync_ttbr0 = g_switched_to;
+    g_syncs++;
+}
+
 void wt_domain_fail(int code)
 {
     g_last_fail = code;
@@ -306,6 +319,21 @@ int main(void)
           wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, &attrs) ==
               WT_TABLES_OK && attrs == RW,
           "a page held for reading can be withdrawn to no access, invalidating the ASID, and is released as it was");
+    switches = g_switches;
+    check(g_syncs == 0u && wt_domain_current_ttbr0() != sp0 &&
+          wt_domain_set_permissions(g_sp0, 2u, 0x0E201000u, 1u, RX) ==
+              WT_TABLES_OK &&
+          g_syncs == 1u && g_sync_va == 0x0E201000u &&
+          g_sync_size == WT_TABLES_PAGE_SIZE && g_sync_ttbr0 == sp0 &&
+          g_switches == switches + 2u &&
+          g_switched_to == wt_domain_current_ttbr0(),
+          "making a page executable syncs the instruction cache for it under its own table, then switches back");
+    check(wt_domain_set_permissions(g_sp0, 2u, 0x0E201000u, 1u, RW) ==
+              WT_TABLES_OK &&
+          wt_domain_owner_hold(g_sp0, 2u, 0x0E202000u, 1u, 0) == WT_TABLES_OK &&
+          wt_domain_owner_release(g_sp0, 2u, 0x0E202000u, 1u) ==
+              WT_TABLES_OK && g_syncs == 1u,
+          "a data page made or given back execute-never needs no instruction cache sync");
 
     fails = g_fails;
     switches = g_switches;

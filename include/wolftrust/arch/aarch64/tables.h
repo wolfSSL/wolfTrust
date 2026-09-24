@@ -163,6 +163,9 @@ void wt_mmu_switch_ttbr0(uint64_t ttbr0);
 void wt_mmu_tlbi_asid(uint64_t asid);
 /* Clean and invalidate [va, va + size) to the point of coherency. */
 void wt_mmu_dcache_clean_inval(uint64_t va, uint64_t size);
+/* Make instructions written as data in [va, va + size), mapped by the current
+ * TTBR0, visible to instruction fetch. */
+void wt_mmu_sync_icache(uint64_t va, uint64_t size);
 
 /* Port hook: device pages the SPM itself needs mapped (the secure console). */
 const wt_memory_region_t* wt_platform_board_device_regions(size_t* count);

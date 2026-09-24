@@ -1641,6 +1641,18 @@ void wt_mmu_dcache_clean_inval(uint64_t va, uint64_t size)
     }
 }
 
+static unsigned int g_syncs;
+static uint64_t g_sync_va;
+static uint64_t g_sync_size;
+
+/* Records the last range made fetchable after EL0 was let execute it. */
+void wt_mmu_sync_icache(uint64_t va, uint64_t size)
+{
+    g_syncs++;
+    g_sync_va = va;
+    g_sync_size = size;
+}
+
 void wt_domain_fail(int code)
 {
     (void)code;
@@ -2506,6 +2518,62 @@ static void relay_perm_set_rows(void)
           perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN),
           "perm set: a Device page is never made executable (2.9.0.0.1 rule 2)");
     check(g_domain_fails == 0u, "perm set: no domain operation failed closed");
+}
+
+/* Non-zero when the last instruction cache sync covered exactly page pg. */
+static int synced(unsigned int pg)
+{
+    return (g_syncs != 0u) && (g_sync_va == (uint64_t)page(pg)) &&
+           (g_sync_size == WT_TABLES_PAGE_SIZE);
+}
+
+/* WT-FFA-0009 (a page EL0 may execute again after it could be written has its
+ * instructions made fetchable: FFA_MEM_PERM_SET and a reclaim that restores an
+ * executable page; a retrieve never grants execution). */
+static void relay_icache_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint64_t h;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "icache: fixture");
+        return;
+    }
+    (void)memset(&g_relay_mailbox, 0, sizeof(g_relay_mailbox));
+    g_syncs = 0u;
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0 &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) == 0 &&
+          g_syncs == 0u,
+          "icache: a page made writable or read-only data needs no sync");
+    *(uint8_t*)page(PG_RX) = 0xD5u;
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              WT_FFA_PERM_DATA_RO) == 0 &&
+          synced(PG_RX) && g_syncs == 1u,
+          "icache: a page written as data and made executable is synced for fetch");
+    c[0].address = page(PG_RX);
+    c[0].page_count = 1u;
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RO, 0u,
+                   &ret);
+    g_syncs = 0u;
+    check(ret == 0 && access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_NONE &&
+          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RO, 0u) == 0 &&
+          relay_relinquish(h, 0u) == 0 && g_syncs == 0u,
+          "icache: lending the executable page, and a borrower mapping it execute-never, need no sync");
+    check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
+          access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_RO &&
+          synced(PG_RX) && g_syncs == 1u,
+          "icache: a reclaim that gives the owner back an executable page syncs it");
+    c[0].address = page(PG_FILL2);
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+          relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 && g_syncs == 1u,
+          "icache: a reclaim that gives back execute-never data needs none");
+    check(g_domain_fails == 0u, "icache: no domain operation failed closed");
 }
 
 /* who (B or C) retrieves h read-write, naming the other as a non-retrieval
@@ -3693,6 +3761,7 @@ int main(void)
     relay_mailbox_rows();
     relay_self_rows();
     relay_perm_set_rows();
+    relay_icache_rows();
     relay_teardown_rows();
     relay_v10_rows();
     relay_unbind_rows();

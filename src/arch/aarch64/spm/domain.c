@@ -259,6 +259,35 @@ static wt_domain_entry_t* find_built(const wt_memory_region_t* regions,
     return NULL;
 }
 
+/* A page EL0 may now execute can hold instructions the partition wrote as
+ * data, which EL0 cannot make fetchable itself (SCTLR_EL1.UCI is 0). */
+static void sync_el0_exec(const wt_domain_entry_t* e, uintptr_t va,
+                          size_t pages)
+{
+    wt_tables_walk_t w;
+    uint64_t ttbr0 = wt_tables_ttbr0(&e->table);
+    uint64_t at;
+    size_t i;
+    int exec = 0;
+
+    for (i = 0u; (i < pages) && (exec == 0); i++) {
+        at = (uint64_t)va + ((uint64_t)i * WT_TABLES_PAGE_SIZE);
+        if ((wt_tables_walk(&e->table, &g_pool, at, &w) == WT_TABLES_OK) &&
+            (w.uxn == 0u)) {
+            exec = 1;
+        }
+    }
+    if (exec != 0) {
+        if (ttbr0 != g_current_ttbr0) {
+            wt_mmu_switch_ttbr0(ttbr0);
+        }
+        wt_mmu_sync_icache((uint64_t)va, (uint64_t)pages * WT_TABLES_PAGE_SIZE);
+        if (ttbr0 != g_current_ttbr0) {
+            wt_mmu_switch_ttbr0(g_current_ttbr0);
+        }
+    }
+}
+
 int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
                               uintptr_t va, size_t pages, uint32_t attributes)
 {
@@ -272,6 +301,7 @@ int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
                                        attributes);
     if (ret == WT_TABLES_OK) {
         wt_mmu_tlbi_asid((uint64_t)e->table.asid);
+        sync_el0_exec(e, va, pages);
     }
     return ret;
 }
@@ -416,6 +446,9 @@ int wt_domain_owner_release(const wt_memory_region_t* regions, size_t count,
     }
     ret = wt_tables_release_el0(&e->table, &g_pool, (uint64_t)va, pages);
     wt_mmu_tlbi_asid((uint64_t)e->table.asid);
+    if (ret == WT_TABLES_OK) {
+        sync_el0_exec(e, va, pages);
+    }
     return ret;
 }
 

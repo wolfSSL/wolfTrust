@@ -367,10 +367,24 @@ wt_sp_el0_probe:
  * interrupt: acknowledge it by returning to waiting. Its w1/w2 are MBZ for an
  * S-EL0 partition (12.4.1 item 3), so a nonzero one faults the partition. The
  * response SVC also waits for the next request, so control resumes at label 1
- * with it. */
+ * with it. Before its first wait it checks that an SVC32 call is read from
+ * w1-w7 alone: FFA_MEM_PERM_GET32 on its own stack page, with junk above the
+ * address in x1, must succeed or the partition faults. */
     .section .text.wt_sp_ffa_echo, "ax"
     .globl wt_sp_ffa_echo
 wt_sp_ffa_echo:
+    mov     x1, sp
+    sub     x1, x1, #1
+    and     x1, x1, #0xFFFFFFFFFFFFF000 /* the stack's top page */
+    movk    x1, #0xDEAD, lsl #48        /* upper half, not an argument */
+    movz    w0, #0x0088                 /* FFA_MEM_PERM_GET32 (0x84000088) */
+    movk    w0, #0x8400, lsl #16
+    svc     #0
+    movz    w4, #0x0061                 /* FFA_SUCCESS32 (0x84000061) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.eq    0f
+    udf     #0
 0:  movz    w0, #0x006B                 /* FFA_MSG_WAIT (0x8400006B) */
     movk    w0, #0x8400, lsl #16
     svc     #0

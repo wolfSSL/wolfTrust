@@ -968,6 +968,11 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         wt_sp_el0_leave();
     }
 
+    /* 4.4: the SVC32 convention mirrors SMC32, so a 32-bit call carries w1-w7
+     * only, as the monitor normalizes an SMC32 call. */
+    if (wt_ffa_fid_in_range(fid)) {
+        wt_ffa_regs_normalize(frame->x);
+    }
     if (wt_ffa_fid_in_range(fid) && (fid != WT_FFA_VERSION) && (co != NULL) &&
         (co->id != 0u) && (co->id <= WT_CO_MAX)) {
         wt_ffa_version_lock(&g_sp_version[co->id - 1u], WT_FFA_VERSION_1_2);

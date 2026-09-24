@@ -1,0 +1,12 @@
+# Global symbols the EL3 monitor archive may define (one ERE per line): the
+# monitor, the SPMD's FF-A helpers, its drivers, the port's EL3 hooks, and the
+# minimal libc. Anything else is core code linked into EL3 (WT-PORT-0012).
+^g_wt_el3_[a-z0-9_]+$
+^wt_el3_[a-z0-9_]+$
+^wt_esr_[a-z0-9_]+$
+^wt_ffa_[a-z0-9_]+$
+^wt_gic(_[a-z0-9_]+)?$
+^wt_pl011_[a-z0-9_]+$
+^wt_psci_[a-z0-9_]+$
+^wt_platform_(console_putc|console_flush|panic|system_reset|sip_smc|board_[a-z_]+)$
+^(memset|memcpy|memmove|memcmp)$

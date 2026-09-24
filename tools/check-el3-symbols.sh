@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # EL3 image guard (WT-PORT-0012). The AArch64 monitor archive may leave
-# unresolved only the symbols allowed by tools/el3-symbols.allow, and may not
+# unresolved only the symbols allowed by tools/el3-symbols.allow, may define
+# globally only the monitor symbols tools/el3-defines.allow names, and may not
 # define anything, global or local, that belongs to the SPM, the services, or
 # a crypto library. References resolved inside the archive itself are fine.
 #
@@ -11,14 +12,18 @@ set -u
 
 root="$(cd "$(dirname "$0")/.." && pwd)"
 ALLOW="$root/tools/el3-symbols.allow"
-DENY='^(wt_ffm_|wt_spm_|wt_monitor_|wt_hsm_|wt_attest|wt_vault|wt_its_|wt_ps_|wt_fwu|wt_vnet|wc_|wh_|psa_)'
+DEFINES="$root/tools/el3-defines.allow"
+DENY='^(wt_ffm_|wt_spm_|wt_monitor_|wt_hsm_|wt_attest|wt_vault|wt_its_|wt_ps_|wt_fwu|wt_vnet|wt_ffa_(notif|partinfo|rt)_|wt_psa_|wc_|wh_|psa_)'
 
-# audit <allow-file> < nm-listing : prints offenders, fails if there are any
+# audit <allow-file> <defines-file> < nm-listing : prints offenders, fails if
+# there are any
 audit() {
-  local allow="$1" pats defined undefined bad=0 hit
+  local allow="$1" defines="$2" pats defpats defined globals undefined bad=0 hit
   pats="$(grep -vE '^[[:space:]]*(#|$)' "$allow")"
+  defpats="$(grep -vE '^[[:space:]]*(#|$)' "$defines")"
   listing="$(cat)"
   defined="$(printf '%s\n' "$listing" | awk 'NF==3 && $2!="U" && $2!="w" {print $3}' | sort -u)"
+  globals="$(printf '%s\n' "$listing" | awk 'NF==3 && $2 ~ /^[A-Z]$/ && $2!="U" {print $3}' | sort -u)"
   undefined="$(printf '%s\n' "$listing" | awk 'NF==2 && ($1=="U" || $1=="w") {print $2}' | sort -u)"
   if [ -n "$defined" ]; then
     undefined="$(printf '%s\n' "$undefined" | grep -vxF -f <(printf '%s\n' "$defined") || true)"
@@ -33,6 +38,11 @@ audit() {
     echo "  core, service, or crypto symbol defined inside the EL3 archive: $hit"
     bad=$((bad + 1))
   done < <(printf '%s\n' "$defined" | grep -E "$DENY" || true)
+  while IFS= read -r hit; do
+    [ -z "$hit" ] && continue
+    echo "  global symbol the monitor does not define inside the EL3 archive: $hit"
+    bad=$((bad + 1))
+  done < <(printf '%s\n' "$globals" | grep -vE -f <(printf '%s\n' "$defpats") || true)
   [ "$bad" -eq 0 ]
 }
 
@@ -45,7 +55,7 @@ link_gate() {
   r="$tmp/root"
   b="$tmp/build"
   mkdir -p "$r/tools" "$r/src/arch/aarch64/el3" "$b"
-  cp "$root/tools/check-el3-symbols.sh" "$ALLOW" "$r/tools/"
+  cp "$root/tools/check-el3-symbols.sh" "$ALLOW" "$DEFINES" "$r/tools/"
   : > "$r/src/arch/aarch64/el3/el3.ld"
   printf '#!/bin/sh\ncat "%s"\n' "$tmp/listing" > "$tmp/fake-nm"
   printf '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && : > "$2"; shift; done\n' > "$tmp/fake-cc"
@@ -97,15 +107,20 @@ link_gate() {
 selftest() {
   local fails=0 out
   out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n                 U wt_gic_init_secure\n                 U wt_platform_console_putc\n                 U wt_esr_classify\n                 U memset\n                 U __el3_stack_top\n\nesr.o:\n0000000000000000 T wt_esr_classify\n' \
-    | audit "$ALLOW")" || { echo "SELFTEST FAIL: clean listing rejected:"; echo "$out"; fails=$((fails + 1)); }
+    | audit "$ALLOW" "$DEFINES")" || { echo "SELFTEST FAIL: clean listing rejected:"; echo "$out"; fails=$((fails + 1)); }
   out="$(printf 'smc.o:\n0000000000000000 T wt_smc_dispatch\n                 U wt_ffm_call\n0000000000000040 T wt_spm_init\n0000000000000080 t wt_hsm_helper\n' \
-    | audit "$ALLOW")" && { echo "SELFTEST FAIL: bad listing accepted"; fails=$((fails + 1)); }
+    | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: bad listing accepted"; fails=$((fails + 1)); }
   case "$out" in *"allow-list: wt_ffm_call"*) ;; *) echo "SELFTEST FAIL: wt_ffm_call not flagged"; fails=$((fails + 1)) ;; esac
   case "$out" in *"EL3 archive: wt_spm_init"*) ;; *) echo "SELFTEST FAIL: wt_spm_init not flagged"; fails=$((fails + 1)) ;; esac
   case "$out" in *"EL3 archive: wt_hsm_helper"*) ;; *) echo "SELFTEST FAIL: local wt_hsm_helper not flagged"; fails=$((fails + 1)) ;; esac
+  out="$(printf 'core.o:\n0000000000000000 T wt_boot_run\n0000000000000040 T wt_domain_init\n0000000000000080 T wt_partition_start\n0000000000000000 B g_wt_boot_state\n\nffa_notif.o:\n0000000000000000 t wt_ffa_notif_bind\n' \
+    | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: core definitions accepted"; fails=$((fails + 1)); }
+  for sym in wt_boot_run wt_domain_init wt_partition_start g_wt_boot_state wt_ffa_notif_bind; do
+    case "$out" in *"EL3 archive: $sym"*) ;; *) echo "SELFTEST FAIL: $sym not flagged"; fails=$((fails + 1)) ;; esac
+  done
   # A shell status wraps modulo 256, so exactly 256 offenders must still fail.
   out="$(awk 'BEGIN { print "big.o:"; for (i = 0; i < 256; i++) printf "%016x T wt_spm_leak%d\n", i * 4, i }' \
-    | audit "$ALLOW")" && { echo "SELFTEST FAIL: 256 offenders accepted"; fails=$((fails + 1)); }
+    | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: 256 offenders accepted"; fails=$((fails + 1)); }
   link_gate || fails=$((fails + 1))
   if [ "$fails" -ne 0 ]; then echo "SELFTEST: $fails failure(s)"; exit 1; fi
   echo "SELFTEST: ok"
@@ -138,8 +153,8 @@ else
   exit 2
 fi
 
-echo "EL3 symbol guard: $source_desc (allow-list tools/el3-symbols.allow)"
-if printf '%s\n' "$listing" | audit "$ALLOW"; then
+echo "EL3 symbol guard: $source_desc (allow-lists tools/el3-symbols.allow, tools/el3-defines.allow)"
+if printf '%s\n' "$listing" | audit "$ALLOW" "$DEFINES"; then
   echo "OK: the EL3 archive references only allowed symbols and defines no core code."
   exit 0
 fi

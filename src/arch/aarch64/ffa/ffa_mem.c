@@ -211,7 +211,7 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
     uint8_t* c;
 
     if ((buf == NULL) || (in == NULL) || (out_len == NULL) ||
-        (in->constituents == NULL) || (in->constituent_count < 1u)) {
+        ((in->constituents == NULL) && (in->constituent_count != 0u))) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     acc_size = (in->access_desc_size != 0u) ? (uint32_t)in->access_desc_size
@@ -224,10 +224,14 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
     hdr = (layout_v10(in->version) != 0) ? WT_FFA_MEM_TXN_HDR_SIZE_V10
                                          : WT_FFA_MEM_TXN_HDR_SIZE;
 
-    comp_off = hdr + acc_size;
-    cons_base = comp_off + WT_FFA_MEM_COMPOSITE_HDR_SIZE;
-    total = (uint64_t)cons_base +
-            (uint64_t)in->constituent_count * WT_FFA_MEM_CONSTITUENT_SIZE;
+    /* With no constituents the receiver named the ranges itself: no
+     * composite, and its offset is 0 (1.11.3.3). */
+    comp_off = (in->constituent_count != 0u) ? (hdr + acc_size) : 0u;
+    cons_base = hdr + acc_size + WT_FFA_MEM_COMPOSITE_HDR_SIZE;
+    total = (in->constituent_count != 0u)
+                ? ((uint64_t)cons_base +
+                   (uint64_t)in->constituent_count * WT_FFA_MEM_CONSTITUENT_SIZE)
+                : ((uint64_t)hdr + acc_size);
     if (total > (uint64_t)len) {
         return WT_FFA_NO_MEMORY;
     }
@@ -259,8 +263,11 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
     for (i = 0u; i < in->constituent_count; i++) {
         sum += in->constituents[i].page_count;
     }
-    wr_u32(&buf[comp_off + WT_FFA_MEM_COMP_OFF_PAGES], sum);
-    wr_u32(&buf[comp_off + WT_FFA_MEM_COMP_OFF_COUNT], in->constituent_count);
+    if (comp_off != 0u) {
+        wr_u32(&buf[comp_off + WT_FFA_MEM_COMP_OFF_PAGES], sum);
+        wr_u32(&buf[comp_off + WT_FFA_MEM_COMP_OFF_COUNT],
+               in->constituent_count);
+    }
 
     for (i = 0u; i < in->constituent_count; i++) {
         c = &buf[cons_base + i * WT_FFA_MEM_CONSTITUENT_SIZE];
@@ -270,6 +277,53 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
 
     *out_len = (size_t)total;
     return 0;
+}
+
+/* The count constituents at cons_base, already inside the buffer: each
+ * page-aligned and non-empty, none overlapping another, summing to total
+ * (1.11.3.1). 0 or INVALID_PARAMETERS. */
+static int constituents_valid(const uint8_t* buf, uint64_t cons_base,
+                              uint32_t count, uint32_t total)
+{
+    uint32_t sum_pages = 0u;
+    uint32_t i;
+    uint32_t j;
+
+    for (i = 0u; i < count; i++) {
+        const uint8_t* c = &buf[cons_base + (uint64_t)i * WT_FFA_MEM_CONSTITUENT_SIZE];
+        uint64_t addr = rd_u64(&c[WT_FFA_MEM_CONS_OFF_ADDR]);
+        uint32_t pages = rd_u32(&c[WT_FFA_MEM_CONS_OFF_PAGES]);
+        uint64_t span;
+        uint64_t a_end;
+
+        if ((addr & (WT_FFA_MEM_PAGE_SIZE - 1u)) != 0u) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+        if (pages < 1u) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+        span = (uint64_t)pages * WT_FFA_MEM_PAGE_SIZE;
+        a_end = addr + span;
+        if (a_end < addr) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+        for (j = 0u; j < i; j++) {
+            const uint8_t* p = &buf[cons_base + (uint64_t)j * WT_FFA_MEM_CONSTITUENT_SIZE];
+            uint64_t paddr = rd_u64(&p[WT_FFA_MEM_CONS_OFF_ADDR]);
+            uint64_t pend = paddr +
+                            (uint64_t)rd_u32(&p[WT_FFA_MEM_CONS_OFF_PAGES]) *
+                            WT_FFA_MEM_PAGE_SIZE;
+
+            if ((addr < pend) && (paddr < a_end)) {
+                return WT_FFA_INVALID_PARAMETERS;
+            }
+        }
+        if (pages > (0xFFFFFFFFu - sum_pages)) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+        sum_pages += pages;
+    }
+    return (sum_pages == total) ? 0 : WT_FFA_INVALID_PARAMETERS;
 }
 
 int wt_ffa_mem_txn_validate(const uint8_t* buf, size_t len, wt_ffa_mem_op_t op,
@@ -288,10 +342,7 @@ int wt_ffa_mem_txn_validate_at(const uint8_t* buf, size_t len,
     uint64_t cons_base;
     uint64_t cons_end;
     uint32_t comp_off = 0u;
-    uint32_t sum_pages = 0u;
     uint32_t hdr = 0u;
-    uint32_t i;
-    uint32_t j;
     unsigned int r;
 
     if ((buf == NULL) || (out == NULL) ||
@@ -400,41 +451,8 @@ int wt_ffa_mem_txn_validate_at(const uint8_t* buf, size_t len,
         return WT_FFA_NO_MEMORY;
     }
 
-    for (i = 0u; i < txn.constituent_count; i++) {
-        const uint8_t* c = &buf[cons_base + (uint64_t)i * WT_FFA_MEM_CONSTITUENT_SIZE];
-        uint64_t addr = rd_u64(&c[WT_FFA_MEM_CONS_OFF_ADDR]);
-        uint32_t pages = rd_u32(&c[WT_FFA_MEM_CONS_OFF_PAGES]);
-        uint64_t span;
-        uint64_t a_end;
-
-        if ((addr & (WT_FFA_MEM_PAGE_SIZE - 1u)) != 0u) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
-        if (pages < 1u) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
-        span = (uint64_t)pages * WT_FFA_MEM_PAGE_SIZE;
-        a_end = addr + span;
-        if (a_end < addr) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
-        for (j = 0u; j < i; j++) {
-            const uint8_t* p = &buf[cons_base + (uint64_t)j * WT_FFA_MEM_CONSTITUENT_SIZE];
-            uint64_t paddr = rd_u64(&p[WT_FFA_MEM_CONS_OFF_ADDR]);
-            uint64_t pend = paddr +
-                            (uint64_t)rd_u32(&p[WT_FFA_MEM_CONS_OFF_PAGES]) *
-                            WT_FFA_MEM_PAGE_SIZE;
-
-            if ((addr < pend) && (paddr < a_end)) {
-                return WT_FFA_INVALID_PARAMETERS;
-            }
-        }
-        if (pages > (0xFFFFFFFFu - sum_pages)) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
-        sum_pages += pages;
-    }
-    if (sum_pages != txn.total_page_count) {
+    if (constituents_valid(buf, cons_base, txn.constituent_count,
+                           txn.total_page_count) != 0) {
         return WT_FFA_INVALID_PARAMETERS;
     }
 
@@ -612,17 +630,57 @@ int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,
     return wt_ffa_mem_retrieve_req_parse_at(buf, len, WT_FFA_VERSION_1_2, out);
 }
 
+/* The composite at comp that a retrieve request names for the receiver's
+ * own ranges: past the access array, validated as a sender's (1.11.3.2), and
+ * ending at *end. */
+static int retrieve_ranges(const uint8_t* buf, size_t len, uint32_t comp,
+                           uint64_t acc_end, wt_ffa_mem_retrieve_req_t* out,
+                           uint64_t* end)
+{
+    uint64_t cons_base = (uint64_t)comp + WT_FFA_MEM_COMPOSITE_HDR_SIZE;
+    const uint8_t* c;
+    uint32_t total;
+    uint32_t n;
+    uint32_t i;
+
+    if (((uint64_t)comp < acc_end) || (cons_base > (uint64_t)len)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    total = rd_u32(&buf[comp + WT_FFA_MEM_COMP_OFF_PAGES]);
+    n = rd_u32(&buf[comp + WT_FFA_MEM_COMP_OFF_COUNT]);
+    *end = cons_base + ((uint64_t)n * WT_FFA_MEM_CONSTITUENT_SIZE);
+    if ((n < 1u) || (*end > (uint64_t)len)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (n > WT_FFA_MEM_MAX_REGIONS) {
+        return WT_FFA_NO_MEMORY;
+    }
+    if (constituents_valid(buf, cons_base, n, total) != 0) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    for (i = 0u; i < n; i++) {
+        c = &buf[cons_base + ((uint64_t)i * WT_FFA_MEM_CONSTITUENT_SIZE)];
+        out->ranges[i].address = rd_u64(&c[WT_FFA_MEM_CONS_OFF_ADDR]);
+        out->ranges[i].page_count = rd_u32(&c[WT_FFA_MEM_CONS_OFF_PAGES]);
+    }
+    out->range_count = n;
+    return 0;
+}
+
 int wt_ffa_mem_retrieve_req_parse_at(const uint8_t* buf, size_t len,
                                      uint32_t version,
                                      wt_ffa_mem_retrieve_req_t* out)
 {
     const uint8_t* acc;
+    uint64_t end;
     uint32_t acc_size = 0u;
     uint32_t count;
+    uint32_t comp;
     uint32_t off = 0u;
     uint32_t hdr = 0u;
     uint32_t i;
     uint32_t j;
+    int ret;
 
     if ((buf == NULL) || (out == NULL) ||
         (txn_header(buf, len, version, &acc_size, &off, &hdr) != 0)) {
@@ -638,15 +696,29 @@ int wt_ffa_mem_retrieve_req_parse_at(const uint8_t* buf, size_t len,
     if (count > WT_FFA_MEM_MAX_BORROWERS) {
         return WT_FFA_NOT_SUPPORTED;
     }
-    if ((off < hdr) ||
-        ((off % WT_FFA_MEM_ACC_OFFSET_ALIGN) != 0u) ||
-        (((uint64_t)off + ((uint64_t)count * acc_size)) != (uint64_t)len)) {
+    end = (uint64_t)off + ((uint64_t)count * acc_size);
+    if ((off < hdr) || ((off % WT_FFA_MEM_ACC_OFFSET_ALIGN) != 0u) ||
+        (end > (uint64_t)len)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
+    out->range_count = 0u;
+    out->range_index = 0u;
     for (i = 0u; i < count; i++) {
         acc = &buf[off + (i * acc_size)];
-        if (rd_u32(&acc[WT_FFA_MEM_ACC_OFF_COMP_OFF]) != 0u) {
+        comp = rd_u32(&acc[WT_FFA_MEM_ACC_OFF_COMP_OFF]);
+        /* One receiver may name the ranges it maps the memory at; every
+         * other entry leaves them to the relayer (1.11.3.2). */
+        if ((comp != 0u) && (out->range_count != 0u)) {
             return WT_FFA_INVALID_PARAMETERS;
+        }
+        if (comp != 0u) {
+            ret = retrieve_ranges(buf, len, comp,
+                                  (uint64_t)off + ((uint64_t)count * acc_size),
+                                  out, &end);
+            if (ret != 0) {
+                return ret;
+            }
+            out->range_index = i;
         }
         out->receivers[i] = (uint16_t)rd_u16(&acc[WT_FFA_MEM_ACC_OFF_RECEIVER]);
         /* Permission bits[7:4] and the reserved tail are SBZ. */
@@ -658,6 +730,9 @@ int wt_ffa_mem_retrieve_req_parse_at(const uint8_t* buf, size_t len,
             out->impdef[i][j] = (acc_size == WT_FFA_MEM_ACCESS_SIZE_V12)
                                     ? acc[WT_FFA_MEM_ACC_OFF_IMPDEF + j] : 0u;
         }
+    }
+    if (end != (uint64_t)len) {
+        return WT_FFA_INVALID_PARAMETERS;
     }
     out->receiver_count = count;
     out->access_desc_size = acc_size;
@@ -1035,6 +1110,7 @@ int wt_ffa_mem_frag_expected_at(const uint8_t* frag, uint32_t frag_len,
     uint32_t acc_count;
     uint32_t acc_off = WT_FFA_MEM_TXN_HDR_SIZE_V10;
     uint32_t comp_off;
+    uint32_t i;
 
     if ((frag == NULL) || (size == NULL) ||
         (frag_len < ((layout_v10(version) != 0) ? WT_FFA_MEM_TXN_HDR_SIZE_V10
@@ -1048,6 +1124,25 @@ int wt_ffa_mem_frag_expected_at(const uint8_t* frag, uint32_t frag_len,
     acc_count = rd_u32(&frag[WT_FFA_MEM_TXN_OFF_ACC_COUNT]);
     if (retrieve != 0) {
         *size = (uint64_t)acc_off + ((uint64_t)acc_count * acc_size);
+        /* A receiver's own address ranges follow the access array. */
+        for (i = 0u; (i < acc_count) &&
+                     (((uint64_t)acc_off + ((uint64_t)i * acc_size) +
+                       WT_FFA_MEM_ACC_OFF_COMP_OFF + 4u) <= (uint64_t)frag_len);
+             i++) {
+            comp_off = rd_u32(&frag[acc_off + (i * acc_size) +
+                                    WT_FFA_MEM_ACC_OFF_COMP_OFF]);
+            if (comp_off == 0u) {
+                continue;
+            }
+            if (((uint64_t)comp_off + WT_FFA_MEM_COMP_OFF_COUNT + 4u) >
+                (uint64_t)frag_len) {
+                return 0;
+            }
+            *size = (uint64_t)comp_off + WT_FFA_MEM_COMPOSITE_HDR_SIZE +
+                    ((uint64_t)rd_u32(&frag[comp_off + WT_FFA_MEM_COMP_OFF_COUNT]) *
+                     WT_FFA_MEM_CONSTITUENT_SIZE);
+            break;
+        }
         return 1;
     }
     if (((uint64_t)acc_off + WT_FFA_MEM_ACC_OFF_COMP_OFF + 4u) >

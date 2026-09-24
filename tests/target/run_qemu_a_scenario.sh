@@ -466,6 +466,45 @@ case "$scenario" in
     # and the clean semihosting exit gate correctness. 89 scheduled: 85 pass,
     # the 4 heap tests report SKIPPED (zero-allocation image); i067 is not
     # scheduled (heap).
+    # Each test partition's writable globals lie in its own page-aligned
+    # segment, the only part of the band it is granted, and nothing else in
+    # the band holds a symbol.
+    conf_nm=$("${TOOLPREFIX}nm" "$spm_elf")
+    conf_addr() { printf '%s\n' "$conf_nm" | awk -v s="$1" '$3 == s && !f { print $1; f = 1 }'; }
+    conf_segs=""
+    for owner in "server:val_server_sp psa_server_sp server_ipc_test_list g_test_i084" \
+                 "client:val_client_sp psa_client_sp client_ipc_test_list" \
+                 "driver:g_psa_rot_data g_drv_nvm g_drv_nvm_ready g_drv_wd_enabled log_buffer log_buffer_offset"; do
+      seg=${owner%%:*}
+      lo=$(conf_addr "_s_conf_${seg}_data"); hi=$(conf_addr "_e_conf_${seg}_data")
+      [ -n "$lo" ] && [ -n "$hi" ] || check_fail "the $seg partition has its own data segment" "no _s/_e_conf_${seg}_data"
+      conf_segs="$conf_segs $((16#$lo)):$((16#$hi))"
+      for s in ${owner#*:}; do
+        a=$(conf_addr "$s")
+        if [ -z "$a" ] || [ $((16#$a)) -lt $((16#$lo)) ] || [ $((16#$a)) -ge $((16#$hi)) ]; then
+          check_fail "the $seg partition's writable globals lie in its own segment" "$s at ${a:-none}, segment $lo-$hi"
+        fi
+      done
+      check_pass "the $seg partition's writable globals lie in its own segment"
+    done
+    conf_stray=""
+    while read -r a t s; do
+      [ -n "$s" ] || continue
+      case "$t" in A|a) continue ;; esac
+      case "$s" in _s_conf_*|_e_conf_*|_si_conf_*) continue ;; esac
+      v=$((16#$a))
+      { [ "$v" -ge $((ns_confdata)) ] && [ "$v" -lt $((ns_confdata + 0x1C000)) ]; } || continue
+      in_seg=0
+      for r in $conf_segs; do
+        [ "$v" -ge "${r%%:*}" ] && [ "$v" -lt "${r#*:}" ] && in_seg=1
+      done
+      [ "$in_seg" = 1 ] || conf_stray="$conf_stray $s"
+    done <<< "$conf_nm"
+    if [ -z "$conf_stray" ]; then
+      check_pass "no conformance data lies outside the partitions' own segments"
+    else
+      check_fail "no conformance data lies outside the partitions' own segments" "shared:$conf_stray"
+    fi
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "monitor dropped into Secure EL1" "[SPM] spmc entered at S-EL1"
     for id in 8002 8003 8004 8005 8006 8007 8008 8009; do

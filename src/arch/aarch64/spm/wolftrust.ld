@@ -75,30 +75,40 @@ SECTIONS
         _e_keystore = .;
     } > KEYSTORE
 
-    /* The Arm conformance partitions run at S-EL0 and read their val/psa API
-     * tables from .data, so those live in a dedicated band granted to the test
-     * partitions (wt_platform_conf_sp_grants) while SPM RAM stays EL1-only.
-     * Empty in non-conformance builds. */
+    /* The Arm conformance partitions run at S-EL0 and keep their writable
+     * state in this band while SPM RAM stays EL1-only: one page-aligned
+     * segment per partition, each granted to its owner alone
+     * (wt_platform_conf_sp_grants). Empty in non-conformance builds. */
     .conf_data : {
-        . = ALIGN(16);
         _s_conf_data = .;
-        EXCLUDE_FILE(*conf_sec_test_supp_*.o *conf_sec_driver_partition.o) *conf_sec_*.o(.data .data.*)
-        . = ALIGN(4096);
         _s_conf_server_data = .;
+        *conf_sec_server_partition.o(.data .data.* .bss .bss.* COMMON)
         *conf_sec_test_supp_*.o(.data .data.* .bss .bss.* COMMON)
         . = ALIGN(4096);
         _e_conf_server_data = .;
+        _s_conf_client_data = .;
+        *conf_sec_client_partition.o(.data .data.* .bss .bss.* COMMON)
+        *conf_sec_test_i*.o(.data .data.* .bss .bss.* COMMON)
+        . = ALIGN(4096);
+        _e_conf_client_data = .;
         _s_conf_driver_data = .;
         *conf_sec_driver_partition.o(.data .data.* .bss .bss.* COMMON)
+        *conf_sec_val_driver_service_apis.o(.data .data.* .bss .bss.* COMMON)
+        *conf_sec_val_log.o(.data .data.* .bss .bss.* COMMON)
+        *conf_sec_pal_driver_intf.o(.data .data.* .bss .bss.* COMMON)
+        *conf_sec_conf_nvm_sync.o(.data .data.* .bss .bss.* COMMON)
         . = ALIGN(4096);
         _e_conf_driver_data = .;
+        _s_conf_unowned = .;
+        *conf_sec_*.o(.data .data.*)
+        _e_conf_unowned = .;
+        . = ALIGN(16);
         _e_conf_data_data = .;
     } > CONFDATA AT > IMAGE
     _si_conf_data = LOADADDR(.conf_data);
     .conf_bss (NOLOAD) : {
-        . = ALIGN(16);
         _s_conf_bss = .;
-        EXCLUDE_FILE(*conf_sec_test_supp_*.o *conf_sec_driver_partition.o) *conf_sec_*.o(.bss .bss.* COMMON)
+        *conf_sec_*.o(.bss .bss.* COMMON)
         . = ALIGN(16);
         _e_conf_bss = .;
     } > CONFDATA
@@ -148,3 +158,6 @@ ASSERT(__image_end <= WT_SPM_IMAGE_PA + WT_SPM_IMAGE_SIZE, "SPM image band overf
 ASSERT(_e_keystore <= WT_SPM_KEYSTORE_PA + WT_SPM_KEYSTORE_SIZE, "keystore band overflow")
 ASSERT(_e_conf_data <= WT_SPM_CONFDATA_PA + WT_SPM_CONFDATA_SIZE, "conformance data band overflow")
 ASSERT(_e_conf_bss <= WT_SPM_CONFDATA_PA + 0x1C000, "conformance data reaches the pseudo-MMIO pages")
+ASSERT((_s_conf_data & 0xFFF) == 0, "conformance partition segments must be page aligned")
+ASSERT((_e_conf_unowned == _s_conf_unowned) && (_e_conf_bss == _s_conf_bss),
+       "a conformance object has writable data no partition owns")

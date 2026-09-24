@@ -387,6 +387,11 @@ static void mailbox_rows(void)
           "a valid pair is recorded");
     check(wt_ffa_mailbox_map(&mb, 0x5000ull, 0x7000ull, 1u) == WT_FFA_DENIED,
           "a second FFA_RXTX_MAP before an unmap is DENIED");
+    check(wt_ffa_mailbox_overlaps(&mb, 0x1000ull, 0x1000ull) != 0 &&
+              wt_ffa_mailbox_overlaps(&mb, 0x2000ull, 0x2000ull) != 0 &&
+              wt_ffa_mailbox_overlaps(&mb, 0x2000ull, 0x1000ull) == 0 &&
+              wt_ffa_mailbox_overlaps(&mb, 0x4000ull, 0x1000ull) == 0,
+          "a range holding a page of the mapped TX or RX buffer overlaps the pair");
     check(wt_ffa_mailbox_rx_release(&mb) == WT_FFA_DENIED,
           "releasing an RX buffer the endpoint does not own is DENIED");
     check(wt_ffa_mailbox_rx_acquire(&mb) == 0 &&
@@ -396,7 +401,8 @@ static void mailbox_rows(void)
               wt_ffa_mailbox_rx_acquire(&mb) == 0,
           "FFA_RX_RELEASE hands the buffer back to the producer");
     check(wt_ffa_mailbox_unmap(&mb) == 0 && mb.mapped == 0u &&
-              mb.rx_full == 0u,
+              mb.rx_full == 0u &&
+              wt_ffa_mailbox_overlaps(&mb, 0x1000ull, 0x1000ull) == 0,
           "FFA_RXTX_UNMAP forgets the pair and its ownership");
 }
 
@@ -1576,6 +1582,14 @@ struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id)
     return NULL;
 }
 
+/* The one RX/TX pair the rows map, standing in for every endpoint's. */
+static wt_ffa_mailbox_t g_relay_mailbox;
+
+int wt_spm_mailbox_overlaps(uint64_t base, uint64_t size)
+{
+    return wt_ffa_mailbox_overlaps(&g_relay_mailbox, base, size);
+}
+
 /* The versions A, B, and the Normal world negotiated, and whether B asked for
  * the NS bit, as the SVC gate and the SPMC report them. */
 static uint32_t g_ver_a = WT_FFA_VERSION_1_2;
@@ -2042,6 +2056,48 @@ static void relay_region_rows(void)
     check(g_domain_fails == 0u, "region: no domain operation failed closed");
 }
 
+/* WT-FFA-0009 (a mapped RX/TX pair is never sent in a memory transaction, and
+ * memory a transaction covers is never mapped as one, DEN0077A 7.2.2.2). */
+static void relay_mailbox_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint64_t h;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "mailbox: fixture");
+        return;
+    }
+    (void)memset(&g_relay_mailbox, 0, sizeof(g_relay_mailbox));
+    (void)wt_ffa_mailbox_map(&g_relay_mailbox, page(PG_RW), page(PG_RW + 1u),
+                             1u);
+    c[0].address = page(PG_RW + 1u);
+    c[0].page_count = 1u;
+    (void)relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                     &ret);
+    check(ret == WT_FFA_DENIED &&
+          access_of(&g_dom_a, PG_RW + 1u) == WT_DOMAIN_ACCESS_RW,
+          "mailbox: a lend of a mapped RX buffer is DENIED and the owner keeps it");
+    c[0].address = page(PG_RW);
+    (void)relay_send(WT_FFA_MEM_OP_DONATE, c, 1u,
+                     WT_FFA_MEM_PERM_DATA_NOT_SPEC, 0u, &ret);
+    check(ret == WT_FFA_DENIED,
+          "mailbox: a donate of a mapped TX buffer is DENIED");
+    (void)relay_send(WT_FFA_MEM_OP_SHARE, c, 1u, WT_FFA_MEM_PERM_DATA_RO, 0u,
+                     &ret);
+    check(ret == WT_FFA_DENIED, "mailbox: so is a share of it");
+    (void)wt_ffa_mailbox_unmap(&g_relay_mailbox);
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    check(ret == 0 &&
+          wt_spm_mem_in_transaction(page(PG_RW), WT_TABLES_PAGE_SIZE) != 0 &&
+          wt_spm_mem_in_transaction(page(PG_RW + 1u), WT_TABLES_PAGE_SIZE) == 0,
+          "mailbox: once unmapped the page is lent, and the lend keeps it from any pair");
+    check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
+          wt_spm_mem_in_transaction(page(PG_RW), WT_TABLES_PAGE_SIZE) == 0,
+          "mailbox: a reclaim frees it for one again");
+}
+
 /* WT-FFA-0009 (a donate hands over no more data access than the owner had on
  * every page of it, whatever order its regions come in, 1.10.2 item 2). */
 static void relay_donate_rows(void)
@@ -2482,6 +2538,7 @@ int main(void)
     relay_clean_rows();
     relay_region_rows();
     relay_donate_rows();
+    relay_mailbox_rows();
     relay_teardown_rows();
     relay_v10_rows();
     relay_unbind_rows();

@@ -797,15 +797,15 @@ static uint32_t mem_reclaim_smc(uint64_t handle)
     return (uint32_t)r0;
 }
 
-/* Build a well-formed single-constituent share descriptor into g_memneg_desc;
+/* Build a well-formed single-constituent share of page into g_memneg_desc;
  * returns its length or 0. */
-static uint32_t memneg_build(void)
+static uint32_t memneg_build_page(const uint8_t* page)
 {
     wt_ffa_mem_constituent_t cons;
     wt_ffa_mem_build_t in;
     size_t len = 0u;
 
-    cons.address = (uint64_t)(uintptr_t)g_memneg_page;
+    cons.address = (uint64_t)(uintptr_t)page;
     cons.page_count = 1u;
     in.constituents = &cons;
     in.constituent_count = 1u;
@@ -826,6 +826,54 @@ static uint32_t memneg_build(void)
         return 0u;
     }
     return (uint32_t)len;
+}
+
+static uint32_t memneg_build(void)
+{
+    return memneg_build_page(g_memneg_page);
+}
+
+/* The guest's own mapped RX buffer is the SPMC's to write, never the guest's
+ * to share: DENIED. */
+static int memneg_rx_share_denied(void)
+{
+    uint64_t w2 = 0u;
+    uint64_t w3 = 0u;
+    uint32_t len = memneg_build_page(g_memneg_rx);
+
+    return (len != 0u) && (mem_share_smc(len, &w2, &w3) == WT_FFA_ERROR) &&
+           ((int32_t)(uint32_t)w2 == WT_FFA_DENIED);
+}
+
+/* While a share holds g_memneg_page, an RX/TX pair naming it is refused as
+ * INVALID_PARAMETERS, and the guest's own pair maps back. */
+static int memneg_rxtx_over_shared(void)
+{
+    uint64_t x[5];
+    int ok;
+
+    x[0] = WT_FFA_RXTX_UNMAP;
+    x[1] = 0u;
+    x[2] = 0u;
+    x[3] = 0u;
+    x[4] = 0u;
+    smc5(x);
+    ok = ((uint32_t)x[0] == WT_FFA_SUCCESS32);
+    x[0] = WT_FFA_RXTX_MAP64;
+    x[1] = (uint64_t)(uintptr_t)g_memneg_desc;
+    x[2] = (uint64_t)(uintptr_t)g_memneg_page;
+    x[3] = 1u;
+    x[4] = 0u;
+    smc5(x);
+    ok = ok && ((uint32_t)x[0] == WT_FFA_ERROR) &&
+         ((int32_t)(uint32_t)x[2] == WT_FFA_INVALID_PARAMETERS);
+    x[0] = WT_FFA_RXTX_MAP64;
+    x[1] = (uint64_t)(uintptr_t)g_memneg_desc;
+    x[2] = (uint64_t)(uintptr_t)g_memneg_rx;
+    x[3] = 1u;
+    x[4] = 0u;
+    smc5(x);
+    return ok && ((uint32_t)x[0] == WT_FFA_SUCCESS32);
 }
 
 /* Send a well-formed share in two fragments through the same buffer (DEN0140
@@ -950,6 +998,8 @@ static void guest_memneg(void)
     ok = ok && memneg_bad_buffer((uint64_t)(uintptr_t)g_memneg_desc, 1u, len);
     ok = ok && memneg_bad_buffer((uint64_t)(uintptr_t)g_memneg_desc, 0u, len);
     ok = ok && memneg_bad_buffer(0u, 1u, len);
+    ok = ok && memneg_rx_share_denied();
+    ok = ok && memneg_rxtx_over_shared();
 
     (void)memneg_build();
     g_memneg_desc[80] = 1u;                 /* misaligned constituent base */

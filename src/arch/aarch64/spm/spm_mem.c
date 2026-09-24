@@ -284,7 +284,8 @@ static int sender_owns(uint16_t sender, const wt_ffa_mem_region_t* r,
     return access;
 }
 
-/* A partition that is not bound may be named but can never retrieve. */
+/* Any partition the SPMC runs is an endpoint it manages (1.11.3.3); one not
+ * bound never retrieves, and its owner reclaims. */
 static int receiver_known(uint16_t id)
 {
     return ((bind_by_id(id) != NULL) || (wt_spm_sp_by_ffa_id(id) != NULL)) ? 1 : 0;

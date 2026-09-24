@@ -126,6 +126,9 @@ AArch64 manifests (`--address-bits 64`) may add an optional top-level
 `ffa` section with one entry per Secure Partition domain: the FF-A
 partition properties of DEN0077A Table 5.1 (`uuids`, `execution_contexts`,
 `runtime_el`, `messaging`, `ns_interrupt_action`, `boot_info_register`).
+The generator accepts only what the SPMC implements for these partitions: one
+execution context, `S-EL0`, `direct`, `signaled`, and boot information in
+register 0; any other value stops the build.
 The generator emits them as a separate `wt_generated_ffa_partitions` table
 declared by `wolftrust/arch/aarch64/ffa_manifest.h`; a 64-bit manifest
 without the section gets an empty table (count 0), 32-bit output is

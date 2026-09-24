@@ -33,6 +33,9 @@
 #define GICD_ICENABLER    0x0180u
 #define GICD_IPRIORITYR   0x0400u
 #define GICD_IGRPMODR     0x0D00u
+#define GICD_IROUTER      0x6000u
+/* Aff3 and Aff2-Aff0 where MPIDR_EL1 has them; Interrupt_Routing_Mode 0. */
+#define GICD_IROUTER_AFF_MASK 0x000000FF00FFFFFFull
 #define GICD_CTLR_ENABLE_GRP0   (1u << 0)
 #define GICD_CTLR_ENABLE_GRP1NS (1u << 1)
 #define GICD_CTLR_ENABLE_GRP1S  (1u << 2)
@@ -59,6 +62,12 @@
 
 #define WAKE_POLL_LIMIT 1000000u
 
+#if defined(WT_GIC_SPI_ROUTE_PROBE) && (WT_GIC_SPI_ROUTE_PROBE == 1)
+/* Test only: the route an earlier stage might leave, to an affinity no PE of
+ * the QEMU machines has. */
+#define WT_GIC_ROUTE_PROBE_ABSENT_PE 0x0000000000FEFEFEull
+#endif
+
 WT_SYSREG_WRITE(icc_sre_el3, "ICC_SRE_EL3")
 WT_SYSREG_WRITE(icc_sre_el2, "ICC_SRE_EL2")
 WT_SYSREG_READ(id_aa64pfr0_el1, "ID_AA64PFR0_EL1")
@@ -82,6 +91,12 @@ static volatile uint32_t* gicd(uint32_t offset)
 static volatile uint32_t* gicr(uint32_t offset)
 {
     return (volatile uint32_t*)(uintptr_t)(WT_GICR_BASE + offset);
+}
+
+static volatile uint64_t* gicd_irouter(uint32_t intid)
+{
+    return (volatile uint64_t*)(uintptr_t)(WT_GICD_BASE + GICD_IROUTER +
+                                           (uintptr_t)intid * 8u);
 }
 
 static void gicd_wait_rwp(void)
@@ -111,6 +126,9 @@ static void gicv3_enable(uint32_t intid)
         *gicr(GICR_ISENABLER0) = 1u << intid;
     }
     else if (intid < WT_GIC_INTID_LIMIT) {
+        /* Under ARE an SPI reaches only the PE its IROUTER names, whose reset
+         * value is IMPLEMENTATION DEFINED: name this PE, the boot PE. */
+        *gicd_irouter(intid) = wt_read_mpidr_el1() & GICD_IROUTER_AFF_MASK;
         *gicd(GICD_ISENABLER + (intid / 32u) * 4u) = 1u << (intid % 32u);
     }
 }
@@ -191,6 +209,11 @@ static void gicv3_init_secure(void)
                        GICD_CTLR_ENABLE_GRP0 | GICD_CTLR_ENABLE_GRP1NS |
                        GICD_CTLR_ENABLE_GRP1S;
     gicd_wait_rwp();
+#if defined(WT_GIC_SPI_ROUTE_PROBE) && (WT_GIC_SPI_ROUTE_PROBE == 1)
+    for (i = 32u; (i < lines) && (i < WT_GIC_INTID_LIMIT); i++) {
+        *gicd_irouter(i) = WT_GIC_ROUTE_PROBE_ABSENT_PE;
+    }
+#endif
 
     wake_redistributor();
     *gicr(GICR_ICENABLER0) = 0xFFFFFFFFu;

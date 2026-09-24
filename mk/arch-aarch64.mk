@@ -18,6 +18,11 @@ WT_EL3_EL2_DIRTY_PROBE ?= 0
 ifeq ($(WT_EL3_EL2_DIRTY_PROBE),1)
 ARCH_CFLAGS += -DWT_EL3_EL2_DIRTY_PROBE=1
 endif
+# Test only: an earlier stage left every GICv3 SPI routed to an absent PE.
+WT_GIC_SPI_ROUTE_PROBE ?= 0
+ifeq ($(WT_GIC_SPI_ROUTE_PROBE),1)
+ARCH_CFLAGS += -DWT_GIC_SPI_ROUTE_PROBE=1
+endif
 # Test only: the monitor sees its redistributor asleep (1) or never gets its
 # secure tick (2) and must stop the boot.
 WT_EL3_BOOT_NEG_PROBE ?= 0

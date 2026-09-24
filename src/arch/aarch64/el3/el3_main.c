@@ -205,6 +205,10 @@ void wt_el3_main(void)
 
     wt_platform_board_init();
     wt_gic->init_secure();
+#if defined(WT_GIC_SPI_ROUTE_PROBE) && (WT_GIC_SPI_ROUTE_PROBE == 1) && \
+    (WT_GIC_VERSION == 3)
+    wt_el3_puts("[EL3] probe: every SPI routed to an absent PE\r\n");
+#endif
     mask = wait_for_secondaries();
     woken = wt_gic_rdist_woken();
 #if defined(WT_EL3_BOOT_NEG_PROBE) && (WT_EL3_BOOT_NEG_PROBE == 1)

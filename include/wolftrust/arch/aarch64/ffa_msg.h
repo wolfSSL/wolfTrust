@@ -103,19 +103,23 @@ void wt_ffa_fwk_version_resp(uint64_t* x, int32_t result);
  * message. */
 int32_t wt_ffa_fwk_version_result(const uint64_t* x);
 
-/* FFA_MSG_SEND2 (16.4): the v1.2 partition message header at the start of
- * the sender's TX buffer - flags, two reserved words, payload offset, sender
- * and receiver ids (sender bits 31:16), payload size, and the receiver's
- * UUID. The flags and reserved words are SBZ (Table 7.2): ignored here and
+/* FFA_MSG_SEND2 (15.1): the partition message header at the start of the
+ * sender's TX buffer. Table 7.2 lays out flags, a reserved word, the payload
+ * offset, sender and receiver ids (sender bits 31:16), and the payload size;
+ * that 20-byte form is the header of an endpoint that negotiated v1.0 or v1.1,
+ * and a v1.2 endpoint's 40-byte header adds a reserved word and the
+ * receiver's UUID. The flags and reserved words are SBZ: ignored here and
  * cleared in the receiver's copy. w1 bits 15:0 are SBZ. At the NS physical
  * instance w1 bits 31:16 name the sender and the delay-SRI hint in w2 bit 1
  * is MBZ (Secure virtual only, 16.5.1); at the secure virtual instance (the
  * SVC conduit) w1 bits 31:16 are MBZ and w2 is ignored (Table 15.3). */
-#define WT_FFA_MSG2_HEADER_SIZE   40u
+#define WT_FFA_MSG2_HEADER_SIZE      40u
+#define WT_FFA_MSG2_HEADER_SIZE_V1_1 20u
 #define WT_FFA_MSG2_FLAG_DELAY_SRI (1u << 1)
 
 /* The header as parsed: each field is read from the TX buffer once, so what
- * is validated is what is delivered even if the sender rewrites its TX. */
+ * is validated is what is delivered even if the sender rewrites its TX. A
+ * header without a UUID field parses as the Nil UUID. */
 typedef struct wt_ffa_msg2 {
     uint32_t offset;
     uint32_t size;
@@ -124,19 +128,30 @@ typedef struct wt_ffa_msg2 {
     uint8_t uuid[16];
 } wt_ffa_msg2_t;
 
-/* Validate the header against the caller and the TX bounds; the receiver's
- * UUID is the caller's to compare once the receiver is known. */
+/* The header size of an endpoint at a negotiated FF-A version. */
+uint32_t wt_ffa_msg2_header_size(uint32_t version);
+
+/* Validate the header, in the layout of the version the caller negotiated,
+ * against the caller and the TX bounds; the receiver's UUID is the caller's
+ * to compare once the receiver is known. */
 int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
-                      wt_ffa_instance_t inst, uint32_t w1, uint32_t w2,
-                      wt_ffa_msg2_t* out);
+                      uint32_t version, wt_ffa_instance_t inst, uint32_t w1,
+                      uint32_t w2, wt_ffa_msg2_t* out);
 
 /* A header either names the receiver's UUID or leaves it Nil. */
 int wt_ffa_msg2_uuid_ok(const uint8_t* header_uuid, const uint8_t* ep_uuid);
 
-/* Produce a parsed message in the receiver's RX of rx_size bytes: the header
- * is written from msg (the sender being the caller the SPMC identified), the
- * payload is copied from tx, every other byte is cleared (7.2.2.3.2). */
-void wt_ffa_msg2_copy(uint8_t* rx, uint32_t rx_size, const uint8_t* tx,
-                      const wt_ffa_msg2_t* msg);
+/* Where the payload lands in an RX whose owner negotiated version: the
+ * sender's offset, moved past the receiver's header when it is shorter. The
+ * relayer checks the result plus the size against the RX before the copy. */
+uint32_t wt_ffa_msg2_rx_offset(const wt_ffa_msg2_t* msg, uint32_t version);
+
+/* Produce a parsed message in the receiver's RX of rx_size bytes, in the
+ * header layout of the version the receiver negotiated: the header is
+ * written from msg (the sender being the caller the SPMC identified), the
+ * payload is copied from tx to wt_ffa_msg2_rx_offset, every other byte is
+ * cleared (7.2.2.3.2). */
+void wt_ffa_msg2_copy(uint8_t* rx, uint32_t rx_size, uint32_t version,
+                      const uint8_t* tx, const wt_ffa_msg2_t* msg);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_MSG_H */

@@ -289,10 +289,12 @@ uint32_t wt_spm_ns_ffa_version(void);
 int wt_spm_sp_ffa_ns_bit(const struct wt_co* co);
 
 /* FFA_MSG_SEND2 delivery from either conduit: validate the partition message
- * in the caller's TX against the rules of the instance it was invoked at and
- * copy it into the receiver's RX. */
-int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
-                        wt_ffa_instance_t inst, uint32_t w1, uint32_t w2);
+ * in the caller's TX, in the header layout of the version the caller
+ * negotiated, against the rules of the instance it was invoked at and copy it
+ * into the receiver's RX in the layout of the receiver's version. */
+int wt_spm_msg2_deliver(uint16_t caller, uint32_t version, const uint8_t* tx,
+                        uint32_t tx_size, wt_ffa_instance_t inst, uint32_t w1,
+                        uint32_t w2);
 
 /* The test echo partition (WT_FFA_ID_ECHO), NULL unless WT_EL3_TEST_DRIVER=1.
  * enable_mmu publishes its stack band (the slot after the last manifest

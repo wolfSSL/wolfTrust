@@ -816,6 +816,7 @@ case "$scenario" in
       check_fail "FF-A ACS $acs_suite" "passed=$passed (want >= $acs_floor) skipped=$skipped failed=$failed sim_error=$sim_error (want 0) unexpected:${unexpected:- none}"
     fi
     expect "the dispatcher ended the run" "END OF ACS"
+    expect "the dispatcher's PSCI SYSTEM_OFF ended the emulator cleanly" "[EXPECT EXIT] Success"
     ;;
   attestneg)
     # NS-side negative probe over the routed FF-A path (the attestation service

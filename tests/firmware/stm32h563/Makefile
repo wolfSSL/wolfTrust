@@ -314,6 +314,8 @@ ALL_GUEST_COMMON_OBJS := \
 ALL_GUEST0_OBJS := $(HSM_GUEST0_MAIN_OBJ) $(ALL_GUEST_COMMON_OBJS)
 ALL_GUEST1_OBJS := $(HSM_GUEST1_MAIN_OBJ) $(ALL_GUEST_COMMON_OBJS)
 
+$(ALL_GUEST0_OBJS) $(ALL_GUEST1_OBJS): nonsecure/user_settings.h
+
 # ---- wolfhsm_cfg.h trampolines ----------------------------------------------
 # wh_settings.h does: #ifdef WOLFHSM_CFG / #include "wolfhsm_cfg.h" / #endif
 # We must provide a file of that exact name on the include path.

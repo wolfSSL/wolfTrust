@@ -116,6 +116,15 @@ int wt_ffa_run_target(uint32_t w1, uint16_t* id)
     return ((w1 & 0xFFFFu) == 0u) ? 0 : WT_FFA_INVALID_PARAMETERS;
 }
 
+int wt_ffa_run_busy_check(uint16_t requester, uint16_t caller,
+                          unsigned int yielded, unsigned int preempted)
+{
+    if ((requester != caller) || ((yielded == 0u) && (preempted == 0u))) {
+        return WT_FFA_DENIED;
+    }
+    return 0;
+}
+
 void wt_ffa_msg_deliver(uint64_t* x, const uint64_t* msg)
 {
     uint32_t call = (uint32_t)x[0];

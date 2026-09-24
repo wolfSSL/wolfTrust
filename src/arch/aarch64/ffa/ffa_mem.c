@@ -1183,6 +1183,7 @@ void wt_ffa_mem_frag_reset(wt_ffa_mem_frag_t* f)
         f->received = 0u;
         f->sender = 0u;
         f->op = 0u;
+        f->aborted = 0u;
     }
 }
 
@@ -1204,6 +1205,7 @@ int wt_ffa_mem_frag_begin(wt_ffa_mem_frag_t* f, uint64_t handle,
     f->sender = sender;
     f->op = op;
     f->active = 1u;
+    f->aborted = 0u;
     return 0;
 }
 

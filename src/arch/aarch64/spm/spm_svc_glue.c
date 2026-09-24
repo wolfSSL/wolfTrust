@@ -392,9 +392,11 @@ static void ffa_rxtx_map(wt_trap_frame_t* frame, const struct wt_co* co)
 }
 
 /* FFA_RXTX_UNMAP (13.7): the id in w1[31:16] is MBZ at this instance (Table
- * 13.30); w1[15:0] is SBZ. */
+ * 13.30); w1[15:0] is SBZ. A descriptor the caller was still sending through
+ * the TX buffer is aborted. */
 static void ffa_rxtx_unmap(wt_trap_frame_t* frame)
 {
+    const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
     int ret;
 
     if ((((uint32_t)frame->x[1] >> 16) & 0xFFFFu) != 0u) {
@@ -405,6 +407,9 @@ static void ffa_rxtx_unmap(wt_trap_frame_t* frame)
     if (ret != 0) {
         ffa_error(frame, ret);
         return;
+    }
+    if (b != NULL) {
+        wt_spm_mem_frag_abort(b->id);
     }
     ffa_success(frame, 0u, 0u);
 }
@@ -643,13 +648,15 @@ static void ffa_mem_retrieve(wt_trap_frame_t* frame)
 }
 
 /* FFA_MEM_FRAG_TX (DEN0140 4.1.2.5): the next fragment, in the TX buffer the
- * first one used; the last completes the call that sent the first. */
+ * first one used, which is still mapped (an unmap aborts the transfer); the
+ * last completes the call that sent the first. */
 static void ffa_mem_frag_tx(wt_trap_frame_t* frame)
 {
     const wt_spm_mem_binding_t* b = wt_spm_mem_binding(wt_co_current());
     uint64_t handle = (uint64_t)(uint32_t)frame->x[1] |
                       ((uint64_t)(uint32_t)frame->x[2] << 32);
     uint32_t len = (uint32_t)frame->x[3];
+    const uint8_t* frag = NULL;
     const uint8_t* desc;
     uint64_t tx = 0u;
     uint32_t offset = 0u;
@@ -660,12 +667,10 @@ static void ffa_mem_frag_tx(wt_trap_frame_t* frame)
 
     if ((b != NULL) && ((uint32_t)frame->x[4] == 0u) &&
         (len <= WT_FFA_MEM_PAGE_SIZE)) {
-        ret = wt_ffa_mem_tx_buffer(sp_mailbox(), 0u, 0u, len, &tx);
-    }
-    if (ret == 0) {
-        ret = wt_spm_mem_frag_next(handle, b->id,
-                                   (const uint8_t*)(uintptr_t)tx, len, &offset,
-                                   &done);
+        if (wt_ffa_mem_tx_buffer(sp_mailbox(), 0u, 0u, len, &tx) == 0) {
+            frag = (const uint8_t*)(uintptr_t)tx;
+        }
+        ret = wt_spm_mem_frag_next(handle, b->id, frag, len, &offset, &done);
     }
     if (ret != 0) {
         ffa_error(frame, ret);

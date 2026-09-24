@@ -975,6 +975,72 @@ static int memfrag_share(void)
     return ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);
 }
 
+/* Unmap and remap the RX/TX pair between two fragments of a share: the TX
+ * buffer the first one used is gone (DEN0140 4.1.2 rule 6), so the next
+ * FFA_MEM_FRAG_TX is ABORTED (rule 8), the handle names nothing after, and no
+ * share was made. */
+static int memfrag_unmap_aborts(void)
+{
+    static uint8_t full[256];
+    uint64_t x[5];
+    uint64_t handle;
+    uint32_t len = memneg_build();
+    uint32_t split = 40u;
+    uint32_t i;
+    int ok;
+
+    if (len <= split) {
+        return 0;
+    }
+    for (i = 0u; i < len; i++) {
+        full[i] = g_memneg_desc[i];
+    }
+    x[0] = WT_FFA_MEM_SHARE32;
+    x[1] = len;
+    x[2] = split;
+    x[3] = 0u;
+    x[4] = 0u;
+    smc5(x);
+    handle = (x[1] & 0xFFFFFFFFu) | ((x[2] & 0xFFFFFFFFu) << 32);
+    ok = ((uint32_t)x[0] == WT_FFA_MEM_FRAG_RX);
+
+    x[0] = WT_FFA_RXTX_UNMAP;
+    x[1] = 0u;
+    x[2] = 0u;
+    x[3] = 0u;
+    x[4] = 0u;
+    smc5(x);
+    ok = ok && ((uint32_t)x[0] == WT_FFA_SUCCESS32);
+    x[0] = WT_FFA_RXTX_MAP64;
+    x[1] = (uint64_t)(uintptr_t)g_memneg_desc;
+    x[2] = (uint64_t)(uintptr_t)g_memneg_rx;
+    x[3] = 1u;
+    x[4] = 0u;
+    smc5(x);
+    ok = ok && ((uint32_t)x[0] == WT_FFA_SUCCESS32);
+
+    for (i = split; i < len; i++) {
+        g_memneg_desc[i - split] = full[i];
+    }
+    x[0] = WT_FFA_MEM_FRAG_TX;
+    x[1] = handle & 0xFFFFFFFFu;
+    x[2] = handle >> 32;
+    x[3] = len - split;
+    x[4] = 0u;
+    smc5(x);
+    ok = ok && ((uint32_t)x[0] == WT_FFA_ERROR) &&
+         ((int32_t)(uint32_t)x[2] == WT_FFA_ABORTED);
+    x[0] = WT_FFA_MEM_FRAG_TX;
+    x[1] = handle & 0xFFFFFFFFu;
+    x[2] = handle >> 32;
+    x[3] = len - split;
+    x[4] = 0u;
+    smc5(x);
+    ok = ok && ((uint32_t)x[0] == WT_FFA_ERROR) &&
+         ((int32_t)(uint32_t)x[2] == WT_FFA_INVALID_PARAMETERS);
+    return ok && (mem_reclaim_smc(handle) == WT_FFA_ERROR);
+}
+
 /* SBZ fields set in every descriptor part (DEN0140 Tables 1.13-1.16, 1.18,
  * 1.20, 1.21) are ignored: the share is accepted and reclaimed. */
 static int memneg_sbz_ignored(uint32_t len)
@@ -1082,7 +1148,9 @@ static void guest_memneg(void)
     ok = ok && memneg_donate();
 
     put_str(ok ? "[NS] memneg ok\r\n" : "[NS] memneg BAD\r\n");
-    put_str(memfrag_share() ? "[NS] memfrag ok\r\n" : "[NS] memfrag BAD\r\n");
+    ok = memfrag_share();
+    ok = ok && memfrag_unmap_aborts();
+    put_str(ok ? "[NS] memfrag ok\r\n" : "[NS] memfrag BAD\r\n");
 }
 #endif
 

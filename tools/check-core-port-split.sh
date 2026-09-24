@@ -27,7 +27,7 @@ ASM='__asm|asm[[:space:]]+volatile'
 RETIRED='\bwt_mpu_region(_t)?\b|\bWT_MAX_MPU_REGIONS\b|\bmpu_region(s|_count)\b|\bWT_BOOT_HANDOFF_ADDRESS\b'
 RETIRED="$RETIRED"'|\bwt_platform_(start_secure_timer|mask_all_guest_irqs|apply_irq_mask|quarantine_pending_irqs|program_ns_mpu|program_secure_partition_domain|program_sp_thread_domain|restore_spm_domain|prepare_guest_return|capture_guest_context|trap_pc|restore_guest_context|svc_guest_return|in_handler_mode|ns_thread_mode_trap|secure_psp_thread_trap|return_to_secure_thread|zero_guest_memory|read_fault_address|restore_ns_bank|secure_irq_(en|dis)able|active_guest_id|configure_ns_irq|set_ns_irq_pending|dmb|dsb|guest_context_ready)\b|\bwt_spm_thread_unprivileged\b|\bwt_ffm_nsc_install\b|__ARM_FEATURE_CMSE'
 PORT_ARCH_DEF='^[A-Za-z_][A-Za-z0-9_ *]*[[:space:]*]wt_arch_[a-z0-9_]+[[:space:]]*\('
-FFA_FID='\b0x[8Cc]40000[6-9A-Fa-f][0-9A-Fa-f][uU]?\b'
+FFA_FID='\b0[xX][8Cc]40000[6-9A-Fa-f][0-9A-Fa-f]([uU]([lL]{1,2})?|[lL]{1,2}[uU]?)?\b'
 
 # Replace every block comment with newlines so line numbers survive.
 strip_comments() { # file
@@ -62,7 +62,7 @@ scan_code() { # kind  label  regex  files...   (comments stripped)
 }
 
 selftest() {
-  local dir fails=0
+  local dir fails=0 lines
   dir="$(mktemp -d)"
   printf 'int f(void) { return MPU->CTRL; } /* PendSV */\n' > "$dir/m.c"
   printf 'int g(void) { return SCTLR_EL1; }\n' > "$dir/a.c"
@@ -71,6 +71,7 @@ selftest() {
   printf 'void wt_arch_init(void)\n{\n}\n' > "$dir/portdef.c"
   printf 'static void x(void)\n{\n    wt_arch_init();\n}\n' > "$dir/portcall.c"
   printf 'unsigned fid = 0x84000063u; /* 0xC4000066 */\n' > "$dir/fid.c"
+  printf 'unsigned a = 0X84000063U;\nunsigned long b = 0x84000063UL;\nunsigned long long c = 0xc4000066ull;\nunsigned long d = 0xC400006ALu;\nunsigned e = 0x8400006f;\n' > "$dir/fidspell.c"
   printf 'unsigned id = 0x8000u; unsigned oem = 0xC3000004u;\n' > "$dir/nofid.c"
   check() { # expect(hit|clean) regex file
     local got
@@ -86,6 +87,8 @@ selftest() {
   check hit "$PORT_ARCH_DEF" "$dir/portdef.c"
   check clean "$PORT_ARCH_DEF" "$dir/portcall.c"
   check hit "$FFA_FID" "$dir/fid.c"
+  lines="$(grep -cE "$FFA_FID" "$dir/fidspell.c" || true)"
+  [ "$lines" -eq 5 ] || { echo "SELFTEST FAIL: $lines of 5 FF-A id spellings matched"; fails=$((fails + 1)); }
   check clean "$FFA_FID" "$dir/nofid.c"
   rm -rf "$dir"
   if [ "$fails" -ne 0 ]; then echo "SELFTEST: $fails failure(s)"; exit 1; fi

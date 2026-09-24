@@ -25,6 +25,13 @@
 #include "wolftrust/arch/aarch64/pl011.h"
 #include "wolftrust/arch/aarch64/tables.h"
 
+/* The machine's Secure PL061 (secure=on): its line 1 is wired to the board's
+ * gpio-restart, a whole-machine reset. GPIODATA writes only the bits the
+ * address selects (offset bits [9:2]). */
+#define WT_SECURE_GPIO_BASE     0x090B0000u
+#define WT_PL061_DIR            0x400u
+#define WT_GPIO_RESET_LINE      (1u << 1)
+
 /* The SPMC owns the GIC: distributor, the GICv2 CPU interface, and the
  * GICv3 redistributor frames (up to eight cores) beside the console. */
 static const wt_memory_region_t g_device_regions[] = {
@@ -45,10 +52,18 @@ void wt_platform_board_init(void)
 #endif
 }
 
-/* QEMU virt gives the monitor no reset controller: returning lets the
- * monitor re-enter the boot chain instead. */
 void wt_platform_board_system_reset(void)
 {
+    volatile uint32_t* dir =
+        (volatile uint32_t*)(uintptr_t)(WT_SECURE_GPIO_BASE + WT_PL061_DIR);
+    volatile uint32_t* data = (volatile uint32_t*)(uintptr_t)
+        (WT_SECURE_GPIO_BASE + (WT_GPIO_RESET_LINE << 2));
+
+    *dir |= WT_GPIO_RESET_LINE;
+    *data = WT_GPIO_RESET_LINE;
+    for (;;) {
+        __asm__ volatile("wfi" ::: "memory");
+    }
 }
 
 const wt_memory_region_t* wt_platform_board_device_regions(size_t* count)

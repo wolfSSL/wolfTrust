@@ -1162,12 +1162,22 @@ static void guest_fuzz(void)
 #endif
 
 #if defined(WT_NS_GUEST_RESET)
-/* Ask the SPMD to reset the system through PSCI. On the first boot the monitor
- * re-enters the whole chain; the reset does not return to the Normal world. */
+/* UARTIFLS: a machine reset restores it (0x12), a firmware warm re-entry
+ * keeps whatever the previous boot wrote. */
+#define UART_IFLS       0x34u
+#define UART_IFLS_MARK  0x24u
+
+/* Ask the SPMD to reset the system through PSCI, marking a device register
+ * first so the next boot shows whether the machine was really reset. The
+ * reset does not return to the Normal world. */
 static void guest_reset(void)
 {
     uint64_t o[4];
 
+    put_str("[NS] uart ifls=0x");
+    put_hex(*uart_reg(UART_IFLS) & 0x3Fu);
+    put_str("\r\n");
+    *uart_reg(UART_IFLS) = UART_IFLS_MARK;
     put_str("[NS] psci system_reset\r\n");
     ffa_smc(WT_PSCI_SYSTEM_RESET, 0u, o);
 }

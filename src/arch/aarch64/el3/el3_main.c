@@ -243,7 +243,7 @@ void wt_el3_main(void)
      * test NVM ride behind the SPMC image in flash, since nothing else can
      * place them in Secure RAM on this machine. The partition images are laid
      * down fresh every boot, but the NVM (behind them, from WT_FFA_ACS_NVM_
-     * OFFSET) records the suite's progress and must survive a warm reset: the
+     * OFFSET) records the suite's progress and must survive a reset: the
      * isolation tests fault a partition on purpose and resume off it. */
     (void)memcpy((void*)(uintptr_t)WT_FFA_ACS_BASE,
                  (const void*)(uintptr_t)(WT_EL3_TEXT_BASE + WT_FFA_ACS_FLASH_OFFSET),

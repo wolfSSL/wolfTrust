@@ -199,7 +199,8 @@ wrong_el:
     b       wt_el3_semihost_exit
 
 /* void wt_el3_warm_reset(void): re-enter the reset vector so the whole chain
- * boots again (PSCI SYSTEM_RESET). The .noinit boot counter survives it. */
+ * boots again, for an emulator test build on a port with no machine reset.
+ * The .noinit boot counter survives it. */
     .globl wt_el3_warm_reset
 wt_el3_warm_reset:
     b       wt_el3_start

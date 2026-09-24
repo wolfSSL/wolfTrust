@@ -346,8 +346,10 @@ if [ -n "$acs_suite" ]; then
     args+=(-device "loader,file=$acs_blob,addr=$(printf '0x%X' $((acs_secure_base + 0x400000)))")
   fi
 fi
-args+=(-nographic -monitor none -no-reboot
+args+=(-nographic -monitor none
        -semihosting-config "enable=on,target=native")
+# virt resets through its Secure GPIO: QEMU must reboot the machine, not exit.
+[ "$MACHINE" = virt ] || args+=(-no-reboot)
 
 echo "QEMU: $QEMU ${args[*]}"
 set +e
@@ -679,9 +681,25 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the Normal world asked for a system reset" "[NS] psci system_reset"
-    expect "the first reset re-entered the boot chain" "[EL3] psci system_reset reboot"
+    expect "the first reset rebooted the machine" "[EL3] psci system_reset reboot"
     expect "the monitor booted the chain a second time" "[EL3] wolfTrust monitor cntfrq="
     expect "the second reset ended the run through the boot-flag path" "[EL3] psci system_reset done"
+    boots=$(grep -Fao "[NS] uart ifls=0x" "$log" | wc -l | tr -d ' ')
+    if [ "$boots" -eq 2 ]; then
+      check_pass "the Normal world read its UART on both boots"
+    else
+      check_fail "the Normal world read its UART on both boots" "$boots reads"
+    fi
+    if [ "$MACHINE" = virt ]; then
+      # A cold reset returns the UART the first boot marked to its reset value.
+      refute_re "the machine reset restored the marked device register" '\[NS\] uart ifls=0x24'
+      refute_re "the reset was not a warm re-entry" 'warm re-entry'
+    else
+      # xlnx-versal-virt has no machine reset: its test build re-enters warm,
+      # which the device register shows.
+      expect "the model's test build re-entered warm without a machine reset" "[EL3] no machine reset: warm re-entry"
+      expect "the warm re-entry kept the marked device register" "[NS] uart ifls=0x24"
+    fi
     parked=$(grep -Fao " secondaries parked mask=$expected_mask" "$log" | wc -l | tr -d ' ')
     if [ "$parked" -eq 2 ]; then
       check_pass "both boots counted every secondary parked ($cpus cores)"

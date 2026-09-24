@@ -44,8 +44,8 @@ void wt_platform_board_init(void)
 #endif
 }
 
-/* The xlnx-versal-virt model gives the monitor no reset controller: returning lets the
- * monitor re-enter the boot chain instead. */
+/* The xlnx-versal-virt model offers the monitor no machine reset: returning
+ * leaves the monitor's test builds to re-enter the boot chain. */
 void wt_platform_board_system_reset(void)
 {
 }

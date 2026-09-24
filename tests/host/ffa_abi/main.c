@@ -829,6 +829,18 @@ static void msg2_copy_rows(void)
         ok = ok && (rx[i] == 0u);
     }
     check(ok != 0, "nor does anything left in the RX past the payload");
+
+    /* The sender rewrites its TX header between the parse and the copy. */
+    tx[8] = 41u;
+    tx[12] = 0x09u; tx[13] = 0x80u; tx[14] = 0x05u; tx[15] = 0x80u;
+    tx[16] = 0xF0u;
+    tx[24] = 0x77u;
+    memset(rx, 0xAA, sizeof(rx));
+    wt_ffa_msg2_copy(rx, sizeof(rx), tx, &m);
+    check(rx[8] == 64u && rx[12] == 0x02u && rx[13] == 0x80u &&
+              rx[14] == 0u && rx[15] == 0u && rx[16] == 16u && rx[24] == 0u,
+          "a TX header rewritten after the parse cannot change the sender, "
+          "receiver, offset, size or UUID the receiver is handed");
 }
 
 int main(void)

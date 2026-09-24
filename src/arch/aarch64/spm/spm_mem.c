@@ -162,10 +162,8 @@ static int ranges_overlap(uint64_t base, uint64_t size, uintptr_t other,
            ((uint64_t)other < (base + size));
 }
 
-/* The image every partition executes and memory a manifest marks shared are
- * no one partition's own, even where its table reaches them at EL0. */
-static int common_memory(const wt_secure_domain_t* dom, uint64_t base,
-                         uint64_t size)
+/* The image every partition executes. */
+static int platform_shared(uint64_t base, uint64_t size)
 {
     wt_memory_region_t shared[4];
     size_t n = wt_platform_sp_shared_regions(shared, 4u);
@@ -175,6 +173,19 @@ static int common_memory(const wt_secure_domain_t* dom, uint64_t base,
         if (ranges_overlap(base, size, shared[i].base, shared[i].size)) {
             return 1;
         }
+    }
+    return 0;
+}
+
+/* The image every partition executes and memory a manifest marks shared are
+ * no one partition's own, even where its table reaches them at EL0. */
+static int common_memory(const wt_secure_domain_t* dom, uint64_t base,
+                         uint64_t size)
+{
+    size_t i;
+
+    if (platform_shared(base, size) != 0) {
+        return 1;
     }
     for (i = 0u; i < dom->region_count; i++) {
         if (((dom->regions[i].attributes & WT_MEMORY_ATTR_SHARED) != 0u) &&
@@ -511,6 +522,108 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
                 zero_regions(e);
             }
         }
+    }
+    return ret;
+}
+
+static int perm_to_attributes(uint32_t perm, uint32_t* attributes)
+{
+    uint32_t data = perm & WT_FFA_PERM_DATA_MASK;
+
+    if ((perm & ~(WT_FFA_PERM_DATA_MASK | WT_FFA_PERM_XN)) != 0u) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((data == WT_FFA_PERM_DATA_RW) && ((perm & WT_FFA_PERM_XN) != 0u)) {
+        *attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+        return 0;
+    }
+    if (data == WT_FFA_PERM_DATA_RO) {
+        *attributes = WT_MEM_ATTR_READ;
+        if ((perm & WT_FFA_PERM_XN) == 0u) {
+            *attributes |= WT_MEM_ATTR_EXEC;
+        }
+        return 0;
+    }
+    return WT_FFA_INVALID_PARAMETERS;
+}
+
+/* Non-zero when a page of [base, base + size) lies in a region dom's manifest
+ * makes writable. */
+static int manifest_writable(const wt_secure_domain_t* dom, uint64_t base,
+                             uint64_t size)
+{
+    size_t i;
+
+    for (i = 0u; i < dom->region_count; i++) {
+        if (((dom->regions[i].attributes & WT_MEM_ATTR_WRITE) != 0u) &&
+            ranges_overlap(base, size, dom->regions[i].base,
+                           dom->regions[i].size)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int wt_spm_mem_perm_get(const wt_secure_domain_t* dom, uint64_t va,
+                        uint32_t* perm)
+{
+    uint32_t attributes = 0u;
+
+    if ((dom == NULL) || (perm == NULL) ||
+        (wt_domain_get_permissions(dom->regions, dom->region_count,
+                                   (uintptr_t)va, &attributes) !=
+         WT_TABLES_OK)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    *perm = WT_FFA_PERM_DATA_NONE;
+    if ((attributes & WT_MEM_ATTR_WRITE) != 0u) {
+        *perm = WT_FFA_PERM_DATA_RW;
+    }
+    else if ((attributes & WT_MEM_ATTR_READ) != 0u) {
+        *perm = WT_FFA_PERM_DATA_RO;
+    }
+    if ((attributes & WT_MEM_ATTR_EXEC) == 0u) {
+        *perm |= WT_FFA_PERM_XN;
+    }
+    return 0;
+}
+
+int wt_spm_mem_perm_set(const wt_secure_domain_t* dom,
+                        const wt_ffa_mailbox_t* mb, uint64_t va,
+                        uint32_t pages, uint32_t perm)
+{
+    uint64_t size = (uint64_t)pages * WT_FFA_MEM_PAGE_SIZE;
+    uint32_t attributes = 0u;
+    int ret;
+
+    if (dom == NULL) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    ret = perm_to_attributes(perm, &attributes);
+    if ((ret == 0) &&
+        ((pages == 0u) || (va >= WT_TABLES_VA_LIMIT) ||
+         (pages > (WT_TABLES_VA_LIMIT / WT_TABLES_PAGE_SIZE)))) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((ret == 0) && (platform_shared(va, size) != 0)) {
+        ret = WT_FFA_DENIED;
+    }
+    /* The SPMC writes a mapped RX/TX pair, and memory the manifest makes
+     * writable, at S-EL1 through the partition's own table, where an EL0
+     * read-only page is read-only too: the pair keeps its permissions while
+     * mapped, and manifest-writable memory never becomes read-only. */
+    if ((ret == 0) && (wt_ffa_mailbox_overlaps(mb, va, size) != 0)) {
+        ret = WT_FFA_DENIED;
+    }
+    if ((ret == 0) && ((attributes & WT_MEM_ATTR_WRITE) == 0u) &&
+        (manifest_writable(dom, va, size) != 0)) {
+        ret = WT_FFA_DENIED;
+    }
+    if ((ret == 0) &&
+        (wt_domain_set_permissions(dom->regions, dom->region_count,
+                                   (uintptr_t)va, (size_t)pages, attributes) !=
+         WT_TABLES_OK)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
     }
     return ret;
 }

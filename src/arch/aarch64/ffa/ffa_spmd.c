@@ -69,6 +69,7 @@ static int spmd_implements(uint32_t fid)
         case WT_FFA_ID_GET:
         case WT_FFA_SPM_ID_GET:
         case WT_FFA_MSG_WAIT:
+        case WT_FFA_NORMAL_WORLD_RESUME:
         case WT_FFA_CONSOLE_LOG32:
         case WT_FFA_CONSOLE_LOG64:
             return 1;

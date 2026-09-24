@@ -228,6 +228,19 @@ int wt_domain_page_access(const wt_memory_region_t* regions, size_t count,
                                          : WT_DOMAIN_ACCESS_NONE;
 }
 
+int wt_domain_page_ns(const wt_memory_region_t* regions, size_t count,
+                      uintptr_t va)
+{
+    const wt_domain_entry_t* e = find_built(regions, count);
+    wt_tables_walk_t w;
+
+    if ((g_ready == 0u) || (e == NULL) || (regions == NULL) ||
+        (wt_tables_walk(&e->table, &g_pool, (uint64_t)va, &w) != WT_TABLES_OK)) {
+        return 0;
+    }
+    return (w.ns != 0u) ? 1 : 0;
+}
+
 int wt_domain_grant(const wt_memory_region_t* regions, size_t count,
                     uintptr_t va, size_t pages, uint32_t attributes,
                     int* was_mapped)

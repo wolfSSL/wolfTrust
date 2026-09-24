@@ -69,6 +69,9 @@ int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
 #define WT_DOMAIN_ACCESS_RW   2
 int wt_domain_page_access(const wt_memory_region_t* regions, size_t count,
                           uintptr_t va);
+/* Non-zero when the domain's table maps va as Non-secure memory. */
+int wt_domain_page_ns(const wt_memory_region_t* regions, size_t count,
+                      uintptr_t va);
 
 /* Lend a built domain a window onto memory outside its own regions, and take
  * it back (memory sharing); WT_TABLES_* result codes. */

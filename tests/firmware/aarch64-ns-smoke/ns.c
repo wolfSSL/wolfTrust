@@ -797,13 +797,14 @@ static uint32_t mem_reclaim_smc(uint64_t handle)
     return (uint32_t)r0;
 }
 
-/* Build a well-formed single-constituent share of page into g_memneg_desc;
- * returns its length or 0. */
-static uint32_t memneg_build_page(const uint8_t* page)
+/* Build a well-formed single-constituent share (or donate) of page into
+ * g_memneg_desc; returns its length or 0. A donate names no access or type. */
+static uint32_t memneg_build_op(const uint8_t* page, wt_ffa_mem_op_t op)
 {
     wt_ffa_mem_constituent_t cons;
     wt_ffa_mem_build_t in;
     size_t len = 0u;
+    int share = (op == WT_FFA_MEM_OP_SHARE) ? 1 : 0;
 
     cons.address = (uint64_t)(uintptr_t)page;
     cons.page_count = 1u;
@@ -812,13 +813,15 @@ static uint32_t memneg_build_page(const uint8_t* page)
     in.tag = 0u;
     in.handle = 0u;
     in.flags = 0u;
-    in.op = WT_FFA_MEM_OP_SHARE;
+    in.op = op;
     in.sender = WT_FFA_ID_NS_PRIMARY;
     in.receiver = WT_FFA_ID_SP_FIRST;
-    in.attributes = (uint16_t)(WT_FFA_MEM_ATTR_TYPE_NORMAL |
-                               (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT) |
-                               WT_FFA_MEM_ATTR_SHARE_INNER);
-    in.permissions = (uint8_t)WT_FFA_MEM_PERM_DATA_RW;
+    in.attributes = (share != 0)
+                        ? (uint16_t)(WT_FFA_MEM_ATTR_TYPE_NORMAL |
+                                     (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT) |
+                                     WT_FFA_MEM_ATTR_SHARE_INNER)
+                        : 0u;
+    in.permissions = (share != 0) ? (uint8_t)WT_FFA_MEM_PERM_DATA_RW : 0u;
     in.access_desc_size = 0u;
     in.impdef = NULL;
     if (wt_ffa_mem_txn_build(g_memneg_desc, sizeof(g_memneg_desc), &in,
@@ -828,9 +831,42 @@ static uint32_t memneg_build_page(const uint8_t* page)
     return (uint32_t)len;
 }
 
+static uint32_t memneg_build_page(const uint8_t* page)
+{
+    return memneg_build_op(page, WT_FFA_MEM_OP_SHARE);
+}
+
 static uint32_t memneg_build(void)
 {
     return memneg_build_page(g_memneg_page);
+}
+
+/* FFA_MEM_DONATE is offered at the Normal world's instance (DEN0140 Table
+ * 1.24): a donate of the guest's page is accepted, and reclaimed before any
+ * partition retrieves it. */
+static int memneg_donate(void)
+{
+    uint64_t x[5];
+    uint64_t handle;
+    uint32_t len = memneg_build_op(g_memneg_page, WT_FFA_MEM_OP_DONATE);
+    int ok;
+
+    x[0] = WT_FFA_FEATURES;
+    x[1] = WT_FFA_MEM_DONATE32;
+    x[2] = 0u;
+    x[3] = 0u;
+    x[4] = 0u;
+    smc5(x);
+    ok = (len != 0u) && ((uint32_t)x[0] == WT_FFA_SUCCESS32);
+    x[0] = WT_FFA_MEM_DONATE32;
+    x[1] = len;
+    x[2] = len;
+    x[3] = 0u;
+    x[4] = 0u;
+    smc5(x);
+    handle = (x[2] & 0xFFFFFFFFu) | ((x[3] & 0xFFFFFFFFu) << 32);
+    ok = ok && ((uint32_t)x[0] == WT_FFA_SUCCESS32);
+    return ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);
 }
 
 /* The guest's own mapped RX buffer is the SPMC's to write, never the guest's
@@ -1017,6 +1053,7 @@ static void guest_memneg(void)
 
     ok = ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);
     ok = ok && (mem_reclaim_smc(handle) == WT_FFA_ERROR);  /* dead handle */
+    ok = ok && memneg_donate();
 
     put_str(ok ? "[NS] memneg ok\r\n" : "[NS] memneg BAD\r\n");
     put_str(memfrag_share() ? "[NS] memfrag ok\r\n" : "[NS] memfrag BAD\r\n");

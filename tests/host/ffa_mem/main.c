@@ -2505,6 +2505,107 @@ static void relay_unbind_rows(void)
           "unbind: the unbound endpoint cannot retrieve and the owner reclaims");
 }
 
+/* Send n constituents from sender to receiver; *ret gets the relayer's
+ * answer. */
+static uint64_t relay_send_from(wt_ffa_mem_op_t op,
+                                const wt_ffa_mem_constituent_t* c, uint32_t n,
+                                uint16_t sender, uint16_t receiver,
+                                uint8_t perms, int* ret)
+{
+    wt_ffa_mem_build_t in;
+    uint8_t desc[256];
+    uint64_t h = 0u;
+    size_t len = 0u;
+
+    (void)memset(&in, 0, sizeof(in));
+    in.constituents = c;
+    in.constituent_count = n;
+    in.op = op;
+    in.sender = sender;
+    in.receiver = receiver;
+    in.permissions = perms;
+    *ret = wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len);
+    if (*ret == 0) {
+        *ret = wt_spm_mem_share(desc, len, op, sender, &h);
+    }
+    return h;
+}
+
+static int relay_retrieve_by(uint64_t h, uint16_t sender, uint16_t receiver,
+                             uint8_t perms)
+{
+    uint8_t req[128];
+    uint8_t resp[256];
+    size_t len = 0u;
+    size_t resp_len = 0u;
+    int ret;
+
+    ret = wt_ffa_mem_retrieve_req_build(req, sizeof(req), h, sender, receiver,
+                                        perms, &len);
+    if (ret == 0) {
+        ret = wt_spm_mem_retrieve(req, len, receiver, resp, sizeof(resp),
+                                  &resp_len);
+    }
+    return ret;
+}
+
+static int ns_of(const wt_secure_domain_t* d, unsigned int pg)
+{
+    return wt_domain_page_ns(d->regions, d->region_count, page(pg));
+}
+
+/* WT-FFA-0009 (the Normal world donates its memory to a partition, which then
+ * owns it: the Normal world cannot send it again, and the partition sends it
+ * on as Non-secure memory, Table 1.24 and 1.3.1 rules 5 and 6). */
+static void relay_ns_donate_rows(void)
+{
+    wt_ffa_mem_constituent_t c[2];
+    uint64_t h;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "ns donate: fixture");
+        return;
+    }
+    wt_spm_mem_ns_window(page(10u), 2u * WT_TABLES_PAGE_SIZE);
+    c[0].address = page(10u);
+    c[0].page_count = 1u;
+    h = relay_send_from(WT_FFA_MEM_OP_DONATE, c, 1u, WT_FFA_ID_NS_PRIMARY,
+                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_NOT_SPEC, &ret);
+    check(ret == 0 &&
+          relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
+                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+          access_of(&g_dom_b, 10u) == WT_DOMAIN_ACCESS_RW &&
+          ns_of(&g_dom_b, 10u) != 0,
+          "ns donate: the Normal world donates a page and the receiver maps it Non-secure");
+    (void)relay_send_from(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_ID_NS_PRIMARY,
+                          RELAY_ID_C, WT_FFA_MEM_PERM_DATA_RW, &ret);
+    check(ret == WT_FFA_DENIED &&
+          wt_spm_mem_ns_owns(page(10u), WT_TABLES_PAGE_SIZE) == 0 &&
+          wt_spm_mem_ns_owns(page(11u), WT_TABLES_PAGE_SIZE) != 0,
+          "ns donate: the donated page is no longer the Normal world's to send");
+    h = relay_send_from(WT_FFA_MEM_OP_LEND, c, 1u, RELAY_ID_B, RELAY_ID_C,
+                        WT_FFA_MEM_PERM_DATA_RW, &ret);
+    check(ret == 0 && access_of(&g_dom_b, 10u) == WT_DOMAIN_ACCESS_NONE &&
+          relay_retrieve_by(h, RELAY_ID_B, RELAY_ID_C,
+                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+          ns_of(&g_dom_c, 10u) != 0,
+          "ns donate: its new owner lends it on, and the borrower maps it Non-secure too");
+    check(relay_relinquish_as(h, RELAY_ID_C) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_B, 0u) == 0 &&
+          access_of(&g_dom_b, 10u) == WT_DOMAIN_ACCESS_RW &&
+          ns_of(&g_dom_b, 10u) != 0,
+          "ns donate: a reclaim gives the owner the page back Non-secure");
+    c[1].address = page(PG_B);
+    c[1].page_count = 1u;
+    (void)relay_send_from(WT_FFA_MEM_OP_LEND, c, 2u, RELAY_ID_B, RELAY_ID_C,
+                          WT_FFA_MEM_PERM_DATA_RW, &ret);
+    check(ret == WT_FFA_DENIED &&
+          access_of(&g_dom_b, PG_B) == WT_DOMAIN_ACCESS_RW,
+          "ns donate: a region mixing Non-secure and Secure pages is DENIED");
+    check(g_domain_fails == 0u, "ns donate: no domain operation failed closed");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -2542,6 +2643,7 @@ int main(void)
     relay_teardown_rows();
     relay_v10_rows();
     relay_unbind_rows();
+    relay_ns_donate_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

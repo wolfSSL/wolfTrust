@@ -108,9 +108,10 @@ int wt_spm_mem_ns_owns(uint64_t base, uint64_t size);
 int wt_spm_mailbox_overlaps(uint64_t base, uint64_t size);
 int wt_spm_ns_mailbox_overlaps(uint64_t base, uint64_t size);
 
-/* A bound partition faulted: unmap everything it retrieved (zeroing what its
- * retrieve asked to be zeroed), take back what it owns and no borrower holds,
- * leave what a borrower still holds to end with that borrower, and drop any
+/* A bound partition faulted and is terminated: unmap everything it retrieved
+ * (zeroing what its retrieve asked to be zeroed), end what it owns and no
+ * borrower holds, leave what a borrower still holds to end with that borrower,
+ * never give the partition access back (DEN0140 1.3.1 rule 9), and drop any
  * descriptor it was still sending in fragments. */
 void wt_spm_mem_endpoint_teardown(const struct wt_co* co);
 

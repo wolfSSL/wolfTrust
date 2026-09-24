@@ -2426,7 +2426,8 @@ static void relay_clean_rows(void)
 }
 
 /* WT-FFA-0009 (a partition that faults gives up what it borrowed, zeroed if
- * its retrieve asked, Table 1.22 bit[2], and what it owns comes back). */
+ * its retrieve asked, Table 1.22 bit[2], and what it owned goes to the SPM,
+ * 1.3.1 rule 9). */
 static void relay_teardown_rows(void)
 {
     wt_ffa_mem_constituent_t c[1];
@@ -2489,9 +2490,9 @@ static void relay_teardown_rows(void)
                                 40u, (uint32_t)len, &fh) == 0,
           "teardown: the owner starts a descriptor in fragments");
     wt_spm_mem_endpoint_teardown(CO_A);
-    check(access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW &&
+    check(access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
           wt_spm_mem_reclaim(h1, RELAY_ID_A, 0u) == WT_FFA_INVALID_PARAMETERS,
-          "teardown: what a faulted owner lent and nobody retrieved comes back to it");
+          "teardown: what a faulted owner lent and nobody retrieved ends, its access left to the SPM");
     check(wt_spm_mem_frag_next(fh, RELAY_ID_A, &desc[40], (uint32_t)len - 40u,
                                &offset, &done) == WT_FFA_INVALID_PARAMETERS,
           "teardown: its unfinished fragmented descriptor is dropped");
@@ -2499,9 +2500,9 @@ static void relay_teardown_rows(void)
           access_of(&g_dom_a, PG_FILL2) == WT_DOMAIN_ACCESS_NONE,
           "teardown: what a borrower still maps stays mapped");
     check(relay_relinquish(h2, 0u) == 0 && b_entry(PG_FILL2) == 1 &&
-          access_of(&g_dom_a, PG_FILL2) == WT_DOMAIN_ACCESS_RW &&
+          access_of(&g_dom_a, PG_FILL2) == WT_DOMAIN_ACCESS_NONE &&
           wt_spm_mem_reclaim(h2, RELAY_ID_A, 0u) == WT_FFA_INVALID_PARAMETERS,
-          "teardown: the last borrower to relinquish ends it and the owner gets it back");
+          "teardown: the last borrower to relinquish ends it, and the faulted owner never gets it back");
     check(g_domain_fails == 0u, "teardown: no domain operation failed closed");
 }
 

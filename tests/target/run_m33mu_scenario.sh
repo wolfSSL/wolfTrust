@@ -407,6 +407,11 @@ WT_EXPECT_LOG="$log"
 # Shared-UART tolerant match against the same guest0 view used by CI.
 expect_flat() { if grep -Fq "$2" "$guest0_log"; then check_pass "$1"; \
                 else check_fail "$1" "missing: $2"; fi; }
+# m33mu prints this only when it stops on the expected breakpoint, then exits
+# 0; the negatives end on another breakpoint or the timeout by design.
+if grep -Faq "[EXPECT BKPT] Success" "$log"; then
+  expect_end "m33mu stopped on the expected breakpoint and exited cleanly" exit "$emu_status"
+fi
 
 case "$scenario" in
   positive|deputyneg|hsmpinneg|periphneg|bandneg[1-6]|restartneg[1-3])

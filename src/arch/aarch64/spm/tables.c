@@ -312,23 +312,22 @@ static int hidden_page(uint64_t desc)
     return (desc & (PTE_SW_HELD | PTE_SW_HIDDEN)) == PTE_SW_HIDDEN;
 }
 
-/* A Secure EL0 page the partition may re-permission, or one it made
- * no-access, of Normal or Device memory. */
+/* An EL0 page the partition may re-permission, or one it made no-access, of
+ * Normal or Device memory; a Non-secure one is memory donated to it. */
 static int el0_owned_page(uint64_t desc)
 {
     uint32_t ap = (uint32_t)((desc >> PTE_AP_SHIFT) & 0x3u);
     uint32_t attr = (uint32_t)((desc >> PTE_ATTR_SHIFT) & 0x7u);
 
-    return ((desc & DESC_VALID) != 0u) && ((desc & PTE_NS) == 0u) &&
-           ((desc & PTE_SW_HELD) == 0u) &&
+    return ((desc & DESC_VALID) != 0u) && ((desc & PTE_SW_HELD) == 0u) &&
            ((attr == WT_TABLES_ATTR_NORMAL_WBWA) ||
             (attr == WT_TABLES_ATTR_DEVICE_NGNRE)) &&
            ((ap == WT_TABLES_AP_ALL_RW) || (ap == WT_TABLES_AP_ALL_RO) ||
             hidden_page(desc));
 }
 
-/* The entry attributes give a page of desc's memory type; no access (0)
- * leaves it S-EL1 read-write and marked. */
+/* The entry attributes give a page of desc's memory type and security state;
+ * no access (0) leaves it S-EL1 read-write and marked. */
 static int64_t owned_encoding(uint64_t desc, uint32_t attributes)
 {
     int64_t pte;
@@ -336,7 +335,14 @@ static int64_t owned_encoding(uint64_t desc, uint32_t attributes)
     if (((desc >> PTE_ATTR_SHIFT) & 0x7u) == WT_TABLES_ATTR_DEVICE_NGNRE) {
         attributes |= WT_MEM_ATTR_DEVICE;
     }
-    if ((attributes & ~WT_MEM_ATTR_DEVICE) == 0u) {
+    if ((desc & PTE_NS) != 0u) {
+        /* The Normal world can write it: S-EL0 never executes it. */
+        if ((attributes & WT_MEM_ATTR_EXEC) != 0u) {
+            return WT_TABLES_ERROR_WX;
+        }
+        attributes |= WT_TABLES_ATTR_NS;
+    }
+    if ((attributes & ~(WT_MEM_ATTR_DEVICE | WT_TABLES_ATTR_NS)) == 0u) {
         pte = encode(attributes | WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
                          WT_TABLES_ATTR_NG, 1);
         if (pte >= 0) {

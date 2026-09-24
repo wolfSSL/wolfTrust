@@ -122,9 +122,18 @@ void pal_twdog_intr_disable(void)
     (void)spm_interrupt_enable(PLATFORM_TWDOG_INTID, false, INTERRUPT_TYPE_IRQ);
 }
 
+/* The reference driver loads this value straight into a watchdog counting
+ * the system counter, so it is counter ticks; the SPMC's timer takes ms. */
 void pal_ns_wdog_enable(uint32_t ms)
 {
-    (void)wt_acs_timer_call(WT_ACS_SVC_TIMER_ARM, PLATFORM_NS_WD_INTR, ms);
+    uint64_t freq;
+
+    __asm__ volatile("mrs %0, cntfrq_el0" : "=r"(freq));
+    if (freq == 0U) {
+        freq = 1U;
+    }
+    (void)wt_acs_timer_call(WT_ACS_SVC_TIMER_ARM, PLATFORM_NS_WD_INTR,
+                            (uint32_t)(((uint64_t)ms * 1000U) / freq));
 }
 
 void pal_ns_wdog_disable(void)

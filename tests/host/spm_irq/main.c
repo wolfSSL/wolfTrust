@@ -293,6 +293,30 @@ static void timer_owner_rows(void)
           "its deadline");
 }
 
+/* A Normal-world timer waits for its deadline and for a partition to run. */
+static void ns_timer_rows(void)
+{
+    g_host_cntpct = 1000u;
+    check(wt_spm_twdog_arm(NULL, NS_TEST_SPI, 5u) == 0,
+          "the Normal world arms its test interrupt for 5 ms");
+    g_partition_running = 1;
+    g_host_cntpct = 1003u;
+    g_pended = 0u;
+    wt_spm_twdog_tick();
+    check(g_pended == 0u,
+          "a partition running before the deadline is not interrupted yet");
+    g_partition_running = 0;
+    g_host_cntpct = 1010u;
+    wt_spm_twdog_tick();
+    check(g_pended == 0u,
+          "past the deadline it still waits for a partition to run");
+    g_partition_running = 1;
+    wt_spm_twdog_tick();
+    check(g_pended == NS_TEST_SPI,
+          "and is raised on the first tick past it that lands on a partition");
+    g_partition_running = 0;
+}
+
 int main(void)
 {
     wt_trap_frame_t frame;
@@ -348,6 +372,7 @@ int main(void)
     fifo_rows();
     authorization_rows();
     timer_owner_rows();
+    ns_timer_rows();
 
     printf("spm_irq: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

@@ -310,10 +310,15 @@ static void ffa_partition_info_get(wt_trap_frame_t* frame,
     ffa_success(frame, count, size);
 }
 
-/* FFA_RX_RELEASE (7.2.2.4): ownership of the RX buffer returns to the SPMC. */
+/* FFA_RX_RELEASE (7.2.2.4): ownership of the RX buffer returns to the SPMC.
+ * The VM id in w1[15:0] is MBZ at this instance (Table 13.21). */
 static void ffa_rx_release(wt_trap_frame_t* frame)
 {
-    int ret = wt_ffa_mailbox_rx_release(sp_mailbox());
+    int ret = WT_FFA_INVALID_PARAMETERS;
+
+    if (((uint32_t)frame->x[1] & 0xFFFFu) == 0u) {
+        ret = wt_ffa_mailbox_rx_release(sp_mailbox());
+    }
 
     if (ret != 0) {
         ffa_error(frame, ret);
@@ -386,13 +391,13 @@ static void ffa_rxtx_map(wt_trap_frame_t* frame, const struct wt_co* co)
     ffa_success(frame, 0u, 0u);
 }
 
-/* FFA_RXTX_UNMAP (13.6): w1 bits 31:16 name the caller (or zero). */
-static void ffa_rxtx_unmap(wt_trap_frame_t* frame, const struct wt_co* co)
+/* FFA_RXTX_UNMAP (13.7): the id in w1[31:16] is MBZ at this instance (Table
+ * 13.30); w1[15:0] is SBZ. */
+static void ffa_rxtx_unmap(wt_trap_frame_t* frame)
 {
-    uint16_t id = (uint16_t)(((uint32_t)frame->x[1] >> 16) & 0xFFFFu);
     int ret;
 
-    if ((id != 0u) && (id != wt_spm_sp_ffa_id(co))) {
+    if ((((uint32_t)frame->x[1] >> 16) & 0xFFFFu) != 0u) {
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }
@@ -1179,7 +1184,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         ffa_rxtx_map(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_RXTX_UNMAP) {
-        ffa_rxtx_unmap(frame, (const struct wt_co*)co);
+        ffa_rxtx_unmap(frame);
     }
     else if (fid == WT_FFA_PARTITION_INFO_GET) {
         ffa_partition_info_get(frame, (const struct wt_co*)co);

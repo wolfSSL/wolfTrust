@@ -253,6 +253,17 @@ static inline int wt_ffa_ns_bit_used(uint32_t caller_version, int requested)
  * = the most pages per buffer (0 = no limit). */
 #define WT_FFA_FEATURES_RXTX_MAX_PAGES(n) (((uint32_t)(n) & 0xFFFFu) << 16)
 
+/* FFA_CONSOLE_LOG (13.12): the character count is w1 bits 7:0 (bits 31:8
+ * SBZ), 1..24 over w2-w7 for SMC32 and 1..128 over x2-x17 for SMC64; 0 when
+ * the count is out of range. */
+static inline uint32_t wt_ffa_console_count(uint64_t w1, unsigned int is64)
+{
+    uint32_t count = (uint32_t)w1 & 0xFFu;
+    uint32_t max = (is64 != 0u) ? 128u : 24u;
+
+    return ((count >= 1u) && (count <= max)) ? count : 0u;
+}
+
 /* FFA_PARTITION_INFO_GET_REGS answers in x0-x17 although it is asked in
  * x0-x3, so a relayer decides a reply's width from what it forwarded too. */
 static inline int wt_ffa_reply_is_ext(uint32_t forwarded, uint32_t reply)

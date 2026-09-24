@@ -898,6 +898,23 @@ static void msg2_copy_rows(void)
           "receiver, offset, size or UUID the receiver is handed");
 }
 
+/* 13.12: the one count rule the SPMD and the SPMC both apply. */
+static void console_count_rows(void)
+{
+    check(wt_ffa_console_count(24u, 0u) == 24u &&
+              wt_ffa_console_count(128u, 1u) == 128u,
+          "console: the largest count each convention carries is taken");
+    check(wt_ffa_console_count(0u, 0u) == 0u &&
+              wt_ffa_console_count(25u, 0u) == 0u &&
+              wt_ffa_console_count(129u, 1u) == 0u,
+          "console: a count of 0 or past the convention's registers is refused");
+    check(wt_ffa_console_count(0xFFFFFF03u, 0u) == 3u &&
+              wt_ffa_console_count(0xDEADBEEF00000180ull, 1u) == 128u,
+          "console: the SBZ bits above bits 7:0 are ignored at SMC32 and SMC64");
+    check(wt_ffa_console_count(0x100u, 1u) == 0u,
+          "console: bits 7:0 alone count, so 0x100 counts nothing");
+}
+
 int main(void)
 {
     size_t n = sizeof(g_fids) / sizeof(g_fids[0]);
@@ -1020,6 +1037,7 @@ int main(void)
     msg_deliver_rows();
     msg2_rows();
     msg2_copy_rows();
+    console_count_rows();
     partition_info_rows();
     manifest_record_rows();
     partition_info_mailbox_rows();

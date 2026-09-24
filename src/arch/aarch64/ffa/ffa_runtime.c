@@ -125,6 +125,14 @@ int wt_ffa_rt_error_check(const uint64_t* x)
     return 0;
 }
 
+int wt_ffa_rt_yield_check(const uint64_t* x)
+{
+    if (((uint32_t)x[1] | (uint32_t)x[2] | (uint32_t)x[3]) != 0u) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    return 0;
+}
+
 const char *wt_ffa_rt_state_name(wt_ffa_rt_state_t state)
 {
     switch (state) {

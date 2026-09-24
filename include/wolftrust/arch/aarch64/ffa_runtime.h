@@ -66,6 +66,12 @@ int wt_ffa_rt_success_check(const uint64_t* x);
  * w1 MBZ, w2 an error code (negative). 0, or INVALID_PARAMETERS. */
 int wt_ffa_rt_error_check(const uint64_t* x);
 
+/* FFA_YIELD from a partition (Table 14.9): the w1 endpoint/vCPU ids and the
+ * w2/w3 timeout are the partition managers' to use and MBZ from an endpoint,
+ * so a partition cannot ask for a timed yield; w4-w7 are SBZ and ignored.
+ * x = x0-x7. 0, or INVALID_PARAMETERS. */
+int wt_ffa_rt_yield_check(const uint64_t* x);
+
 const char *wt_ffa_rt_state_name(wt_ffa_rt_state_t state);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_RUNTIME_H */

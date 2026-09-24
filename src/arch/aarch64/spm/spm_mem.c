@@ -972,7 +972,7 @@ static int effective_permissions(int exclusive, uint8_t granted, uint8_t asked,
 }
 
 /* Retrieve flags bits 9:5: with the valid bit clear the hint is MBZ; with it
- * set, n asks for a 2n x 4 KB boundary. Partitions see memory at its physical
+ * set, n asks for a 2^n x 4 KB boundary. Partitions see memory at its physical
  * address, so a region either already sits on that boundary or cannot. */
 #define WT_FFA_MEM_FLAG_ALIGN_VALID (1u << 9)
 #define WT_FFA_MEM_FLAG_ALIGN_SHIFT 5u
@@ -986,9 +986,8 @@ static int alignment_hint_ok(const wt_ffa_mem_handle_entry_t* e, uint32_t flags)
     if ((flags & WT_FFA_MEM_FLAG_ALIGN_VALID) == 0u) {
         return (hint == 0u) ? 0 : WT_FFA_INVALID_PARAMETERS;
     }
-    /* DEN0140 Table 1.22 Bits[8:5]: pinned text reads 2*n x 4KB. */
-    boundary = (hint == 0u) ? WT_FFA_MEM_PAGE_SIZE
-                            : ((uint64_t)hint * 2u * WT_FFA_MEM_PAGE_SIZE);
+    /* Table 1.22 prints 2*n x 4KB, read as 2^n: n = 0 would be no boundary. */
+    boundary = (uint64_t)WT_FFA_MEM_PAGE_SIZE << hint;
     for (i = 0u; i < (uint32_t)e->region_count; i++) {
         if ((e->regions[i].base % boundary) != 0u) {
             return WT_FFA_DENIED;

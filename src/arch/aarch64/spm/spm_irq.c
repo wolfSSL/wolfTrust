@@ -57,6 +57,43 @@ static uint32_t ack_group0_tick(void)
     return intid;
 }
 
+int wt_spm_sint_fifo_push(wt_spm_sint_fifo_t* q, uint32_t intid)
+{
+    uint32_t i;
+
+    if ((q == NULL) || (intid == 0u)) {
+        return -1;
+    }
+    for (i = 0u; i < q->count; i++) {
+        if (q->intid[i] == intid) {
+            return 0;
+        }
+    }
+    if (q->count >= WT_SPM_SINT_QUEUE_MAX) {
+        return -1;
+    }
+    q->intid[q->count] = intid;
+    q->count++;
+    return 0;
+}
+
+uint32_t wt_spm_sint_fifo_pop(wt_spm_sint_fifo_t* q)
+{
+    uint32_t intid;
+    uint32_t i;
+
+    if ((q == NULL) || (q->count == 0u)) {
+        return 0u;
+    }
+    intid = q->intid[0];
+    for (i = 1u; i < q->count; i++) {
+        q->intid[i - 1u] = q->intid[i];
+    }
+    q->count--;
+    q->intid[q->count] = 0u;
+    return intid;
+}
+
 /* The Secure interrupt that preempted the Normal world: the SPMD hands it over
  * still pending, so the SPMC acknowledges it here. Returns its id, or
  * WT_GIC_INTID_SPURIOUS when none is pending. */

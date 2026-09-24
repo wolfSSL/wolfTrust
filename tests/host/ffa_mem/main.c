@@ -1554,6 +1554,7 @@ static unsigned int g_cleans;
 static uint64_t g_clean_va;
 static uint64_t g_clean_size;
 static int g_clean_zeroed;
+static int g_clean_a_access;
 
 #define CO_A ((struct wt_co*)(void*)&g_co_a)
 #define CO_B ((struct wt_co*)(void*)&g_co_b)
@@ -1579,6 +1580,9 @@ void wt_mmu_dcache_clean_inval(uint64_t va, uint64_t size)
     g_cleans++;
     g_clean_va = va;
     g_clean_size = size;
+    g_clean_a_access = wt_domain_page_access(g_dom_a.regions,
+                                             g_dom_a.region_count,
+                                             (uintptr_t)va);
     g_clean_zeroed = 1;
     for (i = 0u; i < size; i++) {
         if (p[i] != 0u) {
@@ -1634,6 +1638,7 @@ int wt_spm_sp_ffa_ns_bit(const struct wt_co* co)
 }
 
 static uintptr_t page(unsigned int i);
+static int cleaned(unsigned int pg);
 
 size_t wt_platform_sp_shared_regions(wt_memory_region_t* regions, size_t max)
 {
@@ -2275,6 +2280,12 @@ static void relay_self_rows(void)
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
           access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
           "self: the borrower keeps the access it was given when the lender comes first");
+    g_cleans = 0u;
+    check(relay_self_send(WT_FFA_MEM_OP_SHARE, 0, WT_FFA_MEM_PERM_DATA_RO,
+                          WT_FFA_MEM_PERM_DATA_RW, PG_RW, &h) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, WT_FFA_MEM_RELINQ_FLAG_ZERO) == 0 &&
+          cleaned(PG_RW) && g_clean_a_access == WT_DOMAIN_ACCESS_RW,
+          "self: a reclaim that zeroes a page the lender kept reading wipes it through the write access it got back");
     check(relay_self_send(WT_FFA_MEM_OP_SHARE, 0, WT_FFA_MEM_PERM_DATA_RW,
                           WT_FFA_MEM_PERM_DATA_RO, PG_RO, &h) ==
               WT_FFA_DENIED &&

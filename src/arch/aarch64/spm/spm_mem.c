@@ -972,10 +972,13 @@ int wt_spm_mem_reclaim(uint64_t handle, uint16_t owner, uint32_t flags)
     if (ret != 0) {
         return ret;
     }
+    /* The wipe runs in the owner's own call, so no one sees the memory before
+     * it; a share that named the owner read-only left its entry, which this
+     * wipe goes through, read-only at S-EL1 too until the access comes back. */
+    owner_access(&snapshot, 1);
     if ((flags & WT_FFA_MEM_RELINQ_FLAG_ZERO) != 0u) {
         zero_regions(&snapshot);
     }
-    owner_access(&snapshot, 1);
     return 0;
 }
 

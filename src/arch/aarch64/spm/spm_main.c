@@ -225,19 +225,31 @@ void wt_domain_fail(int code)
 uintptr_t g_wt_spm_echo_stack_base;
 uintptr_t g_wt_spm_echo_stack_size;
 
-/* Manifest partition stacks sit one WT_SPMC_STACK_STRIDE apart; the test echo
- * partition takes the next slot, published as a shareable fill entry so its
- * own table maps it EL0 while every other table keeps it EL1-only. */
+/* A fill entry dropped for want of room would leave memory the SPMC writes
+ * unmapped, so a full list fails closed instead. */
+static void fill_check(size_t n)
+{
+    if (n >= WT_SPMC_MAX_FILL) {
+        spmc_fail("fill full", (uint64_t)n);
+    }
+}
+
+/* Manifest partition stacks sit on WT_SPMC_STACK_STRIDE boundaries; the test
+ * echo partition takes the next one past the last, published as a shareable
+ * fill entry so its own table maps it EL0 while every other table keeps it
+ * EL1-only. */
 #define WT_SPMC_STACK_STRIDE 0x10000u
 
 #if defined(WT_SPM_ECHO_SP)
 static size_t add_echo_band(wt_memory_region_t* fill, size_t n,
-                            uintptr_t last_base, uintptr_t band_size)
+                            uintptr_t last_end, uintptr_t band_size)
 {
-    if ((band_size == 0u) || (n >= WT_SPMC_MAX_FILL)) {
+    if (band_size == 0u) {
         return n;
     }
-    g_wt_spm_echo_stack_base = last_base + WT_SPMC_STACK_STRIDE;
+    fill_check(n);
+    g_wt_spm_echo_stack_base = (last_end + WT_SPMC_STACK_STRIDE - 1u) &
+                               ~(uintptr_t)(WT_SPMC_STACK_STRIDE - 1u);
     g_wt_spm_echo_stack_size = band_size;
     fill[n].base = g_wt_spm_echo_stack_base;
     fill[n].size = (size_t)band_size;
@@ -246,10 +258,10 @@ static size_t add_echo_band(wt_memory_region_t* fill, size_t n,
 }
 #else
 static size_t add_echo_band(wt_memory_region_t* fill, size_t n,
-                            uintptr_t last_base, uintptr_t band_size)
+                            uintptr_t last_end, uintptr_t band_size)
 {
     (void)fill;
-    (void)last_base;
+    (void)last_end;
     (void)band_size;
     return n;
 }
@@ -268,7 +280,8 @@ static size_t add_native_bands(wt_memory_region_t* fill, size_t n)
 
     list = wt_platform_ffa_native_partitions(&count);
     for (i = 0u; (list != NULL) && (i < count); i++) {
-        for (j = 0u; (j < list[i].region_count) && (n < WT_SPMC_MAX_FILL); j++) {
+        for (j = 0u; j < list[i].region_count; j++) {
+            fill_check(n);
             fill[n].base = list[i].regions[j].base;
             fill[n].size = list[i].regions[j].size;
             fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
@@ -294,8 +307,11 @@ static void enable_mmu(uint64_t boot_info_pa)
     size_t device_count = 0u;
     size_t n = 0u;
     size_t i;
+    size_t j;
     uint64_t ttbr0;
-    uintptr_t last_base = 0u;
+    wt_memory_region_t band;
+    wt_memory_region_t stack;
+    uintptr_t last_end = 0u;
     uintptr_t band_size = 0u;
 
     /* Shareable entries: a partition whose manifest region covers one takes
@@ -343,25 +359,32 @@ static void enable_mmu(uint64_t boot_info_pa)
     fill[n].size = (size_t)WT_SPM_SHARE_SIZE;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
     n++;
-    /* Partition stack bands from the manifest: the SPMC seeds and scrubs
-     * them from EL1, the owning partition maps its own at EL0. */
-    for (i = 0u; (i < manifest->domain_count) && (n < WT_SPMC_MAX_FILL); i++) {
+    /* Every partition resource the SPMC itself writes from EL1 (the stack it
+     * seeds and scrubs, a data band the fault scrub clears), whole; the owner
+     * maps its own at EL0. */
+    for (i = 0u; i < manifest->domain_count; i++) {
         const wt_domain_descriptor_t* d = &manifest->domains[i];
 
         if (d->domain_class != WT_DOMAIN_CLASS_SECURE_PARTITION) {
             continue;
         }
-        fill[n].base = d->stack_base & ~(uintptr_t)(WT_TABLES_PAGE_SIZE - 1u);
-        fill[n].size = page_up(d->stack_base + d->stack_size) - fill[n].base;
-        fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
-        if (fill[n].base > last_base) {
-            last_base = fill[n].base;
-            band_size = (uintptr_t)fill[n].size;
+        for (j = 0u; j < d->memory_resource_count; j++) {
+            if (wt_domain_spm_band(d, j, &band) == 0) {
+                fill_check(n);
+                fill[n] = band;
+                fill[n].attributes |= WT_DOMAIN_FILL_SHARED;
+                n++;
+            }
         }
-        n++;
+        if ((wt_domain_stack_band(d, &stack) == 0) &&
+            ((stack.base + stack.size) > last_end)) {
+            last_end = stack.base + stack.size;
+            band_size = (uintptr_t)stack.size;
+        }
     }
-    n = add_echo_band(fill, n, last_base, band_size);
+    n = add_echo_band(fill, n, last_end, band_size);
     n = add_native_bands(fill, n);
+    fill_check(n + 1u);
     fill[n].base = (uintptr_t)boot_info_pa;
     fill[n].size = WT_TABLES_PAGE_SIZE;
     fill[n].attributes = WT_MEM_ATTR_READ;
@@ -375,7 +398,8 @@ static void enable_mmu(uint64_t boot_info_pa)
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     n++;
     devices = wt_platform_board_device_regions(&device_count);
-    for (i = 0u; (i < device_count) && (n < WT_SPMC_MAX_FILL); i++) {
+    for (i = 0u; i < device_count; i++) {
+        fill_check(n);
         fill[n] = devices[i];
         n++;
     }
@@ -383,13 +407,12 @@ static void enable_mmu(uint64_t boot_info_pa)
     /* A guest's psa_call buffers live in Non-secure RAM: map the window
      * EL1-only and Non-secure so the SPMC can copy them. A retrieve maps its
      * pages at EL0, so the window is non-global in every table. */
-    if (n < WT_SPMC_MAX_FILL) {
-        fill[n].base = (uintptr_t)WT_NS_IMAGE_PA;
-        fill[n].size = (size_t)WT_PSA_NS_WINDOW_SIZE;
-        fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
-                             WT_TABLES_ATTR_NS | WT_TABLES_ATTR_NG;
-        n++;
-    }
+    fill_check(n);
+    fill[n].base = (uintptr_t)WT_NS_IMAGE_PA;
+    fill[n].size = (size_t)WT_PSA_NS_WINDOW_SIZE;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
+                         WT_TABLES_ATTR_NS | WT_TABLES_ATTR_NG;
+    n++;
 #endif
 
     ttbr0 = wt_domain_init(fill, n, (uint8_t*)(uintptr_t)WT_SPM_TABLE_POOL_PA,
@@ -446,14 +469,18 @@ static int prove_coroutine(void)
 extern void wt_sp_el0_probe(void);
 static wt_secure_domain_t g_el0_domain;
 
-static const wt_domain_descriptor_t* first_partition_domain(void)
+/* The first configured partition and the stack band enable_mmu mapped for it,
+ * which the boot proofs borrow. */
+static const wt_domain_descriptor_t* first_partition_domain(
+    wt_memory_region_t* band)
 {
     const wt_system_manifest_t* manifest = wt_generated_manifest_get();
     size_t i;
 
     for (i = 0u; i < manifest->domain_count; i++) {
         if (manifest->domains[i].domain_class == WT_DOMAIN_CLASS_SECURE_PARTITION) {
-            return &manifest->domains[i];
+            return (wt_domain_stack_band(&manifest->domains[i], band) == 0) ?
+                   &manifest->domains[i] : NULL;
         }
     }
     return NULL;
@@ -461,22 +488,23 @@ static const wt_domain_descriptor_t* first_partition_domain(void)
 
 static int prove_el0(void)
 {
-    const wt_domain_descriptor_t* d = first_partition_domain();
+    wt_memory_region_t band;
+    const wt_domain_descriptor_t* d = first_partition_domain(&band);
     uint8_t* stack;
     wt_co_t* co;
 
     if (d == NULL) {
         return 0;
     }
-    stack = (uint8_t*)(uintptr_t)d->stack_base;
+    stack = (uint8_t*)band.base;
     g_el0_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
     g_el0_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
     g_el0_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
     g_el0_domain.regions[1].base = (uintptr_t)stack;
-    g_el0_domain.regions[1].size = (size_t)d->stack_size;
+    g_el0_domain.regions[1].size = band.size;
     g_el0_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     g_el0_domain.region_count = 2u;
-    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+    co = wt_co_create_blocked_ex(stack, band.size,
                                  (wt_co_entry_fn)wt_sp_el0_probe, (void*)0x11);
     if (co == NULL) {
         return 0;
@@ -548,7 +576,8 @@ static int prove_ffa_direct(void)
         0x00005CCEu, 0u, 0u, 0u, 0u
     };
     unsigned int i;
-    const wt_domain_descriptor_t* d = first_partition_domain();
+    wt_memory_region_t band;
+    const wt_domain_descriptor_t* d = first_partition_domain(&band);
     uint64_t req[WT_FFA_MSG_REGS_EXT];
     uint64_t resp[WT_FFA_MSG_REGS_EXT];
     uint8_t* stack;
@@ -557,18 +586,18 @@ static int prove_ffa_direct(void)
     if (d == NULL) {
         return 0;
     }
-    stack = (uint8_t*)(uintptr_t)d->stack_base;
+    stack = (uint8_t*)band.base;
     g_echo_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
     g_echo_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
     g_echo_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
     g_echo_domain.regions[1].base = (uintptr_t)stack;
-    g_echo_domain.regions[1].size = (size_t)d->stack_size;
+    g_echo_domain.regions[1].size = band.size;
     g_echo_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     g_echo_domain.region_count = 2u;
-    if (prove_init_failure(stack, (size_t)d->stack_size) == 0) {
+    if (prove_init_failure(stack, band.size) == 0) {
         return 0;
     }
-    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+    co = wt_co_create_blocked_ex(stack, band.size,
                                  (wt_co_entry_fn)wt_sp_ffa_echo, (void*)0);
     if (co == NULL) {
         return 0;
@@ -632,7 +661,8 @@ static wt_secure_domain_t g_spin_domain;
 
 static int prove_preempt(void)
 {
-    const wt_domain_descriptor_t* d = first_partition_domain();
+    wt_memory_region_t band;
+    const wt_domain_descriptor_t* d = first_partition_domain(&band);
     uint8_t* stack;
     wt_co_t* co;
     int preempted;
@@ -640,15 +670,15 @@ static int prove_preempt(void)
     if (d == NULL) {
         return 0;
     }
-    stack = (uint8_t*)(uintptr_t)d->stack_base;
+    stack = (uint8_t*)band.base;
     g_spin_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
     g_spin_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
     g_spin_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
     g_spin_domain.regions[1].base = (uintptr_t)stack;
-    g_spin_domain.regions[1].size = (size_t)d->stack_size;
+    g_spin_domain.regions[1].size = band.size;
     g_spin_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     g_spin_domain.region_count = 2u;
-    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+    co = wt_co_create_blocked_ex(stack, band.size,
                                  (wt_co_entry_fn)wt_sp_spin, (void*)0);
     if (co == NULL) {
         return 0;
@@ -673,7 +703,8 @@ static wt_secure_domain_t g_discover_domain;
 
 static int prove_partinfo(uint32_t* out_count)
 {
-    const wt_domain_descriptor_t* d = first_partition_domain();
+    wt_memory_region_t band;
+    const wt_domain_descriptor_t* d = first_partition_domain(&band);
     const wt_ffa_partition_manifest_t* parts;
     wt_ffa_mailbox_t* mb;
     uint32_t expect = 0u;
@@ -696,19 +727,19 @@ static int prove_partinfo(uint32_t* out_count)
     if (expect == 0u) {
         return 0;
     }
-    stack = (uint8_t*)(uintptr_t)d->stack_base;
+    stack = (uint8_t*)band.base;
     g_discover_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
     g_discover_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
     g_discover_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
     g_discover_domain.regions[1].base = (uintptr_t)stack;
-    g_discover_domain.regions[1].size = (size_t)d->stack_size;
+    g_discover_domain.regions[1].size = band.size;
     g_discover_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     g_discover_domain.regions[2].base = (uintptr_t)WT_SPM_RXTX_PA;
     g_discover_domain.regions[2].size = (size_t)WT_SPM_RXTX_SIZE;
     g_discover_domain.regions[2].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     g_discover_domain.region_count = 3u;
     g_discover_domain.domain_id = d->id;
-    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+    co = wt_co_create_blocked_ex(stack, band.size,
                                  (wt_co_entry_fn)wt_sp_ffa_discover,
                                  (void*)(uintptr_t)WT_SPM_RXTX_PA);
     if (co == NULL) {
@@ -838,7 +869,8 @@ static int mem_share_exchange(wt_co_t* co, uint64_t* out_handle)
 
 static int prove_mem_share(uint64_t* out_handle)
 {
-    const wt_domain_descriptor_t* d = first_partition_domain();
+    wt_memory_region_t band;
+    const wt_domain_descriptor_t* d = first_partition_domain(&band);
     uint64_t* arg = (uint64_t*)(uintptr_t)(WT_SPM_RXTX_PA +
                                            WT_FFA_MEM_PAGE_SIZE - 64u);
     wt_ffa_mailbox_t* mb;
@@ -849,12 +881,12 @@ static int prove_mem_share(uint64_t* out_handle)
     if (d == NULL) {
         return 0;
     }
-    stack = (uint8_t*)(uintptr_t)d->stack_base;
+    stack = (uint8_t*)band.base;
     g_borrow_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
     g_borrow_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
     g_borrow_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
     g_borrow_domain.regions[1].base = (uintptr_t)stack;
-    g_borrow_domain.regions[1].size = (size_t)d->stack_size;
+    g_borrow_domain.regions[1].size = band.size;
     g_borrow_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     g_borrow_domain.regions[2].base = (uintptr_t)WT_SPM_RXTX_PA;
     g_borrow_domain.regions[2].size = (size_t)WT_SPM_RXTX_SIZE;
@@ -862,7 +894,7 @@ static int prove_mem_share(uint64_t* out_handle)
     g_borrow_domain.region_count = 3u;
 
     /* The borrower exists before the share names it. */
-    co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
+    co = wt_co_create_blocked_ex(stack, band.size,
                                  (wt_co_entry_fn)wt_sp_ffa_borrow, (void*)arg);
     if (co == NULL) {
         return 0;

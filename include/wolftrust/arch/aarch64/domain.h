@@ -46,6 +46,18 @@
 #define WT_DOMAIN_FAIL_BUILD  2
 #define WT_DOMAIN_FAIL_SLOTS  3
 
+/* The memory resource a manifest partition's stack runs in, exactly as the
+ * scheduler picks it (the last private writable Normal resource holding the
+ * declared stack), so the SPMC maps all of it. Returns 0, or -1 for none. */
+int wt_domain_stack_band(const wt_domain_descriptor_t* d,
+                         wt_memory_region_t* band);
+
+/* Resource i of a manifest partition when the SPMC itself writes it from EL1
+ * (its stack band, or a private band the fault scrub clears), so every table
+ * maps it EL1-only. Returns 0 with *band set, or -1. */
+int wt_domain_spm_band(const wt_domain_descriptor_t* d, size_t i,
+                       wt_memory_region_t* band);
+
 /* Builds the SPM-only table over the pool; returns its TTBR0 or 0. The
  * fill list is kept and mapped EL1-only into every partition table. */
 uint64_t wt_domain_init(const wt_memory_region_t* fill, size_t fill_count,

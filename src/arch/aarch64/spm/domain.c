@@ -322,7 +322,10 @@ int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
     }
     ret = wt_tables_walk(&e->table, &g_pool, (uint64_t)va, &w);
     if (ret == WT_TABLES_OK) {
-        *attributes = WT_MEM_ATTR_READ;
+        *attributes = 0u;
+        if ((w.ap == WT_TABLES_AP_ALL_RW) || (w.ap == WT_TABLES_AP_ALL_RO)) {
+            *attributes |= WT_MEM_ATTR_READ;
+        }
         if (w.ap == WT_TABLES_AP_ALL_RW) {
             *attributes |= WT_MEM_ATTR_WRITE;
         }

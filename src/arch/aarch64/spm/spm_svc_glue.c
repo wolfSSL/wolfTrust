@@ -918,6 +918,7 @@ static void ffa_notif_get(wt_trap_frame_t* frame, const struct wt_co* co)
 /* FFA_MEM_PERM_GET/SET permission word: bits[1:0] data access (1 = RW,
  * 3 = RO), bit[2] set = execute-never; everything else is reserved. */
 #define WT_FFA_PERM_DATA_MASK 0x3u
+#define WT_FFA_PERM_DATA_NONE 0x0u
 #define WT_FFA_PERM_DATA_RW   0x1u
 #define WT_FFA_PERM_DATA_RO   0x3u
 #define WT_FFA_PERM_XN        0x4u
@@ -989,7 +990,8 @@ static void ffa_mem_perm_set(wt_trap_frame_t* frame, const struct wt_co* co)
 }
 
 /* FFA_MEM_PERM_GET (18.3.1): w1 = base VA of a page, else INVALID_PARAMETERS;
- * the permissions return in w2. */
+ * the permissions return in w2, no access for one of the caller's own pages a
+ * transaction holds (Table 2.36). */
 static void ffa_mem_perm_get(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     uint32_t attributes = 0u;
@@ -1005,8 +1007,13 @@ static void ffa_mem_perm_get(wt_trap_frame_t* frame, const struct wt_co* co)
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }
-    perm = ((attributes & WT_MEM_ATTR_WRITE) != 0u) ? WT_FFA_PERM_DATA_RW
-                                                     : WT_FFA_PERM_DATA_RO;
+    perm = WT_FFA_PERM_DATA_NONE;
+    if ((attributes & WT_MEM_ATTR_WRITE) != 0u) {
+        perm = WT_FFA_PERM_DATA_RW;
+    }
+    else if ((attributes & WT_MEM_ATTR_READ) != 0u) {
+        perm = WT_FFA_PERM_DATA_RO;
+    }
     if ((attributes & WT_MEM_ATTR_EXEC) == 0u) {
         perm |= WT_FFA_PERM_XN;
     }

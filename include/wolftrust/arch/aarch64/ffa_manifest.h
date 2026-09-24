@@ -32,6 +32,7 @@
 
 #define WT_FFA_RUNTIME_EL_SEL0          0u
 #define WT_FFA_RUNTIME_EL_SEL1          1u
+#define WT_FFA_MESSAGING_NONE           0u
 #define WT_FFA_MESSAGING_DIRECT         1u
 #define WT_FFA_MESSAGING_INDIRECT       2u
 #define WT_FFA_NS_INTERRUPT_SIGNALED    0u

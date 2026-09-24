@@ -96,6 +96,16 @@ static int psci_is_smc64(uint32_t fid)
     return (fid & 0x40000000u) != 0u;
 }
 
+/* An int32 PSCI result (DEN0022 5.2.1) is W0 for SMC32; SMC64 returns it as a
+ * 64-bit signed X0 (DEN0028 2.8, 5.1), so negative codes are sign-extended. */
+static uint64_t psci_status(uint32_t fid, int64_t status)
+{
+    if (psci_is_smc64(fid)) {
+        return (uint64_t)status;
+    }
+    return (uint64_t)(uint32_t)status;
+}
+
 /* Classify a target_cpu: the boot core, or an MPIDR outside the Normal
  * world's machine view (a parked secondary is one). */
 static int psci_target(uint64_t target, uint32_t fid)
@@ -199,7 +209,7 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
             break;
         case WT_PSCI_CPU_SUSPEND32:
         case WT_PSCI_CPU_SUSPEND64:
-            psci_return(r, (uint64_t)(uint32_t)psci_cpu_suspend(r->x[1]));
+            psci_return(r, psci_status(fid, psci_cpu_suspend(r->x[1])));
             break;
         case WT_PSCI_CPU_OFF:
             /* The uniprocessor SPMC is resident on the only running core. */
@@ -207,16 +217,16 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
             break;
         case WT_PSCI_CPU_ON32:
         case WT_PSCI_CPU_ON64:
-            psci_return(r, (uint64_t)(uint32_t)psci_cpu_on(r->x[1], fid));
+            psci_return(r, psci_status(fid, psci_cpu_on(r->x[1], fid)));
             break;
         case WT_PSCI_AFFINITY_INFO32:
         case WT_PSCI_AFFINITY_INFO64:
-            psci_return(r, (uint64_t)(uint32_t)psci_affinity_info(r->x[1],
-                                                                  r->x[2], fid));
+            psci_return(r, psci_status(fid, psci_affinity_info(r->x[1],
+                                                               r->x[2], fid)));
             break;
         case WT_PSCI_MIGRATE32:
         case WT_PSCI_MIGRATE64:
-            psci_return(r, (uint64_t)(uint32_t)psci_migrate(r->x[1], fid));
+            psci_return(r, psci_status(fid, psci_migrate(r->x[1], fid)));
             break;
         case WT_PSCI_MIGRATE_INFO_TYPE:
             psci_return(r, (uint64_t)WT_PSCI_TOS_UP_NOT_MIGRATABLE);

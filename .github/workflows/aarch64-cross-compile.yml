@@ -14,7 +14,9 @@ jobs:
   qemu-a-smoke:
     name: EL3 smoke on ${{ matrix.cell.name }} (${{ matrix.engine }})
     runs-on: ubuntu-22.04
-    timeout-minutes: 30
+    # The serial list takes 15-18 min per cell on the reference box; the
+    # per-scenario QEMU budgets are hang detectors, not expected runtimes.
+    timeout-minutes: 75
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-aarch64:v1.15
     strategy:
@@ -98,6 +100,7 @@ jobs:
   qemu-a-ffa-acs:
     name: FF-A ACS on ${{ matrix.cell.name }} (${{ matrix.engine }})
     runs-on: ubuntu-22.04
+    # The six groups take about 4 min per cell on the reference box.
     timeout-minutes: 60
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-aarch64:v1.15

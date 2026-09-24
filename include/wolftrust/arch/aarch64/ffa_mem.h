@@ -496,7 +496,8 @@ void wt_ffa_mem_frag_reset(wt_ffa_mem_frag_t* f);
 /* The descriptor length the first fragment's own headers describe (a retrieve
  * request when retrieve is non-zero, else a lend/share/donate), so a declared
  * total that disagrees is refused before any fragment is taken. Returns 1 with
- * *size set, or 0 when the fragment is too short to tell. */
+ * *size set, or 0 when the fragment is too short to tell or its access array
+ * is one the full parse refuses (that parse then answers the request). */
 int wt_ffa_mem_frag_expected(const uint8_t* frag, uint32_t frag_len,
                              int retrieve, uint64_t* size);
 /* wt_ffa_mem_frag_expected for a descriptor laid out for FF-A version. */

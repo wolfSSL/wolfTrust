@@ -1109,12 +1109,12 @@ int wt_ffa_mem_frag_expected_at(const uint8_t* frag, uint32_t frag_len,
     uint32_t acc_size = WT_FFA_MEM_ACCESS_SIZE;
     uint32_t acc_count;
     uint32_t acc_off = WT_FFA_MEM_TXN_HDR_SIZE_V10;
+    uint32_t hdr = (layout_v10(version) != 0) ? WT_FFA_MEM_TXN_HDR_SIZE_V10
+                                              : WT_FFA_MEM_TXN_HDR_SIZE;
     uint32_t comp_off;
     uint32_t i;
 
-    if ((frag == NULL) || (size == NULL) ||
-        (frag_len < ((layout_v10(version) != 0) ? WT_FFA_MEM_TXN_HDR_SIZE_V10
-                                                : WT_FFA_MEM_TXN_HDR_SIZE))) {
+    if ((frag == NULL) || (size == NULL) || (frag_len < hdr)) {
         return 0;
     }
     if (layout_v10(version) == 0) {
@@ -1123,6 +1123,12 @@ int wt_ffa_mem_frag_expected_at(const uint8_t* frag, uint32_t frag_len,
     }
     acc_count = rd_u32(&frag[WT_FFA_MEM_TXN_OFF_ACC_COUNT]);
     if (retrieve != 0) {
+        /* Only an access array the full parse accepts is walked: a zero
+         * stride would never leave it. */
+        if ((access_size_ok(acc_size) == 0) || (acc_off < hdr) ||
+            ((acc_off % WT_FFA_MEM_ACC_OFFSET_ALIGN) != 0u)) {
+            return 0;
+        }
         *size = (uint64_t)acc_off + ((uint64_t)acc_count * acc_size);
         /* A receiver's own address ranges follow the access array. */
         for (i = 0u; (i < acc_count) &&

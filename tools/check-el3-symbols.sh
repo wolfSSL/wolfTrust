@@ -15,34 +15,107 @@ ALLOW="$root/tools/el3-symbols.allow"
 DEFINES="$root/tools/el3-defines.allow"
 DENY='^(wt_ffm_|wt_spm_|wt_monitor_|wt_hsm_|wt_attest|wt_vault|wt_its_|wt_ps_|wt_fwu|wt_vnet|wt_ffa_(notif|partinfo|rt)_|wt_psa_|wc_|wh_|psa_)'
 
+# valid_ere <pattern> : true unless grep -E rejects <pattern> as malformed
+# (a grep exit status of 2 or more; 0/1 are match/no-match, both fine).
+valid_ere() {
+  local rc
+  grep -E -q -- "$1" /dev/null 2>/dev/null
+  rc=$?
+  [ "$rc" -le 1 ]
+}
+
+# valid_patterns <label> <patterns> : true only if every non-blank line of
+# the newline-separated <patterns> is a valid ERE; names the bad line
+# otherwise so a single typo can't silently blind the whole allow-list.
+valid_patterns() {
+  local label="$1" patterns="$2" line
+  while IFS= read -r line; do
+    [ -z "$line" ] && continue
+    if ! valid_ere "$line"; then
+      echo "  invalid pattern in $label: $line"
+      return 1
+    fi
+  done < <(printf '%s\n' "$patterns")
+  return 0
+}
+
 # audit <allow-file> <defines-file> < nm-listing : prints offenders, fails if
-# there are any
+# there are any. Fails closed (returns 1) on an unreadable or empty
+# allow-list, a malformed pattern in either allow-list, or any matcher
+# error, instead of treating those as "no offenders".
 audit() {
-  local allow="$1" defines="$2" pats defpats defined globals undefined bad=0 hit
+  local allow="$1" defines="$2" pats defpats defined globals undefined bad=0 hit out rc
+
+  if [ ! -r "$allow" ]; then
+    echo "  allow-list unreadable: $allow"
+    return 1
+  fi
+  if [ ! -r "$defines" ]; then
+    echo "  defines allow-list unreadable: $defines"
+    return 1
+  fi
   pats="$(grep -vE '^[[:space:]]*(#|$)' "$allow")"
   defpats="$(grep -vE '^[[:space:]]*(#|$)' "$defines")"
+  if [ -z "$pats" ]; then
+    echo "  allow-list has no patterns: $allow"
+    return 1
+  fi
+  if [ -z "$defpats" ]; then
+    echo "  defines allow-list has no patterns: $defines"
+    return 1
+  fi
+  valid_patterns "$allow" "$pats" || return 1
+  valid_patterns "$defines" "$defpats" || return 1
+
   listing="$(cat)"
   defined="$(printf '%s\n' "$listing" | awk 'NF==3 && $2!="U" && $2!="w" {print $3}' | sort -u)"
   globals="$(printf '%s\n' "$listing" | awk 'NF==3 && $2 ~ /^[A-Z]$/ && $2!="U" {print $3}' | sort -u)"
   undefined="$(printf '%s\n' "$listing" | awk 'NF==2 && ($1=="U" || $1=="w") {print $2}' | sort -u)"
   if [ -n "$defined" ]; then
-    undefined="$(printf '%s\n' "$undefined" | grep -vxF -f <(printf '%s\n' "$defined") || true)"
+    undefined="$(printf '%s\n' "$undefined" | grep -vxF -f <(printf '%s\n' "$defined"))"
+    rc=$?
+    if [ "$rc" -ge 2 ]; then
+      echo "  internal error filtering resolved symbols"
+      return 1
+    fi
+  fi
+
+  out="$(printf '%s\n' "$undefined" | grep -vE -f <(printf '%s\n' "$pats"))"
+  rc=$?
+  if [ "$rc" -ge 2 ]; then
+    echo "  allow-list matcher error: $allow"
+    return 1
   fi
   while IFS= read -r hit; do
     [ -z "$hit" ] && continue
     echo "  unresolved symbol outside the allow-list: $hit"
     bad=$((bad + 1))
-  done < <(printf '%s\n' "$undefined" | grep -vE -f <(printf '%s\n' "$pats") || true)
+  done < <(printf '%s\n' "$out")
+
+  out="$(printf '%s\n' "$defined" | grep -E "$DENY")"
+  rc=$?
+  if [ "$rc" -ge 2 ]; then
+    echo "  internal error matching the deny pattern"
+    return 1
+  fi
   while IFS= read -r hit; do
     [ -z "$hit" ] && continue
     echo "  core, service, or crypto symbol defined inside the EL3 archive: $hit"
     bad=$((bad + 1))
-  done < <(printf '%s\n' "$defined" | grep -E "$DENY" || true)
+  done < <(printf '%s\n' "$out")
+
+  out="$(printf '%s\n' "$globals" | grep -vE -f <(printf '%s\n' "$defpats"))"
+  rc=$?
+  if [ "$rc" -ge 2 ]; then
+    echo "  defines allow-list matcher error: $defines"
+    return 1
+  fi
   while IFS= read -r hit; do
     [ -z "$hit" ] && continue
     echo "  global symbol the monitor does not define inside the EL3 archive: $hit"
     bad=$((bad + 1))
-  done < <(printf '%s\n' "$globals" | grep -vE -f <(printf '%s\n' "$defpats") || true)
+  done < <(printf '%s\n' "$out")
+
   [ "$bad" -eq 0 ]
 }
 
@@ -105,7 +178,7 @@ link_gate() {
 }
 
 selftest() {
-  local fails=0 out
+  local fails=0 out badtmp
   out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n                 U wt_gic_init_secure\n                 U wt_platform_console_putc\n                 U wt_esr_classify\n                 U memset\n                 U __el3_stack_top\n\nesr.o:\n0000000000000000 T wt_esr_classify\n' \
     | audit "$ALLOW" "$DEFINES")" || { echo "SELFTEST FAIL: clean listing rejected:"; echo "$out"; fails=$((fails + 1)); }
   out="$(printf 'smc.o:\n0000000000000000 T wt_smc_dispatch\n                 U wt_ffm_call\n0000000000000040 T wt_spm_init\n0000000000000080 t wt_hsm_helper\n' \
@@ -121,6 +194,47 @@ selftest() {
   # A shell status wraps modulo 256, so exactly 256 offenders must still fail.
   out="$(awk 'BEGIN { print "big.o:"; for (i = 0; i < 256; i++) printf "%016x T wt_spm_leak%d\n", i * 4, i }' \
     | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: 256 offenders accepted"; fails=$((fails + 1)); }
+
+  if valid_ere '['; then
+    echo "SELFTEST FAIL: malformed pattern accepted as valid"; fails=$((fails + 1)); fi
+  if ! valid_ere '^wt_[a-z_]+$'; then
+    echo "SELFTEST FAIL: well-formed pattern rejected"; fails=$((fails + 1)); fi
+
+  # A malformed allow-list entry must fail the audit, not silently pass a
+  # symbol that entry would otherwise have hidden.
+  badtmp="$(mktemp -d)"
+  cp "$ALLOW" "$badtmp/el3-symbols.allow"
+  printf '%s\n' '^wt_bad[' >> "$badtmp/el3-symbols.allow"
+  out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n                 U wt_spm_leak\n' \
+    | audit "$badtmp/el3-symbols.allow" "$DEFINES")" \
+    && { echo "SELFTEST FAIL: malformed allow-list pattern accepted"; fails=$((fails + 1)); }
+  case "$out" in *"invalid pattern in $badtmp/el3-symbols.allow"*) ;; \
+    *) echo "SELFTEST FAIL: malformed allow-list pattern not reported"; fails=$((fails + 1)) ;; esac
+
+  cp "$DEFINES" "$badtmp/el3-defines.allow"
+  printf '%s\n' '^wt_bad[' >> "$badtmp/el3-defines.allow"
+  out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n0000000000000040 T wt_bogus_extra\n' \
+    | audit "$ALLOW" "$badtmp/el3-defines.allow")" \
+    && { echo "SELFTEST FAIL: malformed defines pattern accepted"; fails=$((fails + 1)); }
+  case "$out" in *"invalid pattern in $badtmp/el3-defines.allow"*) ;; \
+    *) echo "SELFTEST FAIL: malformed defines pattern not reported"; fails=$((fails + 1)) ;; esac
+
+  : > "$badtmp/empty.allow"
+  out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n                 U wt_totally_unknown\n' \
+    | audit "$badtmp/empty.allow" "$DEFINES")" \
+    && { echo "SELFTEST FAIL: empty allow-list accepted"; fails=$((fails + 1)); }
+  out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n0000000000000040 T wt_bogus_extra\n' \
+    | audit "$ALLOW" "$badtmp/empty.allow")" \
+    && { echo "SELFTEST FAIL: empty defines allow-list accepted"; fails=$((fails + 1)); }
+
+  out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n' \
+    | audit "$badtmp/does-not-exist.allow" "$DEFINES")" \
+    && { echo "SELFTEST FAIL: unreadable allow-list accepted"; fails=$((fails + 1)); }
+  out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n' \
+    | audit "$ALLOW" "$badtmp/does-not-exist.allow")" \
+    && { echo "SELFTEST FAIL: unreadable defines allow-list accepted"; fails=$((fails + 1)); }
+  rm -rf "$badtmp"
+
   link_gate || fails=$((fails + 1))
   if [ "$fails" -ne 0 ]; then echo "SELFTEST: $fails failure(s)"; exit 1; fi
   echo "SELFTEST: ok"

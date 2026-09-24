@@ -173,17 +173,17 @@ void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
     world_switch(frame, WT_WORLD_SECURE);
 }
 
-void wt_el3_world_preempt_to_secure(wt_el3_frame_t* frame, uint32_t intid)
+void wt_el3_world_preempt_to_secure(wt_el3_frame_t* frame)
 {
     unsigned int i;
 
-    /* Hand the SPMC an FFA_INTERRUPT event; the preempted NS context is saved by
-     * the switch and resumed unchanged once the SPMC yields the Normal world. */
+    /* Hand the SPMC an FFA_INTERRUPT event with w1/w2 MBZ; the preempted NS
+     * context is saved by the switch and resumed unchanged once the SPMC yields
+     * the Normal world. */
     for (i = 0u; i < 8u; i++) {
         g_world[WT_WORLD_SECURE].frame.x[i] = 0u;
     }
     g_world[WT_WORLD_SECURE].frame.x[0] = WT_FFA_INTERRUPT;
-    g_world[WT_WORLD_SECURE].frame.x[1] = (uint64_t)intid;
     g_ns_pending = WT_NS_PENDING_RESUME;
     world_switch(frame, WT_WORLD_SECURE);
 }

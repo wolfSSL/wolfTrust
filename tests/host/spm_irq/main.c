@@ -207,6 +207,15 @@ int main(void)
     check(g_wt_spm_tick_intid == 0u && g_eoi == 0u && g_queued_any == 0u,
           "a spurious acknowledge is neither ended nor routed");
 
+    reset(OWNED_SPI, 0);
+    check(wt_spm_ns_sint_take() == OWNED_SPI && g_eoi == OWNED_SPI &&
+              g_queued_for == NULL && g_queued_any == 0u,
+          "the SPMC acknowledges and ends the interrupt that preempted the "
+          "Normal world itself, leaving the routing to its caller");
+    reset(WT_GIC_INTID_SPURIOUS, 0);
+    check(wt_spm_ns_sint_take() == WT_GIC_INTID_SPURIOUS && g_eoi == 0u,
+          "with nothing pending it reports spurious and ends nothing");
+
     printf("spm_irq: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;
 }

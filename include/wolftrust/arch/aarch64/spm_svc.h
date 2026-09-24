@@ -188,6 +188,8 @@ int wt_spm_sint_signal_needed(struct wt_co* owner);
 
 /* A Normal-world Group 1 interrupt asserted while a partition ran. */
 void wt_spm_preempt_from_irq(wt_trap_frame_t* frame);
+/* Acknowledge the Secure interrupt that preempted the Normal world. */
+uint32_t wt_spm_ns_sint_take(void);
 
 /* The test-timer service: arm makes the interrupt pending at its deadline
  * (see spm_irq.c for when a Normal-world one lands); stop clears the caller's

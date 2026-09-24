@@ -57,6 +57,14 @@ static uint32_t ack_group0_tick(void)
     return intid;
 }
 
+/* The Secure interrupt that preempted the Normal world: the SPMD hands it over
+ * still pending, so the SPMC acknowledges it here. Returns its id, or
+ * WT_GIC_INTID_SPURIOUS when none is pending. */
+uint32_t wt_spm_ns_sint_take(void)
+{
+    return ack_group0_tick();
+}
+
 /* Lower-EL FIQ: an S-EL0 partition was running. The scheduling tick preempts
  * it (an NS-Int, DEV-04) and the handler does not return here; any other
  * declared Secure interrupt is queued for the partition and delivered as

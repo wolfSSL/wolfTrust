@@ -1106,19 +1106,20 @@ static void ns_run(wt_ffa_regs_ext_t* e)
 }
 
 /* FFA_INTERRUPT the SPMD signalled because a Secure interrupt preempted the
- * Normal world (Ch.9). The SPMD already serviced the GIC; the SPMC schedules
- * (nothing else is runnable here) and yields the CPU back with
- * FFA_NORMAL_WORLD_RESUME. The resume SMC's return is the next event. */
+ * Normal world (Ch.9). It carries no id (12.4.1 item 3): the SPMC takes the
+ * interrupt from the GIC, schedules (nothing else is runnable here) and yields
+ * the CPU back with FFA_NORMAL_WORLD_RESUME. The resume SMC's return is the
+ * next event. */
 static void ns_interrupt(wt_ffa_regs_t* r)
 {
-    uint32_t intid = (uint32_t)r->x[1];
+    uint32_t intid = wt_spm_ns_sint_take();
     struct wt_co* owner;
     unsigned int i;
 
     if (intid == WT_GIC_INTID_SECURE_TIMER) {
         wt_spm_twdog_tick();
         wt_el3_puts("[SPM] ns preempt intid=0x");
-        wt_el3_puthex(r->x[1], 2u);
+        wt_el3_puthex(intid, 2u);
         wt_el3_puts("\r\n");
     }
     else {
@@ -1132,7 +1133,7 @@ static void ns_interrupt(wt_ffa_regs_t* r)
         }
         else {
             wt_el3_puts("[SPM] ns preempt intid=0x");
-            wt_el3_puthex(r->x[1], 2u);
+            wt_el3_puthex(intid, 3u);
             wt_el3_puts("\r\n");
         }
     }

@@ -198,13 +198,6 @@ wrong_el:
     mov     x0, #2
     b       wt_el3_semihost_exit
 
-/* void wt_el3_warm_reset(void): re-enter the reset vector so the whole chain
- * boots again, for an emulator test build on a port with no machine reset.
- * The .noinit boot counter survives it. */
-    .globl wt_el3_warm_reset
-wt_el3_warm_reset:
-    b       wt_el3_start
-
 halt:
     wfi
     b       halt

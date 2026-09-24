@@ -23,6 +23,7 @@
 
 #include "memory_map.h"
 #include "wolftrust/arch/aarch64/el3.h"
+#include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/pl011.h"
 #include "wolftrust/arch/aarch64/tables.h"
 
@@ -44,10 +45,12 @@ void wt_platform_board_init(void)
 #endif
 }
 
-/* The xlnx-versal-virt model offers the monitor no machine reset: returning
- * leaves the monitor's test builds to re-enter the boot chain. */
+/* The model's CRP/CRF/APU/PSM reset blocks are unimplemented stubs, so
+ * SYSTEM_RESET, a power cycle to its caller (DEN0022 5.11.1), powers the model
+ * off with the reset exit code and its host powers it on again. */
 void wt_platform_board_system_reset(void)
 {
+    (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_RESET);
 }
 
 const wt_memory_region_t* wt_platform_board_device_regions(size_t* count)

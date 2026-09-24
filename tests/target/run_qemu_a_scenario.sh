@@ -128,7 +128,7 @@ case "$scenario:$MACHINE" in
   parkneg:virt) SMP=1; cpus=2 ;;
   parkneg:versal-virt) SMP=4; cpus=2 ;;
   rdistneg:virt|tickneg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
-  # A secondary parks through the warm reset: the re-entered boot core must
+  # A secondary parks again after the reset: the rebooted boot core must
   # count it again.
   resetneg:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
   boot-smp2:versal-virt)
@@ -332,13 +332,21 @@ if [ "$MACHINE" = virt ]; then
         -bios "$image_bin"
         -serial "file:$ns_log" -serial "file:$sec_log")
 else
-  args=(-M xlnx-versal-virt -smp "$SMP" -m 2G
+  # The model has no reset controller: its monitor powers it off with the
+  # reset exit code and this runner powers it on again. The DDR is
+  # file-backed so it keeps its contents across that cycle, as virt's RAM does
+  # across its machine reset; the consoles append.
+  ddr="$build/versal-ddr.bin"
+  rm -f "$ddr"
+  args=(-M "xlnx-versal-virt,memory-backend=ddr" -smp "$SMP" -m 2G
+        -object "memory-backend-file,id=ddr,size=2G,mem-path=$ddr,share=on"
         -device "loader,file=$image_elf")
   if [ "$scenario" != smoke ]; then
     args+=(-device "loader,file=$spm_elf")
   fi
   args+=(-device "loader,addr=$el3_base,cpu-num=0"
-         -serial "file:$ns_log" -serial "file:$sec_log")
+         -chardev "file,id=nscon,path=$ns_log,append=on" -serial chardev:nscon
+         -chardev "file,id=scon,path=$sec_log,append=on" -serial chardev:scon)
 fi
 if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
@@ -366,11 +374,36 @@ args+=(-nographic -monitor none
 # virt resets through its Secure GPIO: QEMU must reboot the machine, not exit.
 [ "$MACHINE" = virt ] || args+=(-no-reboot)
 
+# The versal power-cycle budget mirrors virt's WT_EL3_RESET_LIMIT defaults.
+reset_limit=1
+case " ${probe[*]:-} " in *" WT_CONFORMANCE=1 "*) reset_limit=256 ;; esac
+cycles=0
+deadline=$(( $(date +%s) + QEMU_TIMEOUT ))
+: > "$qemu_out"
 echo "QEMU: $QEMU ${args[*]}"
-set +e
-timeout "$QEMU_TIMEOUT" "$QEMU" "${args[@]}" > "$qemu_out" 2>&1
-emu_status=$?
-set -e
+while :; do
+  left=$(( deadline - $(date +%s) ))
+  if [ "$left" -le 0 ]; then
+    emu_status=124
+    break
+  fi
+  sec_seen=$(wc -c < "$sec_log")
+  set +e
+  timeout "$left" "$QEMU" "${args[@]}" >> "$qemu_out" 2>&1
+  emu_status=$?
+  set -e
+  if [ "$MACHINE" = virt ] || [ "$emu_status" -ne $((0x7d)) ] || \
+     [ "$(tail -c +$((sec_seen + 1)) "$sec_log" | grep -ao '\[BKPT\] imm=0x[0-9a-f]*' | tail -1)" != "[BKPT] imm=0x7d" ]; then
+    break
+  fi
+  if [ "$cycles" -ge "$reset_limit" ]; then
+    echo "[QEMU] power-cycle limit $reset_limit reached" >> "$qemu_out"
+    emu_status=0
+    break
+  fi
+  cycles=$((cycles + 1))
+  echo "[QEMU] power cycle $cycles" >> "$qemu_out"
+done
 { cat "$ns_log" "$sec_log" "$qemu_out"; echo "[QEMU EXIT] status=$emu_status"; } > "$log"
 if [ "$emu_status" -eq 0 ]; then echo "[EXPECT EXIT] Success" >> "$log"; fi
 cat "$log"
@@ -746,22 +779,26 @@ case "$scenario" in
     expect "the Normal world asked for a system reset" "[NS] psci system_reset"
     expect "the first reset rebooted the machine" "[EL3] psci system_reset reboot"
     expect "the monitor booted the chain a second time" "[EL3] wolfTrust monitor cntfrq="
-    expect "the second reset ended the run through the boot-flag path" "[EL3] psci system_reset done"
     boots=$(grep -Fao "[NS] uart ifls=0x" "$log" | wc -l | tr -d ' ')
     if [ "$boots" -eq 2 ]; then
       check_pass "the Normal world read its UART on both boots"
     else
       check_fail "the Normal world read its UART on both boots" "$boots reads"
     fi
+    # A cold reset returns the UART the first boot marked to its reset value.
+    refute_re "the machine reset restored the marked device register" '\[NS\] uart ifls=0x24'
+    refute_re "the reset was not a warm re-entry" 'warm re-entry'
     if [ "$MACHINE" = virt ]; then
-      # A cold reset returns the UART the first boot marked to its reset value.
-      refute_re "the machine reset restored the marked device register" '\[NS\] uart ifls=0x24'
-      refute_re "the reset was not a warm re-entry" 'warm re-entry'
+      expect "the second reset ended the run through the boot-flag path" "[EL3] psci system_reset done"
+      expect "the re-entered chain exited cleanly" "[EXPECT BKPT] Success"
     else
-      # xlnx-versal-virt has no machine reset: its test build re-enters warm,
-      # which the device register shows.
-      expect "the model's test build re-entered warm without a machine reset" "[EL3] no machine reset: warm re-entry"
-      expect "the warm re-entry kept the marked device register" "[NS] uart ifls=0x24"
+      # xlnx-versal-virt has no reset controller: the monitor powers the model
+      # off and the runner powers it on again, once.
+      expect "the monitor powered the model off to reset it" "[BKPT] imm=0x7d"
+      expect "the model was power-cycled once" "[QEMU] power cycle 1"
+      refute_re "the model was power-cycled only once" '\[QEMU\] power cycle 2'
+      expect "the second reset ended the run at the power-cycle limit" "[QEMU] power-cycle limit 1 reached"
+      expect "the run ended cleanly" "[EXPECT EXIT] Success"
     fi
     parked=$(grep -Fao " secondaries parked mask=$expected_mask" "$log" | wc -l | tr -d ' ')
     if [ "$parked" -eq 2 ]; then
@@ -770,7 +807,6 @@ case "$scenario" in
       check_fail "both boots counted every secondary parked ($cpus cores)" \
         "mask=$expected_mask on $parked of 2 boots"
     fi
-    expect "the re-entered chain exited cleanly" "[EXPECT BKPT] Success"
     ;;
   secramneg)
     refute_re "no synchronous exception reached EL3" '^\[SYNC'

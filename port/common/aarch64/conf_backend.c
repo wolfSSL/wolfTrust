@@ -20,11 +20,11 @@
 
 /* Privileged backend for the AArch64 conformance image, called from the SVC
  * gate (spm_gate_core.c) on behalf of the unprivileged DRIVER partition. The
- * NVM store lives in a .noinit band so val's boot flag survives the EL3 warm
- * reset the panic tests trigger; on QEMU a warm reset re-enters the boot chain
- * without clearing RAM, and neither the EL3 image copy nor the SPMC bss clear
- * touches this band. The interrupt hook raises the DRIVER partition's Secure
- * SPI through the GIC. */
+ * NVM store lives in a .noinit band so val's boot flag survives the system
+ * reset the panic tests trigger: QEMU keeps RAM across virt's machine reset and
+ * the runner keeps versal-virt's DDR across its power cycle, and neither the
+ * EL3 image copy, the loaders, nor the SPMC bss clear touches this band. The
+ * interrupt hook raises the DRIVER partition's Secure SPI through the GIC. */
 
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/platform.h"
@@ -50,7 +50,7 @@ extern uint8_t _e_conf_driver_data[];
 #define WT_CONF_UART_INTID 63u
 
 /* .noinit: not in the image (NOLOAD) and outside the SPMC bss-clear range, so
- * its contents persist across a warm reset. */
+ * its contents persist across a reset. */
 static struct {
     uint32_t magic;
     uint8_t  store[WT_CONF_NVM_SIZE];

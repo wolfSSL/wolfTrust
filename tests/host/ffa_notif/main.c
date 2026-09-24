@@ -138,8 +138,12 @@ static void bitmap_rows(void)
           "destroy with a bound notification is DENIED");
     check(wt_ffa_notif_unbind(VM0, IDS(SP1, VM0), 0u, BIT(3)) == 0,
           "the refused destroy left the binding in place to unbind");
-    check(wt_ffa_notif_bitmap_destroy(VM0, VM0) == 0,
-          "destroy succeeds once unbound and drained");
+    check(wt_ffa_notif_bitmap_create(VM0, 0x10000u | VM0, 1u) ==
+          WT_FFA_INVALID_PARAMETERS,
+          "create refuses w1 bits 31:16, which are MBZ for it");
+    check(wt_ffa_notif_bitmap_destroy(VM0, 0xFFFF0000u | VM0) == 0,
+          "destroy succeeds once unbound and drained, ignoring the SBZ w1 "
+          "bits 31:16");
     check(wt_ffa_notif_bitmap_destroy(VM0, VM0) == WT_FFA_DENIED,
           "destroy again is DENIED");
 }

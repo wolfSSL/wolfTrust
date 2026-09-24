@@ -108,6 +108,32 @@ int wt_spm_mem_ns_owns(uint64_t base, uint64_t size);
 int wt_spm_mailbox_overlaps(uint64_t base, uint64_t size);
 int wt_spm_ns_mailbox_overlaps(uint64_t base, uint64_t size);
 
+/* FFA_MEM_PERM_GET/SET permission word (DEN0140 Tables 2.36 and 2.40):
+ * bits[1:0] data access, bit[2] set = not executable. */
+#define WT_FFA_PERM_DATA_MASK 0x3u
+#define WT_FFA_PERM_DATA_NONE 0x0u
+#define WT_FFA_PERM_DATA_RW   0x1u
+#define WT_FFA_PERM_DATA_RO   0x3u
+#define WT_FFA_PERM_XN        0x4u
+
+/* FFA_MEM_PERM_GET (DEN0140 2.8) for a partition confined to dom: its
+ * permissions on the page at va in *perm. Returns 0 or
+ * WT_FFA_INVALID_PARAMETERS for an unaligned address or a page that is not
+ * its own. */
+int wt_spm_mem_perm_get(const wt_secure_domain_t* dom, uint64_t va,
+                        uint32_t* perm);
+
+/* FFA_MEM_PERM_SET (DEN0140 2.9) for a partition confined to dom whose RX/TX
+ * pair is mb: re-permission pages pages at va. Returns 0,
+ * WT_FFA_INVALID_PARAMETERS for a bad encoding, alignment, count, or a page
+ * that is not its own, or WT_FFA_DENIED for memory whose permissions are not
+ * the partition's to change: code every partition runs, its mapped RX/TX pair,
+ * and, for read-only, memory its manifest makes writable, which the SPMC
+ * writes at S-EL1 through the partition's own table. */
+int wt_spm_mem_perm_set(const wt_secure_domain_t* dom,
+                        const wt_ffa_mailbox_t* mb, uint64_t va,
+                        uint32_t pages, uint32_t perm);
+
 /* A bound partition faulted and is terminated: unmap everything it retrieved
  * (zeroing what its retrieve asked to be zeroed), end what it owns and no
  * borrower holds, leave what a borrower still holds to end with that borrower,

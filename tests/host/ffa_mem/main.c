@@ -2308,6 +2308,59 @@ static void relay_self_rows(void)
     check(g_domain_fails == 0u, "self: no domain operation failed closed");
 }
 
+/* WT-FFA-0009 (FFA_MEM_PERM_GET/SET, DEN0140 2.8 and 2.9: a partition
+ * re-permissions its own pages, never ones the SPMC writes at S-EL1). */
+static void relay_perm_set_rows(void)
+{
+    uint32_t perm = 0u;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "perm set: fixture");
+        return;
+    }
+    (void)memset(&g_relay_mailbox, 0, sizeof(g_relay_mailbox));
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_IMAGE), 1u,
+                              WT_FFA_PERM_DATA_RO) == WT_FFA_DENIED,
+          "perm set: code every partition runs is DENIED");
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) ==
+              WT_FFA_DENIED &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "perm set: read-only over memory the manifest makes writable is DENIED, and it stays writable");
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0 &&
+          access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_RW &&
+          wt_spm_mem_perm_get(&g_dom_a, page(PG_RX), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN),
+          "perm set: an image page the manifest leaves read-execute may become read-write");
+    (void)wt_ffa_mailbox_map(&g_relay_mailbox, page(PG_RX), page(PG_GAP), 1u);
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) ==
+              WT_FFA_DENIED &&
+          access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_RW,
+          "perm set: a page of the mapped RX/TX pair keeps its permissions (DENIED)");
+    (void)wt_ffa_mailbox_unmap(&g_relay_mailbox);
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              WT_FFA_PERM_DATA_RO) == 0 &&
+          wt_spm_mem_perm_get(&g_dom_a, page(PG_RX), &perm) == 0 &&
+          perm == WT_FFA_PERM_DATA_RO,
+          "perm set: once the pair is unmapped the page goes back to read-execute");
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 0u,
+                              WT_FFA_PERM_DATA_RO) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX) + 8u, 1u,
+                              WT_FFA_PERM_DATA_RO) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_B), 1u,
+                              WT_FFA_PERM_DATA_RO) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              WT_FFA_PERM_DATA_RW) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "perm set: no pages, an unaligned base, another partition's page, and read-write-execute are INVALID_PARAMETERS");
+    check(g_domain_fails == 0u, "perm set: no domain operation failed closed");
+}
+
 /* who (B or C) retrieves h read-write, naming the other as a non-retrieval
  * borrower. */
 static int relay_retrieve_of_two(uint64_t h, uint16_t who)
@@ -2795,6 +2848,7 @@ int main(void)
     relay_donate_rows();
     relay_mailbox_rows();
     relay_self_rows();
+    relay_perm_set_rows();
     relay_teardown_rows();
     relay_v10_rows();
     relay_unbind_rows();

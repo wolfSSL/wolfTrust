@@ -915,107 +915,42 @@ static void ffa_notif_get(wt_trap_frame_t* frame, const struct wt_co* co)
     }
 }
 
-/* FFA_MEM_PERM_GET/SET permission word: bits[1:0] data access (1 = RW,
- * 3 = RO), bit[2] set = execute-never; everything else is reserved. */
-#define WT_FFA_PERM_DATA_MASK 0x3u
-#define WT_FFA_PERM_DATA_NONE 0x0u
-#define WT_FFA_PERM_DATA_RW   0x1u
-#define WT_FFA_PERM_DATA_RO   0x3u
-#define WT_FFA_PERM_XN        0x4u
-
-static int perm_to_attributes(uint32_t perm, uint32_t* attributes)
-{
-    uint32_t data = perm & WT_FFA_PERM_DATA_MASK;
-
-    if ((perm & ~(WT_FFA_PERM_DATA_MASK | WT_FFA_PERM_XN)) != 0u) {
-        return -1;
-    }
-    if ((data == WT_FFA_PERM_DATA_RW) && ((perm & WT_FFA_PERM_XN) != 0u)) {
-        *attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
-        return 0;
-    }
-    if (data == WT_FFA_PERM_DATA_RO) {
-        *attributes = WT_MEM_ATTR_READ;
-        if ((perm & WT_FFA_PERM_XN) == 0u) {
-            *attributes |= WT_MEM_ATTR_EXEC;
-        }
-        return 0;
-    }
-    return -1;
-}
-
-/* Code every partition maps is never one partition's to re-permission. */
-static int overlaps_shared(uintptr_t va, size_t pages)
-{
-    wt_memory_region_t shared[4];
-    uintptr_t end = va + (pages * WT_TABLES_PAGE_SIZE);
-    size_t n = wt_platform_sp_shared_regions(shared, 4u);
-    size_t i;
-
-    for (i = 0u; i < n; i++) {
-        if ((va < (shared[i].base + shared[i].size)) && (end > shared[i].base)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
-/* FFA_MEM_PERM_SET (18.3.2): an S-EL0 partition re-permissions its own pages,
- * during its initialization only. w1 = base VA, w2 = page count, w3 = perms. */
+/* FFA_MEM_PERM_SET (DEN0140 2.9): an S-EL0 partition re-permissions its own
+ * pages, during its initialization only. w1 = base VA, w2 = page count, w3 =
+ * perms. */
 static void ffa_mem_perm_set(wt_trap_frame_t* frame, const struct wt_co* co)
 {
-    uintptr_t va = (uintptr_t)frame->x[1];
-    size_t pages = (size_t)(uint32_t)frame->x[2];
-    uint32_t attributes = 0u;
+    int ret;
 
     if ((co->domain == NULL) || (wt_spm_sp_initializing(co) == 0)) {
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
-    if ((perm_to_attributes((uint32_t)frame->x[3], &attributes) != 0) ||
-        (pages == 0u) || (pages > (WT_TABLES_VA_LIMIT / WT_TABLES_PAGE_SIZE))) {
-        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
-        return;
-    }
-    if (overlaps_shared(va, pages) != 0) {
-        ffa_error(frame, WT_FFA_DENIED);
-        return;
-    }
-    if (wt_domain_set_permissions(co->domain->regions, co->domain->region_count,
-                                  va, pages, attributes) != WT_TABLES_OK) {
-        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+    ret = wt_spm_mem_perm_set(co->domain, wt_spm_sp_mailbox_of(co),
+                              (uint64_t)frame->x[1], (uint32_t)frame->x[2],
+                              (uint32_t)frame->x[3]);
+    if (ret != 0) {
+        ffa_error(frame, ret);
         return;
     }
     ffa_success(frame, 0u, 0u);
 }
 
-/* FFA_MEM_PERM_GET (18.3.1): w1 = base VA of a page, else INVALID_PARAMETERS;
- * the permissions return in w2, no access for one of the caller's own pages a
- * transaction holds (Table 2.36). */
+/* FFA_MEM_PERM_GET (DEN0140 2.8): w1 = base VA of a page; the permissions
+ * return in w2. */
 static void ffa_mem_perm_get(wt_trap_frame_t* frame, const struct wt_co* co)
 {
-    uint32_t attributes = 0u;
-    uint32_t perm;
+    uint32_t perm = 0u;
+    int ret;
 
     if ((co->domain == NULL) || (wt_spm_sp_initializing(co) == 0)) {
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
-    if (wt_domain_get_permissions(co->domain->regions, co->domain->region_count,
-                                  (uintptr_t)frame->x[1], &attributes) !=
-        WT_TABLES_OK) {
-        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+    ret = wt_spm_mem_perm_get(co->domain, (uint64_t)frame->x[1], &perm);
+    if (ret != 0) {
+        ffa_error(frame, ret);
         return;
-    }
-    perm = WT_FFA_PERM_DATA_NONE;
-    if ((attributes & WT_MEM_ATTR_WRITE) != 0u) {
-        perm = WT_FFA_PERM_DATA_RW;
-    }
-    else if ((attributes & WT_MEM_ATTR_READ) != 0u) {
-        perm = WT_FFA_PERM_DATA_RO;
-    }
-    if ((attributes & WT_MEM_ATTR_EXEC) == 0u) {
-        perm |= WT_FFA_PERM_XN;
     }
     ffa_success(frame, perm, 0u);
 }

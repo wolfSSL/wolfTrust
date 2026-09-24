@@ -679,7 +679,7 @@ static int prove_partinfo(uint32_t* out_count)
  * it), and the owner reclaims the handle, after which a retrieve is refused.
  * The partition's table changes only through the two transactions. */
 static wt_secure_domain_t g_borrow_domain;
-static uint8_t g_share_desc[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACCESS_SIZE +
+static uint8_t g_share_desc[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACCESS_SIZE_V12 +
                             WT_FFA_MEM_COMPOSITE_HDR_SIZE +
                             WT_FFA_MEM_CONSTITUENT_SIZE];
 
@@ -728,9 +728,10 @@ static int mem_share_exchange(wt_co_t* co, uint64_t* out_handle)
 
     /* The borrower's retrieve request waits in its TX buffer; its arguments
      * sit at the tail of its RX buffer, clear of the retrieve response. */
-    if (wt_ffa_mem_retrieve_req_build(tx, WT_FFA_MEM_PAGE_SIZE, handle,
-                                      WT_FFA_ID_SPMC, WT_FFA_ID_MEM_BORROWER,
-                                      in.permissions, &req_len) != 0) {
+    if (wt_ffa_mem_retrieve_req_build_at(tx, WT_FFA_MEM_PAGE_SIZE, handle,
+                                         WT_FFA_ID_SPMC, WT_FFA_ID_MEM_BORROWER,
+                                         in.permissions, WT_FFA_VERSION_1_2,
+                                         &req_len) != 0) {
         return 0;
     }
     arg[0] = handle;

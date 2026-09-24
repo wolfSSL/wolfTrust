@@ -204,7 +204,8 @@ typedef struct wt_ffa_mem_build {
     uint16_t receiver;
     uint16_t attributes;
     uint8_t  permissions;
-    /* 0 selects WT_FFA_MEM_ACCESS_SIZE; appended so older initializers hold. */
+    /* 0 selects the size of the reader's version: 16 bytes through FF-A 1.1,
+     * 32 from 1.2 (DEN0077A 18.5.3); appended so older initializers hold. */
     uint8_t  access_desc_size;
     /* 16 implementation-defined bytes for a v1.2 descriptor, or NULL. */
     const uint8_t* impdef;
@@ -290,10 +291,15 @@ int wt_ffa_mem_regions_from_txn(const uint8_t* buf, size_t len,
 
 /* Lay out a single-receiver memory retrieve request for handle: a transaction
  * descriptor header plus one endpoint access descriptor and no composite.
- * Returns 0 with *out_len set, or WT_FFA_NO_MEMORY. */
+ * Returns 0 with *out_len set, or WT_FFA_NO_MEMORY. The plain form writes the
+ * 16-byte FF-A 1.1 access descriptor, _at the one of version. */
 int wt_ffa_mem_retrieve_req_build(uint8_t* buf, size_t len, uint64_t handle,
                                   uint16_t sender, uint16_t receiver,
                                   uint8_t permissions, size_t* out_len);
+int wt_ffa_mem_retrieve_req_build_at(uint8_t* buf, size_t len, uint64_t handle,
+                                     uint16_t sender, uint16_t receiver,
+                                     uint8_t permissions, uint32_t version,
+                                     size_t* out_len);
 
 /* Parse a memory retrieve request: the handle, the sender (owner), and the
  * single receiver. Returns 0, WT_FFA_NOT_SUPPORTED for an access descriptor

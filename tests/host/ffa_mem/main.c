@@ -93,6 +93,7 @@ static size_t make_txn(uint8_t* buf, size_t cap, wt_ffa_mem_op_t op,
     in.permissions = 0x06u;
     in.flags = flags;
     in.tag = 0x1122334455667788ull;
+    in.access_desc_size = (uint8_t)WT_FFA_MEM_ACCESS_SIZE;
     if (wt_ffa_mem_txn_build(buf, cap, &in, &out) != 0) {
         return 0u;
     }
@@ -587,6 +588,7 @@ static void constituent_limit_rows(void)
     in.receiver = 0x8002u;
     in.attributes = 0x2Fu;
     in.permissions = 0x06u;
+    in.access_desc_size = (uint8_t)WT_FFA_MEM_ACCESS_SIZE;
     in.constituent_count = WT_FFA_MEM_MAX_REGIONS;
     check(wt_ffa_mem_txn_build(buf, sizeof(buf), &in, &len) == 0 &&
           wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) == 0,
@@ -1779,6 +1781,7 @@ static int relay_build_attrs(uint8_t* desc, size_t cap, wt_ffa_mem_op_t op,
     in.permissions = perms;
     in.flags = flags;
     in.attributes = attributes;
+    in.access_desc_size = (uint8_t)WT_FFA_MEM_ACCESS_SIZE;
     return wt_ffa_mem_txn_build(desc, cap, &in, len);
 }
 
@@ -2263,6 +2266,7 @@ static int relay_self_send(wt_ffa_mem_op_t op, int self_first,
     in.receiver = (self_first != 0) ? RELAY_ID_A : RELAY_ID_B;
     in.permissions = (self_first != 0) ? self_perms : b_perms;
     in.attributes = (op == WT_FFA_MEM_OP_SHARE) ? 0x2Fu : 0u;
+    in.access_desc_size = (uint8_t)WT_FFA_MEM_ACCESS_SIZE;
     ret = wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len);
     if ((ret == 0) && (b_perms != 0xFFu)) {
         len = add_receiver_as(desc, len,
@@ -2804,6 +2808,7 @@ static uint64_t relay_send_from(wt_ffa_mem_op_t op,
     in.sender = sender;
     in.receiver = receiver;
     in.permissions = perms;
+    in.access_desc_size = (uint8_t)WT_FFA_MEM_ACCESS_SIZE;
     *ret = wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len);
     if (*ret == 0) {
         *ret = wt_spm_mem_share(desc, len, op, sender, &h);
@@ -2884,6 +2889,83 @@ static void relay_ns_donate_rows(void)
           access_of(&g_dom_b, PG_B) == WT_DOMAIN_ACCESS_RW,
           "ns donate: a region mixing Non-secure and Secure pages is DENIED");
     check(g_domain_fails == 0u, "ns donate: no domain operation failed closed");
+}
+
+/* B retrieves h with a request laid out for req_version;
+ * *resp_size gets the size the response's descriptors use. */
+static int relay_retrieve_sized(uint64_t h, uint32_t req_version,
+                                uint32_t* resp_size)
+{
+    uint8_t req[128];
+    uint8_t resp[256];
+    size_t len = 0u;
+    size_t resp_len = 0u;
+    int ret;
+
+    ret = wt_ffa_mem_retrieve_req_build_at(req, sizeof(req), h, RELAY_ID_A,
+                                           RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW,
+                                           req_version, &len);
+    if (ret == 0) {
+        ret = wt_spm_mem_retrieve(req, len, RELAY_ID_B, resp, sizeof(resp),
+                                  &resp_len);
+    }
+    if (ret == 0) {
+        *resp_size = get32(&resp[WT_FFA_MEM_TXN_OFF_ACC_SIZE]);
+        ret = ((size_t)(WT_FFA_MEM_TXN_HDR_SIZE + *resp_size +
+                        WT_FFA_MEM_COMPOSITE_HDR_SIZE +
+                        WT_FFA_MEM_CONSTITUENT_SIZE) == resp_len) ? 0 : -1;
+    }
+    return ret;
+}
+
+/* WT-FFA-0009 (each endpoint gets the endpoint memory access descriptor of
+ * the version it negotiated, whatever size it sent, DEN0077A 18.5 and DEN0140
+ * Table 1.16). */
+static void relay_access_size_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    wt_ffa_mem_build_t in;
+    uint8_t desc[256];
+    uint32_t size = 0u;
+    size_t len = 0u;
+    uint64_t h;
+    int ret = 0;
+
+    (void)memset(&in, 0, sizeof(in));
+    c[0].address = 0x40000000ull;
+    c[0].page_count = 1u;
+    in.constituents = c;
+    in.constituent_count = 1u;
+    in.op = WT_FFA_MEM_OP_LEND;
+    in.receiver = 0x8002u;
+    in.permissions = WT_FFA_MEM_PERM_DATA_RW;
+    check(wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len) == 0 &&
+          get32(&desc[WT_FFA_MEM_TXN_OFF_ACC_SIZE]) == WT_FFA_MEM_ACCESS_SIZE_V12 &&
+          len == 112u,
+          "access size: a descriptor for an FF-A 1.2 reader uses the 32-byte access descriptor");
+    in.version = WT_FFA_VERSION_MAKE(1u, 1u);
+    check(wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len) == 0 &&
+          get32(&desc[WT_FFA_MEM_TXN_OFF_ACC_SIZE]) == WT_FFA_MEM_ACCESS_SIZE &&
+          len == 96u,
+          "access size: one for an FF-A 1.1 reader keeps the 16-byte one");
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "access size: fixture");
+        return;
+    }
+    c[0].address = page(PG_RW);
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    check(ret == 0 &&
+          relay_retrieve_sized(h, WT_FFA_VERSION_MAKE(1u, 1u), &size) == 0 &&
+          size == WT_FFA_MEM_ACCESS_SIZE_V12 && relay_relinquish(h, 0u) == 0,
+          "access size: a 1.2 borrower's 16-byte request is answered in the 32-byte layout");
+    g_ver_b = WT_FFA_VERSION_MAKE(1u, 1u);
+    check(relay_retrieve_sized(h, WT_FFA_VERSION_1_2, &size) == 0 &&
+          size == WT_FFA_MEM_ACCESS_SIZE && relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "access size: a 1.1 borrower's 32-byte request is answered in the 16-byte layout");
+    g_ver_b = WT_FFA_VERSION_1_2;
 }
 
 /* WT-FFA-0009 (a donate makes the receiver the owner, Owner-EA, 2.4.1.2 item
@@ -3011,6 +3093,7 @@ int main(void)
     relay_unbind_rows();
     relay_ns_donate_rows();
     relay_donated_perm_rows();
+    relay_access_size_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

@@ -1032,7 +1032,8 @@ static void guest_memneg(void)
     int ok = 1;
 
     len = memneg_build();
-    if (len == 0u) {
+    if ((len == 0u) || (g_memneg_desc[WT_FFA_MEM_TXN_OFF_ACC_SIZE] !=
+                        WT_FFA_MEM_ACCESS_SIZE_V12)) {
         put_str("[NS] memneg BAD build\r\n");
         return;
     }
@@ -1061,7 +1062,7 @@ static void guest_memneg(void)
     ok = ok && memneg_rxtx_over_shared();
 
     (void)memneg_build();
-    g_memneg_desc[80] = 1u;                 /* misaligned constituent base */
+    g_memneg_desc[len - WT_FFA_MEM_CONSTITUENT_SIZE] = 1u; /* misaligned base */
     ok = ok && memneg_refused(len);
     (void)memneg_build();
     g_memneg_desc[0] = 0x34u;               /* sender is not the caller */
@@ -1071,7 +1072,8 @@ static void guest_memneg(void)
     g_memneg_desc[51] = 1u;                 /* MBZ access descriptor flags */
     ok = ok && memneg_refused(len);
     (void)memneg_build();
-    g_memneg_desc[64] = 9u;                 /* total page count != the sum */
+    g_memneg_desc[len - WT_FFA_MEM_CONSTITUENT_SIZE -
+                  WT_FFA_MEM_COMPOSITE_HDR_SIZE] = 9u; /* total != the sum */
     ok = ok && memneg_refused(len);
 
     ok = ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);

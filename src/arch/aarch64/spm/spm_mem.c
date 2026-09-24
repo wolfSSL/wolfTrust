@@ -1014,7 +1014,9 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
                                  (wt_spm_sp_ffa_ns_bit(b->co) != 0))
                                     ? WT_FFA_MEM_ATTR_NS : 0u));
     in.permissions = perms;
-    in.access_desc_size = (uint8_t)rq.access_desc_size;
+    /* The response is in the borrower's own version, whatever size its
+     * request used (DEN0077A 18.5.3). */
+    in.access_desc_size = 0u;
     in.impdef = borrower->impdef;
     in.version = version;
     ret = wt_ffa_mem_txn_build(resp, resp_cap, &in, out_resp_len);

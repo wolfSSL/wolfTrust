@@ -527,15 +527,15 @@ static void deliver_event(struct wt_co* co, uint32_t fid, uint64_t w1)
 }
 
 /* Stage a queued Secure interrupt for delivery: its FFA_INTERRUPT becomes the
- * return of the call the partition is blocked in. Returns 1 if one was. */
+ * return of the call the partition is blocked in, with w1/w2 zero as an S-EL0
+ * partition reads the id with the get call (12.4.1 item 3). Returns 1 if one
+ * was. */
 static unsigned int sint_stage(struct wt_co* co)
 {
-    uint32_t sint = wt_spm_sint_take_pending(co);
-
-    if (sint == 0u) {
+    if (wt_spm_sint_take_pending(co) == 0u) {
         return 0u;
     }
-    deliver_event(co, WT_FFA_INTERRUPT, (uint64_t)sint);
+    deliver_event(co, WT_FFA_INTERRUPT, 0u);
     return 1u;
 }
 
@@ -988,9 +988,10 @@ int wt_spm_sint_signal_needed(struct wt_co* owner)
     return 1;
 }
 
-/* Signal a waiting partition: FFA_INTERRUPT becomes the return of its wait
- * and it runs, with any partition it messages, until it waits again. With the
- * interrupt also pending in the GIC this drives the queued path instead. */
+/* Signal a waiting partition: FFA_INTERRUPT, w1/w2 zero with the id left to the
+ * get call, becomes the return of its wait and it runs, with any partition it
+ * messages, until it waits again. With the interrupt also pending in the GIC
+ * this drives the queued path instead. */
 int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid)
 {
     uint64_t out[WT_FFA_MSG_REGS_EXT];
@@ -1001,7 +1002,7 @@ int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid)
     if (endpoint_waiting(co) == 0) {
         return WT_FFA_BUSY;
     }
-    deliver_event(co, WT_FFA_INTERRUPT, (uint64_t)intid);
+    deliver_event(co, WT_FFA_INTERRUPT, 0u);
     wt_spm_sint_set_delivered(co, intid);
     return (run_endpoint(co, out) == WT_FFA_ABORTED) ? WT_FFA_ABORTED : 0;
 }

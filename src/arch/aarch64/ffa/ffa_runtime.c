@@ -79,6 +79,24 @@ int wt_ffa_rt_transition(wt_ffa_rt_state_t *state, wt_ffa_rt_event_t event)
     }
 }
 
+int wt_ffa_rt_init_call(uint32_t fid, int target_initialized)
+{
+    switch (fid) {
+        case WT_FFA_MSG_SEND_DIRECT_REQ32:
+        case WT_FFA_MSG_SEND_DIRECT_REQ64:
+        case WT_FFA_MSG_SEND_DIRECT_REQ2:
+            return (target_initialized != 0) ? 0 : WT_FFA_DENIED;
+        case WT_FFA_YIELD:
+        case WT_FFA_RUN:
+        case WT_FFA_MSG_SEND_DIRECT_RESP32:
+        case WT_FFA_MSG_SEND_DIRECT_RESP64:
+        case WT_FFA_MSG_SEND_DIRECT_RESP2:
+            return WT_FFA_DENIED;
+        default:
+            return 0;
+    }
+}
+
 const char *wt_ffa_rt_state_name(wt_ffa_rt_state_t state)
 {
     switch (state) {

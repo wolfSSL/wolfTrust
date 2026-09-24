@@ -30,6 +30,7 @@
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/ffa_notif.h"
+#include "wolftrust/arch/aarch64/ffa_runtime.h"
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
@@ -89,6 +90,10 @@ static uint8_t g_ns_inherited[WT_CO_MAX];
 static wt_sp_arch_t* sp_arch(const struct wt_co *co);
 static int endpoint_waiting(const struct wt_co* co);
 static struct wt_co* sint_take_waiting_owner(void);
+static int run_endpoint_from(struct wt_co* co, struct wt_co* callee,
+                             uint64_t* out, uint8_t spmc);
+/* The endpoint a blocking partition's direct request or FFA_RUN names. */
+static struct wt_co* g_ffa_call_target;
 /* Set when a Secure interrupt is queued for a waiting partition while another
  * one runs; the run loop stops the runner so the owner is signaled first. */
 static volatile uint32_t g_sint_signal_request;
@@ -130,6 +135,7 @@ static void init_preempt_probe(const struct wt_co* co)
  * preempted before its first wait resumes where it was interrupted. */
 static int run_pending_partition(unsigned int i)
 {
+    uint64_t out[WT_FFA_MSG_REGS_EXT];
     struct wt_co* co = g_created[i];
     wt_co_state_t state;
 
@@ -155,7 +161,14 @@ static int run_pending_partition(unsigned int i)
         init_preempt_probe(co);
         wt_co_wake((wt_co_t*)co);
     }
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_NONE;
     (void)wt_co_run((wt_co_t*)co);
+    if (g_wt_ffa_sp_exit == WT_FFA_SP_EXIT_CALL) {
+        /* 8.5 rule 1: its callee runs now, and it resumes still initializing
+         * with the reply until it waits. */
+        (void)run_endpoint_from(co, g_ffa_call_target, out, 1u);
+    }
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_NONE;
     if (wt_co_state((wt_co_t*)co) == WT_CO_FAULTED) {
         g_faulted_once[i] = 1u;
     }
@@ -633,8 +646,6 @@ static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason,
     return WT_FFA_DENIED;
 }
 
-static struct wt_co* g_ffa_call_target;
-
 /* The core scheduler does not nest, so an endpoint that messages another one
  * blocks and names its callee; this loop, on the scheduler's stack, runs the
  * callee and writes what it hands back into the caller's saved frame. A
@@ -642,7 +653,8 @@ static struct wt_co* g_ffa_call_target;
  * an interrupt is signaled to, runs detached: stacked on top with its own
  * result discarded, before the frame below resumes (Table 9.1). A detached
  * run, and a root run with spmc set, is in the SPMC scheduled mode. */
-static int run_endpoint(struct wt_co* co, uint64_t* out, uint8_t spmc)
+static int run_endpoint_from(struct wt_co* co, struct wt_co* callee,
+                             uint64_t* out, uint8_t spmc)
 {
     struct wt_co* chain[WT_CO_MAX];
     uint8_t detached[WT_CO_MAX];
@@ -660,6 +672,14 @@ static int run_endpoint(struct wt_co* co, uint64_t* out, uint8_t spmc)
     chain[0] = co;
     detached[0] = 0u;
     g_ns_inherited[co->id - 1u] = spmc;
+    if (callee != NULL) {
+        /* co already blocked calling callee, which holds the request. */
+        chain[1] = callee;
+        detached[1] = 0u;
+        g_ns_inherited[callee->id - 1u] =
+            ((g_ns_queued[co->id - 1u] != 0u) || (spmc != 0u)) ? 1u : 0u;
+        depth = 2u;
+    }
     for (;;) {
         top = chain[depth - 1u];
         ret = run_one(top, out, &reason, &deliver);
@@ -734,6 +754,11 @@ static int run_endpoint(struct wt_co* co, uint64_t* out, uint8_t spmc)
 }
 
 /* Waiting (4.10) is only reached through a completed initialization. */
+static int run_endpoint(struct wt_co* co, uint64_t* out, uint8_t spmc)
+{
+    return run_endpoint_from(co, NULL, out, spmc);
+}
+
 static int endpoint_waiting(const struct wt_co* co)
 {
     const wt_sp_msg_t* m = &g_sp_msg[co->id - 1u];
@@ -800,13 +825,18 @@ int wt_spm_ffa_sp_call(const struct wt_co* caller, struct wt_co* target,
     wt_sp_msg_t* m;
     unsigned int preempted;
 
+    int ret;
+
     if ((caller == NULL) || (target == NULL) || (target == caller) ||
         (target->unprivileged == 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    /* Nothing runs the call chain for a partition still in its init pass. */
     if (wt_spm_sp_initializing(caller) != 0) {
-        return WT_FFA_DENIED;
+        ret = wt_ffa_rt_init_call((req != NULL) ? (uint32_t)req[0] : WT_FFA_RUN,
+                                  (wt_spm_sp_initializing(target) == 0) ? 1 : 0);
+        if (ret != 0) {
+            return ret;
+        }
     }
     if (req != NULL) {
         if (req2_uuid_ok(target, req) == 0) {

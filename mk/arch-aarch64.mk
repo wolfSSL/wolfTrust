@@ -81,6 +81,7 @@ SPM_C_SRCS := \
     $(ARCH_DIR)/ffa/ffa_mem.c \
     $(ARCH_DIR)/ffa/ffa_notif.c \
     $(ARCH_DIR)/ffa/ffa_partinfo.c \
+    $(ARCH_DIR)/ffa/ffa_runtime.c \
     $(ARCH_DIR)/el3/esr.c
 # The conformance image adds the privileged NVM/interrupt backend the SVC gate
 # calls for the unprivileged DRIVER partition (WT_CONFORMANCE is a command-line

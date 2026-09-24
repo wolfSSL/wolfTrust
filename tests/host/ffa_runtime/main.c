@@ -156,6 +156,32 @@ static void run_chain(void)
           s == WT_FFA_RT_WAITING, "chain: MSG_WAIT parks it back at waiting");
 }
 
+/* 8.5: an SP still initializing may message an SP that has initialized, and
+ * nothing that hands its cycles to another endpoint. */
+static void init_model_rows(void)
+{
+    check(wt_ffa_rt_init_call(WT_FFA_MSG_SEND_DIRECT_REQ32, 1) == 0 &&
+          wt_ffa_rt_init_call(WT_FFA_MSG_SEND_DIRECT_REQ64, 1) == 0 &&
+          wt_ffa_rt_init_call(WT_FFA_MSG_SEND_DIRECT_REQ2, 1) == 0,
+          "init: a direct request to an initialized SP is allowed (rule 1)");
+    check(wt_ffa_rt_init_call(WT_FFA_MSG_SEND_DIRECT_REQ32, 0) ==
+          WT_FFA_DENIED,
+          "init: a direct request to an SP not yet initialized is DENIED");
+    check(wt_ffa_rt_init_call(WT_FFA_YIELD, 1) == WT_FFA_DENIED,
+          "init: FFA_YIELD is DENIED (rule 4)");
+    check(wt_ffa_rt_init_call(WT_FFA_MSG_SEND_DIRECT_RESP32, 1) ==
+              WT_FFA_DENIED &&
+          wt_ffa_rt_init_call(WT_FFA_MSG_SEND_DIRECT_RESP2, 1) ==
+              WT_FFA_DENIED,
+          "init: a direct response is DENIED (rule 5)");
+    check(wt_ffa_rt_init_call(WT_FFA_RUN, 1) == WT_FFA_DENIED,
+          "init: FFA_RUN is DENIED (rule 6)");
+    check(wt_ffa_rt_init_call(WT_FFA_MSG_WAIT, 0) == 0 &&
+          wt_ffa_rt_init_call(WT_FFA_ERROR, 0) == 0 &&
+          wt_ffa_rt_init_call(WT_FFA_PARTITION_INFO_GET, 0) == 0,
+          "init: FFA_MSG_WAIT, FFA_ERROR and setup calls are served");
+}
+
 int main(void)
 {
     wt_ffa_rt_state_t s = WT_FFA_RT_RUNNING;
@@ -164,6 +190,7 @@ int main(void)
 
     run_table();
     run_chain();
+    init_model_rows();
 
     /* A NULL state pointer and an out-of-range event are rejected without a
      * side effect. */

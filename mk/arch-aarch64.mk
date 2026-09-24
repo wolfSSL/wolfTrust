@@ -114,7 +114,8 @@ $(EL3_LIB): $(EL3_ARCHIVE_OBJS) | $(BUILD_DIR)
 
 # WT-PORT-0012: the archive is audited, then linked whole. A policy change
 # re-audits, and a failed audit leaves no image, stale or new, behind.
-EL3_AUDIT := $(ROOT)/tools/check-el3-symbols.sh $(ROOT)/tools/el3-symbols.allow
+EL3_AUDIT := $(ROOT)/tools/check-el3-symbols.sh $(ROOT)/tools/el3-symbols.allow \
+    $(ROOT)/tools/el3-defines.allow
 $(EL3_ELF): $(EL3_LIB) $(EL3_LD) $(EL3_AUDIT)
 	rm -f $@ $(EL3_BIN)
 	$(ROOT)/tools/check-el3-symbols.sh $(EL3_LIB) --nm $(TOOLPREFIX)nm

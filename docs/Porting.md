@@ -212,8 +212,10 @@ The QEMU targets share their Secure EL1 platform code in
 entry table, a RAM-backed NVM, and a test entropy source that a silicon port
 must replace. The EL3 monitor archive `libwt_el3.a` may reference only the
 port hooks listed in `tools/el3-symbols.allow` (`wt_platform_board_init`,
-`wt_platform_board_system_reset`, the console pair) and must define no SPM, service, or crypto code; the link rule
-runs `tools/check-el3-symbols.sh` on every build. `wt_platform_board_system_reset`
+`wt_platform_board_system_reset`, the console pair), may define globally only
+the monitor symbols `tools/el3-defines.allow` names, and must define no SPM,
+service, or crypto code; the link rule runs `tools/check-el3-symbols.sh` on
+every build and again whenever either list changes. `wt_platform_board_system_reset`
 performs the machine cold reset of PSCI `SYSTEM_RESET` and does not return:
 `virt` drives the restart line of its Secure PL061. `xlnx-versal-virt` models
 no machine reset, so its hook returns; only an emulator test build
@@ -238,7 +240,9 @@ RISAF): QEMU `virt` models the fence with its secure memory, and
   wiki and must not reference internal ledgers or developer paths.
 - On an AArch64 port, run `tools/check-el3-symbols.sh <libwt_el3.a>`: the
   EL3 monitor archive may leave unresolved only the hooks listed in
-  `tools/el3-symbols.allow` and must define no SPM, service, or crypto code.
+  `tools/el3-symbols.allow`, may define globally only the symbols
+  `tools/el3-defines.allow` names, and must define no SPM, service, or crypto
+  code.
 - Cross-build the Secure image with warnings enabled.
 - On the current Armv8-M port, inspect `nm` output and confirm only the five
   FF-M veneers are Non-secure-callable.

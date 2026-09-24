@@ -353,18 +353,20 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
             owner_ro |= WT_SPM_MEM_COOKIE_OWNER_RO_REGION(i);
         }
         regs[i].ns = id_is_secure(sender) ? 0u : 1u;
-        /* A donate makes the receiver the owner, with full data access. */
-        if (op == WT_FFA_MEM_OP_DONATE) {
-            regs[i].permissions = (uint8_t)(
-                ((access == WT_DOMAIN_ACCESS_RO) ? WT_FFA_MEM_PERM_DATA_RO
-                                                 : WT_FFA_MEM_PERM_DATA_RW) |
-                WT_FFA_MEM_PERM_INSTR_NX);
-        }
         if ((access == WT_DOMAIN_ACCESS_NONE) ||
             (wt_ffa_mem_registry_overlaps(&g_reg, regs[i].base,
                                           regs[i].page_count) != 0)) {
             ret = WT_FFA_DENIED;
         }
+    }
+    /* A donate makes the receiver the owner with the owner's own data access,
+     * which the one permission a retrieve maps every region with must not
+     * exceed anywhere (1.10.2 item 2). */
+    for (i = 0u; (ret == 0) && (op == WT_FFA_MEM_OP_DONATE) && (i < n); i++) {
+        regs[i].permissions = (uint8_t)(((owner_ro != 0u)
+                                             ? WT_FFA_MEM_PERM_DATA_RO
+                                             : WT_FFA_MEM_PERM_DATA_RW) |
+                                        WT_FFA_MEM_PERM_INSTR_NX);
     }
     if (ret == 0) {
         ret = wt_ffa_mem_send_attributes(txn.attributes, &attributes);

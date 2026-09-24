@@ -107,6 +107,18 @@ static void direct_message_rows(void)
     wt_ffa_direct_clear_sbz(x);
     check(x[2] == 0u && (uint32_t)x[3] == payload[0],
           "and cleared before the request reaches its receiver");
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ64,
+                        (uint16_t)(WT_FFA_ID_SP_FIRST + 1u), WT_FFA_ID_SP_FIRST,
+                        payload);
+    x[2] = 0xFFFFFFFF7FFFFF00ull;
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) == 0,
+          "a partition's REQ64 at the SVC conduit ignores the SBZ bits too");
+    x[2] = 0x80u;
+    check(wt_ffa_direct_req_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "and refuses its MBZ bits 7:0");
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_SP_FIRST, payload);
 
     wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_SP_FIRST,
                         WT_FFA_ID_SP_FIRST, payload);
@@ -147,6 +159,15 @@ static void direct_message_rows(void)
     check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) ==
               WT_FFA_INVALID_PARAMETERS,
           "but a response with w2 bits 7:0 set (MBZ) is INVALID_PARAMETERS");
+    x[0] = WT_FFA_MSG_SEND_DIRECT_RESP64;
+    x[2] = 0x40000000u;
+    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0,
+          "a RESP64 to the Normal world ignores the SBZ bits at the NS "
+          "physical instance");
+    x[2] = WT_FFA_DIRECT_FRAMEWORK_BIT;
+    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "and refuses a partition response marked as a framework message");
 
     wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP32, WT_FFA_ID_NS_PRIMARY,
                         WT_FFA_ID_SP_FIRST, payload);
@@ -169,9 +190,10 @@ static void direct_message_rows(void)
     wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP2, WT_FFA_ID_SP_FIRST,
                         WT_FFA_ID_NS_PRIMARY, payload);
     x[2] = 0x5555u;
-    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0,
+    check(wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_NS_PHYSICAL) == 0 &&
+              wt_ffa_direct_resp_check(x, WT_FFA_INSTANCE_SECURE_VIRTUAL) == 0,
           "a RESP2 with its SBZ x2 and x3 set returns to the Normal-world "
-          "requester");
+          "requester, at either instance");
     wt_ffa_direct_clear_sbz(x);
     check(x[2] == 0u && x[3] == 0u && (uint32_t)x[4] == payload[1],
           "with x2 and x3 cleared");
@@ -917,6 +939,21 @@ static void msg2_copy_rows(void)
               rx[14] == 0u && rx[15] == 0u && rx[16] == 16u && rx[24] == 0u,
           "a TX header rewritten after the parse cannot change the sender, "
           "receiver, offset, size or UUID the receiver is handed");
+
+    /* The same at the SVC conduit: a partition 0x8003 sends to 0x8002. */
+    memset(tx, 0, WT_FFA_MSG2_HEADER_SIZE);
+    tx[8] = 64u;
+    tx[12] = 0x02u; tx[13] = 0x80u; tx[14] = 0x03u; tx[15] = 0x80u;
+    tx[16] = 16u;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u,
+                            WT_FFA_INSTANCE_SECURE_VIRTUAL, 0u,
+                            WT_FFA_MSG2_FLAG_DELAY_SRI, &m) == 0,
+          "a partition's message parses at the SVC conduit");
+    tx[14] = 0x04u;
+    tx[16] = 0xF0u;
+    wt_ffa_msg2_copy(rx, sizeof(rx), tx, &m);
+    check(rx[14] == 0x03u && rx[15] == 0x80u && rx[16] == 16u,
+          "and its rewritten TX header cannot spoof the sender or size either");
 }
 
 /* 13.12: the one count rule the SPMD and the SPMC both apply. */

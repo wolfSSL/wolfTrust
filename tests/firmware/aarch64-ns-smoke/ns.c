@@ -746,6 +746,10 @@ static void guest_conformance(void)
 
 #if defined(WT_NS_GUEST_MEMNEG)
 #include "wolftrust/arch/aarch64/ffa_mem.h"
+#include "psa/client.h"
+#include "psa/error.h"
+#include "psa/internal_trusted_storage.h"
+#include "psa_manifest/sid.h"
 
 /* A page the guest offers to share (its content is irrelevant to descriptor
  * validation) and its RX/TX pair, all in the guest's NS window; every
@@ -797,8 +801,9 @@ static uint32_t mem_reclaim_smc(uint64_t handle)
     return (uint32_t)r0;
 }
 
-/* Build a well-formed single-constituent share (or donate) of page into
- * g_memneg_desc; returns its length or 0. A donate names no access or type. */
+/* Build a well-formed single-constituent share, lend, or donate of page into
+ * g_memneg_desc; returns its length or 0. A donate names no access, and a
+ * lend to one borrower or a donate no memory type. */
 static uint32_t memneg_build_op(const uint8_t* page, wt_ffa_mem_op_t op)
 {
     wt_ffa_mem_constituent_t cons;
@@ -821,7 +826,8 @@ static uint32_t memneg_build_op(const uint8_t* page, wt_ffa_mem_op_t op)
                                      (0x3u << WT_FFA_MEM_ATTR_CACHE_SHIFT) |
                                      WT_FFA_MEM_ATTR_SHARE_INNER)
                         : 0u;
-    in.permissions = (share != 0) ? (uint8_t)WT_FFA_MEM_PERM_DATA_RW : 0u;
+    in.permissions = (op != WT_FFA_MEM_OP_DONATE)
+                         ? (uint8_t)WT_FFA_MEM_PERM_DATA_RW : 0u;
     in.access_desc_size = 0u;
     in.impdef = NULL;
     if (wt_ffa_mem_txn_build(g_memneg_desc, sizeof(g_memneg_desc), &in,
@@ -867,6 +873,90 @@ static int memneg_donate(void)
     handle = (x[2] & 0xFFFFFFFFu) | ((x[3] & 0xFFFFFFFFu) << 32);
     ok = ok && ((uint32_t)x[0] == WT_FFA_SUCCESS32);
     return ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);
+}
+
+/* Send g_memneg_page with op through the TX buffer; *handle gets the handle.
+ * Returns non-zero on FFA_SUCCESS. */
+static int memneg_send(uint32_t fid, wt_ffa_mem_op_t op, uint64_t* handle)
+{
+    uint64_t x[5];
+    uint32_t len = memneg_build_op(g_memneg_page, op);
+
+    x[0] = fid;
+    x[1] = len;
+    x[2] = len;
+    x[3] = 0u;
+    x[4] = 0u;
+    smc5(x);
+    *handle = (x[2] & 0xFFFFFFFFu) | ((x[3] & 0xFFFFFFFFu) << 32);
+    return (len != 0u) && ((uint32_t)x[0] == WT_FFA_SUCCESS32);
+}
+
+/* The ITS wire header psa_storage_client.c sends: GET_INFO (op 3) of uid. */
+#define MEMNEG_ITS_GET_INFO 3
+static const uint64_t g_memneg_uid = 0x5A5Bu;
+
+/* One ITS GET_INFO whose request header is read from g_memneg_page, and one
+ * ITS get whose data is written to it; each status in st[0] and st[1]. */
+static void memneg_its_calls(psa_status_t* st)
+{
+    psa_handle_t handle;
+    psa_invec in_vec;
+    psa_outvec out_vec;
+    uint32_t reply[4];
+    size_t got = 0u;
+    uint32_t i;
+
+    for (i = 0u; i < 16u; i++) {
+        g_memneg_page[i] = 0u;
+    }
+    for (i = 0u; i < 8u; i++) {
+        g_memneg_page[i] = (uint8_t)(g_memneg_uid >> (8u * i));
+    }
+    st[0] = PSA_ERROR_GENERIC_ERROR;
+    handle = psa_connect(SERVICE_ITS_SID, 1u);
+    if (handle > 0) {
+        in_vec.base = g_memneg_page;
+        in_vec.len = 16u;
+        out_vec.base = reply;
+        out_vec.len = sizeof(reply);
+        st[0] = psa_call(handle, MEMNEG_ITS_GET_INFO, &in_vec, 1u, &out_vec,
+                         1u);
+        psa_close(handle);
+    }
+    st[1] = psa_its_get(g_memneg_uid, 0u, 16u, &g_memneg_page[64], &got);
+}
+
+/* A PSA call reaches only memory the Normal world still has (DEN0140 Table
+ * 1.3): a vector in a page it lent or donated is a PROGRAMMER_ERROR before
+ * any byte is read or written; one in a page it shares, or has reclaimed, is
+ * served (the object does not exist). */
+static int memneg_psa_owned(void)
+{
+    static const uint32_t fids[3] = {
+        WT_FFA_MEM_SHARE32, WT_FFA_MEM_LEND32, WT_FFA_MEM_DONATE32
+    };
+    static const wt_ffa_mem_op_t ops[3] = {
+        WT_FFA_MEM_OP_SHARE, WT_FFA_MEM_OP_LEND, WT_FFA_MEM_OP_DONATE
+    };
+    psa_status_t st[2];
+    psa_status_t want;
+    uint64_t handle = 0u;
+    uint32_t i;
+    int ok = 1;
+
+    for (i = 0u; i < 3u; i++) {
+        ok = ok && memneg_send(fids[i], ops[i], &handle);
+        memneg_its_calls(st);
+        want = (i == 0u) ? PSA_ERROR_DOES_NOT_EXIST
+                         : PSA_ERROR_PROGRAMMER_ERROR;
+        ok = ok && (st[0] == want) && (st[1] == want);
+        ok = ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);
+        memneg_its_calls(st);
+        ok = ok && (st[0] == PSA_ERROR_DOES_NOT_EXIST) &&
+             (st[1] == PSA_ERROR_DOES_NOT_EXIST);
+    }
+    return ok;
 }
 
 /* The guest's own mapped RX buffer is the SPMC's to write, never the guest's
@@ -1146,6 +1236,10 @@ static void guest_memneg(void)
     ok = ok && (mem_reclaim_smc(handle) == WT_FFA_ERROR);  /* dead handle */
     ok = ok && memneg_sbz_ignored(len);
     ok = ok && memneg_donate();
+    if (memneg_psa_owned() == 0) {
+        put_str("[NS] memneg psa BAD\r\n");
+        ok = 0;
+    }
 
     put_str(ok ? "[NS] memneg ok\r\n" : "[NS] memneg BAD\r\n");
     ok = memfrag_share();

@@ -105,6 +105,12 @@ int wt_spm_mem_in_transaction(uint64_t base, uint64_t size);
  * in the window and no partition holds a page of it (one donated or lent). */
 int wt_spm_mem_ns_owns(uint64_t base, uint64_t size);
 
+/* Non-zero when the Normal world may still read (write = 0) or write
+ * [base, base + size) of its window, the check every copy the SPMC makes on
+ * its behalf passes: never a page it lent or donated, or one a partition now
+ * owns; a page it shares only as the share left it. An empty span passes. */
+int wt_spm_mem_ns_access(uint64_t base, uint64_t size, int write);
+
 /* Provided by the SVC glue and the Normal-world dispatcher: non-zero when
  * [base, base + size) holds a page of an RX/TX pair a partition, or the Normal
  * world, has mapped with the SPMC. */

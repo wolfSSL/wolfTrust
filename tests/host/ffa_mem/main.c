@@ -3403,6 +3403,97 @@ static void relay_frag_abort_rows(void)
     check(g_domain_fails == 0u, "frag abort: no domain operation failed closed");
 }
 
+/* WT-FFA-0009 (a copy the SPMC makes for the Normal world reaches only memory
+ * it still has: none it lent or donated, or that a partition now owns, DEN0140
+ * Table 1.3; a page it shares keeps its access, read-only where the share
+ * named it so, 1.11.3.1). */
+static void relay_ns_access_rows(void)
+{
+    const uint64_t pg = WT_TABLES_PAGE_SIZE;
+    wt_ffa_mem_constituent_t c[1];
+    wt_ffa_mem_build_t in;
+    uint8_t desc[256];
+    uint64_t base;
+    uint64_t h;
+    size_t len = 0u;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "ns access: fixture");
+        return;
+    }
+    wt_spm_mem_ns_window(page(PG_NS), 2u * WT_TABLES_PAGE_SIZE);
+    base = (uint64_t)page(PG_NS);
+    check(wt_spm_mem_ns_access(base + 16u, (2u * pg) - 32u, 0) == 1 &&
+          wt_spm_mem_ns_access(base, 2u * pg, 1) == 1 &&
+          wt_spm_mem_ns_access(base - 16u, 32u, 0) == 0 &&
+          wt_spm_mem_ns_access(base + pg, pg + 1u, 1) == 0 &&
+          wt_spm_mem_ns_access(0u, 0u, 1) == 1,
+          "ns access: the Normal world reads and writes its own window, nothing past it");
+    c[0].address = page(PG_NS);
+    c[0].page_count = 1u;
+    h = relay_send_from(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_ID_NS_PRIMARY,
+                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW, &ret);
+    check(ret == 0 && wt_spm_mem_ns_access(base + 100u, 8u, 0) == 0 &&
+          wt_spm_mem_ns_access(base + 100u, 8u, 1) == 0 &&
+          wt_spm_mem_ns_access(base + pg - 4u, 8u, 0) == 0 &&
+          wt_spm_mem_ns_access(base + pg, 8u, 1) == 1,
+          "ns access: a page it lent is neither read nor written for it, even by a span that only reaches into it");
+    check(relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
+                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+          wt_spm_mem_ns_access(base, 8u, 0) == 0 &&
+          relay_relinquish_as(h, RELAY_ID_B) == 0 &&
+          wt_spm_mem_ns_access(base, 8u, 0) == 0 &&
+          wt_spm_mem_reclaim(h, WT_FFA_ID_NS_PRIMARY, 0u) == 0 &&
+          wt_spm_mem_ns_access(base, pg, 1) == 1,
+          "ns access: nor while a borrower maps it or may yet retrieve it; the reclaim gives it back");
+    h = relay_send_from(WT_FFA_MEM_OP_SHARE, c, 1u, WT_FFA_ID_NS_PRIMARY,
+                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW, &ret);
+    check(ret == 0 && wt_spm_mem_ns_access(base, 8u, 1) == 1 &&
+          relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
+                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+          wt_spm_mem_ns_access(base, 8u, 0) == 1 &&
+          wt_spm_mem_ns_access(base, 8u, 1) == 1 &&
+          relay_relinquish_as(h, RELAY_ID_B) == 0 &&
+          wt_spm_mem_reclaim(h, WT_FFA_ID_NS_PRIMARY, 0u) == 0,
+          "ns access: a page it shares stays its to read and write, a borrower mapping it or not");
+    (void)memset(&in, 0, sizeof(in));
+    in.constituents = c;
+    in.constituent_count = 1u;
+    in.op = WT_FFA_MEM_OP_SHARE;
+    in.sender = WT_FFA_ID_NS_PRIMARY;
+    in.receiver = RELAY_ID_B;
+    in.permissions = WT_FFA_MEM_PERM_DATA_RW;
+    in.access_desc_size = (uint8_t)WT_FFA_MEM_ACCESS_SIZE;
+    ret = wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len);
+    if (ret == 0) {
+        len = add_receiver_as(desc, len, WT_FFA_ID_NS_PRIMARY,
+                              WT_FFA_MEM_PERM_DATA_RO);
+        ret = wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_SHARE,
+                               WT_FFA_ID_NS_PRIMARY, &h);
+    }
+    check(ret == 0 && wt_spm_mem_ns_access(base, 8u, 0) == 1 &&
+          wt_spm_mem_ns_access(base, 8u, 1) == 0 &&
+          wt_spm_mem_reclaim(h, WT_FFA_ID_NS_PRIMARY, 0u) == 0 &&
+          wt_spm_mem_ns_access(base, 8u, 1) == 1,
+          "ns access: a share naming it read-only leaves it reading until it reclaims");
+    h = relay_send_from(WT_FFA_MEM_OP_DONATE, c, 1u, WT_FFA_ID_NS_PRIMARY,
+                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_NOT_SPEC, &ret);
+    check(ret == 0 && wt_spm_mem_ns_access(base, 8u, 0) == 0 &&
+          relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
+                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+          wt_spm_mem_in_transaction(base, pg) == 0 &&
+          wt_spm_mem_ns_access(base, 8u, 0) == 0 &&
+          wt_spm_mem_ns_access(base, 8u, 1) == 0 &&
+          wt_spm_mem_ns_access(base + pg, 8u, 1) == 1,
+          "ns access: a page it donated is never its again, before or after the receiver takes it");
+    check(wt_spm_mem_perm_set(&g_dom_b, &g_relay_mailbox, page(PG_NS), 1u,
+                              WT_FFA_PERM_DATA_NONE) == 0 &&
+          wt_spm_mem_ns_access(base, 8u, 0) == 0,
+          "ns access: nor once its new owner makes it no-access");
+    check(g_domain_fails == 0u, "ns access: no domain operation failed closed");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -3447,6 +3538,7 @@ int main(void)
     relay_access_size_rows();
     relay_range_rows();
     relay_frag_abort_rows();
+    relay_ns_access_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

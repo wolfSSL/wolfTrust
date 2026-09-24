@@ -222,10 +222,11 @@ int wt_spm_mem_ns_owns(uint64_t base, uint64_t size)
 }
 
 /* Only memory the sender owns outright may be sent (10.10): Non-secure memory
- * inside the window the SPMC maps that no partition holds, or pages a
- * partition reaches at EL0, all in one security state (*ns). The result is the
- * least access it has over the range (WT_DOMAIN_ACCESS_*). The SPMC's own
- * sends are its boot self-test. */
+ * inside the window the SPMC maps that no partition holds, or Normal pages a
+ * partition reaches at EL0, all in one security state (*ns). A Device page is
+ * DENIED: a borrower's Normal mapping of it would be more permissive than the
+ * sender's (1.10.4.2 item 1). The result is the least access it has over the
+ * range (WT_DOMAIN_ACCESS_*). The SPMC's own sends are its boot self-test. */
 static int sender_owns(uint16_t sender, const wt_ffa_mem_region_t* r,
                        uint8_t* ns)
 {

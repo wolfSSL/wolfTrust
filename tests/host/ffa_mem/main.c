@@ -1532,6 +1532,7 @@ static void v10_rows(void)
 #define PG_RO     6u
 #define PG_RX     7u
 #define PG_B      8u
+#define PG_DEV    12u
 #define PG_C      9u
 
 static uint8_t g_relay_pool[RELAY_POOL_PAGES * WT_TABLES_PAGE_SIZE]
@@ -1690,7 +1691,9 @@ static int relay_reset(void)
                WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC);
     set_region(&g_dom_a.regions[4], PG_RX, 1u,
                WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC);
-    g_dom_a.region_count = 5u;
+    set_region(&g_dom_a.regions[5], PG_DEV, 1u,
+               RELAY_RW | WT_MEM_ATTR_DEVICE);
+    g_dom_a.region_count = 6u;
     set_region(&g_dom_b.regions[0], PG_B, 1u, RELAY_RW);
     g_dom_b.region_count = 1u;
     set_region(&g_dom_c.regions[0], PG_C, 1u, RELAY_RW);
@@ -1874,6 +1877,18 @@ static void relay_owner_rows(void)
     check(ret == WT_FFA_DENIED &&
           access_of(&g_dom_a, PG_SHARED) == WT_DOMAIN_ACCESS_RW,
           "owner: a region the manifest marks shared is DENIED and stays mapped");
+    c[0].address = page(PG_DEV);
+    c[0].page_count = 1u;
+    (void)relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                     &ret);
+    check(ret == WT_FFA_DENIED &&
+          wt_spm_mem_in_transaction(page(PG_DEV), WT_TABLES_PAGE_SIZE) == 0,
+          "owner: a lend of the sender's own Device page is DENIED");
+    (void)relay_send(WT_FFA_MEM_OP_DONATE, c, 1u,
+                     WT_FFA_MEM_PERM_DATA_NOT_SPEC, 0u, &ret);
+    check(ret == WT_FFA_DENIED &&
+          wt_spm_mem_in_transaction(page(PG_DEV), WT_TABLES_PAGE_SIZE) == 0,
+          "owner: so is a donate of it");
     c[0].address = page(PG_RW + 2u);
     c[0].page_count = 0xFFFFFFFFu;
     t0 = clock();

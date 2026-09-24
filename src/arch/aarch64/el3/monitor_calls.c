@@ -220,8 +220,16 @@ void wt_el3_exception(uint64_t kind, wt_el3_frame_t* frame)
     }
     esr = wt_read_esr_el3();
     ec = WT_ESR_EC(esr);
+    /* EC SMC32 is an SMC from AArch32, an EL1 beneath an NS-EL2 payload; it
+     * still takes the lower-AArch64 vector, which follows EL2's state. */
     if ((kind == WT_EL3_VEC_LOWER64_SYNC) &&
         ((ec == WT_ESR_EC_SMC64) || (ec == WT_ESR_EC_SMC32))) {
+        /* SMCCC 2.7, 5.2: an SMC64 id from AArch32 is unknown. */
+        if ((ec == WT_ESR_EC_SMC32) &&
+            (((uint32_t)frame->x[0] & 0x40000000u) != 0u)) {
+            frame->x[0] = WT_MON_NOT_SUPPORTED;
+            return;
+        }
         /* An SMC32 call carries W1-W7 only (SMCCC 3.1): no handler, and no
          * world a call is relayed to, sees the caller's upper halves. */
         wt_ffa_regs_normalize(frame->x);

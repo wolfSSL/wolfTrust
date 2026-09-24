@@ -27,6 +27,10 @@
 #                                  redistributor reads asleep, or the secure
 #                                  tick never arrives: the monitor must panic
 #                                  before it enters Secure EL1
+#   run_qemu_a_scenario.sh psci-el2  the psci checks from a Normal world
+#                                  entered at NS-EL2, which then runs an
+#                                  AArch32 EL1 caller whose SMCs the monitor
+#                                  serves
 #   run_qemu_a_scenario.sh positive-secure  the same image; the neutral core
 #                                  boots at Secure EL1 and every Secure
 #                                  Partition initializes at Secure EL0
@@ -38,8 +42,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -111,7 +115,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   # The Normal world probes PSCI with a real parked secondary beside it.
   psci:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
@@ -180,6 +184,8 @@ else
     # The monitor starts on EL2 state an earlier stage left dirty (SMC trapped,
     # a foreign virtual MPIDR); the virt cell turns EL2 on so it is live.
     el2dirtyneg) probe=(WT_EL3_NS_SMOKE=1 WT_EL3_EL2_DIRTY_PROBE=1) ;;
+    # The Normal world starts at NS-EL2 and runs an AArch32 EL1 beneath it.
+    psci-el2) probe=(WT_EL3_NS_SMOKE=1 WT_EL3_NS_EL2=1) ;;
   esac
   make ARCH=aarch64 TARGET="$target" TOOLPREFIX="$TOOLPREFIX" WT_GIC_VERSION="$GIC" \
     WT_CPU="$CPU" WT_PORT_BOOT_CPUS="$cpus" BUILD_DIR="build-aarch64-$tag-$scenario" \
@@ -192,7 +198,7 @@ else
   ns_base=0x44000000
   if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
      [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
-     [ "$scenario" = el2dirtyneg ] || \
+     [ "$scenario" = el2dirtyneg ] || [ "$scenario" = psci-el2 ] || \
      [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
      [ "$scenario" = smcfuzz ] || \
      [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
@@ -207,6 +213,7 @@ else
     ns_psci=0
     [ "$scenario" = psci ] && ns_psci=1
     [ "$scenario" = el2dirtyneg ] && ns_psci=1
+    [ "$scenario" = psci-el2 ] && ns_psci=1
     ns_preempt=0
     [ "$scenario" = ffa-preempt ] && ns_preempt=1
     ns_psa=0
@@ -313,6 +320,7 @@ if [ "$MACHINE" = virt ]; then
   virt_opts="virt,secure=on,gic-version=$GIC"
   [ -n "$acs_suite" ] && virt_opts="$virt_opts,virtualization=on"
   [ "$scenario" = el2dirtyneg ] && virt_opts="$virt_opts,virtualization=on"
+  [ "$scenario" = psci-el2 ] && virt_opts="$virt_opts,virtualization=on"
   args=(-M "$virt_opts" -cpu "$CPU" -smp "$SMP" -m 1G
         -bios "$image_bin"
         -serial "file:$ns_log" -serial "file:$sec_log")
@@ -327,7 +335,7 @@ else
 fi
 if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
-   [ "$scenario" = el2dirtyneg ] || \
+   [ "$scenario" = el2dirtyneg ] || [ "$scenario" = psci-el2 ] || \
    [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
    [ "$scenario" = smcfuzz ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
@@ -596,7 +604,7 @@ case "$scenario" in
     expect "a refused REQ2 returned FFA_ERROR with x8-x17 zero" "[NS] req2 refused x8-x17 zero"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
-  psci|el2dirtyneg)
+  psci|psci-el2|el2dirtyneg)
     # el2dirtyneg: an inherited SMC trap would strand the first NS call at
     # EL2, and an inherited virtual MPIDR would misname the boot core.
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
@@ -610,6 +618,10 @@ case "$scenario" in
     refute_re "no PSCI call returned an off-spec value" '\[NS\] psci BAD'
     expect "SMCCC_VERSION reported 1.2 and x4-x7 survived a PSCI call" "[NS] smccc version 1.2"
     expect "the mandatory PSCI 1.1 calls answered as a boot-core-only system" "[NS] psci mandatory set ok"
+    if [ "$scenario" = psci-el2 ]; then
+      expect "the Normal-world payload ran at NS-EL2" "[NS] hello el=2"
+      expect "an AArch32 EL1 caller's SMC32 calls were served, one forwarded to the SPMC, and its SMC64 id refused" "[NS] a32 smc ok partinfo n="
+    fi
     expect "the Normal world powered off through PSCI" "[EL3] psci system_off"
     expect "the PSCI power-off ended the run cleanly" "[EXPECT BKPT] Success"
     ;;

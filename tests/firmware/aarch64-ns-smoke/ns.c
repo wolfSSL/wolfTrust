@@ -1357,12 +1357,121 @@ static void gic_sre_probe(void)
     }
 }
 
+/* Run at NS-EL2, clear HCR_EL2.RW and drop to an AArch32 EL1 stub that issues
+ * one SMC with R0-R5 from regs[0..5] and returns through HVC (the vector at
+ * 0x600, lower EL in AArch32); R0-R3 come back in regs[0..3]. */
+void ns_a32_smc(uint64_t* regs);
+__asm__(
+"    .pushsection .text.ns_a32, \"ax\"\n"
+"    .balign 0x800\n"
+"ns_el2_vectors:\n"
+"    .rept 12\n"
+"    .balign 0x80\n"
+"    b .\n"
+"    .endr\n"
+"    .balign 0x80\n"
+"    b ns_a32_back\n"
+"    .rept 3\n"
+"    .balign 0x80\n"
+"    b .\n"
+"    .endr\n"
+"    .globl ns_a32_smc\n"
+"ns_a32_smc:\n"
+"    stp x29, x30, [sp, #-112]!\n"
+"    stp x19, x20, [sp, #16]\n"
+"    stp x21, x22, [sp, #32]\n"
+"    stp x23, x24, [sp, #48]\n"
+"    stp x25, x26, [sp, #64]\n"
+"    stp x27, x28, [sp, #80]\n"
+"    mrs x9, hcr_el2\n"
+"    stp x0, x9, [sp, #96]\n"
+"    adr x10, ns_el2_vectors\n"
+"    msr vbar_el2, x10\n"
+"    bic x9, x9, #0x80000000\n"
+"    msr hcr_el2, x9\n"
+"    adr x10, ns_a32_stub\n"
+"    msr elr_el2, x10\n"
+"    mov x10, #0x1d3\n"
+"    msr spsr_el2, x10\n"
+"    ldp x4, x5, [x0, #32]\n"
+"    ldp x2, x3, [x0, #16]\n"
+"    ldp x0, x1, [x0]\n"
+"    isb\n"
+"    eret\n"
+"ns_a32_back:\n"
+"    ldp x9, x10, [sp, #96]\n"
+"    msr hcr_el2, x10\n"
+"    isb\n"
+"    mov w0, w0\n"
+"    mov w1, w1\n"
+"    mov w2, w2\n"
+"    mov w3, w3\n"
+"    stp x0, x1, [x9]\n"
+"    stp x2, x3, [x9, #16]\n"
+"    ldp x19, x20, [sp, #16]\n"
+"    ldp x21, x22, [sp, #32]\n"
+"    ldp x23, x24, [sp, #48]\n"
+"    ldp x25, x26, [sp, #64]\n"
+"    ldp x27, x28, [sp, #80]\n"
+"    ldp x29, x30, [sp], #112\n"
+"    ret\n"
+"    .balign 4\n"
+"ns_a32_stub:\n"
+"    .word 0xe1600070\n"      /* A32 smc #0 */
+"    .word 0xe1400070\n"      /* A32 hvc #0 */
+"    .popsection\n");
+
+/* SMCCC 4 from an AArch32 caller: an SMC32 PSCI call and a forwarded FF-A
+ * call are served and return to AArch32, and an SMC64 id is unknown (5.2). */
+static int a32_walk(void)
+{
+    uint64_t r[6];
+    uint64_t pfr0;
+    unsigned int i;
+    int ok = 1;
+
+    __asm__ volatile("mrs %0, id_aa64pfr0_el1" : "=r"(pfr0));
+    if (((pfr0 >> 4) & 0xFu) != 2u) {
+        put_str("[NS] a32 el1 absent\r\n");
+        return 1;
+    }
+    for (i = 0u; i < 6u; i++) {
+        r[i] = 0u;
+    }
+    r[0] = WT_PSCI_VERSION;
+    ns_a32_smc(r);
+    ok &= psci_expect("a32 psci_version", r[0], (int32_t)WT_PSCI_VERSION_1_1);
+    r[0] = WT_PSCI_AFFINITY_INFO64;
+    ns_a32_smc(r);
+    ok &= psci_expect("a32 smc64 id", r[0], WT_PSCI_NOT_SUPPORTED);
+    r[0] = WT_FFA_PARTITION_INFO_GET;
+    r[1] = 0u;
+    r[2] = 0u;
+    r[3] = 0u;
+    r[4] = 0u;
+    r[5] = WT_FFA_PARTINFO_FLAG_COUNT;
+    ns_a32_smc(r);
+    if (((uint32_t)r[0] != WT_FFA_SUCCESS32) || (r[2] == 0u)) {
+        put_str("[NS] psci BAD a32 partinfo x0=0x");
+        put_hex((uint32_t)r[0]);
+        put_str("\r\n");
+        ok = 0;
+    }
+    if (ok != 0) {
+        put_str("[NS] a32 smc ok partinfo n=");
+        put_dec((uint32_t)r[2]);
+        put_str("\r\n");
+    }
+    return ok;
+}
+
 /* The mandatory PSCI 1.1 set as a boot-core-only Normal world sees it. */
 static void psci_walk(void)
 {
     uint64_t o[4];
     uint64_t self;
     uint64_t parked;
+    uint64_t el;
     int ok = 1;
 
     ffa_smc(WT_PSCI_VERSION, 0u, o);
@@ -1416,6 +1525,10 @@ static void psci_walk(void)
     ok &= smccc_walk(self);
     if (ok != 0) {
         put_str("[NS] psci mandatory set ok\r\n");
+    }
+    __asm__ volatile("mrs %0, CurrentEL" : "=r"(el));
+    if (((el >> 2) & 0x3u) == 2u) {
+        (void)a32_walk();
     }
     ffa_smc(WT_PSCI_SYSTEM_OFF, 0u, o);
 }

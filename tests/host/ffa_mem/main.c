@@ -1653,6 +1653,14 @@ struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id)
     return NULL;
 }
 
+/* The partition the rows have taken out of service, if any. */
+static const struct wt_co* g_aborted_co;
+
+int32_t wt_spm_sp_unavailable(const struct wt_co* co)
+{
+    return ((co != NULL) && (co == g_aborted_co)) ? WT_FFA_ABORTED : 0;
+}
+
 /* The one RX/TX pair the rows map, standing in for every endpoint's. */
 static wt_ffa_mailbox_t g_relay_mailbox;
 
@@ -1913,6 +1921,15 @@ static void relay_rows(void)
           access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
           b_entry(PG_RW) == 1,
           "relayer: a relinquish unmaps them from the borrower");
+    c[1].address = page(PG_RW + 2u);
+    c[1].page_count = 1u;
+    g_aborted_co = CO_B;
+    (void)relay_send(WT_FFA_MEM_OP_LEND, &c[1], 1u, WT_FFA_MEM_PERM_DATA_RW,
+                     0u, &ret);
+    g_aborted_co = NULL;
+    check(ret == WT_FFA_ABORTED && access_of(&g_dom_a, PG_RW + 2u) ==
+                                       WT_DOMAIN_ACCESS_RW,
+          "relayer: a transaction naming a borrower that has aborted is ABORTED and takes nothing");
     check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
           access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW &&
           access_of(&g_dom_a, PG_RW + 1u) == WT_DOMAIN_ACCESS_RW,

@@ -339,10 +339,17 @@ static int sender_owns(uint16_t sender, const wt_ffa_mem_region_t* r,
 }
 
 /* Any partition the SPMC runs is an endpoint it manages (1.11.3.3); one not
- * bound never retrieves, and its owner reclaims. */
-static int receiver_known(uint16_t id)
+ * bound never retrieves, and its owner reclaims. One out of service never
+ * retrieves either, so a transaction naming it is refused (Table 2.5). */
+static int receiver_state(uint16_t id)
 {
-    return ((bind_by_id(id) != NULL) || (wt_spm_sp_by_ffa_id(id) != NULL)) ? 1 : 0;
+    const wt_spm_mem_binding_t* b = bind_by_id(id);
+    const struct wt_co* co = (b != NULL) ? b->co : wt_spm_sp_by_ffa_id(id);
+
+    if ((b == NULL) && (co == NULL)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    return (int)wt_spm_sp_unavailable(co);
 }
 
 /* A lend or donate takes the owner's own access away until it reclaims
@@ -453,9 +460,11 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
             ret = WT_FFA_DENIED;
         }
         /* A borrower is a partition the SPMC can map into, never the sender. */
-        if ((ret == 0) &&
-            ((receiver == sender) || (receiver_known(receiver) == 0))) {
+        if ((ret == 0) && (receiver == sender)) {
             ret = WT_FFA_INVALID_PARAMETERS;
+        }
+        if (ret == 0) {
+            ret = receiver_state(receiver);
         }
         if (ret == 0) {
             ret = send_permissions_ok(op, perms);

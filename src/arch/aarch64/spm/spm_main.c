@@ -714,11 +714,16 @@ static wt_secure_domain_t g_spin_domain;
 
 static int prove_preempt(void)
 {
+    static const uint32_t none[WT_FFA_DIRECT_PAYLOAD_WORDS];
     wt_memory_region_t band;
     const wt_domain_descriptor_t* d = first_partition_domain(&band);
+    uint64_t req[WT_FFA_MSG_REGS_EXT];
+    uint64_t resp[WT_FFA_MSG_REGS_EXT];
+    wt_ffa_mailbox_t* mb;
     uint8_t* stack;
     wt_co_t* co;
     int preempted;
+    int mapped;
 
     if (d == NULL) {
         return 0;
@@ -742,8 +747,21 @@ static int prove_preempt(void)
     (void)wt_co_run(co);
     wt_spm_preempt_timer_stop();
     preempted = (wt_co_state(co) == WT_CO_RUNNABLE) ? 1 : 0;
-    wt_co_mark_faulted(co);
-    return preempted;
+    /* Retired for good, it lets go of its RX/TX pair, and a direct request or
+     * FFA_RUN naming it is ABORTED (Tables 15.8, 14.14). */
+    mb = wt_spm_sp_mailbox_of((const struct wt_co*)co);
+    mapped = ((mb != NULL) &&
+              (wt_ffa_mailbox_map(mb, (uint64_t)WT_SPM_RXTX_PA +
+                                      WT_FFA_MEM_PAGE_SIZE,
+                                  (uint64_t)WT_SPM_RXTX_PA, 1u) == 0)) ? 1 : 0;
+    wt_spm_sp_retire((struct wt_co*)co);
+    wt_ffa_direct_build(req, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_SP_FIRST, none);
+    return ((preempted != 0) && (mapped != 0) && (mb->mapped == 0u) &&
+            (wt_spm_ffa_direct_deliver((struct wt_co*)co, req, resp) ==
+             WT_FFA_ABORTED) &&
+            (wt_spm_ffa_run((struct wt_co*)co, WT_FFA_ID_NS_PRIMARY, resp) ==
+             WT_FFA_ABORTED)) ? 1 : 0;
 }
 
 /* Prove FF-A partition discovery: an S-EL0 partition standing in for the
@@ -1541,6 +1559,10 @@ int wt_spm_msg2_deliver(uint16_t caller, uint32_t version, const uint8_t* tx,
             }
             if (uuid == NULL) {
                 ret = WT_FFA_INVALID_PARAMETERS;
+            }
+            else if (wt_spm_sp_unavailable(
+                         wt_spm_ffa_native_by_id(msg.receiver)) != 0) {
+                ret = WT_FFA_DENIED;
             }
         }
     }

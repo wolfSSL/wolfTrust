@@ -102,6 +102,13 @@ void wt_spm_sp_in_gate(const struct wt_co* co, unsigned int inside);
  * FFA_RUN to it is DENIED, as it is not in a state to handle one. */
 void wt_spm_sp_init_failed(struct wt_co* co, int32_t code);
 int wt_spm_sp_failed_init(const struct wt_co* co);
+/* Out of service for good after a fault no restart policy covers: what it
+ * held is released, its id stays listed (6.1 item 2: ids are never reused),
+ * and an ABI naming it is ABORTED where the ABI's error table has that code.
+ * A partition that failed initialization gives up the same resources and is
+ * DENIED instead. wt_spm_sp_unavailable is that code, or 0 for a live one. */
+void wt_spm_sp_retire(struct wt_co* co);
+int32_t wt_spm_sp_unavailable(const struct wt_co* co);
 
 /* The boot handoff record the FF-A boot information named, if any. */
 extern uintptr_t g_wt_spm_handoff_pa;

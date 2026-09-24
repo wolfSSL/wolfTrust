@@ -82,7 +82,8 @@ void wt_co_trampoline(void);
  * (ns-interrupts-action = queued); Secure priorities stay below the mask. */
 #define WT_SP_PMR_MASK_NS 0x80u
 static uint8_t g_ns_queued[WT_CO_MAX];
-/* 9.3.1.4: a callee runs with its caller's less permissive queued action. */
+/* Non-secure interrupts stay queued for a run the SPMC scheduled for a Secure
+ * interrupt (9.2.4 rule 3) and for a callee whose caller queues them (9.3.1.4). */
 static uint8_t g_ns_inherited[WT_CO_MAX];
 
 static wt_sp_arch_t* sp_arch(const struct wt_co *co);
@@ -612,8 +613,9 @@ static struct wt_co* g_ffa_call_target;
  * callee and writes what it hands back into the caller's saved frame. A
  * partition staged a Secure interrupt after its response, or a waiting owner
  * an interrupt is signaled to, runs detached: stacked on top with its own
- * result discarded, before the frame below resumes (Table 9.1). */
-static int run_endpoint(struct wt_co* co, uint64_t* out)
+ * result discarded, before the frame below resumes (Table 9.1). A detached
+ * run, and a root run with spmc set, is in the SPMC scheduled mode. */
+static int run_endpoint(struct wt_co* co, uint64_t* out, uint8_t spmc)
 {
     struct wt_co* chain[WT_CO_MAX];
     uint8_t detached[WT_CO_MAX];
@@ -630,6 +632,7 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
 
     chain[0] = co;
     detached[0] = 0u;
+    g_ns_inherited[co->id - 1u] = spmc;
     for (;;) {
         top = chain[depth - 1u];
         ret = run_one(top, out, &reason, &deliver);
@@ -653,12 +656,14 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
                 }
                 chain[depth] = waiting;
                 detached[depth] = 1u;
+                g_ns_inherited[waiting->id - 1u] = 1u;
                 depth++;
             }
             continue;
         }
         if (detached[depth - 1u] != 0u) {
             depth--;
+            g_ns_inherited[top->id - 1u] = 0u;
             if (depth == 0u) {
                 for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
                     out[i] = root_out[i];
@@ -669,6 +674,7 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
         }
         if (depth == 1u) {
             if (deliver == 0u) {
+                g_ns_inherited[top->id - 1u] = 0u;
                 return ret;
             }
             for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
@@ -676,6 +682,7 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
             }
             root_ret = ret;
             detached[0] = 1u;
+            g_ns_inherited[top->id - 1u] = 1u;
             continue;
         }
         depth--;
@@ -693,6 +700,7 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
         if (deliver != 0u) {
             chain[depth] = top;
             detached[depth] = 1u;
+            g_ns_inherited[top->id - 1u] = 1u;
             depth++;
         }
     }
@@ -809,7 +817,7 @@ int wt_spm_ffa_direct_deliver(struct wt_co* co, const uint64_t* req,
         return WT_FFA_BUSY;
     }
     endpoint_load_request(co, req);
-    return run_endpoint(co, resp);
+    return run_endpoint(co, resp, 0u);
 }
 
 /* FFA_RUN: resume an endpoint that yielded, or give cycles to a waiting one
@@ -831,7 +839,7 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
             if (wt_ffa_run_busy_check(m->requester, caller, 0u, 1u) != 0) {
                 return WT_FFA_DENIED;
             }
-            return run_endpoint(co, out);
+            return run_endpoint(co, out, 0u);
         }
         return WT_FFA_BUSY;
     }
@@ -847,7 +855,7 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
     else {
         deliver_event(co, WT_FFA_RUN, (uint64_t)wt_spm_sp_ffa_id(co) << 16);
     }
-    return run_endpoint(co, out);
+    return run_endpoint(co, out, 0u);
 }
 
 /* A Secure interrupt taken while its owner runs at S-EL0 is queued here and
@@ -1004,7 +1012,7 @@ int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid)
     }
     deliver_event(co, WT_FFA_INTERRUPT, 0u);
     wt_spm_sint_set_delivered(co, intid);
-    return (run_endpoint(co, out) == WT_FFA_ABORTED) ? WT_FFA_ABORTED : 0;
+    return (run_endpoint(co, out, 1u) == WT_FFA_ABORTED) ? WT_FFA_ABORTED : 0;
 }
 
 static void write_tpidrro(uint64_t value)

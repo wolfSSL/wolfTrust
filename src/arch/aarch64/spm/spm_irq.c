@@ -324,9 +324,36 @@ uint32_t wt_spm_prove_sint(void)
 }
 
 #if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+/* The monitor ABI is host-untranslatable, so the driver alone includes it. */
+#include "wolftrust/arch/aarch64/monitor_abi.h"
+#include "wolftrust/sched/coroutine.h"
+
+/* A Normal-world interrupt: Group 1 with a Non-secure priority. */
+#define WT_SPM_TEST_NS_SPI  41u
+#define WT_SPM_TEST_NS_PRIO 0xA0u
+
+static int test_ns_int_hold(void)
+{
+    if (wt_mon_call(WT_MON_FID_TEST_NS_GROUP, 1u) != 0u) {
+        return -1;
+    }
+    wt_gic->set_priority(WT_SPM_TEST_NS_SPI, WT_SPM_TEST_NS_PRIO);
+    wt_gic->enable(WT_SPM_TEST_NS_SPI);
+    wt_gic->set_pending(WT_SPM_TEST_NS_SPI);
+    return 0;
+}
+
+static void test_ns_int_release(void)
+{
+    wt_gic->disable(WT_SPM_TEST_NS_SPI);
+    (void)wt_mon_call(WT_MON_FID_TEST_NS_GROUP, 0u);
+}
+
 /* Route the test Secure interrupt to a partition both ways (Table 9.1). First
  * signalled: raise it while the SPMC runs (proven by wt_spm_prove_sint) so it
- * is taken at S-EL1, then hand FFA_INTERRUPT to the waiting owner. Then queued:
+ * is taken at S-EL1, then hand FFA_INTERRUPT to the waiting owner with a
+ * Normal-world interrupt pending: the chain the SPMC scheduled keeps it queued
+ * (9.2.4 rule 3), so the owner finishes and waits again. Then queued:
  * raise it with S-EL1 FIQ masked while the owner handles another interrupt (the
  * tick's id stands in), so the lower-EL FIQ queues it and the gate delivers it
  * on the owner's next FFA_MSG_WAIT; the get must then name it, not the tick. */
@@ -336,11 +363,14 @@ void wt_spm_prove_sint_route(struct wt_co* co)
         return;
     }
     if ((wt_spm_prove_sint() == WT_SPM_TEST_SPI) &&
-        (wt_spm_ffa_signal_deliver(co, WT_SPM_TEST_SPI) == 0)) {
+        (test_ns_int_hold() == 0) &&
+        (wt_spm_ffa_signal_deliver(co, WT_SPM_TEST_SPI) == 0) &&
+        (wt_co_state((const wt_co_t*)co) == WT_CO_BLOCKED)) {
         wt_el3_puts("[SPM] sint signaled id=0x");
         wt_el3_puthex(WT_SPM_TEST_SPI, 2u);
         wt_el3_puts("\r\n");
     }
+    test_ns_int_release();
     g_wt_spm_sint_queued = 0u;
     wt_gic->set_group0(WT_SPM_TEST_SPI);
     wt_gic->set_priority(WT_SPM_TEST_SPI, 0x00u);

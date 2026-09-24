@@ -214,8 +214,11 @@ must replace. The EL3 monitor archive `libwt_el3.a` may reference only the
 port hooks listed in `tools/el3-symbols.allow` (`wt_platform_board_init`,
 `wt_platform_board_system_reset`, the console pair) and must define no SPM, service, or crypto code; the link rule
 runs `tools/check-el3-symbols.sh` on every build. `wt_platform_board_system_reset`
-drives the SoC reset controller for PSCI `SYSTEM_RESET`; the QEMU ports have
-none, so it returns and the monitor re-enters the boot chain. A silicon port must also
+performs the machine cold reset of PSCI `SYSTEM_RESET` and does not return:
+`virt` drives the restart line of its Secure PL061. `xlnx-versal-virt` models
+no machine reset, so its hook returns; only an emulator test build
+(`WT_EL3_RESET_LIMIT`) then re-enters the boot chain warm, and any other build
+panics. A silicon port must also
 fence the Secure bands from the Normal world in hardware (a TZASC, XMPU, or
 RISAF): QEMU `virt` models the fence with its secure memory, and
 `xlnx-versal-virt` does not model one.

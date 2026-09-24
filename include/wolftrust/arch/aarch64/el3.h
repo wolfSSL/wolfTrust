@@ -138,7 +138,7 @@ void wt_el3_timer_disable(void);
 
 /* Port hooks the EL3 image needs (the tools/el3-symbols.allow set). */
 void wt_platform_board_init(void);
-/* Reset the SoC; returns only where the platform has no reset controller. */
+/* Cold-reset the machine; returns only where the platform has no reset. */
 void wt_platform_board_system_reset(void);
 void wt_platform_console_putc(char c);
 void wt_platform_console_flush(void);

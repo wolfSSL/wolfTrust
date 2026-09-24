@@ -90,8 +90,9 @@ struct wt_ffa_regs;
 void wt_psci_ns_call(struct wt_ffa_regs* r);
 
 /* EL3 system reset shared by the NS PSCI SYSTEM_RESET and the Secure world's
- * WT_MON_FID_SYSTEM_RESET: the port resets the SoC, or the chain re-enters
- * where the platform has no reset controller; tag names the requester. */
+ * WT_MON_FID_SYSTEM_RESET: the port resets the machine; without a reset
+ * controller only an emulator test build re-enters the chain, anything else
+ * panics. tag names the requester. */
 void wt_el3_system_reset(const char* tag);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_PSCI_H */

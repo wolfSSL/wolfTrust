@@ -38,12 +38,14 @@
 #define WT_PSCI_TARGET_BOOT      0
 #define WT_PSCI_TARGET_INVALID (-1)
 
+/* A port whose reset hook returns has no machine reset. */
+#define WT_EL3_PANIC_NO_RESET 0xB5u
+
 extern void wt_el3_warm_reset(void) __attribute__((noreturn));
 
-/* Boot counter in the .noinit band, 0 on the cold boot. An emulator target
- * without a reset controller bounds its chain re-entries with
- * WT_EL3_RESET_LIMIT so a test run ends instead of looping; production
- * builds leave it unset and every reset proceeds. */
+/* Boot counter in the .noinit band, 0 on the first power-on. Emulator test
+ * builds bound their resets with WT_EL3_RESET_LIMIT so a run ends instead of
+ * looping; production builds leave it unset and every reset proceeds. */
 static uint32_t g_reset_count __attribute__((section(".noinit")));
 
 unsigned int wt_el3_reset_count(void)
@@ -67,8 +69,16 @@ void wt_el3_system_reset(const char* tag)
     wt_el3_puts(tag);
     wt_el3_puts(" system_reset reboot\r\n");
     wt_platform_console_flush();
+    /* DEN0022 5.11: a cold reset of the caller's machine; never returns on a
+     * port with a reset controller. */
     wt_platform_board_system_reset();
+#if defined(WT_EL3_RESET_LIMIT) && (WT_EL3_RESET_LIMIT > 0)
+    wt_el3_puts("[EL3] no machine reset: warm re-entry (test build)\r\n");
+    wt_platform_console_flush();
     wt_el3_warm_reset();
+#else
+    (void)wt_el3_monitor_call(WT_MON_FID_PANIC, WT_EL3_PANIC_NO_RESET);
+#endif
 }
 
 /* SMCCC 1.1 and later preserve x4-x17 across a call that returns only x0. */

@@ -350,16 +350,11 @@ int wt_ffa_spmd_is_ns_reply(uint32_t fid)
     }
 }
 
-/* An SMC from the SPMC yielding the CPU back to a preempted Normal world. */
+/* An SMC from the SPMC yielding the CPU back to a preempted Normal world:
+ * only FFA_NORMAL_WORLD_RESUME does (14.4). */
 int wt_ffa_spmd_is_ns_resume(uint32_t fid)
 {
-    switch (fid) {
-        case WT_FFA_NORMAL_WORLD_RESUME:
-        case WT_FFA_RUN:
-            return 1;
-        default:
-            return 0;
-    }
+    return (fid == WT_FFA_NORMAL_WORLD_RESUME) ? 1 : 0;
 }
 
 /* NS physical instance (13.x): FF-A calls arriving from the Normal world once
@@ -458,6 +453,11 @@ int wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
                 }
                 return WT_SPMD_ACTION_LAUNCH;
             }
+            reply_error(r, WT_FFA_DENIED);
+            break;
+        case WT_FFA_NORMAL_WORLD_RESUME:
+            /* 14.4.1: the monitor resumes a preempted Normal world before this
+             * dispatch, so reaching it means none was preempted. */
             reply_error(r, WT_FFA_DENIED);
             break;
         case WT_FFA_MSG_SEND_DIRECT_RESP32:

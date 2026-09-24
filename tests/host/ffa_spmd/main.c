@@ -366,6 +366,17 @@ int main(void)
     call(&r, WT_FFA_FEATURES, 0x1u);
     check(is_error(&r, WT_FFA_NOT_SUPPORTED), "FFA_FEATURES refuses feature ids");
 
+    check(wt_ffa_spmd_is_ns_resume(WT_FFA_NORMAL_WORLD_RESUME) == 1,
+          "FFA_NORMAL_WORLD_RESUME resumes a preempted Normal world");
+    check(wt_ffa_spmd_is_ns_resume(WT_FFA_RUN) == 0,
+          "FFA_RUN at the Secure physical instance is no alias for the resume (14.4)");
+    call(&r, WT_FFA_NORMAL_WORLD_RESUME, 0u);
+    check(is_error(&r, WT_FFA_DENIED),
+          "FFA_NORMAL_WORLD_RESUME with no preempted Normal world is DENIED (14.4.1)");
+    call(&r, WT_FFA_RUN, 0u);
+    check(is_error(&r, WT_FFA_NOT_SUPPORTED),
+          "FFA_RUN from the SPMC is NOT_SUPPORTED at the Secure physical instance");
+
     call(&r, WT_FFA_ID_GET, 0u);
     check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 && r.x[2] == WT_FFA_ID_SPMC &&
           r.x[1] == 0u && rest_zero(r.x, 3u, 7u),

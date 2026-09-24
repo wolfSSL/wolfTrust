@@ -124,10 +124,11 @@ Unsupported capabilities or an invalid resource layout stop the build.
 
 AArch64 manifests (`--address-bits 64`) may add an optional top-level
 `ffa` section with one entry per Secure Partition domain: the FF-A
-partition properties of DEN0077A Table 5.1 (`uuids`, `execution_contexts`,
-`runtime_el`, `messaging`, `ns_interrupt_action`, `boot_info_register`).
-The generator accepts only what the SPMC implements for these partitions: one
-execution context, `S-EL0`, messaging `none` (their services are reached
+partition properties of DEN0077A Table 5.1 (`ffa_version`, `uuids`,
+`execution_contexts`, `runtime_el`, `messaging`, `ns_interrupt_action`,
+`boot_info_register`).
+The generator accepts only what the SPMC implements for these partitions: FF-A
+`1.2`, one execution context, `S-EL0`, messaging `none` (their services are reached
 through the SPMC's PSA endpoint, not by FF-A messages to the partition),
 `signaled`, and boot information in register 0; any other value stops the
 build.

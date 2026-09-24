@@ -128,6 +128,7 @@ MANIFEST_SCHEMA = {
 # wolfTrust domain and partition structures are untouched.
 FFA_PARTITION_SCHEMA = {
     "domain_id": UINT,
+    "ffa_version": STRING,
     "uuids": [STRING],
     "execution_contexts": UINT,
     "runtime_el": STRING,
@@ -138,10 +139,12 @@ FFA_PARTITION_SCHEMA = {
 FFA_SCHEMA = {
     "partitions": [FFA_PARTITION_SCHEMA],
 }
-# Only the values the SPMC honours: every manifest partition runs at S-EL0,
+# Only the values the SPMC honours: every manifest partition expects FF-A 1.2,
+# the version the SPMC holds a partition to until it negotiates, runs at S-EL0,
 # takes no FF-A messages (its services are reached through the SPMC's PSA
 # endpoint, so discovery lists neither messaging method), has its Non-secure
 # interrupts signaled, and takes its boot information in x0.
+FFA_VERSIONS = {"1.2": 0x00010002}
 FFA_RUNTIME_EL = {"S-EL0": 0}
 FFA_MESSAGING = {"none": 0}
 FFA_NS_INTERRUPT_ACTION = {"signaled": 0}
@@ -832,6 +835,8 @@ def validate_ffa(ffa, manifest):
         for uuid in entry["uuids"]:
             if not UUID_RE.match(uuid):
                 policy_error(path + " UUID is not canonical lowercase")
+        if entry["ffa_version"] not in FFA_VERSIONS:
+            policy_error(path + " ffa_version must be 1.2")
         if entry["execution_contexts"] != 1:
             policy_error(path + " supports one execution context only")
         if entry["runtime_el"] not in FFA_RUNTIME_EL:
@@ -867,6 +872,7 @@ def emit_ffa(lines, ffa):
             ("ns_interrupt_action",
              c_uint(FFA_NS_INTERRUPT_ACTION[entry["ns_interrupt_action"]])),
             ("boot_info_register", c_uint(entry["boot_info_register"])),
+            ("ffa_version", c_uint(FFA_VERSIONS[entry["ffa_version"]])),
         )))
     count = len(entries)
     if count == 0:
@@ -875,7 +881,8 @@ def emit_ffa(lines, ffa):
             (("uuids", "NULL"),) +
             tuple((name, c_uint(0)) for name in (
                 "domain_id", "uuid_count", "execution_contexts", "runtime_el",
-                "messaging", "ns_interrupt_action", "boot_info_register"))))
+                "messaging", "ns_interrupt_action", "boot_info_register",
+                "ffa_version"))))
     table = emit_array(lines,
         "wt_ffa_partition_manifest_t wt_generated_ffa_partitions[{}]".format(
             len(entries)), entries)

@@ -377,6 +377,7 @@ class GeneratorTest(unittest.TestCase):
         manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
         manifest["ffa"] = {"partitions": [{
             "domain_id": manifest["partitions"][0]["domain_id"],
+            "ffa_version": "1.2",
             "uuids": ["b4b5671e-4a90-4fe1-b81f-fb13dae1dacb",
                       "01234567-0123-4567-89ab-0123456789ab"],
             "execution_contexts": 1,
@@ -404,6 +405,7 @@ class GeneratorTest(unittest.TestCase):
             self.assertIn(".uuid_count = 2U", generated)
             self.assertIn("0xb4U, 0xb5U, 0x67U, 0x1eU", generated)
             self.assertIn(".messaging = 0U", generated)
+            self.assertIn(".ffa_version = 65538U", generated)
             self.assertIn("wt_generated_ffa_partitions_get(size_t* count)",
                           generated)
             compiled = self.compile_generated(
@@ -462,6 +464,8 @@ class GeneratorTest(unittest.TestCase):
             ("uuids", [], "1 to 4 UUIDs"),
             ("domain_id", 250, "unknown domain"),
             ("execution_contexts", 2, "one execution context"),
+            ("ffa_version", "1.1", "ffa_version must be 1.2"),
+            ("ffa_version", 0x10002, "ffa_version must be"),
             ("runtime_el", "EL2", "runtime_el"),
             ("runtime_el", "S-EL1", "runtime_el must be S-EL0"),
             ("messaging", "smoke", "messaging"),

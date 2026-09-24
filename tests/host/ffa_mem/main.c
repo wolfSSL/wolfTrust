@@ -1521,9 +1521,11 @@ static void v10_rows(void)
 #define RELAY_ID_C       0x8004u
 #define RELAY_RW         (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE)
 /* Pages of the host backing: A's manifest-shared page, the image page every
- * partition maps, A's read-write pages 2-5 (2 and 5 are SPMC fill entries B's
- * table holds EL1-only, 3 and 4 are absent from B's table), A's read-only
- * page, A's own code page, and B's own page. */
+ * partition maps, A's read-write pages 2-5, A's read-only page, A's own code
+ * page, B's and C's own pages, the Normal world's window (10-11), A's Device
+ * page, and A's page no fill entry names. Every other table holds each
+ * partition's pages and the window as SPMC EL1-only fill entries, except
+ * PG_GAP, which only A's table maps. */
 #define PG_SHARED 0u
 #define PG_IMAGE  1u
 #define PG_FILL   2u
@@ -1534,11 +1536,13 @@ static void v10_rows(void)
 #define PG_B      8u
 #define PG_DEV    12u
 #define PG_C      9u
+#define PG_NS     10u
+#define PG_GAP    13u
 
 static uint8_t g_relay_pool[RELAY_POOL_PAGES * WT_TABLES_PAGE_SIZE]
     __attribute__((aligned(4096)));
 static uint8_t* g_mem;
-static wt_memory_region_t g_relay_fill[2];
+static wt_memory_region_t g_relay_fill[8];
 static wt_secure_domain_t g_dom_a;
 static wt_secure_domain_t g_dom_b;
 static wt_secure_domain_t g_dom_c;
@@ -1693,7 +1697,8 @@ static int relay_reset(void)
                WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC);
     set_region(&g_dom_a.regions[5], PG_DEV, 1u,
                RELAY_RW | WT_MEM_ATTR_DEVICE);
-    g_dom_a.region_count = 6u;
+    set_region(&g_dom_a.regions[6], PG_GAP, 1u, RELAY_RW);
+    g_dom_a.region_count = 7u;
     set_region(&g_dom_b.regions[0], PG_B, 1u, RELAY_RW);
     g_dom_b.region_count = 1u;
     set_region(&g_dom_c.regions[0], PG_C, 1u, RELAY_RW);
@@ -1702,8 +1707,15 @@ static int relay_reset(void)
                RELAY_RW | WT_DOMAIN_FILL_SHARED);
     set_region(&g_relay_fill[1], PG_FILL2, 1u,
                RELAY_RW | WT_DOMAIN_FILL_SHARED);
+    set_region(&g_relay_fill[2], PG_RW, 2u, RELAY_RW | WT_DOMAIN_FILL_SHARED);
+    set_region(&g_relay_fill[3], PG_RO, 1u, RELAY_RW | WT_DOMAIN_FILL_SHARED);
+    set_region(&g_relay_fill[4], PG_RX, 1u, RELAY_RW | WT_DOMAIN_FILL_SHARED);
+    set_region(&g_relay_fill[5], PG_B, 1u, RELAY_RW | WT_DOMAIN_FILL_SHARED);
+    set_region(&g_relay_fill[6], PG_C, 1u, RELAY_RW | WT_DOMAIN_FILL_SHARED);
+    set_region(&g_relay_fill[7], PG_NS, 2u,
+               RELAY_RW | WT_TABLES_ATTR_NS | WT_TABLES_ATTR_NG);
     g_domain_fails = 0u;
-    if (wt_domain_init(g_relay_fill, 2u, g_relay_pool, RELAY_POOL_PA,
+    if (wt_domain_init(g_relay_fill, 8u, g_relay_pool, RELAY_POOL_PA,
                        sizeof(g_relay_pool)) == 0u) {
         return 0;
     }
@@ -1799,7 +1811,7 @@ static int access_of(const wt_secure_domain_t* d, unsigned int pg)
 }
 
 /* What B's table holds at a page it does not reach: 1 for an SPMC EL1-only
- * entry, 0 for none, -1 for anything else. Probed by a grant and its undo. */
+ * entry, -1 for anything else. Probed by a grant and its undo. */
 static int b_entry(unsigned int pg)
 {
     int was = -1;
@@ -1843,7 +1855,7 @@ static void relay_rows(void)
           "relayer: a retrieve maps the lent pages into the borrower");
     check(relay_relinquish(h, 0u) == 0 &&
           access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
-          b_entry(PG_RW) == 0,
+          b_entry(PG_RW) == 1,
           "relayer: a relinquish unmaps them from the borrower");
     check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
           access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW &&
@@ -2016,6 +2028,7 @@ static void relay_region_rows(void)
     wt_ffa_mem_constituent_t c[3];
     uint64_t h;
     uint32_t attrs = 0u;
+    size_t used;
     int ret = 0;
 
     if ((g_mem == NULL) || !relay_reset()) {
@@ -2030,30 +2043,31 @@ static void relay_region_rows(void)
                    &ret);
     check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
           relay_relinquish(h, 0u) == 0 && b_entry(PG_FILL) == 1 &&
-          b_entry(PG_RW) == 0 &&
+          b_entry(PG_RW) == 1 &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
-          "region: a relinquish keeps the SPMC's entry for a region that had one");
+          "region: a relinquish puts back the SPMC's entry for every region");
 
-    c[0].address = page(PG_RW);
-    c[1].address = page(PG_FILL);
-    h = relay_send(WT_FFA_MEM_OP_LEND, c, 2u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+    c[0].address = page(PG_GAP);
+    used = wt_domain_pool_pages_used();
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                    &ret);
-    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
-          relay_relinquish(h, 0u) == 0 && b_entry(PG_RW) == 0 &&
-          b_entry(PG_FILL) == 1 &&
+    check(ret == 0 &&
+          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == WT_FFA_NO_MEMORY &&
+          access_of(&g_dom_b, PG_GAP) == WT_DOMAIN_ACCESS_NONE &&
+          wt_domain_pool_pages_used() == used &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
-          "region: and leaves no entry behind for a region that had none");
+          "region: a page the borrower's table does not map is never retrieved, and no table page is taken for it");
 
     c[0].address = page(PG_FILL);
     c[1].address = page(PG_RW);
-    c[2].address = page(PG_RW + 1u);
-    c[2].page_count = 2u;
+    c[2].address = page(PG_GAP);
+    c[2].page_count = 1u;
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 3u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                    &ret);
     check(ret == 0 &&
           relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == WT_FFA_NO_MEMORY &&
-          b_entry(PG_FILL) == 1 && b_entry(PG_RW) == 0 &&
-          b_entry(PG_RW + 1u) == 0 && b_entry(PG_FILL2) == 1 &&
+          b_entry(PG_FILL) == 1 && b_entry(PG_RW) == 1 &&
+          access_of(&g_dom_b, PG_GAP) == WT_DOMAIN_ACCESS_NONE &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
           "region: a retrieve that cannot map its last region puts back each earlier one as it was");
 
@@ -2440,7 +2454,7 @@ static void relay_teardown_rows(void)
     wt_spm_mem_endpoint_teardown(CO_B);
     check(access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
           access_of(&g_dom_b, PG_RW + 1u) == WT_DOMAIN_ACCESS_NONE &&
-          b_entry(PG_RW) == 0 && b_entry(PG_RW + 1u) == 0,
+          b_entry(PG_RW) == 1 && b_entry(PG_RW + 1u) == 1,
           "teardown: a faulted borrower's table loses every page it retrieved");
     check(wiped[0] == 0u && kept[0] == 0x5Au,
           "teardown: only the page its retrieve asked to be zeroed is wiped");

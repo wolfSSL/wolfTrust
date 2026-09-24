@@ -56,7 +56,7 @@
 #define WT_FFA_MEM_TXN_OFF_ACC_SIZE     24u  /* u32 size of each access descriptor */
 #define WT_FFA_MEM_TXN_OFF_ACC_COUNT    28u  /* u32 access descriptor count */
 #define WT_FFA_MEM_TXN_OFF_ACC_OFFSET   32u  /* u32 offset to the access array */
-/* [36, 48) reserved, must be zero. */
+/* [36, 48) reserved (SBZ). */
 #define WT_FFA_MEM_ACC_OFFSET_ALIGN     16u  /* the access array offset's alignment */
 
 /* Endpoint memory access descriptor field offsets (Table 5.16). */
@@ -64,7 +64,7 @@
 #define WT_FFA_MEM_ACC_OFF_PERMS        2u   /* u8 access permissions */
 #define WT_FFA_MEM_ACC_OFF_FLAGS        3u   /* u8 access descriptor flags */
 #define WT_FFA_MEM_ACC_OFF_COMP_OFF     4u   /* u32 offset to the composite descriptor */
-/* [8, 16) reserved, must be zero. */
+/* [8, 16) reserved (SBZ). */
 
 /* Access descriptor flags byte (DEN0140 1.10.1): MBZ in a lend/donate/share;
  * in a retrieve request bit 0 marks an entry that names another borrower. */
@@ -73,12 +73,12 @@
 /* Composite memory region header field offsets (Table 5.13). */
 #define WT_FFA_MEM_COMP_OFF_PAGES       0u   /* u32 total page count */
 #define WT_FFA_MEM_COMP_OFF_COUNT       4u   /* u32 constituent count */
-/* [8, 16) reserved, must be zero. */
+/* [8, 16) reserved (SBZ). */
 
 /* Constituent memory region descriptor field offsets (Table 5.11). */
 #define WT_FFA_MEM_CONS_OFF_ADDR        0u   /* u64 page-aligned base address */
 #define WT_FFA_MEM_CONS_OFF_PAGES       8u   /* u32 page count */
-/* [12, 16) reserved, must be zero. */
+/* [12, 16) reserved (SBZ). */
 
 /* Memory access permissions byte (Table 5.14). */
 #define WT_FFA_MEM_PERM_DATA_MASK       0x3u
@@ -91,7 +91,7 @@
 #define WT_FFA_MEM_PERM_INSTR_NOT_SPEC  0x0u
 #define WT_FFA_MEM_PERM_INSTR_NX        (0x1u << WT_FFA_MEM_PERM_INSTR_SHIFT)
 #define WT_FFA_MEM_PERM_INSTR_X         (0x2u << WT_FFA_MEM_PERM_INSTR_SHIFT)
-#define WT_FFA_MEM_PERM_RSVD_MASK       0xF0u  /* bits[7:4] must be zero */
+#define WT_FFA_MEM_PERM_RSVD_MASK       0xF0u  /* bits[7:4] SBZ */
 
 /* Transaction descriptor flags (Table 5.20/5.21). Bits[4:3] carry the
  * transaction type only in a retrieve response; they are zero in a send. */
@@ -129,7 +129,7 @@
 #define WT_FFA_MEM_ATTR_TYPE_DEVICE     (0x1u << WT_FFA_MEM_ATTR_TYPE_SHIFT)
 #define WT_FFA_MEM_ATTR_TYPE_NORMAL     (0x2u << WT_FFA_MEM_ATTR_TYPE_SHIFT)
 #define WT_FFA_MEM_ATTR_NS              (1u << 6)   /* non-secure memory */
-#define WT_FFA_MEM_ATTR_RSVD_MASK       0xFF80u     /* bits[15:7] must be zero */
+#define WT_FFA_MEM_ATTR_RSVD_MASK       0xFF80u     /* bits[15:7] SBZ */
 /* What the relayer's stage 1 tables map every borrower with. */
 #define WT_FFA_MEM_ATTR_RELAYER         (WT_FFA_MEM_ATTR_TYPE_NORMAL | \
                                          WT_FFA_MEM_ATTR_CACHE_WB | \

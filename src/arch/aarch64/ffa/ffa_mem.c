@@ -61,23 +61,12 @@ static void wr_u64(uint8_t* p, uint64_t v)
     wr_u32(&p[4], (uint32_t)((v >> 32) & 0xFFFFFFFFu));
 }
 
-/* Both endpoint access descriptor layouts end in eight reserved bytes. */
+/* Both endpoint access descriptor layouts end in eight reserved (SBZ)
+ * bytes. */
 static int access_size_ok(uint32_t size)
 {
     return (size == WT_FFA_MEM_ACCESS_SIZE) ||
            (size == WT_FFA_MEM_ACCESS_SIZE_V12);
-}
-
-static int access_reserved_clear(const uint8_t* acc, uint32_t size)
-{
-    uint32_t k;
-
-    for (k = size - 8u; k < size; k++) {
-        if (acc[k] != 0u) {
-            return 0;
-        }
-    }
-    return 1;
 }
 
 static int layout_v10(uint32_t version)
@@ -86,16 +75,15 @@ static int layout_v10(uint32_t version)
 }
 
 /* Where a descriptor laid out for version keeps its access descriptors: Table
- * 1.20 names their size and offset and reserves [36, 48), the v1.0 layout
- * fixes them and reserves [24, 28). 0, or INVALID_PARAMETERS for a short
- * header or a reserved byte set. */
+ * 1.20 names their size and offset and reserves [36, 48) (SBZ, ignored), the
+ * v1.0 layout (Table 4.17) fixes them and reserves byte 3 and [24, 28) (MBZ).
+ * 0, or INVALID_PARAMETERS for a short header or an MBZ byte set. */
 static int txn_header(const uint8_t* buf, size_t len, uint32_t version,
                       uint32_t* acc_size, uint32_t* acc_off, uint32_t* hdr)
 {
-    uint32_t i;
-
     if (layout_v10(version) != 0) {
         if ((len < WT_FFA_MEM_TXN_HDR_SIZE_V10) ||
+            (buf[WT_FFA_MEM_TXN_OFF_ATTRS + 1u] != 0u) ||
             (rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE]) != 0u)) {
             return WT_FFA_INVALID_PARAMETERS;
         }
@@ -106,11 +94,6 @@ static int txn_header(const uint8_t* buf, size_t len, uint32_t version,
     }
     if (len < WT_FFA_MEM_TXN_HDR_SIZE) {
         return WT_FFA_INVALID_PARAMETERS;
-    }
-    for (i = 36u; i < WT_FFA_MEM_TXN_HDR_SIZE; i++) {
-        if (buf[i] != 0u) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
     }
     *acc_size = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE]);
     *acc_off = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET]);
@@ -310,7 +293,9 @@ int wt_ffa_mem_txn_validate_at(const uint8_t* buf, size_t len,
     }
 
     txn.sender = (uint16_t)rd_u16(&buf[WT_FFA_MEM_TXN_OFF_SENDER]);
-    txn.attributes = (uint16_t)rd_u16(&buf[WT_FFA_MEM_TXN_OFF_ATTRS]);
+    /* Table 1.18 bits[15:7] are SBZ. */
+    txn.attributes = (uint16_t)(rd_u16(&buf[WT_FFA_MEM_TXN_OFF_ATTRS]) &
+                                ~WT_FFA_MEM_ATTR_RSVD_MASK);
     txn.flags = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_FLAGS]);
     txn.handle = rd_u64(&buf[WT_FFA_MEM_TXN_OFF_HANDLE]);
     txn.tag = rd_u64(&buf[WT_FFA_MEM_TXN_OFF_TAG]);
@@ -326,9 +311,6 @@ int wt_ffa_mem_txn_validate_at(const uint8_t* buf, size_t len,
         return WT_FFA_INVALID_PARAMETERS;
     }
     if ((op == WT_FFA_MEM_OP_DONATE) && (txn.receiver_count != 1u)) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
-    if ((txn.attributes & WT_FFA_MEM_ATTR_RSVD_MASK) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if (wt_ffa_mem_attributes_check(txn.attributes) != 0) {
@@ -365,13 +347,9 @@ int wt_ffa_mem_txn_validate_at(const uint8_t* buf, size_t len,
         uint8_t perms = acc[WT_FFA_MEM_ACC_OFF_PERMS];
         uint32_t off = rd_u32(&acc[WT_FFA_MEM_ACC_OFF_COMP_OFF]);
 
-        if (access_reserved_clear(acc, txn.access_desc_size) == 0) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
+        /* Its flags are MBZ in a send (1.10.1); its reserved tail and the
+         * permission bits[7:4] are SBZ (Tables 1.15 and 1.16). */
         if (acc[WT_FFA_MEM_ACC_OFF_FLAGS] != 0u) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
-        if ((perms & WT_FFA_MEM_PERM_RSVD_MASK) != 0u) {
             return WT_FFA_INVALID_PARAMETERS;
         }
         if ((perms & WT_FFA_MEM_PERM_DATA_MASK) == WT_FFA_MEM_PERM_DATA_RSVD) {
@@ -391,14 +369,11 @@ int wt_ffa_mem_txn_validate_at(const uint8_t* buf, size_t len,
         }
     }
 
+    /* The composite's bytes [8, 16) and each constituent's [12, 16) are SBZ
+     * (Tables 1.13 and 1.14). */
     if ((comp_off < acc_end) ||
         (((uint64_t)comp_off + WT_FFA_MEM_COMPOSITE_HDR_SIZE) > (uint64_t)len)) {
         return WT_FFA_INVALID_PARAMETERS;
-    }
-    for (i = 8u; i < WT_FFA_MEM_COMPOSITE_HDR_SIZE; i++) {
-        if (buf[comp_off + i] != 0u) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
     }
     txn.total_page_count = rd_u32(&buf[comp_off + WT_FFA_MEM_COMP_OFF_PAGES]);
     txn.constituent_count = rd_u32(&buf[comp_off + WT_FFA_MEM_COMP_OFF_COUNT]);
@@ -424,9 +399,6 @@ int wt_ffa_mem_txn_validate_at(const uint8_t* buf, size_t len,
         uint64_t span;
         uint64_t a_end;
 
-        if (rd_u32(&c[12]) != 0u) {
-            return WT_FFA_INVALID_PARAMETERS;
-        }
         if ((addr & (WT_FFA_MEM_PAGE_SIZE - 1u)) != 0u) {
             return WT_FFA_INVALID_PARAMETERS;
         }
@@ -499,7 +471,8 @@ int wt_ffa_mem_receiver(const uint8_t* buf, size_t len,
     }
     acc = &buf[txn->access_offset + index * txn->access_desc_size];
     *out_id = (uint16_t)rd_u16(&acc[WT_FFA_MEM_ACC_OFF_RECEIVER]);
-    *out_perms = acc[WT_FFA_MEM_ACC_OFF_PERMS];
+    *out_perms = (uint8_t)(acc[WT_FFA_MEM_ACC_OFF_PERMS] &
+                           ~WT_FFA_MEM_PERM_RSVD_MASK);
     return 0;
 }
 
@@ -652,13 +625,13 @@ int wt_ffa_mem_retrieve_req_parse_at(const uint8_t* buf, size_t len,
     }
     for (i = 0u; i < count; i++) {
         acc = &buf[off + (i * acc_size)];
-        if ((access_reserved_clear(acc, acc_size) == 0) ||
-            (rd_u32(&acc[WT_FFA_MEM_ACC_OFF_COMP_OFF]) != 0u) ||
-            ((acc[WT_FFA_MEM_ACC_OFF_PERMS] & WT_FFA_MEM_PERM_RSVD_MASK) != 0u)) {
+        if (rd_u32(&acc[WT_FFA_MEM_ACC_OFF_COMP_OFF]) != 0u) {
             return WT_FFA_INVALID_PARAMETERS;
         }
         out->receivers[i] = (uint16_t)rd_u16(&acc[WT_FFA_MEM_ACC_OFF_RECEIVER]);
-        out->permissions[i] = acc[WT_FFA_MEM_ACC_OFF_PERMS];
+        /* Permission bits[7:4] and the reserved tail are SBZ. */
+        out->permissions[i] = (uint8_t)(acc[WT_FFA_MEM_ACC_OFF_PERMS] &
+                                        ~WT_FFA_MEM_PERM_RSVD_MASK);
         /* Bits[7:1] are SBZ: ignored at the higher EL (DEN0077A 7.2.2.3.2). */
         out->access_flags[i] = acc[WT_FFA_MEM_ACC_OFF_FLAGS];
         for (j = 0u; j < WT_FFA_MEM_IMPDEF_SIZE; j++) {
@@ -672,7 +645,8 @@ int wt_ffa_mem_retrieve_req_parse_at(const uint8_t* buf, size_t len,
     out->tag = rd_u64(&buf[WT_FFA_MEM_TXN_OFF_TAG]);
     out->flags = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_FLAGS]);
     out->sender = (uint16_t)rd_u16(&buf[WT_FFA_MEM_TXN_OFF_SENDER]);
-    out->attributes = (uint16_t)rd_u16(&buf[WT_FFA_MEM_TXN_OFF_ATTRS]);
+    out->attributes = (uint16_t)(rd_u16(&buf[WT_FFA_MEM_TXN_OFF_ATTRS]) &
+                                 ~WT_FFA_MEM_ATTR_RSVD_MASK);
     return 0;
 }
 

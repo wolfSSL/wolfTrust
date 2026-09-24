@@ -676,6 +676,11 @@ int wt_spm_mem_perm_set(const wt_secure_domain_t* dom,
             ret = WT_FFA_INVALID_PARAMETERS;
         }
     }
+    /* An owner cannot change its access while a borrower may hold the
+     * memory (1.3.1 rule 7). */
+    if ((ret == 0) && (wt_ffa_mem_registry_overlaps(&g_reg, va, pages) != 0)) {
+        ret = WT_FFA_DENIED;
+    }
     if ((ret == 0) && (platform_shared(va, size) != 0)) {
         ret = WT_FFA_DENIED;
     }

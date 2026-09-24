@@ -22,13 +22,16 @@ CC ?= cc
 BUILD_DIR ?= build
 
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
-    -DWT_CONF_NVM_HOST_TEST -I$(ROOT)/include $(EXTRA_CFLAGS)
+    -DWT_CONF_NVM_HOST_TEST -DWT_CONFORMANCE=1 -I$(ROOT)/include \
+    $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
 H5 := $(ROOT)/port/stm32h563
 A64 := $(ROOT)/port/common/aarch64
 TEST := $(BUILD_DIR)/test_flash_nvm
 TEST_A64 := $(BUILD_DIR)/test_flash_nvm_aarch64
-TESTS := $(TEST) $(TEST_A64)
+WRAP := $(BUILD_DIR)/test_conf_wrap
+WRAP_A64 := $(BUILD_DIR)/test_conf_wrap_aarch64
+TESTS := $(TEST) $(TEST_A64) $(WRAP) $(WRAP_A64)
 
 .PHONY: all run compilers compiler-gcc compiler-clang sanitize valgrind \
     run-valgrind clean
@@ -44,9 +47,17 @@ $(TEST): $(H5)/conformance/pal_driver_intf.c main.c | $(BUILD_DIR)
 $(TEST_A64): $(A64)/conformance/pal_driver_intf.c main.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -I$(A64)/conformance $(LDFLAGS) -o $@ $^
 
+$(WRAP): $(H5)/conformance/conf_nvm_sync.c wrap.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(H5)/conformance -I$(H5) $(LDFLAGS) -o $@ $^
+
+$(WRAP_A64): $(A64)/conformance/conf_nvm_sync.c wrap.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(A64)/conformance $(LDFLAGS) -o $@ $^
+
 run: $(TESTS)
 	$(TEST)
 	$(TEST_A64)
+	$(WRAP)
+	$(WRAP_A64)
 
 compiler-gcc:
 	$(MAKE) run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

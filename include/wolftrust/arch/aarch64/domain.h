@@ -74,6 +74,11 @@ int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
 #define WT_DOMAIN_ACCESS_RW   2
 int wt_domain_page_access(const wt_memory_region_t* regions, size_t count,
                           uintptr_t va);
+/* Non-zero when the domain's table holds va as the partition's in any form:
+ * reachable at EL0, made no-access by the partition, or held while a
+ * transaction it sent covers it; never an SPMC EL1-only entry. */
+int wt_domain_page_claimed(const wt_memory_region_t* regions, size_t count,
+                           uintptr_t va);
 /* Non-zero when the domain's table gives va to the partition at EL0, or keeps
  * it as a page the partition made no-access, and no transaction holds it. */
 int wt_domain_page_owned(const wt_memory_region_t* regions, size_t count,

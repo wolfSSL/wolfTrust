@@ -197,18 +197,18 @@ static int common_memory(const wt_secure_domain_t* dom, uint64_t base,
     return 0;
 }
 
-/* A partition reaching a page of the Normal world's window at EL0 was donated
- * it or borrows it, so the page is no longer the Normal world's (1.3.1 rules 5
- * and 6). */
+/* A partition whose table holds a page of the Normal world's window as its
+ * own, even one it made no-access or lends on, was donated it or borrows it,
+ * so the page is no longer the Normal world's (1.3.1 rules 5 and 6). */
 static int ns_page_held(uint64_t at)
 {
     unsigned int i;
 
     for (i = 0u; i < WT_SPM_MEM_MAX_BIND; i++) {
         if ((g_bind[i].live != 0u) &&
-            (wt_domain_page_access(g_bind[i].dom->regions,
-                                   g_bind[i].dom->region_count,
-                                   (uintptr_t)at) != WT_DOMAIN_ACCESS_NONE)) {
+            (wt_domain_page_claimed(g_bind[i].dom->regions,
+                                    g_bind[i].dom->region_count,
+                                    (uintptr_t)at) != 0)) {
             return 1;
         }
     }

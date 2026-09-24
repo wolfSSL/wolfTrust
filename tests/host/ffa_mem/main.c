@@ -3321,6 +3321,28 @@ static void relay_donated_perm_rows(void)
           perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) &&
           wt_spm_mem_rxtx_ok(&g_dom_b, page(PG_NS)) == 0,
           "donated perm: Non-secure memory donated to it is its own but never an RX/TX buffer (DEN0077A 7.2.2.2 rule 3)");
+    check(wt_spm_mem_perm_set(&g_dom_b, &g_relay_mailbox, page(PG_NS), 1u,
+                              WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) == 0 &&
+          access_of(&g_dom_b, PG_NS) == WT_DOMAIN_ACCESS_RO &&
+          wt_spm_mem_perm_set(&g_dom_b, &g_relay_mailbox, page(PG_NS), 1u,
+                              WT_FFA_PERM_DATA_NONE) == 0 &&
+          access_of(&g_dom_b, PG_NS) == WT_DOMAIN_ACCESS_NONE &&
+          wt_spm_mem_ns_owns(page(PG_NS), WT_TABLES_PAGE_SIZE) == 0 &&
+          wt_spm_mem_perm_get(&g_dom_b, page(PG_NS), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_NONE | WT_FFA_PERM_XN) &&
+          wt_spm_mem_perm_set(&g_dom_b, &g_relay_mailbox, page(PG_NS), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0 &&
+          access_of(&g_dom_b, PG_NS) == WT_DOMAIN_ACCESS_RW &&
+          ns_of(&g_dom_b, PG_NS) != 0 &&
+          wt_spm_mem_rxtx_ok(&g_dom_b, page(PG_NS)) == 0,
+          "donated perm: it re-permissions donated Non-secure memory read-only, no access (still not the Normal world's), and read-write, still Non-secure and never an RX/TX buffer");
+    check(wt_spm_mem_perm_set(&g_dom_b, &g_relay_mailbox, page(PG_NS), 1u,
+                              WT_FFA_PERM_DATA_RO) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_b, PG_NS) == WT_DOMAIN_ACCESS_RW &&
+          wt_spm_mem_perm_get(&g_dom_b, page(PG_NS), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN),
+          "donated perm: but never makes it executable, and a refused change leaves it as it was");
     check(g_domain_fails == 0u, "donated perm: no domain operation failed closed");
 }
 

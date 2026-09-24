@@ -87,6 +87,20 @@ static int walk_is(const wt_tables_t* t, const wt_tables_pool_t* pool,
            (w.uxn == uxn) && (w.pxn == pxn) && (w.ng == ng) && (w.ns == 0u);
 }
 
+/* A Normal Non-secure page, non-global and PXN, with this AP and UXN. */
+static int walk_ns_is(const wt_tables_t* t, const wt_tables_pool_t* pool,
+                      uint64_t va, uint32_t ap, uint32_t uxn)
+{
+    wt_tables_walk_t w;
+
+    if (wt_tables_walk(t, pool, va, &w) != WT_TABLES_OK) {
+        return 0;
+    }
+    return (w.pa == va) && (w.attr_index == WT_TABLES_ATTR_NORMAL_WBWA) &&
+           (w.ap == ap) && (w.uxn == uxn) && (w.pxn == 1u) && (w.ng == 1u) &&
+           (w.ns == 1u);
+}
+
 /* Full-RAM scan window covering the fill code/data, the whole table pool, and
  * the partition regions, with unmapped gaps between them. */
 #define SCAN_LO 0x0E040000ull
@@ -456,6 +470,24 @@ int main(void)
           walk_is(&t, &pool, 0x0E045000u, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
           "hold: a page never held is not released, and a range reaching an EL1-only page changes nothing");
+
+    check(wt_tables_grant_el0(&t, &pool, 0x0E046000u, 1u,
+                              RW | WT_TABLES_ATTR_NS, &mapped) == WT_TABLES_OK &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x0E046000u, 1u,
+                                       WT_MEM_ATTR_READ) == WT_TABLES_OK &&
+          walk_ns_is(&t, &pool, 0x0E046000u, WT_TABLES_AP_ALL_RO, 1u) &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x0E046000u, 1u, 0u) ==
+              WT_TABLES_OK &&
+          walk_ns_is(&t, &pool, 0x0E046000u, WT_TABLES_AP_EL1_RW, 1u) &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x0E046000u, 1u, RW) ==
+              WT_TABLES_OK &&
+          walk_ns_is(&t, &pool, 0x0E046000u, WT_TABLES_AP_ALL_RW, 1u),
+          "re-permission: a Non-secure EL0 page goes read-only, no access, and read-write, and stays Non-secure");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E046000u, 1u, RX) ==
+              WT_TABLES_ERROR_WX &&
+          walk_ns_is(&t, &pool, 0x0E046000u, WT_TABLES_AP_ALL_RW, 1u) &&
+          wt_tables_revoke_el0(&t, &pool, 0x0E046000u, 1u, 1) == WT_TABLES_OK,
+          "re-permission: a Non-secure page is never made executable, and changes nothing");
 
     wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, 4u * WT_TABLES_PAGE_SIZE);
     check(build(&t2, 6u, g_sp, 1u, &pool) == WT_TABLES_OK &&

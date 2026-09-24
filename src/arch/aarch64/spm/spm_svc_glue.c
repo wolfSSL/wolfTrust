@@ -233,17 +233,8 @@ int wt_spm_partition_info(const uint64_t* x, uint32_t caller_version,
 int wt_spm_partition_info_regs(const uint64_t* x, uint64_t* out18)
 {
     size_t n = partinfo_collect();
-    uint8_t uuid[16];
-    unsigned int i;
 
-    if ((n == 0u) || ((x[3] >> 32) != 0u)) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
-    for (i = 0u; i < 16u; i++) {
-        uuid[i] = (uint8_t)(x[1u + (i / 8u)] >> (8u * (i % 8u)));
-    }
-    return wt_ffa_partinfo_regs(g_partinfo, n, uuid, (uint16_t)(x[3] & 0xFFFFu),
-                                (uint16_t)((x[3] >> 16) & 0xFFFFu), out18);
+    return wt_ffa_partinfo_regs_call(g_partinfo, n, x, out18);
 }
 
 /* The Table 6.2 properties discovery lists for id: 0, or INVALID_PARAMETERS

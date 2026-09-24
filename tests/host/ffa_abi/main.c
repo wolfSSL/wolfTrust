@@ -314,6 +314,7 @@ static void partition_info_rows(void)
     static const uint8_t nil[16] = { 0 };
     uint8_t rx[128];
     uint64_t regs[18];
+    uint64_t x[4];
     uint32_t count;
     uint32_t size;
     int ret;
@@ -405,6 +406,17 @@ static void partition_info_rows(void)
     check(wt_ffa_partinfo_regs(parts, 3u, nil, 1u, 1u, regs) == WT_FFA_RETRY &&
           wt_ffa_partinfo_regs(parts, 3u, nil, 1u, 0u, regs) == 0,
           "a continuation with a tag the callee did not hand out is RETRY");
+
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_PARTITION_INFO_GET_REGS;
+    x[3] = 0xFFFFFFFF00000001ull;
+    check(wt_ffa_partinfo_regs_call(parts, 3u, x, regs) == 0 &&
+              (regs[3] & 0xFFFFu) == parts[1].id,
+          "the SBZ x3 bits 63:32 of FFA_PARTITION_INFO_GET_REGS are ignored");
+    x[3] = 0x00010000u;
+    check(wt_ffa_partinfo_regs_call(parts, 3u, x, regs) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "but the tag in x3 bits 31:16 is still read");
 }
 
 /* Discovery records from the manifest: the id is the live endpoint id of the

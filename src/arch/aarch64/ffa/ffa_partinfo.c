@@ -317,3 +317,20 @@ int wt_ffa_partinfo_regs(const wt_ffa_partinfo_entry_t* parts, size_t n,
                ((uint64_t)WT_FFA_PARTINFO_DESC_V11 << 48);
     return 0;
 }
+
+int wt_ffa_partinfo_regs_call(const wt_ffa_partinfo_entry_t* parts, size_t n,
+                              const uint64_t* x, uint64_t* out18)
+{
+    uint8_t uuid[16];
+    unsigned int i;
+
+    if ((x == NULL) || (n == 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    for (i = 0u; i < 16u; i++) {
+        uuid[i] = (uint8_t)(x[1u + (i / 8u)] >> (8u * (i % 8u)));
+    }
+    /* Table 13.39: x3 bits 63:32 are SBZ. */
+    return wt_ffa_partinfo_regs(parts, n, uuid, (uint16_t)(x[3] & 0xFFFFu),
+                                (uint16_t)((x[3] >> 16) & 0xFFFFu), out18);
+}

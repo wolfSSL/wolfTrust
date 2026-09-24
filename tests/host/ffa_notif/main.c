@@ -331,13 +331,18 @@ static void get_rows(void)
           "SP1 signals the VM");
     check(wt_ffa_notif_set(VM0, IDS(VM0, SP2), 0u, BIT(12)) == 0,
           "the VM signals SP2");
-    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_VM, &got) ==
-          WT_FFA_INVALID_PARAMETERS,
-          "the VM-class flag is MBZ at the NS physical instance");
-    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_HYP, &got) ==
-          WT_FFA_INVALID_PARAMETERS, "and so is the Hypervisor flag");
+    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_VM, &got) == 0,
+          "the VM-class flag is SBZ, so ignored, at the NS physical instance");
     check((got.from_vm == 0u) && (got.from_sp == 0u),
           "and gets nothing without disturbing the pending bit");
+    check((wt_ffa_notif_frame_rx_full(VM0, 1) == 0) &&
+          (wt_ffa_notif_frame_rx_full(VM0, 0) == 0),
+          "both framework halves pend for the VM");
+    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_HYP |
+                           WT_FFA_NOTIF_GET_FLAG_SPM, &got) == 0,
+          "the Hypervisor flag is SBZ there too");
+    check(got.framework == WT_FFA_NOTIF_FW_SPM_RX_FULL,
+          "so only the SPM framework half comes back");
     check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_SP, &got) == 0,
           "the VM drains the partition class");
     check(got.from_sp == BIT(0), "the signaled bit comes back");

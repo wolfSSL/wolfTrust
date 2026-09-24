@@ -2848,7 +2848,8 @@ static void relay_ns_donate_rows(void)
 }
 
 /* WT-FFA-0009 (a donate makes the receiver the owner, Owner-EA, 2.4.1.2 item
- * 12: its permission and RX/TX calls treat the page as its own). */
+ * 12: its permission and RX/TX calls treat the page as its own; an owner
+ * cannot change the access of memory a transaction covers, 1.3.1 rule 7). */
 static void relay_donated_perm_rows(void)
 {
     wt_ffa_mem_constituent_t c[1];
@@ -2904,6 +2905,18 @@ static void relay_donated_perm_rows(void)
     check(relay_relinquish_as(h, RELAY_ID_B) == 0 &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
           "donated perm: the lend ends");
+    c[0].address = page(PG_RX);
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0,
+          "donated perm: the owner opens its image page for writing");
+    h = relay_send_from(WT_FFA_MEM_OP_SHARE, c, 1u, RELAY_ID_A, RELAY_ID_B,
+                        WT_FFA_MEM_PERM_DATA_RO, &ret);
+    check(ret == 0 &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              WT_FFA_PERM_DATA_NONE) == WT_FFA_DENIED &&
+          access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_RW &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "donated perm: an owner cannot change the access of memory it shares until it reclaims it (1.3.1 rule 7)");
     wt_spm_mem_ns_window(page(PG_NS), 2u * WT_TABLES_PAGE_SIZE);
     c[0].address = page(PG_NS);
     h = relay_send_from(WT_FFA_MEM_OP_DONATE, c, 1u, WT_FFA_ID_NS_PRIMARY,

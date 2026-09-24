@@ -203,15 +203,21 @@ static void msg2_write32(uint8_t* p, uint32_t v)
     p[3] = (uint8_t)((v >> 24) & 0xFFu);
 }
 
-int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
-                      wt_ffa_instance_t inst, uint32_t w1, uint32_t w2,
-                      wt_ffa_msg2_t* out)
+uint32_t wt_ffa_msg2_header_size(uint32_t version)
 {
+    return (version >= WT_FFA_VERSION_1_2) ? WT_FFA_MSG2_HEADER_SIZE :
+                                             WT_FFA_MSG2_HEADER_SIZE_V1_1;
+}
+
+int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
+                      uint32_t version, wt_ffa_instance_t inst, uint32_t w1,
+                      uint32_t w2, wt_ffa_msg2_t* out)
+{
+    uint32_t hdr = wt_ffa_msg2_header_size(version);
     uint32_t sender_receiver;
     unsigned int i;
 
-    if ((tx == NULL) || (out == NULL) ||
-        (tx_size < WT_FFA_MSG2_HEADER_SIZE)) {
+    if ((tx == NULL) || (out == NULL) || (tx_size < hdr)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     /* Table 15.3: w1 bits 15:0 and the w2 flags other than the delay-SRI hint
@@ -230,7 +236,7 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
     sender_receiver = msg2_read32(&tx[12]);
     out->size = msg2_read32(&tx[16]);
     for (i = 0u; i < 16u; i++) {
-        out->uuid[i] = tx[24u + i];
+        out->uuid[i] = (hdr == WT_FFA_MSG2_HEADER_SIZE) ? tx[24u + i] : 0u;
     }
     out->sender = (uint16_t)(sender_receiver >> 16);
     out->receiver = (uint16_t)(sender_receiver & 0xFFFFu);
@@ -240,7 +246,7 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
     if (out->sender == out->receiver) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    if ((out->offset < WT_FFA_MSG2_HEADER_SIZE) ||
+    if ((out->offset < hdr) ||
         ((uint64_t)out->offset + (uint64_t)out->size > (uint64_t)tx_size)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
@@ -271,27 +277,37 @@ int wt_ffa_msg2_uuid_ok(const uint8_t* header_uuid, const uint8_t* ep_uuid)
     return 1;
 }
 
-void wt_ffa_msg2_copy(uint8_t* rx, uint32_t rx_size, const uint8_t* tx,
-                      const wt_ffa_msg2_t* msg)
+uint32_t wt_ffa_msg2_rx_offset(const wt_ffa_msg2_t* msg, uint32_t version)
 {
-    uint32_t end = msg->offset + msg->size;
+    uint32_t hdr = wt_ffa_msg2_header_size(version);
+
+    return (msg->offset < hdr) ? hdr : msg->offset;
+}
+
+void wt_ffa_msg2_copy(uint8_t* rx, uint32_t rx_size, uint32_t version,
+                      const uint8_t* tx, const wt_ffa_msg2_t* msg)
+{
+    uint32_t hdr = wt_ffa_msg2_header_size(version);
+    uint32_t off = wt_ffa_msg2_rx_offset(msg, version);
     uint32_t i;
 
     for (i = 0u; i < rx_size; i++) {
-        if ((i >= msg->offset) && (i < end)) {
-            rx[i] = tx[i];
+        if ((i >= off) && ((i - off) < msg->size)) {
+            rx[i] = tx[msg->offset + (i - off)];
         }
         else {
             rx[i] = 0u;
         }
     }
-    if (rx_size >= WT_FFA_MSG2_HEADER_SIZE) {
-        msg2_write32(&rx[8], msg->offset);
+    if (rx_size >= hdr) {
+        msg2_write32(&rx[8], off);
         msg2_write32(&rx[12], ((uint32_t)msg->sender << 16) |
                               (uint32_t)msg->receiver);
         msg2_write32(&rx[16], msg->size);
-        for (i = 0u; i < 16u; i++) {
-            rx[24u + i] = msg->uuid[i];
+        if (hdr == WT_FFA_MSG2_HEADER_SIZE) {
+            for (i = 0u; i < 16u; i++) {
+                rx[24u + i] = msg->uuid[i];
+            }
         }
     }
 }

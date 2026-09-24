@@ -1394,21 +1394,23 @@ static void ns_notif_info_get(wt_ffa_regs_t* r, unsigned int is64)
  * framework notification tells the Normal-world scheduler to run it. Only a
  * sender and a receiver whose properties advertise indirect messaging take
  * part. */
-int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
-                        wt_ffa_instance_t inst, uint32_t w1, uint32_t w2)
+int wt_spm_msg2_deliver(uint16_t caller, uint32_t version, const uint8_t* tx,
+                        uint32_t tx_size, wt_ffa_instance_t inst, uint32_t w1,
+                        uint32_t w2)
 {
     static const uint8_t ns_uuid[16];
     wt_ffa_msg2_t msg;
     const wt_ffa_native_sp_t* natives;
     const uint8_t* uuid = NULL;
     uint32_t properties = 0u;
+    uint32_t rx_version = WT_FFA_VERSION_1_2;
     wt_ffa_mailbox_t* mb = NULL;
     size_t count = 0u;
     size_t i;
-    uint32_t total;
+    uint64_t total;
     int ret;
 
-    ret = wt_ffa_msg2_parse(tx, tx_size, caller, inst, w1, w2, &msg);
+    ret = wt_ffa_msg2_parse(tx, tx_size, caller, version, inst, w1, w2, &msg);
     if (ret == 0) {
         ret = wt_spm_msg2_sender_allowed(caller);
     }
@@ -1416,6 +1418,7 @@ int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
         if (msg.receiver == WT_FFA_ID_NS_PRIMARY) {
             uuid = ns_uuid;
             properties = WT_FFA_PARTINFO_PROP_INDIRECT;
+            rx_version = wt_spm_ns_ffa_version();
             mb = &g_ns_mailbox;
         }
         else {
@@ -1424,6 +1427,8 @@ int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
                 if (wt_spm_ffa_native_id(i) == msg.receiver) {
                     uuid = natives[i].uuid;
                     properties = natives[i].properties;
+                    rx_version = wt_spm_sp_ffa_version(
+                        wt_spm_ffa_native_by_id(msg.receiver));
                     mb = wt_spm_sp_mailbox_of(
                         wt_spm_ffa_native_by_id(msg.receiver));
                 }
@@ -1440,9 +1445,10 @@ int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     if (ret == 0) {
-        total = msg.offset + msg.size;
+        total = (uint64_t)wt_ffa_msg2_rx_offset(&msg, rx_version) +
+                (uint64_t)msg.size;
         if ((mb != NULL) && (mb->mapped != 0u) &&
-            (total > (mb->pages * (uint32_t)WT_TABLES_PAGE_SIZE))) {
+            (total > (uint64_t)(mb->pages * (uint32_t)WT_TABLES_PAGE_SIZE))) {
             ret = WT_FFA_INVALID_PARAMETERS;
         }
         else {
@@ -1451,7 +1457,8 @@ int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
     }
     if (ret == 0) {
         wt_ffa_msg2_copy((uint8_t*)(uintptr_t)mb->rx,
-                         mb->pages * (uint32_t)WT_TABLES_PAGE_SIZE, tx, &msg);
+                         mb->pages * (uint32_t)WT_TABLES_PAGE_SIZE,
+                         rx_version, tx, &msg);
         (void)wt_ffa_notif_frame_rx_full(msg.receiver,
                                          wt_ffa_id_is_secure(caller));
     }
@@ -1467,7 +1474,7 @@ static void ns_msg_send2(wt_ffa_regs_t* r)
         ns_reply(r, WT_FFA_DENIED, 0u, 0u);
         return;
     }
-    ret = wt_spm_msg2_deliver(WT_FFA_ID_NS_PRIMARY,
+    ret = wt_spm_msg2_deliver(WT_FFA_ID_NS_PRIMARY, wt_spm_ns_ffa_version(),
                               (const uint8_t*)(uintptr_t)g_ns_mailbox.tx,
                               g_ns_mailbox.pages * (uint32_t)WT_TABLES_PAGE_SIZE,
                               WT_FFA_INSTANCE_NS_PHYSICAL,

@@ -913,7 +913,7 @@ static void ffa_msg_send2(wt_trap_frame_t* frame, const struct wt_co* co)
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
-    ret = wt_spm_msg2_deliver((uint16_t)wt_spm_sp_ffa_id(co),
+    ret = wt_spm_msg2_deliver((uint16_t)wt_spm_sp_ffa_id(co), sp_version(co),
                               (const uint8_t*)(uintptr_t)mb->tx,
                               mb->pages * (uint32_t)WT_TABLES_PAGE_SIZE,
                               WT_FFA_INSTANCE_SECURE_VIRTUAL,

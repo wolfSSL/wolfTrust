@@ -803,7 +803,10 @@ static void version_state_rows(void)
 }
 
 
-/* The v1.2 partition message header of FFA_MSG_SEND2 (16.4) and the w1/w2
+#define V12 WT_FFA_VERSION_1_2
+#define V11 WT_FFA_VERSION_MAKE(1u, 1u)
+
+/* The v1.2 partition message header of FFA_MSG_SEND2 (15.1) and the w1/w2
  * rules of Table 15.3 per instance, as its relayer validates them. */
 static void msg2_rows(void)
 {
@@ -826,7 +829,7 @@ static void msg2_rows(void)
         tx[24u + i] = ep_uuid[i];
     }
 
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0u, &m) == 0,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12, ns, 0u, 0u, &m) == 0,
           "a well-formed header parses");
     check((m.receiver == 0x8002u) && (m.offset == 40u) && (m.size == 32u),
           "and yields receiver, offset and size");
@@ -839,51 +842,53 @@ static void msg2_rows(void)
     check(wt_ffa_msg2_uuid_ok(&tx[24], ep_uuid) == 1,
           "a Nil UUID is accepted");
 
-    check(wt_ffa_msg2_parse(tx, 39u, 0u, ns, 0u, 0u, &m) ==
+    check(wt_ffa_msg2_parse(tx, 39u, 0u, V12, ns, 0u, 0u, &m) ==
           WT_FFA_INVALID_PARAMETERS, "a TX smaller than the header is refused");
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0xFFFFu, 0u, &m) == 0,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12, ns, 0xFFFFu, 0u, &m) == 0,
           "the SBZ w1 bits 15:0 are ignored");
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0xFFFFFFFDu, &m) == 0,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12, ns, 0u, 0xFFFFFFFDu,
+                            &m) == 0,
           "at the NS physical instance the SBZ w2 flags are ignored");
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12, ns, 0u,
                             WT_FFA_MSG2_FLAG_DELAY_SRI, &m) ==
           WT_FFA_INVALID_PARAMETERS,
           "and so is the delay-SRI hint, Secure virtual only");
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, sv, 0u, 0u, &m) ==
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, V12, sv, 0u, 0u, &m) ==
           WT_FFA_INVALID_PARAMETERS,
           "a header sender other than the caller is refused");
     tx[14] = 0x03u; tx[15] = 0x80u;
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, sv, 0u, 0u, &m) == 0,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, V12, sv, 0u, 0u, &m) == 0,
           "a secure caller leaves the w1 sender zero");
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, sv, 0x80030000u, 0u,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, V12, sv, 0x80030000u, 0u,
                             &m) == WT_FFA_INVALID_PARAMETERS &&
-          wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, sv, 0x00010000u, 0u,
+          wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, V12, sv, 0x00010000u, 0u,
                             &m) == WT_FFA_INVALID_PARAMETERS,
           "at the SVC conduit the w1 sender is MBZ, even the caller's own id");
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, sv, 0u, 0xFFFFFFFFu,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, V12, sv, 0u, 0xFFFFFFFFu,
                             &m) == 0,
           "at the SVC conduit w2 is ignored");
     tx[14] = 0x01u; tx[15] = 0u;
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 1u, ns, 0x00010000u, 0u, &m) == 0,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 1u, V12, ns, 0x00010000u, 0u,
+                            &m) == 0,
           "at the NS physical instance w1 may name the sender VM");
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 1u, ns, 0x00020000u, 0u, &m) ==
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 1u, V12, ns, 0x00020000u, 0u, &m) ==
           WT_FFA_INVALID_PARAMETERS,
           "at the NS physical instance a w1 sender other than the caller is refused");
     tx[14] = 0u; tx[15] = 0u;
     tx[0] = 1u; tx[4] = 1u; tx[20] = 1u;
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0u, &m) == 0,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12, ns, 0u, 0u, &m) == 0,
           "the SBZ header flags and reserved words are ignored");
     tx[0] = 0u; tx[4] = 0u; tx[20] = 0u;
     tx[8] = 39u;
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0u, &m) ==
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12, ns, 0u, 0u, &m) ==
           WT_FFA_INVALID_PARAMETERS, "an offset inside the header is refused");
     tx[8] = 40u;
     tx[16] = 0xFFu; tx[17] = 0xFFu; tx[18] = 0xFFu; tx[19] = 0xFFu;
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0u, &m) ==
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12, ns, 0u, 0u, &m) ==
           WT_FFA_INVALID_PARAMETERS, "a payload past the TX end is refused");
     tx[16] = 32u; tx[17] = 0u; tx[18] = 0u; tx[19] = 0u;
     tx[12] = 0u; tx[13] = 0u;
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0u, &m) ==
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12, ns, 0u, 0u, &m) ==
           WT_FFA_INVALID_PARAMETERS, "a receiver equal to the sender is refused");
 }
 
@@ -906,10 +911,10 @@ static void msg2_copy_rows(void)
         tx[i] = (uint8_t)i;
     }
     memset(rx, 0xAA, sizeof(rx));
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, WT_FFA_INSTANCE_NS_PHYSICAL,
-                            0u, 0u, &m) == 0,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12,
+                            WT_FFA_INSTANCE_NS_PHYSICAL, 0u, 0u, &m) == 0,
           "a message with a gap between header and payload parses");
-    wt_ffa_msg2_copy(rx, sizeof(rx), tx, &m);
+    wt_ffa_msg2_copy(rx, sizeof(rx), V12, tx, &m);
     check(memcmp(rx, tx, WT_FFA_MSG2_HEADER_SIZE) == 0 &&
               memcmp(&rx[64], &tx[64], 16u) == 0,
           "the header and payload reach the receiver's RX");
@@ -924,10 +929,10 @@ static void msg2_copy_rows(void)
     check(ok != 0, "nor does anything left in the RX past the payload");
 
     tx[0] = 0x11u; tx[5] = 0x22u; tx[23] = 0x33u;
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, WT_FFA_INSTANCE_NS_PHYSICAL,
-                            0u, 0u, &m) == 0,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12,
+                            WT_FFA_INSTANCE_NS_PHYSICAL, 0u, 0u, &m) == 0,
           "a header with its SBZ words set parses");
-    wt_ffa_msg2_copy(rx, sizeof(rx), tx, &m);
+    wt_ffa_msg2_copy(rx, sizeof(rx), V12, tx, &m);
     check(rx[0] == 0u && rx[5] == 0u && rx[23] == 0u,
           "and reaches the receiver with them cleared");
 
@@ -937,7 +942,7 @@ static void msg2_copy_rows(void)
     tx[16] = 0xF0u;
     tx[24] = 0x77u;
     memset(rx, 0xAA, sizeof(rx));
-    wt_ffa_msg2_copy(rx, sizeof(rx), tx, &m);
+    wt_ffa_msg2_copy(rx, sizeof(rx), V12, tx, &m);
     check(rx[8] == 64u && rx[12] == 0x02u && rx[13] == 0x80u &&
               rx[14] == 0u && rx[15] == 0u && rx[16] == 16u && rx[24] == 0u,
           "a TX header rewritten after the parse cannot change the sender, "
@@ -948,15 +953,94 @@ static void msg2_copy_rows(void)
     tx[8] = 64u;
     tx[12] = 0x02u; tx[13] = 0x80u; tx[14] = 0x03u; tx[15] = 0x80u;
     tx[16] = 16u;
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u,
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0x8003u, V12,
                             WT_FFA_INSTANCE_SECURE_VIRTUAL, 0u,
                             WT_FFA_MSG2_FLAG_DELAY_SRI, &m) == 0,
           "a partition's message parses at the SVC conduit");
     tx[14] = 0x04u;
     tx[16] = 0xF0u;
-    wt_ffa_msg2_copy(rx, sizeof(rx), tx, &m);
+    wt_ffa_msg2_copy(rx, sizeof(rx), V12, tx, &m);
     check(rx[14] == 0x03u && rx[15] == 0x80u && rx[16] == 16u,
           "and its rewritten TX header cannot spoof the sender or size either");
+}
+
+/* Table 7.2's 20-byte header is the one a v1.0 or v1.1 endpoint uses: a
+ * sender's header is read, and a receiver's written, in the layout of the
+ * version each negotiated. */
+static void msg2_version_rows(void)
+{
+    const wt_ffa_instance_t ns = WT_FFA_INSTANCE_NS_PHYSICAL;
+    uint8_t tx[256];
+    uint8_t rx[256];
+    wt_ffa_msg2_t m;
+    unsigned int i;
+    int ok = 1;
+
+    check(wt_ffa_msg2_header_size(WT_FFA_VERSION_MAKE(1u, 0u)) == 20u &&
+              wt_ffa_msg2_header_size(V11) == 20u &&
+              wt_ffa_msg2_header_size(V12) == 40u,
+          "a v1.0 or v1.1 header is 20 bytes, a v1.2 one 40");
+    memset(tx, 0, sizeof(tx));
+    tx[8] = 20u;
+    tx[12] = 0x02u; tx[13] = 0x80u;
+    tx[16] = 16u;
+    for (i = 20u; i < 36u; i++) {
+        tx[i] = (uint8_t)(0xC0u + i);
+    }
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V11, ns, 0u, 0u, &m) == 0 &&
+              m.offset == 20u && m.size == 16u && m.receiver == 0x8002u,
+          "a v1.1 sender's payload right behind its 20-byte header parses");
+    for (i = 0u; i < 16u; i++) {
+        ok = ok && (m.uuid[i] == 0u);
+    }
+    check(ok != 0, "and its payload is not read as a UUID it has no field for");
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12, ns, 0u, 0u, &m) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "the same offset is inside a v1.2 sender's header");
+    check(wt_ffa_msg2_parse(tx, 19u, 0u, V11, ns, 0u, 0u, &m) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a TX smaller than a v1.1 header is refused");
+    tx[8] = 19u;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V11, ns, 0u, 0u, &m) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "an offset inside a v1.1 header is refused");
+    tx[8] = 20u;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V11, ns, 0u, 0u, &m) == 0 &&
+              wt_ffa_msg2_rx_offset(&m, V12) == 40u &&
+              wt_ffa_msg2_rx_offset(&m, V11) == 20u,
+          "a v1.1 payload moves behind a v1.2 receiver's header only");
+    memset(rx, 0xAA, sizeof(rx));
+    wt_ffa_msg2_copy(rx, sizeof(rx), V12, tx, &m);
+    ok = (rx[8] == 40u) && (rx[16] == 16u) &&
+         (memcmp(&rx[40], &tx[20], 16u) == 0);
+    for (i = 20u; i < 40u; i++) {
+        ok = ok && (rx[i] == 0u);
+    }
+    check(ok != 0, "a v1.2 receiver gets a Nil UUID and the payload at 40");
+    memset(rx, 0xAA, sizeof(rx));
+    wt_ffa_msg2_copy(rx, sizeof(rx), V11, tx, &m);
+    check(rx[8] == 20u && rx[12] == 0x02u && rx[13] == 0x80u &&
+              rx[16] == 16u && memcmp(&rx[20], &tx[20], 16u) == 0 &&
+              rx[36] == 0u,
+          "a v1.1 receiver gets the 20-byte header with the payload behind it");
+
+    memset(tx, 0, sizeof(tx));
+    tx[8] = 40u;
+    tx[12] = 0x02u; tx[13] = 0x80u;
+    tx[16] = 4u;
+    for (i = 24u; i < 40u; i++) {
+        tx[i] = 0x5Au;
+    }
+    tx[40] = 0x11u;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, V12, ns, 0u, 0u, &m) == 0,
+          "a v1.2 sender's header with a UUID parses");
+    memset(rx, 0xAA, sizeof(rx));
+    wt_ffa_msg2_copy(rx, sizeof(rx), V11, tx, &m);
+    ok = (rx[8] == 40u) && (rx[40] == 0x11u);
+    for (i = 20u; i < 40u; i++) {
+        ok = ok && (rx[i] == 0u);
+    }
+    check(ok != 0, "a v1.1 receiver of it gets no UUID, the payload at 40");
 }
 
 /* 13.12: the one count rule the SPMD and the SPMC both apply. */
@@ -1098,6 +1182,7 @@ int main(void)
     msg_deliver_rows();
     msg2_rows();
     msg2_copy_rows();
+    msg2_version_rows();
     console_count_rows();
     partition_info_rows();
     manifest_record_rows();

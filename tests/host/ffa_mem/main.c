@@ -277,11 +277,11 @@ static void reject_rows(void)
               WT_FFA_INVALID_PARAMETERS,
           "a share that requests zeroing is INVALID_PARAMETERS");
 
-    len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
-    put32(&buf[4], 0x400u);
-    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
-              WT_FFA_INVALID_PARAMETERS,
-          "a reserved transaction flag bit is INVALID_PARAMETERS");
+    len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_LEND, 0u);
+    put32(&buf[4], 0xFFFFFFFCu | WT_FFA_MEM_FLAG_ZERO);
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) == 0 &&
+          txn.flags == WT_FFA_MEM_FLAG_ZERO,
+          "the SBZ transaction flag bits[31:2] are ignored and never kept (Table 1.21)");
 }
 
 /* Move everything after the header of a descriptor in buf by bytes, fixing up
@@ -2475,6 +2475,13 @@ static void relay_zero_rows(void)
           relay_relinquish_as(h, RELAY_ID_C) == 0 &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 && p[0] == 0xB0u,
           "zero: nothing wipes the page again when the borrowers let go");
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW,
+                   0xFFFFFFFCu, &ret);
+    p[0] = 0xC1u;
+    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+          relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 && p[0] == 0xC1u,
+          "zero: a lend's SBZ flag bits are ignored and never ask the relayer for a wipe");
     check(g_domain_fails == 0u, "zero: no domain operation failed closed");
 }
 

@@ -339,9 +339,12 @@ int wt_ffa_mem_txn_validate_at(const uint8_t* buf, size_t len,
     if ((txn.attributes & WT_FFA_MEM_ATTR_NS) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    if ((txn.flags & ~WT_FFA_MEM_FLAG_SEND_MASK) != 0u) {
+    /* Table 1.21: bit[1] asks for time slicing, which this relayer does not
+     * do (MBZ); bits[31:2] are SBZ and ignored. */
+    if ((txn.flags & WT_FFA_MEM_FLAG_TIME_SLICE) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
+    txn.flags &= WT_FFA_MEM_FLAG_ZERO;
     if ((op == WT_FFA_MEM_OP_SHARE) &&
         ((txn.flags & WT_FFA_MEM_FLAG_ZERO) != 0u)) {
         return WT_FFA_INVALID_PARAMETERS;

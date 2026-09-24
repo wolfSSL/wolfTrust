@@ -82,6 +82,8 @@ void wt_co_trampoline(void);
  * (ns-interrupts-action = queued); Secure priorities stay below the mask. */
 #define WT_SP_PMR_MASK_NS 0x80u
 static uint8_t g_ns_queued[WT_CO_MAX];
+/* 9.3.1.4: a callee runs with its caller's less permissive queued action. */
+static uint8_t g_ns_inherited[WT_CO_MAX];
 
 static wt_sp_arch_t* sp_arch(const struct wt_co *co);
 static int endpoint_waiting(const struct wt_co* co);
@@ -601,6 +603,9 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
             }
             chain[depth] = g_ffa_call_target;
             detached[depth] = 0u;
+            g_ns_inherited[g_ffa_call_target->id - 1u] =
+                ((g_ns_queued[top->id - 1u] != 0u) ||
+                 (g_ns_inherited[top->id - 1u] != 0u)) ? 1u : 0u;
             depth++;
             continue;
         }
@@ -638,6 +643,7 @@ static int run_endpoint(struct wt_co* co, uint64_t* out)
             continue;
         }
         depth--;
+        g_ns_inherited[top->id - 1u] = 0u;
         caller = chain[depth - 1u];
         g_sp_msg[caller->id - 1u].calling = 0u;
         if (ret != 0) {
@@ -1032,7 +1038,8 @@ void wt_co_arch_enter(struct wt_co *to)
         write_tpidrro((uint64_t)to->id);
         tpidr = read_tpidr();
         write_tpidr(sp_arch(to)->tpidr_el0);
-        if (g_ns_queued[to->id - 1u] != 0u) {
+        if ((g_ns_queued[to->id - 1u] != 0u) ||
+            (g_ns_inherited[to->id - 1u] != 0u)) {
             pmr = wt_gic->swap_pmr(WT_SP_PMR_MASK_NS);
             masked = 1u;
         }

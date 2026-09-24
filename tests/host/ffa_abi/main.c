@@ -578,6 +578,15 @@ static void direct_permission_rows(void)
                                       WT_FFA_MSG_SEND_DIRECT_REQ32) ==
               WT_FFA_INVALID_PARAMETERS,
           "a receiver no partition has is INVALID_PARAMETERS");
+
+    check(wt_ffa_msg2_sender_allowed(parts, 3u, 0x8008u) == 0,
+          "a partition advertising indirect messaging may send FFA_MSG_SEND2");
+    check(wt_ffa_msg2_sender_allowed(parts, 3u, 0x8002u) == WT_FFA_DENIED,
+          "one that does not advertise it may not");
+    check(wt_ffa_msg2_sender_allowed(parts, 3u, 0x8009u) == WT_FFA_DENIED,
+          "nor may a partition discovery does not list");
+    check(wt_ffa_msg2_sender_allowed(parts, 3u, WT_FFA_ID_NS_PRIMARY) == 0,
+          "the Normal world may send one at the NS physical instance");
 }
 
 /* FFA_PARTITION_INFO_GET through the caller's mailbox (13.8, Table 13.36):

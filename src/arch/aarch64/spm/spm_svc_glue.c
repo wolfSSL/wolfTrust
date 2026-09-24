@@ -246,6 +246,13 @@ int wt_spm_partition_props(uint16_t id, uint32_t* props)
     return wt_ffa_partinfo_props_of(g_partinfo, n, id, props);
 }
 
+int wt_spm_msg2_sender_allowed(uint16_t id)
+{
+    size_t n = partinfo_collect();
+
+    return wt_ffa_msg2_sender_allowed(g_partinfo, n, id);
+}
+
 static wt_ffa_mailbox_t* sp_mailbox(void);
 
 static void ffa_partition_info_get_regs(wt_trap_frame_t* frame)

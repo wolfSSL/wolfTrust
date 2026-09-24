@@ -1392,7 +1392,8 @@ static void ns_notif_info_get(wt_ffa_regs_t* r, unsigned int is64)
 /* FFA_MSG_SEND2 (16.4), shared by both conduits: the partition message in
  * the caller's TX buffer is copied into the receiver's RX, whose RX-full
  * framework notification tells the Normal-world scheduler to run it. Only a
- * receiver whose properties advertise indirect messaging may be sent one. */
+ * sender and a receiver whose properties advertise indirect messaging take
+ * part. */
 int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
                         wt_ffa_instance_t inst, uint32_t w1, uint32_t w2)
 {
@@ -1408,6 +1409,9 @@ int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
     int ret;
 
     ret = wt_ffa_msg2_parse(tx, tx_size, caller, inst, w1, w2, &msg);
+    if (ret == 0) {
+        ret = wt_spm_msg2_sender_allowed(caller);
+    }
     if (ret == 0) {
         if (msg.receiver == WT_FFA_ID_NS_PRIMARY) {
             uuid = ns_uuid;

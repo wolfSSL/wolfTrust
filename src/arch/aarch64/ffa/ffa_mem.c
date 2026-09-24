@@ -74,6 +74,14 @@ static int layout_v10(uint32_t version)
     return (version != 0u) && (version < WT_FFA_VERSION_MAKE(1u, 1u));
 }
 
+/* The endpoint memory access descriptor of the reader's version (DEN0077A
+ * 18.5.3): 16 bytes through FF-A 1.1, the 32-byte Table 1.16 from 1.2. */
+static uint32_t access_size_for(uint32_t version)
+{
+    return ((version != 0u) && (version < WT_FFA_VERSION_1_2))
+               ? WT_FFA_MEM_ACCESS_SIZE : WT_FFA_MEM_ACCESS_SIZE_V12;
+}
+
 /* Where a descriptor laid out for version keeps its access descriptors: Table
  * 1.20 names their size and offset and reserves [36, 48) (SBZ, ignored), the
  * v1.0 layout (Table 4.17) fixes them and reserves byte 3 and [24, 28) (MBZ).
@@ -207,7 +215,7 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
         return WT_FFA_INVALID_PARAMETERS;
     }
     acc_size = (in->access_desc_size != 0u) ? (uint32_t)in->access_desc_size
-                                            : WT_FFA_MEM_ACCESS_SIZE;
+                                            : access_size_for(in->version);
     if ((access_size_ok(acc_size) == 0) ||
         ((layout_v10(in->version) != 0) &&
          (acc_size != WT_FFA_MEM_ACCESS_SIZE))) {
@@ -562,7 +570,19 @@ int wt_ffa_mem_retrieve_req_build(uint8_t* buf, size_t len, uint64_t handle,
                                   uint16_t sender, uint16_t receiver,
                                   uint8_t permissions, size_t* out_len)
 {
-    const uint32_t total = WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACCESS_SIZE;
+    return wt_ffa_mem_retrieve_req_build_at(buf, len, handle, sender, receiver,
+                                            permissions,
+                                            WT_FFA_VERSION_MAKE(1u, 1u),
+                                            out_len);
+}
+
+int wt_ffa_mem_retrieve_req_build_at(uint8_t* buf, size_t len, uint64_t handle,
+                                     uint16_t sender, uint16_t receiver,
+                                     uint8_t permissions, uint32_t version,
+                                     size_t* out_len)
+{
+    const uint32_t acc_size = access_size_for(version);
+    const uint32_t total = WT_FFA_MEM_TXN_HDR_SIZE + acc_size;
     uint32_t i;
 
     if ((buf == NULL) || (out_len == NULL)) {
@@ -576,7 +596,7 @@ int wt_ffa_mem_retrieve_req_build(uint8_t* buf, size_t len, uint64_t handle,
     }
     wr_u16(&buf[WT_FFA_MEM_TXN_OFF_SENDER], sender);
     wr_u64(&buf[WT_FFA_MEM_TXN_OFF_HANDLE], handle);
-    wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE], WT_FFA_MEM_ACCESS_SIZE);
+    wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE], acc_size);
     wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_COUNT], 1u);
     wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET], WT_FFA_MEM_TXN_HDR_SIZE);
     wr_u16(&buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_RECEIVER],

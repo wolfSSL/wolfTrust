@@ -176,8 +176,8 @@ void wt_spm_lower_irq(wt_trap_frame_t* frame)
  * partition's expires at its deadline whatever runs, and the declared routing
  * above delivers it by the owner's state, as long as its arming partition
  * still owns the interrupt; a Normal-world one stands for a peripheral that
- * fires while a partition works, so it is made pending on the first tick that
- * lands on a partition. */
+ * fires while a partition works, so it is made pending on the first tick at or
+ * past its deadline that lands on a partition. */
 #define WT_SPM_TWDOG_SLOTS 4u
 
 static uint32_t g_twdog_intid[WT_SPM_TWDOG_SLOTS];
@@ -268,7 +268,8 @@ void wt_spm_twdog_tick(void)
     for (i = 0u; i < WT_SPM_TWDOG_SLOTS; i++) {
         if (g_twdog_intid[i] != 0u) {
             if (g_twdog_owner[i] == NULL) {
-                due = wt_spm_current_is_partition();
+                due = ((now >= g_twdog_deadline[i]) &&
+                       (wt_spm_current_is_partition() != 0)) ? 1 : 0;
             }
             else if (wt_spm_sint_owner(g_twdog_intid[i]) != g_twdog_owner[i]) {
                 /* Released or reclaimed since it was armed: never raised. */

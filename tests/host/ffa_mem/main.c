@@ -1546,6 +1546,19 @@ static void v10_rows(void)
     check((wt_ffa_mem_frag_expected_at(req, 40u, 1, V10, &size) == 1) &&
               (size == (uint64_t)len),
           "v1.0: a v1.0 retrieve request's first fragment names its length");
+    (void)memset(req, 0xA5, sizeof(req));
+    check(wt_ffa_mem_retrieve_req_build_at(req, sizeof(req), 0x1234ull,
+                                           0x8002u, 0x8003u,
+                                           WT_FFA_MEM_PERM_DATA_RW, V10,
+                                           &len) == 0 &&
+              len == 48u && get32(&req[24]) == 0u && get32(&req[28]) == 1u &&
+              req[32] == 0x03u && req[33] == 0x80u &&
+              wt_ffa_mem_retrieve_req_parse_at(req, len, V10, &rq) == 0 &&
+              rq.receiver_count == 1u && rq.receivers[0] == 0x8003u &&
+              rq.handle == 0x1234ull && rq.sender == 0x8002u &&
+              rq.permissions[0] == WT_FFA_MEM_PERM_DATA_RW,
+          "v1.0: a retrieve request built for a v1.0 reader has the 32-byte "
+          "header and parses in the v1.0 layout (Table 4.17)");
 }
 
 /* The relayer maps and zeroes memory at its own address (VA == PA), so the

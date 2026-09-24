@@ -600,7 +600,10 @@ int wt_ffa_mem_retrieve_req_build_at(uint8_t* buf, size_t len, uint64_t handle,
                                      size_t* out_len)
 {
     const uint32_t acc_size = access_size_for(version);
-    const uint32_t total = WT_FFA_MEM_TXN_HDR_SIZE + acc_size;
+    const uint32_t hdr = (layout_v10(version) != 0)
+                             ? WT_FFA_MEM_TXN_HDR_SIZE_V10
+                             : WT_FFA_MEM_TXN_HDR_SIZE;
+    const uint32_t total = hdr + acc_size;
     uint32_t i;
 
     if ((buf == NULL) || (out_len == NULL)) {
@@ -614,12 +617,14 @@ int wt_ffa_mem_retrieve_req_build_at(uint8_t* buf, size_t len, uint64_t handle,
     }
     wr_u16(&buf[WT_FFA_MEM_TXN_OFF_SENDER], sender);
     wr_u64(&buf[WT_FFA_MEM_TXN_OFF_HANDLE], handle);
-    wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE], acc_size);
+    /* Table 4.17 fixes the v1.0 access array at 32 and reserves [24, 28). */
+    if (layout_v10(version) == 0) {
+        wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_SIZE], acc_size);
+        wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET], hdr);
+    }
     wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_COUNT], 1u);
-    wr_u32(&buf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET], WT_FFA_MEM_TXN_HDR_SIZE);
-    wr_u16(&buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_RECEIVER],
-           receiver);
-    buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_PERMS] = permissions;
+    wr_u16(&buf[hdr + WT_FFA_MEM_ACC_OFF_RECEIVER], receiver);
+    buf[hdr + WT_FFA_MEM_ACC_OFF_PERMS] = permissions;
     *out_len = (size_t)total;
     return 0;
 }

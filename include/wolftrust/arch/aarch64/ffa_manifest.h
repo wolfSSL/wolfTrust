@@ -52,6 +52,8 @@ typedef struct wt_ffa_partition_manifest {
     uint32_t messaging;
     uint32_t ns_interrupt_action;
     uint32_t boot_info_register;
+    /* The FF-A version the partition expects (WT_FFA_VERSION_MAKE form). */
+    uint32_t ffa_version;
 } wt_ffa_partition_manifest_t;
 
 const wt_ffa_partition_manifest_t* wt_generated_ffa_partitions_get(size_t* count);

@@ -416,8 +416,8 @@ static void manifest_record_rows(void)
             0x9eu, 0xadu, 0x37u, 0x6bu, 0xd7u, 0x22u, 0xc3u, 0x37u } }
     };
     static const wt_ffa_partition_manifest_t part = {
-        uuids, 4u, 1u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_DIRECT,
-        WT_FFA_NS_INTERRUPT_QUEUED, 0u
+        uuids, 4u, 1u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_NONE,
+        WT_FFA_NS_INTERRUPT_QUEUED, 0u, WT_FFA_VERSION_1_2
     };
     static const wt_ffa_uuid_t uuids2[2] = {
         { { 0x10u, 0x11u, 0x12u, 0x13u, 0x14u, 0x15u, 0x16u, 0x17u,
@@ -426,12 +426,12 @@ static void manifest_record_rows(void)
             0x28u, 0x29u, 0x2au, 0x2bu, 0x2cu, 0x2du, 0x2eu, 0x2fu } }
     };
     static const wt_ffa_partition_manifest_t two = {
-        uuids2, 7u, 2u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_DIRECT,
-        WT_FFA_NS_INTERRUPT_QUEUED, 0u
+        uuids2, 7u, 2u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_NONE,
+        WT_FFA_NS_INTERRUPT_QUEUED, 0u, WT_FFA_VERSION_1_2
     };
     static const wt_ffa_partition_manifest_t none = {
-        uuids2, 8u, 0u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_DIRECT,
-        WT_FFA_NS_INTERRUPT_QUEUED, 0u
+        uuids2, 8u, 0u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_NONE,
+        WT_FFA_NS_INTERRUPT_QUEUED, 0u, WT_FFA_VERSION_1_2
     };
     static const uint8_t nil[16] = { 0 };
     wt_ffa_partinfo_entry_t out[2];

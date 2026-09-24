@@ -725,6 +725,7 @@
     "partitions": [
       {
         "domain_id": 3,
+        "ffa_version": "1.2",
         "uuids": [
           "b606f19b-be86-561c-b866-4178d43941c1"
         ],
@@ -736,6 +737,7 @@
       },
       {
         "domain_id": 4,
+        "ffa_version": "1.2",
         "uuids": [
           "4fd3da63-102c-5ef8-9ead-376bd722c337"
         ],
@@ -747,6 +749,7 @@
       },
       {
         "domain_id": 5,
+        "ffa_version": "1.2",
         "uuids": [
           "bbc056fc-6657-5d2b-84c3-6fa550da0a93"
         ],
@@ -758,6 +761,7 @@
       },
       {
         "domain_id": 6,
+        "ffa_version": "1.2",
         "uuids": [
           "83237edb-31a7-589e-bc5d-0db08b5130d9"
         ],
@@ -769,6 +773,7 @@
       },
       {
         "domain_id": 7,
+        "ffa_version": "1.2",
         "uuids": [
           "1bed069d-b139-53b9-94e4-d331a18571ae"
         ],
@@ -780,6 +785,7 @@
       },
       {
         "domain_id": 8,
+        "ffa_version": "1.2",
         "uuids": [
           "5e5b8e6e-5f5c-5a5d-9e01-000000000008"
         ],
@@ -791,6 +797,7 @@
       },
       {
         "domain_id": 9,
+        "ffa_version": "1.2",
         "uuids": [
           "5e5b8e6e-5f5c-5a5d-9e01-000000000009"
         ],
@@ -802,6 +809,7 @@
       },
       {
         "domain_id": 10,
+        "ffa_version": "1.2",
         "uuids": [
           "5e5b8e6e-5f5c-5a5d-9e01-00000000000a"
         ],

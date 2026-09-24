@@ -845,13 +845,12 @@ static void ffa_features(wt_trap_frame_t* frame, const struct wt_co* co)
  * from w2/x2 upward; 1..24 over w2-w7, 1..128 over x2-x17. */
 static void ffa_console_log(wt_trap_frame_t* frame, unsigned int is64)
 {
-    uint32_t count = (uint32_t)frame->x[1] & 0xFFu;
+    uint32_t count = wt_ffa_console_count(frame->x[1], is64);
     unsigned int per_reg = (is64 != 0u) ? 8u : 4u;
-    unsigned int max = (is64 != 0u) ? 128u : 24u;
     unsigned int i;
     uint64_t reg;
 
-    if ((count < 1u) || (count > max)) {
+    if (count == 0u) {
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }

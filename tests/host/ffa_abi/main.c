@@ -747,11 +747,10 @@ static void msg2_rows(void)
 
     check(wt_ffa_msg2_parse(tx, 39u, 0u, ns, 0u, 0u, &m) ==
           WT_FFA_INVALID_PARAMETERS, "a TX smaller than the header is refused");
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 1u, 0u, &m) ==
-          WT_FFA_INVALID_PARAMETERS, "reserved w1 bits are refused");
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0x1u, &m) ==
-          WT_FFA_INVALID_PARAMETERS,
-          "at the NS physical instance reserved flags are refused");
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0xFFFFu, 0u, &m) == 0,
+          "the SBZ w1 bits 15:0 are ignored");
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0xFFFFFFFDu, &m) == 0,
+          "at the NS physical instance the SBZ w2 flags are ignored");
     check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u,
                             WT_FFA_MSG2_FLAG_DELAY_SRI, &m) ==
           WT_FFA_INVALID_PARAMETERS,
@@ -777,10 +776,10 @@ static void msg2_rows(void)
           WT_FFA_INVALID_PARAMETERS,
           "at the NS physical instance a w1 sender other than the caller is refused");
     tx[14] = 0u; tx[15] = 0u;
-    tx[0] = 1u;
-    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0u, &m) ==
-          WT_FFA_INVALID_PARAMETERS, "nonzero header flags are refused");
-    tx[0] = 0u;
+    tx[0] = 1u; tx[4] = 1u; tx[20] = 1u;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0u, &m) == 0,
+          "the SBZ header flags and reserved words are ignored");
+    tx[0] = 0u; tx[4] = 0u; tx[20] = 0u;
     tx[8] = 39u;
     check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, ns, 0u, 0u, &m) ==
           WT_FFA_INVALID_PARAMETERS, "an offset inside the header is refused");
@@ -829,6 +828,14 @@ static void msg2_copy_rows(void)
         ok = ok && (rx[i] == 0u);
     }
     check(ok != 0, "nor does anything left in the RX past the payload");
+
+    tx[0] = 0x11u; tx[5] = 0x22u; tx[23] = 0x33u;
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, WT_FFA_INSTANCE_NS_PHYSICAL,
+                            0u, 0u, &m) == 0,
+          "a header with its SBZ words set parses");
+    wt_ffa_msg2_copy(rx, sizeof(rx), tx, &m);
+    check(rx[0] == 0u && rx[5] == 0u && rx[23] == 0u,
+          "and reaches the receiver with them cleared");
 
     /* The sender rewrites its TX header between the parse and the copy. */
     tx[8] = 41u;

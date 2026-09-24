@@ -116,4 +116,9 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
 /* A header either names the receiver's UUID or leaves it Nil. */
 int wt_ffa_msg2_uuid_ok(const uint8_t* header_uuid, const uint8_t* ep_uuid);
 
+/* Produce a parsed message in the receiver's RX of rx_size bytes: the header
+ * and payload are copied from tx, every other byte is cleared (7.2.2.3.2). */
+void wt_ffa_msg2_copy(uint8_t* rx, uint32_t rx_size, const uint8_t* tx,
+                      const wt_ffa_msg2_t* msg);
+
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_MSG_H */

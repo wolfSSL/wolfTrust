@@ -784,6 +784,43 @@ static void msg2_rows(void)
           WT_FFA_INVALID_PARAMETERS, "a receiver equal to the sender is refused");
 }
 
+/* 7.2.2.3.2: the relayer produces the receiver's RX, so a partition message
+ * lands with every byte it does not populate cleared. */
+static void msg2_copy_rows(void)
+{
+    uint8_t tx[256];
+    uint8_t rx[256];
+    wt_ffa_msg2_t m;
+    unsigned int i;
+    int ok = 1;
+
+    memset(tx, 0xBB, sizeof(tx));
+    memset(tx, 0, WT_FFA_MSG2_HEADER_SIZE);
+    tx[8] = 64u;
+    tx[12] = 0x02u; tx[13] = 0x80u;
+    tx[16] = 16u;
+    for (i = 64u; i < 80u; i++) {
+        tx[i] = (uint8_t)i;
+    }
+    memset(rx, 0xAA, sizeof(rx));
+    check(wt_ffa_msg2_parse(tx, sizeof(tx), 0u, WT_FFA_INSTANCE_NS_PHYSICAL,
+                            0u, 0u, &m) == 0,
+          "a message with a gap between header and payload parses");
+    wt_ffa_msg2_copy(rx, sizeof(rx), tx, &m);
+    check(memcmp(rx, tx, WT_FFA_MSG2_HEADER_SIZE) == 0 &&
+              memcmp(&rx[64], &tx[64], 16u) == 0,
+          "the header and payload reach the receiver's RX");
+    for (i = WT_FFA_MSG2_HEADER_SIZE; i < 64u; i++) {
+        ok = ok && (rx[i] == 0u);
+    }
+    check(ok != 0, "the sender's bytes between header and payload do not");
+    ok = 1;
+    for (i = 80u; i < sizeof(rx); i++) {
+        ok = ok && (rx[i] == 0u);
+    }
+    check(ok != 0, "nor does anything left in the RX past the payload");
+}
+
 int main(void)
 {
     size_t n = sizeof(g_fids) / sizeof(g_fids[0]);
@@ -905,6 +942,7 @@ int main(void)
     reply_ext_rows();
     msg_deliver_rows();
     msg2_rows();
+    msg2_copy_rows();
     partition_info_rows();
     manifest_record_rows();
     partition_info_mailbox_rows();

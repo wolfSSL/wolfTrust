@@ -247,3 +247,20 @@ int wt_ffa_msg2_uuid_ok(const uint8_t* header_uuid, const uint8_t* ep_uuid)
     }
     return 1;
 }
+
+void wt_ffa_msg2_copy(uint8_t* rx, uint32_t rx_size, const uint8_t* tx,
+                      const wt_ffa_msg2_t* msg)
+{
+    uint32_t end = msg->offset + msg->size;
+    uint32_t i;
+
+    for (i = 0u; i < rx_size; i++) {
+        if ((i < WT_FFA_MSG2_HEADER_SIZE) ||
+            ((i >= msg->offset) && (i < end))) {
+            rx[i] = tx[i];
+        }
+        else {
+            rx[i] = 0u;
+        }
+    }
+}

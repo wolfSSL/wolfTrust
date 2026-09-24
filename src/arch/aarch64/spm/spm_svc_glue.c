@@ -387,22 +387,16 @@ static void ffa_direct_req(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     struct wt_co* target;
     uint16_t receiver = wt_ffa_direct_receiver(frame->x[1]);
-    uint32_t props = 0u;
     int ret = wt_ffa_direct_req_check(frame->x, WT_FFA_INSTANCE_SECURE_VIRTUAL);
 
     if ((ret == 0) &&
         (wt_ffa_direct_sender(frame->x[1]) != wt_spm_sp_ffa_id(co))) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
-    if ((ret == 0) &&
-        (wt_spm_partition_props(wt_spm_sp_ffa_id(co), &props) == 0)) {
-        ret = wt_ffa_direct_req_allowed(props, (uint32_t)frame->x[0], 0);
-    }
     if (ret == 0) {
-        ret = wt_spm_partition_props(receiver, &props);
-    }
-    if (ret == 0) {
-        ret = wt_ffa_direct_req_allowed(props, (uint32_t)frame->x[0], 1);
+        ret = wt_ffa_direct_req_authorize(g_partinfo, partinfo_collect(),
+                                          wt_spm_sp_ffa_id(co), receiver,
+                                          (uint32_t)frame->x[0]);
     }
     if (ret == 0) {
         target = wt_spm_ffa_native_by_id(receiver);

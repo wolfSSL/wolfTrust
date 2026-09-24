@@ -63,39 +63,10 @@ jobs:
       - name: Show the boot logs
         if: always()
         run: |
-          cat logs/target-smoke.log || true
-          cat logs/target-boot.log || true
-          cat logs/target-boot-smp2.log || true
-          cat logs/target-positive-secure.log || true
-          cat logs/target-crossdomain.log || true
-          cat logs/target-spfaultneg.log || true
-          cat logs/target-tablesneg.log || true
-          cat logs/target-manifestneg.log || true
-          cat logs/target-keystoreneg.log || true
-          cat logs/target-spbudgetneg.log || true
-          cat logs/target-panicneg.log || true
-          cat logs/target-ffa-direct.log || true
-          cat logs/target-ffa-sint.log || true
-          cat logs/target-ns-smoke.log || true
-          cat logs/target-ffa-discovery.log || true
-          cat logs/target-ffa-guest-direct.log || true
-          cat logs/target-psci.log || true
-          cat logs/target-ffa-preempt.log || true
-          cat logs/target-positive.log || true
-          cat logs/target-guest1.log || true
-          cat logs/target-smcfuzz.log || true
-          cat logs/target-secramneg.log || true
-          cat logs/target-resetneg.log || true
-          cat logs/target-ffa-memneg.log || true
-          cat logs/target-hsmattackneg.log || true
-          cat logs/target-attestneg.log || true
-          cat logs/target-vaultrecover.log || true
-          cat logs/target-vaultrecoversec.log || true
-          cat logs/target-confboot.log || true
-          cat logs/target-devstorage.log || true
-          cat logs/target-devattest.log || true
-          cat logs/target-devcrypto.log || true
-          cat logs/target-storage.log || true
+          for f in logs/target-*.log; do
+            echo "== $f"
+            cat "$f" || true
+          done
 
   qemu-a-ffa-acs:
     name: FF-A ACS on ${{ matrix.cell.name }} (${{ matrix.engine }})
@@ -140,9 +111,7 @@ jobs:
       - name: Show the ACS logs
         if: always()
         run: |
-          cat logs/target-ffaacs-discovery.log || true
-          cat logs/target-ffaacs-direct.log || true
-          cat logs/target-ffaacs-memory.log || true
-          cat logs/target-ffaacs-notify.log || true
-          cat logs/target-ffaacs-indirect.log || true
-          cat logs/target-ffaacs-interrupts.log || true
+          for f in logs/target-*.log; do
+            echo "== $f"
+            cat "$f" || true
+          done

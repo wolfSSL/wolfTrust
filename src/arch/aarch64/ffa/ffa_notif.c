@@ -147,10 +147,8 @@ int32_t wt_ffa_notif_bitmap_destroy(uint16_t caller, uint32_t vm_id)
     if ((callerp != NULL) && (callerp->secure != 0u)) {
         return WT_FFA_NOT_SUPPORTED;
     }
-    if (vm_id > 0xFFFFu) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
-    vm = ep_find((uint16_t)vm_id);
+    /* Table 16.7: w1 bits 31:16 are SBZ here (MBZ only for the create). */
+    vm = ep_find((uint16_t)(vm_id & 0xFFFFu));
     if ((vm == NULL) || (vm->secure != 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }

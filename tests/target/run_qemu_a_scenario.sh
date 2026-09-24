@@ -510,6 +510,7 @@ case "$scenario" in
     refute_re "no unexpected FF-A event at the SPMC" '\[SPM\] unexpected event'
     refute_re "the response was not judged bad" '\[EL3\] direct resp BAD'
     expect "the echo partition initialized alongside the six services" "[SPM] partitions ready n=7"
+    expect "the echo partition, preempted before its first wait, was resumed to finish init" "[SP] init resumed id=0x"
     expect "the SPMD sent a direct request to the echo partition" "[EL3] direct req to=0x80fe"
     expect "the SPMC relayed it at the NS-physical instance" "[SPM] direct req from=0x0000 to=0x80fe"
     expect "the echo partition's response reached the SPMD with the payload complemented" "[EL3] direct resp ok from=0x80fe x3=0xedcb5432"
@@ -520,6 +521,7 @@ case "$scenario" in
     refute_re "no EL3 panic" '\[EL3\] panic'
     refute_re "no unexpected FF-A event at the SPMC" '\[SPM\] unexpected event'
     expect "the echo partition initialized alongside the six services" "[SPM] partitions ready n=7"
+    expect "the echo partition, preempted before its first wait, was resumed to finish init" "[SP] init resumed id=0x"
     expect "a Secure interrupt was signalled to the owner while it waited" "[SPM] sint signaled id=0x28"
     expect "a Secure interrupt queued while the owner handled another was delivered on its next wait and named by the get" "[SPM] sint queued id=0x28"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"

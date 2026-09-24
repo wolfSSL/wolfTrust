@@ -98,26 +98,57 @@ static uint8_t g_faulted_once[WT_CO_MAX];
 static struct wt_co* g_created[WT_CO_MAX];
 static uint32_t g_partitions_initialized;
 
+#if defined(WT_SPM_ECHO_SP)
+/* Proof that the init pass resumes a partition preempted before its first
+ * wait: a tick already due is taken at the echo partition's first instruction. */
+static uint8_t g_init_preempt_armed;
+
+static void init_preempt_probe(const struct wt_co* co)
+{
+    if ((g_init_preempt_armed == 0u) && (co == wt_spm_ffa_echo_partition())) {
+        g_init_preempt_armed = 1u;
+        wt_gic->enable(WT_GIC_INTID_SECURE_TIMER);
+        wt_el3_timer_arm_ms(0u);
+    }
+}
+#else
+static void init_preempt_probe(const struct wt_co* co)
+{
+    (void)co;
+}
+#endif
+
 /* Run one partition from its entry (or its recovery re-arm) until it blocks
  * or faults, once; returns non-zero if it ran. A partition that faulted on
- * an earlier pass and has been re-armed since prints its restart marker. */
+ * an earlier pass and has been re-armed since prints its restart marker; one
+ * preempted before its first wait resumes where it was interrupted. */
 static int run_pending_partition(unsigned int i)
 {
     struct wt_co* co = g_created[i];
+    wt_co_state_t state;
 
     if (co == NULL || co->unprivileged == 0u || g_init_seen[i] != 0u) {
         return 0;
     }
-    if (wt_co_state((wt_co_t*)co) != WT_CO_BLOCKED) {
-        return 0; /* FAULTED (restart budget spent) or otherwise not runnable */
-    }
-    if (g_faulted_once[i] != 0u) {
-        g_faulted_once[i] = 0u;
-        wt_el3_puts("[SP] restarted id=0x");
+    state = wt_co_state((wt_co_t*)co);
+    if (state == WT_CO_RUNNABLE) {
+        wt_el3_puts("[SP] init resumed id=0x");
         wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + co->id, 4u);
         wt_el3_puts("\r\n");
     }
-    wt_co_wake((wt_co_t*)co);
+    else if (state != WT_CO_BLOCKED) {
+        return 0; /* FAULTED (restart budget spent) or otherwise not runnable */
+    }
+    else {
+        if (g_faulted_once[i] != 0u) {
+            g_faulted_once[i] = 0u;
+            wt_el3_puts("[SP] restarted id=0x");
+            wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + co->id, 4u);
+            wt_el3_puts("\r\n");
+        }
+        init_preempt_probe(co);
+        wt_co_wake((wt_co_t*)co);
+    }
     (void)wt_co_run((wt_co_t*)co);
     if (wt_co_state((wt_co_t*)co) == WT_CO_FAULTED) {
         g_faulted_once[i] = 1u;
@@ -1043,7 +1074,10 @@ void wt_co_arch_leave(void)
         sp_arch(current)->frame = *g_wt_spm_live_frame;
         g_wt_spm_live_frame = NULL;
         g_wt_spm_handler_depth = 0u;
-        if (g_wt_spm_partitions_live != 0u && g_init_seen[current->id - 1u] == 0u) {
+        /* Only a block ends init: a preempted partition has not waited yet. */
+        if ((g_wt_spm_partitions_live != 0u) &&
+            (wt_co_state((wt_co_t*)current) == WT_CO_BLOCKED) &&
+            (g_init_seen[current->id - 1u] == 0u)) {
             g_init_seen[current->id - 1u] = 1u;
             g_sp_init_count++;
             wt_el3_puts("[SP] init id=0x");

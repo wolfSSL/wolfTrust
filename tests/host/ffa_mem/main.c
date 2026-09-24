@@ -2847,6 +2847,77 @@ static void relay_ns_donate_rows(void)
     check(g_domain_fails == 0u, "ns donate: no domain operation failed closed");
 }
 
+/* WT-FFA-0009 (a donate makes the receiver the owner, Owner-EA, 2.4.1.2 item
+ * 12: its permission and RX/TX calls treat the page as its own). */
+static void relay_donated_perm_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint32_t perm = 0u;
+    uint64_t h;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "donated perm: fixture");
+        return;
+    }
+    (void)memset(&g_relay_mailbox, 0, sizeof(g_relay_mailbox));
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    h = relay_send_from(WT_FFA_MEM_OP_DONATE, c, 1u, RELAY_ID_A, RELAY_ID_B,
+                        WT_FFA_MEM_PERM_DATA_NOT_SPEC, &ret);
+    check(ret == 0 &&
+          relay_retrieve_by(h, RELAY_ID_A, RELAY_ID_B,
+                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+          wt_spm_mem_perm_get(&g_dom_b, page(PG_RW), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN),
+          "donated perm: the receiver reads back the page it was donated");
+    check(wt_spm_mem_perm_set(&g_dom_b, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) == 0 &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RO &&
+          wt_spm_mem_perm_set(&g_dom_b, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0 &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "donated perm: and re-permissions it as its own");
+    check(wt_spm_mem_rxtx_ok(&g_dom_b, page(PG_RW)) != 0 &&
+          wt_spm_mem_rxtx_ok(&g_dom_b, page(PG_B)) != 0,
+          "donated perm: it may map the donated page, like its own, as an RX/TX buffer");
+    check(wt_spm_mem_perm_get(&g_dom_a, page(PG_RW), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_NONE | WT_FFA_PERM_XN) &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_rxtx_ok(&g_dom_a, page(PG_RW)) == 0,
+          "donated perm: the donor has no access left to read, set, or map");
+    c[0].address = page(PG_FILL2);
+    h = relay_send_from(WT_FFA_MEM_OP_LEND, c, 1u, RELAY_ID_A, RELAY_ID_B,
+                        WT_FFA_MEM_PERM_DATA_RW, &ret);
+    check(ret == 0 &&
+          relay_retrieve_by(h, RELAY_ID_A, RELAY_ID_B,
+                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+          wt_spm_mem_perm_get(&g_dom_b, page(PG_FILL2), &perm) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_perm_set(&g_dom_b, &g_relay_mailbox, page(PG_FILL2), 1u,
+                              WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_rxtx_ok(&g_dom_b, page(PG_FILL2)) == 0,
+          "donated perm: a page it only borrows is never its own");
+    check(relay_relinquish_as(h, RELAY_ID_B) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "donated perm: the lend ends");
+    wt_spm_mem_ns_window(page(PG_NS), 2u * WT_TABLES_PAGE_SIZE);
+    c[0].address = page(PG_NS);
+    h = relay_send_from(WT_FFA_MEM_OP_DONATE, c, 1u, WT_FFA_ID_NS_PRIMARY,
+                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_NOT_SPEC, &ret);
+    check(ret == 0 &&
+          relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
+                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+          wt_spm_mem_perm_get(&g_dom_b, page(PG_NS), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) &&
+          wt_spm_mem_rxtx_ok(&g_dom_b, page(PG_NS)) == 0,
+          "donated perm: Non-secure memory donated to it is its own but never an RX/TX buffer (DEN0077A 7.2.2.2 rule 3)");
+    check(g_domain_fails == 0u, "donated perm: no domain operation failed closed");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -2887,6 +2958,7 @@ int main(void)
     relay_v10_rows();
     relay_unbind_rows();
     relay_ns_donate_rows();
+    relay_donated_perm_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

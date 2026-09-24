@@ -570,12 +570,69 @@ static int manifest_writable(const wt_secure_domain_t* dom, uint64_t base,
     return 0;
 }
 
+static int manifest_covers(const wt_secure_domain_t* dom, uint64_t at)
+{
+    size_t i;
+
+    for (i = 0u; i < dom->region_count; i++) {
+        if ((at >= (uint64_t)dom->regions[i].base) &&
+            ((at - (uint64_t)dom->regions[i].base) <
+             (uint64_t)dom->regions[i].size)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static const wt_spm_mem_binding_t* bind_by_dom(const wt_secure_domain_t* dom)
+{
+    unsigned int i;
+
+    for (i = 0u; i < WT_SPM_MEM_MAX_BIND; i++) {
+        if ((g_bind[i].live != 0u) && (g_bind[i].dom == dom)) {
+            return &g_bind[i];
+        }
+    }
+    return NULL;
+}
+
+/* The page at is the partition's own: its manifest names it, or a donate made
+ * it the receiver's (Owner-EA, DEN0140 2.4.1.2 item 12), which is a page its
+ * table still gives it that no live transaction covers and no manifest
+ * shares. */
+static int partition_owns(const wt_secure_domain_t* dom, uint64_t at)
+{
+    if (manifest_covers(dom, at) != 0) {
+        return 1;
+    }
+    return ((bind_by_dom(dom) != NULL) &&
+            (wt_domain_page_owned(dom->regions, dom->region_count,
+                                  (uintptr_t)at) != 0) &&
+            (common_memory(dom, at, WT_FFA_MEM_PAGE_SIZE) == 0) &&
+            (wt_ffa_mem_registry_overlaps(&g_reg, at, 1u) == 0)) ? 1 : 0;
+}
+
+int wt_spm_mem_rxtx_ok(const wt_secure_domain_t* dom, uint64_t va)
+{
+    if ((dom == NULL) || ((va % WT_FFA_MEM_PAGE_SIZE) != 0u) ||
+        (va >= WT_TABLES_VA_LIMIT) || (partition_owns(dom, va) == 0)) {
+        return 0;
+    }
+    return ((wt_domain_page_access(dom->regions, dom->region_count,
+                                   (uintptr_t)va) == WT_DOMAIN_ACCESS_RW) &&
+            (wt_domain_page_ns(dom->regions, dom->region_count,
+                               (uintptr_t)va) == 0) &&
+            (wt_ffa_mem_registry_overlaps(&g_reg, va, 1u) == 0)) ? 1 : 0;
+}
+
 int wt_spm_mem_perm_get(const wt_secure_domain_t* dom, uint64_t va,
                         uint32_t* perm)
 {
     uint32_t attributes = 0u;
 
-    if ((dom == NULL) || (perm == NULL) ||
+    if ((dom == NULL) || (perm == NULL) || (va >= WT_TABLES_VA_LIMIT) ||
+        ((va % WT_FFA_MEM_PAGE_SIZE) != 0u) ||
+        (partition_owns(dom, va) == 0) ||
         (wt_domain_get_permissions(dom->regions, dom->region_count,
                                    (uintptr_t)va, &attributes) !=
          WT_TABLES_OK)) {
@@ -599,6 +656,7 @@ int wt_spm_mem_perm_set(const wt_secure_domain_t* dom,
                         uint32_t pages, uint32_t perm)
 {
     uint64_t size = (uint64_t)pages * WT_FFA_MEM_PAGE_SIZE;
+    uint64_t at;
     uint32_t attributes = 0u;
     int ret;
 
@@ -608,8 +666,15 @@ int wt_spm_mem_perm_set(const wt_secure_domain_t* dom,
     ret = perm_to_attributes(perm, &attributes);
     if ((ret == 0) &&
         ((pages == 0u) || (va >= WT_TABLES_VA_LIMIT) ||
-         (pages > (WT_TABLES_VA_LIMIT / WT_TABLES_PAGE_SIZE)))) {
+         ((va % WT_FFA_MEM_PAGE_SIZE) != 0u) ||
+         (pages > ((WT_TABLES_VA_LIMIT - va) / WT_TABLES_PAGE_SIZE)))) {
         ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    for (at = va; (ret == 0) && (at < (va + size));
+         at += WT_FFA_MEM_PAGE_SIZE) {
+        if (partition_owns(dom, at) == 0) {
+            ret = WT_FFA_INVALID_PARAMETERS;
+        }
     }
     if ((ret == 0) && (platform_shared(va, size) != 0)) {
         ret = WT_FFA_DENIED;

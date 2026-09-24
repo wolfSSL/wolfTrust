@@ -163,27 +163,6 @@ static wt_domain_entry_t* find_built(const wt_memory_region_t* regions,
     return NULL;
 }
 
-/* The range must sit inside one of the domain's own memory regions. */
-static int owns_range(const wt_memory_region_t* regions, size_t count,
-                      uintptr_t va, size_t pages)
-{
-    wt_memory_region_t span;
-    size_t i;
-
-    span.base = va;
-    span.size = pages * WT_TABLES_PAGE_SIZE;
-    span.attributes = 0u;
-    if ((pages == 0u) || ((span.size / WT_TABLES_PAGE_SIZE) != pages)) {
-        return 0;
-    }
-    for (i = 0u; i < count; i++) {
-        if (covers(&regions[i], &span)) {
-            return 1;
-        }
-    }
-    return 0;
-}
-
 int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
                               uintptr_t va, size_t pages, uint32_t attributes)
 {
@@ -192,9 +171,6 @@ int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
 
     if ((g_ready == 0u) || (e == NULL) || (regions == NULL)) {
         return WT_TABLES_ERROR_ARGUMENT;
-    }
-    if (!owns_range(regions, count, va, pages)) {
-        return WT_TABLES_ERROR_UNMAPPED;
     }
     ret = wt_tables_set_el0_attributes(&e->table, &g_pool, (uint64_t)va, pages,
                                        attributes);
@@ -227,6 +203,22 @@ int wt_domain_page_access(const wt_memory_region_t* regions, size_t count,
     }
     return (w.ap == WT_TABLES_AP_ALL_RO) ? WT_DOMAIN_ACCESS_RO
                                          : WT_DOMAIN_ACCESS_NONE;
+}
+
+int wt_domain_page_owned(const wt_memory_region_t* regions, size_t count,
+                         uintptr_t va)
+{
+    const wt_domain_entry_t* e = find_built(regions, count);
+    wt_tables_walk_t w;
+
+    if ((g_ready == 0u) || (e == NULL) || (regions == NULL) ||
+        ((va % WT_TABLES_PAGE_SIZE) != 0u) ||
+        (wt_tables_walk(&e->table, &g_pool, (uint64_t)va, &w) != WT_TABLES_OK) ||
+        (w.held != 0u)) {
+        return 0;
+    }
+    return ((w.ap == WT_TABLES_AP_ALL_RW) || (w.ap == WT_TABLES_AP_ALL_RO) ||
+            (w.hidden != 0u)) ? 1 : 0;
 }
 
 int wt_domain_page_ns(const wt_memory_region_t* regions, size_t count,
@@ -315,9 +307,6 @@ int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
     }
     if ((va % WT_TABLES_PAGE_SIZE) != 0u) {
         return WT_TABLES_ERROR_ALIGN;
-    }
-    if (!owns_range(regions, count, va, 1u)) {
-        return WT_TABLES_ERROR_UNMAPPED;
     }
     ret = wt_tables_walk(&e->table, &g_pool, (uint64_t)va, &w);
     if (ret == WT_TABLES_OK) {

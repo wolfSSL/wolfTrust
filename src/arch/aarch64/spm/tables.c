@@ -282,6 +282,9 @@ int wt_tables_walk(const wt_tables_t* t, const wt_tables_pool_t* pool,
     out->pxn = ((desc & PTE_PXN) != 0u) ? 1u : 0u;
     out->ng = ((desc & PTE_NG) != 0u) ? 1u : 0u;
     out->ns = ((desc & PTE_NS) != 0u) ? 1u : 0u;
+    out->held = ((desc & PTE_SW_HELD) != 0u) ? 1u : 0u;
+    out->hidden = ((desc & (PTE_SW_HELD | PTE_SW_HIDDEN)) == PTE_SW_HIDDEN)
+                      ? 1u : 0u;
     return WT_TABLES_OK;
 }
 

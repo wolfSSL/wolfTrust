@@ -98,6 +98,9 @@
  * that required dependency extension explicit when wolfTrust builds as C99. */
 #define HAVE_ANONYMOUS_INLINE_AGGREGATES 1
 
+/* The guest links without a libc and strict C99 hides strcasecmp(). */
+#define USE_WOLF_STRCASECMP
+
 /* -------------------------------------------------------------------------
  * Math backend: SP Cortex-M.
  *

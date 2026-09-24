@@ -84,6 +84,11 @@ case "$MACHINE" in
   *) echo "unsupported MACHINE=$MACHINE (virt or versal-virt)" >&2; exit 2 ;;
 esac
 
+if [ "$scenario" = guest1 ]; then
+  echo "SKIP: qemu-a/guest1: the AArch64 ports run one Normal-world endpoint (id 0x0000) and the SPMC takes Normal-world direct requests from it alone, so there is no second guest identity to exercise; guest 1 is covered on M33MU"
+  exit 0
+fi
+
 if [ "$scenario" = hsmattackneg ] && [ "$WT_ENGINE" = native ]; then
   echo "SKIP: qemu-a/hsmattackneg (native engine): the native engine links no wolfHSM client wire, server, or message handlers, so the forged COMM_INIT and NVM-group attack surface does not exist"
   exit 0
@@ -96,7 +101,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|guest1:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   # A secondary parks through the warm reset: the re-entered boot core must
   # count it again.
@@ -147,7 +152,7 @@ else
     # EL2; the larger table pool covers the four 1 MB image bands.
     ffaacs-*) probe=(WT_EL3_NS_SMOKE=1 WT_FFA_ACS=1 WT_EL3_NS_EL2=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 "WT_SPM_TABLE_POOL_PA=$acs_pool_pa" WT_SPM_TABLE_POOL_PAGES=512) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
-    ns-smoke|ffa-discovery|psci|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
+    ns-smoke|ffa-discovery|psci|positive|smcfuzz|secramneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
     # The test handoff's unlocked lifecycle leaves the forced SECURED
     # lifecycle as the only thing that refuses the reformat.
     vaultrecoversec) probe=(WT_EL3_NS_SMOKE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1 WT_EL3_TEST_HANDOFF=1) ;;
@@ -170,7 +175,7 @@ else
      [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
      [ "$scenario" = el2dirtyneg ] || \
      [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
-     [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
+     [ "$scenario" = smcfuzz ] || \
      [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
      [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
      [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
@@ -186,9 +191,7 @@ else
     ns_preempt=0
     [ "$scenario" = ffa-preempt ] && ns_preempt=1
     ns_psa=0
-    ns_id=0
     [ "$scenario" = positive ] && ns_psa=1
-    [ "$scenario" = guest1 ] && { ns_psa=1; ns_id=1; }
     ns_hsmattack=0
     [ "$scenario" = hsmattackneg ] && { ns_psa=1; ns_hsmattack=1; }
     [ "$scenario" = vaultrecoversec ] && ns_psa=1
@@ -230,7 +233,7 @@ else
       BUILD_DIR="build/$tag-$scenario" WT_NS_BASE="$ns_base" \
       WT_NS_GUEST_ECHO="$ns_echo" WT_NS_GUEST_PSCI="$ns_psci" \
       WT_NS_PREEMPT="$ns_preempt" WT_NS_GUEST_PSA="$ns_psa" \
-      WT_NS_GUEST_ID="$ns_id" WT_NS_GUEST_FUZZ="$ns_fuzz" \
+      WT_NS_GUEST_FUZZ="$ns_fuzz" \
       WT_NS_HSM_ATTACK="$ns_hsmattack" WT_ENGINE="$WT_ENGINE" \
       WT_NS_VAULT_SECURED="$ns_vault_secured" \
       WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
@@ -307,7 +310,7 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = ffa-guest-direct ] || [ "$scenario" = psci ] || \
    [ "$scenario" = el2dirtyneg ] || \
    [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
-   [ "$scenario" = guest1 ] || [ "$scenario" = smcfuzz ] || \
+   [ "$scenario" = smcfuzz ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
    [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
    [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
@@ -582,8 +585,7 @@ case "$scenario" in
     expect "the Normal world resumed after the preemption" "[NS] resumed after preempt"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
-  positive|guest1)
-    [ "$scenario" = guest1 ] && guest_id=1 || guest_id=0
+  positive)
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     refute_re "the guest did not fail a PSA connect" '\[NS\] psa connect FAIL'
@@ -603,7 +605,7 @@ case "$scenario" in
       expect "the native crypto client drew distinct random blocks from the crypto partition" "[NS] native random ok"
     fi
     expect "the guest closed its handle" "[NS] psa close ok"
-    expect "the Normal-world guest reached the services and finished" "[NS] guest$guest_id ok"
+    expect "the Normal-world guest reached the services and finished" "[NS] guest0 ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   vaultrecoversec)

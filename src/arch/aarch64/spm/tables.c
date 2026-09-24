@@ -308,6 +308,7 @@ static int el0_owned_normal_page(uint64_t desc)
     uint32_t attr = (uint32_t)((desc >> PTE_ATTR_SHIFT) & 0x7u);
 
     return ((desc & DESC_VALID) != 0u) && ((desc & PTE_NS) == 0u) &&
+           ((desc & PTE_SW_HELD) == 0u) &&
            (attr == WT_TABLES_ATTR_NORMAL_WBWA) &&
            ((ap == WT_TABLES_AP_ALL_RW) || (ap == WT_TABLES_AP_ALL_RO));
 }
@@ -500,7 +501,7 @@ static uint64_t* el0_entry(const wt_tables_t* t, const wt_tables_pool_t* pool,
 }
 
 int wt_tables_hold_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
-                       uint64_t va, size_t pages)
+                       uint64_t va, size_t pages, int keep_read)
 {
     uint64_t* entry;
     uint64_t end;
@@ -532,8 +533,13 @@ int wt_tables_hold_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
         if ((*entry & PTE_PXN) != 0u) {
             saved |= PTE_SW_PXN;
         }
-        *entry = (*entry & ~(PTE_AP_EL0 | PTE_SW_MASK)) | PTE_UXN | PTE_PXN |
-                 saved;
+        if (keep_read != 0) {
+            *entry = (*entry & ~PTE_SW_MASK) | PTE_AP_RO | saved;
+        }
+        else {
+            *entry = (*entry & ~(PTE_AP_EL0 | PTE_SW_MASK)) | PTE_UXN |
+                     PTE_PXN | saved;
+        }
     }
     return WT_TABLES_OK;
 }

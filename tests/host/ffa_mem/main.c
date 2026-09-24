@@ -2155,6 +2155,107 @@ static size_t add_receiver_c(uint8_t* desc, size_t len)
     return len + WT_FFA_MEM_ACCESS_SIZE;
 }
 
+/* Append a second endpoint memory access descriptor naming id with perms. */
+static size_t add_receiver_as(uint8_t* desc, size_t len, uint16_t id,
+                              uint8_t perms)
+{
+    const size_t second = WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACCESS_SIZE;
+
+    len = add_receiver_c(desc, len);
+    desc[second + WT_FFA_MEM_ACC_OFF_RECEIVER] = (uint8_t)(id & 0xFFu);
+    desc[second + WT_FFA_MEM_ACC_OFF_RECEIVER + 1u] = (uint8_t)(id >> 8);
+    desc[second + WT_FFA_MEM_ACC_OFF_PERMS] = perms;
+    return len;
+}
+
+/* A sends page pg to B with op, also naming itself with self_perms: first in
+ * the list when self_first, else second. self_perms of 0xFF names only A. */
+static int relay_self_send(wt_ffa_mem_op_t op, int self_first,
+                           uint8_t self_perms, uint8_t b_perms,
+                           unsigned int pg, uint64_t* h)
+{
+    wt_ffa_mem_constituent_t c[1];
+    wt_ffa_mem_build_t in;
+    uint8_t desc[256];
+    size_t len = 0u;
+    int ret;
+
+    c[0].address = page(pg);
+    c[0].page_count = 1u;
+    (void)memset(&in, 0, sizeof(in));
+    in.constituents = c;
+    in.constituent_count = 1u;
+    in.op = op;
+    in.sender = RELAY_ID_A;
+    in.receiver = (self_first != 0) ? RELAY_ID_A : RELAY_ID_B;
+    in.permissions = (self_first != 0) ? self_perms : b_perms;
+    in.attributes = (op == WT_FFA_MEM_OP_SHARE) ? 0x2Fu : 0u;
+    ret = wt_ffa_mem_txn_build(desc, sizeof(desc), &in, &len);
+    if ((ret == 0) && (b_perms != 0xFFu)) {
+        len = add_receiver_as(desc, len,
+                              (self_first != 0) ? RELAY_ID_B : RELAY_ID_A,
+                              (self_first != 0) ? b_perms : self_perms);
+    }
+    if (ret == 0) {
+        ret = wt_spm_mem_share(desc, len, op, RELAY_ID_A, h);
+    }
+    return ret;
+}
+
+/* WT-FFA-0009 (a share may name the lender itself with the lower data access
+ * it keeps meanwhile, 1.11.3.1 and 2.3.1.2 item 10). */
+static void relay_self_rows(void)
+{
+    uint64_t h = 0u;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "self: fixture");
+        return;
+    }
+    check(relay_self_send(WT_FFA_MEM_OP_SHARE, 0, WT_FFA_MEM_PERM_DATA_RO,
+                          WT_FFA_MEM_PERM_DATA_RW, PG_RW, &h) == 0 &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RO &&
+          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "self: a share naming the lender read-only leaves it reading and the borrower writing");
+    check(wt_domain_set_permissions(g_dom_a.regions, g_dom_a.region_count,
+                                    page(PG_RW), 1u, RELAY_RW) !=
+              WT_TABLES_OK &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RO,
+          "self: the lender cannot re-permission the page while it is shared");
+    check(relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "self: a reclaim gives the lender its write access back");
+    check(relay_self_send(WT_FFA_MEM_OP_SHARE, 1, WT_FFA_MEM_PERM_DATA_RO,
+                          WT_FFA_MEM_PERM_DATA_RW, PG_RW, &h) == 0 &&
+          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+          relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "self: the borrower keeps the access it was given when the lender comes first");
+    check(relay_self_send(WT_FFA_MEM_OP_SHARE, 0, WT_FFA_MEM_PERM_DATA_RW,
+                          WT_FFA_MEM_PERM_DATA_RO, PG_RO, &h) ==
+              WT_FFA_DENIED &&
+          access_of(&g_dom_a, PG_RO) == WT_DOMAIN_ACCESS_RO,
+          "self: a lender cannot name itself more access than it has");
+    check(relay_self_send(WT_FFA_MEM_OP_SHARE, 0,
+                          (uint8_t)(WT_FFA_MEM_PERM_DATA_RO |
+                                    WT_FFA_MEM_PERM_INSTR_NX),
+                          WT_FFA_MEM_PERM_DATA_RW, PG_RW, &h) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "self: its instruction access is the relayer's and stays unspecified");
+    check(relay_self_send(WT_FFA_MEM_OP_LEND, 0, WT_FFA_MEM_PERM_DATA_RO,
+                          WT_FFA_MEM_PERM_DATA_RW, PG_RW, &h) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "self: only a share names the lender");
+    check(relay_self_send(WT_FFA_MEM_OP_SHARE, 1, WT_FFA_MEM_PERM_DATA_RO,
+                          0xFFu, PG_RW, &h) == WT_FFA_INVALID_PARAMETERS,
+          "self: a share naming only the lender has no borrower");
+    check(g_domain_fails == 0u, "self: no domain operation failed closed");
+}
+
 /* who (B or C) retrieves h read-write, naming the other as a non-retrieval
  * borrower. */
 static int relay_retrieve_of_two(uint64_t h, uint16_t who)
@@ -2640,6 +2741,7 @@ int main(void)
     relay_region_rows();
     relay_donate_rows();
     relay_mailbox_rows();
+    relay_self_rows();
     relay_teardown_rows();
     relay_v10_rows();
     relay_unbind_rows();

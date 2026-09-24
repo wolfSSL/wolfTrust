@@ -137,12 +137,13 @@ int wt_tables_revoke_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
                          uint64_t va, size_t pages, int was_mapped);
 
 /* An owner's own EL0 pages while a transaction holds them: hold takes EL0
- * access and execution away, keeping each entry's permissions in its software
- * bits; release puts back exactly what hold kept. Every page must be an EL0
- * page (hold) or a held one (release), else nothing changes. The caller
+ * access and execution away (keep_read: only write access), keeping each
+ * entry's permissions in its software bits; release puts back exactly what
+ * hold kept. Every page must be an EL0 page (hold) or a held one (release),
+ * else nothing changes; a held page is never re-permissioned. The caller
  * invalidates the table's ASID. */
 int wt_tables_hold_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
-                       uint64_t va, size_t pages);
+                       uint64_t va, size_t pages, int keep_read);
 int wt_tables_release_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
                           uint64_t va, size_t pages);
 

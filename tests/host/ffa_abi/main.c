@@ -248,6 +248,16 @@ static void run_target_rows(void)
               wt_ffa_run_target(0x8002FFFFu, &id) == WT_FFA_INVALID_PARAMETERS,
           "a vCPU id other than the endpoint's one execution context is "
           "INVALID_PARAMETERS (Table 14.14)");
+
+    check(wt_ffa_run_busy_check(0x8002u, 0x8002u, 1u, 0u) == 0,
+          "the requester resumes a callee that yielded to it (8.2)");
+    check(wt_ffa_run_busy_check(0x8002u, 0x8002u, 0u, 1u) == 0,
+          "and one a Non-secure interrupt preempted mid-request (9.3.1.1)");
+    check(wt_ffa_run_busy_check(0x8002u, 0x8003u, 0u, 1u) == WT_FFA_DENIED &&
+              wt_ffa_run_busy_check(0x8002u, 0u, 1u, 0u) == WT_FFA_DENIED,
+          "no other endpoint may resume the callee of someone else's request");
+    check(wt_ffa_run_busy_check(0x8002u, 0x8002u, 0u, 0u) == WT_FFA_DENIED,
+          "a callee still running its request is not resumed");
 }
 
 static uint32_t rd_u16(const uint8_t* p)

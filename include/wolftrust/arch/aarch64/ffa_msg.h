@@ -71,6 +71,12 @@ int wt_ffa_direct_resp_check(const uint64_t* x, wt_ffa_instance_t inst);
  * (4.7), so another vCPU id is INVALID_PARAMETERS (Table 14.14). */
 int wt_ffa_run_target(uint32_t w1, uint16_t* id);
 
+/* FFA_RUN of an endpoint busy with a direct request from requester: only that
+ * requester may resume it, once it yielded (8.2) or a Non-secure interrupt
+ * preempted it (9.3.1.1). Returns 0, else DENIED. */
+int wt_ffa_run_busy_check(uint16_t requester, uint16_t caller,
+                          unsigned int yielded, unsigned int preempted);
+
 /* Write msg (x0-x7, or x0-x17 for REQ2/RESP2) into the saved registers x of
  * the call it answers, x[0] naming that call; an SMC64 caller's x8-x17 the
  * message does not fill come back zero (11.2). */

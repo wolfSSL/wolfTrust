@@ -723,6 +723,9 @@ static int req2_uuid_ok(const struct wt_co* co, const uint64_t* req)
 int wt_spm_ffa_sp_call(const struct wt_co* caller, struct wt_co* target,
                        const uint64_t* req)
 {
+    wt_sp_msg_t* m;
+    unsigned int preempted;
+
     if ((caller == NULL) || (target == NULL) || (target == caller) ||
         (target->unprivileged == 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
@@ -741,10 +744,14 @@ int wt_spm_ffa_sp_call(const struct wt_co* caller, struct wt_co* target,
         endpoint_load_request(target, req);
     }
     else {
-        if (wt_spm_ffa_sp_yielded_to(target, wt_spm_sp_ffa_id(caller)) == 0) {
+        m = &g_sp_msg[target->id - 1u];
+        preempted = (wt_co_state((wt_co_t*)target) == WT_CO_RUNNABLE) ? 1u : 0u;
+        if ((m->busy == 0u) ||
+            (wt_ffa_run_busy_check(m->requester, wt_spm_sp_ffa_id(caller),
+                                   m->yielded, preempted) != 0)) {
             return WT_FFA_DENIED;
         }
-        g_sp_msg[target->id - 1u].yielded = 0u;
+        m->yielded = 0u;
     }
     g_sp_msg[caller->id - 1u].calling = 1u;
     g_ffa_call_target = target;
@@ -781,9 +788,13 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
     m = &g_sp_msg[co->id - 1u];
     if (wt_co_state((wt_co_t*)co) != WT_CO_BLOCKED) {
         /* A partition an NS interrupt preempted mid-request resumes at the
-         * interrupted instruction and finishes its response. */
+         * interrupted instruction and finishes its response, for its
+         * requester only. */
         if ((wt_co_state((wt_co_t*)co) == WT_CO_RUNNABLE) &&
             (m->busy != 0u)) {
+            if (wt_ffa_run_busy_check(m->requester, caller, 0u, 1u) != 0) {
+                return WT_FFA_DENIED;
+            }
             return run_endpoint(co, out);
         }
         return WT_FFA_BUSY;

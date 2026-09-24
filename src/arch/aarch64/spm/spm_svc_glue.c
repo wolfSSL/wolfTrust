@@ -330,23 +330,6 @@ static wt_ffa_mailbox_t* sp_mailbox(void)
     return &g_sp_mailbox[co->id - 1u];
 }
 
-/* One page of Normal memory the caller owns and may write, per its current
- * mapping. */
-static int sp_owns_writable_page(const struct wt_co* co, uintptr_t va)
-{
-    uint32_t attributes = 0u;
-
-    if ((co->domain == NULL) || ((va % WT_TABLES_PAGE_SIZE) != 0u) ||
-        (wt_domain_get_permissions(co->domain->regions,
-                                   co->domain->region_count, va,
-                                   &attributes) != WT_TABLES_OK) ||
-        (wt_domain_page_access(co->domain->regions, co->domain->region_count,
-                               va) != WT_DOMAIN_ACCESS_RW)) {
-        return 0;
-    }
-    return ((attributes & WT_MEM_ATTR_WRITE) != 0u) ? 1 : 0;
-}
-
 /* FFA_RXTX_MAP (13.5): x1 = TX, x2 = RX, w3 = page count. The pair must be
  * two distinct writable pages of the caller's own memory that no memory
  * transaction covers. */
@@ -364,10 +347,8 @@ static void ffa_rxtx_map(wt_trap_frame_t* frame, const struct wt_co* co)
     }
     if ((mb->mapped == 0u) &&
         ((WT_FFA_RXTX_PAGE_COUNT(w3) != WT_SP_RXTX_PAGES) ||
-         (sp_owns_writable_page(co, tx) == 0) ||
-         (sp_owns_writable_page(co, rx) == 0) ||
-         (wt_spm_mem_in_transaction((uint64_t)tx, WT_TABLES_PAGE_SIZE) != 0) ||
-         (wt_spm_mem_in_transaction((uint64_t)rx, WT_TABLES_PAGE_SIZE) != 0))) {
+         (wt_spm_mem_rxtx_ok(co->domain, (uint64_t)tx) == 0) ||
+         (wt_spm_mem_rxtx_ok(co->domain, (uint64_t)rx) == 0))) {
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }

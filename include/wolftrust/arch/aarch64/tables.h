@@ -95,6 +95,8 @@ typedef struct wt_tables_walk {
     uint32_t pxn;
     uint32_t ng;
     uint32_t ns;
+    uint32_t held;    /* an owner page a memory transaction holds */
+    uint32_t hidden;  /* an EL0 page its owner made no-access */
 } wt_tables_walk_t;
 
 void wt_tables_pool_init(wt_tables_pool_t* pool, uint8_t* base, uint64_t base_pa,

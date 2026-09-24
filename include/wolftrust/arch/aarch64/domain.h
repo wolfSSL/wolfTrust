@@ -55,11 +55,12 @@ uint64_t wt_domain_current_ttbr0(void);
 size_t wt_domain_tables_built(void);
 size_t wt_domain_pool_pages_used(void);
 
-/* FFA_MEM_PERM_SET/GET on an already-built domain: the range must lie inside
- * one of the domain's own memory regions, Normal or Device, and start on a
- * page; WT_TABLES_* result codes. A Device page keeps its memory type and is
- * never made executable. GET reports no WT_MEM_ATTR_READ for a page the
- * partition cannot reach at EL0 (one a transaction holds). */
+/* FFA_MEM_PERM_SET/GET on an already-built domain, over pages the caller has
+ * found to be the partition's own (wt_tables_set_el0_attributes: its EL0
+ * pages, Normal or Device); the range starts on a page; WT_TABLES_* result
+ * codes. A Device page keeps its memory type and is never made executable. GET
+ * reports no WT_MEM_ATTR_READ for a page the partition cannot reach at EL0
+ * (one a transaction holds or it made no-access). */
 int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
                               uintptr_t va, size_t pages, uint32_t attributes);
 int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
@@ -73,6 +74,10 @@ int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
 #define WT_DOMAIN_ACCESS_RW   2
 int wt_domain_page_access(const wt_memory_region_t* regions, size_t count,
                           uintptr_t va);
+/* Non-zero when the domain's table gives va to the partition at EL0, or keeps
+ * it as a page the partition made no-access, and no transaction holds it. */
+int wt_domain_page_owned(const wt_memory_region_t* regions, size_t count,
+                         uintptr_t va);
 /* Non-zero when the domain's table maps va as Non-secure memory. */
 int wt_domain_page_ns(const wt_memory_region_t* regions, size_t count,
                       uintptr_t va);

@@ -116,6 +116,10 @@ int wt_spm_ns_mailbox_overlaps(uint64_t base, uint64_t size);
 #define WT_FFA_PERM_DATA_RO   0x3u
 #define WT_FFA_PERM_XN        0x4u
 
+/* A partition's own memory, for the calls below: pages its manifest names,
+ * and pages a donate made its own (DEN0140 2.4.1.2 item 12) that its table
+ * still gives it and no live transaction covers. */
+
 /* FFA_MEM_PERM_GET (DEN0140 2.8) for a partition confined to dom: its
  * permissions on the page at va in *perm. Returns 0 or
  * WT_FFA_INVALID_PARAMETERS for an unaligned address or a page that is not
@@ -133,6 +137,12 @@ int wt_spm_mem_perm_get(const wt_secure_domain_t* dom, uint64_t va,
 int wt_spm_mem_perm_set(const wt_secure_domain_t* dom,
                         const wt_ffa_mailbox_t* mb, uint64_t va,
                         uint32_t pages, uint32_t perm);
+
+/* Non-zero when the page at va may be one of an FFA_RXTX_MAP pair for the
+ * partition confined to dom: its own Secure Normal memory it may write that no
+ * memory transaction covers (DEN0077A 7.2.2.2 rule 3: a pair shared with the
+ * SPMC is never visible to the Normal world). */
+int wt_spm_mem_rxtx_ok(const wt_secure_domain_t* dom, uint64_t va);
 
 /* A bound partition faulted and is terminated: unmap everything it retrieved
  * (zeroing what its retrieve asked to be zeroed), end what it owns and no

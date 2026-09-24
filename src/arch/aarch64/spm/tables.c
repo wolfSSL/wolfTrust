@@ -29,11 +29,20 @@
 #define PTE_ATTR_SHIFT  2u
 #define PTE_NS          (1ull << 5)
 #define PTE_AP_SHIFT    6u
+#define PTE_AP_EL0      (1ull << 6)
+#define PTE_AP_RO       (1ull << 7)
 #define PTE_SH_INNER    (3ull << 8)
 #define PTE_AF          (1ull << 10)
 #define PTE_NG          (1ull << 11)
 #define PTE_PXN         (1ull << 53)
 #define PTE_UXN         (1ull << 54)
+/* Bits[58:55] are software's: a held owner page keeps its own AP[2], UXN, and
+ * PXN there until it is released. */
+#define PTE_SW_HELD     (1ull << 55)
+#define PTE_SW_AP_RO    (1ull << 56)
+#define PTE_SW_UXN      (1ull << 57)
+#define PTE_SW_PXN      (1ull << 58)
+#define PTE_SW_MASK     (PTE_SW_HELD | PTE_SW_AP_RO | PTE_SW_UXN | PTE_SW_PXN)
 #define PTE_ADDR_MASK   0x0000FFFFFFFFF000ull
 
 #define L1_SHIFT 30u
@@ -462,6 +471,101 @@ int wt_tables_revoke_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
         }
         pte = encode(attributes, 1);
         *entry = (uint64_t)pte | (*entry & PTE_ADDR_MASK);
+    }
+    return WT_TABLES_OK;
+}
+
+static uint64_t* el0_entry(const wt_tables_t* t, const wt_tables_pool_t* pool,
+                           uint64_t va, uint64_t sw)
+{
+    uint64_t* entry = l3_entry(t, pool, va);
+    uint32_t ap;
+
+    if ((entry == NULL) || ((*entry & DESC_VALID) == 0u) ||
+        ((*entry & PTE_SW_HELD) != sw)) {
+        return NULL;
+    }
+    ap = (uint32_t)((*entry >> PTE_AP_SHIFT) & 0x3u);
+    if ((sw == 0u) && (ap != WT_TABLES_AP_ALL_RW) && (ap != WT_TABLES_AP_ALL_RO)) {
+        return NULL;
+    }
+    return entry;
+}
+
+int wt_tables_hold_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
+                       uint64_t va, size_t pages)
+{
+    uint64_t* entry;
+    uint64_t end;
+    uint64_t at;
+    uint64_t saved;
+    int ret = window_range_ok(t, va, pages);
+
+    if ((ret == WT_TABLES_OK) && (pool == NULL)) {
+        ret = WT_TABLES_ERROR_ARGUMENT;
+    }
+    if (ret != WT_TABLES_OK) {
+        return ret;
+    }
+    end = va + ((uint64_t)pages * WT_TABLES_PAGE_SIZE);
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        if (el0_entry(t, pool, at, 0u) == NULL) {
+            return WT_TABLES_ERROR_UNMAPPED;
+        }
+    }
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        entry = el0_entry(t, pool, at, 0u);
+        saved = PTE_SW_HELD;
+        if ((*entry & PTE_AP_RO) != 0u) {
+            saved |= PTE_SW_AP_RO;
+        }
+        if ((*entry & PTE_UXN) != 0u) {
+            saved |= PTE_SW_UXN;
+        }
+        if ((*entry & PTE_PXN) != 0u) {
+            saved |= PTE_SW_PXN;
+        }
+        *entry = (*entry & ~(PTE_AP_EL0 | PTE_SW_MASK)) | PTE_UXN | PTE_PXN |
+                 saved;
+    }
+    return WT_TABLES_OK;
+}
+
+int wt_tables_release_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
+                          uint64_t va, size_t pages)
+{
+    uint64_t* entry;
+    uint64_t end;
+    uint64_t at;
+    uint64_t desc;
+    int ret = window_range_ok(t, va, pages);
+
+    if ((ret == WT_TABLES_OK) && (pool == NULL)) {
+        ret = WT_TABLES_ERROR_ARGUMENT;
+    }
+    if (ret != WT_TABLES_OK) {
+        return ret;
+    }
+    end = va + ((uint64_t)pages * WT_TABLES_PAGE_SIZE);
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        if (el0_entry(t, pool, at, PTE_SW_HELD) == NULL) {
+            return WT_TABLES_ERROR_UNMAPPED;
+        }
+    }
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        entry = el0_entry(t, pool, at, PTE_SW_HELD);
+        desc = (*entry & ~(PTE_AP_RO | PTE_UXN | PTE_PXN | PTE_SW_MASK)) |
+               PTE_AP_EL0;
+        if ((*entry & PTE_SW_AP_RO) != 0u) {
+            desc |= PTE_AP_RO;
+        }
+        if ((*entry & PTE_SW_UXN) != 0u) {
+            desc |= PTE_UXN;
+        }
+        if ((*entry & PTE_SW_PXN) != 0u) {
+            desc |= PTE_PXN;
+        }
+        *entry = desc;
     }
     return WT_TABLES_OK;
 }

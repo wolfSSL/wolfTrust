@@ -382,7 +382,7 @@ assert through `tests/target/lib/expect.sh`.
 | Scenario | What it proves |
 | --- | --- |
 | `smoke` | A standalone EL3 image runs wolfTrust-built code at EL3, prints on the secure console, and parks the secondary cores |
-| `boot` | The monitor initializes the GIC, takes the secure tick as a Group 0 FIQ, builds the FF-A boot-information blob, and enters the SPMC, which turns on its stage-1 MMU, runs S-EL0 partitions through the SVC gate, and completes initialization with `FFA_MSG_WAIT` |
+| `boot` | The monitor initializes the GIC, takes the secure tick as a Group 0 FIQ, builds the FF-A boot-information blob, and enters the SPMC, which reads `SMCCC_VERSION` and `SMCCC_ARCH_FEATURES` from the monitor, turns on its stage-1 MMU, runs S-EL0 partitions through the SVC gate, and completes initialization with `FFA_MSG_WAIT` |
 | `boot-smp2` | The same image on two `virt` cores: the secondary parks at EL3 and exactly one core runs the monitor |
 | `parkneg`, `rdistneg`, `tickneg` | The monitor stops the boot with a panic, before it enters Secure EL1, when a declared secondary never parks, the GICv3 redistributor reads asleep (SKIP on GICv2), or the secure tick never reaches EL3 |
 | `positive-secure` | The neutral core boots at Secure EL1 and every Secure Partition initializes at Secure EL0 under its own translation table |

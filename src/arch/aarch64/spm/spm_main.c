@@ -36,6 +36,7 @@
 #include "wolftrust/arch/aarch64/ffa_partinfo.h"
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/psa_ffa.h"
+#include "wolftrust/arch/aarch64/psci.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
@@ -130,6 +131,16 @@ static void discover_spmd(void)
         spmc_fail("ffa version", r.x[0]);
     }
     wt_el3_puts("[SPM] ffa version 1.2 negotiated\r\n");
+
+    ffa_call(&r, WT_SMCCC_VERSION, 0u);
+    if ((uint32_t)r.x[0] != WT_SMCCC_VERSION_1_2) {
+        spmc_fail("smccc version", r.x[0]);
+    }
+    ffa_call(&r, WT_SMCCC_ARCH_FEATURES, WT_SMCCC_VERSION);
+    if ((uint32_t)r.x[0] != 0u) {
+        spmc_fail("smccc arch_features", r.x[0]);
+    }
+    wt_el3_puts("[SPM] smccc version 1.2\r\n");
 
     ffa_call(&r, WT_FFA_ID_GET, 0u);
     if (((uint32_t)r.x[0] != WT_FFA_SUCCESS32) || (r.x[2] != WT_FFA_ID_SPMC)) {

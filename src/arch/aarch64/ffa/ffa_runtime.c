@@ -133,6 +133,15 @@ int wt_ffa_rt_yield_check(const uint64_t* x)
     return 0;
 }
 
+int wt_ffa_rt_msg_wait_releases_rx(uint32_t version, const uint64_t* x)
+{
+    if ((version >= WT_FFA_VERSION_1_2) &&
+        (((uint32_t)x[2] & WT_FFA_MSG_WAIT_RETAIN_RX) != 0u)) {
+        return 0;
+    }
+    return 1;
+}
+
 const char *wt_ffa_rt_state_name(wt_ffa_rt_state_t state)
 {
     switch (state) {

@@ -1032,6 +1032,16 @@ static int memfrag_share(void)
     ok = ((uint32_t)x[0] == WT_FFA_MEM_FRAG_RX) && ((uint32_t)x[3] == split) &&
          ((uint32_t)x[4] == 0u) && (handle != 0u);
 
+    /* A second first fragment mid-transfer is BUSY and drops nothing. */
+    x[0] = WT_FFA_MEM_SHARE32;
+    x[1] = len;
+    x[2] = split;
+    x[3] = 0u;
+    x[4] = 0u;
+    smc5(x);
+    ok = ok && ((uint32_t)x[0] == WT_FFA_ERROR) &&
+         ((int32_t)(uint32_t)x[2] == WT_FFA_BUSY);
+
     for (i = split; i < len; i++) {
         g_memneg_desc[i - split] = full[i];
     }

@@ -656,6 +656,7 @@ int wt_ffa_mem_retrieve_req_parse_at(const uint8_t* buf, size_t len,
         }
         out->receivers[i] = (uint16_t)rd_u16(&acc[WT_FFA_MEM_ACC_OFF_RECEIVER]);
         out->permissions[i] = acc[WT_FFA_MEM_ACC_OFF_PERMS];
+        /* Bits[7:1] are SBZ: ignored at the higher EL (DEN0077A 7.2.2.3.2). */
         out->access_flags[i] = acc[WT_FFA_MEM_ACC_OFF_FLAGS];
         for (j = 0u; j < WT_FFA_MEM_IMPDEF_SIZE; j++) {
             out->impdef[i][j] = (acc_size == WT_FFA_MEM_ACCESS_SIZE_V12)

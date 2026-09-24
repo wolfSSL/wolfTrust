@@ -3091,6 +3091,7 @@ static void relay_range_rows(void)
     uint32_t comp = 1u;
     uint32_t offset = 0u;
     uint32_t total = 0u;
+    uint32_t split;
     uint8_t op = 0u;
     int done = 0;
     int ret = 0;
@@ -3154,6 +3155,26 @@ static void relay_range_rows(void)
           wt_ffa_mem_frag_expected(req, (uint32_t)len + 20u, 1, &size) == 1 &&
           size == (uint64_t)(len + 32u),
           "ranges: a retrieve request's own composite is parsed and names its whole length to a first fragment");
+    ret = 0;
+    for (split = WT_FFA_MEM_TXN_HDR_SIZE; split < (uint32_t)len + 32u; split++) {
+        size = 0u;
+        if ((wt_ffa_mem_frag_expected(req, split, 1, &size) != 0) &&
+            (size != (uint64_t)len + 32u)) {
+            ret = -1;
+        }
+        done = 0;
+        if ((wt_spm_mem_frag_begin(WT_SPM_MEM_FRAG_OP_RETRIEVE, RELAY_ID_B,
+                                   req, split, (uint32_t)len + 32u, &fh) != 0) ||
+            (wt_spm_mem_frag_next(fh, RELAY_ID_B, &req[split],
+                                  (uint32_t)len + 32u - split, &offset,
+                                  &done) != 0) ||
+            (done != 1)) {
+            ret = -1;
+        }
+        wt_spm_mem_frag_release(fh, RELAY_ID_B);
+    }
+    check(ret == 0,
+          "ranges: a retrieve request naming its ranges is taken at every first-fragment boundary, a header-only one included");
     put32(&req[len + WT_FFA_MEM_COMP_OFF_PAGES], 2u);
     check(wt_ffa_mem_retrieve_req_parse_ex(req, len + 32u, &rq) ==
               WT_FFA_INVALID_PARAMETERS,

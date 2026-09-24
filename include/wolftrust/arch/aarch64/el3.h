@@ -110,9 +110,10 @@ void wt_el3_world_launch_ns(wt_el3_frame_t* frame) __attribute__((noreturn));
  * FFA_MSG_WAIT, and switch to the Secure world to run it. Never returns. */
 void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
     __attribute__((noreturn));
-/* A Secure interrupt preempted the Normal world: deliver FFA_INTERRUPT(intid) to
- * the SPMC and switch to it, keeping the NS context to resume. Never returns. */
-void wt_el3_world_preempt_to_secure(wt_el3_frame_t* frame, uint32_t intid)
+/* A Secure interrupt preempted the Normal world: deliver FFA_INTERRUPT to the
+ * SPMC, which takes the interrupt from the GIC itself, and switch to it,
+ * keeping the NS context to resume. Never returns. */
+void wt_el3_world_preempt_to_secure(wt_el3_frame_t* frame)
     __attribute__((noreturn));
 /* Deliver the SPMC's reply in `frame` back to the Normal world and switch to
  * it. Never returns. */

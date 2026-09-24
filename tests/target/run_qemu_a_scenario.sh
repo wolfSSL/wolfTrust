@@ -573,8 +573,9 @@ case "$scenario" in
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the Normal world was running" "[NS] spinning"
     expect "a core-standby CPU_SUSPEND returned SUCCESS on the Secure tick" "[NS] psci standby woke"
-    expect "a Secure tick preempted the Normal world at EL3" "[EL3] ns preempted intid=29"
-    expect "the SPMC scheduled the Secure interrupt" "[SPM] ns preempt intid=0x1d"
+    expect "a Secure tick preempted the Normal world at EL3" "[EL3] ns preempted"
+    refute_re "the SPMD left the interrupt to the SPMC unacknowledged" '\[EL3\] ns preempted intid'
+    expect "the SPMC took the Secure interrupt from the GIC itself" "[SPM] ns preempt intid=0x1d"
     expect "the Normal world resumed after the preemption" "[NS] resumed after preempt"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;

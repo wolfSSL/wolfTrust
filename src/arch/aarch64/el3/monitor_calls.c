@@ -78,23 +78,14 @@ static void wt_el3_fiq(void)
 }
 
 /* A Secure interrupt taken while the Normal world runs (SCR_EL3.FIQ routes it to
- * EL3 as a lower-EL FIQ): acknowledge it here, then signal FFA_INTERRUPT to the
- * SPMC so it can schedule; it yields the Normal world back afterwards (Ch.9). */
+ * EL3 as a lower-EL FIQ) stays pending in the GIC: the SPMC, which alone
+ * services the GIC, acknowledges it after FFA_INTERRUPT (9.1, 12.4.1 item 3)
+ * and yields the Normal world back afterwards. */
 static void ns_fiq(wt_el3_frame_t* frame)
 {
-    uint32_t intid = wt_gic->ack_group0();
-
-    if (intid == WT_GIC_INTID_SECURE_TIMER) {
-        wt_el3_timer_disable();
-    }
-    if (intid != WT_GIC_INTID_SPURIOUS) {
-        wt_gic->eoi_group0(intid);
-    }
-    wt_el3_puts("[EL3] ns preempted intid=");
-    wt_el3_putdec(intid);
-    wt_el3_puts("\r\n");
+    wt_el3_puts("[EL3] ns preempted\r\n");
     wt_platform_console_flush();
-    wt_el3_world_preempt_to_secure(frame, intid);
+    wt_el3_world_preempt_to_secure(frame);
 }
 
 /* A Normal-world SMC: relayed to the SPMC, or PSCI/SMCCC/FF-A served here. */

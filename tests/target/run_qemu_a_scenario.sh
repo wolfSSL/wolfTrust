@@ -424,6 +424,7 @@ case "$scenario" in
     expect "an S-EL0 partition retrieved a page the SPMC shared, wrote it, relinquished it, and the owner reclaimed it" "[SPM] mem share ok handle="
     refute_re "the memory-sharing self-test did not fail" '\[SPM\] mem share FAIL'
     expect "FF-A version negotiated with the SPMD" "[SPM] ffa version 1.2 negotiated"
+    expect "the monitor answered the SMCCC architecture calls from the Secure world" "[SPM] smccc version 1.2"
     expect "FF-A discovery at the Secure physical instance" "[SPM] ffa discovery ok id=0x8000 spmd=0x8001"
     expect "FFA_CONSOLE_LOG SMC32 logged through the SPMD" "[SPM] console32 ok"
     expect "FFA_CONSOLE_LOG SMC64 logged through the SPMD" "[SPM] console64 ok"

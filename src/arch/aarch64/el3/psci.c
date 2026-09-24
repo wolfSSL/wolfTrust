@@ -22,8 +22,7 @@
  * world's machine view (4.4) is the boot core alone, where the uniprocessor
  * SPMC is resident: the secondaries the monitor keeps parked are not part of
  * it, so no target_cpu but the boot core is a valid MPIDR, and the boot core
- * cannot be turned off. A PSCI reply is a single value in x0. The SMCCC
- * version and feature calls (DEN0028 7.2, 7.3) are answered here too. */
+ * cannot be turned off. A PSCI reply is a single value in x0. */
 
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/ffa.h"
@@ -180,15 +179,6 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
     switch (fid) {
         case WT_PSCI_VERSION:
             psci_return(r, (uint64_t)WT_PSCI_VERSION_1_1);
-            break;
-        case WT_SMCCC_VERSION:
-            psci_return(r, (uint64_t)WT_SMCCC_VERSION_1_2);
-            break;
-        case WT_SMCCC_ARCH_FEATURES:
-            /* No Arm Architecture Service call beyond these two is offered. */
-            psci_return(r, (((uint32_t)r->x[1] == WT_SMCCC_VERSION) ||
-                            ((uint32_t)r->x[1] == WT_SMCCC_ARCH_FEATURES)) ?
-                              0u : (uint64_t)(uint32_t)WT_SMCCC_NOT_SUPPORTED);
             break;
         case WT_PSCI_FEATURES:
             /* Every implemented function reports flags 0: CPU_SUSPEND uses the

@@ -18,9 +18,10 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* EL3 vector dispatch: FF-A calls from the Secure world go to the SPMD
- * handlers, the OEM-range test calls to the monitor calls, the secure timer
- * FIQ to the tick handler; everything else is a fault. */
+/* EL3 vector dispatch: the SMCCC Arm Architecture Calls are answered for
+ * either world, FF-A calls from the Secure world go to the SPMD handlers, the
+ * OEM-range test calls to the monitor calls, the secure timer FIQ to the tick
+ * handler; everything else is a fault. */
 
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/ffa.h"
@@ -118,7 +119,32 @@ static void ns_fiq(wt_el3_frame_t* frame)
     wt_el3_world_preempt_to_secure(frame);
 }
 
-/* A Normal-world SMC: relayed to the SPMC, or PSCI/SMCCC/FF-A served here. */
+/* SMCCC_VERSION and SMCCC_ARCH_FEATURES (DEN0028 7.2, 7.3), mandatory from
+ * SMCCC 1.1 whichever world calls; x4-x17 are preserved. */
+static int arch_call(wt_el3_frame_t* frame)
+{
+    uint32_t fid = (uint32_t)frame->x[0];
+    uint32_t query = (uint32_t)frame->x[1];
+
+    if (fid == WT_SMCCC_VERSION) {
+        frame->x[0] = WT_SMCCC_VERSION_1_2;
+    }
+    else if (fid == WT_SMCCC_ARCH_FEATURES) {
+        /* No Arm Architecture Service call beyond these two is offered. */
+        frame->x[0] = ((query == WT_SMCCC_VERSION) ||
+                       (query == WT_SMCCC_ARCH_FEATURES)) ?
+                          0u : (uint64_t)(uint32_t)WT_SMCCC_NOT_SUPPORTED;
+    }
+    else {
+        return 0;
+    }
+    frame->x[1] = 0u;
+    frame->x[2] = 0u;
+    frame->x[3] = 0u;
+    return 1;
+}
+
+/* A Normal-world SMC: relayed to the SPMC, or PSCI/FF-A served here. */
 static void ns_smc(wt_el3_frame_t* frame)
 {
     wt_ffa_regs_t regs;
@@ -134,10 +160,8 @@ static void ns_smc(wt_el3_frame_t* frame)
         }
         return;
     }
-    /* PSCI power management is served by the SPMD directly (WT-FFM-0067),
-     * with the SMCCC version and feature queries. */
-    if (wt_psci_fid_in_range(fid) || (fid == WT_SMCCC_VERSION) ||
-        (fid == WT_SMCCC_ARCH_FEATURES)) {
+    /* PSCI power management is served by the SPMD directly (WT-FFM-0067). */
+    if (wt_psci_fid_in_range(fid)) {
         for (i = 0u; i < 8u; i++) {
             regs.x[i] = frame->x[i];
         }
@@ -233,6 +257,9 @@ void wt_el3_exception(uint64_t kind, wt_el3_frame_t* frame)
         /* An SMC32 call carries W1-W7 only (SMCCC 3.1): no handler, and no
          * world a call is relayed to, sees the caller's upper halves. */
         wt_ffa_regs_normalize(frame->x);
+        if (arch_call(frame) != 0) {
+            return;
+        }
         if ((wt_read_scr_el3() & WT_SCR_NS) != 0u) {
             ns_smc(frame);
             return;

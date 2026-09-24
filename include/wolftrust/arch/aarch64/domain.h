@@ -63,8 +63,9 @@ int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
 int wt_domain_get_permissions(const wt_memory_region_t* regions, size_t count,
                               uintptr_t va, uint32_t* attributes);
 
-/* The EL0 access the domain's table gives va (whatever its region list says):
- * memory the partition reaches at EL0 is memory it may itself send. */
+/* The EL0 access the domain's table gives va as Normal write-back memory
+ * (whatever its region list says; a Device page is none): memory the partition
+ * reaches so at EL0 is memory it may itself send. */
 #define WT_DOMAIN_ACCESS_NONE 0
 #define WT_DOMAIN_ACCESS_RO   1
 #define WT_DOMAIN_ACCESS_RW   2

@@ -207,7 +207,8 @@ int wt_domain_set_permissions(const wt_memory_region_t* regions, size_t count,
 
 /* What EL0 access this partition's stage-1 table gives va, whatever its region
  * list says: memory a partition owns or was given (a donate) is reachable at
- * EL0, so ownership that a transaction moved is still seen. */
+ * EL0, so ownership that a transaction moved is still seen. Only Normal
+ * write-back memory counts, the one type the relayer maps a borrower with. */
 int wt_domain_page_access(const wt_memory_region_t* regions, size_t count,
                           uintptr_t va)
 {
@@ -218,7 +219,8 @@ int wt_domain_page_access(const wt_memory_region_t* regions, size_t count,
         ((va % WT_TABLES_PAGE_SIZE) != 0u)) {
         return WT_DOMAIN_ACCESS_NONE;
     }
-    if (wt_tables_walk(&e->table, &g_pool, (uint64_t)va, &w) != WT_TABLES_OK) {
+    if ((wt_tables_walk(&e->table, &g_pool, (uint64_t)va, &w) != WT_TABLES_OK) ||
+        (w.attr_index != WT_TABLES_ATTR_NORMAL_WBWA)) {
         return WT_DOMAIN_ACCESS_NONE;
     }
     if (w.ap == WT_TABLES_AP_ALL_RW) {

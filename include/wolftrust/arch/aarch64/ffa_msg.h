@@ -99,10 +99,11 @@ int32_t wt_ffa_fwk_version_result(const uint64_t* x);
 /* FFA_MSG_SEND2 (16.4): the v1.2 partition message header at the start of
  * the sender's TX buffer - flags, two reserved words, payload offset, sender
  * and receiver ids (sender bits 31:16), payload size, and the receiver's
- * UUID. w1 bits 15:0 are reserved. At the NS physical instance w1 bits 31:16
- * name the sender and w2 is MBZ (the delay-SRI hint in bit 1 is Secure
- * virtual only, 16.5.1); at the secure virtual instance (the SVC conduit) w1
- * bits 31:16 are MBZ and w2 is ignored (Table 15.3). */
+ * UUID. The flags and reserved words are SBZ (Table 7.2): ignored here and
+ * cleared in the receiver's copy. w1 bits 15:0 are SBZ. At the NS physical
+ * instance w1 bits 31:16 name the sender and the delay-SRI hint in w2 bit 1
+ * is MBZ (Secure virtual only, 16.5.1); at the secure virtual instance (the
+ * SVC conduit) w1 bits 31:16 are MBZ and w2 is ignored (Table 15.3). */
 #define WT_FFA_MSG2_HEADER_SIZE   40u
 #define WT_FFA_MSG2_FLAG_DELAY_SRI (1u << 1)
 

@@ -195,7 +195,6 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
                       wt_ffa_instance_t inst, uint32_t w1, uint32_t w2,
                       wt_ffa_msg2_t* out)
 {
-    uint32_t flags;
     uint32_t sender_receiver;
     unsigned int i;
 
@@ -203,13 +202,11 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
         (tx_size < WT_FFA_MSG2_HEADER_SIZE)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    if ((w1 & 0xFFFFu) != 0u) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
-    /* Table 15.3: the w1 sender is MBZ and w2 is ignored at the SVC conduit;
-     * the delay-SRI hint is MBZ outside the Secure virtual instance (16.5.1). */
+    /* Table 15.3: w1 bits 15:0 and the w2 flags other than the delay-SRI hint
+     * are SBZ; the w1 sender is MBZ and w2 is ignored at the SVC conduit; the
+     * hint is MBZ outside the Secure virtual instance (16.5.1). */
     if (inst == WT_FFA_INSTANCE_NS_PHYSICAL) {
-        if ((w2 != 0u) ||
+        if (((w2 & WT_FFA_MSG2_FLAG_DELAY_SRI) != 0u) ||
             (((w1 >> 16) != 0u) && ((uint16_t)(w1 >> 16) != caller))) {
             return WT_FFA_INVALID_PARAMETERS;
         }
@@ -217,7 +214,6 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
     else if ((w1 >> 16) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    flags = msg2_read32(&tx[0]);
     out->offset = msg2_read32(&tx[8]);
     sender_receiver = msg2_read32(&tx[12]);
     out->size = msg2_read32(&tx[16]);
@@ -226,10 +222,6 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
     }
     out->sender = (uint16_t)(sender_receiver >> 16);
     out->receiver = (uint16_t)(sender_receiver & 0xFFFFu);
-    if ((flags != 0u) || (msg2_read32(&tx[4]) != 0u) ||
-        (msg2_read32(&tx[20]) != 0u)) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
     if (out->sender != caller) {
         return WT_FFA_INVALID_PARAMETERS;
     }

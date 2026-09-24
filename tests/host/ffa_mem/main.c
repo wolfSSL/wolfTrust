@@ -180,6 +180,8 @@ static void reject_rows(void)
 {
     uint8_t buf[256];
     wt_ffa_mem_txn_t txn;
+    uint16_t rid;
+    uint8_t perms;
     size_t len;
 
     len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
@@ -207,15 +209,16 @@ static void reject_rows(void)
 
     len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
     buf[36] = 1u;
-    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
-              WT_FFA_INVALID_PARAMETERS,
-          "a non-zero reserved header byte is INVALID_PARAMETERS");
+    buf[47] = 0xFFu;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) == 0,
+          "the SBZ header bytes [36, 48) are ignored (Table 1.20)");
 
     len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
     buf[2] = (uint8_t)(buf[2] | 0x80u);
-    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
-              WT_FFA_INVALID_PARAMETERS,
-          "a reserved memory-attribute bit is INVALID_PARAMETERS");
+    buf[3] = 0xFFu;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) == 0 &&
+          txn.attributes == 0x2Fu,
+          "the SBZ memory-attribute bits[15:7] are ignored and dropped (Table 1.18)");
 
     len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
     buf[2] = (uint8_t)((buf[2] & 0xCFu) | 0x30u);
@@ -230,10 +233,21 @@ static void reject_rows(void)
           "a reserved data-access permission is INVALID_PARAMETERS");
 
     len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
-    buf[50] = 0xF2u;
-    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) ==
-              WT_FFA_INVALID_PARAMETERS,
-          "reserved permission bits are INVALID_PARAMETERS");
+    buf[50] = 0xF6u;
+    buf[56] = 1u;
+    buf[63] = 0xFFu;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) == 0 &&
+          wt_ffa_mem_receiver(buf, len, &txn, 0u, &rid, &perms) == 0 &&
+          perms == 0x06u,
+          "the SBZ permission bits[7:4] and access descriptor tail are ignored and dropped (Tables 1.15, 1.16)");
+
+    len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
+    buf[72] = 1u;
+    buf[79] = 0xFFu;
+    buf[92] = 1u;
+    buf[111] = 0xFFu;
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_SHARE, 0u, &txn) == 0,
+          "the SBZ composite bytes [8, 16) and constituent bytes [12, 16) are ignored (Tables 1.13, 1.14)");
 
     len = make_txn(buf, sizeof(buf), WT_FFA_MEM_OP_SHARE, 0u);
     put32(&buf[52], 0u);
@@ -728,9 +742,8 @@ static void borrower_rows(void)
           txn.composite_offset == 80u,
           "the 32-byte FF-A 1.2 access descriptor round-trips");
     buf[48u + 31u] = 1u;
-    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) ==
-              WT_FFA_INVALID_PARAMETERS,
-          "its reserved tail must be zero");
+    check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) == 0,
+          "its SBZ reserved tail is ignored");
     buf[48u + 31u] = 0u;
     buf[48u + 12u] = 0x5Au;
     check(wt_ffa_mem_txn_validate(buf, len, WT_FFA_MEM_OP_LEND, 0u, &txn) == 0,
@@ -750,6 +763,13 @@ static void borrower_rows(void)
           rq.receivers[0] == 0x8002u && rq.permissions[0] == 0x06u &&
           rq.access_desc_size == WT_FFA_MEM_ACCESS_SIZE,
           "a retrieve request yields its tag, flags, and asked-for permissions");
+    buf[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_PERMS] = 0xF6u;
+    buf[WT_FFA_MEM_TXN_HDR_SIZE + 8u] = 1u;
+    buf[WT_FFA_MEM_TXN_OFF_ATTRS + 1u] = 0x80u;
+    buf[40] = 0xFFu;
+    check(wt_ffa_mem_retrieve_req_parse_ex(buf, len, &rq) == 0 &&
+          rq.permissions[0] == 0x06u && rq.attributes == 0u,
+          "a retrieve request's SBZ permission bits, access tail, attribute bits, and header bytes are ignored and dropped");
 
     (void)wt_ffa_mem_relinquish_build(buf, sizeof(buf), 0x77ull,
                                       WT_FFA_MEM_RELINQ_FLAG_ZERO, 0x8002u,

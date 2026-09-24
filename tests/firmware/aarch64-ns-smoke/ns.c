@@ -975,6 +975,29 @@ static int memfrag_share(void)
     return ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);
 }
 
+/* SBZ fields set in every descriptor part (DEN0140 Tables 1.13-1.16, 1.18,
+ * 1.20, 1.21) are ignored: the share is accepted and reclaimed. */
+static int memneg_sbz_ignored(uint32_t len)
+{
+    uint64_t w2 = 0u;
+    uint64_t w3 = 0u;
+    uint32_t i;
+
+    (void)memneg_build();
+    for (i = 36u; i < 48u; i++) {
+        g_memneg_desc[i] = 0xA5u;           /* header reserved */
+    }
+    g_memneg_desc[3] |= 0x80u;              /* attributes bits[15:8] */
+    g_memneg_desc[7] = 0x80u;               /* flags bit[31] */
+    g_memneg_desc[50] |= 0xF0u;             /* permission bits[7:4] */
+    g_memneg_desc[len - 1u] = 0xA5u;        /* constituent reserved */
+    if (mem_share_smc(len, &w2, &w3) != WT_FFA_SUCCESS32) {
+        return 0;
+    }
+    return mem_reclaim_smc((w2 & 0xFFFFFFFFu) | (w3 << 32)) ==
+           WT_FFA_SUCCESS32;
+}
+
 static int memneg_refused(uint32_t len)
 {
     uint64_t w2 = 0u;
@@ -1045,7 +1068,7 @@ static void guest_memneg(void)
     g_memneg_desc[1] = 0x12u;
     ok = ok && memneg_refused(len);
     (void)memneg_build();
-    g_memneg_desc[50] = 0xF2u;              /* reserved permission bits */
+    g_memneg_desc[51] = 1u;                 /* MBZ access descriptor flags */
     ok = ok && memneg_refused(len);
     (void)memneg_build();
     g_memneg_desc[64] = 9u;                 /* total page count != the sum */
@@ -1053,6 +1076,7 @@ static void guest_memneg(void)
 
     ok = ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);
     ok = ok && (mem_reclaim_smc(handle) == WT_FFA_ERROR);  /* dead handle */
+    ok = ok && memneg_sbz_ignored(len);
     ok = ok && memneg_donate();
 
     put_str(ok ? "[NS] memneg ok\r\n" : "[NS] memneg BAD\r\n");

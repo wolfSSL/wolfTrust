@@ -2027,6 +2027,41 @@ static void relay_region_rows(void)
     check(g_domain_fails == 0u, "region: no domain operation failed closed");
 }
 
+/* WT-FFA-0009 (a donate hands over no more data access than the owner had on
+ * every page of it, whatever order its regions come in, 1.10.2 item 2). */
+static void relay_donate_rows(void)
+{
+    wt_ffa_mem_constituent_t c[2];
+    uint64_t h;
+    int ret = 0;
+    int order;
+
+    for (order = 0; order < 2; order++) {
+        if ((g_mem == NULL) || !relay_reset()) {
+            check(0, "donate: fixture");
+            return;
+        }
+        c[order].address = page(PG_RW);
+        c[order].page_count = 1u;
+        c[1 - order].address = page(PG_RO);
+        c[1 - order].page_count = 1u;
+        h = relay_send(WT_FFA_MEM_OP_DONATE, c, 2u,
+                       WT_FFA_MEM_PERM_DATA_NOT_SPEC, 0u, &ret);
+        check(ret == 0 &&
+              relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == WT_FFA_DENIED &&
+              access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
+              access_of(&g_dom_b, PG_RO) == WT_DOMAIN_ACCESS_NONE,
+              (order == 0)
+                  ? "donate: a read-write then read-only donate is DENIED to a read-write retrieve"
+                  : "donate: a read-only then read-write donate is DENIED to a read-write retrieve");
+        check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RO, 0u) == 0 &&
+              access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RO &&
+              access_of(&g_dom_b, PG_RO) == WT_DOMAIN_ACCESS_RO,
+              "donate: the receiver maps every page read-only");
+    }
+    check(g_domain_fails == 0u, "donate: no domain operation failed closed");
+}
+
 /* Append C as a second receiver, with B's permissions, to the send descriptor
  * relay_build laid out in desc; returns the new length. */
 static size_t add_receiver_c(uint8_t* desc, size_t len)
@@ -2431,6 +2466,7 @@ int main(void)
     relay_zero_rows();
     relay_clean_rows();
     relay_region_rows();
+    relay_donate_rows();
     relay_teardown_rows();
     relay_v10_rows();
     relay_unbind_rows();

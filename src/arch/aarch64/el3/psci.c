@@ -19,9 +19,10 @@
  */
 
 /* PSCI 1.1 (DEN0022) at the NS physical instance (WT-FFM-0067). The Normal
- * world runs on the boot core only, where the uniprocessor SPMC is resident:
- * the parked secondaries report DISABLED and cannot be turned on, and the boot
- * core cannot be turned off. A PSCI reply is a single value in x0. The SMCCC
+ * world's machine view (4.4) is the boot core alone, where the uniprocessor
+ * SPMC is resident: the secondaries the monitor keeps parked are not part of
+ * it, so no target_cpu but the boot core is a valid MPIDR, and the boot core
+ * cannot be turned off. A PSCI reply is a single value in x0. The SMCCC
  * version and feature calls (DEN0028 7.2, 7.3) are answered here too. */
 
 #include "wolftrust/arch/aarch64/el3.h"
@@ -30,16 +31,11 @@
 #include "wolftrust/arch/aarch64/psci.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
 
-#ifndef WT_PORT_BOOT_CPUS
-#define WT_PORT_BOOT_CPUS 1u
-#endif
-
 /* target_cpu affinity fields (5.1.4): Aff3 and Aff2-Aff0; the rest MBZ. */
 #define WT_PSCI_AFF_MASK64 0x000000FF00FFFFFFull
 #define WT_PSCI_AFF_MASK32 0x0000000000FFFFFFull
 
 #define WT_PSCI_TARGET_BOOT      0
-#define WT_PSCI_TARGET_PARKED    1
 #define WT_PSCI_TARGET_INVALID (-1)
 
 extern void wt_el3_warm_reset(void) __attribute__((noreturn));
@@ -91,8 +87,8 @@ static int psci_is_smc64(uint32_t fid)
     return (fid & 0x40000000u) != 0u;
 }
 
-/* Classify a target_cpu: the boot core, a parked secondary in its cluster, or
- * an MPIDR this system does not have. */
+/* Classify a target_cpu: the boot core, or an MPIDR outside the Normal
+ * world's machine view (a parked secondary is one). */
 static int psci_target(uint64_t target, uint32_t fid)
 {
     uint64_t mask = psci_is_smc64(fid) ? WT_PSCI_AFF_MASK64 : WT_PSCI_AFF_MASK32;
@@ -101,28 +97,17 @@ static int psci_target(uint64_t target, uint32_t fid)
     if (!psci_is_smc64(fid)) {
         target &= 0xFFFFFFFFull;
     }
-    if ((target & ~mask) != 0u) {
-        return WT_PSCI_TARGET_INVALID;
-    }
     if (target == self) {
         return WT_PSCI_TARGET_BOOT;
-    }
-    if ((((target ^ self) & ~0xFFull) == 0u) &&
-        ((target & 0xFFull) < (uint64_t)WT_PORT_BOOT_CPUS)) {
-        return WT_PSCI_TARGET_PARKED;
     }
     return WT_PSCI_TARGET_INVALID;
 }
 
+/* The only core in the machine view is on, so no OFF-to-ON path exists. */
 static int64_t psci_cpu_on(uint64_t target, uint32_t fid)
 {
-    int kind = psci_target(target, fid);
-
-    if (kind == WT_PSCI_TARGET_BOOT) {
+    if (psci_target(target, fid) == WT_PSCI_TARGET_BOOT) {
         return WT_PSCI_ALREADY_ON;
-    }
-    if (kind == WT_PSCI_TARGET_PARKED) {
-        return WT_PSCI_INTERNAL_FAILURE;
     }
     return WT_PSCI_INVALID_PARAMS;
 }
@@ -138,9 +123,6 @@ static int64_t psci_affinity_info(uint64_t target, uint64_t level, uint32_t fid)
     kind = psci_target(target, fid);
     if (kind == WT_PSCI_TARGET_BOOT) {
         return WT_PSCI_AFFINITY_ON;
-    }
-    if (kind == WT_PSCI_TARGET_PARKED) {
-        return WT_PSCI_DISABLED;
     }
     return WT_PSCI_INVALID_PARAMS;
 }

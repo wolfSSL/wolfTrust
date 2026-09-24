@@ -98,8 +98,10 @@ int wt_spm_sp_initializing(const struct wt_co* co);
 void wt_spm_sp_init_complete(const struct wt_co* co);
 void wt_spm_sp_in_gate(const struct wt_co* co, unsigned int inside);
 /* A partition that reported failed initialization (8.5 rule 3, FFA_ERROR with
- * code) is taken out of service: never counted as initialized, never run. */
+ * code) waits, never counted as initialized and never run again: a request or
+ * FFA_RUN to it is DENIED, as it is not in a state to handle one. */
 void wt_spm_sp_init_failed(struct wt_co* co, int32_t code);
+int wt_spm_sp_failed_init(const struct wt_co* co);
 
 /* The boot handoff record the FF-A boot information named, if any. */
 extern uintptr_t g_wt_spm_handoff_pa;

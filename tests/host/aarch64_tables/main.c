@@ -388,6 +388,33 @@ int main(void)
               WT_TABLES_ERROR_ALIGN,
           "window: executable and unaligned grants are refused");
 
+    check(wt_tables_hold_el0(&t, &pool, 0x0E200000u, 3u) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E200000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RO, 1u, 1u, 1u) &&
+          walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
+          "hold: an owner's code and data pages lose EL0 access and execution");
+    check(wt_tables_hold_el0(&t, &pool, 0x0E200000u, 1u) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          wt_tables_revoke_el0(&t, &pool, 0x0E200000u, 1u, 1) ==
+              WT_TABLES_ERROR_UNMAPPED,
+          "hold: a held page is neither held again nor revoked as a window");
+    check(wt_tables_release_el0(&t, &pool, 0x0E200000u, 3u) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E200000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 0u, 0u, 1u) &&
+          walk_is(&t, &pool, 0x0E201000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 0u, 0u, 1u) &&
+          walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RW, 1u, 1u, 1u),
+          "release: each page gets back exactly its own access and execution");
+    check(wt_tables_release_el0(&t, &pool, 0x0E202000u, 1u) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          wt_tables_hold_el0(&t, &pool, 0x0E044000u, 2u) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          walk_is(&t, &pool, 0x0E045000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
+          "hold: a page never held is not released, and a range reaching an EL1-only page changes nothing");
+
     wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, 4u * WT_TABLES_PAGE_SIZE);
     check(build(&t2, 6u, g_sp, 1u, &pool) == WT_TABLES_OK &&
           wt_tables_pool_pages_used(&pool) == 4u &&

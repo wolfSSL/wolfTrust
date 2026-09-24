@@ -1505,13 +1505,14 @@ static void v10_rows(void)
 /* Pages of the host backing: A's manifest-shared page, the image page every
  * partition maps, A's read-write pages 2-5 (2 and 5 are SPMC fill entries B's
  * table holds EL1-only, 3 and 4 are absent from B's table), A's read-only
- * page, and B's own page. */
+ * page, A's own code page, and B's own page. */
 #define PG_SHARED 0u
 #define PG_IMAGE  1u
 #define PG_FILL   2u
 #define PG_RW     3u
 #define PG_FILL2  5u
 #define PG_RO     6u
+#define PG_RX     7u
 #define PG_B      8u
 #define PG_C      9u
 
@@ -1661,7 +1662,9 @@ static int relay_reset(void)
                RELAY_RW | WT_MEMORY_ATTR_SHARED);
     set_region(&g_dom_a.regions[3], PG_IMAGE, 1u,
                WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC);
-    g_dom_a.region_count = 4u;
+    set_region(&g_dom_a.regions[4], PG_RX, 1u,
+               WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC);
+    g_dom_a.region_count = 5u;
     set_region(&g_dom_b.regions[0], PG_B, 1u, RELAY_RW);
     g_dom_b.region_count = 1u;
     set_region(&g_dom_c.regions[0], PG_C, 1u, RELAY_RW);
@@ -1971,6 +1974,7 @@ static void relay_region_rows(void)
 {
     wt_ffa_mem_constituent_t c[3];
     uint64_t h;
+    uint32_t attrs = 0u;
     int ret = 0;
 
     if ((g_mem == NULL) || !relay_reset()) {
@@ -2024,6 +2028,17 @@ static void relay_region_rows(void)
           access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW &&
           access_of(&g_dom_a, PG_RO) == WT_DOMAIN_ACCESS_RO,
           "region: a reclaim gives the owner back each region's own access");
+    c[0].address = page(PG_RX);
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RO, 0u,
+                   &ret);
+    check(ret == 0 && access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_NONE &&
+          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RO, 0u) == 0 &&
+          relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
+          wt_domain_get_permissions(g_dom_a.regions, g_dom_a.region_count,
+                                    page(PG_RX), &attrs) == WT_TABLES_OK &&
+          attrs == (WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC),
+          "region: a reclaim gives the owner back its own code page executable");
     check(g_domain_fails == 0u, "region: no domain operation failed closed");
 }
 

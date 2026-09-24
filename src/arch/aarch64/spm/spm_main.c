@@ -1386,8 +1386,8 @@ int wt_spm_msg2_deliver(uint16_t caller, const uint8_t* tx, uint32_t tx_size,
         }
     }
     if (ret == 0) {
-        (void)memcpy((void*)(uintptr_t)mb->rx, tx,
-                     msg.offset + msg.size);
+        wt_ffa_msg2_copy((uint8_t*)(uintptr_t)mb->rx,
+                         mb->pages * (uint32_t)WT_TABLES_PAGE_SIZE, tx, &msg);
         (void)wt_ffa_notif_frame_rx_full(msg.receiver,
                                          wt_ffa_id_is_secure(caller));
     }

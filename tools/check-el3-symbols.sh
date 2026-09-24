@@ -36,24 +36,57 @@ audit() {
   [ "$bad" -eq 0 ]
 }
 
-# The mk/arch-aarch64.mk image rule with stand-in tools: an archive that fails
-# the audit must leave no EL3 image, so a second make cannot reuse one.
+# The mk/arch-aarch64.mk image rule with stand-in tools, over a copy of the
+# policy: a policy change must re-audit an up-to-date image, and an archive
+# that fails the audit must leave no EL3 image, not even a stale one.
 link_gate() {
-  local tmp rc=0 pass
+  local tmp r b old=200001010000 rc=0 pass
   tmp="$(mktemp -d)" || return 1
-  printf '#!/bin/sh\nprintf "smc.o:\\n0000000000000000 T wt_spm_init\\n"\n' > "$tmp/fake-nm"
+  r="$tmp/root"
+  b="$tmp/build"
+  mkdir -p "$r/tools" "$r/src/arch/aarch64/el3" "$b"
+  cp "$root/tools/check-el3-symbols.sh" "$ALLOW" "$r/tools/"
+  : > "$r/src/arch/aarch64/el3/el3.ld"
+  printf '#!/bin/sh\ncat "%s"\n' "$tmp/listing" > "$tmp/fake-nm"
   printf '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && : > "$2"; shift; done\n' > "$tmp/fake-cc"
   chmod +x "$tmp/fake-nm" "$tmp/fake-cc"
-  : > "$tmp/libwt_el3.a"
+  el3_make() {
+    make -s -f "$root/mk/arch-aarch64.mk" ROOT="$r" BUILD_DIR="$b" \
+      TOOLPREFIX="$tmp/fake-" CC="$tmp/fake-cc" EL3_ARCHIVE_OBJS= \
+      "$b/wolftrust_el3.elf" > /dev/null 2>&1
+  }
+  age_all() {
+    touch -t "$old" "$r/tools/"* "$r/src/arch/aarch64/el3/el3.ld" "$b/"*
+  }
+
+  printf 'start.o:\n0000000000000000 T wt_el3_entry\n                 U memset\n' > "$tmp/listing"
+  : > "$b/libwt_el3.a"
+  el3_make || { echo "SELFTEST FAIL: a clean archive did not link"; rc=1; }
+  : > "$b/wolftrust_el3.bin"
+  age_all
+  grep -v 'memset' "$ALLOW" > "$r/tools/el3-symbols.allow"
+  if el3_make; then
+    echo "SELFTEST FAIL: a policy change did not re-audit the up-to-date EL3 image"
+    rc=1
+  fi
+  if [ -e "$b/wolftrust_el3.elf" ] || [ -e "$b/wolftrust_el3.bin" ]; then
+    echo "SELFTEST FAIL: a policy the archive fails left the EL3 image behind"
+    rc=1
+  fi
+
+  cp "$ALLOW" "$r/tools/"
+  printf 'smc.o:\n0000000000000000 T wt_spm_init\n' > "$tmp/listing"
+  : > "$b/wolftrust_el3.elf"
+  : > "$b/wolftrust_el3.bin"
+  age_all
+  touch "$b/libwt_el3.a"
   for pass in 1 2; do
-    if make -s -f "$root/mk/arch-aarch64.mk" ROOT="$root" BUILD_DIR="$tmp" \
-        TOOLPREFIX="$tmp/fake-" CC="$tmp/fake-cc" -o "$tmp/libwt_el3.a" \
-        "$tmp/wolftrust_el3.elf" > /dev/null 2>&1; then
+    if el3_make; then
       echo "SELFTEST FAIL: make pass $pass built the EL3 image past a failed audit"
       rc=1
     fi
-    if [ -e "$tmp/wolftrust_el3.elf" ]; then
-      echo "SELFTEST FAIL: make pass $pass left an unaudited EL3 image"
+    if [ -e "$b/wolftrust_el3.elf" ] || [ -e "$b/wolftrust_el3.bin" ]; then
+      echo "SELFTEST FAIL: make pass $pass left a stale EL3 image past a failed audit"
       rc=1
     fi
   done

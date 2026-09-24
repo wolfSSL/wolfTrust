@@ -583,6 +583,7 @@ static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason,
             out[i] = g_wt_ffa_direct_resp[i];
         }
         wt_ffa_regs_normalize(out);
+        wt_ffa_direct_clear_sbz(out);
         m->busy = 0u;
         *deliver = sint_stage(co);
         return 0;
@@ -722,6 +723,7 @@ static void endpoint_load_request(struct wt_co* co, const uint64_t* req)
 
     wt_ffa_msg_deliver(a->frame.x, req);
     wt_ffa_regs_normalize(a->frame.x);
+    wt_ffa_direct_clear_sbz(a->frame.x);
     m->busy = 1u;
     m->req2 = (count == WT_FFA_MSG_REGS_EXT) ? 1u : 0u;
     m->requester = (uint16_t)(req[1] >> 16);

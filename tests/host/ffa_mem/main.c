@@ -2333,6 +2333,11 @@ static void relay_perm_set_rows(void)
           wt_spm_mem_perm_get(&g_dom_a, page(PG_RX), &perm) == 0 &&
           perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN),
           "perm set: an image page the manifest leaves read-execute may become read-write");
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              0xFFFFFFF8u | WT_FFA_PERM_DATA_RW |
+                                  WT_FFA_PERM_XN) == 0 &&
+          access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_RW,
+          "perm set: the SBZ bits above the permissions are ignored (Table 2.40)");
     (void)wt_ffa_mailbox_map(&g_relay_mailbox, page(PG_RX), page(PG_GAP), 1u);
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
                               WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) ==

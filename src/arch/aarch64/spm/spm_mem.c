@@ -526,15 +526,13 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     return ret;
 }
 
-/* No access (b'00) maps the page away from EL0 whatever bit[2] says: S-EL1
- * keeps writing it, so SCTLR_EL1.WXN makes it execute-never (2.8.0.0.1). */
+/* Bits[31:3] are SBZ and ignored (Table 2.40). No access (b'00) maps the page
+ * away from EL0 whatever bit[2] says: S-EL1 keeps writing it, so
+ * SCTLR_EL1.WXN makes it execute-never (2.8.0.0.1). */
 static int perm_to_attributes(uint32_t perm, uint32_t* attributes)
 {
     uint32_t data = perm & WT_FFA_PERM_DATA_MASK;
 
-    if ((perm & ~(WT_FFA_PERM_DATA_MASK | WT_FFA_PERM_XN)) != 0u) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
     if (data == WT_FFA_PERM_DATA_NONE) {
         *attributes = 0u;
         return 0;

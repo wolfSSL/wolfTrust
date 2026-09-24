@@ -2529,6 +2529,31 @@ static int relay_relinquish_as(uint64_t h, uint16_t who)
     return ret;
 }
 
+/* B retrieves h from A asking for flags; *resp_flags gets the response's. */
+static int relay_retrieve_flags(uint64_t h, uint32_t flags,
+                                uint32_t* resp_flags)
+{
+    uint8_t req[128];
+    uint8_t resp[256];
+    size_t len = 0u;
+    size_t resp_len = 0u;
+    int ret;
+
+    *resp_flags = 0xFFFFFFFFu;
+    ret = wt_ffa_mem_retrieve_req_build(req, sizeof(req), h, RELAY_ID_A,
+                                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW,
+                                        &len);
+    if (ret == 0) {
+        put32(&req[WT_FFA_MEM_TXN_OFF_FLAGS], flags);
+        ret = wt_spm_mem_retrieve(req, len, RELAY_ID_B, resp, sizeof(resp),
+                                  &resp_len);
+    }
+    if (ret == 0) {
+        *resp_flags = get32(&resp[WT_FFA_MEM_TXN_OFF_FLAGS]);
+    }
+    return ret;
+}
+
 /* WT-FFA-0009 (memory the owner asked to be zeroed is zeroed once, after the
  * owner's access is gone and before any borrower maps it, Table 1.21 bit[0]
  * and 1.11.4.1). */
@@ -2539,6 +2564,7 @@ static void relay_zero_rows(void)
     uint8_t* p;
     uint64_t h = 0u;
     size_t len = 0u;
+    uint32_t resp_flags = 0u;
     int ret;
 
     if ((g_mem == NULL) || !relay_reset()) {
@@ -2572,6 +2598,23 @@ static void relay_zero_rows(void)
           relay_relinquish(h, 0u) == 0 &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 && p[0] == 0xC1u,
           "zero: a lend's SBZ flag bits are ignored and never ask the relayer for a wipe");
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW,
+                   WT_FFA_MEM_FLAG_ZERO, &ret);
+    check(ret == 0 &&
+          relay_retrieve_flags(h, WT_FFA_MEM_FLAG_ZERO, &resp_flags) == 0 &&
+          (resp_flags & WT_FFA_MEM_FLAG_ZERO) != 0u &&
+          relay_relinquish(h, 0u) == 0,
+          "zero: a borrower's first retrieval may ask for the wipe, and is told it ran");
+    p[0] = 0xD2u;
+    check(relay_retrieve_flags(h, WT_FFA_MEM_FLAG_ZERO, &resp_flags) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
+          "zero: a repeated retrieval asking for it is INVALID_PARAMETERS (Table 1.22 bit[0])");
+    check(relay_retrieve_flags(h, 0u, &resp_flags) == 0 &&
+          (resp_flags & WT_FFA_MEM_FLAG_ZERO) == 0u && p[0] == 0xD2u &&
+          relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "zero: one that does not is mapped and told no wipe ran before it (Table 1.23 bit[0])");
     check(g_domain_fails == 0u, "zero: no domain operation failed closed");
 }
 

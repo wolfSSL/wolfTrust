@@ -1038,6 +1038,12 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
         if (e->state == (uint8_t)WT_FFA_MEM_STATE_SHARED) {
             return WT_FFA_INVALID_PARAMETERS;
         }
+        /* Bit 0 is MBZ once this borrower has retrieved the region before
+         * (Table 1.22): the wipe ran once, ahead of its first retrieval. */
+        if (((rq.flags & WT_FFA_MEM_FLAG_ZERO) != 0u) &&
+            (borrower->ever_retrieved != 0u)) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
         if ((perms & WT_FFA_MEM_PERM_DATA_MASK) == WT_FFA_MEM_PERM_DATA_RO) {
             return WT_FFA_DENIED;
         }
@@ -1062,7 +1068,9 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     }
     in.tag = e->tag;
     in.handle = rq.handle;
-    zero = ((e->owner_cookie & WT_FFA_MEM_FLAG_ZERO) != 0u) ? 1 : 0;
+    /* Only a first retrieval follows the wipe (Table 1.23 bit[0]). */
+    zero = (((e->owner_cookie & WT_FFA_MEM_FLAG_ZERO) != 0u) &&
+            (borrower->ever_retrieved == 0u)) ? 1 : 0;
     in.flags = wt_ffa_mem_type_flag(e->state) |
                ((zero != 0) ? WT_FFA_MEM_FLAG_ZERO : 0u);
     in.op = WT_FFA_MEM_OP_SHARE;

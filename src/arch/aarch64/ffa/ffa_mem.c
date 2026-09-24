@@ -1135,11 +1135,13 @@ int wt_ffa_mem_frag_expected_at(const uint8_t* frag, uint32_t frag_len,
             return 0;
         }
         *size = (uint64_t)acc_off + ((uint64_t)acc_count * acc_size);
-        /* A receiver's own address ranges follow the access array. */
-        for (i = 0u; (i < acc_count) &&
-                     (((uint64_t)acc_off + ((uint64_t)i * acc_size) +
-                       WT_FFA_MEM_ACC_OFF_COMP_OFF + 4u) <= (uint64_t)frag_len);
-             i++) {
+        /* A receiver's own address ranges follow the access array, named by
+         * any descriptor's offset, so each one must have arrived to tell. */
+        for (i = 0u; i < acc_count; i++) {
+            if (((uint64_t)acc_off + ((uint64_t)i * acc_size) +
+                 WT_FFA_MEM_ACC_OFF_COMP_OFF + 4u) > (uint64_t)frag_len) {
+                return 0;
+            }
             comp_off = rd_u32(&frag[acc_off + (i * acc_size) +
                                     WT_FFA_MEM_ACC_OFF_COMP_OFF]);
             if (comp_off == 0u) {

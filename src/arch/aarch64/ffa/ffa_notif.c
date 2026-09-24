@@ -345,10 +345,11 @@ int32_t wt_ffa_notif_get(uint16_t caller, uint32_t w1, uint32_t flags,
     if ((flags & ~(uint32_t)WT_FFA_NOTIF_GET_FLAG_ALL) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    /* 16.6: the VM and Hypervisor flags are MBZ at the NS physical instance. */
-    if (((flags & (WT_FFA_NOTIF_GET_FLAG_VM | WT_FFA_NOTIF_GET_FLAG_HYP)) !=
-         0u) && ((callerp == NULL) || (callerp->secure == 0u))) {
-        return WT_FFA_INVALID_PARAMETERS;
+    /* REL0 Table 16.23: the VM and Hypervisor flags are SBZ, so ignored, at
+     * the NS physical instance. */
+    if ((callerp == NULL) || (callerp->secure == 0u)) {
+        flags &= ~(uint32_t)(WT_FFA_NOTIF_GET_FLAG_VM |
+                             WT_FFA_NOTIF_GET_FLAG_HYP);
     }
     if (receiver_id != caller) {
         return WT_FFA_DENIED;

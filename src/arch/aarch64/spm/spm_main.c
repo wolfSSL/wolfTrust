@@ -1126,7 +1126,6 @@ static void ns_interrupt(wt_ffa_regs_t* r)
         owner = wt_spm_sint_owner(intid);
         if (owner != NULL) {
             /* Table 9.1: signal a waiting owner, queue for a busy one. */
-            wt_spm_sint_set_delivered(owner, intid);
             if (wt_spm_ffa_signal_deliver(owner, intid) != 0) {
                 wt_spm_sint_queue_for(owner, intid);
             }

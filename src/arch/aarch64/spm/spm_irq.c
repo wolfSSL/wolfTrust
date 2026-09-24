@@ -295,9 +295,9 @@ uint32_t wt_spm_prove_sint(void)
 /* Route the test Secure interrupt to a partition both ways (Table 9.1). First
  * signalled: raise it while the SPMC runs (proven by wt_spm_prove_sint) so it
  * is taken at S-EL1, then hand FFA_INTERRUPT to the waiting owner. Then queued:
- * raise it with S-EL1 FIQ masked so it stays pending until the owner runs at
- * S-EL0, where the lower-EL FIQ queues it and the gate delivers it on the
- * owner's next FFA_MSG_WAIT. */
+ * raise it with S-EL1 FIQ masked while the owner handles another interrupt (the
+ * tick's id stands in), so the lower-EL FIQ queues it and the gate delivers it
+ * on the owner's next FFA_MSG_WAIT; the get must then name it, not the tick. */
 void wt_spm_prove_sint_route(struct wt_co* co)
 {
     if (co == NULL) {
@@ -314,9 +314,10 @@ void wt_spm_prove_sint_route(struct wt_co* co)
     wt_gic->set_priority(WT_SPM_TEST_SPI, 0x00u);
     wt_gic->enable(WT_SPM_TEST_SPI);
     wt_gic->set_pending(WT_SPM_TEST_SPI);
-    (void)wt_spm_ffa_signal_deliver(co, WT_SPM_TEST_SPI);
+    (void)wt_spm_ffa_signal_deliver(co, WT_GIC_INTID_SECURE_TIMER);
     wt_gic->disable(WT_SPM_TEST_SPI);
-    if (g_wt_spm_sint_queued == WT_SPM_TEST_SPI) {
+    if ((g_wt_spm_sint_queued == WT_SPM_TEST_SPI) &&
+        (wt_spm_sint_delivered(co) == WT_SPM_TEST_SPI)) {
         wt_el3_puts("[SPM] sint queued id=0x");
         wt_el3_puthex(WT_SPM_TEST_SPI, 2u);
         wt_el3_puts("\r\n");

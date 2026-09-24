@@ -186,6 +186,8 @@ uint32_t wt_spm_sint_fifo_pop(wt_spm_sint_fifo_t* q);
 
 void wt_spm_sint_queue(uint32_t intid);
 void wt_spm_sint_queue_for(struct wt_co* co, uint32_t intid);
+/* The oldest interrupt queued for co, removed and recorded as the id its
+ * FFA_INTERRUPT carries (what the get answers); 0 when none is queued. */
 uint32_t wt_spm_sint_take_pending(const struct wt_co* co);
 extern volatile uint32_t g_wt_spm_sint_queued;
 void wt_spm_prove_sint_route(struct wt_co* co);

@@ -463,6 +463,29 @@ int main(void)
           walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_ALL_RW, 1u, 1u, 1u),
           "hold: a page held for reading stays EL0 read-only, is never re-permissioned, and is released read-write");
+    check(wt_tables_hold_el0(&t, &pool, 0x0E200000u, 3u, 1) == WT_TABLES_OK &&
+          wt_tables_withdraw_el0(&t, &pool, 0x0E200000u, 3u) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E200000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RO, 1u, 1u, 1u) &&
+          walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
+          "withdraw: held pages lose the EL0 reading and execution left them, S-EL1 writing only what was writable");
+    check(wt_tables_withdraw_el0(&t, &pool, 0x0E200000u, 3u) == WT_TABLES_OK &&
+          wt_tables_release_el0(&t, &pool, 0x0E200000u, 3u) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E200000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 0u, 0u, 1u) &&
+          walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RW, 1u, 1u, 1u),
+          "withdraw: repeated, it changes nothing, and release still puts back exactly what the page had");
+    check(wt_tables_hold_el0(&t, &pool, 0x0E202000u, 1u, 1) == WT_TABLES_OK &&
+          wt_tables_withdraw_el0(&t, &pool, 0x0E202000u, 2u) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 1u, 1u, 1u) &&
+          wt_tables_withdraw_el0(&t, &pool, 0x0E045000u, 1u) ==
+              WT_TABLES_ERROR_UNMAPPED &&
+          wt_tables_release_el0(&t, &pool, 0x0E202000u, 1u) == WT_TABLES_OK,
+          "withdraw: a range reaching a page not held, or an EL1-only page, is refused and changes nothing");
     check(wt_tables_release_el0(&t, &pool, 0x0E202000u, 1u) ==
               WT_TABLES_ERROR_UNMAPPED &&
           wt_tables_hold_el0(&t, &pool, 0x0E044000u, 2u, 0) ==

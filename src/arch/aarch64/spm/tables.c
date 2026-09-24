@@ -607,6 +607,36 @@ int wt_tables_release_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
     return WT_TABLES_OK;
 }
 
+int wt_tables_withdraw_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
+                           uint64_t va, size_t pages)
+{
+    uint64_t* entry;
+    uint64_t end;
+    uint64_t at;
+    int ret = window_range_ok(t, va, pages);
+
+    if ((ret == WT_TABLES_OK) && (pool == NULL)) {
+        ret = WT_TABLES_ERROR_ARGUMENT;
+    }
+    if (ret != WT_TABLES_OK) {
+        return ret;
+    }
+    end = va + ((uint64_t)pages * WT_TABLES_PAGE_SIZE);
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        if (el0_entry(t, pool, at, PTE_SW_HELD) == NULL) {
+            return WT_TABLES_ERROR_UNMAPPED;
+        }
+    }
+    for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
+        entry = el0_entry(t, pool, at, PTE_SW_HELD);
+        *entry = (*entry & ~(PTE_AP_EL0 | PTE_AP_RO)) | PTE_UXN | PTE_PXN;
+        if ((*entry & PTE_SW_AP_RO) != 0u) {
+            *entry |= PTE_AP_RO;
+        }
+    }
+    return WT_TABLES_OK;
+}
+
 uint64_t wt_tables_ttbr0(const wt_tables_t* t)
 {
     return (t->l1_pa & PTE_ADDR_MASK) | ((uint64_t)t->asid << 48);

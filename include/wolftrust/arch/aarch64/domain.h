@@ -117,10 +117,13 @@ int wt_domain_grant(const wt_memory_region_t* regions, size_t count,
 int wt_domain_revoke(const wt_memory_region_t* regions, size_t count,
                      uintptr_t va, size_t pages, int was_mapped);
 
-/* An owner's own pages while a transaction holds them, and back exactly as
- * they were (wt_tables_hold_el0/release_el0); WT_TABLES_* result codes. */
+/* An owner's own pages while a transaction holds them, with no EL0 access
+ * at all, and back exactly as they were (wt_tables_hold_el0/withdraw_el0/
+ * release_el0); WT_TABLES_* result codes. */
 int wt_domain_owner_hold(const wt_memory_region_t* regions, size_t count,
                          uintptr_t va, size_t pages, int keep_read);
+int wt_domain_owner_withdraw(const wt_memory_region_t* regions, size_t count,
+                             uintptr_t va, size_t pages);
 int wt_domain_owner_release(const wt_memory_region_t* regions, size_t count,
                             uintptr_t va, size_t pages);
 

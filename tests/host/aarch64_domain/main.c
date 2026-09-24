@@ -207,6 +207,7 @@ int main(void)
     unsigned int switches;
     unsigned int fails;
     size_t built;
+    unsigned int tlbis;
     uint32_t attrs;
 
     printf("WT-PORT-0014 (AArch64 domain operations)\n");
@@ -295,6 +296,16 @@ int main(void)
           wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, &attrs) ==
               WT_TABLES_OK && attrs == RW,
           "a page a transaction holds reads back as no access, and its own access once released");
+    tlbis = g_tlbis;
+    check(wt_domain_owner_hold(g_sp0, 2u, 0x0E201000u, 1u, 1) == WT_TABLES_OK &&
+          wt_domain_owner_withdraw(g_sp0, 2u, 0x0E201000u, 1u) ==
+              WT_TABLES_OK && g_tlbis == tlbis + 2u &&
+          wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, &attrs) ==
+              WT_TABLES_OK && attrs == 0u &&
+          wt_domain_owner_release(g_sp0, 2u, 0x0E201000u, 1u) == WT_TABLES_OK &&
+          wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, &attrs) ==
+              WT_TABLES_OK && attrs == RW,
+          "a page held for reading can be withdrawn to no access, invalidating the ASID, and is released as it was");
 
     fails = g_fails;
     switches = g_switches;

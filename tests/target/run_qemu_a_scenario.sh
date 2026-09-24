@@ -643,6 +643,7 @@ case "$scenario" in
     expect "the SPMD sent a direct request to the echo partition" "[EL3] direct req to=0x80fe"
     expect "the SPMC relayed it at the NS-physical instance" "[SPM] direct req from=0x0000 to=0x80fe"
     expect "the echo partition's response reached the SPMD with the payload complemented" "[EL3] direct resp ok from=0x80fe x3=0xedcb5432"
+    expect "an AArch32 Secure EL1's SMCs took the lower-AArch32 vector and were answered, not faulted" "[EL3] a32 vector smc version=0x00010002 smc64=0xffffffff psci=0xffffffff"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   ffa-sint)
@@ -654,6 +655,7 @@ case "$scenario" in
     refute_re "every FFA_INTERRUPT the echo partition got carried w1/w2 zero, or its MBZ check would fault it" '^\[SYNC EL=0'
     expect "a Secure interrupt was signalled to the owner while it waited, and a pending Normal-world interrupt stayed queued until the owner waited again" "[SPM] sint signaled id=0x28"
     expect "a Secure interrupt queued while the owner handled another was delivered on its next wait and named by the get" "[SPM] sint queued id=0x28"
+    expect "an AArch32 Secure EL1's SMCs took the lower-AArch32 vector and were answered, not faulted" "[EL3] a32 vector smc version=0x00010002 smc64=0xffffffff psci=0xffffffff"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   ns-smoke)

@@ -31,6 +31,9 @@
 #define WT_MON_FID_SYSTEM_RESET  0xC3000003u
 #define WT_MON_FID_EXIT          0xC3000004u
 #define WT_MON_FID_SET_TICK_HZ   0xC3000005u
+/* Test driver only: x1 != 0 lets the CPU interface signal Group 1 Non-secure
+ * interrupts with no Normal world to enable them, x1 == 0 stops it. */
+#define WT_MON_FID_TEST_NS_GROUP 0xC3000006u
 
 #define WT_MON_NOT_SUPPORTED     0xFFFFFFFFFFFFFFFFull
 

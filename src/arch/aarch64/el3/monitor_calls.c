@@ -32,6 +32,30 @@
 
 volatile uint32_t g_wt_el3_tick_intid;
 
+#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+#if defined(WT_GIC_VERSION) && (WT_GIC_VERSION == 3)
+WT_SYSREG_READ(icc_igrpen1_el3, "ICC_IGRPEN1_EL3")
+WT_SYSREG_WRITE(icc_igrpen1_el3, "ICC_IGRPEN1_EL3")
+#define WT_ICC_IGRPEN1_EL3_GRP1NS 1u
+
+static void test_ns_group(uint64_t on)
+{
+    uint64_t value = wt_read_icc_igrpen1_el3();
+
+    value = (on != 0u) ? (value | WT_ICC_IGRPEN1_EL3_GRP1NS)
+                       : (value & ~(uint64_t)WT_ICC_IGRPEN1_EL3_GRP1NS);
+    wt_write_icc_igrpen1_el3(value);
+    wt_isb();
+}
+#else
+/* The GICv2 CPU interface already signals Group 1 to the Secure world. */
+static void test_ns_group(uint64_t on)
+{
+    (void)on;
+}
+#endif
+#endif
+
 uint64_t wt_el3_monitor_call(uint32_t fid, uint64_t arg)
 {
     uint64_t result = WT_MON_NOT_SUPPORTED;
@@ -58,6 +82,12 @@ uint64_t wt_el3_monitor_call(uint32_t fid, uint64_t arg)
         case WT_MON_FID_SYSTEM_RESET:
             wt_el3_system_reset("mon");
             break;
+#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+        case WT_MON_FID_TEST_NS_GROUP:
+            test_ns_group(arg);
+            result = 0u;
+            break;
+#endif
         default:
             break;
     }

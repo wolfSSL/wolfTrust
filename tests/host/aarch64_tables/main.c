@@ -375,15 +375,14 @@ int main(void)
     check(wt_tables_revoke_el0(&t, &pool, 0x0E045000u, 1u, 1) ==
               WT_TABLES_ERROR_UNMAPPED,
           "window: nothing to revoke on an EL1-only page");
+    used = wt_tables_pool_pages_used(&pool);
     check(wt_tables_grant_el0(&t, &pool, 0x0E048000u, 2u, WT_MEM_ATTR_READ,
-                              &mapped) == WT_TABLES_OK && mapped == 0 &&
-          walk_is(&t, &pool, 0x0E049000u, WT_TABLES_ATTR_NORMAL_WBWA,
-                  WT_TABLES_AP_ALL_RO, 1u, 1u, 1u) &&
-          wt_tables_revoke_el0(&t, &pool, 0x0E048000u, 2u, 0) == WT_TABLES_OK &&
-          wt_tables_walk(&t, &pool, 0x0E048000u, &w) != WT_TABLES_OK,
-          "window: absent pages are mapped read-only and unmapped again");
+                              &mapped) == WT_TABLES_ERROR_UNMAPPED &&
+          wt_tables_walk(&t, &pool, 0x0E048000u, &w) != WT_TABLES_OK &&
+          wt_tables_pool_pages_used(&pool) == used,
+          "window: pages the table does not map are never granted, and no pool page is taken");
     check(wt_tables_grant_el0(&t, &pool, 0x0E046000u, 3u, RW, &mapped) ==
-              WT_TABLES_ERROR_OVERLAP &&
+              WT_TABLES_ERROR_UNMAPPED &&
           walk_is(&t, &pool, 0x0E046000u, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
           "window: a range mixing mapped and absent pages changes nothing");
@@ -433,11 +432,12 @@ int main(void)
     check(build(&t2, 6u, g_sp, 1u, &pool) == WT_TABLES_OK &&
           wt_tables_pool_pages_used(&pool) == 4u &&
           wt_tables_grant_el0(&t2, &pool, 0x0E3FF000u, 2u, RW, &mapped) ==
-              WT_TABLES_ERROR_POOL &&
+              WT_TABLES_ERROR_UNMAPPED &&
+          wt_tables_pool_pages_used(&pool) == 4u &&
           wt_tables_walk(&t2, &pool, 0x0E3FF000u, &w) ==
               WT_TABLES_ERROR_UNMAPPED &&
           wt_tables_walk(&t2, &pool, 0x0E201000u, &w) == WT_TABLES_OK,
-          "window: a grant the pool runs dry on leaves none of its pages mapped");
+          "window: a grant across subtrees the table never built grows no table and maps nothing");
 
     wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, 2u * WT_TABLES_PAGE_SIZE);
     check(build(&t2, 6u, g_sp, 1u, &pool) == WT_TABLES_ERROR_POOL,

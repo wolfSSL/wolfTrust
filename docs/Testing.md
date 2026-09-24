@@ -364,7 +364,7 @@ Cortex-A35, and `xlnx-versal-virt`:
 ```sh
 make test-target-a                     # MACHINE=virt GIC=3 CPU=cortex-a72
 make test-target-a MACHINE=versal-virt
-tests/target/run_suite.sh qemu-a positive guest1 ffa-memneg
+tests/target/run_suite.sh qemu-a positive ffa-memneg
 WT_ENGINE=hsm tests/target/run_qemu_a_scenario.sh hsmattackneg
 ```
 
@@ -385,7 +385,8 @@ assert through `tests/target/lib/expect.sh`.
 | `boot` | The monitor initializes the GIC, takes the secure tick as a Group 0 FIQ, builds the FF-A boot-information blob, and enters the SPMC, which turns on its stage-1 MMU, runs S-EL0 partitions through the SVC gate, and completes initialization with `FFA_MSG_WAIT` |
 | `boot-smp2` | The same image on two `virt` cores: the secondary parks at EL3 and exactly one core runs the monitor |
 | `positive-secure` | The neutral core boots at Secure EL1 and every Secure Partition initializes at Secure EL0 under its own translation table |
-| `positive`, `guest1` | A Normal-world guest (guest 0 or 1) discovers the partitions, reads framework and service versions, is refused an unknown service, and completes a data-carrying `psa_call` through the FF-M gateway: a wolfHSM echo under `hsm`, two random draws over the native wire under `native` |
+| `positive` | The Normal-world guest discovers the partitions, reads framework and service versions, is refused an unknown service, and completes a data-carrying `psa_call` through the FF-M gateway: a wolfHSM echo under `hsm`, two random draws over the native wire under `native` |
+| `guest1` | SKIP: the AArch64 ports run a single Normal-world endpoint (`0x0000`), so the second-guest identity path has no AArch64 counterpart; M33MU covers it |
 | `crossdomain`, `keystoreneg` | A partition reading outside its domain, or a non-keystore partition reading the keystore band, takes a data abort at S-EL0, spends its restart budget, and escalates to fail-closed recovery |
 | `spfaultneg`, `panicneg` | A partition that faults once, or is panicked for a programmer error, is restarted by manifest policy and every partition still initializes |
 | `spbudgetneg` | A partition that faults on every entry exhausts its restart budget and escalates to fail-closed recovery |

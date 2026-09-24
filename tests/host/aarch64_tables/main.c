@@ -329,6 +329,20 @@ int main(void)
           walk_is(&t, &pool, 0x0E201000u, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_ALL_RO, 0u, 0u, 1u),
           "re-permission: the page returns to read-execute");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E201000u, 1u, 0u) ==
+              WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E201000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u) &&
+          wt_tables_grant_el0(&t, &pool, 0x0E201000u, 1u, RW, &mapped) ==
+              WT_TABLES_ERROR_OVERLAP &&
+          wt_tables_hold_el0(&t, &pool, 0x0E201000u, 1u, 0) ==
+              WT_TABLES_ERROR_UNMAPPED,
+          "re-permission: no access leaves S-EL1 read-write only, never a window or a held page");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E201000u, 1u, RX) ==
+              WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E201000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 0u, 0u, 1u),
+          "re-permission: a no-access page is re-permissioned back to read-execute");
     check(wt_tables_set_el0_attributes(&t, &pool, 0x0E041000u, 1u, RW) ==
               WT_TABLES_ERROR_UNMAPPED &&
           walk_is(&t, &pool, 0x0E041000u, WT_TABLES_ATTR_NORMAL_WBWA,

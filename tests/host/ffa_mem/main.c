@@ -2358,6 +2358,26 @@ static void relay_perm_set_rows(void)
                               WT_FFA_PERM_DATA_RW) ==
               WT_FFA_INVALID_PARAMETERS,
           "perm set: no pages, an unaligned base, another partition's page, and read-write-execute are INVALID_PARAMETERS");
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              WT_FFA_PERM_DATA_NONE) == 0 &&
+          access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_NONE &&
+          wt_spm_mem_perm_get(&g_dom_a, page(PG_RX), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_NONE | WT_FFA_PERM_XN),
+          "perm set: no access takes the page from EL0 and reads back as no access, execute-never");
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0 &&
+          access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_RW,
+          "perm set: a page made no-access is still the partition's to open again");
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_NONE | WT_FFA_PERM_XN) == 0 &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
+          b_entry(PG_RW) == 1 &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0,
+          "perm set: manifest-writable memory may go no-access, which S-EL1 still writes");
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RO) == WT_FFA_DENIED,
+          "perm set: nor may it become read-only and executable");
     check(g_domain_fails == 0u, "perm set: no domain operation failed closed");
 }
 

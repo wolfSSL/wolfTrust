@@ -896,6 +896,14 @@ static void frag_rows(void)
           (wt_ffa_mem_frag_expected(rbuf, (uint32_t)rlen, 1, &size) == 1) &&
           (size == (uint64_t)rlen) && (size != WT_FFA_MEM_PAGE_SIZE + 1u),
           "a retrieve request states its length from its access descriptors");
+    put32(&rbuf[WT_FFA_MEM_TXN_OFF_ACC_SIZE], 0u);
+    put32(&rbuf[WT_FFA_MEM_TXN_OFF_ACC_COUNT], 0xFFFFFFFFu);
+    check(wt_ffa_mem_frag_expected(rbuf, (uint32_t)rlen, 1, &size) == 0,
+          "a retrieve request with a zero access descriptor size cannot tell, and is never walked");
+    put32(&rbuf[WT_FFA_MEM_TXN_OFF_ACC_SIZE], WT_FFA_MEM_ACCESS_SIZE);
+    put32(&rbuf[WT_FFA_MEM_TXN_OFF_ACC_OFFSET], 8u);
+    check(wt_ffa_mem_frag_expected(rbuf, (uint32_t)rlen, 1, &size) == 0,
+          "nor is one whose access array starts inside the header");
 }
 
 /* A transaction from owner 0 to borrowers 0x8002 onwards with tag 0x77. */
@@ -3026,12 +3034,19 @@ static void relay_range_rows(void)
     wt_ffa_mem_constituent_t c[2];
     wt_ffa_mem_constituent_t r[2];
     wt_ffa_mem_retrieve_req_t rq;
+    const uint8_t* whole;
     uint8_t req[256];
+    uint8_t resp[256];
     uint64_t size = 0u;
+    uint64_t fh = 0u;
     uint64_t h;
     size_t len = 0u;
     size_t resp_len = 0u;
     uint32_t comp = 1u;
+    uint32_t offset = 0u;
+    uint32_t total = 0u;
+    uint8_t op = 0u;
+    int done = 0;
     int ret = 0;
 
     if ((g_mem == NULL) || !relay_reset()) {
@@ -3097,6 +3112,20 @@ static void relay_range_rows(void)
     check(wt_ffa_mem_retrieve_req_parse_ex(req, len + 32u, &rq) ==
               WT_FFA_INVALID_PARAMETERS,
           "ranges: a composite whose page total is not its ranges' is INVALID_PARAMETERS");
+    put32(&req[WT_FFA_MEM_TXN_OFF_ACC_SIZE], 0u);
+    put32(&req[WT_FFA_MEM_TXN_OFF_ACC_COUNT], 0xFFFFFFFFu);
+    put32(&req[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_COMP_OFF], 0u);
+    check(wt_spm_mem_frag_begin(WT_SPM_MEM_FRAG_OP_RETRIEVE, RELAY_ID_B, req,
+                                (uint32_t)len, (uint32_t)len + 32u, &fh) == 0 &&
+          wt_spm_mem_frag_next(fh, RELAY_ID_B, &req[len], 32u, &offset,
+                               &done) == 0 && done == 1,
+          "ranges: a fragmented retrieve request with a zero access descriptor size is taken without walking it");
+    whole = wt_spm_mem_frag_desc(fh, RELAY_ID_B, &total, &op);
+    check(whole != NULL &&
+          wt_spm_mem_retrieve(whole, total, RELAY_ID_B, resp, sizeof(resp),
+                              &resp_len) == WT_FFA_NOT_SUPPORTED,
+          "ranges: and the whole request is then refused (NOT_SUPPORTED)");
+    wt_spm_mem_frag_release(fh, RELAY_ID_B);
     check(g_domain_fails == 0u, "ranges: no domain operation failed closed");
 }
 

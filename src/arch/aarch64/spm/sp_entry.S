@@ -279,7 +279,9 @@ wt_sp_spin:
  * every configured partition into the RX buffer (its base is x0 on entry). Read
  * the match count from w2 and the first descriptor's partition id from the RX
  * buffer, and yield both to the SPMC self-test in one token (id in bits 31:16,
- * count in bits 15:0). */
+ * count in bits 15:0). FFA_RXTX_UNMAP and FFA_RX_RELEASE naming its own id are
+ * then INVALID_PARAMETERS (MBZ at this instance, Tables 13.21 and 13.30) and
+ * the RX buffer is released with w1 clear; any other answer yields count 0. */
     .section .text.wt_sp_ffa_discover, "ax"
     .globl wt_sp_ffa_discover
 wt_sp_ffa_discover:
@@ -294,6 +296,29 @@ wt_sp_ffa_discover:
     svc     #0
     uxth    w20, w2                     /* match count (w2) */
     ldrh    w21, [x19]                  /* first descriptor's partition id */
+    movz    w22, #0x0060                /* FFA_ERROR (0x84000060) */
+    movk    w22, #0x8400, lsl #16
+    movz    w0, #0x0067                 /* FFA_RXTX_UNMAP (0x84000067) */
+    movk    w0, #0x8400, lsl #16
+    lsl     w1, w21, #16
+    svc     #0
+    cmp     w0, w22
+    ccmn    w2, #2, #0, eq              /* INVALID_PARAMETERS (-2) */
+    csel    w20, w20, wzr, eq
+    movz    w0, #0x0065                 /* FFA_RX_RELEASE (0x84000065) */
+    movk    w0, #0x8400, lsl #16
+    mov     w1, w21
+    svc     #0
+    cmp     w0, w22
+    ccmn    w2, #2, #0, eq
+    csel    w20, w20, wzr, eq
+    movz    w0, #0x0065
+    movk    w0, #0x8400, lsl #16
+    mov     w1, #0
+    svc     #0
+    add     w22, w22, #1                /* FFA_SUCCESS32 (0x84000061) */
+    cmp     w0, w22
+    csel    w20, w20, wzr, eq
     orr     x1, x20, x21, lsl #16       /* token = first_id<<16 | count */
     movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3000101) */
     movk    w0, #0xC300, lsl #16

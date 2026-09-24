@@ -981,4 +981,13 @@ case "$scenario" in
     ;;
 esac
 
+# The fail-closed negatives end on the monitor's panic exit and resetneg at
+# the emulator build's reset limit; every other scenario exits cleanly.
+end_want=exit
+case "$scenario" in
+  parkneg|rdistneg|tickneg|crossdomain|tablesneg|manifestneg|keystoreneg|spbudgetneg) end_want=panic ;;
+  resetneg) end_want=reset-limit ;;
+esac
+expect_end "the emulator ended the run by $end_want" "$end_want" "$emu_status"
+
 echo "PASS: qemu-a/$scenario ($tag)"

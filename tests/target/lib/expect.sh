@@ -59,6 +59,36 @@ refute_re() {
   fi
 }
 
+# emu_end <status>: how the emulator run in WT_EXPECT_LOG ended. exit is a
+# clean status 0; reset-limit is status 0 at an emulator build's reset limit;
+# panic is the AArch64 monitor's 0x7e exit; timeout is timeout(1)'s 124.
+emu_end() {
+  case "$1" in
+    0)
+      if grep -Faq -e "system_reset done" -e "[QEMU] power-cycle limit" \
+          "$WT_EXPECT_LOG"; then
+        echo reset-limit
+      else
+        echo exit
+      fi ;;
+    126) echo panic ;;
+    124) echo timeout ;;
+    *) echo "status $1" ;;
+  esac
+}
+
+# expect_end <label> <want> <status>: the run ended the way the scenario must,
+# so markers printed before a hang or a crash never pass on their own.
+expect_end() {
+  local got
+  got="$(emu_end "$3")"
+  if [ "$got" = "$2" ]; then
+    check_pass "$1"
+  else
+    check_fail "$1" "ended by $got, want $2"
+  fi
+}
+
 selftest() {
   local dir fails=0 out
   dir="$(mktemp -d)"
@@ -93,6 +123,20 @@ selftest() {
   want_fail "once twice on one line" expect_once single '[EL3] twice'
   want_fail "once miss" expect_once single 'never printed'
   want_fail "gap off" expect finish 'guest0_psa done marker'
+  want "clean exit" '  [check] PASS  end' expect_end end exit 0
+  want "panic exit" '  [check] PASS  end' expect_end end panic 126
+  want_fail "timeout after the markers" expect_end end exit 124
+  want_fail "panic wanted, timed out" expect_end end panic 124
+  want_fail "clean exit wanted, panicked" expect_end end exit 126
+  want_fail "emulator crash" expect_end end exit 139
+  printf '[EL3] psci system_reset done\r\n' > "$dir/reset"
+  WT_EXPECT_LOG="$dir/reset" want "reset limit" '  [check] PASS  end' \
+    expect_end end reset-limit 0
+  WT_EXPECT_LOG="$dir/reset" want_fail "reset loop is no clean exit" \
+    expect_end end exit 0
+  printf '[QEMU] power-cycle limit 1 reached\r\n' > "$dir/reset"
+  WT_EXPECT_LOG="$dir/reset" want "power-cycle limit" '  [check] PASS  end' \
+    expect_end end reset-limit 0
   # The gap fallback relies on GNU grep -z; the runners only run where it is.
   if grep --version 2>/dev/null | head -1 | grep -q '(GNU grep)'; then
     WT_EXPECT_GAP=1 want "gap on" '  [check] PASS  finish' expect finish 'guest0_psa done marker'

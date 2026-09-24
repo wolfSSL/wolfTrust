@@ -387,6 +387,11 @@ echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
 # Per-assertion reporting (tests/target/lib/expect.sh) so make test-target
 # surfaces what each scenario actually checks, not just a single PASS.
 WT_EXPECT_LOG="$log"
+# m33mu prints this only when it stops on the expected breakpoint, then exits
+# 0; the negatives end on another breakpoint or the timeout by design.
+if grep -Faq "[EXPECT BKPT] Success" "$log"; then
+  expect_end "m33mu stopped on the expected breakpoint and exited cleanly" exit "$emu_status"
+fi
 
 case "$scenario" in
   positive|deputyneg|hsmpinneg|periphneg|bandneg[1-6]|restartneg[1-3])

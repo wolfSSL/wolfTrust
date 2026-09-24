@@ -309,16 +309,41 @@ static int hidden_page(uint64_t desc)
     return (desc & (PTE_SW_HELD | PTE_SW_HIDDEN)) == PTE_SW_HIDDEN;
 }
 
-static int el0_owned_normal_page(uint64_t desc)
+/* A Secure EL0 page the partition may re-permission, or one it made
+ * no-access, of Normal or Device memory. */
+static int el0_owned_page(uint64_t desc)
 {
     uint32_t ap = (uint32_t)((desc >> PTE_AP_SHIFT) & 0x3u);
     uint32_t attr = (uint32_t)((desc >> PTE_ATTR_SHIFT) & 0x7u);
 
     return ((desc & DESC_VALID) != 0u) && ((desc & PTE_NS) == 0u) &&
            ((desc & PTE_SW_HELD) == 0u) &&
-           (attr == WT_TABLES_ATTR_NORMAL_WBWA) &&
+           ((attr == WT_TABLES_ATTR_NORMAL_WBWA) ||
+            (attr == WT_TABLES_ATTR_DEVICE_NGNRE)) &&
            ((ap == WT_TABLES_AP_ALL_RW) || (ap == WT_TABLES_AP_ALL_RO) ||
             hidden_page(desc));
+}
+
+/* The entry attributes give a page of desc's memory type; no access (0)
+ * leaves it S-EL1 read-write and marked. */
+static int64_t owned_encoding(uint64_t desc, uint32_t attributes)
+{
+    int64_t pte;
+
+    if (((desc >> PTE_ATTR_SHIFT) & 0x7u) == WT_TABLES_ATTR_DEVICE_NGNRE) {
+        attributes |= WT_MEM_ATTR_DEVICE;
+    }
+    if ((attributes & ~WT_MEM_ATTR_DEVICE) == 0u) {
+        pte = encode(attributes | WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
+                         WT_TABLES_ATTR_NG, 1);
+        if (pte >= 0) {
+            pte |= (int64_t)PTE_SW_HIDDEN;
+        }
+    }
+    else {
+        pte = encode(attributes, 0);
+    }
+    return pte;
 }
 
 int wt_tables_set_el0_attributes(wt_tables_t* t, const wt_tables_pool_t* pool,
@@ -341,28 +366,21 @@ int wt_tables_set_el0_attributes(wt_tables_t* t, const wt_tables_pool_t* pool,
         (pages > ((WT_TABLES_VA_LIMIT - va) / WT_TABLES_PAGE_SIZE))) {
         return WT_TABLES_ERROR_RANGE;
     }
-    /* No access keeps the page the SPMC's to read and write at S-EL1. */
-    if (attributes == 0u) {
-        pte = encode(WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_TABLES_ATTR_NG,
-                     1);
-        pte |= (int64_t)PTE_SW_HIDDEN;
-    }
-    else {
-        pte = encode(attributes, 0);
-    }
-    if (pte < 0) {
-        return (int)pte;
-    }
     end = va + ((uint64_t)pages * WT_TABLES_PAGE_SIZE);
     for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
         probe = l3_entry(t, pool, at);
-        if ((probe == NULL) || !el0_owned_normal_page(*probe)) {
+        if ((probe == NULL) || !el0_owned_page(*probe)) {
             return WT_TABLES_ERROR_UNMAPPED;
+        }
+        pte = owned_encoding(*probe, attributes);
+        if (pte < 0) {
+            return (int)pte;
         }
     }
     for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
         entry = l3_entry(t, pool, at);
-        *entry = (uint64_t)pte | (*entry & PTE_ADDR_MASK);
+        *entry = (uint64_t)owned_encoding(*entry, attributes) |
+                 (*entry & PTE_ADDR_MASK);
     }
     return WT_TABLES_OK;
 }

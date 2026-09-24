@@ -177,8 +177,7 @@ static int owns_range(const wt_memory_region_t* regions, size_t count,
         return 0;
     }
     for (i = 0u; i < count; i++) {
-        if (((regions[i].attributes & WT_MEM_ATTR_DEVICE) == 0u) &&
-            covers(&regions[i], &span)) {
+        if (covers(&regions[i], &span)) {
             return 1;
         }
     }

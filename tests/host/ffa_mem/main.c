@@ -2378,6 +2378,20 @@ static void relay_perm_set_rows(void)
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
                               WT_FFA_PERM_DATA_RO) == WT_FFA_DENIED,
           "perm set: nor may it become read-only and executable");
+    check(wt_spm_mem_perm_get(&g_dom_a, page(PG_DEV), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_DEV), 1u,
+                              WT_FFA_PERM_DATA_NONE | WT_FFA_PERM_XN) == 0 &&
+          wt_spm_mem_perm_get(&g_dom_a, page(PG_DEV), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_NONE | WT_FFA_PERM_XN) &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_DEV), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0,
+          "perm set: the partition's own Device page reads back and changes its data access");
+    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_DEV), 1u,
+                              WT_FFA_PERM_DATA_RO) != 0 &&
+          wt_spm_mem_perm_get(&g_dom_a, page(PG_DEV), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN),
+          "perm set: a Device page is never made executable (2.9.0.0.1 rule 2)");
     check(g_domain_fails == 0u, "perm set: no domain operation failed closed");
 }
 

@@ -127,9 +127,10 @@ int wt_tables_set_el0_attributes(wt_tables_t* t, const wt_tables_pool_t* pool,
  * per-domain TTBR0 switch (distinct ASIDs, no TLBI), and the per-ASID
  * invalidation a permission change needs. */
 /* A window onto memory the table does not give EL0: grant rewrites pages it
- * maps EL1-only (or maps absent ones) as EL0 data pages, revoke puts back what
- * was there (*was_mapped from the grant). Never executable; an EL0 page is
- * never granted over. The caller invalidates the table's ASID. */
+ * maps EL1-only and non-global (or maps absent ones) as EL0 data pages, revoke
+ * puts back what was there (*was_mapped from the grant). Never executable; an
+ * EL0 or global page is never granted over. The caller invalidates the table's
+ * ASID. */
 int wt_tables_grant_el0(wt_tables_t* t, wt_tables_pool_t* pool, uint64_t va,
                         size_t pages, uint32_t attributes, int* was_mapped);
 int wt_tables_revoke_el0(wt_tables_t* t, const wt_tables_pool_t* pool,

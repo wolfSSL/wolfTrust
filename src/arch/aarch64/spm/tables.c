@@ -358,6 +358,13 @@ static int el1_only_page(uint64_t desc)
            ((ap == WT_TABLES_AP_EL1_RW) || (ap == WT_TABLES_AP_EL1_RO));
 }
 
+/* Only a non-global entry may become an EL0 page: a global one cached under
+ * any ASID would still match after the grant's per-ASID invalidation. */
+static int grantable_page(uint64_t desc)
+{
+    return el1_only_page(desc) && ((desc & PTE_NG) != 0u);
+}
+
 static int window_range_ok(const wt_tables_t* t, uint64_t va, size_t pages)
 {
     if ((t == NULL) || (t->l1 == NULL) || (pages == 0u)) {
@@ -401,7 +408,7 @@ int wt_tables_grant_el0(wt_tables_t* t, wt_tables_pool_t* pool, uint64_t va,
     for (at = va; at < end; at += WT_TABLES_PAGE_SIZE) {
         probe = l3_entry(t, pool, at);
         if ((probe != NULL) && ((*probe & DESC_VALID) != 0u)) {
-            if (!el1_only_page(*probe)) {
+            if (!grantable_page(*probe)) {
                 return WT_TABLES_ERROR_OVERLAP;
             }
             mapped++;

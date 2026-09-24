@@ -134,9 +134,10 @@ int wt_spm_mem_perm_get(const wt_secure_domain_t* dom, uint64_t va,
  * WT_FFA_INVALID_PARAMETERS (Table 2.41) for a bad encoding, alignment, or
  * count, a page that is not its own, or memory whose permissions are not the
  * partition's to change: memory a transaction covers, code every partition
- * runs, its mapped RX/TX pair, and, for read-only, memory its manifest makes
- * writable, which the SPMC writes at S-EL1 through the partition's own
- * table. The caller answers DENIED outside the partition's initialization. */
+ * runs, its mapped RX/TX pair, and, for read-only, the writable manifest
+ * memory of a partition the relayer does not bind (an FF-M partition), which
+ * the FF-M gate writes at S-EL1 through the partition's own table. The caller
+ * answers DENIED outside the partition's initialization. */
 int wt_spm_mem_perm_set(const wt_secure_domain_t* dom,
                         const wt_ffa_mailbox_t* mb, uint64_t va,
                         uint32_t pages, uint32_t perm);

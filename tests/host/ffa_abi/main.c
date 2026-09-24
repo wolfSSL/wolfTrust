@@ -545,6 +545,27 @@ static void direct_permission_rows(void)
           wt_ffa_direct_req_allowed(WT_FFA_PARTINFO_PROP_REQ2_SEND,
                                     WT_FFA_MSG_SEND_DIRECT_REQ2, 0) == 0,
           "sending is judged on the send bits, not the receive bits");
+
+    check(wt_ffa_direct_req_authorize(parts, 3u, 0x8008u, 0x8002u,
+                                      WT_FFA_MSG_SEND_DIRECT_REQ32) ==
+              WT_FFA_DENIED,
+          "a listed sender may not reach a receiver that takes nothing");
+    check(wt_ffa_direct_req_authorize(parts, 3u, 0x8002u, 0x8008u,
+                                      WT_FFA_MSG_SEND_DIRECT_REQ32) ==
+              WT_FFA_DENIED,
+          "a listed sender that advertises no sending may not send");
+    check(wt_ffa_direct_req_authorize(parts, 3u, 0x8009u, 0x8008u,
+                                      WT_FFA_MSG_SEND_DIRECT_REQ32) ==
+              WT_FFA_DENIED &&
+          wt_ffa_direct_req_authorize(parts, 3u, 0x8009u, 0x8008u,
+                                      WT_FFA_MSG_SEND_DIRECT_REQ2) ==
+              WT_FFA_DENIED,
+          "a sender discovery does not list may send nothing, even to an "
+          "endpoint that takes both kinds");
+    check(wt_ffa_direct_req_authorize(parts, 3u, 0x8008u, 0x8009u,
+                                      WT_FFA_MSG_SEND_DIRECT_REQ32) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a receiver no partition has is INVALID_PARAMETERS");
 }
 
 /* FFA_PARTITION_INFO_GET through the caller's mailbox (13.8, Table 13.36):

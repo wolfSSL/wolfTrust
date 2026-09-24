@@ -83,6 +83,14 @@ int wt_ffa_partinfo_props_of(const wt_ffa_partinfo_entry_t* parts, size_t n,
  * 15.8 and 15.16). */
 int wt_ffa_direct_req_allowed(uint32_t props, uint32_t fid, int receive);
 
+/* A partition-to-partition direct request of kind fid (7.4.2 rule 2): the
+ * sender must be listed in parts and advertise sending it (DENIED otherwise),
+ * the receiver listed (INVALID_PARAMETERS otherwise) and advertise taking it
+ * (DENIED otherwise). 0 when both hold. */
+int wt_ffa_direct_req_authorize(const wt_ffa_partinfo_entry_t* parts, size_t n,
+                                uint16_t sender, uint16_t receiver,
+                                uint32_t fid);
+
 /* Write the descriptors matching uuid16 into rx (7.2/6.1). A Nil UUID (all
  * zero) matches every partition; otherwise only those whose UUID equals it,
  * and the descriptors' UUID field is then zero (Table 6.1). flags bit 0

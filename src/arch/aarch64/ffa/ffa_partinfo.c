@@ -106,6 +106,27 @@ int wt_ffa_direct_req_allowed(uint32_t props, uint32_t fid, int receive)
     return ((props & need) != 0u) ? 0 : WT_FFA_DENIED;
 }
 
+int wt_ffa_direct_req_authorize(const wt_ffa_partinfo_entry_t* parts, size_t n,
+                                uint16_t sender, uint16_t receiver,
+                                uint32_t fid)
+{
+    uint32_t props = 0u;
+    int ret;
+
+    /* A sender discovery does not list advertises nothing, so sends nothing. */
+    if (wt_ffa_partinfo_props_of(parts, n, sender, &props) != 0) {
+        props = 0u;
+    }
+    ret = wt_ffa_direct_req_allowed(props, fid, 0);
+    if (ret == 0) {
+        ret = wt_ffa_partinfo_props_of(parts, n, receiver, &props);
+    }
+    if (ret == 0) {
+        ret = wt_ffa_direct_req_allowed(props, fid, 1);
+    }
+    return ret;
+}
+
 static int uuid_is_nil(const uint8_t* u)
 {
     unsigned int i;

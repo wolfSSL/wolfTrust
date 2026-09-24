@@ -769,7 +769,7 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
 
 /* A Secure interrupt taken while its owner runs at S-EL0 is queued here and
  * delivered as FFA_INTERRUPT on the owner's next FFA_MSG_WAIT (Table 9.1). */
-static uint32_t g_sp_sint_pending[WT_CO_MAX];
+static wt_spm_sint_fifo_t g_sp_sint_pending[WT_CO_MAX];
 volatile uint32_t g_wt_spm_sint_queued;
 
 void wt_spm_sint_queue(uint32_t intid)
@@ -779,8 +779,10 @@ void wt_spm_sint_queue(uint32_t intid)
     if ((current == &g_wt_co_bootstrap) || (current->unprivileged == 0u)) {
         return;
     }
-    g_sp_sint_pending[current->id - 1u] = intid;
-    g_wt_spm_sint_queued = intid;
+    if (wt_spm_sint_fifo_push(&g_sp_sint_pending[current->id - 1u],
+                              intid) == 0) {
+        g_wt_spm_sint_queued = intid;
+    }
 }
 
 void wt_spm_sint_queue_for(struct wt_co* co, uint32_t intid)
@@ -788,8 +790,9 @@ void wt_spm_sint_queue_for(struct wt_co* co, uint32_t intid)
     if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
         return;
     }
-    g_sp_sint_pending[co->id - 1u] = intid;
-    g_wt_spm_sint_queued = intid;
+    if (wt_spm_sint_fifo_push(&g_sp_sint_pending[co->id - 1u], intid) == 0) {
+        g_wt_spm_sint_queued = intid;
+    }
 }
 
 /* Ownership a partition claims through the para-virtual interrupt enable,
@@ -860,14 +863,10 @@ uint32_t wt_spm_sint_delivered(const struct wt_co* co)
 
 uint32_t wt_spm_sint_take_pending(const struct wt_co* co)
 {
-    uint32_t intid;
-
     if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
         return 0u;
     }
-    intid = g_sp_sint_pending[co->id - 1u];
-    g_sp_sint_pending[co->id - 1u] = 0u;
-    return intid;
+    return wt_spm_sint_fifo_pop(&g_sp_sint_pending[co->id - 1u]);
 }
 
 /* A waiting partition owed a queued Secure interrupt, staged for delivery;
@@ -880,7 +879,7 @@ static struct wt_co* sint_take_waiting_owner(void)
     for (i = 0u; i < WT_CO_MAX; i++) {
         co = g_created[i];
         if ((co != NULL) && (co->unprivileged != 0u) &&
-            (g_sp_sint_pending[i] != 0u) && (endpoint_waiting(co) != 0) &&
+            (g_sp_sint_pending[i].count != 0u) && (endpoint_waiting(co) != 0) &&
             (sint_stage(co) != 0u)) {
             return co;
         }

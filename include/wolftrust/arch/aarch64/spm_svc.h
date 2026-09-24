@@ -170,6 +170,20 @@ int wt_spm_ffa_sp_yielded_to(const struct wt_co* co, uint16_t caller);
  * interrupt is signalled to its owner with FFA_INTERRUPT while the owner waits,
  * or queued while it runs and delivered on its next FFA_MSG_WAIT. */
 int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid);
+
+/* The Secure interrupts queued for one partition (9.2.1): each id at most once,
+ * delivered oldest first, so none overwrites another. */
+#define WT_SPM_SINT_QUEUE_MAX 8u
+typedef struct wt_spm_sint_fifo {
+    uint32_t intid[WT_SPM_SINT_QUEUE_MAX];
+    uint32_t count;
+} wt_spm_sint_fifo_t;
+/* 0 once intid is queued (an id already queued stays queued once), -1 for
+ * id 0 or a full queue. */
+int wt_spm_sint_fifo_push(wt_spm_sint_fifo_t* q, uint32_t intid);
+/* The oldest queued id, removed; 0 when the queue is empty. */
+uint32_t wt_spm_sint_fifo_pop(wt_spm_sint_fifo_t* q);
+
 void wt_spm_sint_queue(uint32_t intid);
 void wt_spm_sint_queue_for(struct wt_co* co, uint32_t intid);
 uint32_t wt_spm_sint_take_pending(const struct wt_co* co);

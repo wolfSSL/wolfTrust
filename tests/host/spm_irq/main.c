@@ -164,6 +164,38 @@ static void reset(uint32_t intid, int signal_needed)
     g_wt_spm_tick_intid = 0u;
 }
 
+/* Two different interrupts queued for one partition before it next waits are
+ * both delivered, oldest first; neither overwrites the other (9.2.1). */
+static void fifo_rows(void)
+{
+    wt_spm_sint_fifo_t q;
+    uint32_t i;
+    int ok = 1;
+
+    memset(&q, 0, sizeof(q));
+    check(wt_spm_sint_fifo_pop(&q) == 0u, "an empty queue delivers nothing");
+    check(wt_spm_sint_fifo_push(&q, OWNED_SPI) == 0 &&
+              wt_spm_sint_fifo_push(&q, STRAY_SPI) == 0,
+          "two different interrupts queue for one partition");
+    check(wt_spm_sint_fifo_pop(&q) == OWNED_SPI &&
+              wt_spm_sint_fifo_pop(&q) == STRAY_SPI &&
+              wt_spm_sint_fifo_pop(&q) == 0u,
+          "both are delivered, oldest first, and the queue drains");
+    check(wt_spm_sint_fifo_push(&q, OWNED_SPI) == 0 &&
+              wt_spm_sint_fifo_push(&q, OWNED_SPI) == 0 &&
+              wt_spm_sint_fifo_pop(&q) == OWNED_SPI &&
+              wt_spm_sint_fifo_pop(&q) == 0u,
+          "an id already queued is delivered once, as one GIC pending state");
+    check(wt_spm_sint_fifo_push(&q, 0u) == -1 && q.count == 0u,
+          "id 0 is never queued, as it reads as none");
+    for (i = 0u; i < WT_SPM_SINT_QUEUE_MAX; i++) {
+        ok = ok && (wt_spm_sint_fifo_push(&q, 32u + i) == 0);
+    }
+    check(ok != 0 && wt_spm_sint_fifo_push(&q, 100u) == -1 &&
+              wt_spm_sint_fifo_pop(&q) == 32u,
+          "a full queue refuses another id and keeps what it holds");
+}
+
 int main(void)
 {
     wt_trap_frame_t frame;
@@ -215,6 +247,8 @@ int main(void)
     reset(WT_GIC_INTID_SPURIOUS, 0);
     check(wt_spm_ns_sint_take() == WT_GIC_INTID_SPURIOUS && g_eoi == 0u,
           "with nothing pending it reports spurious and ends nothing");
+
+    fifo_rows();
 
     printf("spm_irq: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

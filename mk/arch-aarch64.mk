@@ -18,6 +18,12 @@ WT_EL3_EL2_DIRTY_PROBE ?= 0
 ifeq ($(WT_EL3_EL2_DIRTY_PROBE),1)
 ARCH_CFLAGS += -DWT_EL3_EL2_DIRTY_PROBE=1
 endif
+# Test only: the monitor sees its redistributor asleep (1) or never gets its
+# secure tick (2) and must stop the boot.
+WT_EL3_BOOT_NEG_PROBE ?= 0
+ifneq ($(WT_EL3_BOOT_NEG_PROBE),0)
+ARCH_CFLAGS += -DWT_EL3_BOOT_NEG_PROBE=$(WT_EL3_BOOT_NEG_PROBE)
+endif
 WT_WOLFCRYPT_SP_ASM := 0
 WT_WOLFCRYPT_ARMASM := 0
 # 64-bit SP math words, C implementation (no WOLFSSL_SP_ARM64_ASM).

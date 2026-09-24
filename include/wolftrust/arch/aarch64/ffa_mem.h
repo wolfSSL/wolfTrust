@@ -428,6 +428,7 @@ typedef struct wt_ffa_mem_borrower {
     /* What the owner attached for this borrower (FF-A 1.2); its retrieve
      * request must repeat it. Zero for a 16-byte access descriptor. */
     uint8_t  impdef[16];
+    uint8_t  ever_retrieved; /* set by the first retrieve, kept on relinquish */
 } wt_ffa_mem_borrower_t;
 
 typedef struct wt_ffa_mem_handle_entry {

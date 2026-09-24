@@ -102,6 +102,8 @@
 /* Retrieve request only (FF-A 1.2): the caller names just itself although the
  * transaction has several borrowers. */
 #define WT_FFA_MEM_FLAG_BYPASS_BORROWERS (1u << 10)
+/* Every retrieve request flag Table 1.22 defines; bits[31:11] are SBZ. */
+#define WT_FFA_MEM_FLAG_RETRIEVE_MASK   0x7FFu
 #define WT_FFA_MEM_FLAG_TYPE_SHIFT      3u
 #define WT_FFA_MEM_FLAG_TYPE_MASK       (0x3u << WT_FFA_MEM_FLAG_TYPE_SHIFT)
 #define WT_FFA_MEM_FLAG_TYPE_SHARE      (0x1u << WT_FFA_MEM_FLAG_TYPE_SHIFT)
@@ -184,7 +186,9 @@ typedef struct wt_ffa_mem_txn {
 #define WT_FFA_MEM_RELINQ_OFF_COUNT     12u  /* u32 endpoint count */
 #define WT_FFA_MEM_RELINQ_OFF_ENDPOINTS 16u  /* u16 each */
 #define WT_FFA_MEM_RELINQ_HDR_SIZE      16u
-#define WT_FFA_MEM_RELINQ_FLAG_MASK     0x1u /* zero memory; no time slicing */
+/* The zero-memory bit, the one flag FFA_MEM_RELINQUISH and FFA_MEM_RECLAIM
+ * act on: bit[1] (time slicing) is refused, bits[31:2] are SBZ. */
+#define WT_FFA_MEM_RELINQ_FLAG_MASK     0x1u
 #define WT_FFA_MEM_RELINQ_FLAG_ZERO     0x1u
 
 /* Inputs to build a single-receiver lend/donate/share descriptor; handle is
@@ -334,8 +338,8 @@ int wt_ffa_mem_retrieve_req_parse_at(const uint8_t* buf, size_t len,
                                      uint32_t version,
                                      wt_ffa_mem_retrieve_req_t* out);
 
-/* FFA_MEM_RECLAIM flags (Table 2.31): only the zero-memory bit may be set.
- * Returns 0 or WT_FFA_INVALID_PARAMETERS. */
+/* FFA_MEM_RECLAIM flags (Table 2.31): 0, or WT_FFA_INVALID_PARAMETERS for the
+ * time-slicing bit; bits[31:2] are SBZ and ignored. */
 int wt_ffa_mem_reclaim_flags_check(uint32_t flags);
 
 /* Parse a relinquish descriptor with exactly one endpoint. Returns 0,

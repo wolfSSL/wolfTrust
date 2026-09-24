@@ -643,7 +643,9 @@ int wt_ffa_mem_retrieve_req_parse_at(const uint8_t* buf, size_t len,
     out->access_desc_size = acc_size;
     out->handle = rd_u64(&buf[WT_FFA_MEM_TXN_OFF_HANDLE]);
     out->tag = rd_u64(&buf[WT_FFA_MEM_TXN_OFF_TAG]);
-    out->flags = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_FLAGS]);
+    /* Table 1.22 bits[31:11] are SBZ. */
+    out->flags = rd_u32(&buf[WT_FFA_MEM_TXN_OFF_FLAGS]) &
+                 WT_FFA_MEM_FLAG_RETRIEVE_MASK;
     out->sender = (uint16_t)rd_u16(&buf[WT_FFA_MEM_TXN_OFF_SENDER]);
     out->attributes = (uint16_t)(rd_u16(&buf[WT_FFA_MEM_TXN_OFF_ATTRS]) &
                                  ~WT_FFA_MEM_ATTR_RSVD_MASK);
@@ -709,8 +711,9 @@ int wt_ffa_mem_relinquish_parse(const uint8_t* buf, size_t len,
         (len < WT_FFA_MEM_RELINQ_HDR_SIZE)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
+    /* Table 2.25: bit[1] (time slicing) is MBZ here, bits[31:2] are SBZ. */
     if ((rd_u32(&buf[WT_FFA_MEM_RELINQ_OFF_FLAGS]) &
-         ~WT_FFA_MEM_RELINQ_FLAG_MASK) != 0u) {
+         WT_FFA_MEM_FLAG_TIME_SLICE) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     count = rd_u32(&buf[WT_FFA_MEM_RELINQ_OFF_COUNT]);
@@ -735,14 +738,16 @@ int wt_ffa_mem_relinquish_parse_ex(const uint8_t* buf, size_t len,
     int ret = wt_ffa_mem_relinquish_parse(buf, len, out_handle, out_endpoint);
 
     if ((ret == 0) && (out_flags != NULL)) {
-        *out_flags = rd_u32(&buf[WT_FFA_MEM_RELINQ_OFF_FLAGS]);
+        *out_flags = rd_u32(&buf[WT_FFA_MEM_RELINQ_OFF_FLAGS]) &
+                     WT_FFA_MEM_RELINQ_FLAG_MASK;
     }
     return ret;
 }
 
+/* Table 2.31: bit[1] (time slicing) is MBZ here, bits[31:2] are SBZ. */
 int wt_ffa_mem_reclaim_flags_check(uint32_t flags)
 {
-    return ((flags & ~WT_FFA_MEM_RELINQ_FLAG_MASK) != 0u)
+    return ((flags & WT_FFA_MEM_FLAG_TIME_SLICE) != 0u)
                ? WT_FFA_INVALID_PARAMETERS : 0;
 }
 

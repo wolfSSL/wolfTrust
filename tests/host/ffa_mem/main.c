@@ -613,6 +613,7 @@ static void retrieve_rows(void)
     uint8_t buf[256];
     wt_ffa_mem_txn_t txn;
     uint64_t h = 0u;
+    uint32_t flags = 0u;
     uint16_t sender = 0u;
     uint16_t receiver = 0u;
     size_t len = 0u;
@@ -662,10 +663,10 @@ static void retrieve_rows(void)
               WT_FFA_NOT_SUPPORTED,
           "a relinquish naming more than one endpoint is NOT_SUPPORTED");
     put32(&buf[12], 1u);
-    put32(&buf[8], 0x4u);
-    check(wt_ffa_mem_relinquish_parse(buf, len, &h, &receiver) ==
-              WT_FFA_INVALID_PARAMETERS,
-          "a reserved relinquish flag is INVALID_PARAMETERS");
+    put32(&buf[8], 0xFFFFFFFCu | WT_FFA_MEM_RELINQ_FLAG_ZERO);
+    check(wt_ffa_mem_relinquish_parse_ex(buf, len, &h, &receiver, &flags) == 0 &&
+          flags == WT_FFA_MEM_RELINQ_FLAG_ZERO,
+          "the SBZ relinquish flag bits[31:2] are ignored and dropped (Table 2.25)");
     check(wt_ffa_mem_relinquish_build(buf, sizeof(buf), 0x1234ull, 0x4u,
                                       0x80FBu, &len) == WT_FFA_INVALID_PARAMETERS,
           "the relinquish builder refuses a reserved flag");
@@ -770,6 +771,10 @@ static void borrower_rows(void)
     check(wt_ffa_mem_retrieve_req_parse_ex(buf, len, &rq) == 0 &&
           rq.permissions[0] == 0x06u && rq.attributes == 0u,
           "a retrieve request's SBZ permission bits, access tail, attribute bits, and header bytes are ignored and dropped");
+    put32(&buf[WT_FFA_MEM_TXN_OFF_FLAGS], 0xFFFFF800u | WT_FFA_MEM_FLAG_TYPE_LEND);
+    check(wt_ffa_mem_retrieve_req_parse_ex(buf, len, &rq) == 0 &&
+          rq.flags == WT_FFA_MEM_FLAG_TYPE_LEND,
+          "a retrieve request's SBZ flag bits[31:11] are ignored and dropped (Table 1.22)");
 
     (void)wt_ffa_mem_relinquish_build(buf, sizeof(buf), 0x77ull,
                                       WT_FFA_MEM_RELINQ_FLAG_ZERO, 0x8002u,
@@ -983,9 +988,9 @@ static void retrieve_check_rows(void)
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
           "a request with another tag is INVALID_PARAMETERS");
     make_rq(&rq, e, 1u);
-    rq.flags = 1u << 11;
+    rq.flags = WT_FFA_MEM_FLAG_TIME_SLICE;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
-          "a reserved retrieve flag is INVALID_PARAMETERS");
+          "a retrieve flag the relayer does not implement is INVALID_PARAMETERS");
     make_rq(&rq, e, 1u);
     rq.flags = WT_FFA_MEM_FLAG_BYPASS_BORROWERS;
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) == WT_FFA_INVALID_PARAMETERS,
@@ -1074,6 +1079,8 @@ static void time_slice_rows(void)
     check(wt_ffa_mem_reclaim_flags_check(0u) == 0 &&
           wt_ffa_mem_reclaim_flags_check(WT_FFA_MEM_RELINQ_FLAG_ZERO) == 0,
           "a reclaim may still ask for the memory to be zeroed");
+    check(wt_ffa_mem_reclaim_flags_check(0xFFFFFFFCu) == 0,
+          "the SBZ reclaim flag bits[31:2] are ignored (Table 2.31)");
 }
 
 /* WT-FFA-0009 (the Handle field of a lend/donate/share, 1.11.1: this SPMC

@@ -51,7 +51,7 @@
 
 #define NVMEM_NUM                              1
 #define NVMEM_0_START                          0x0E3F1000
-#define NVMEM_0_END                            0x0E3F13FF
+#define NVMEM_0_END                            (NVMEM_0_START + WT_CONF_NVM_SIZE - 1u)
 #define NVMEM_0_PERMISSION                     TYPE_READ_WRITE
 
 #define NSPE_MMIO_NUM                          1

@@ -34,8 +34,7 @@
 
 typedef uintptr_t addr_t;
 
-#define WT_CONF_DRV_NVM_SIZE 0x100u
-static uint8_t g_drv_nvm[WT_CONF_DRV_NVM_SIZE];
+static uint8_t g_drv_nvm[WT_CONF_NVM_SIZE];
 static uint8_t g_drv_nvm_ready;
 static uint8_t g_drv_wd_enabled;
 

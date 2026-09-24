@@ -180,9 +180,8 @@ int32_t wt_ffa_notif_bind(uint16_t caller, uint32_t w1, uint32_t flags,
     if ((sender == NULL) || (receiver == NULL)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    if ((flags & ~(uint32_t)WT_FFA_NOTIF_FLAG_PER_VCPU) != 0u) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
+    /* Table 16.11: flag bits 31:1 are SBZ. */
+    flags &= WT_FFA_NOTIF_FLAG_PER_VCPU;
     if ((bitmap == 0u) || (sender_id == receiver_id)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
@@ -343,6 +342,8 @@ int32_t wt_ffa_notif_get(uint16_t caller, uint32_t w1, uint32_t flags,
     if (vcpu != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }
+    /* Bits 31:4 are SBZ (Table 16.23), but the FF-A ACS notification_get test
+     * requires them refused with INVALID_PARAMETERS. */
     if ((flags & ~(uint32_t)WT_FFA_NOTIF_GET_FLAG_ALL) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
     }

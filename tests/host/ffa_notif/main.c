@@ -152,8 +152,6 @@ static void bind_rows(void)
           WT_FFA_INVALID_PARAMETERS, "an unknown sender half is refused");
     check(wt_ffa_notif_bind(VM0, IDS(SP3, BAD_ID), 0u, BIT(0)) ==
           WT_FFA_INVALID_PARAMETERS, "an unknown receiver half is refused");
-    check(wt_ffa_notif_bind(VM0, IDS(SP3, VM0), 0x10u, BIT(0)) ==
-          WT_FFA_INVALID_PARAMETERS, "reserved flag bits are refused");
     check(wt_ffa_notif_bind(VM0, IDS(SP3, VM0), 0u, 0u) ==
           WT_FFA_INVALID_PARAMETERS, "an empty bitmap is refused");
     check(wt_ffa_notif_bind(VM0, IDS(VM0, VM0), 0u, BIT(0)) ==
@@ -172,6 +170,10 @@ static void bind_rows(void)
     check(wt_ffa_notif_bind(SP2, IDS(VM0, SP2), WT_FFA_NOTIF_FLAG_PER_VCPU,
                             BIT(13)) == 0,
           "a partition binds a per-vCPU id from the VM");
+    check(wt_ffa_notif_bind(SP2, IDS(VM0, SP2), 0xFFFFFFFEu, BIT(14)) == 0,
+          "the SBZ flag bits 31:1 are ignored");
+    check(wt_ffa_notif_set(VM0, IDS(VM0, SP2), 0u, BIT(14)) == 0,
+          "and the id is bound as the global one flag bit 0 asked for");
 }
 
 static void unbind_rows(void)

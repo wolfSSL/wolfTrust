@@ -782,8 +782,10 @@ int wt_spm_mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
 }
 
 /* Transactions whose descriptor is still arriving in fragments, at most one
- * per sender (DEN0140 4.1.2). */
-#define WT_SPM_MEM_FRAG_SLOTS 2u
+ * per sender (DEN0140 4.1.2). The first slot is the Normal world's alone, so
+ * partitions that hold theirs open can never starve it. */
+#define WT_SPM_MEM_FRAG_SLOTS    3u
+#define WT_SPM_MEM_FRAG_NS_SLOTS 1u
 static wt_ffa_mem_frag_t g_frag[WT_SPM_MEM_FRAG_SLOTS];
 
 static wt_ffa_mem_frag_t* frag_slot(uint64_t handle, uint16_t sender)
@@ -805,6 +807,9 @@ int wt_spm_mem_frag_begin(uint8_t op, uint16_t sender, const uint8_t* frag,
     wt_ffa_mem_frag_t* slot = NULL;
     uint64_t named = 0u;
     uint64_t size = 0u;
+    unsigned int first = id_is_secure(sender) ? WT_SPM_MEM_FRAG_NS_SLOTS : 0u;
+    unsigned int last = id_is_secure(sender) ? WT_SPM_MEM_FRAG_SLOTS
+                                             : WT_SPM_MEM_FRAG_NS_SLOTS;
     unsigned int i;
     int ret = 0;
 
@@ -828,13 +833,18 @@ int wt_spm_mem_frag_begin(uint8_t op, uint16_t sender, const uint8_t* frag,
             named |= (uint64_t)frag[WT_FFA_MEM_TXN_OFF_HANDLE + i] << (8u * i);
         }
     }
-    /* A sender that starts over drops the transfer it left unfinished. */
+    /* The TX buffer stays busy with an unfinished transfer, which its sender
+     * may not abort (DEN0140 4.1.2 rules 6 and 9); one the relayer already
+     * aborted is dropped for the new one. */
     for (i = 0u; i < WT_SPM_MEM_FRAG_SLOTS; i++) {
         if ((g_frag[i].active != 0u) && (g_frag[i].sender == sender)) {
+            if (g_frag[i].aborted == 0u) {
+                return WT_FFA_BUSY;
+            }
             wt_ffa_mem_frag_reset(&g_frag[i]);
         }
     }
-    for (i = 0u; (i < WT_SPM_MEM_FRAG_SLOTS) && (slot == NULL); i++) {
+    for (i = first; (i < last) && (slot == NULL); i++) {
         if (g_frag[i].active == 0u) {
             slot = &g_frag[i];
         }

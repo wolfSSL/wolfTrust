@@ -3403,6 +3403,62 @@ static void relay_frag_abort_rows(void)
     check(g_domain_fails == 0u, "frag abort: no domain operation failed closed");
 }
 
+/* DEN0140 4.1.2 rules 6 and 9: a sender's unfinished transfer keeps its TX
+ * buffer busy and is never dropped for a new one; the Normal world keeps a
+ * slot no partition can take. */
+static void relay_frag_busy_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint8_t desc[256];
+    uint64_t fh = 0u;
+    uint64_t again = 0u;
+    uint64_t fb = 0u;
+    uint64_t fc = 0u;
+    uint64_t fns = 0u;
+    size_t len = 0u;
+    uint32_t offset = 0u;
+    uint32_t total = 0u;
+    uint8_t op = 0u;
+    int done = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "frag busy: fixture");
+        return;
+    }
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    (void)relay_build(desc, sizeof(desc), WT_FFA_MEM_OP_LEND, c, 1u,
+                      WT_FFA_MEM_PERM_DATA_RW, 0u, &len);
+    check(wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_A, desc,
+                                40u, (uint32_t)len, &fh) == 0 &&
+          wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_A, desc,
+                                40u, (uint32_t)len, &again) == WT_FFA_BUSY,
+          "frag busy: a second first fragment from a sender mid-transfer is BUSY");
+    check(wt_spm_mem_frag_next(fh, RELAY_ID_A, &desc[40], (uint32_t)len - 40u,
+                               &offset, &done) == 0 && done == 1 &&
+          wt_spm_mem_frag_desc(fh, RELAY_ID_A, &total, &op) != NULL,
+          "frag busy: and the transfer it began goes on to the end");
+    wt_spm_mem_frag_release(fh, RELAY_ID_A);
+    check(wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_A, desc,
+                                40u, (uint32_t)len, &fh) == 0 &&
+          wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_B, desc,
+                                40u, (uint32_t)len, &fb) == 0 &&
+          wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_C, desc,
+                                40u, (uint32_t)len, &fc) == WT_FFA_NO_MEMORY,
+          "frag busy: partitions share their own slots, a third is NO_MEMORY");
+    check(wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND,
+                                WT_FFA_ID_NS_PRIMARY, desc, 40u,
+                                (uint32_t)len, &fns) == 0 &&
+          wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND,
+                                WT_FFA_ID_NS_PRIMARY, desc, 40u,
+                                (uint32_t)len, &again) == WT_FFA_BUSY,
+          "frag busy: the Normal world still starts one, and is BUSY for a second");
+    wt_spm_mem_frag_release(fh, RELAY_ID_A);
+    wt_spm_mem_frag_release(fb, RELAY_ID_B);
+    wt_spm_mem_frag_release(fns, WT_FFA_ID_NS_PRIMARY);
+    check(g_domain_fails == 0u, "frag busy: no domain operation failed closed");
+}
+
 /* WT-FFA-0009 (a copy the SPMC makes for the Normal world reaches only memory
  * it still has: none it lent or donated, or that a partition now owns, DEN0140
  * Table 1.3; a page it shares keeps its access, read-only where the share
@@ -3538,6 +3594,7 @@ int main(void)
     relay_access_size_rows();
     relay_range_rows();
     relay_frag_abort_rows();
+    relay_frag_busy_rows();
     relay_ns_access_rows();
 
     if (g_mem != NULL) {

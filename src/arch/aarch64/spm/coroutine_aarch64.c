@@ -97,6 +97,9 @@ static volatile uint32_t g_sint_signal_request;
 
 static wt_sp_arch_t g_sp_arch[WT_CO_MAX];
 static uint8_t g_init_seen[WT_CO_MAX];
+/* Set while a partition is inside the FF-M gate, where blocking (its psa_wait)
+ * is how an FF-M partition, which makes no FF-A calls, completes its init. */
+static uint8_t g_init_gate[WT_CO_MAX];
 static uint8_t g_faulted_once[WT_CO_MAX];
 static struct wt_co* g_created[WT_CO_MAX];
 static uint32_t g_partitions_initialized;
@@ -160,10 +163,11 @@ static int run_pending_partition(unsigned int i)
 }
 
 /* FF-A init model (5.3, 8.5): before the SPMC waits for events, every
- * partition runs once from its entry until it blocks, which is its
- * initialization complete. A partition that faults during init is routed
- * through the core's restart policy (wt_spm_recover_faulted re-arms it) and
- * re-run; one that faults every time exhausts its budget and fails closed. */
+ * partition runs from its entry until it signals successful initialization
+ * with FFA_MSG_WAIT (an FF-M partition by blocking in the FF-M gate). A
+ * partition that faults during init is routed through the core's restart
+ * policy (wt_spm_recover_faulted re-arms it) and re-run; one that faults every
+ * time exhausts its budget and fails closed. */
 #if defined(WT_SPM_ECHO_SP)
 /* The FF-A native echo partition for the direct-message proofs: created in the
  * init pass, after the core has created the manifest partitions, so it
@@ -444,13 +448,35 @@ uint16_t wt_spm_sp_ffa_id_of_domain(uint32_t domain_id)
     return 0u;
 }
 
-/* Non-zero until the partition's first block, which completes its init. */
+/* Non-zero until the partition signals successful initialization. */
 int wt_spm_sp_initializing(const struct wt_co* co)
 {
     if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
         return 0;
     }
     return (g_init_seen[co->id - 1u] == 0u) ? 1 : 0;
+}
+
+void wt_spm_sp_init_complete(const struct wt_co* co)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX) ||
+        (g_init_seen[co->id - 1u] != 0u)) {
+        return;
+    }
+    g_init_seen[co->id - 1u] = 1u;
+    if (g_wt_spm_partitions_live != 0u) {
+        g_sp_init_count++;
+        wt_el3_puts("[SP] init id=0x");
+        wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + co->id, 4u);
+        wt_el3_puts("\r\n");
+    }
+}
+
+void wt_spm_sp_in_gate(const struct wt_co* co, unsigned int inside)
+{
+    if ((co != NULL) && (co->id != 0u) && (co->id <= WT_CO_MAX)) {
+        g_init_gate[co->id - 1u] = (inside != 0u) ? 1u : 0u;
+    }
 }
 
 static wt_sp_arch_t* sp_arch(const struct wt_co *co)
@@ -707,12 +733,14 @@ static int run_endpoint(struct wt_co* co, uint64_t* out, uint8_t spmc)
     }
 }
 
+/* Waiting (4.10) is only reached through a completed initialization. */
 static int endpoint_waiting(const struct wt_co* co)
 {
     const wt_sp_msg_t* m = &g_sp_msg[co->id - 1u];
 
     return ((wt_co_state((wt_co_t*)co) == WT_CO_BLOCKED) && (m->busy == 0u) &&
-            (m->yielded == 0u) && (m->calling == 0u)) ? 1 : 0;
+            (m->yielded == 0u) && (m->calling == 0u) &&
+            (g_init_seen[co->id - 1u] != 0u)) ? 1 : 0;
 }
 
 static void endpoint_load_request(struct wt_co* co, const uint64_t* req)
@@ -851,7 +879,8 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
         }
         m->yielded = 0u;
     }
-    else if ((m->busy != 0u) || (m->calling != 0u)) {
+    else if ((m->busy != 0u) || (m->calling != 0u) ||
+             (wt_spm_sp_initializing(co) != 0)) {
         return WT_FFA_DENIED;
     }
     else {
@@ -1053,6 +1082,7 @@ void wt_co_arch_init_stack(struct wt_co *co, wt_co_entry_fn entry, void *arg)
 
     /* The S-EL0 form of the same start: the domain flag arrives later. */
     g_init_seen[co->id - 1u] = 0u;
+    g_init_gate[co->id - 1u] = 0u;
     g_created[co->id - 1u] = co;
     (void)memset(&g_sp_msg[co->id - 1u], 0, sizeof(g_sp_msg[0]));
     wt_spm_sp_ffa_reset(co);
@@ -1140,16 +1170,11 @@ void wt_co_arch_leave(void)
         sp_arch(current)->frame = *g_wt_spm_live_frame;
         g_wt_spm_live_frame = NULL;
         g_wt_spm_handler_depth = 0u;
-        /* Only a block ends init: a preempted partition has not waited yet. */
-        if ((g_wt_spm_partitions_live != 0u) &&
-            (wt_co_state((wt_co_t*)current) == WT_CO_BLOCKED) &&
-            (g_init_seen[current->id - 1u] == 0u)) {
-            g_init_seen[current->id - 1u] = 1u;
-            g_sp_init_count++;
-            wt_el3_puts("[SP] init id=0x");
-            wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + current->id, 4u);
-            wt_el3_puts("\r\n");
+        if ((wt_co_state((wt_co_t*)current) == WT_CO_BLOCKED) &&
+            (g_init_gate[current->id - 1u] != 0u)) {
+            wt_spm_sp_init_complete(current);
         }
+        g_init_gate[current->id - 1u] = 0u;
         wt_sp_el0_leave();
     }
     wt_co_arch_switch(&current->sp, g_wt_co_bootstrap.sp);

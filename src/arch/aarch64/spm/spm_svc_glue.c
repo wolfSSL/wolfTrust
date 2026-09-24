@@ -430,9 +430,14 @@ static void ffa_run(wt_trap_frame_t* frame, const struct wt_co* co)
 }
 
 /* FFA_YIELD (8.2): hand the CPU back to whoever entered this partition; the
- * call returns FFA_SUCCESS once FFA_RUN resumes it. */
-static void ffa_yield(wt_trap_frame_t* frame)
+ * call returns FFA_SUCCESS once FFA_RUN resumes it. An initializing partition
+ * was scheduled by the SPMC and may not yield (8.5 rule 4). */
+static void ffa_yield(wt_trap_frame_t* frame, const struct wt_co* co)
 {
+    if (wt_spm_sp_initializing(co) != 0) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
     ffa_success(frame, 0u, 0u);
     g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_YIELD;
     wt_co_block();
@@ -985,7 +990,9 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
          * captured, so the resumed partition returns from its svc with this
          * value: SUCCESS makes the SVC transport re-issue around the block. */
         frame->x[0] = (uint64_t)WT_FFM_SUCCESS;
+        wt_spm_sp_in_gate((const struct wt_co*)co, 1u);
         frame->x[0] = (uint64_t)(int64_t)wt_spm_dispatch_call(call, frame);
+        wt_spm_sp_in_gate((const struct wt_co*)co, 0u);
     }
     else if (fid == WT_SPM_SVC_FID_YIELD) {
         g_yield_token = frame->x[1];
@@ -1029,13 +1036,18 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
 #endif
     else if (fid == WT_FFA_MSG_WAIT) {
-        /* 8.2/8.5: the partition enters the waiting state; the next direct
-         * request is delivered as this call's return registers. A Secure
-         * interrupt queued while it ran (Table 9.1) is delivered here as
-         * FFA_INTERRUPT instead of blocking, w1/w2 zero (12.4.1 item 3). */
+        /* 8.2/8.5: the partition enters the waiting state, which for one
+         * still initializing signals success; the next direct request is
+         * delivered as this call's return registers. A Secure interrupt
+         * queued while it ran (Table 9.1) is delivered here as FFA_INTERRUPT
+         * instead of blocking, w1/w2 zero (12.4.1 item 3). */
         busy = wt_spm_ffa_sp_requester((const struct wt_co*)co, &requester,
                                        &self);
-        sint = (busy == 0) ? wt_spm_sint_take_pending(co) : 0u;
+        sint = 0u;
+        if (busy == 0) {
+            wt_spm_sp_init_complete((const struct wt_co*)co);
+            sint = wt_spm_sint_take_pending(co);
+        }
         if (busy != 0) {
             ffa_error(frame, WT_FFA_DENIED);
         }
@@ -1063,7 +1075,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         ffa_run(frame, (const struct wt_co*)co);
     }
     else if (fid == WT_FFA_YIELD) {
-        ffa_yield(frame);
+        ffa_yield(frame, (const struct wt_co*)co);
     }
     else if ((fid == WT_FFA_MSG_SEND_DIRECT_RESP32) ||
              (fid == WT_FFA_MSG_SEND_DIRECT_RESP64) ||

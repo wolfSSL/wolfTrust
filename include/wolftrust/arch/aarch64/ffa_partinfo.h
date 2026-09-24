@@ -85,12 +85,13 @@ int wt_ffa_direct_req_allowed(uint32_t props, uint32_t fid, int receive);
 
 /* Write the descriptors matching uuid16 into rx (7.2/6.1). A Nil UUID (all
  * zero) matches every partition; otherwise only those whose UUID equals it,
- * and the descriptors' UUID field is then zero (Table 6.1). flags bit 0 returns only the count (no descriptors written). On success 0 is
- * returned with *out_count set and *out_desc_size set to the per-descriptor
- * size (0 for a count-only request). The producer zeroes every descriptor byte
- * it does not fill (7.2.2); a v1.0 caller's descriptor carries only the
- * property bits Table 18.22 defines. WT_FFA_INVALID_PARAMETERS for a reserved
- * flag bit; WT_FFA_NO_MEMORY if rx cannot hold the matching descriptors. */
+ * and the descriptors' UUID field is then zero (Table 6.1). flags bit 0
+ * returns only the count (no descriptors written); the SBZ bits 31:1 are
+ * ignored. On success 0 is returned with *out_count set and *out_desc_size
+ * set to the per-descriptor size (0 for a count-only request). The producer
+ * zeroes every descriptor byte it does not fill (7.2.2); a v1.0 caller's
+ * descriptor carries only the property bits Table 18.22 defines.
+ * WT_FFA_NO_MEMORY if rx cannot hold the matching descriptors. */
 int wt_ffa_partinfo_write(uint8_t* rx, size_t rx_size, uint32_t caller_version,
                           const wt_ffa_partinfo_entry_t* parts, size_t n,
                           const uint8_t* uuid16, uint32_t flags,

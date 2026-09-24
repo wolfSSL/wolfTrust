@@ -169,9 +169,6 @@ int wt_ffa_partinfo_write(uint8_t* rx, size_t rx_size, uint32_t caller_version,
     int nil;
     int count_only;
 
-    if ((flags & ~WT_FFA_PARTINFO_FLAG_COUNT) != 0u) {
-        return WT_FFA_INVALID_PARAMETERS;
-    }
     nil = uuid_is_nil(uuid16);
     count_only = (flags & WT_FFA_PARTINFO_FLAG_COUNT) != 0u;
 
@@ -208,7 +205,8 @@ int wt_ffa_partinfo_get(const uint64_t* x, uint32_t caller_version,
         (size == NULL)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    flags = (uint32_t)x[5];
+    /* Table 13.34: flag bits 31:1 are SBZ. */
+    flags = (uint32_t)x[5] & WT_FFA_PARTINFO_FLAG_COUNT;
     for (i = 0u; i < 4u; i++) {
         word = (uint32_t)x[1u + i];
         uuid[4u * i + 0u] = (uint8_t)(word & 0xFFu);

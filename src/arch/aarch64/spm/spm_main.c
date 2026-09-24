@@ -497,14 +497,18 @@ static int prove_el0(void)
  * partition parks in FFA_MSG_WAIT, is delivered two direct requests in turn
  * through its saved frame, and answers each by FFA_MSG_SEND_DIRECT_RESP32
  * with the ids swapped and the payload word complemented. First, on the same
- * band, a partition that reports failed initialization with FFA_ERROR must be
- * taken out of service, never having initialized. */
+ * band, a partition that reports failed initialization with FFA_ERROR must
+ * wait, never having initialized, and never run again. */
 static wt_secure_domain_t g_echo_domain;
 extern void wt_sp_ffa_init_fail(void);
 
 static int prove_init_failure(uint8_t* stack, size_t size)
 {
+    static const uint32_t probe[WT_FFA_DIRECT_PAYLOAD_WORDS] = { 0u };
+    uint64_t req[WT_FFA_MSG_REGS_EXT];
+    uint64_t resp[WT_FFA_MSG_REGS_EXT];
     wt_co_t* co;
+    int ok;
 
     co = wt_co_create_blocked_ex(stack, size,
                                  (wt_co_entry_fn)wt_sp_ffa_init_fail, (void*)0);
@@ -514,8 +518,21 @@ static int prove_init_failure(uint8_t* stack, size_t size)
     wt_co_set_domain(co, &g_echo_domain, 1u);
     wt_co_wake(co);
     (void)wt_co_run(co);
-    return ((wt_co_state(co) == WT_CO_FAULTED) &&
-            (wt_spm_sp_initializing((const struct wt_co*)co) != 0) &&
+    /* 8.5 rule 3: it waits, neither initializing nor initialized, and a
+     * request or FFA_RUN finds it not in a state to handle one. */
+    wt_ffa_direct_build(req, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        WT_FFA_ID_SP_FIRST, probe);
+    ok = ((wt_co_state(co) == WT_CO_BLOCKED) &&
+          (wt_spm_sp_failed_init((const struct wt_co*)co) != 0) &&
+          (wt_spm_sp_initializing((const struct wt_co*)co) == 0) &&
+          (wt_spm_ffa_direct_deliver((struct wt_co*)co, req, resp) ==
+           WT_FFA_DENIED) &&
+          (wt_spm_ffa_run((struct wt_co*)co, WT_FFA_ID_NS_PRIMARY, resp) ==
+           WT_FFA_DENIED)) ? 1 : 0;
+    /* A scheduler that wakes it anyway never gets it running again. */
+    wt_co_wake(co);
+    (void)wt_co_run(co);
+    return ((ok != 0) && (wt_co_state(co) == WT_CO_FAULTED) &&
             (wt_spm_yield_token() != 0xBADu)) ? 1 : 0;
 }
 

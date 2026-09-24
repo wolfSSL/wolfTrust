@@ -466,8 +466,9 @@ static void ffa_run(wt_trap_frame_t* frame, const struct wt_co* co)
 }
 
 /* FFA_ERROR (Table 12.4: w1 MBZ here, w2 an error code) is how an initializing
- * partition reports failed initialization (8.5 rule 3); any other partition
- * has no call it could be answering, an invalid transition (8.1 rule 4). */
+ * partition reports failed initialization and enters the waiting state (8.5
+ * rule 3, Figure 8.4); any other partition has no call it could be answering,
+ * an invalid transition (8.1 rule 4). */
 static void ffa_init_failed(wt_trap_frame_t* frame, wt_co_t* co)
 {
     int32_t code = (int32_t)(uint32_t)frame->x[2];
@@ -482,9 +483,8 @@ static void ffa_init_failed(wt_trap_frame_t* frame, wt_co_t* co)
     }
     wt_spm_mem_endpoint_teardown((const struct wt_co*)co);
     wt_spm_sp_init_failed((struct wt_co*)co, code);
-    g_wt_spm_live_frame = NULL;
-    g_wt_spm_handler_depth = 0u;
-    wt_sp_el0_leave();
+    g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_WAIT;
+    wt_co_block();
 }
 
 /* FFA_YIELD (8.2): hand the CPU back to whoever entered this partition; the

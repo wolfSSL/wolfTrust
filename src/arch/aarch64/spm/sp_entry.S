@@ -368,8 +368,9 @@ wt_sp_el0_probe:
  * S-EL0 partition (12.4.1 item 3), so a nonzero one faults the partition. The
  * response SVC also waits for the next request, so control resumes at label 1
  * with it. Before its first wait it checks that an SVC32 call is read from
- * w1-w7 alone: FFA_MEM_PERM_GET32 on its own stack page, with junk above the
- * address in x1, must succeed or the partition faults. */
+ * w1-w7 alone (FFA_MEM_PERM_GET32 on its own stack page, with junk above the
+ * address in x1, must succeed) and that the SPMC, which scheduled its init,
+ * refuses its FFA_YIELD with DENIED (8.5 rule 4); either failing faults it. */
     .section .text.wt_sp_ffa_echo, "ax"
     .globl wt_sp_ffa_echo
 wt_sp_ffa_echo:
@@ -383,8 +384,17 @@ wt_sp_ffa_echo:
     movz    w4, #0x0061                 /* FFA_SUCCESS32 (0x84000061) */
     movk    w4, #0x8400, lsl #16
     cmp     w0, w4
+    b.ne    9f
+    movz    w0, #0x006C                 /* FFA_YIELD (0x8400006C) */
+    movk    w0, #0x8400, lsl #16
+    svc     #0
+    movz    w4, #0x0060                 /* FFA_ERROR (0x84000060) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    9f
+    cmn     w2, #6                      /* DENIED (-6) */
     b.eq    0f
-    udf     #0
+9:  udf     #0
 0:  movz    w0, #0x006B                 /* FFA_MSG_WAIT (0x8400006B) */
     movk    w0, #0x8400, lsl #16
     svc     #0

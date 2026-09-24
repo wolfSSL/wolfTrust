@@ -82,17 +82,21 @@ void wt_sp_el0_leave(void) __attribute__((noreturn));
 void wt_spm_lower_sync(wt_trap_frame_t* frame);
 uint64_t wt_spm_yield_token(void);
 
-/* Set once the core owns the partitions: the first block of each S-EL0
- * coroutine then counts as that partition's initialization. */
+/* Set once the core owns the partitions: each S-EL0 partition's successful
+ * initialization is then counted and reported. */
 extern volatile uint32_t g_wt_spm_partitions_live;
 uint32_t wt_spm_sp_init_count(void);
 
 /* FF-A endpoint identity of the S-EL0 partitions, and whether one is still in
- * its initialization (before its first block). */
+ * its initialization (8.5): until it calls FFA_MSG_WAIT, or for an FF-M
+ * partition until it blocks in the FF-M gate (bracketed by wt_spm_sp_in_gate);
+ * wt_spm_sp_init_complete records that. */
 uint16_t wt_spm_sp_ffa_id(const struct wt_co* co);
 struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id);
 uint16_t wt_spm_sp_ffa_id_of_domain(uint32_t domain_id);
 int wt_spm_sp_initializing(const struct wt_co* co);
+void wt_spm_sp_init_complete(const struct wt_co* co);
+void wt_spm_sp_in_gate(const struct wt_co* co, unsigned int inside);
 
 /* The boot handoff record the FF-A boot information named, if any. */
 extern uintptr_t g_wt_spm_handoff_pa;

@@ -1509,6 +1509,12 @@ static void psci_walk(void)
                       WT_PSCI_INVALID_PARAMS);
     ok &= psci_expect("migrate", psci_call(WT_PSCI_MIGRATE64, self, 0u),
                       WT_PSCI_DENIED);
+    ok &= psci_expect("migrate neighbour",
+                      psci_call(WT_PSCI_MIGRATE64, parked, 0u),
+                      WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect("migrate bogus",
+                      psci_call(WT_PSCI_MIGRATE64, self | 0x00FF0000u, 0u),
+                      WT_PSCI_INVALID_PARAMS);
     ok &= psci_expect("migrate_info_type",
                       psci_call(WT_PSCI_MIGRATE_INFO_TYPE, 0u, 0u),
                       (int32_t)WT_PSCI_TOS_UP_NOT_MIGRATABLE);

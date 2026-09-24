@@ -121,6 +121,16 @@ static int64_t psci_cpu_on(uint64_t target, uint32_t fid)
     return WT_PSCI_INVALID_PARAMS;
 }
 
+/* The resident SPMC is not migrate capable (5.9.1), and a target outside the
+ * machine view is an invalid MPIDR (5.8.2). */
+static int64_t psci_migrate(uint64_t target, uint32_t fid)
+{
+    if (psci_target(target, fid) == WT_PSCI_TARGET_BOOT) {
+        return WT_PSCI_DENIED;
+    }
+    return WT_PSCI_INVALID_PARAMS;
+}
+
 static int64_t psci_affinity_info(uint64_t target, uint64_t level, uint32_t fid)
 {
     int kind;
@@ -206,7 +216,7 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
             break;
         case WT_PSCI_MIGRATE32:
         case WT_PSCI_MIGRATE64:
-            psci_return(r, (uint64_t)(uint32_t)WT_PSCI_DENIED);
+            psci_return(r, (uint64_t)(uint32_t)psci_migrate(r->x[1], fid));
             break;
         case WT_PSCI_MIGRATE_INFO_TYPE:
             psci_return(r, (uint64_t)WT_PSCI_TOS_UP_NOT_MIGRATABLE);

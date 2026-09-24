@@ -130,4 +130,9 @@ int wt_ffa_partinfo_regs(const wt_ffa_partinfo_entry_t* parts, size_t n,
                          const uint8_t* uuid16, uint16_t start, uint16_t tag,
                          uint64_t* out18);
 
+/* The same call decoded from its registers x (UUID in x1/x2, start index and
+ * tag in x3 bits 15:0 and 31:16, bits 63:32 SBZ), for either instance. */
+int wt_ffa_partinfo_regs_call(const wt_ffa_partinfo_entry_t* parts, size_t n,
+                              const uint64_t* x, uint64_t* out18);
+
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_PARTINFO_H */

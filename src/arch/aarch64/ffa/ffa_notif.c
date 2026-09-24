@@ -305,10 +305,12 @@ int32_t wt_ffa_notif_set(uint16_t caller, uint32_t w1, uint32_t flags,
         fresh = bitmap & ~receiver->pend_vm;
         receiver->pend_vm |= bitmap;
     }
-    /* Re-signaling a still-pending id has no effect, so no new list. */
-    if (fresh != 0u) {
-        receiver->info_reported = 0u;
+    /* 10.5 rule 3: re-signaling a still-pending id has no effect, so neither
+     * a new list nor another SRI. */
+    if (fresh == 0u) {
+        return 0;
     }
+    receiver->info_reported = 0u;
     /* 16.5.1: a partition that does not delay has the SRI asserted as its
      * call completes; a delayed one waits for the next Normal-world entry. */
     if ((sender->secure != 0u) &&

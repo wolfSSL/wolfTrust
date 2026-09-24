@@ -108,8 +108,9 @@
 #define WT_FFA_MEM_FLAG_TYPE_LEND       (0x2u << WT_FFA_MEM_FLAG_TYPE_SHIFT)
 #define WT_FFA_MEM_FLAG_TYPE_DONATE     (0x3u << WT_FFA_MEM_FLAG_TYPE_SHIFT)
 #define WT_FFA_MEM_FLAG_ALIGN_MASK      (0x1Fu << 5)  /* bits[9:5] alignment hint */
-/* Flag bits a sender may set in a lend/donate/share request. Time slicing
- * (DEN0140 4.1.3) is not implemented, so its flag is refused in every call. */
+/* Flag bits a retrieve request may set besides its type, zero-after, and
+ * bypass flags. Time slicing (DEN0140 4.1.3) is not implemented, so its flag
+ * is refused in every call. */
 #define WT_FFA_MEM_FLAG_SEND_MASK       (WT_FFA_MEM_FLAG_ZERO | \
                                          WT_FFA_MEM_FLAG_ALIGN_MASK)
 
@@ -231,7 +232,9 @@ int wt_ffa_mem_txn_build(uint8_t* buf, size_t len,
                          const wt_ffa_mem_build_t* in, size_t* out_len);
 
 /* Relayer validation of a lend/donate/share transaction descriptor for op
- * (DEN0140 Ch.2): the header is well formed and inside buf, the sender equals
+ * (DEN0140 Ch.2): the header is well formed and inside buf, the flags ask for
+ * no time slicing (the parsed flags keep only the zero-memory bit, the rest
+ * being SBZ), the sender equals
  * expect_sender, every receiver descriptor references one composite whose
  * constituents are page-aligned, non-zero, non-overlapping, in range, and sum
  * to the declared page count, and the permissions and attributes are legal.

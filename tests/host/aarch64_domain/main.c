@@ -198,6 +198,13 @@ int main(void)
           wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, NULL) ==
               WT_TABLES_ERROR_ARGUMENT,
           "a domain that was never built and a NULL result are refused");
+    check(wt_domain_owner_hold(g_sp0, 2u, 0x0E201000u, 1u, 0) == WT_TABLES_OK &&
+          wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, &attrs) ==
+              WT_TABLES_OK && attrs == 0u &&
+          wt_domain_owner_release(g_sp0, 2u, 0x0E201000u, 1u) == WT_TABLES_OK &&
+          wt_domain_get_permissions(g_sp0, 2u, 0x0E201000u, &attrs) ==
+              WT_TABLES_OK && attrs == RW,
+          "a page a transaction holds reads back as no access, and its own access once released");
 
     check(wt_domain_pool_pages_used() <= POOL_PAGES, "pool accounting stays inside the pool");
 

@@ -895,6 +895,51 @@ static int alignment_hint_ok(const wt_ffa_mem_handle_entry_t* e, uint32_t flags)
     return 0;
 }
 
+/* A receiver that names the ranges to map the memory at (1.11.3.2) names
+ * them for itself, with no alignment hint (Table 1.22 bits[9:5]) and covering
+ * exactly the sender's pages (1.11.3.3). The relayer maps S-EL0 memory only
+ * at its own address, so the ranges must be the region's pages in order. */
+static int receiver_ranges_ok(const wt_ffa_mem_handle_entry_t* e,
+                              const wt_ffa_mem_retrieve_req_t* rq,
+                              uint16_t receiver)
+{
+    uint64_t want;
+    uint32_t i = 0u;
+    uint32_t r = 0u;
+    uint32_t ioff = 0u;
+    uint32_t roff = 0u;
+    uint32_t step;
+
+    if ((rq->receivers[rq->range_index] != receiver) ||
+        ((rq->flags & (WT_FFA_MEM_FLAG_ALIGN_VALID |
+                       (0xFu << WT_FFA_MEM_FLAG_ALIGN_SHIFT))) != 0u)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    while ((i < rq->range_count) && (r < (uint32_t)e->region_count)) {
+        want = e->regions[r].base + ((uint64_t)roff * WT_FFA_MEM_PAGE_SIZE);
+        if ((rq->ranges[i].address + ((uint64_t)ioff * WT_FFA_MEM_PAGE_SIZE)) !=
+            want) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+        step = rq->ranges[i].page_count - ioff;
+        if ((e->regions[r].page_count - roff) < step) {
+            step = e->regions[r].page_count - roff;
+        }
+        ioff += step;
+        roff += step;
+        if (ioff == rq->ranges[i].page_count) {
+            i++;
+            ioff = 0u;
+        }
+        if (roff == e->regions[r].page_count) {
+            r++;
+            roff = 0u;
+        }
+    }
+    return ((i == rq->range_count) && (r == (uint32_t)e->region_count))
+               ? 0 : WT_FFA_INVALID_PARAMETERS;
+}
+
 /* Take the first count regions of e back out of a borrower's table, each to
  * the entry it held before the grant. */
 static void borrower_unmap(const wt_spm_mem_binding_t* b,
@@ -962,6 +1007,9 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
         return WT_FFA_DENIED;
     }
     ret = wt_ffa_mem_retrieve_req_check(e, &rq, receiver);
+    if ((ret == 0) && (rq.range_count != 0u)) {
+        ret = receiver_ranges_ok(e, &rq, receiver);
+    }
     if (ret != 0) {
         return ret;
     }
@@ -997,8 +1045,10 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
         cons[i].page_count = e->regions[i].page_count;
     }
     (void)memset(&in, 0, sizeof(in));
-    in.constituents = cons;
-    in.constituent_count = (uint32_t)e->region_count;
+    if (rq.range_count == 0u) {
+        in.constituents = cons;
+        in.constituent_count = (uint32_t)e->region_count;
+    }
     in.tag = e->tag;
     in.handle = rq.handle;
     zero = ((e->owner_cookie & WT_FFA_MEM_FLAG_ZERO) != 0u) ? 1 : 0;

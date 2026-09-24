@@ -649,7 +649,7 @@ static void retrieve_rows(void)
     put32(&buf[52], 64u);
     check(wt_ffa_mem_retrieve_req_parse(buf, len, &h, &sender, &receiver) ==
               WT_FFA_INVALID_PARAMETERS,
-          "a retrieve request carrying a composite offset is INVALID_PARAMETERS");
+          "a retrieve request whose composite offset runs past it is INVALID_PARAMETERS");
 
     check(wt_ffa_mem_relinquish_build(buf, sizeof(buf), 0x1234ull, 0u, 0x80FBu,
                                       &len) == 0 && len == 18u,
@@ -2968,6 +2968,133 @@ static void relay_access_size_rows(void)
     g_ver_b = WT_FFA_VERSION_1_2;
 }
 
+/* B's retrieve of h naming n address ranges of its own (1.11.3.2) in a
+ * composite after its access descriptor; *resp_len and *resp_comp get the
+ * response length and the composite offset it states. */
+static int relay_retrieve_ranges(uint64_t h, const wt_ffa_mem_constituent_t* r,
+                                 uint32_t n, uint32_t flags, size_t* resp_len,
+                                 uint32_t* resp_comp)
+{
+    uint8_t req[256];
+    uint8_t resp[256];
+    size_t len = 0u;
+    uint32_t comp;
+    uint32_t total = 0u;
+    uint32_t i;
+    int ret;
+
+    ret = wt_ffa_mem_retrieve_req_build(req, sizeof(req), h, RELAY_ID_A,
+                                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW,
+                                        &len);
+    if (ret != 0) {
+        return ret;
+    }
+    comp = (uint32_t)len;
+    put32(&req[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_COMP_OFF], comp);
+    put32(&req[WT_FFA_MEM_TXN_OFF_FLAGS], flags);
+    (void)memset(&req[comp], 0, WT_FFA_MEM_COMPOSITE_HDR_SIZE +
+                                    (n * WT_FFA_MEM_CONSTITUENT_SIZE));
+    for (i = 0u; i < n; i++) {
+        put64(&req[comp + WT_FFA_MEM_COMPOSITE_HDR_SIZE +
+                   (i * WT_FFA_MEM_CONSTITUENT_SIZE)], r[i].address);
+        put32(&req[comp + WT_FFA_MEM_COMPOSITE_HDR_SIZE +
+                   (i * WT_FFA_MEM_CONSTITUENT_SIZE) + 8u], r[i].page_count);
+        total += r[i].page_count;
+    }
+    put32(&req[comp + WT_FFA_MEM_COMP_OFF_PAGES], total);
+    put32(&req[comp + WT_FFA_MEM_COMP_OFF_COUNT], n);
+    len = comp + WT_FFA_MEM_COMPOSITE_HDR_SIZE + (n * WT_FFA_MEM_CONSTITUENT_SIZE);
+    ret = wt_spm_mem_retrieve(req, len, RELAY_ID_B, resp, sizeof(resp),
+                              resp_len);
+    if (ret == 0) {
+        *resp_comp = get32(&resp[WT_FFA_MEM_TXN_HDR_SIZE +
+                                 WT_FFA_MEM_ACC_OFF_COMP_OFF]);
+    }
+    return ret;
+}
+
+/* WT-FFA-0009 (a receiver may name the address ranges its mapping uses,
+ * 1.11.3.2; the relayer maps S-EL0 memory only at its own address and answers
+ * with no composite, 1.11.3.3). */
+static void relay_range_rows(void)
+{
+    wt_ffa_mem_constituent_t c[2];
+    wt_ffa_mem_constituent_t r[2];
+    wt_ffa_mem_retrieve_req_t rq;
+    uint8_t req[256];
+    uint64_t size = 0u;
+    uint64_t h;
+    size_t len = 0u;
+    size_t resp_len = 0u;
+    uint32_t comp = 1u;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "ranges: fixture");
+        return;
+    }
+    c[0].address = page(PG_RW);
+    c[0].page_count = 2u;
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                   &ret);
+    r[0].address = page(PG_RW);
+    r[0].page_count = 2u;
+    check(ret == 0 &&
+          relay_retrieve_ranges(h, r, 1u, 0u, &resp_len, &comp) == 0 &&
+          comp == 0u &&
+          resp_len == (WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACCESS_SIZE_V12) &&
+          access_of(&g_dom_b, PG_RW + 1u) == WT_DOMAIN_ACCESS_RW &&
+          relay_relinquish(h, 0u) == 0,
+          "ranges: a borrower naming the region's own addresses is mapped there and answered with no composite");
+    r[0].page_count = 1u;
+    r[1].address = page(PG_RW + 1u);
+    r[1].page_count = 1u;
+    check(relay_retrieve_ranges(h, r, 2u, 0u, &resp_len, &comp) == 0 &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW &&
+          relay_relinquish(h, 0u) == 0,
+          "ranges: the same pages split into two ranges are mapped too");
+    r[0].page_count = 3u;
+    check(relay_retrieve_ranges(h, r, 1u, 0u, &resp_len, &comp) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
+          "ranges: a size other than the sender's is INVALID_PARAMETERS (1.11.3.3)");
+    r[0].address = page(PG_B);
+    r[0].page_count = 2u;
+    check(relay_retrieve_ranges(h, r, 1u, 0u, &resp_len, &comp) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
+          "ranges: addresses the relayer cannot map the region at are INVALID_PARAMETERS");
+    r[0].address = page(PG_RW);
+    check(relay_retrieve_ranges(h, r, 1u, 1u << 9, &resp_len, &comp) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
+          "ranges: an alignment hint with them is INVALID_PARAMETERS (Table 1.22)");
+    check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0, "ranges: the lend ends");
+
+    (void)wt_ffa_mem_retrieve_req_build(req, sizeof(req), 0x77ull, RELAY_ID_A,
+                                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW,
+                                        &len);
+    put32(&req[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_COMP_OFF],
+          (uint32_t)len);
+    (void)memset(&req[len], 0, 32u);
+    put32(&req[len + WT_FFA_MEM_COMP_OFF_PAGES], 1u);
+    put32(&req[len + WT_FFA_MEM_COMP_OFF_COUNT], 1u);
+    put64(&req[len + 16u], 0x40000000ull);
+    put32(&req[len + 24u], 1u);
+    check(wt_ffa_mem_retrieve_req_parse_ex(req, len + 32u, &rq) == 0 &&
+          rq.range_count == 1u && rq.range_index == 0u &&
+          rq.ranges[0].address == 0x40000000ull &&
+          rq.ranges[0].page_count == 1u &&
+          wt_ffa_mem_frag_expected(req, (uint32_t)len + 20u, 1, &size) == 1 &&
+          size == (uint64_t)(len + 32u),
+          "ranges: a retrieve request's own composite is parsed and names its whole length to a first fragment");
+    put32(&req[len + WT_FFA_MEM_COMP_OFF_PAGES], 2u);
+    check(wt_ffa_mem_retrieve_req_parse_ex(req, len + 32u, &rq) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "ranges: a composite whose page total is not its ranges' is INVALID_PARAMETERS");
+    check(g_domain_fails == 0u, "ranges: no domain operation failed closed");
+}
+
 /* WT-FFA-0009 (a donate makes the receiver the owner, Owner-EA, 2.4.1.2 item
  * 12: its permission and RX/TX calls treat the page as its own; an owner
  * cannot change the access of memory a transaction covers, 1.3.1 rule 7). */
@@ -3094,6 +3221,7 @@ int main(void)
     relay_ns_donate_rows();
     relay_donated_perm_rows();
     relay_access_size_rows();
+    relay_range_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

@@ -304,8 +304,7 @@ int wt_ffa_mem_retrieve_req_build_at(uint8_t* buf, size_t len, uint64_t handle,
 /* Parse a memory retrieve request: the handle, the sender (owner), and the
  * single receiver. Returns 0, WT_FFA_NOT_SUPPORTED for an access descriptor
  * size this SPMC cannot parse or more than one receiver, or
- * WT_FFA_INVALID_PARAMETERS for a malformed descriptor (a composite offset in
- * a retrieve request is malformed here). */
+ * WT_FFA_INVALID_PARAMETERS for a malformed descriptor. */
 int wt_ffa_mem_retrieve_req_parse(const uint8_t* buf, size_t len,
                                   uint64_t* out_handle, uint16_t* out_sender,
                                   uint16_t* out_receiver);
@@ -322,7 +321,8 @@ int wt_ffa_mem_relinquish_parse_ex(const uint8_t* buf, size_t len,
                                    uint32_t* out_flags);
 
 /* Everything a retrieve request states, for the relayer to hold against the
- * transaction it names (11.4.2). Its composite offset is not consulted. */
+ * transaction it names (11.4.2), including the ranges one receiver may name
+ * in a composite of its own. */
 typedef struct wt_ffa_mem_retrieve_req {
     uint64_t handle;
     uint64_t tag;
@@ -335,6 +335,12 @@ typedef struct wt_ffa_mem_retrieve_req {
     uint8_t  permissions[3];
     uint8_t  impdef[3][16];
     uint8_t  access_flags[3];
+    /* The address ranges entry range_index names for its own mapping
+     * (DEN0140 1.11.3.2); range_count is 0 when every entry leaves them to
+     * the relayer. */
+    uint32_t range_count;
+    uint32_t range_index;
+    wt_ffa_mem_constituent_t ranges[WT_FFA_MEM_MAX_REGIONS];
 } wt_ffa_mem_retrieve_req_t;
 
 int wt_ffa_mem_retrieve_req_parse_ex(const uint8_t* buf, size_t len,

@@ -22,6 +22,11 @@
 #   CPU=cortex-a35|cortex-a72 (virt, default cortex-a72)
 #   SMP=<n> (virt: default 2 for smoke, 1 for boot, fixed 2 for boot-smp2;
 #            versal-virt: default 4)
+#   run_qemu_a_scenario.sh parkneg|rdistneg|tickneg  the same image where a
+#                                  declared secondary never parks, the GICv3
+#                                  redistributor reads asleep, or the secure
+#                                  tick never arrives: the monitor must panic
+#                                  before it enters Secure EL1
 #   run_qemu_a_scenario.sh positive-secure  the same image; the neutral core
 #                                  boots at Secure EL1 and every Secure
 #                                  Partition initializes at Secure EL0
@@ -33,8 +38,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -84,6 +89,11 @@ case "$MACHINE" in
   *) echo "unsupported MACHINE=$MACHINE (virt or versal-virt)" >&2; exit 2 ;;
 esac
 
+if [ "$scenario" = rdistneg ] && [ "$MACHINE" = virt ] && [ "$GIC" = 2 ]; then
+  echo "SKIP: qemu-a/rdistneg (GICv2): a GICv2 has no redistributor to wake"
+  exit 0
+fi
+
 if [ "$scenario" = guest1 ]; then
   echo "SKIP: qemu-a/guest1: the AArch64 ports run one Normal-world endpoint (id 0x0000) and the SPMC takes Normal-world direct requests from it alone, so there is no second guest identity to exercise; guest 1 is covered on M33MU"
   exit 0
@@ -103,6 +113,11 @@ case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
   boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
+  # The port declares a second core the machine never starts (virt runs one
+  # core; versal-virt keeps APU core 1 powered off).
+  parkneg:virt) SMP=1; cpus=2 ;;
+  parkneg:versal-virt) SMP=4; cpus=2 ;;
+  rdistneg:virt|tickneg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   # A secondary parks through the warm reset: the re-entered boot core must
   # count it again.
   resetneg:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
@@ -141,6 +156,8 @@ else
     keystoreneg) probe=(WT_KEYSTORE_NEG_PROBE=1) ;;
     spbudgetneg) probe=(WT_SP_FAULT_ALWAYS_PROBE=1) ;;
     panicneg)    probe=(WT_PANIC_NEG_PROBE=1) ;;
+    rdistneg)    probe=(WT_EL3_BOOT_NEG_PROBE=1) ;;
+    tickneg)     probe=(WT_EL3_BOOT_NEG_PROBE=2) ;;
     confboot|devstorage) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1) ;;
     # The wolfPSA guests carry a heap: one 2 MB block costs the same table page.
     devattest|devcrypto|attestneg) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EL3_TEST_HANDOFF=1) ;;
@@ -349,6 +366,23 @@ case "$scenario" in
     expect "secondary cores parked (PF-Q1, $cpus cores)" " parked_mask=$expected_mask"
     refute_re "no smoke failure marker" '\[SMOKE\] FAIL'
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  parkneg|rdistneg|tickneg)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    expect "EL3 monitor banner on $MACHINE" "[EL3] wolfTrust monitor cntfrq="
+    case "$scenario" in
+      parkneg)
+        expect "the declared secondary never parked" " secondaries parked mask=0x0"
+        expect "the monitor stopped the boot on the missing secondary" "[EL3] panic code=0x000000b2" ;;
+      rdistneg)
+        expect "the redistributor read asleep" " rdist_woken=0 "
+        expect "the monitor stopped the boot on the sleeping redistributor" "[EL3] panic code=0x000000b3" ;;
+      tickneg)
+        expect "the secure tick never reached EL3" "[EL3] tick TIMEOUT"
+        expect "the monitor stopped the boot without its secure tick" "[EL3] panic code=0x000000b4" ;;
+    esac
+    refute_re "the Secure EL1 runtime was never entered" '\[SPM\] spmc entered'
+    refute_re "the run did not end cleanly" '\[EXPECT BKPT\] Success'
     ;;
   boot|boot-smp2)
     refute_re "no synchronous exception reached EL3" '^\[SYNC'

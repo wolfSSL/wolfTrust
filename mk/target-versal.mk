@@ -3,7 +3,8 @@
 # WT_VERSAL_VIRT=1 selects the QEMU xlnx-versal-virt variant of the port.
 WT_CPU ?= cortex-a72
 WT_GIC_VERSION := 3
-WT_PORT_BOOT_CPUS ?= 2
+# xlnx-versal-virt keeps APU core 1 powered off: only the boot core comes up.
+WT_PORT_BOOT_CPUS ?= 1
 WT_VERSAL_VIRT ?= 1
 ifneq ($(WT_VERSAL_VIRT),1)
 $(error the Versal silicon paths land with the port bring-up; build with WT_VERSAL_VIRT=1)

@@ -384,6 +384,7 @@ assert through `tests/target/lib/expect.sh`.
 | `smoke` | A standalone EL3 image runs wolfTrust-built code at EL3, prints on the secure console, and parks the secondary cores |
 | `boot` | The monitor initializes the GIC, takes the secure tick as a Group 0 FIQ, builds the FF-A boot-information blob, and enters the SPMC, which turns on its stage-1 MMU, runs S-EL0 partitions through the SVC gate, and completes initialization with `FFA_MSG_WAIT` |
 | `boot-smp2` | The same image on two `virt` cores: the secondary parks at EL3 and exactly one core runs the monitor |
+| `parkneg`, `rdistneg`, `tickneg` | The monitor stops the boot with a panic, before it enters Secure EL1, when a declared secondary never parks, the GICv3 redistributor reads asleep (SKIP on GICv2), or the secure tick never reaches EL3 |
 | `positive-secure` | The neutral core boots at Secure EL1 and every Secure Partition initializes at Secure EL0 under its own translation table |
 | `positive` | The Normal-world guest discovers the partitions, reads framework and service versions, is refused an unknown service, and completes a data-carrying `psa_call` through the FF-M gateway: a wolfHSM echo under `hsm`, two random draws over the native wire under `native` |
 | `guest1` | SKIP: the AArch64 ports run a single Normal-world endpoint (`0x0000`), so the second-guest identity path has no AArch64 counterpart; M33MU covers it |

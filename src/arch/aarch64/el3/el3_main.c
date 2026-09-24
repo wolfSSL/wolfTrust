@@ -47,10 +47,19 @@
 #ifndef WT_PORT_HANDOFF_SIZE
 #define WT_PORT_HANDOFF_SIZE 0u
 #endif
+/* Every core the port declares but the boot core must park in the EL3 pen;
+ * a core it does not declare may park there too. */
+#define WT_EL3_PARK_EXPECTED ((uint32_t)((1u << WT_PORT_BOOT_CPUS) - 2u))
 #define WT_SPM_BOOT_INFO_LIMIT 4096u
 #define WT_EL3_PARK_WAIT_MS 200u
 #define WT_EL3_TICK_PERIOD_MS 10u
 #define WT_EL3_TICK_WAIT_MS 100u
+
+/* Monitor panic codes for a boot that must not reach the Secure runtime. */
+#define WT_EL3_PANIC_BOOT_INFO    0xB1u
+#define WT_EL3_PANIC_NOT_PARKED   0xB2u
+#define WT_EL3_PANIC_RDIST_ASLEEP 0xB3u
+#define WT_EL3_PANIC_NO_TICK      0xB4u
 
 volatile uint8_t g_wt_el3_parked[WT_EL3_MAX_CPUS];
 volatile uint32_t g_wt_el3_ready;
@@ -77,24 +86,26 @@ static uint32_t parked_mask(void)
 
 static uint32_t wait_for_secondaries(void)
 {
-    uint32_t expected = (uint32_t)((1u << WT_PORT_BOOT_CPUS) - 2u);
     uint64_t deadline = deadline_after_ms(WT_EL3_PARK_WAIT_MS);
     uint32_t mask;
 
     do {
         mask = parked_mask();
-    } while ((mask != expected) && (wt_read_cntpct_el0() < deadline));
+    } while (((mask & WT_EL3_PARK_EXPECTED) != WT_EL3_PARK_EXPECTED) &&
+             (wt_read_cntpct_el0() < deadline));
     return mask;
 }
 
 /* One secure timer period with FIQ unmasked at EL3: the tick must arrive as
  * INTID 29 through the vector table before the deadline. */
-static void prove_tick(void)
+static int prove_tick(void)
 {
     uint64_t deadline = deadline_after_ms(WT_EL3_TICK_WAIT_MS);
 
     g_wt_el3_tick_intid = 0u;
+#if !defined(WT_EL3_BOOT_NEG_PROBE) || (WT_EL3_BOOT_NEG_PROBE != 2)
     wt_gic->enable(WT_GIC_INTID_SECURE_TIMER);
+#endif
     wt_el3_timer_arm_ms(WT_EL3_TICK_PERIOD_MS);
     wt_daif_clear_fiq();
     while ((g_wt_el3_tick_intid == 0u) && (wt_read_cntpct_el0() < deadline)) {
@@ -105,11 +116,21 @@ static void prove_tick(void)
 
     if (g_wt_el3_tick_intid == WT_GIC_INTID_SECURE_TIMER) {
         wt_el3_puts("[EL3] tick ok intid=29\r\n");
+        return 0;
     }
-    else {
-        wt_el3_puts("[EL3] tick TIMEOUT intid=");
-        wt_el3_putdec(g_wt_el3_tick_intid);
-        wt_el3_puts("\r\n");
+    wt_el3_puts("[EL3] tick TIMEOUT intid=");
+    wt_el3_putdec(g_wt_el3_tick_intid);
+    wt_el3_puts("\r\n");
+    return -1;
+}
+
+/* The single-PE isolation model and Secure preemption rest on these: stop
+ * the boot through the monitor panic path instead of entering the Secure
+ * runtime. */
+static void require_boot_invariant(int ok, uint64_t code)
+{
+    if (ok == 0) {
+        (void)wt_el3_monitor_call(WT_MON_FID_PANIC, code);
     }
 }
 
@@ -160,7 +181,7 @@ static uint64_t build_boot_info(void)
                                  WT_FFA_VERSION_1_2, &item, count, &size);
     if (ret != WT_FFA_BOOT_INFO_OK) {
         wt_el3_puts("[EL3] boot info build failed\r\n");
-        (void)wt_el3_monitor_call(WT_MON_FID_PANIC, 0xB1u);
+        (void)wt_el3_monitor_call(WT_MON_FID_PANIC, WT_EL3_PANIC_BOOT_INFO);
     }
     if (count != 0u) {
         /* The SPMC owns the only copy from here on. */
@@ -179,23 +200,31 @@ static uint64_t build_boot_info(void)
 void wt_el3_main(void)
 {
     uint32_t mask;
+    uint32_t woken;
     uint64_t boot_info;
 
     wt_platform_board_init();
     wt_gic->init_secure();
     mask = wait_for_secondaries();
+    woken = wt_gic_rdist_woken();
+#if defined(WT_EL3_BOOT_NEG_PROBE) && (WT_EL3_BOOT_NEG_PROBE == 1)
+    woken = 0u;
+#endif
 
     wt_el3_puts("[EL3] wolfTrust monitor cntfrq=");
     wt_el3_putdec(wt_read_cntfrq_el0());
     wt_el3_puts(" gic=v");
     wt_el3_putdec(wt_gic->version);
     wt_el3_puts(" rdist_woken=");
-    wt_el3_putdec(wt_gic_rdist_woken());
+    wt_el3_putdec(woken);
     wt_el3_puts(" secondaries parked mask=0x");
     wt_el3_puthex(mask, 1u);
     wt_el3_puts("\r\n");
-
-    prove_tick();
+    require_boot_invariant(
+        (mask & WT_EL3_PARK_EXPECTED) == WT_EL3_PARK_EXPECTED,
+        WT_EL3_PANIC_NOT_PARKED);
+    require_boot_invariant(woken != 0u, WT_EL3_PANIC_RDIST_ASLEEP);
+    require_boot_invariant(prove_tick() == 0, WT_EL3_PANIC_NO_TICK);
 #if defined(WT_EL3_TEST_HANDOFF)
     synthesize_test_handoff();
 #endif

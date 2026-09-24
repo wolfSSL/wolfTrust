@@ -730,7 +730,7 @@
         ],
         "execution_contexts": 1,
         "runtime_el": "S-EL0",
-        "messaging": "direct",
+        "messaging": "none",
         "ns_interrupt_action": "signaled",
         "boot_info_register": 0
       },
@@ -741,7 +741,7 @@
         ],
         "execution_contexts": 1,
         "runtime_el": "S-EL0",
-        "messaging": "direct",
+        "messaging": "none",
         "ns_interrupt_action": "signaled",
         "boot_info_register": 0
       },
@@ -752,7 +752,7 @@
         ],
         "execution_contexts": 1,
         "runtime_el": "S-EL0",
-        "messaging": "direct",
+        "messaging": "none",
         "ns_interrupt_action": "signaled",
         "boot_info_register": 0
       },
@@ -763,7 +763,7 @@
         ],
         "execution_contexts": 1,
         "runtime_el": "S-EL0",
-        "messaging": "direct",
+        "messaging": "none",
         "ns_interrupt_action": "signaled",
         "boot_info_register": 0
       },
@@ -774,7 +774,7 @@
         ],
         "execution_contexts": 1,
         "runtime_el": "S-EL0",
-        "messaging": "direct",
+        "messaging": "none",
         "ns_interrupt_action": "signaled",
         "boot_info_register": 0
       },
@@ -785,7 +785,7 @@
         ],
         "execution_contexts": 1,
         "runtime_el": "S-EL0",
-        "messaging": "direct",
+        "messaging": "none",
         "ns_interrupt_action": "signaled",
         "boot_info_register": 0
       },
@@ -796,7 +796,7 @@
         ],
         "execution_contexts": 1,
         "runtime_el": "S-EL0",
-        "messaging": "direct",
+        "messaging": "none",
         "ns_interrupt_action": "signaled",
         "boot_info_register": 0
       },
@@ -807,7 +807,7 @@
         ],
         "execution_contexts": 1,
         "runtime_el": "S-EL0",
-        "messaging": "direct",
+        "messaging": "none",
         "ns_interrupt_action": "signaled",
         "boot_info_register": 0
       }

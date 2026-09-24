@@ -381,7 +381,7 @@ class GeneratorTest(unittest.TestCase):
                       "01234567-0123-4567-89ab-0123456789ab"],
             "execution_contexts": 1,
             "runtime_el": "S-EL0",
-            "messaging": "direct",
+            "messaging": "none",
             "ns_interrupt_action": "signaled",
             "boot_info_register": 0,
         }]}
@@ -403,7 +403,7 @@ class GeneratorTest(unittest.TestCase):
             self.assertIn("wt_generated_ffa_partitions[1]", generated)
             self.assertIn(".uuid_count = 2U", generated)
             self.assertIn("0xb4U, 0xb5U, 0x67U, 0x1eU", generated)
-            self.assertIn(".messaging = 1U", generated)
+            self.assertIn(".messaging = 0U", generated)
             self.assertIn("wt_generated_ffa_partitions_get(size_t* count)",
                           generated)
             compiled = self.compile_generated(
@@ -465,7 +465,8 @@ class GeneratorTest(unittest.TestCase):
             ("runtime_el", "EL2", "runtime_el"),
             ("runtime_el", "S-EL1", "runtime_el must be S-EL0"),
             ("messaging", "smoke", "messaging"),
-            ("messaging", "indirect", "messaging must be direct"),
+            ("messaging", "indirect", "messaging must be none"),
+            ("messaging", "direct", "messaging must be none"),
             ("ns_interrupt_action", "drop", "ns_interrupt_action"),
             ("ns_interrupt_action", "queued", "must be signaled"),
             ("boot_info_register", 4, "boot_info_register"),

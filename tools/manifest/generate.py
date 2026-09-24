@@ -139,10 +139,11 @@ FFA_SCHEMA = {
     "partitions": [FFA_PARTITION_SCHEMA],
 }
 # Only the values the SPMC honours: every manifest partition runs at S-EL0,
-# is reached by direct messaging, has its Non-secure interrupts signaled, and
-# takes its boot information in x0.
+# takes no FF-A messages (its services are reached through the SPMC's PSA
+# endpoint, so discovery lists neither messaging method), has its Non-secure
+# interrupts signaled, and takes its boot information in x0.
 FFA_RUNTIME_EL = {"S-EL0": 0}
-FFA_MESSAGING = {"direct": 1}
+FFA_MESSAGING = {"none": 0}
 FFA_NS_INTERRUPT_ACTION = {"signaled": 0}
 FFA_MAX_UUIDS = 4
 UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
@@ -836,7 +837,7 @@ def validate_ffa(ffa, manifest):
         if entry["runtime_el"] not in FFA_RUNTIME_EL:
             policy_error(path + " runtime_el must be S-EL0")
         if entry["messaging"] not in FFA_MESSAGING:
-            policy_error(path + " messaging must be direct")
+            policy_error(path + " messaging must be none")
         if entry["ns_interrupt_action"] not in FFA_NS_INTERRUPT_ACTION:
             policy_error(path + " ns_interrupt_action must be signaled")
         if entry["boot_info_register"] != 0:

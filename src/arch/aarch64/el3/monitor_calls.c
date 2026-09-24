@@ -55,6 +55,61 @@ static void test_ns_group(uint64_t on)
     (void)on;
 }
 #endif
+
+WT_SYSREG_READ(id_aa64pfr0_el1, "ID_AA64PFR0_EL1")
+#define WT_EL3_A32_PROBE_DONE 0x830000FFu
+
+void wt_el3_a32_enter(uint64_t scr_el3, uintptr_t entry, const uint64_t* r);
+void wt_el3_a32_leave(void) __attribute__((noreturn));
+extern const uint32_t wt_el3_a32_stub[];
+static uint32_t g_a32_result[3];
+static uint32_t g_a32_active;
+
+/* The stub's first three SMCs left their results in R8-R10. */
+static void a32_probe_done(const wt_el3_frame_t* frame)
+{
+    g_a32_active = 0u;
+    g_a32_result[0] = (uint32_t)frame->x[8];
+    g_a32_result[1] = (uint32_t)frame->x[9];
+    g_a32_result[2] = (uint32_t)frame->x[10];
+    wt_el3_a32_leave();
+}
+
+/* Drop to an AArch32 Secure EL1 stub, SCR_EL3.RW clear and its stage 1 off,
+ * so its SMCs take the lower-AArch32 vector, and report their answers. */
+static void a32_probe(void)
+{
+    uint64_t r[8];
+    uint64_t sctlr;
+    unsigned int i;
+
+    if (((wt_read_id_aa64pfr0_el1() >> 4) & 0xFu) != 2u) {
+        wt_el3_puts("[EL3] a32 vector probe: no AArch32 EL1\r\n");
+        return;
+    }
+    for (i = 0u; i < 8u; i++) {
+        r[i] = 0u;
+    }
+    r[0] = WT_SMCCC_VERSION;
+    r[4] = WT_PSCI_AFFINITY_INFO64;
+    r[5] = WT_PSCI_VERSION;
+    r[6] = WT_EL3_A32_PROBE_DONE;
+    sctlr = wt_read_sctlr_el1();
+    wt_write_sctlr_el1(sctlr & ~(uint64_t)1u);
+    wt_isb();
+    g_a32_active = 1u;
+    wt_el3_a32_enter((uint64_t)(WT_SCR_EL3_SECURE & ~WT_SCR_RW),
+                     (uintptr_t)wt_el3_a32_stub, r);
+    wt_write_sctlr_el1(sctlr);
+    wt_isb();
+    wt_el3_puts("[EL3] a32 vector smc version=0x");
+    wt_el3_puthex(g_a32_result[0], 8u);
+    wt_el3_puts(" smc64=0x");
+    wt_el3_puthex(g_a32_result[1], 8u);
+    wt_el3_puts(" psci=0x");
+    wt_el3_puthex(g_a32_result[2], 8u);
+    wt_el3_puts("\r\n");
+}
 #endif
 
 uint64_t wt_el3_monitor_call(uint32_t fid, uint64_t arg)
@@ -63,6 +118,9 @@ uint64_t wt_el3_monitor_call(uint32_t fid, uint64_t arg)
 
     switch (fid) {
         case WT_MON_FID_EXIT:
+#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+            a32_probe();
+#endif
             wt_el3_puts("[BKPT] imm=0x");
             wt_el3_puthex(arg & 0xFFu, 2u);
             wt_el3_puts("\r\n");
@@ -142,6 +200,17 @@ static int arch_call(wt_el3_frame_t* frame)
     frame->x[2] = 0u;
     frame->x[3] = 0u;
     return 1;
+}
+
+/* Only an AArch32 EL directly below EL3 takes this vector, which SCR_EL3.RW=1
+ * rules out. Its SMC is still answered: the Arm Architecture Calls, and every
+ * other id unknown, as the PSCI and FF-A world switches assume AArch64. */
+static void lower32_smc(wt_el3_frame_t* frame)
+{
+    wt_ffa_regs_normalize(frame->x);
+    if (arch_call(frame) == 0) {
+        frame->x[0] = WT_MON_NOT_SUPPORTED;
+    }
 }
 
 /* A Normal-world SMC: relayed to the SPMC, or PSCI/FF-A served here. */
@@ -244,6 +313,16 @@ void wt_el3_exception(uint64_t kind, wt_el3_frame_t* frame)
     }
     esr = wt_read_esr_el3();
     ec = WT_ESR_EC(esr);
+    if ((kind == WT_EL3_VEC_LOWER32_SYNC) && (ec == WT_ESR_EC_SMC32)) {
+#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+        if ((g_a32_active != 0u) &&
+            ((uint32_t)frame->x[0] == WT_EL3_A32_PROBE_DONE)) {
+            a32_probe_done(frame);
+        }
+#endif
+        lower32_smc(frame);
+        return;
+    }
     /* EC SMC32 is an SMC from AArch32, an EL1 beneath an NS-EL2 payload; it
      * still takes the lower-AArch64 vector, which follows EL2's state. */
     if ((kind == WT_EL3_VEC_LOWER64_SYNC) &&

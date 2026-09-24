@@ -292,7 +292,75 @@ wt_el3_world_eret:
     isb
     eret
 
+#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+/* void wt_el3_a32_enter(uint64_t scr_el3, uintptr_t entry, const uint64_t* r):
+ * ERET to AArch32 Secure EL1 SVC mode at entry with r[0..7] in R0-R7, until
+ * wt_el3_a32_leave, run from the handler of one of its SMCs, returns here. */
+    .globl wt_el3_a32_enter
+wt_el3_a32_enter:
+    ldr     x9, =g_wt_el3_a32_ctx
+    stp     x19, x20, [x9, #0]
+    stp     x21, x22, [x9, #16]
+    stp     x23, x24, [x9, #32]
+    stp     x25, x26, [x9, #48]
+    stp     x27, x28, [x9, #64]
+    stp     x29, x30, [x9, #80]
+    mov     x10, sp
+    mrs     x11, SCR_EL3
+    stp     x10, x11, [x9, #96]
+    msr     SCR_EL3, x0
+    msr     ELR_EL3, x1
+    mov     x3, #0x1d3
+    msr     SPSR_EL3, x3
+    mov     x9, x2
+    ldp     x0, x1, [x9, #0]
+    ldp     x2, x3, [x9, #16]
+    ldp     x4, x5, [x9, #32]
+    ldp     x6, x7, [x9, #48]
+    isb
+    eret
+
+/* void wt_el3_a32_leave(void): abandon the handler's stack and return from
+ * wt_el3_a32_enter with its SCR_EL3 and callee-saved registers back. */
+    .globl wt_el3_a32_leave
+wt_el3_a32_leave:
+    ldr     x9, =g_wt_el3_a32_ctx
+    ldp     x10, x11, [x9, #96]
+    msr     SCR_EL3, x11
+    isb
+    mov     sp, x10
+    ldp     x19, x20, [x9, #0]
+    ldp     x21, x22, [x9, #16]
+    ldp     x23, x24, [x9, #32]
+    ldp     x25, x26, [x9, #48]
+    ldp     x27, x28, [x9, #64]
+    ldp     x29, x30, [x9, #80]
+    ret
+
+/* A32: SMC with the ids in R0, R4, R5 (results kept in R8-R10), then the
+ * done id in R6. */
+    .balign 4
+    .globl wt_el3_a32_stub
+wt_el3_a32_stub:
+    .word   0xe1600070              /* smc #0 */
+    .word   0xe1a08000              /* mov r8, r0 */
+    .word   0xe1a00004              /* mov r0, r4 */
+    .word   0xe1600070              /* smc #0 */
+    .word   0xe1a09000              /* mov r9, r0 */
+    .word   0xe1a00005              /* mov r0, r5 */
+    .word   0xe1600070              /* smc #0 */
+    .word   0xe1a0a000              /* mov r10, r0 */
+    .word   0xe1a00006              /* mov r0, r6 */
+    .word   0xe1600070              /* smc #0 */
+    .word   0xeafffffe              /* b . */
+#endif
+
     .bss
     .balign 16
 g_wt_el3_exit_block:
     .skip   16
+#if defined(WT_EL3_TEST_DRIVER) && (WT_EL3_TEST_DRIVER == 1)
+    .balign 16
+g_wt_el3_a32_ctx:
+    .skip   112
+#endif

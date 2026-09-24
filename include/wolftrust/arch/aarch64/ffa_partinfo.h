@@ -83,6 +83,13 @@ int wt_ffa_partinfo_props_of(const wt_ffa_partinfo_entry_t* parts, size_t n,
  * 15.8 and 15.16). */
 int wt_ffa_direct_req_allowed(uint32_t props, uint32_t fid, int receive);
 
+/* FFA_MSG_SEND2 from sender (Table 5.1: indirect messaging support covers
+ * sending as well as receiving): the Normal world always, a partition only if
+ * parts lists it with the indirect-messaging property. 0, or DENIED (Table
+ * 15.4). */
+int wt_ffa_msg2_sender_allowed(const wt_ffa_partinfo_entry_t* parts, size_t n,
+                               uint16_t sender);
+
 /* A partition-to-partition direct request of kind fid (7.4.2 rule 2): the
  * sender must be listed in parts and advertise sending it (DENIED otherwise),
  * the receiver listed (INVALID_PARAMETERS otherwise) and advertise taking it

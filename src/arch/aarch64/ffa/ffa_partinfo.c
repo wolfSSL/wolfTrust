@@ -127,6 +127,20 @@ int wt_ffa_direct_req_authorize(const wt_ffa_partinfo_entry_t* parts, size_t n,
     return ret;
 }
 
+int wt_ffa_msg2_sender_allowed(const wt_ffa_partinfo_entry_t* parts, size_t n,
+                               uint16_t sender)
+{
+    uint32_t props = 0u;
+
+    if ((sender & 0x8000u) == 0u) {
+        return 0;
+    }
+    if (wt_ffa_partinfo_props_of(parts, n, sender, &props) != 0) {
+        props = 0u;
+    }
+    return ((props & WT_FFA_PARTINFO_PROP_INDIRECT) != 0u) ? 0 : WT_FFA_DENIED;
+}
+
 static int uuid_is_nil(const uint8_t* u)
 {
     unsigned int i;

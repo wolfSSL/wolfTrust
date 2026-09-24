@@ -32,6 +32,7 @@
 #include "wolftrust/arch/aarch64/ffa_mem.h"
 #include "wolftrust/arch/aarch64/ffa_notif.h"
 #include "wolftrust/arch/aarch64/ffa_partinfo.h"
+#include "wolftrust/arch/aarch64/ffa_runtime.h"
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
@@ -434,7 +435,8 @@ static void ffa_run(wt_trap_frame_t* frame, const struct wt_co* co)
  * was scheduled by the SPMC and may not yield (8.5 rule 4). */
 static void ffa_yield(wt_trap_frame_t* frame, const struct wt_co* co)
 {
-    if (wt_spm_sp_initializing(co) != 0) {
+    if ((wt_spm_sp_initializing(co) != 0) &&
+        (wt_ffa_rt_init_call(WT_FFA_YIELD, 0) != 0)) {
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }

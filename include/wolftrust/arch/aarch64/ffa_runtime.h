@@ -51,6 +51,12 @@ typedef enum wt_ffa_rt_event {
  * other illegal transition (§8.2), INVALID_PARAMETERS for a bad argument. */
 int wt_ffa_rt_transition(wt_ffa_rt_state_t *state, wt_ffa_rt_event_t event);
 
+/* The runtime model for SP initialization (8.5): whether an execution context
+ * still initializing may make call fid. A direct request only to an SP that
+ * has initialized (rule 1); FFA_YIELD, FFA_RUN and the direct responses never
+ * (rules 4-6, DENIED per 8.1 rule 4); any other call is served. 0 or DENIED. */
+int wt_ffa_rt_init_call(uint32_t fid, int target_initialized);
+
 const char *wt_ffa_rt_state_name(wt_ffa_rt_state_t state);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_RUNTIME_H */

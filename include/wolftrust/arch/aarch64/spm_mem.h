@@ -98,6 +98,10 @@ int wt_spm_mem_reclaim(uint64_t handle, uint16_t owner, uint32_t flags);
  * covers: no RX/TX pair may be mapped over it. */
 int wt_spm_mem_in_transaction(uint64_t base, uint64_t size);
 
+/* Non-zero when the Normal world still owns all of [base, base + size): it lies
+ * in the window and no partition holds a page of it (one donated or lent). */
+int wt_spm_mem_ns_owns(uint64_t base, uint64_t size);
+
 /* Provided by the SVC glue and the Normal-world dispatcher: non-zero when
  * [base, base + size) holds a page of an RX/TX pair a partition, or the Normal
  * world, has mapped with the SPMC. */

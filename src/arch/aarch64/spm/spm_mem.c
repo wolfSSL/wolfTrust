@@ -181,25 +181,66 @@ static int common_memory(const wt_secure_domain_t* dom, uint64_t base,
     return 0;
 }
 
+/* A partition reaching a page of the Normal world's window at EL0 was donated
+ * it or borrows it, so the page is no longer the Normal world's (1.3.1 rules 5
+ * and 6). */
+static int ns_page_held(uint64_t at)
+{
+    unsigned int i;
+
+    for (i = 0u; i < WT_SPM_MEM_MAX_BIND; i++) {
+        if ((g_bind[i].live != 0u) &&
+            (wt_domain_page_access(g_bind[i].dom->regions,
+                                   g_bind[i].dom->region_count,
+                                   (uintptr_t)at) != WT_DOMAIN_ACCESS_NONE)) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+int wt_spm_mem_ns_owns(uint64_t base, uint64_t size)
+{
+    uint64_t at;
+
+    if ((size == 0u) || (base < g_ns_base) || (base >= g_ns_limit) ||
+        (size > (g_ns_limit - base))) {
+        return 0;
+    }
+    for (at = base & ~(uint64_t)(WT_FFA_MEM_PAGE_SIZE - 1u); at < (base + size);
+         at += WT_FFA_MEM_PAGE_SIZE) {
+        if (ns_page_held(at) != 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 /* Only memory the sender owns outright may be sent (10.10): Non-secure memory
- * inside the window the SPMC maps, or pages a partition reaches at EL0. The
- * result is the least access it has over the range (WT_DOMAIN_ACCESS_*). The
- * SPMC's own sends are its boot self-test. */
-static int sender_owns(uint16_t sender, const wt_ffa_mem_region_t* r)
+ * inside the window the SPMC maps that no partition holds, or pages a
+ * partition reaches at EL0, all in one security state (*ns). The result is the
+ * least access it has over the range (WT_DOMAIN_ACCESS_*). The SPMC's own
+ * sends are its boot self-test. */
+static int sender_owns(uint16_t sender, const wt_ffa_mem_region_t* r,
+                       uint8_t* ns)
 {
     const wt_spm_mem_binding_t* b;
     uint64_t size = (uint64_t)r->page_count * WT_FFA_MEM_PAGE_SIZE;
     uint64_t at;
+    uint8_t page_ns;
     int access = WT_DOMAIN_ACCESS_RW;
     int page;
 
+    *ns = 0u;
     if (sender == WT_FFA_ID_SPMC) {
         return WT_DOMAIN_ACCESS_RW;
     }
+    /* With no Hypervisor the Normal-world kernel is the relayer for its own
+     * mappings and takes its access away itself (DEN0140 1.4.1). */
     if (!id_is_secure(sender)) {
-        return ((r->base >= g_ns_base) && (r->base < g_ns_limit) &&
-                (size <= (g_ns_limit - r->base))) ? WT_DOMAIN_ACCESS_RW
-                                                  : WT_DOMAIN_ACCESS_NONE;
+        *ns = 1u;
+        return (wt_spm_mem_ns_owns(r->base, size) != 0) ? WT_DOMAIN_ACCESS_RW
+                                                        : WT_DOMAIN_ACCESS_NONE;
     }
     b = bind_by_id(sender);
     if ((b == NULL) || (common_memory(b->dom, r->base, size) != 0)) {
@@ -210,6 +251,15 @@ static int sender_owns(uint16_t sender, const wt_ffa_mem_region_t* r)
          at += WT_FFA_MEM_PAGE_SIZE) {
         page = wt_domain_page_access(b->dom->regions, b->dom->region_count,
                                      (uintptr_t)at);
+        page_ns = (uint8_t)wt_domain_page_ns(b->dom->regions,
+                                             b->dom->region_count,
+                                             (uintptr_t)at);
+        if (at == r->base) {
+            *ns = page_ns;
+        }
+        else if (page_ns != *ns) {
+            page = WT_DOMAIN_ACCESS_NONE;
+        }
         if (page < access) {
             access = page;
         }
@@ -302,11 +352,6 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     }
     ret = wt_ffa_mem_send_validate_at(desc, len, op, sender,
                                       caller_version(sender), &txn);
-    /* Nothing here can take memory away from the Normal world, so it cannot
-     * give any away for good; a malformed attempt is still told why. */
-    if ((ret == 0) && (op == WT_FFA_MEM_OP_DONATE) && !id_is_secure(sender)) {
-        ret = WT_FFA_NOT_SUPPORTED;
-    }
     if ((ret == 0) && (txn.receiver_count > WT_FFA_MEM_MAX_BORROWERS)) {
         ret = WT_FFA_NO_MEMORY;
     }
@@ -339,14 +384,15 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
                                           WT_FFA_MEM_MAX_REGIONS, &n);
     }
     for (i = 0u; (ret == 0) && (i < n); i++) {
-        access = sender_owns(sender, &regs[i]);
+        access = sender_owns(sender, &regs[i], &regs[i].ns);
         if (access == WT_DOMAIN_ACCESS_RO) {
             owner_ro = 1;
         }
-        regs[i].ns = id_is_secure(sender) ? 0u : 1u;
         /* A mapped RX/TX pair is the SPMC's to write and read until it is
-         * unmapped (DEN0077A 7.2.2.2), so it is never the sender's to hand on. */
+         * unmapped (DEN0077A 7.2.2.2), so it is never the sender's to hand on;
+         * and one memory region has one security state (Table 1.19). */
         if ((access == WT_DOMAIN_ACCESS_NONE) ||
+            (regs[i].ns != regs[0].ns) ||
             (wt_ffa_mem_registry_overlaps(&g_reg, regs[i].base,
                                           regs[i].page_count) != 0) ||
             (wt_spm_mailbox_overlaps(regs[i].base,

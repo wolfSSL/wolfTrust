@@ -1353,7 +1353,6 @@ static void psci_walk(void)
     uint64_t o[4];
     uint64_t self;
     uint64_t parked;
-    int32_t neighbour;
     int ok = 1;
 
     ffa_smc(WT_PSCI_VERSION, 0u, o);
@@ -1374,16 +1373,13 @@ static void psci_walk(void)
     ok &= psci_expect("affinity self",
                       psci_call(WT_PSCI_AFFINITY_INFO64, self, 0u),
                       WT_PSCI_AFFINITY_ON);
-    /* The neighbour core is a parked secondary (DISABLED, cannot be turned
-     * on) or, on a single-core port, no core at all (INVALID_PARAMETERS). */
-    neighbour = (int32_t)(uint32_t)psci_call(WT_PSCI_AFFINITY_INFO64, parked, 0u);
-    if ((neighbour != WT_PSCI_DISABLED) && (neighbour != WT_PSCI_INVALID_PARAMS)) {
-        ok &= psci_expect("affinity neighbour", (uint64_t)(uint32_t)neighbour,
-                          WT_PSCI_DISABLED);
-    }
+    /* The neighbour core, parked at EL3 or absent, is outside the Normal
+     * world's machine view: not an MPIDR it can query or turn on. */
+    ok &= psci_expect("affinity neighbour",
+                      psci_call(WT_PSCI_AFFINITY_INFO64, parked, 0u),
+                      WT_PSCI_INVALID_PARAMS);
     ok &= psci_expect("cpu_on neighbour", psci_call(WT_PSCI_CPU_ON64, parked, 0u),
-                      (neighbour == WT_PSCI_DISABLED) ?
-                          WT_PSCI_INTERNAL_FAILURE : WT_PSCI_INVALID_PARAMS);
+                      WT_PSCI_INVALID_PARAMS);
     ok &= psci_expect("affinity level1",
                       psci_call(WT_PSCI_AFFINITY_INFO64, self, 1u),
                       WT_PSCI_INVALID_PARAMS);

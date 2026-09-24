@@ -111,8 +111,10 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
+  # The Normal world probes PSCI with a real parked secondary beside it.
+  psci:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
   # The port declares a second core the machine never starts (virt runs one
   # core; versal-virt keeps APU core 1 powered off).
   parkneg:virt) SMP=1; cpus=2 ;;
@@ -601,6 +603,7 @@ case "$scenario" in
     if [ "$GIC" = 3 ]; then
       expect "NS-EL1 read ICC_SRE_EL1 with SRE set under the GICv3" "[NS] icc_sre_el1 sre=1"
     fi
+    expect "secondary cores parked ($cpus cores)" " secondaries parked mask=$expected_mask"
     expect "the Normal world read the PSCI version from the SPMD" "[NS] psci version 1.1"
     refute_re "no PSCI call returned an off-spec value" '\[NS\] psci BAD'
     expect "SMCCC_VERSION reported 1.2 and x4-x7 survived a PSCI call" "[NS] smccc version 1.2"

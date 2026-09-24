@@ -218,6 +218,25 @@ static void status_encoding_rows(void)
     x[2] = 0u;
     check(wt_ffa_rt_error_check(x) == WT_FFA_INVALID_PARAMETERS,
           "FFA_ERROR without an error code is INVALID_PARAMETERS");
+
+    x[0] = WT_FFA_YIELD;
+    x[4] = 0xFFFFFFFFu;
+    x[7] = 1u;
+    x[1] = 0xFFFFFFFF00000000ull;
+    check(wt_ffa_rt_yield_check(x) == 0,
+          "FFA_YIELD ignores its SBZ w4-w7 and reads w1-w3 alone");
+    x[1] = 0x80030000u;
+    check(wt_ffa_rt_yield_check(x) == WT_FFA_INVALID_PARAMETERS,
+          "a partition's FFA_YIELD naming an endpoint in w1 (MBZ) is refused");
+    x[1] = 0u;
+    x[2] = 1000u;
+    check(wt_ffa_rt_yield_check(x) == WT_FFA_INVALID_PARAMETERS,
+          "and so is one asking for a timeout in w2, the Hypervisor's alone");
+    x[2] = 0u;
+    x[3] = 1u;
+    check(wt_ffa_rt_yield_check(x) == WT_FFA_INVALID_PARAMETERS,
+          "or in w3");
+    x[3] = 0u;
 }
 
 int main(void)

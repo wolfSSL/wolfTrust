@@ -479,12 +479,17 @@ static void ffa_init_failed(wt_trap_frame_t* frame, wt_co_t* co)
 
 /* FFA_YIELD (8.2): hand the CPU back to whoever entered this partition; the
  * call returns FFA_SUCCESS once FFA_RUN resumes it. An initializing partition
- * was scheduled by the SPMC and may not yield (8.5 rule 4). */
+ * was scheduled by the SPMC and may not yield (8.5 rule 4), and a partition
+ * cannot ask for a timeout (Table 14.9). */
 static void ffa_yield(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     if ((wt_spm_sp_initializing(co) != 0) &&
         (wt_ffa_rt_init_call(WT_FFA_YIELD, 0) != 0)) {
         ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    if (wt_ffa_rt_yield_check(frame->x) != 0) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }
     ffa_success(frame, 0u, 0u);

@@ -877,13 +877,11 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
 
 /* A borrower has let go: with several borrowers a wipe waits until the last
  * of them has been unmapped (Table 11.26), and a transaction whose owner is
- * gone ends with it. */
+ * gone ends with it, its memory left to the SPM. */
 static void borrower_released(uint64_t handle,
                               const wt_ffa_mem_handle_entry_t* e,
                               uint32_t cookie)
 {
-    wt_ffa_mem_handle_entry_t snapshot;
-
     if (((cookie & WT_SPM_MEM_COOKIE_ZERO_PENDING) != 0u) &&
         (e->retrieved == 0u)) {
         zero_regions(e);
@@ -892,9 +890,7 @@ static void borrower_released(uint64_t handle,
     wt_ffa_mem_handle_set_meta(&g_reg, handle, e->tag, cookie);
     if (((cookie & WT_SPM_MEM_COOKIE_OWNER_GONE) != 0u) &&
         (e->retrieved == 0u)) {
-        snapshot = *e;
         (void)wt_ffa_mem_handle_free(&g_reg, handle);
-        owner_access(&snapshot, 1);
     }
 }
 
@@ -1004,12 +1000,12 @@ static void borrower_teardown(const wt_spm_mem_binding_t* b, uint64_t handle)
     borrower_released(handle, e, cookie);
 }
 
-/* An owner that faulted takes back what no borrower holds; what a borrower
- * still maps ends when the last of them lets go. */
+/* A bound partition that faults is terminated, never restarted, so what it
+ * owned goes to the SPM, not back to it (1.3.1 rule 9): a transaction no
+ * borrower holds ends now, one a borrower still maps when the last lets go. */
 static void owner_teardown(uint16_t owner, uint64_t handle)
 {
     const wt_ffa_mem_handle_entry_t* e;
-    wt_ffa_mem_handle_entry_t snapshot;
 
     if ((wt_ffa_mem_handle_lookup(&g_reg, handle, &e) != 0) ||
         (e->owner != owner)) {
@@ -1021,10 +1017,7 @@ static void owner_teardown(uint16_t owner, uint64_t handle)
                                        WT_SPM_MEM_COOKIE_OWNER_GONE);
         return;
     }
-    snapshot = *e;
-    if (wt_ffa_mem_handle_reclaim(&g_reg, handle, owner) == 0) {
-        owner_access(&snapshot, 1);
-    }
+    (void)wt_ffa_mem_handle_reclaim(&g_reg, handle, owner);
 }
 
 void wt_spm_mem_endpoint_teardown(const struct wt_co* co)

@@ -160,6 +160,7 @@ clean:
 	$(MAKE) -C tests/firmware/stm32h563 clean
 	$(MAKE) -C tests/firmware/stm32h563-vnet clean
 	$(MAKE) -C tests/firmware/aarch64-smoke clean
+	$(MAKE) -C tests/firmware/aarch64-ns-smoke clean
 	$(MAKE) -C tests/host/domain clean
 	$(MAKE) -C tests/host/manifest clean
 	$(MAKE) -C tests/host/lifecycle clean

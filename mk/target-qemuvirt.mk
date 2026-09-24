@@ -44,8 +44,8 @@ WT_NS_IMAGE_PA ?= 0x44000000
 WT_PSA_NS_WINDOW_SIZE ?= 0x00100000
 WT_SPM_FLASH_OFFSET ?= 0x00100000
 WT_QEMU_TEST_ENTROPY ?= 1
-# The model has no reset controller: a system reset re-enters the boot chain,
-# bounded so a test run ends (the conformance suite resets on every panic test).
+# A system reset reboots the machine through its Secure GPIO, bounded so a test
+# run ends (the conformance suite resets on every panic test).
 ifeq ($(WT_CONFORMANCE),1)
 WT_EL3_RESET_LIMIT ?= 256
 else
@@ -98,7 +98,7 @@ WT_FFA_ACS_BASE ?= 0x0E400000
 WT_FFA_ACS_FLASH_OFFSET ?= 0x00200000
 WT_FFA_ACS_FLASH_SIZE ?= 0x00410000
 # The test NVM rides at this offset within the ACS band, behind the four 1 MB
-# SP images; it must survive a warm reset (the suite records progress in it).
+# SP images; it must survive a reset (the suite records progress in it).
 WT_FFA_ACS_NVM_OFFSET ?= 0x00400000
 ifeq ($(WT_FFA_ACS),1)
 TARGET_CFLAGS += -DWT_FFA_ACS=1 -DWT_FFA_ACS_BASE=$(WT_FFA_ACS_BASE)u \

@@ -958,7 +958,7 @@ static int memfrag_share(void)
     x[1] = handle & 0xFFFFFFFFu;
     x[2] = handle >> 32;
     x[3] = len - split;
-    x[4] = 0u;
+    x[4] = 0xFFFFu;                         /* w4[15:0] SBZ (Table 4.7) */
     smc5(x);
     ok = ok && ((uint32_t)x[0] == WT_FFA_SUCCESS32) &&
          (((x[2] & 0xFFFFFFFFu) | ((x[3] & 0xFFFFFFFFu) << 32)) == handle);

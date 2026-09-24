@@ -1159,7 +1159,8 @@ static void ns_interrupt(wt_ffa_regs_t* r)
 static uint64_t g_ns_frag_src;
 
 /* At this physical instance FFA_MEM_FRAG_RX/TX carry the Owner's id in
- * w4[31:16]; the Normal-world owner is the primary endpoint. */
+ * w4[31:16], bits[15:0] SBZ (Table 4.7); the Normal-world owner is the primary
+ * endpoint. */
 #define WT_NS_FRAG_W4 ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16)
 
 static void ns_frag_rx_reply(wt_ffa_regs_t* r, uint64_t handle, uint32_t offset)
@@ -1242,7 +1243,7 @@ static void ns_mem_frag_tx(wt_ffa_regs_t* r)
     int done = 0;
     int ret = WT_FFA_INVALID_PARAMETERS;
 
-    if (((uint32_t)r->x[4] == (uint32_t)WT_NS_FRAG_W4) &&
+    if ((((uint32_t)r->x[4] & 0xFFFF0000u) == (uint32_t)WT_NS_FRAG_W4) &&
         (ns_range_ok(g_ns_frag_src, (uint64_t)len) != 0)) {
         ret = wt_spm_mem_frag_next(handle, WT_FFA_ID_NS_PRIMARY,
                                    (const uint8_t*)(uintptr_t)g_ns_frag_src,

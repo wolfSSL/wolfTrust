@@ -1712,7 +1712,7 @@ size_t wt_platform_sp_shared_regions(wt_memory_region_t* regions, size_t max)
 static uint8_t* low_pages(size_t size)
 {
     static const uint64_t hints[] = {
-        0x10000000ull, 0x800000000ull, 0x2000000000ull
+        0x10000000ull, 0x800000000ull, 0x2000000000ull, 0x40000000ull
     };
     void* p;
     size_t i;
@@ -3256,6 +3256,92 @@ static void relay_range_rows(void)
     check(g_domain_fails == 0u, "ranges: no domain operation failed closed");
 }
 
+/* A window holding a 128 MB boundary (the largest a hint asks for) with room
+ * for the fixture's pages around it; mapped lazily, so only those are backed. */
+#define ALIGN_WINDOW (0x8000000ull + 0x80000ull)
+#define ALIGN_128M   0x8000000ull
+#define ALIGN_VALID  (1u << 9)
+
+/* With the fixture moved so A's first lendable page sits at base, A lends it
+ * to B and B retrieves it asking for alignment hint n: the retrieve's answer,
+ * or -99 if the fixture fails. The lend ends either way. */
+static int relay_align_at(uint64_t base, uint32_t n)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint64_t h = 0u;
+    int sent = -1;
+    int ret = -99;
+
+    g_mem = (uint8_t*)(uintptr_t)(base - ((uint64_t)PG_FILL *
+                                          WT_TABLES_PAGE_SIZE));
+    c[0].address = base;
+    c[0].page_count = 1u;
+    if (relay_reset()) {
+        h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
+                       &sent);
+    }
+    if (sent == 0) {
+        ret = relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, ALIGN_VALID | (n << 5));
+        if ((ret == 0) && (relay_relinquish(h, 0u) != 0)) {
+            ret = -99;
+        }
+        if (wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) != 0) {
+            ret = -99;
+        }
+    }
+    return ret;
+}
+
+/* WT-FFA-0009 (a retrieve's alignment hint n asks for a 2^n x 4 KB boundary,
+ * DEN0140 Table 1.22 bits[8:5], and a region off it is DENIED). */
+static void relay_align_rows(void)
+{
+    uint8_t* saved = g_mem;
+    uint8_t* win;
+    uint64_t x;
+    uint64_t d;
+    uint64_t y = 0u;
+    uint64_t z = 0u;
+
+    if (g_mem == NULL) {
+        check(0, "align: fixture");
+        return;
+    }
+    win = low_pages((size_t)ALIGN_WINDOW);
+    check(win != NULL,
+          "align: the host backs a window holding a 128 MB boundary below the table VA limit");
+    if (win == NULL) {
+        return;
+    }
+    x = ((uint64_t)(uintptr_t)win + (2u * WT_TABLES_PAGE_SIZE) + ALIGN_128M -
+         1u) & ~(ALIGN_128M - 1u);
+    /* y sits on a 24 KB boundary but not a 32 KB one, z on a 120 KB one. */
+    for (d = WT_TABLES_PAGE_SIZE; d < 0x40000u; d += WT_TABLES_PAGE_SIZE) {
+        if ((y == 0u) && (((x + d) % 0x6000u) == 0u) &&
+            (((x + d) % 0x8000u) != 0u)) {
+            y = x + d;
+        }
+        if ((z == 0u) && (((x + d) % 0x1E000u) == 0u)) {
+            z = x + d;
+        }
+    }
+    check(relay_align_at(x, 0u) == 0 && relay_align_at(x, 1u) == 0 &&
+          relay_align_at(x, 3u) == 0 && relay_align_at(x, 15u) == 0,
+          "align: a region on a 128 MB boundary is mapped for hints 0, 1, 3, and 15");
+    check(relay_align_at(x + WT_TABLES_PAGE_SIZE, 0u) == 0 &&
+          relay_align_at(x + WT_TABLES_PAGE_SIZE, 1u) == WT_FFA_DENIED,
+          "align: hint 0 asks for 4 KB, which every page meets, and hint 1 for 8 KB");
+    check(y != 0u && relay_align_at(y, 1u) == 0 &&
+          relay_align_at(y, 3u) == WT_FFA_DENIED,
+          "align: hint 3 asks for 32 KB, not 24 KB, so a page on a 24 KB boundary only is DENIED");
+    check(z != 0u && relay_align_at(z, 15u) == WT_FFA_DENIED,
+          "align: hint 15 asks for 128 MB, not 120 KB, so a page on a 120 KB boundary is DENIED");
+    (void)munmap(win, (size_t)ALIGN_WINDOW);
+    g_mem = saved;
+    check(relay_reset() && g_domain_fails == 0u,
+          "align: the fixture is back on its own pages");
+}
+
 /* WT-FFA-0009 (a donate makes the receiver the owner, Owner-EA, 2.4.1.2 item
  * 12: its permission and RX/TX calls treat the page as its own; an owner
  * cannot change the access of memory a transaction covers, 1.3.1 rule 7). */
@@ -3610,6 +3696,7 @@ int main(void)
     relay_donated_perm_rows();
     relay_access_size_rows();
     relay_range_rows();
+    relay_align_rows();
     relay_frag_abort_rows();
     relay_frag_busy_rows();
     relay_ns_access_rows();

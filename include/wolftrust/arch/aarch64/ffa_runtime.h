@@ -57,6 +57,15 @@ int wt_ffa_rt_transition(wt_ffa_rt_state_t *state, wt_ffa_rt_event_t event);
  * (rules 4-6, DENIED per 8.1 rule 4); any other call is served. 0 or DENIED. */
 int wt_ffa_rt_init_call(uint32_t fid, int target_initialized);
 
+/* FFA_SUCCESS completing a direct request in place of a response (15.2,
+ * 15.4) carries nothing: w1-w7 of FFA_SUCCESS32, x1-x17 of FFA_SUCCESS64 MBZ.
+ * x = x0-x17. 0, or INVALID_PARAMETERS. */
+int wt_ffa_rt_success_check(const uint64_t* x);
+
+/* FFA_ERROR from a partition at the Secure virtual instance (Table 12.4):
+ * w1 MBZ, w2 an error code (negative). 0, or INVALID_PARAMETERS. */
+int wt_ffa_rt_error_check(const uint64_t* x);
+
 const char *wt_ffa_rt_state_name(wt_ffa_rt_state_t state);
 
 #endif /* WOLFTRUST_ARCH_AARCH64_FFA_RUNTIME_H */

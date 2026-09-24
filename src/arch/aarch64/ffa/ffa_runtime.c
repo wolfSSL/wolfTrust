@@ -97,6 +97,34 @@ int wt_ffa_rt_init_call(uint32_t fid, int target_initialized)
     }
 }
 
+int wt_ffa_rt_success_check(const uint64_t* x)
+{
+    unsigned int i;
+
+    if ((uint32_t)x[0] == WT_FFA_SUCCESS64) {
+        for (i = 1u; i < 18u; i++) {
+            if (x[i] != 0u) {
+                return WT_FFA_INVALID_PARAMETERS;
+            }
+        }
+        return 0;
+    }
+    for (i = 1u; i < 8u; i++) {
+        if ((uint32_t)x[i] != 0u) {
+            return WT_FFA_INVALID_PARAMETERS;
+        }
+    }
+    return 0;
+}
+
+int wt_ffa_rt_error_check(const uint64_t* x)
+{
+    if (((uint32_t)x[1] != 0u) || ((int32_t)(uint32_t)x[2] >= 0)) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    return 0;
+}
+
 const char *wt_ffa_rt_state_name(wt_ffa_rt_state_t state)
 {
     switch (state) {

@@ -118,8 +118,6 @@ static void ffa_direct_resp(wt_trap_frame_t* frame, const struct wt_co* co)
 static void ffa_direct_success(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     uint32_t fid = (uint32_t)frame->x[0];
-    unsigned int n = (fid == WT_FFA_SUCCESS64) ? WT_FFA_MSG_REGS_EXT :
-                                                 WT_FFA_MSG_REGS;
     uint16_t requester = 0u;
     uint16_t self = 0u;
     unsigned int i;
@@ -128,11 +126,9 @@ static void ffa_direct_success(wt_trap_frame_t* frame, const struct wt_co* co)
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
-    for (i = 1u; i < n; i++) {
-        if (frame->x[i] != 0u) {
-            ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
-            return;
-        }
+    if (wt_ffa_rt_success_check(frame->x) != 0) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
     }
     for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
         g_wt_ffa_direct_resp[i] = 0u;
@@ -470,7 +466,7 @@ static void ffa_init_failed(wt_trap_frame_t* frame, wt_co_t* co)
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
-    if (((uint32_t)frame->x[1] != 0u) || (code >= 0)) {
+    if (wt_ffa_rt_error_check(frame->x) != 0) {
         ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
         return;
     }

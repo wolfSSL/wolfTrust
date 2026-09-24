@@ -182,6 +182,44 @@ static void init_model_rows(void)
           "init: FFA_MSG_WAIT, FFA_ERROR and setup calls are served");
 }
 
+/* The encodings a partition's FFA_SUCCESS (completing a direct request) and
+ * FFA_ERROR (failing its initialization) must carry. */
+static void status_encoding_rows(void)
+{
+    uint64_t x[18] = { 0 };
+
+    x[0] = WT_FFA_SUCCESS32;
+    x[4] = 0xFFFFFFFF00000000ull;
+    x[9] = 1u;
+    check(wt_ffa_rt_success_check(x) == 0,
+          "FFA_SUCCESS32 is judged on w1-w7 alone");
+    x[3] = 1u;
+    check(wt_ffa_rt_success_check(x) == WT_FFA_INVALID_PARAMETERS,
+          "FFA_SUCCESS32 with a nonzero w3 is INVALID_PARAMETERS");
+    x[0] = WT_FFA_SUCCESS64;
+    x[3] = 0u;
+    x[4] = 0u;
+    check(wt_ffa_rt_success_check(x) == WT_FFA_INVALID_PARAMETERS,
+          "FFA_SUCCESS64 with a nonzero x9 is INVALID_PARAMETERS");
+    x[9] = 0u;
+    x[17] = 0x100000000ull;
+    check(wt_ffa_rt_success_check(x) == WT_FFA_INVALID_PARAMETERS,
+          "and so is one with a bit set in the upper half of x17");
+    x[17] = 0u;
+    check(wt_ffa_rt_success_check(x) == 0, "a clean FFA_SUCCESS64 is accepted");
+
+    x[0] = WT_FFA_ERROR;
+    x[2] = (uint32_t)WT_FFA_NO_MEMORY;
+    check(wt_ffa_rt_error_check(x) == 0, "FFA_ERROR with an error code is accepted");
+    x[1] = 0x8003u;
+    check(wt_ffa_rt_error_check(x) == WT_FFA_INVALID_PARAMETERS,
+          "FFA_ERROR naming a target in w1 (MBZ here) is INVALID_PARAMETERS");
+    x[1] = 0u;
+    x[2] = 0u;
+    check(wt_ffa_rt_error_check(x) == WT_FFA_INVALID_PARAMETERS,
+          "FFA_ERROR without an error code is INVALID_PARAMETERS");
+}
+
 int main(void)
 {
     wt_ffa_rt_state_t s = WT_FFA_RT_RUNNING;
@@ -191,6 +229,7 @@ int main(void)
     run_table();
     run_chain();
     init_model_rows();
+    status_encoding_rows();
 
     /* A NULL state pointer and an out-of-range event are rejected without a
      * side effect. */

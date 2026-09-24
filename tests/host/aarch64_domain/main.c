@@ -111,6 +111,50 @@ static const wt_memory_region_t g_bad[] = {
     { 0x0E000000u, 0x1000u, RW }
 };
 
+/* A partition whose declared stack is a strict subrange of its private
+ * resource, next to a shared band, a plain data band, a scrubbed data band,
+ * and a device. */
+#define SCRUB (RW | WT_MEMORY_ATTR_RESTART_CLEAR)
+static const wt_memory_resource_t g_res[] = {
+    { 0x0E100000u, 0x100000u, RX | WT_MEMORY_ATTR_SHARED, 3u },
+    { 0x0E240000u, 0x10000u, SCRUB, 0u },
+    { 0x0E300000u, 0x40000u, RW | WT_MEMORY_ATTR_SHARED, 1u },
+    { 0x0E260000u, 0x2000u, RW, 0u },
+    { 0x0E270000u, 0x1000u, SCRUB, 0u },
+    { 0x09000000u, 0x1000u, SCRUB | WT_MEM_ATTR_DEVICE, 0u }
+};
+
+static void stack_band_rows(void)
+{
+    wt_domain_descriptor_t d;
+    wt_memory_region_t band;
+    size_t i;
+    unsigned int mask = 0u;
+
+    (void)memset(&d, 0, sizeof(d));
+    d.domain_class = WT_DOMAIN_CLASS_SECURE_PARTITION;
+    d.memory_resources = g_res;
+    d.memory_resource_count = sizeof(g_res) / sizeof(g_res[0]);
+    d.stack_base = 0x0E244000u;
+    d.stack_size = 0x4000u;
+    check(wt_domain_stack_band(&d, &band) == 0 && band.base == 0x0E240000u &&
+          band.size == 0x10000u && band.attributes == RW,
+          "a declared stack inside a larger private resource maps the whole resource the scheduler seeds");
+    for (i = 0u; i < d.memory_resource_count; i++) {
+        if (wt_domain_spm_band(&d, i, &band) == 0) {
+            mask |= 1u << i;
+        }
+    }
+    check(mask == ((1u << 1) | (1u << 4)),
+          "the SPMC maps the stack resource and a scrubbed private band, never a shared, plain, or device one");
+    d.stack_base = 0x0E300000u;
+    check(wt_domain_stack_band(&d, &band) == -1,
+          "a declared stack only a shared band holds has no stack band");
+    d.stack_size = 0u;
+    check(wt_domain_stack_band(&d, &band) == 0 && band.base == 0x0E270000u,
+          "with no declared stack the last private writable resource is the stack");
+}
+
 int main(void)
 {
     uint64_t spm;
@@ -121,6 +165,7 @@ int main(void)
     uint32_t attrs;
 
     printf("WT-PORT-0014 (AArch64 domain operations)\n");
+    stack_band_rows();
 
     wt_arch_program_sp_thread_domain(g_sp0, 2u);
     check(g_fails == 1u && g_last_fail == WT_DOMAIN_FAIL_INIT && g_switches == 0u,

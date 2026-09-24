@@ -79,6 +79,70 @@ static size_t partition_fill(wt_domain_entry_t* e,
     return n;
 }
 
+int wt_domain_stack_band(const wt_domain_descriptor_t* d,
+                         wt_memory_region_t* band)
+{
+    const wt_memory_resource_t* r;
+    const wt_memory_resource_t* found = NULL;
+    size_t i;
+
+    if ((d == NULL) || (band == NULL) ||
+        ((d->memory_resource_count != 0u) && (d->memory_resources == NULL))) {
+        return -1;
+    }
+    for (i = 0u; i < d->memory_resource_count; i++) {
+        r = &d->memory_resources[i];
+        if (((r->attributes & WT_MEM_ATTR_WRITE) == 0u) ||
+            ((r->attributes & (WT_MEM_ATTR_DEVICE | WT_MEMORY_ATTR_SHARED)) !=
+             0u)) {
+            continue;
+        }
+        if ((d->stack_size != 0u) &&
+            ((d->stack_base < r->base) ||
+             ((d->stack_base + d->stack_size) > (r->base + r->size)))) {
+            continue;
+        }
+        found = r;
+    }
+    if (found == NULL) {
+        return -1;
+    }
+    band->base = found->base;
+    band->size = found->size;
+    band->attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    return 0;
+}
+
+int wt_domain_spm_band(const wt_domain_descriptor_t* d, size_t i,
+                       wt_memory_region_t* band)
+{
+    wt_memory_region_t stack;
+    const wt_memory_resource_t* r;
+    uint32_t scrubbed = WT_MEM_ATTR_WRITE | WT_MEMORY_ATTR_RESTART_CLEAR;
+    int ret = -1;
+
+    if ((d == NULL) || (band == NULL) || (d->memory_resources == NULL) ||
+        (i >= d->memory_resource_count)) {
+        return -1;
+    }
+    r = &d->memory_resources[i];
+    if ((wt_domain_stack_band(d, &stack) == 0) && (stack.base == r->base) &&
+        (stack.size == r->size)) {
+        ret = 0;
+    }
+    else if (((r->attributes & scrubbed) == scrubbed) &&
+             ((r->attributes & (WT_MEM_ATTR_DEVICE | WT_MEMORY_ATTR_SHARED)) ==
+              0u)) {
+        ret = 0;
+    }
+    if (ret == 0) {
+        band->base = r->base;
+        band->size = r->size;
+        band->attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    }
+    return ret;
+}
+
 uint64_t wt_domain_init(const wt_memory_region_t* fill, size_t fill_count,
                         uint8_t* pool, uint64_t pool_pa, size_t pool_size)
 {

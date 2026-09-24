@@ -1305,6 +1305,22 @@ static int psci_expect(const char* what, uint64_t got, int32_t want)
     return 0;
 }
 
+/* An SMC64 call's int32 result must fill all of X0, sign-extended. */
+static int psci_expect64(const char* what, uint64_t got, int32_t want)
+{
+    if (got == (uint64_t)(int64_t)want) {
+        return 1;
+    }
+    put_str("[NS] psci BAD ");
+    put_str(what);
+    put_str(" x0=0x");
+    put_hex((uint32_t)(got >> 32));
+    put_str("_");
+    put_hex((uint32_t)got);
+    put_str("\r\n");
+    return 0;
+}
+
 /* SMCCC 1.1 and later: a call that returns only x0, here AFFINITY_INFO64 on
  * the boot core, hands x4-x7 back unchanged. */
 static int psci_preserves_x4_x7(uint64_t self)
@@ -1510,37 +1526,45 @@ static void psci_walk(void)
     __asm__ volatile("mrs %0, mpidr_el1" : "=r"(self));
     self &= 0x000000FF00FFFFFFull;
     parked = self ^ 1u;
-    ok &= psci_expect("cpu_on self", psci_call(WT_PSCI_CPU_ON64, self, 0u),
-                      WT_PSCI_ALREADY_ON);
-    ok &= psci_expect("cpu_on bogus",
-                      psci_call(WT_PSCI_CPU_ON64, self | 0x00FF0000u, 0u),
-                      WT_PSCI_INVALID_PARAMS);
-    ok &= psci_expect("affinity self",
-                      psci_call(WT_PSCI_AFFINITY_INFO64, self, 0u),
-                      WT_PSCI_AFFINITY_ON);
+    ok &= psci_expect64("cpu_on self", psci_call(WT_PSCI_CPU_ON64, self, 0u),
+                        WT_PSCI_ALREADY_ON);
+    ok &= psci_expect64("cpu_on bogus",
+                        psci_call(WT_PSCI_CPU_ON64, self | 0x00FF0000u, 0u),
+                        WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect64("affinity self",
+                        psci_call(WT_PSCI_AFFINITY_INFO64, self, 0u),
+                        WT_PSCI_AFFINITY_ON);
     /* The neighbour core, parked at EL3 or absent, is outside the Normal
      * world's machine view: not an MPIDR it can query or turn on. */
-    ok &= psci_expect("affinity neighbour",
-                      psci_call(WT_PSCI_AFFINITY_INFO64, parked, 0u),
-                      WT_PSCI_INVALID_PARAMS);
-    ok &= psci_expect("cpu_on neighbour", psci_call(WT_PSCI_CPU_ON64, parked, 0u),
-                      WT_PSCI_INVALID_PARAMS);
-    ok &= psci_expect("affinity level1",
-                      psci_call(WT_PSCI_AFFINITY_INFO64, self, 1u),
+    ok &= psci_expect64("affinity neighbour",
+                        psci_call(WT_PSCI_AFFINITY_INFO64, parked, 0u),
+                        WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect64("cpu_on neighbour",
+                        psci_call(WT_PSCI_CPU_ON64, parked, 0u),
+                        WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect64("affinity level1",
+                        psci_call(WT_PSCI_AFFINITY_INFO64, self, 1u),
+                        WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect("cpu_on32 self",
+                      psci_call(WT_PSCI_CPU_ON32, self & 0xFFFFFFFFu, 0u),
+                      WT_PSCI_ALREADY_ON);
+    ok &= psci_expect("affinity32 neighbour",
+                      psci_call(WT_PSCI_AFFINITY_INFO32,
+                                parked & 0xFFFFFFFFu, 0u),
                       WT_PSCI_INVALID_PARAMS);
     ok &= psci_expect("cpu_off", psci_call(WT_PSCI_CPU_OFF, 0u, 0u),
                       WT_PSCI_DENIED);
-    ok &= psci_expect("suspend powerdown",
-                      psci_call(WT_PSCI_CPU_SUSPEND64, 0x00010000u, 0u),
-                      WT_PSCI_INVALID_PARAMS);
-    ok &= psci_expect("migrate", psci_call(WT_PSCI_MIGRATE64, self, 0u),
-                      WT_PSCI_DENIED);
-    ok &= psci_expect("migrate neighbour",
-                      psci_call(WT_PSCI_MIGRATE64, parked, 0u),
-                      WT_PSCI_INVALID_PARAMS);
-    ok &= psci_expect("migrate bogus",
-                      psci_call(WT_PSCI_MIGRATE64, self | 0x00FF0000u, 0u),
-                      WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect64("suspend powerdown",
+                        psci_call(WT_PSCI_CPU_SUSPEND64, 0x00010000u, 0u),
+                        WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect64("migrate", psci_call(WT_PSCI_MIGRATE64, self, 0u),
+                        WT_PSCI_DENIED);
+    ok &= psci_expect64("migrate neighbour",
+                        psci_call(WT_PSCI_MIGRATE64, parked, 0u),
+                        WT_PSCI_INVALID_PARAMS);
+    ok &= psci_expect64("migrate bogus",
+                        psci_call(WT_PSCI_MIGRATE64, self | 0x00FF0000u, 0u),
+                        WT_PSCI_INVALID_PARAMS);
     ok &= psci_expect("migrate_info_type",
                       psci_call(WT_PSCI_MIGRATE_INFO_TYPE, 0u, 0u),
                       (int32_t)WT_PSCI_TOS_UP_NOT_MIGRATABLE);

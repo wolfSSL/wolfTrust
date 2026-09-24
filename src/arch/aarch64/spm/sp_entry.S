@@ -346,6 +346,46 @@ wt_sp_ffa_borrow:
     svc     #0
 1:  b       1b
 
+/* S-EL0 probe for the boot self-test of failed initialization (8.5 rule 3):
+ * FFA_ERROR with w1 set, then with no error code in w2, must each come back
+ * INVALID_PARAMETERS; FFA_ERROR(NO_MEMORY) then reports the failure and must
+ * never return. Anything else yields the token 0xBAD. */
+    .section .text.wt_sp_ffa_init_fail, "ax"
+    .globl wt_sp_ffa_init_fail
+wt_sp_ffa_init_fail:
+    movz    w0, #0x0060                 /* FFA_ERROR (0x84000060) */
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #1                      /* w1 MBZ at this instance */
+    movn    w2, #2                      /* NO_MEMORY (-3) */
+    svc     #0
+    movz    w4, #0x0060
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    9f
+    cmn     w2, #2                      /* INVALID_PARAMETERS (-2) */
+    b.ne    9f
+    movz    w0, #0x0060
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0
+    mov     x2, #0                      /* not an error code */
+    svc     #0
+    movz    w4, #0x0060
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    9f
+    cmn     w2, #2
+    b.ne    9f
+    movz    w0, #0x0060
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0
+    movn    w2, #2
+    svc     #0
+9:  mov     x1, #0xBAD
+    movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3000101) */
+    movk    w0, #0xC300, lsl #16
+    svc     #0
+1:  b       1b
+
 /* S-EL0 probe for the boot self-test: yield twice with distinct tokens. */
     .section .text.wt_sp_el0_probe, "ax"
     .globl wt_sp_el0_probe

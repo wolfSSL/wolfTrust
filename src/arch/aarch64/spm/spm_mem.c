@@ -806,6 +806,11 @@ int wt_spm_mem_frag_next(uint64_t handle, uint16_t sender, const uint8_t* frag,
     if ((slot == NULL) || (offset == NULL)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
+    /* The relayer ends the transfer and says so (DEN0140 4.1.2 rule 8). */
+    if (slot->aborted != 0u) {
+        wt_ffa_mem_frag_reset(slot);
+        return WT_FFA_ABORTED;
+    }
     ret = wt_ffa_mem_frag_add(slot, handle, sender, frag, frag_len, done);
     *offset = slot->received;
     return ret;
@@ -816,8 +821,8 @@ const uint8_t* wt_spm_mem_frag_desc(uint64_t handle, uint16_t sender,
 {
     wt_ffa_mem_frag_t* slot = frag_slot(handle, sender);
 
-    if ((slot == NULL) || (slot->received != slot->total) || (len == NULL) ||
-        (op == NULL)) {
+    if ((slot == NULL) || (slot->aborted != 0u) ||
+        (slot->received != slot->total) || (len == NULL) || (op == NULL)) {
         return NULL;
     }
     *len = slot->total;
@@ -828,6 +833,19 @@ const uint8_t* wt_spm_mem_frag_desc(uint64_t handle, uint16_t sender,
 void wt_spm_mem_frag_release(uint64_t handle, uint16_t sender)
 {
     wt_ffa_mem_frag_reset(frag_slot(handle, sender));
+}
+
+/* Later fragments must come through the buffer the first one did (DEN0140
+ * 4.1.2 rule 6), which an unmap takes away. */
+void wt_spm_mem_frag_abort(uint16_t sender)
+{
+    unsigned int i;
+
+    for (i = 0u; i < WT_SPM_MEM_FRAG_SLOTS; i++) {
+        if ((g_frag[i].active != 0u) && (g_frag[i].sender == sender)) {
+            g_frag[i].aborted = 1u;
+        }
+    }
 }
 
 int wt_spm_mem_frag_share(uint64_t handle, uint16_t sender)

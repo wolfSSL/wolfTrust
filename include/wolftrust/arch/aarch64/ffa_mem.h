@@ -477,6 +477,7 @@ typedef struct wt_ffa_mem_frag {
     uint16_t sender;
     uint8_t op;
     uint8_t active;
+    uint8_t aborted;
 } wt_ffa_mem_frag_t;
 
 /* Start reassembly with the first fragment of a descriptor of total bytes.

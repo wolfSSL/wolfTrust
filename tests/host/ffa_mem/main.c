@@ -3346,6 +3346,63 @@ static void relay_donated_perm_rows(void)
     check(g_domain_fails == 0u, "donated perm: no domain operation failed closed");
 }
 
+/* WT-FFA-0009 (later fragments come through the buffer the first one did,
+ * DEN0140 4.1.2 rule 6: a sender that unmaps it has its transfer aborted and
+ * told so, rule 8). */
+static void relay_frag_abort_rows(void)
+{
+    wt_ffa_mem_constituent_t c[1];
+    uint8_t desc[256];
+    uint64_t fh = 0u;
+    uint64_t other = 0u;
+    size_t len = 0u;
+    uint32_t offset = 0u;
+    uint32_t total = 0u;
+    uint8_t op = 0u;
+    int done = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "frag abort: fixture");
+        return;
+    }
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    (void)relay_build(desc, sizeof(desc), WT_FFA_MEM_OP_LEND, c, 1u,
+                      WT_FFA_MEM_PERM_DATA_RW, 0u, &len);
+    check(wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_A, desc,
+                                40u, (uint32_t)len, &fh) == 0 &&
+          wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_B, desc,
+                                40u, (uint32_t)len, &other) == 0,
+          "frag abort: two senders each start a descriptor in fragments");
+    wt_spm_mem_frag_abort(RELAY_ID_A);
+    check(wt_spm_mem_frag_next(fh, RELAY_ID_A, &desc[40], (uint32_t)len - 40u,
+                               &offset, &done) == WT_FFA_ABORTED &&
+          done == 0 &&
+          wt_spm_mem_frag_next(fh, RELAY_ID_A, &desc[40], (uint32_t)len - 40u,
+                               &offset, &done) == WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_in_transaction(page(PG_RW), WT_TABLES_PAGE_SIZE) == 0 &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "frag abort: the sender that unmapped its TX buffer is told ABORTED once, and nothing was sent");
+    check(wt_spm_mem_frag_next(fh, RELAY_ID_A, NULL, 0u, &offset, &done) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "frag abort: the aborted handle names no transfer afterwards");
+    check(wt_spm_mem_frag_next(other, RELAY_ID_B, &desc[40],
+                               (uint32_t)len - 40u, &offset, &done) == 0 &&
+          done == 1 &&
+          wt_spm_mem_frag_desc(other, RELAY_ID_B, &total, &op) != NULL,
+          "frag abort: another sender's transfer goes on");
+    wt_spm_mem_frag_release(other, RELAY_ID_B);
+    check(wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_A, desc,
+                                40u, (uint32_t)len, &fh) == 0,
+          "frag abort: the sender may start over");
+    wt_spm_mem_frag_abort(RELAY_ID_A);
+    check(wt_spm_mem_frag_next(fh, RELAY_ID_A, NULL, (uint32_t)len - 40u,
+                               &offset, &done) == WT_FFA_ABORTED &&
+          wt_spm_mem_frag_desc(fh, RELAY_ID_A, &total, &op) == NULL,
+          "frag abort: ABORTED even when no TX buffer is mapped to read the fragment from");
+    check(g_domain_fails == 0u, "frag abort: no domain operation failed closed");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -3389,6 +3446,7 @@ int main(void)
     relay_donated_perm_rows();
     relay_access_size_rows();
     relay_range_rows();
+    relay_frag_abort_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

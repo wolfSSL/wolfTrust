@@ -1127,6 +1127,9 @@ static void ns_rxtx_unmap(wt_ffa_regs_t* r)
                   ? wt_ffa_mailbox_unmap(&g_ns_mailbox)
                   : WT_FFA_INVALID_PARAMETERS;
 
+    if (ret == 0) {
+        wt_spm_mem_frag_abort(WT_FFA_ID_NS_PRIMARY);
+    }
     ns_reply(r, ret, 0u, 0u);
 }
 
@@ -1201,10 +1204,6 @@ static void ns_interrupt(wt_ffa_regs_t* r)
     r->x[0] = WT_FFA_NORMAL_WORLD_RESUME;
 }
 
-/* The buffer the Normal world sent a fragmented descriptor from: later
- * fragments must arrive in the same one (DEN0140 4.1.2). */
-static uint64_t g_ns_frag_src;
-
 /* At this physical instance FFA_MEM_FRAG_RX/TX carry the Owner's id in
  * w4[31:16], bits[15:0] SBZ (Table 4.7); the Normal-world owner is the primary
  * endpoint. */
@@ -1267,7 +1266,6 @@ static void ns_mem_send(wt_ffa_regs_t* r, wt_ffa_mem_op_t op)
                                     (const uint8_t*)(uintptr_t)addr, frag,
                                     total, &handle);
         if (ret == 0) {
-            g_ns_frag_src = addr;
             ns_frag_rx_reply(r, handle, frag);
             return;
         }
@@ -1280,21 +1278,27 @@ static void ns_mem_send(wt_ffa_regs_t* r, wt_ffa_mem_op_t op)
 }
 
 /* FFA_MEM_FRAG_TX forwarded from the Normal world: the next fragment of a
- * descriptor it began sending; the last one completes the send. */
+ * descriptor it began sending, in the TX buffer the first one used, which is
+ * still mapped (an unmap aborts the transfer); the last one completes the
+ * send. */
 static void ns_mem_frag_tx(wt_ffa_regs_t* r)
 {
     uint64_t handle = (uint64_t)(uint32_t)r->x[1] |
                       ((uint64_t)(uint32_t)r->x[2] << 32);
     uint32_t len = (uint32_t)r->x[3];
+    const uint8_t* frag = NULL;
+    uint64_t tx = 0u;
     uint32_t offset = 0u;
     int done = 0;
     int ret = WT_FFA_INVALID_PARAMETERS;
 
-    if ((((uint32_t)r->x[4] & 0xFFFF0000u) == (uint32_t)WT_NS_FRAG_W4) &&
-        (ns_range_ok(g_ns_frag_src, (uint64_t)len) != 0)) {
-        ret = wt_spm_mem_frag_next(handle, WT_FFA_ID_NS_PRIMARY,
-                                   (const uint8_t*)(uintptr_t)g_ns_frag_src,
-                                   len, &offset, &done);
+    if (((uint32_t)r->x[4] & 0xFFFF0000u) == (uint32_t)WT_NS_FRAG_W4) {
+        if ((wt_ffa_mem_tx_buffer(&g_ns_mailbox, 0u, 0u, len, &tx) == 0) &&
+            (ns_range_ok(tx, (uint64_t)len) != 0)) {
+            frag = (const uint8_t*)(uintptr_t)tx;
+        }
+        ret = wt_spm_mem_frag_next(handle, WT_FFA_ID_NS_PRIMARY, frag, len,
+                                   &offset, &done);
     }
     if ((ret == 0) && (done == 0)) {
         ns_frag_rx_reply(r, handle, offset);

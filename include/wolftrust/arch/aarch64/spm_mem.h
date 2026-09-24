@@ -77,6 +77,9 @@ const uint8_t* wt_spm_mem_frag_desc(uint64_t handle, uint16_t sender,
                                     uint32_t* len, uint8_t* op);
 void wt_spm_mem_frag_release(uint64_t handle, uint16_t sender);
 int wt_spm_mem_frag_share(uint64_t handle, uint16_t sender);
+/* The sender unmapped the TX buffer its fragments come through: its next
+ * FFA_MEM_FRAG_TX is answered WT_FFA_ABORTED and the transfer ends. */
+void wt_spm_mem_frag_abort(uint16_t sender);
 
 /* Borrower side: parse the retrieve request in req, check receiver is the
  * declared borrower and the request names the owner, write the retrieve

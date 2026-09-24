@@ -1112,6 +1112,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         if (busy == 0) {
             wt_spm_sp_init_complete((const struct wt_co*)co);
             sint = wt_spm_sint_take_pending(co);
+            /* DEN0077A v1.2 REL0 Table 14.3 defines w2 bit 0 (SBZ in ALP1). */
             if (wt_ffa_rt_msg_wait_releases_rx(sp_version(co),
                                                frame->x) != 0) {
                 (void)wt_ffa_mailbox_rx_release(sp_mailbox());

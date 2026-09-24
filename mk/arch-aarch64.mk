@@ -106,12 +106,13 @@ $(EL3_LIB): $(EL3_ARCHIVE_OBJS) | $(BUILD_DIR)
 	rm -f $@
 	$(AR) rcs $@ $(EL3_ARCHIVE_OBJS)
 
-# WT-PORT-0012: the archive is linked whole and audited before the image exists.
+# WT-PORT-0012: the archive is audited, then linked whole; a failed audit
+# leaves no image for a rerun to take as up to date.
 $(EL3_ELF): $(EL3_LIB) $(EL3_LD)
+	$(ROOT)/tools/check-el3-symbols.sh $(EL3_LIB) --nm $(TOOLPREFIX)nm
 	$(CC) $(SECURE_CFLAGS) -nostartfiles -Wl,--build-id=none \
 		$(TARGET_LDFLAGS) -Wl,-T$(EL3_LD) -Wl,--gc-sections \
 		-o $@ -Wl,--whole-archive $(EL3_LIB) -Wl,--no-whole-archive -lgcc
-	$(ROOT)/tools/check-el3-symbols.sh $(EL3_LIB) --nm $(TOOLPREFIX)nm
 
 $(EL3_BIN): $(EL3_ELF)
 	$(OBJCOPY) -O binary $< $@

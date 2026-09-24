@@ -496,8 +496,28 @@ static int prove_el0(void)
 /* Prove FF-A direct messaging at the Secure virtual instance: an S-EL0 echo
  * partition parks in FFA_MSG_WAIT, is delivered two direct requests in turn
  * through its saved frame, and answers each by FFA_MSG_SEND_DIRECT_RESP32
- * with the ids swapped and the payload word complemented. */
+ * with the ids swapped and the payload word complemented. First, on the same
+ * band, a partition that reports failed initialization with FFA_ERROR must be
+ * taken out of service, never having initialized. */
 static wt_secure_domain_t g_echo_domain;
+extern void wt_sp_ffa_init_fail(void);
+
+static int prove_init_failure(uint8_t* stack, size_t size)
+{
+    wt_co_t* co;
+
+    co = wt_co_create_blocked_ex(stack, size,
+                                 (wt_co_entry_fn)wt_sp_ffa_init_fail, (void*)0);
+    if (co == NULL) {
+        return 0;
+    }
+    wt_co_set_domain(co, &g_echo_domain, 1u);
+    wt_co_wake(co);
+    (void)wt_co_run(co);
+    return ((wt_co_state(co) == WT_CO_FAULTED) &&
+            (wt_spm_sp_initializing((const struct wt_co*)co) != 0) &&
+            (wt_spm_yield_token() != 0xBADu)) ? 1 : 0;
+}
 
 static int prove_ffa_direct(void)
 {
@@ -524,6 +544,9 @@ static int prove_ffa_direct(void)
     g_echo_domain.regions[1].size = (size_t)d->stack_size;
     g_echo_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     g_echo_domain.region_count = 2u;
+    if (prove_init_failure(stack, (size_t)d->stack_size) == 0) {
+        return 0;
+    }
     co = wt_co_create_blocked_ex(stack, (size_t)d->stack_size,
                                  (wt_co_entry_fn)wt_sp_ffa_echo, (void*)0);
     if (co == NULL) {

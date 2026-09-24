@@ -430,6 +430,28 @@ static void ffa_run(wt_trap_frame_t* frame, const struct wt_co* co)
     wt_co_block();
 }
 
+/* FFA_ERROR (Table 12.4: w1 MBZ here, w2 an error code) is how an initializing
+ * partition reports failed initialization (8.5 rule 3); any other partition
+ * has no call it could be answering, an invalid transition (8.1 rule 4). */
+static void ffa_init_failed(wt_trap_frame_t* frame, wt_co_t* co)
+{
+    int32_t code = (int32_t)(uint32_t)frame->x[2];
+
+    if (wt_spm_sp_initializing((const struct wt_co*)co) == 0) {
+        ffa_error(frame, WT_FFA_DENIED);
+        return;
+    }
+    if (((uint32_t)frame->x[1] != 0u) || (code >= 0)) {
+        ffa_error(frame, WT_FFA_INVALID_PARAMETERS);
+        return;
+    }
+    wt_spm_mem_endpoint_teardown((const struct wt_co*)co);
+    wt_spm_sp_init_failed((struct wt_co*)co, code);
+    g_wt_spm_live_frame = NULL;
+    g_wt_spm_handler_depth = 0u;
+    wt_sp_el0_leave();
+}
+
 /* FFA_YIELD (8.2): hand the CPU back to whoever entered this partition; the
  * call returns FFA_SUCCESS once FFA_RUN resumes it. An initializing partition
  * was scheduled by the SPMC and may not yield (8.5 rule 4). */
@@ -1078,6 +1100,9 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if (fid == WT_FFA_YIELD) {
         ffa_yield(frame, (const struct wt_co*)co);
+    }
+    else if (fid == WT_FFA_ERROR) {
+        ffa_init_failed(frame, co);
     }
     else if ((fid == WT_FFA_MSG_SEND_DIRECT_RESP32) ||
              (fid == WT_FFA_MSG_SEND_DIRECT_RESP64) ||

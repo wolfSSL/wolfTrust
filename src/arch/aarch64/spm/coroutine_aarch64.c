@@ -485,6 +485,21 @@ void wt_spm_sp_init_complete(const struct wt_co* co)
     }
 }
 
+void wt_spm_sp_init_failed(struct wt_co* co, int32_t code)
+{
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+        return;
+    }
+    wt_co_mark_faulted((wt_co_t*)co);
+    if (g_wt_spm_partitions_live != 0u) {
+        wt_el3_puts("[SP] init failed id=0x");
+        wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + co->id, 4u);
+        wt_el3_puts(" err=-");
+        wt_el3_putdec((uint64_t)(0 - (int64_t)code));
+        wt_el3_puts("\r\n");
+    }
+}
+
 void wt_spm_sp_in_gate(const struct wt_co* co, unsigned int inside)
 {
     if ((co != NULL) && (co->id != 0u) && (co->id <= WT_CO_MAX)) {

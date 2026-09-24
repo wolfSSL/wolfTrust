@@ -97,6 +97,9 @@ uint16_t wt_spm_sp_ffa_id_of_domain(uint32_t domain_id);
 int wt_spm_sp_initializing(const struct wt_co* co);
 void wt_spm_sp_init_complete(const struct wt_co* co);
 void wt_spm_sp_in_gate(const struct wt_co* co, unsigned int inside);
+/* A partition that reported failed initialization (8.5 rule 3, FFA_ERROR with
+ * code) is taken out of service: never counted as initialized, never run. */
+void wt_spm_sp_init_failed(struct wt_co* co, int32_t code);
 
 /* The boot handoff record the FF-A boot information named, if any. */
 extern uintptr_t g_wt_spm_handoff_pa;

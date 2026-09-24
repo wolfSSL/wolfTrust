@@ -63,6 +63,10 @@ esac
 # (The S-EL1-partition notification tests are excluded by the ACS itself at
 # PLATFORM_SP_EL=0, so the notifications group totals ten tests here.)
 acs_deviations="ffa_partition_info_get_lsp"
+# The dev_apis Crypto schedule wolfPSA answers: a newly skipped test is a
+# regression, not a pass (77 scheduled; c047 is configuration-skipped).
+crypto_passed=64
+crypto_skipped=13
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -849,11 +853,11 @@ case "$scenario" in
     skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"
-    if [ "$failed" = "0" ] && [ "$((passed + skipped))" -eq 77 ] && [ "$passed" -ge 1 ]; then
+    if [ "$failed" = "0" ] && [ "$passed" = "$crypto_passed" ] && [ "$skipped" = "$crypto_skipped" ]; then
       check_pass "crypto suite green after self-heal: ${passed} passed, ${skipped} skipped, 0 failed (77 total)"
     else
       check_fail "crypto suite after self-heal" \
-        "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=77)"
+        "passed=$passed skipped=$skipped failed=$failed (want $crypto_passed passed, $crypto_skipped skipped, 0 failed)"
     fi
     expect "val returned to the payload" "[NS] conformance val_entry returned"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
@@ -875,12 +879,12 @@ case "$scenario" in
     skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"
-    if [ "$scenario" = devattest ]; then want=1; else want=77; fi
-    if [ "$failed" = "0" ] && [ "$((passed + skipped))" -eq "$want" ] && [ "$passed" -ge 1 ]; then
-      check_pass "dev_apis $scenario: ${passed} passed, ${skipped} skipped, 0 failed ($want total)"
+    if [ "$scenario" = devattest ]; then want_p=1; want_s=0; else want_p=$crypto_passed; want_s=$crypto_skipped; fi
+    if [ "$failed" = "0" ] && [ "$passed" = "$want_p" ] && [ "$skipped" = "$want_s" ]; then
+      check_pass "dev_apis $scenario: ${passed} passed, ${skipped} skipped, 0 failed"
     else
       check_fail "dev_apis $scenario suite" \
-        "passed=$passed skipped=$skipped failed=$failed (want failed=0, passed+skipped=$want)"
+        "passed=$passed skipped=$skipped failed=$failed (want $want_p passed, $want_s skipped, 0 failed)"
     fi
     expect "val returned to the payload" "[NS] conformance val_entry returned"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"

@@ -410,7 +410,7 @@ assert through `tests/target/lib/expect.sh`.
 | `vaultrecover`, `vaultrecoversec` | A foreign vault self-heals under an unlocked lifecycle and is refused, failing closed, under a locked one, where the guest's attestation key query is refused as a reformatted vault would not refuse it |
 | `storage` | The Normal world round-trips Internal Trusted Storage through the vault partition |
 | `confboot` | The Arm FF-M IPC suite from the Normal world: 85 passed and 4 skipped on the `virt` cells; 78 and 4 on `xlnx-versal-virt`, where the seven Normal-world fence tests cannot fault without an XMPU model |
-| `devstorage`, `devattest`, `devcrypto` | The Arm dev_apis storage, attestation, and crypto suites from the Normal world over FF-A |
+| `devstorage`, `devattest`, `devcrypto` | The Arm dev_apis storage, attestation, and crypto suites from the Normal world over FF-A; the crypto suite (and `vaultrecover`) must total exactly 64 passed and 13 skipped, so a newly skipped test fails the run |
 | `ffaacs-discovery`, `ffaacs-direct`, `ffaacs-memory`, `ffaacs-notify`, `ffaacs-indirect`, `ffaacs-interrupts` | One Arm FF-A ACS test group each, asserted at a floor with no SIM ERROR; see [FF-A Compatibility](FF-A-Compatibility.md) for the counts and by-design deviations |
 
 ## STM32H563 hardware

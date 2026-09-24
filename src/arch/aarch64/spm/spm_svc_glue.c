@@ -1093,7 +1093,8 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         frame->x[0] = 0u;
     }
     else if (fid == WT_SPM_SVC_FID_TIMER_ARM) {
-        frame->x[0] = (wt_spm_twdog_arm((uint32_t)frame->x[1],
+        frame->x[0] = (wt_spm_twdog_arm((const struct wt_co*)co,
+                                        (uint32_t)frame->x[1],
                                         (uint32_t)frame->x[2]) == 0) ?
                       0u : (uint64_t)(int64_t)-1;
     }

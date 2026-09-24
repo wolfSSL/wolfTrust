@@ -1531,7 +1531,7 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
             /* The ACS platform layer's test timer, from the Normal world:
              * the armed id keeps its Normal-world group so its expiry
              * preempts a running partition for the Normal world to take. */
-            ns_reply(r, (wt_spm_twdog_arm((uint32_t)r->x[1],
+            ns_reply(r, (wt_spm_twdog_arm(NULL, (uint32_t)r->x[1],
                                           (uint32_t)r->x[2]) == 0) ?
                         0 : WT_FFA_INVALID_PARAMETERS, 0u, 0u);
             break;

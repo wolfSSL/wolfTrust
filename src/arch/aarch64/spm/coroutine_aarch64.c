@@ -286,6 +286,30 @@ struct wt_co* wt_spm_ffa_native_by_id(uint16_t id)
     }
     return NULL;
 }
+
+static const wt_ffa_native_sp_t* native_of(const struct wt_co* co)
+{
+    size_t i;
+
+    for (i = 0u; i < g_native_count; i++) {
+        if (g_native_co[i] == co) {
+            return &g_native_list[i];
+        }
+    }
+    return NULL;
+}
+
+int wt_spm_sint_declared_any(uint32_t intid)
+{
+    size_t i;
+
+    for (i = 0u; i < g_native_count; i++) {
+        if (wt_spm_native_declares(&g_native_list[i], intid) != 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
 #else
 static void create_native_partitions(void)
 {
@@ -307,6 +331,18 @@ struct wt_co* wt_spm_ffa_native_by_id(uint16_t id)
 {
     (void)id;
     return NULL;
+}
+
+static const wt_ffa_native_sp_t* native_of(const struct wt_co* co)
+{
+    (void)co;
+    return NULL;
+}
+
+int wt_spm_sint_declared_any(uint32_t intid)
+{
+    (void)intid;
+    return 0;
 }
 #endif
 
@@ -868,7 +904,8 @@ int wt_spm_sint_own(struct wt_co* co, uint32_t intid, unsigned int enable)
             return 0;
         }
     }
-    if (enable == 0u) {
+    /* Only an interrupt the platform declares for this partition. */
+    if ((enable == 0u) || (wt_spm_native_declares(native_of(co), intid) == 0)) {
         return -1;
     }
     for (i = 0u; i < WT_SPM_SINT_OWNERS; i++) {

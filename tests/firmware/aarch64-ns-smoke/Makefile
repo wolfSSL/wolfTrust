@@ -120,7 +120,7 @@ SRCS := ns.S ns.c
 # matching secure build (WT_NS_MANIFEST_INC).
 WT_NS_MANIFEST_INC ?=
 WOLFHSM_DIR ?= $(ROOT)/lib/wolfHSM
-ifneq ($(filter 1,$(WT_NS_GUEST_PSA) $(WT_NS_GUEST_STORAGE) $(WT_RUN_CONFORMANCE)),)
+ifneq ($(filter 1,$(WT_NS_GUEST_PSA) $(WT_NS_GUEST_STORAGE) $(WT_NS_GUEST_MEMNEG) $(WT_RUN_CONFORMANCE)),)
 ifneq ($(WT_NS_MANIFEST_INC),)
 CFLAGS += -I$(WT_NS_MANIFEST_INC)
 endif
@@ -160,6 +160,9 @@ SRCS += $(ROOT)/src/arch/aarch64/ffa/ffa_mem.c
 endif
 ifeq ($(WT_NS_GUEST_STORAGE),1)
 CFLAGS += -DWT_NS_GUEST_STORAGE=1
+endif
+# The memneg guest names memory it lent away in ITS calls.
+ifneq ($(filter 1,$(WT_NS_GUEST_STORAGE) $(WT_NS_GUEST_MEMNEG)),)
 SRCS += $(ROOT)/src/client/psa_storage_client.c
 endif
 # Run the unmodified Arm psa-arch-tests val NSPE from this payload: the FF-M

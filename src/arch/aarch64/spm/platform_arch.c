@@ -26,6 +26,7 @@
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/psa_ffa.h"
+#include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/platform.h"
@@ -217,21 +218,25 @@ void wt_arch_assert_privileged_thread(void)
 
 /* The Normal-world client's memory is reachable only through the Non-secure
  * window the SPMC maps EL1-only (wt_spm_psa_init); every vector a guest hands
- * the FF-M gateway must lie inside it, and only the primary guest exists. */
+ * the FF-M gateway must lie inside it, in memory the guest has not since lent
+ * or donated away, and only the primary guest exists. */
 int wt_arch_ns_check_read(wt_guest_id_t guest_id, const void* address,
                           size_t size)
 {
     return (guest_id == (wt_guest_id_t)0) &&
-           wt_spm_ns_window_ok((uintptr_t)address, size);
+           wt_spm_ns_window_ok((uintptr_t)address, size) &&
+           wt_spm_mem_ns_access((uint64_t)(uintptr_t)address, (uint64_t)size, 0);
 }
 
 int wt_arch_ns_check_write(wt_guest_id_t guest_id, void* address, size_t size)
 {
     return (guest_id == (wt_guest_id_t)0) &&
-           wt_spm_ns_window_ok((uintptr_t)address, size);
+           wt_spm_ns_window_ok((uintptr_t)address, size) &&
+           wt_spm_mem_ns_access((uint64_t)(uintptr_t)address, (uint64_t)size, 1);
 }
 
 int wt_arch_ns_check_writable(const void* address, size_t size)
 {
-    return wt_spm_ns_window_ok((uintptr_t)address, size);
+    return wt_spm_ns_window_ok((uintptr_t)address, size) &&
+           wt_spm_mem_ns_access((uint64_t)(uintptr_t)address, (uint64_t)size, 1);
 }

@@ -232,6 +232,60 @@ int wt_spm_mem_ns_owns(uint64_t base, uint64_t size)
     return 1;
 }
 
+/* The live transaction one of whose regions holds the page at, or NULL. */
+static const wt_ffa_mem_handle_entry_t* covering_entry(uint64_t at)
+{
+    const wt_ffa_mem_handle_entry_t* e;
+    unsigned int i;
+    uint32_t r;
+
+    for (i = 0u; i < WT_FFA_MEM_MAX_HANDLES; i++) {
+        e = &g_reg.entries[i];
+        if (e->state == (uint8_t)WT_FFA_MEM_STATE_FREE) {
+            continue;
+        }
+        for (r = 0u; r < (uint32_t)e->region_count; r++) {
+            if ((at >= e->regions[r].base) &&
+                ((at - e->regions[r].base) <
+                 ((uint64_t)e->regions[r].page_count * WT_FFA_MEM_PAGE_SIZE))) {
+                return e;
+            }
+        }
+    }
+    return NULL;
+}
+
+/* A lender keeps no access and a donor no ownership (Table 1.3 Owner-LA and
+ * !Owner-NA); a share leaves the owner its access (Owner-SA), read-only where
+ * the share named it so (1.11.3.1). */
+int wt_spm_mem_ns_access(uint64_t base, uint64_t size, int write)
+{
+    const wt_ffa_mem_handle_entry_t* e;
+    uint64_t at;
+    int ok;
+
+    if (size == 0u) {
+        return 1;
+    }
+    ok = ((base >= g_ns_base) && (base < g_ns_limit) &&
+          (size <= (g_ns_limit - base))) ? 1 : 0;
+    for (at = base & ~(uint64_t)(WT_FFA_MEM_PAGE_SIZE - 1u);
+         (ok != 0) && (at < (base + size)); at += WT_FFA_MEM_PAGE_SIZE) {
+        e = covering_entry(at);
+        if (e == NULL) {
+            ok = (ns_page_held(at) == 0) ? 1 : 0;
+        }
+        else {
+            ok = ((e->owner == WT_FFA_ID_NS_PRIMARY) &&
+                  (e->state == (uint8_t)WT_FFA_MEM_STATE_SHARED) &&
+                  ((write == 0) ||
+                   ((e->owner_cookie & WT_SPM_MEM_COOKIE_SELF_RO) == 0u)))
+                     ? 1 : 0;
+        }
+    }
+    return ok;
+}
+
 /* Only memory the sender owns outright may be sent (10.10): Non-secure memory
  * inside the window the SPMC maps that no partition holds, or Normal pages a
  * partition reaches at EL0, all in one security state (*ns). A Device page is

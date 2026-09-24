@@ -33,6 +33,7 @@
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/psa_ffa.h"
+#include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/ffm_boot.h"
 #include "wolftrust/ffm_gateway.h"
 #include "wolftrust/ffm_veneer.h"
@@ -89,8 +90,20 @@ int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     return WT_FFM_SUCCESS;
 }
 
+/* The relayer's ownership answer, host-side: [g_gone_lo, g_gone_hi) stands in
+ * for pages the guest lent or donated away. */
+static uint64_t g_gone_lo;
+static uint64_t g_gone_hi;
+
+int wt_spm_mem_ns_access(uint64_t base, uint64_t size, int write)
+{
+    (void)write;
+    return (size == 0u) || ((base + size) <= g_gone_lo) || (base >= g_gone_hi);
+}
+
 /* The AArch64 port's caller identity and Non-secure window checks, host-side:
- * the primary guest is 0 and the window is whatever wt_spm_psa_init recorded. */
+ * the primary guest is 0 and the window is whatever wt_spm_psa_init recorded,
+ * less what the guest no longer owns. */
 uint32_t wt_arch_active_guest_id(void)
 {
     return 0u;
@@ -100,18 +113,21 @@ int wt_arch_ns_check_read(wt_guest_id_t guest_id, const void* address,
                           size_t size)
 {
     return (guest_id == (wt_guest_id_t)0) &&
-           wt_spm_ns_window_ok((uintptr_t)address, size);
+           wt_spm_ns_window_ok((uintptr_t)address, size) &&
+           wt_spm_mem_ns_access((uint64_t)(uintptr_t)address, (uint64_t)size, 0);
 }
 
 int wt_arch_ns_check_write(wt_guest_id_t guest_id, void* address, size_t size)
 {
     return (guest_id == (wt_guest_id_t)0) &&
-           wt_spm_ns_window_ok((uintptr_t)address, size);
+           wt_spm_ns_window_ok((uintptr_t)address, size) &&
+           wt_spm_mem_ns_access((uint64_t)(uintptr_t)address, (uint64_t)size, 1);
 }
 
 int wt_arch_ns_check_writable(const void* address, size_t size)
 {
-    return wt_spm_ns_window_ok((uintptr_t)address, size);
+    return wt_spm_ns_window_ok((uintptr_t)address, size) &&
+           wt_spm_mem_ns_access((uint64_t)(uintptr_t)address, (uint64_t)size, 1);
 }
 
 static uint32_t g_req_fid;
@@ -352,6 +368,47 @@ int main(void)
               (crafted_call((uint64_t)(uintptr_t)block, handle) ==
                    PSA_ERROR_PROGRAMMER_ERROR),
           "an SMC32 Close takes the handle from w4 and closes the connection");
+
+    /* DEN0140 Table 1.3: memory the guest lent or donated is no longer its
+     * own, so no vector or vector block there is read or written for it. */
+    memset(block, 0, sizeof(*block));
+    block->in[0].base = input;
+    block->in[0].len = (uint32_t)(sizeof(input) - 1u);
+    block->out[0].base = &area[512];
+    block->out[0].len = 32u;
+    block->in_count = 1u;
+    block->out_count = 1u;
+    memset(&area[512], 0xA5, 32u);
+    g_gone_lo = (uint64_t)(uintptr_t)&area[512];
+    g_gone_hi = g_gone_lo + 32u;
+    handle = psa_connect(TEST_HSM_SID, 1u);
+    check(crafted_call((uint64_t)(uintptr_t)block, handle) ==
+              PSA_ERROR_PROGRAMMER_ERROR &&
+              area[512] == 0xA5u && area[543] == 0xA5u,
+          "an out-vec in memory the guest lent away is refused and never written");
+    psa_close(handle);
+    g_gone_lo = (uint64_t)(uintptr_t)input;
+    g_gone_hi = g_gone_lo + 1u;
+    handle = psa_connect(TEST_HSM_SID, 1u);
+    check(crafted_call((uint64_t)(uintptr_t)block, handle) ==
+              PSA_ERROR_PROGRAMMER_ERROR,
+          "an in-vec reaching into memory the guest lent away is refused");
+    psa_close(handle);
+    g_gone_lo = (uint64_t)(uintptr_t)&block->out[0];
+    g_gone_hi = g_gone_lo + 1u;
+    handle = psa_connect(TEST_HSM_SID, 1u);
+    check(crafted_call((uint64_t)(uintptr_t)block, handle) ==
+              PSA_ERROR_PROGRAMMER_ERROR &&
+              block->out[0].len == 32u,
+          "a vector block in memory the guest lent away is refused before it is read");
+    psa_close(handle);
+    g_gone_lo = 0u;
+    g_gone_hi = 0u;
+    handle = psa_connect(TEST_HSM_SID, 1u);
+    check(crafted_call((uint64_t)(uintptr_t)block, handle) == PSA_SUCCESS &&
+              memcmp(&area[512], expected, sizeof(expected)) == 0,
+          "the same call is served once the memory is the guest's again");
+    psa_close(handle);
 
     printf("psa_ffa_transport: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

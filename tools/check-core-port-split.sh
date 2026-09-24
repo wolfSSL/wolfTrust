@@ -29,6 +29,24 @@ RETIRED="$RETIRED"'|\bwt_platform_(start_secure_timer|mask_all_guest_irqs|apply_
 PORT_ARCH_DEF='^[A-Za-z_][A-Za-z0-9_ *]*[[:space:]*]wt_arch_[a-z0-9_]+[[:space:]]*\('
 FFA_FID='\b0[xX][8Cc]40000[6-9A-Fa-f][0-9A-Fa-f]([uU]([lL]{1,2})?|[lL]{1,2}[uU]?)?\b'
 
+# valid_ere <pattern> : true unless grep -E rejects <pattern> as malformed
+# (a grep exit status of 2 or more; 0/1 are match/no-match, both fine). A
+# scan whose regex can't compile must not silently report zero hits.
+valid_ere() {
+  local rc
+  grep -E -q -- "$1" /dev/null 2>/dev/null
+  rc=$?
+  [ "$rc" -le 1 ]
+}
+
+for _re_name in M_VOCAB A_VOCAB PORT_HEADERS ARCH_HEADERS CMSE ASM RETIRED PORT_ARCH_DEF FFA_FID; do
+  if ! valid_ere "${!_re_name}"; then
+    echo "FAIL: invalid built-in pattern $_re_name: ${!_re_name}" >&2
+    exit 2
+  fi
+done
+unset _re_name
+
 # Replace every block comment with newlines so line numbers survive.
 strip_comments() { # file
   perl -0777 -pe 's{/\*.*?\*/}{ my $c = $&; $c =~ tr/\n//cd; $c }gse' "$1"
@@ -62,7 +80,21 @@ scan_code() { # kind  label  regex  files...   (comments stripped)
 }
 
 selftest() {
-  local dir fails=0 lines
+  local dir fails=0 lines badcopy
+  if valid_ere '['; then
+    echo "SELFTEST FAIL: malformed pattern accepted as valid"; fails=$((fails + 1)); fi
+  if ! valid_ere '^wt_[a-z_]+$'; then
+    echo "SELFTEST FAIL: well-formed pattern rejected"; fails=$((fails + 1)); fi
+  # A malformed built-in pattern must stop the script before any scan runs,
+  # not silently scan zero files.
+  badcopy="$(mktemp -d)/check-core-port-split.sh"
+  sed "s/^M_VOCAB=.*/M_VOCAB='['/" "$0" > "$badcopy"
+  chmod +x "$badcopy"
+  if "$badcopy" --selftest > /dev/null 2>&1; then
+    echo "SELFTEST FAIL: a malformed built-in pattern did not stop the script"
+    fails=$((fails + 1))
+  fi
+  rm -rf "$(dirname "$badcopy")"
   dir="$(mktemp -d)"
   printf 'int f(void) { return MPU->CTRL; } /* PendSV */\n' > "$dir/m.c"
   printf 'int g(void) { return SCTLR_EL1; }\n' > "$dir/a.c"

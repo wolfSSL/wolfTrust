@@ -183,13 +183,21 @@ static uint32_t msg2_read32(const uint8_t* p)
            ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
 }
 
+static void msg2_write32(uint8_t* p, uint32_t v)
+{
+    p[0] = (uint8_t)(v & 0xFFu);
+    p[1] = (uint8_t)((v >> 8) & 0xFFu);
+    p[2] = (uint8_t)((v >> 16) & 0xFFu);
+    p[3] = (uint8_t)((v >> 24) & 0xFFu);
+}
+
 int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
                       wt_ffa_instance_t inst, uint32_t w1, uint32_t w2,
                       wt_ffa_msg2_t* out)
 {
     uint32_t flags;
     uint32_t sender_receiver;
-    uint16_t sender;
+    unsigned int i;
 
     if ((tx == NULL) || (out == NULL) ||
         (tx_size < WT_FFA_MSG2_HEADER_SIZE)) {
@@ -213,17 +221,19 @@ int wt_ffa_msg2_parse(const uint8_t* tx, uint32_t tx_size, uint16_t caller,
     out->offset = msg2_read32(&tx[8]);
     sender_receiver = msg2_read32(&tx[12]);
     out->size = msg2_read32(&tx[16]);
-    out->uuid = &tx[24];
-    sender = (uint16_t)(sender_receiver >> 16);
+    for (i = 0u; i < 16u; i++) {
+        out->uuid[i] = tx[24u + i];
+    }
+    out->sender = (uint16_t)(sender_receiver >> 16);
     out->receiver = (uint16_t)(sender_receiver & 0xFFFFu);
     if ((flags != 0u) || (msg2_read32(&tx[4]) != 0u) ||
         (msg2_read32(&tx[20]) != 0u)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    if (sender != caller) {
+    if (out->sender != caller) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    if (sender == out->receiver) {
+    if (out->sender == out->receiver) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if ((out->offset < WT_FFA_MSG2_HEADER_SIZE) ||
@@ -264,12 +274,20 @@ void wt_ffa_msg2_copy(uint8_t* rx, uint32_t rx_size, const uint8_t* tx,
     uint32_t i;
 
     for (i = 0u; i < rx_size; i++) {
-        if ((i < WT_FFA_MSG2_HEADER_SIZE) ||
-            ((i >= msg->offset) && (i < end))) {
+        if ((i >= msg->offset) && (i < end)) {
             rx[i] = tx[i];
         }
         else {
             rx[i] = 0u;
+        }
+    }
+    if (rx_size >= WT_FFA_MSG2_HEADER_SIZE) {
+        msg2_write32(&rx[8], msg->offset);
+        msg2_write32(&rx[12], ((uint32_t)msg->sender << 16) |
+                              (uint32_t)msg->receiver);
+        msg2_write32(&rx[16], msg->size);
+        for (i = 0u; i < 16u; i++) {
+            rx[24u + i] = msg->uuid[i];
         }
     }
 }

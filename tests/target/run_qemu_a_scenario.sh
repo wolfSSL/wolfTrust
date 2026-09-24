@@ -182,8 +182,11 @@ else
     ffa-guest-direct) probe=(WT_EL3_NS_SMOKE=1 WT_NS_GUEST_ECHO=1) ;;
     ffa-preempt) probe=(WT_EL3_NS_SMOKE=1 WT_NS_PREEMPT=1) ;;
     # The monitor starts on EL2 state an earlier stage left dirty (SMC trapped,
-    # a foreign virtual MPIDR); the virt cell turns EL2 on so it is live.
-    el2dirtyneg) probe=(WT_EL3_NS_SMOKE=1 WT_EL3_EL2_DIRTY_PROBE=1) ;;
+    # a foreign virtual MPIDR); the virt cell turns EL2 on so it is live. Under
+    # a GICv3 that stage also left every SPI routed to an absent PE.
+    el2dirtyneg)
+      probe=(WT_EL3_NS_SMOKE=1 WT_EL3_EL2_DIRTY_PROBE=1)
+      [ "$GIC" = 3 ] && probe+=(WT_GIC_SPI_ROUTE_PROBE=1) ;;
     # The Normal world starts at NS-EL2 and runs an AArch32 EL1 beneath it.
     psci-el2) probe=(WT_EL3_NS_SMOKE=1 WT_EL3_NS_EL2=1) ;;
   esac
@@ -618,6 +621,10 @@ case "$scenario" in
     refute_re "no PSCI call returned an off-spec value" '\[NS\] psci BAD'
     expect "SMCCC_VERSION reported 1.2 and x4-x7 survived a PSCI call" "[NS] smccc version 1.2"
     expect "the mandatory PSCI 1.1 calls answered as a boot-core-only system" "[NS] psci mandatory set ok"
+    if [ "$scenario" = el2dirtyneg ] && [ "$GIC" = 3 ]; then
+      expect "an earlier stage left every SPI routed to an absent PE" "[EL3] probe: every SPI routed to an absent PE"
+      expect "a Secure SPI the SPMC enabled still reached it as a Group 0 FIQ" "[SPM] sint gic ok intid=0x28"
+    fi
     if [ "$scenario" = psci-el2 ]; then
       expect "the Normal-world payload ran at NS-EL2" "[NS] hello el=2"
       expect "an AArch32 EL1 caller's SMC32 calls were served, one forwarded to the SPMC, and its SMC64 id refused" "[NS] a32 smc ok partinfo n="

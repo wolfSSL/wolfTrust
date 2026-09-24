@@ -117,8 +117,9 @@ int wt_tables_walk(const wt_tables_t* t, const wt_tables_pool_t* pool,
 uint64_t wt_tables_ttbr0(const wt_tables_t* t);
 
 /* Re-permission pages the partition already owns at EL0 (FFA_MEM_PERM_SET):
- * every page must be a mapped, Secure, Normal-memory EL0 page, or one made
- * no-access here, else nothing changes. Attributes 0 is no access: the page
+ * every page must be a mapped, Secure EL0 page of Normal or Device memory, or
+ * one made no-access here, else nothing changes. Each keeps its memory type,
+ * and an executable Device page is refused (ERROR_WX). Attributes 0 is no access: the page
  * leaves EL0 but stays the partition's to re-permission, and S-EL1 keeps
  * read-write access to it. The caller invalidates the table's ASID. */
 int wt_tables_set_el0_attributes(wt_tables_t* t, const wt_tables_pool_t* pool,

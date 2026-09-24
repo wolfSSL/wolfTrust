@@ -330,7 +330,8 @@ static wt_ffa_mailbox_t* sp_mailbox(void)
     return &g_sp_mailbox[co->id - 1u];
 }
 
-/* One page the caller owns and may write, per its current mapping. */
+/* One page of Normal memory the caller owns and may write, per its current
+ * mapping. */
 static int sp_owns_writable_page(const struct wt_co* co, uintptr_t va)
 {
     uint32_t attributes = 0u;
@@ -338,7 +339,9 @@ static int sp_owns_writable_page(const struct wt_co* co, uintptr_t va)
     if ((co->domain == NULL) || ((va % WT_TABLES_PAGE_SIZE) != 0u) ||
         (wt_domain_get_permissions(co->domain->regions,
                                    co->domain->region_count, va,
-                                   &attributes) != WT_TABLES_OK)) {
+                                   &attributes) != WT_TABLES_OK) ||
+        (wt_domain_page_access(co->domain->regions, co->domain->region_count,
+                               va) != WT_DOMAIN_ACCESS_RW)) {
         return 0;
     }
     return ((attributes & WT_MEM_ATTR_WRITE) != 0u) ? 1 : 0;

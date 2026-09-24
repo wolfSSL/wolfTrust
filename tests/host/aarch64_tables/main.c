@@ -348,9 +348,24 @@ int main(void)
           walk_is(&t, &pool, 0x0E041000u, WT_TABLES_ATTR_NORMAL_WBWA,
                   WT_TABLES_AP_EL1_RO, 1u, 0u, 0u),
           "re-permission: an EL1-only SPM page is never a partition's to change");
-    check(wt_tables_set_el0_attributes(&t, &pool, 0x09040000u, 1u, RW) ==
-              WT_TABLES_ERROR_UNMAPPED,
-          "re-permission: a device page is refused");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x09040000u, 1u,
+                                       WT_MEM_ATTR_READ) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x09040000u, WT_TABLES_ATTR_DEVICE_NGNRE,
+                  WT_TABLES_AP_ALL_RO, 1u, 1u, 1u) &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x09040000u, 1u, 0u) ==
+              WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x09040000u, WT_TABLES_ATTR_DEVICE_NGNRE,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u) &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x09040000u, 1u, RW) ==
+              WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x09040000u, WT_TABLES_ATTR_DEVICE_NGNRE,
+                  WT_TABLES_AP_ALL_RW, 1u, 1u, 1u),
+          "re-permission: a device page changes data access and stays Device and execute-never");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x09040000u, 1u, RX) ==
+              WT_TABLES_ERROR_WX &&
+          walk_is(&t, &pool, 0x09040000u, WT_TABLES_ATTR_DEVICE_NGNRE,
+                  WT_TABLES_AP_ALL_RW, 1u, 1u, 1u),
+          "re-permission: an executable device page is refused and changes nothing");
     check(wt_tables_set_el0_attributes(&t, &pool, 0x0E203000u, 2u, RW) ==
               WT_TABLES_ERROR_UNMAPPED &&
           walk_is(&t, &pool, 0x0E203000u, WT_TABLES_ATTR_NORMAL_WBWA,

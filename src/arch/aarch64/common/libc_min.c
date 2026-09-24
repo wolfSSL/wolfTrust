@@ -58,14 +58,16 @@ void* memmove(void* dest, const void* src, size_t count)
     const uint8_t* in = (const uint8_t*)src;
     size_t i;
 
-    if (out < in) {
-        for (i = 0u; i < count; ++i) {
-            out[i] = in[i];
+    /* Backward only when dest starts inside src: an address difference, since
+     * ordering pointers to unrelated objects is undefined. */
+    if (((uintptr_t)out - (uintptr_t)in) < (uintptr_t)count) {
+        for (i = count; i > 0u; --i) {
+            out[i - 1u] = in[i - 1u];
         }
     }
     else {
-        for (i = count; i > 0u; --i) {
-            out[i - 1u] = in[i - 1u];
+        for (i = 0u; i < count; ++i) {
+            out[i] = in[i];
         }
     }
     return dest;

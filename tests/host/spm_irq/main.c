@@ -103,8 +103,15 @@ static uint32_t gic_pmr(uint32_t pmr)
     return pmr;
 }
 
+static uint32_t g_pended;
+
+static void gic_pend(uint32_t intid)
+{
+    g_pended = intid;
+}
+
 static const struct wt_gic_ops g_host_gic = {
-    gic_none, gic_id, gic_id, gic_id, gic_prio, gic_ack, gic_eoi, gic_id,
+    gic_none, gic_id, gic_id, gic_id, gic_prio, gic_ack, gic_eoi, gic_pend,
     gic_id, gic_pmr, 2u
 };
 const struct wt_gic_ops* const wt_gic = &g_host_gic;
@@ -118,9 +125,12 @@ void wt_el3_timer_disable(void)
 {
 }
 
+static struct wt_co* g_owned_by = OWNER;
+static int g_partition_running;
+
 struct wt_co* wt_spm_sint_owner(uint32_t intid)
 {
-    return (intid == OWNED_SPI) ? OWNER : NULL;
+    return (intid == OWNED_SPI) ? g_owned_by : NULL;
 }
 
 void wt_spm_sint_queue_for(struct wt_co* co, uint32_t intid)
@@ -152,7 +162,7 @@ void wt_spm_preempt_from_irq(wt_trap_frame_t* frame)
 
 int wt_spm_current_is_partition(void)
 {
-    return 0;
+    return g_partition_running;
 }
 
 int wt_spm_sint_declared_any(uint32_t intid)
@@ -242,6 +252,47 @@ static void authorization_rows(void)
     wt_spm_twdog_stop(NULL);
 }
 
+/* A partition's timer stays bound to the partition that armed it: it is never
+ * raised once another partition owns its interrupt, nor once none does, and
+ * only its arming owner can stop it. */
+static void timer_owner_rows(void)
+{
+    g_owned_by = OWNER;
+    g_host_cntpct = 1000u;
+    check(wt_spm_twdog_arm(OWNER, OWNED_SPI, 5u) == 0,
+          "the owner arms a timer for its interrupt");
+    g_owned_by = OTHER;
+    g_host_cntpct = 2000u;
+    g_pended = 0u;
+    wt_spm_twdog_tick();
+    check(g_pended == 0u,
+          "once another partition owns the interrupt the expired timer does "
+          "not raise it for that partition");
+
+    g_owned_by = OWNER;
+    g_host_cntpct = 1000u;
+    check(wt_spm_twdog_arm(OWNER, OWNED_SPI, 5u) == 0, "the owner re-arms it");
+    g_owned_by = NULL;
+    g_partition_running = 1;
+    g_host_cntpct = 1001u;
+    g_pended = 0u;
+    wt_spm_twdog_tick();
+    check(g_pended == 0u,
+          "a released interrupt's timer is not taken for the Normal world's");
+    g_partition_running = 0;
+
+    g_owned_by = OWNER;
+    g_host_cntpct = 1000u;
+    check(wt_spm_twdog_arm(OWNER, OWNED_SPI, 5u) == 0, "the owner arms it again");
+    wt_spm_twdog_stop(OTHER);
+    g_host_cntpct = 2000u;
+    g_pended = 0u;
+    wt_spm_twdog_tick();
+    check(g_pended == OWNED_SPI,
+          "another partition cannot stop it, and it fires for its owner at "
+          "its deadline");
+}
+
 int main(void)
 {
     wt_trap_frame_t frame;
@@ -296,6 +347,7 @@ int main(void)
 
     fifo_rows();
     authorization_rows();
+    timer_owner_rows();
 
     printf("spm_irq: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

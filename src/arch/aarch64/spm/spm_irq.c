@@ -172,15 +172,18 @@ void wt_spm_lower_irq(wt_trap_frame_t* frame)
 }
 
 /* The test-timer service of the ACS platform layer, one slot per armed
- * interrupt on the shared secure timer. An interrupt a partition owns expires
- * at its deadline whatever runs, and the declared routing above delivers it by
- * the owner's state; a Normal-world one (no owner) stands for a peripheral
- * that fires while a partition works, so it is made pending on the first tick
- * that lands on a partition. */
+ * interrupt on the shared secure timer, bound to whoever armed it. A
+ * partition's expires at its deadline whatever runs, and the declared routing
+ * above delivers it by the owner's state, as long as its arming partition
+ * still owns the interrupt; a Normal-world one stands for a peripheral that
+ * fires while a partition works, so it is made pending on the first tick that
+ * lands on a partition. */
 #define WT_SPM_TWDOG_SLOTS 4u
 
 static uint32_t g_twdog_intid[WT_SPM_TWDOG_SLOTS];
 static uint64_t g_twdog_deadline[WT_SPM_TWDOG_SLOTS];
+/* The partition that armed each slot, NULL for the Normal world. */
+static const struct wt_co* g_twdog_owner[WT_SPM_TWDOG_SLOTS];
 
 int wt_spm_native_declares(const wt_ffa_native_sp_t* sp, uint32_t intid)
 {
@@ -236,20 +239,20 @@ int wt_spm_twdog_arm(const struct wt_co* caller, uint32_t intid, uint32_t ms)
     g_twdog_deadline[slot] = wt_read_cntpct_el0() +
                              ((wt_read_cntfrq_el0() * (uint64_t)ms) / 1000u);
     g_twdog_intid[slot] = intid;
+    g_twdog_owner[slot] = caller;
     wt_gic->enable(WT_GIC_INTID_SECURE_TIMER);
     wt_el3_timer_arm_ms(WT_SPM_TWDOG_PERIOD_MS);
     return 0;
 }
 
-/* Stop the caller's own timers: a partition's owned interrupts, or with no
- * owner the Normal world's. */
+/* Stop the timers the caller armed: a partition's, or with no owner the
+ * Normal world's. */
 void wt_spm_twdog_stop(const struct wt_co* owner)
 {
     unsigned int i;
 
     for (i = 0u; i < WT_SPM_TWDOG_SLOTS; i++) {
-        if ((g_twdog_intid[i] != 0u) &&
-            (wt_spm_sint_owner(g_twdog_intid[i]) == owner)) {
+        if ((g_twdog_intid[i] != 0u) && (g_twdog_owner[i] == owner)) {
             g_twdog_intid[i] = 0u;
         }
     }
@@ -264,11 +267,16 @@ void wt_spm_twdog_tick(void)
 
     for (i = 0u; i < WT_SPM_TWDOG_SLOTS; i++) {
         if (g_twdog_intid[i] != 0u) {
-            if (wt_spm_sint_owner(g_twdog_intid[i]) != NULL) {
-                due = (now >= g_twdog_deadline[i]) ? 1 : 0;
+            if (g_twdog_owner[i] == NULL) {
+                due = wt_spm_current_is_partition();
+            }
+            else if (wt_spm_sint_owner(g_twdog_intid[i]) != g_twdog_owner[i]) {
+                /* Released or reclaimed since it was armed: never raised. */
+                g_twdog_intid[i] = 0u;
+                continue;
             }
             else {
-                due = wt_spm_current_is_partition();
+                due = (now >= g_twdog_deadline[i]) ? 1 : 0;
             }
             if (due != 0) {
                 wt_gic->set_pending(g_twdog_intid[i]);

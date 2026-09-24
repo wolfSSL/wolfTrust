@@ -208,9 +208,10 @@ void wt_spm_preempt_from_irq(wt_trap_frame_t* frame);
 uint32_t wt_spm_ns_sint_take(void);
 
 /* The test-timer service: arm makes the interrupt pending at its deadline
- * (see spm_irq.c for when a Normal-world one lands); stop clears the caller's
- * own timers (owner NULL for the Normal world's). A partition arms only an
- * interrupt it owns, the Normal world only an SPI no partition may claim. */
+ * (see spm_irq.c for when a Normal-world one lands); stop clears the timers
+ * the caller armed (owner NULL for the Normal world's). A partition arms only
+ * an interrupt it owns, and its timer dies if it stops owning it; the Normal
+ * world arms only an SPI no partition may claim. */
 int wt_spm_twdog_arm(const struct wt_co* caller, uint32_t intid, uint32_t ms);
 void wt_spm_twdog_stop(const struct wt_co* owner);
 void wt_spm_twdog_tick(void);

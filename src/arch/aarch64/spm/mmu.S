@@ -90,3 +90,37 @@ wt_mmu_dcache_clean_inval:
 2:
     dsb     sy
     ret
+
+/* void wt_mmu_sync_icache(uint64_t va, uint64_t size): make instructions
+ * written as data fetchable from the range: clean each data line to the point
+ * of unification, DSB ISH, invalidate each instruction line, DSB ISH, ISB. */
+    .globl wt_mmu_sync_icache
+wt_mmu_sync_icache:
+    cbz     x1, 3f
+    add     x1, x0, x1
+    mrs     x3, CTR_EL0
+    ubfx    x4, x3, #16, #4
+    mov     x2, #4
+    lsl     x2, x2, x4
+    sub     x4, x2, #1
+    bic     x5, x0, x4
+1:
+    dc      cvau, x5
+    add     x5, x5, x2
+    cmp     x5, x1
+    b.lo    1b
+    dsb     ish
+    and     x4, x3, #0xf
+    mov     x2, #4
+    lsl     x2, x2, x4
+    sub     x4, x2, #1
+    bic     x5, x0, x4
+2:
+    ic      ivau, x5
+    add     x5, x5, x2
+    cmp     x5, x1
+    b.lo    2b
+    dsb     ish
+    isb
+3:
+    ret

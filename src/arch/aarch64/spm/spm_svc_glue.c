@@ -900,13 +900,13 @@ static void ffa_notif_get(wt_trap_frame_t* frame, const struct wt_co* co)
 }
 
 /* FFA_MEM_PERM_SET (DEN0140 2.9): an S-EL0 partition re-permissions its own
- * pages, during its initialization only. w1 = base VA, w2 = page count, w3 =
- * perms. */
+ * pages, during its initialization only (DENIED otherwise, the one DENIED in
+ * Table 2.41). w1 = base VA, w2 = page count, w3 = perms. */
 static void ffa_mem_perm_set(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     int ret;
 
-    if ((co->domain == NULL) || (wt_spm_sp_initializing(co) == 0)) {
+    if (wt_spm_sp_initializing(co) == 0) {
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }
@@ -921,13 +921,13 @@ static void ffa_mem_perm_set(wt_trap_frame_t* frame, const struct wt_co* co)
 }
 
 /* FFA_MEM_PERM_GET (DEN0140 2.8): w1 = base VA of a page; the permissions
- * return in w2. */
+ * return in w2. DENIED only outside initialization (Table 2.37). */
 static void ffa_mem_perm_get(wt_trap_frame_t* frame, const struct wt_co* co)
 {
     uint32_t perm = 0u;
     int ret;
 
-    if ((co->domain == NULL) || (wt_spm_sp_initializing(co) == 0)) {
+    if (wt_spm_sp_initializing(co) == 0) {
         ffa_error(frame, WT_FFA_DENIED);
         return;
     }

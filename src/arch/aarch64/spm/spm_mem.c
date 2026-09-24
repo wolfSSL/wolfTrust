@@ -675,25 +675,26 @@ int wt_spm_mem_perm_set(const wt_secure_domain_t* dom,
             ret = WT_FFA_INVALID_PARAMETERS;
         }
     }
-    /* An owner cannot change its access while a borrower may hold the
-     * memory (1.3.1 rule 7). */
+    /* Table 2.41 keeps DENIED for a caller out of its initialization, so a
+     * region it may not re-permission is INVALID_PARAMETERS; an owner cannot
+     * change its access while a borrower may hold the memory (1.3.1 rule 7). */
     if ((ret == 0) && (wt_ffa_mem_registry_overlaps(&g_reg, va, pages) != 0)) {
-        ret = WT_FFA_DENIED;
+        ret = WT_FFA_INVALID_PARAMETERS;
     }
     if ((ret == 0) && (platform_shared(va, size) != 0)) {
-        ret = WT_FFA_DENIED;
+        ret = WT_FFA_INVALID_PARAMETERS;
     }
     /* The SPMC writes a mapped RX/TX pair, and memory the manifest makes
      * writable, at S-EL1 through the partition's own table, where an EL0
      * read-only page is read-only too: the pair keeps its permissions while
      * mapped, and manifest-writable memory never becomes read-only. */
     if ((ret == 0) && (wt_ffa_mailbox_overlaps(mb, va, size) != 0)) {
-        ret = WT_FFA_DENIED;
+        ret = WT_FFA_INVALID_PARAMETERS;
     }
     if ((ret == 0) && ((attributes & WT_MEM_ATTR_READ) != 0u) &&
         ((attributes & WT_MEM_ATTR_WRITE) == 0u) &&
         (manifest_writable(dom, va, size) != 0)) {
-        ret = WT_FFA_DENIED;
+        ret = WT_FFA_INVALID_PARAMETERS;
     }
     if ((ret == 0) &&
         (wt_domain_set_permissions(dom->regions, dom->region_count,

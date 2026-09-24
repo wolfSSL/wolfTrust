@@ -2351,13 +2351,13 @@ static void relay_perm_set_rows(void)
     }
     (void)memset(&g_relay_mailbox, 0, sizeof(g_relay_mailbox));
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_IMAGE), 1u,
-                              WT_FFA_PERM_DATA_RO) == WT_FFA_DENIED,
-          "perm set: code every partition runs is DENIED");
+                              WT_FFA_PERM_DATA_RO) == WT_FFA_INVALID_PARAMETERS,
+          "perm set: code every partition runs is INVALID_PARAMETERS (Table 2.41)");
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
                               WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) ==
-              WT_FFA_DENIED &&
+              WT_FFA_INVALID_PARAMETERS &&
           access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
-          "perm set: read-only over memory the manifest makes writable is DENIED, and it stays writable");
+          "perm set: read-only over memory the manifest makes writable is INVALID_PARAMETERS, and it stays writable");
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
                               WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0 &&
           access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_RW &&
@@ -2372,9 +2372,14 @@ static void relay_perm_set_rows(void)
     (void)wt_ffa_mailbox_map(&g_relay_mailbox, page(PG_RX), page(PG_GAP), 1u);
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
                               WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) ==
-              WT_FFA_DENIED &&
+              WT_FFA_INVALID_PARAMETERS &&
           access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_RW,
-          "perm set: a page of the mapped RX/TX pair keeps its permissions (DENIED)");
+          "perm set: a page of the mapped RX/TX pair keeps its permissions (INVALID_PARAMETERS)");
+    check(wt_spm_mem_perm_get(&g_dom_a, page(PG_RX), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) &&
+          wt_spm_mem_perm_get(&g_dom_a, page(PG_IMAGE), &perm) == 0 &&
+          perm == WT_FFA_PERM_DATA_RO,
+          "perm get: a page of the mapped pair and the partition's own code page read back (Table 2.37)");
     (void)wt_ffa_mailbox_unmap(&g_relay_mailbox);
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
                               WT_FFA_PERM_DATA_RO) == 0 &&
@@ -2412,7 +2417,7 @@ static void relay_perm_set_rows(void)
                               WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0,
           "perm set: manifest-writable memory may go no-access, which S-EL1 still writes");
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
-                              WT_FFA_PERM_DATA_RO) == WT_FFA_DENIED,
+                              WT_FFA_PERM_DATA_RO) == WT_FFA_INVALID_PARAMETERS,
           "perm set: nor may it become read-only and executable");
     check(wt_spm_mem_perm_get(&g_dom_a, page(PG_DEV), &perm) == 0 &&
           perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) &&
@@ -3161,7 +3166,8 @@ static void relay_donated_perm_rows(void)
                         WT_FFA_MEM_PERM_DATA_RO, &ret);
     check(ret == 0 &&
           wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
-                              WT_FFA_PERM_DATA_NONE) == WT_FFA_DENIED &&
+                              WT_FFA_PERM_DATA_NONE) ==
+              WT_FFA_INVALID_PARAMETERS &&
           access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_RW &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
           "donated perm: an owner cannot change the access of memory it shares until it reclaims it (1.3.1 rule 7)");

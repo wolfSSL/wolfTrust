@@ -1088,13 +1088,16 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
          * still initializing signals success; the next direct request is
          * delivered as this call's return registers. A Secure interrupt
          * queued while it ran (Table 9.1) is delivered here as FFA_INTERRUPT
-         * instead of blocking, w1/w2 zero (12.4.1 item 3). */
+         * instead of blocking, w1/w2 zero (12.4.1 item 3). Either way the
+         * call hands the RX buffer back (7.2.2.4.2); w1-w7 are SBZ (Table
+         * 14.3), so no flag keeps it. */
         busy = wt_spm_ffa_sp_requester((const struct wt_co*)co, &requester,
                                        &self);
         sint = 0u;
         if (busy == 0) {
             wt_spm_sp_init_complete((const struct wt_co*)co);
             sint = wt_spm_sint_take_pending(co);
+            (void)wt_ffa_mailbox_rx_release(sp_mailbox());
         }
         if (busy != 0) {
             ffa_error(frame, WT_FFA_DENIED);
@@ -1106,10 +1109,6 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
             frame->x[0] = WT_FFA_INTERRUPT;
         }
         else {
-            /* 13.8: w2 bit 0 set keeps RX ownership across the wait. */
-            if (((uint32_t)frame->x[2] & 1u) == 0u) {
-                (void)wt_ffa_mailbox_rx_release(sp_mailbox());
-            }
             g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_WAIT;
             wt_co_block();
         }

@@ -36,6 +36,31 @@ audit() {
   [ "$bad" -eq 0 ]
 }
 
+# The mk/arch-aarch64.mk image rule with stand-in tools: an archive that fails
+# the audit must leave no EL3 image, so a second make cannot reuse one.
+link_gate() {
+  local tmp rc=0 pass
+  tmp="$(mktemp -d)" || return 1
+  printf '#!/bin/sh\nprintf "smc.o:\\n0000000000000000 T wt_spm_init\\n"\n' > "$tmp/fake-nm"
+  printf '#!/bin/sh\nwhile [ $# -gt 0 ]; do [ "$1" = -o ] && : > "$2"; shift; done\n' > "$tmp/fake-cc"
+  chmod +x "$tmp/fake-nm" "$tmp/fake-cc"
+  : > "$tmp/libwt_el3.a"
+  for pass in 1 2; do
+    if make -s -f "$root/mk/arch-aarch64.mk" ROOT="$root" BUILD_DIR="$tmp" \
+        TOOLPREFIX="$tmp/fake-" CC="$tmp/fake-cc" -o "$tmp/libwt_el3.a" \
+        "$tmp/wolftrust_el3.elf" > /dev/null 2>&1; then
+      echo "SELFTEST FAIL: make pass $pass built the EL3 image past a failed audit"
+      rc=1
+    fi
+    if [ -e "$tmp/wolftrust_el3.elf" ]; then
+      echo "SELFTEST FAIL: make pass $pass left an unaudited EL3 image"
+      rc=1
+    fi
+  done
+  rm -rf "$tmp"
+  return "$rc"
+}
+
 selftest() {
   local fails=0 out
   out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n                 U wt_gic_init_secure\n                 U wt_platform_console_putc\n                 U wt_esr_classify\n                 U memset\n                 U __el3_stack_top\n\nesr.o:\n0000000000000000 T wt_esr_classify\n' \
@@ -48,6 +73,7 @@ selftest() {
   # A shell status wraps modulo 256, so exactly 256 offenders must still fail.
   out="$(awk 'BEGIN { print "big.o:"; for (i = 0; i < 256; i++) printf "%016x T wt_spm_leak%d\n", i * 4, i }' \
     | audit "$ALLOW")" && { echo "SELFTEST FAIL: 256 offenders accepted"; fails=$((fails + 1)); }
+  link_gate || fails=$((fails + 1))
   if [ "$fails" -ne 0 ]; then echo "SELFTEST: $fails failure(s)"; exit 1; fi
   echo "SELFTEST: ok"
   exit 0

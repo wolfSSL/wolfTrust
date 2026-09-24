@@ -363,9 +363,9 @@ static void partition_info_rows(void)
           "the count-only flag returns the count without writing descriptors");
 
     ret = wt_ffa_partinfo_write(rx, sizeof(rx), WT_FFA_VERSION_1_2, parts, 3u,
-                                nil, 0x2u, &count, &size);
-    check(ret == WT_FFA_INVALID_PARAMETERS,
-          "a reserved flag bit is INVALID_PARAMETERS");
+                                nil, 0xFFFFFFFEu, &count, &size);
+    check(ret == 0 && count == 3u && size == WT_FFA_PARTINFO_DESC_V11,
+          "the SBZ flag bits 31:1 are ignored");
 
     ret = wt_ffa_partinfo_write(rx, WT_FFA_PARTINFO_DESC_V11 + 1u,
                                 WT_FFA_VERSION_1_2, parts, 3u, nil, 0u, &count,
@@ -573,6 +573,10 @@ static void partition_info_mailbox_rows(void)
     ret = wt_ffa_partinfo_get(x, v12, NULL, parts, 2u, &count, &size);
     check(ret == 0 && count == 2u && size == 0u,
           "a count-only query needs no RX buffer");
+    x[5] = 0xFFFFFFFFu;
+    ret = wt_ffa_partinfo_get(x, v12, NULL, parts, 2u, &count, &size);
+    check(ret == 0 && count == 2u && size == 0u,
+          "the SBZ flag bits 31:1 of FFA_PARTITION_INFO_GET are ignored");
     x[5] = 0u;
     check(wt_ffa_partinfo_get(x, v12, NULL, parts, 2u, &count, &size) ==
               WT_FFA_BUSY &&

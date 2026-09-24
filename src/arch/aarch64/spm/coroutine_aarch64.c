@@ -467,7 +467,6 @@ static unsigned int sint_stage(struct wt_co* co)
         return 0u;
     }
     deliver_event(co, WT_FFA_INTERRUPT, (uint64_t)sint);
-    wt_spm_sint_set_delivered(co, sint);
     return 1u;
 }
 
@@ -863,10 +862,16 @@ uint32_t wt_spm_sint_delivered(const struct wt_co* co)
 
 uint32_t wt_spm_sint_take_pending(const struct wt_co* co)
 {
+    uint32_t intid;
+
     if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
         return 0u;
     }
-    return wt_spm_sint_fifo_pop(&g_sp_sint_pending[co->id - 1u]);
+    intid = wt_spm_sint_fifo_pop(&g_sp_sint_pending[co->id - 1u]);
+    if (intid != 0u) {
+        g_sint_delivered[co->id - 1u] = intid;
+    }
+    return intid;
 }
 
 /* A waiting partition owed a queued Secure interrupt, staged for delivery;
@@ -912,6 +917,7 @@ int wt_spm_ffa_signal_deliver(struct wt_co* co, uint32_t intid)
         return WT_FFA_BUSY;
     }
     deliver_event(co, WT_FFA_INTERRUPT, (uint64_t)intid);
+    wt_spm_sint_set_delivered(co, intid);
     return (run_endpoint(co, out) == WT_FFA_ABORTED) ? WT_FFA_ABORTED : 0;
 }
 

@@ -521,7 +521,7 @@ case "$scenario" in
     refute_re "no unexpected FF-A event at the SPMC" '\[SPM\] unexpected event'
     expect "the echo partition initialized alongside the six services" "[SPM] partitions ready n=7"
     expect "a Secure interrupt was signalled to the owner while it waited" "[SPM] sint signaled id=0x28"
-    expect "a Secure interrupt was queued for the owner while it ran" "[SPM] sint queued id=0x28"
+    expect "a Secure interrupt queued while the owner handled another was delivered on its next wait and named by the get" "[SPM] sint queued id=0x28"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   ns-smoke)

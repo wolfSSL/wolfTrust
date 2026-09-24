@@ -365,6 +365,9 @@ int main(void)
           "FFA_FEATURES refuses a function the SPMD does not implement yet");
     call(&r, WT_FFA_FEATURES, 0x1u);
     check(is_error(&r, WT_FFA_NOT_SUPPORTED), "FFA_FEATURES refuses feature ids");
+    call(&r, WT_FFA_FEATURES, WT_FFA_NORMAL_WORLD_RESUME);
+    check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 && rest_zero(r.x, 1u, 7u),
+          "FFA_FEATURES reports FFA_NORMAL_WORLD_RESUME, which the SPMD serves");
 
     check(wt_ffa_spmd_is_ns_resume(WT_FFA_NORMAL_WORLD_RESUME) == 1,
           "FFA_NORMAL_WORLD_RESUME resumes a preempted Normal world");

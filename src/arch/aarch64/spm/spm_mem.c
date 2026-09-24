@@ -692,15 +692,16 @@ int wt_spm_mem_perm_set(const wt_secure_domain_t* dom,
     if ((ret == 0) && (platform_shared(va, size) != 0)) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
-    /* The SPMC writes a mapped RX/TX pair, and memory the manifest makes
-     * writable, at S-EL1 through the partition's own table, where an EL0
-     * read-only page is read-only too: the pair keeps its permissions while
-     * mapped, and manifest-writable memory never becomes read-only. */
+    /* Pages the SPMC writes at S-EL1 through the partition's own table, where
+     * an EL0 read-only page is read-only too, keep their data access: the
+     * mapped RX/TX pair, and the writable manifest memory of a partition the
+     * relayer does not bind, where the FF-M gate writes the buffers it names. */
     if ((ret == 0) && (wt_ffa_mailbox_overlaps(mb, va, size) != 0)) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     if ((ret == 0) && ((attributes & WT_MEM_ATTR_READ) != 0u) &&
         ((attributes & WT_MEM_ATTR_WRITE) == 0u) &&
+        (bind_by_dom(dom) == NULL) &&
         (manifest_writable(dom, va, size) != 0)) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }

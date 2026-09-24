@@ -2388,10 +2388,23 @@ static void relay_perm_set_rows(void)
           perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN),
           "perm get: it still reads back its access to memory it shares (Table 2.37)");
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) == 0 &&
+          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RO &&
+          wt_spm_mem_perm_get(&g_dom_a, page(PG_RW), &perm) == 0 &&
+          perm == (WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0,
+          "perm set: a relayer endpoint makes memory its manifest makes writable read-only, and back");
+    wt_spm_mem_unbind(CO_C);
+    check(wt_spm_mem_perm_set(&g_dom_c, &g_relay_mailbox, page(PG_C), 1u,
                               WT_FFA_PERM_DATA_RO | WT_FFA_PERM_XN) ==
               WT_FFA_INVALID_PARAMETERS &&
-          access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW,
-          "perm set: read-only over memory the manifest makes writable is INVALID_PARAMETERS, and it stays writable");
+          access_of(&g_dom_c, PG_C) == WT_DOMAIN_ACCESS_RW &&
+          wt_spm_mem_perm_set(&g_dom_c, &g_relay_mailbox, page(PG_C), 1u,
+                              WT_FFA_PERM_DATA_NONE) == 0 &&
+          wt_spm_mem_perm_set(&g_dom_c, &g_relay_mailbox, page(PG_C), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0,
+          "perm set: an FF-M partition's writable manifest memory, which the gate writes at S-EL1, never becomes read-only (INVALID_PARAMETERS) but may go no-access");
     check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RX), 1u,
                               WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0 &&
           access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_RW &&
@@ -2450,9 +2463,16 @@ static void relay_perm_set_rows(void)
           wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
                               WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0,
           "perm set: manifest-writable memory may go no-access, which S-EL1 still writes");
-    check(wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
-                              WT_FFA_PERM_DATA_RO) == WT_FFA_INVALID_PARAMETERS,
-          "perm set: nor may it become read-only and executable");
+    check(wt_spm_mem_perm_set(&g_dom_c, &g_relay_mailbox, page(PG_C), 1u,
+                              WT_FFA_PERM_DATA_RO) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RO) == 0 &&
+          wt_spm_mem_perm_get(&g_dom_a, page(PG_RW), &perm) == 0 &&
+          perm == WT_FFA_PERM_DATA_RO &&
+          wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_RW), 1u,
+                              WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) == 0,
+          "perm set: read-only and executable follows the same rule");
     check(wt_spm_mem_perm_get(&g_dom_a, page(PG_DEV), &perm) == 0 &&
           perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) &&
           wt_spm_mem_perm_set(&g_dom_a, &g_relay_mailbox, page(PG_DEV), 1u,

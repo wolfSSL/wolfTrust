@@ -37,12 +37,14 @@
 #define PTE_PXN         (1ull << 53)
 #define PTE_UXN         (1ull << 54)
 /* Bits[58:55] are software's: a held owner page keeps its own AP[2], UXN, and
- * PXN there until it is released. */
+ * PXN there until it is released; on a page that is not held, bit 56 marks an
+ * EL0 page its owner made no-access with FFA_MEM_PERM_SET. */
 #define PTE_SW_HELD     (1ull << 55)
 #define PTE_SW_AP_RO    (1ull << 56)
 #define PTE_SW_UXN      (1ull << 57)
 #define PTE_SW_PXN      (1ull << 58)
 #define PTE_SW_MASK     (PTE_SW_HELD | PTE_SW_AP_RO | PTE_SW_UXN | PTE_SW_PXN)
+#define PTE_SW_HIDDEN   PTE_SW_AP_RO
 #define PTE_ADDR_MASK   0x0000FFFFFFFFF000ull
 
 #define L1_SHIFT 30u
@@ -302,6 +304,11 @@ static uint64_t* l3_entry(const wt_tables_t* t, const wt_tables_pool_t* pool,
     return &table[(va >> L3_SHIFT) & INDEX_MASK];
 }
 
+static int hidden_page(uint64_t desc)
+{
+    return (desc & (PTE_SW_HELD | PTE_SW_HIDDEN)) == PTE_SW_HIDDEN;
+}
+
 static int el0_owned_normal_page(uint64_t desc)
 {
     uint32_t ap = (uint32_t)((desc >> PTE_AP_SHIFT) & 0x3u);
@@ -310,7 +317,8 @@ static int el0_owned_normal_page(uint64_t desc)
     return ((desc & DESC_VALID) != 0u) && ((desc & PTE_NS) == 0u) &&
            ((desc & PTE_SW_HELD) == 0u) &&
            (attr == WT_TABLES_ATTR_NORMAL_WBWA) &&
-           ((ap == WT_TABLES_AP_ALL_RW) || (ap == WT_TABLES_AP_ALL_RO));
+           ((ap == WT_TABLES_AP_ALL_RW) || (ap == WT_TABLES_AP_ALL_RO) ||
+            hidden_page(desc));
 }
 
 int wt_tables_set_el0_attributes(wt_tables_t* t, const wt_tables_pool_t* pool,
@@ -333,7 +341,15 @@ int wt_tables_set_el0_attributes(wt_tables_t* t, const wt_tables_pool_t* pool,
         (pages > ((WT_TABLES_VA_LIMIT - va) / WT_TABLES_PAGE_SIZE))) {
         return WT_TABLES_ERROR_RANGE;
     }
-    pte = encode(attributes, 0);
+    /* No access keeps the page the SPMC's to read and write at S-EL1. */
+    if (attributes == 0u) {
+        pte = encode(WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_TABLES_ATTR_NG,
+                     1);
+        pte |= (int64_t)PTE_SW_HIDDEN;
+    }
+    else {
+        pte = encode(attributes, 0);
+    }
     if (pte < 0) {
         return (int)pte;
     }
@@ -360,10 +376,12 @@ static int el1_only_page(uint64_t desc)
 }
 
 /* Only a non-global entry may become an EL0 page: a global one cached under
- * any ASID would still match after the grant's per-ASID invalidation. */
+ * any ASID would still match after the grant's per-ASID invalidation. A page
+ * its owner made no-access is still its own, never a window. */
 static int grantable_page(uint64_t desc)
 {
-    return el1_only_page(desc) && ((desc & PTE_NG) != 0u);
+    return el1_only_page(desc) && ((desc & PTE_NG) != 0u) &&
+           !hidden_page(desc);
 }
 
 static int window_range_ok(const wt_tables_t* t, uint64_t va, size_t pages)

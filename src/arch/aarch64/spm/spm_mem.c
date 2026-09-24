@@ -526,12 +526,18 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
     return ret;
 }
 
+/* No access (b'00) maps the page away from EL0 whatever bit[2] says: S-EL1
+ * keeps writing it, so SCTLR_EL1.WXN makes it execute-never (2.8.0.0.1). */
 static int perm_to_attributes(uint32_t perm, uint32_t* attributes)
 {
     uint32_t data = perm & WT_FFA_PERM_DATA_MASK;
 
     if ((perm & ~(WT_FFA_PERM_DATA_MASK | WT_FFA_PERM_XN)) != 0u) {
         return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (data == WT_FFA_PERM_DATA_NONE) {
+        *attributes = 0u;
+        return 0;
     }
     if ((data == WT_FFA_PERM_DATA_RW) && ((perm & WT_FFA_PERM_XN) != 0u)) {
         *attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
@@ -615,7 +621,8 @@ int wt_spm_mem_perm_set(const wt_secure_domain_t* dom,
     if ((ret == 0) && (wt_ffa_mailbox_overlaps(mb, va, size) != 0)) {
         ret = WT_FFA_DENIED;
     }
-    if ((ret == 0) && ((attributes & WT_MEM_ATTR_WRITE) == 0u) &&
+    if ((ret == 0) && ((attributes & WT_MEM_ATTR_READ) != 0u) &&
+        ((attributes & WT_MEM_ATTR_WRITE) == 0u) &&
         (manifest_writable(dom, va, size) != 0)) {
         ret = WT_FFA_DENIED;
     }

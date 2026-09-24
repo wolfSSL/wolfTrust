@@ -1114,7 +1114,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         /* 8.2/8.5: the partition enters the waiting state; the next direct
          * request is delivered as this call's return registers. A Secure
          * interrupt queued while it ran (Table 9.1) is delivered here as
-         * FFA_INTERRUPT instead of blocking. */
+         * FFA_INTERRUPT instead of blocking, w1/w2 zero (12.4.1 item 3). */
         busy = wt_spm_ffa_sp_requester((const struct wt_co*)co, &requester,
                                        &self);
         sint = (busy == 0) ? wt_spm_sint_take_pending(co) : 0u;
@@ -1126,7 +1126,6 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
                 frame->x[i] = 0u;
             }
             frame->x[0] = WT_FFA_INTERRUPT;
-            frame->x[1] = (uint64_t)sint;
         }
         else {
             /* 13.8: w2 bit 0 set keeps RX ownership across the wait. */

@@ -522,6 +522,7 @@ case "$scenario" in
     refute_re "no unexpected FF-A event at the SPMC" '\[SPM\] unexpected event'
     expect "the echo partition initialized alongside the six services" "[SPM] partitions ready n=7"
     expect "the echo partition, preempted before its first wait, was resumed to finish init" "[SP] init resumed id=0x"
+    refute_re "every FFA_INTERRUPT the echo partition got carried w1/w2 zero, or its MBZ check would fault it" '^\[SYNC EL=0'
     expect "a Secure interrupt was signalled to the owner while it waited" "[SPM] sint signaled id=0x28"
     expect "a Secure interrupt queued while the owner handled another was delivered on its next wait and named by the get" "[SPM] sint queued id=0x28"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"

@@ -459,6 +459,20 @@ class GeneratorTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("--address-bits 64", result.stderr)
 
+    def test_ffa_null_section_is_rejected_before_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "null.json"
+            output = root / "output"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["ffa"] = None
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator_64(source, output)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("manifest.ffa", result.stderr)
+            self.assertFalse(output.exists())
+
     def test_ffa_policy_is_rejected_before_output(self):
         cases = (
             ("uuids", ["B4B5671E-4A90-4FE1-B81F-FB13DAE1DACB"], "canonical"),

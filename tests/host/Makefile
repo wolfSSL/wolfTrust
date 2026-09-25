@@ -32,6 +32,7 @@ SUBMAKE_FLAGS := --no-print-directory -s
 endif
 
 UNIT_SUITES := domain manifest lifecycle guest_verify rollback sp_recovery \
+    fabric_windows \
     ipc ffm spm \
     vnet wolfhsm_loopback wolfhsm_relay native_wire native_wire_client \
     keystore_isolation \

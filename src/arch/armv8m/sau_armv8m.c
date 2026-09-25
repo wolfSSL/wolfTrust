@@ -39,6 +39,24 @@ static void wt_sau_set_region(uint32_t rnr,
     WT_SAU_RLAR = (limit_inclusive & 0xFFFFFFE0u) | (nsc ? 2u : 0u) | 1u;
 }
 
+void wt_armv8m_sau_program_region(uint32_t rnr, uint32_t base,
+                                  uint32_t limit_inclusive, bool nsc,
+                                  bool enable)
+{
+    /* Reprogram one region while the SAU stays enabled. The Secure monitor
+     * executes from the bit-28-set Secure alias, which no Non-secure region
+     * covers, so a guest-RAM region edit cannot reclassify running code; a
+     * disable clears ENABLE so the region stops matching. */
+    WT_SAU_RNR = rnr;
+    WT_SAU_RLAR = 0u;
+    if (enable) {
+        WT_SAU_RBAR = base & 0xFFFFFFE0u;
+        WT_SAU_RLAR = (limit_inclusive & 0xFFFFFFE0u) | (nsc ? 2u : 0u) | 1u;
+    }
+    wt_dsb();
+    wt_isb();
+}
+
 void wt_armv8m_sau_init(const wt_armv8m_sau_region_t* regions, size_t count)
 {
     uint32_t region;

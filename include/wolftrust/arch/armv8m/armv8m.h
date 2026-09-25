@@ -56,6 +56,12 @@ typedef struct wt_armv8m_mpu_region {
 } wt_armv8m_mpu_region_t;
 
 void wt_armv8m_sau_init(const wt_armv8m_sau_region_t* regions, size_t count);
+/* Reprogram or (enable=false) disable one SAU region at runtime, SAU left on;
+ * bounds are inclusive and 32-byte aligned. Used for per-dispatch guest RAM
+ * isolation on ports where the CPU's attribution is the isolation layer. */
+void wt_armv8m_sau_program_region(uint32_t rnr, uint32_t base,
+                                  uint32_t limit_inclusive, bool nsc,
+                                  bool enable);
 /* PRIVDEFENA off; wt_arch_restore_spm_domain() replays this table. */
 void wt_armv8m_mpu_s_init(const wt_armv8m_mpu_region_t* whitelist,
                           size_t count);

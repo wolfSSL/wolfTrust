@@ -24,6 +24,7 @@
  * SPMC relayer driving real partition tables. */
 
 #define _DEFAULT_SOURCE
+#define _DARWIN_C_SOURCE
 
 #include "wolftrust/arch.h"
 #include "wolftrust/arch/aarch64/domain.h"

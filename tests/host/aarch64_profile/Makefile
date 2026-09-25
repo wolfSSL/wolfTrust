@@ -24,7 +24,7 @@ BUILD_DIR ?= build
 
 CFLAGS := \
     -I$(ROOT)/include \
-    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
+    -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -DWT_SPM_TABLE_POOL_PAGES=128u
 CFLAGS += $(EXTRA_CFLAGS)
 

@@ -25,7 +25,7 @@ BUILD_DIR ?= build
 
 CFLAGS := \
     -I$(ROOT)/include \
-    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic
+    -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic
 CFLAGS += $(EXTRA_CFLAGS)
 
 SRCS := $(ROOT)/src/arch/aarch64/ffa/ffa_boot_info.c main.c

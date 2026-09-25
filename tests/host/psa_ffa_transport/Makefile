@@ -31,9 +31,10 @@ CFLAGS := \
     -I$(ROOT)/tests/host/wolfhsm_loopback \
     -I$(ROOT)/include \
     -I$(WOLFSSL) \
-    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
+    -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
+include ../vendor_c99.mk
 
 # The neutral FF-M core and services (the ffm_veneer fixture set), the neutral
 # gateway, the OS-neutral PSA client, and the AArch64 FF-A binding + SPMC

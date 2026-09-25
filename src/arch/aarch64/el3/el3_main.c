@@ -60,6 +60,20 @@
 #define WT_EL3_PANIC_NOT_PARKED   0xB2u
 #define WT_EL3_PANIC_RDIST_ASLEEP 0xB3u
 #define WT_EL3_PANIC_NO_TICK      0xB4u
+#define WT_EL3_PANIC_MDCR         0xB5u
+
+/* MDCR_EL3 fields every PE implements, plus the PMU, SPE, and TRBE ones the
+ * PE reports; the rest are RES0 on some PEs and are left out of the compare. */
+#define WT_MDCR_EL3_TPM   (1ull << 6)
+#define WT_MDCR_EL3_TDA   (1ull << 9)
+#define WT_MDCR_EL3_TDOSA (1ull << 10)
+#define WT_MDCR_EL3_NSPB  (3ull << 12)
+#define WT_MDCR_EL3_SPD32 (3ull << 14)
+#define WT_MDCR_EL3_SDD   (1ull << 16)
+#define WT_MDCR_EL3_SPME  (1ull << 17)
+#define WT_MDCR_EL3_STE   (1ull << 18)
+#define WT_MDCR_EL3_SCCD  (1ull << 23)
+#define WT_MDCR_EL3_NSTB  (3ull << 24)
 
 volatile uint8_t g_wt_el3_parked[WT_EL3_MAX_CPUS];
 volatile uint32_t g_wt_el3_ready;
@@ -127,6 +141,49 @@ static int prove_tick(void)
 /* The single-PE isolation model and Secure preemption rest on these: stop
  * the boot through the monitor panic path instead of entering the Secure
  * runtime. */
+/* The debug and PMU policy start.S must have set: Secure-state counting,
+ * tracing, profiling, and self-hosted debug all disabled, nothing trapped.
+ * *mask names the fields the PE implements; the value is what they must read. */
+static uint64_t wt_el3_mdcr_expected(uint64_t* mask)
+{
+    uint64_t dfr0 = wt_read_id_aa64dfr0_el1();
+    uint64_t pmuver = (dfr0 >> 8) & 0xFu;
+    uint64_t want = WT_MDCR_EL3_SDD | (2ull << 14);
+
+    *mask = WT_MDCR_EL3_TPM | WT_MDCR_EL3_TDA | WT_MDCR_EL3_TDOSA |
+            WT_MDCR_EL3_SPD32 | WT_MDCR_EL3_SDD | WT_MDCR_EL3_SPME |
+            WT_MDCR_EL3_STE;
+    if ((pmuver >= 6u) && (pmuver != 0xFu)) {
+        *mask |= WT_MDCR_EL3_SCCD;
+        want |= WT_MDCR_EL3_SCCD;
+    }
+    if (((dfr0 >> 32) & 0xFu) != 0u) {
+        *mask |= WT_MDCR_EL3_NSPB;
+        want |= (2ull << 12);
+    }
+    if (((dfr0 >> 44) & 0xFu) != 0u) {
+        *mask |= WT_MDCR_EL3_NSTB;
+        want |= (2ull << 24);
+    }
+    return want;
+}
+
+static int wt_el3_mdcr_ok(void)
+{
+    uint64_t mask = 0u;
+    uint64_t want = wt_el3_mdcr_expected(&mask);
+    uint64_t got = wt_read_mdcr_el3();
+
+    if ((got & mask) == want) {
+        wt_el3_puts("[EL3] mdcr_el3 ok\r\n");
+        return 1;
+    }
+    wt_el3_puts("[EL3] mdcr_el3 BAD 0x");
+    wt_el3_puthex((uint32_t)got, 8u);
+    wt_el3_puts("\r\n");
+    return 0;
+}
+
 static void require_boot_invariant(int ok, uint64_t code)
 {
     if (ok == 0) {
@@ -228,6 +285,7 @@ void wt_el3_main(void)
         (mask & WT_EL3_PARK_EXPECTED) == WT_EL3_PARK_EXPECTED,
         WT_EL3_PANIC_NOT_PARKED);
     require_boot_invariant(woken != 0u, WT_EL3_PANIC_RDIST_ASLEEP);
+    require_boot_invariant(wt_el3_mdcr_ok(), WT_EL3_PANIC_MDCR);
     require_boot_invariant(prove_tick() == 0, WT_EL3_PANIC_NO_TICK);
 #if defined(WT_EL3_TEST_HANDOFF)
     synthesize_test_handoff();

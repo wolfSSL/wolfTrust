@@ -42,7 +42,7 @@ expect_flat() {
 # occurrences are counted, not lines, so two copies on one line still fail.
 expect_once() {
   local n
-  n=$(grep -Fao -- "$2" "$WT_EXPECT_LOG" | wc -l | tr -d ' ')
+  n=$(grep -Fao -- "$2" "$WT_EXPECT_LOG" | wc -l | tr -d ' ' || true)
   if [ "$n" -eq 1 ]; then
     check_pass "$1"
   else
@@ -112,6 +112,20 @@ selftest() {
       echo "SELFTEST FAIL: $label: no FAIL line ('$out')"; fails=$((fails + 1))
     fi
   }
+  # want_fail_strict: like want_fail, but runs the command in a fresh
+  # `set -euo pipefail` subshell, matching how the target runners source
+  # this file, so a missing marker must still print the FAIL line.
+  want_fail_strict() { # label command...
+    local label="$1"
+    shift
+    if out="$(bash -euo pipefail -c \
+        'source "$1"; WT_EXPECT_LOG="$2"; shift 2; "$@"' \
+        strict-selftest "${BASH_SOURCE[0]}" "$WT_EXPECT_LOG" "$@" 2>&1)"; then
+      echo "SELFTEST FAIL: $label: passed ('$out')"; fails=$((fails + 1))
+    elif [ "${out#  \[check\] FAIL  }" = "$out" ]; then
+      echo "SELFTEST FAIL: $label: no FAIL line ('$out')"; fails=$((fails + 1))
+    fi
+  }
   want "exact hit" '  [check] PASS  init' expect init 'TEE client initialized'
   want_fail "exact miss" expect init 'never printed'
   want "flat hit" '  [check] PASS  skipped' expect_flat skipped 'TOTAL SKIPPED   : 4'
@@ -122,6 +136,7 @@ selftest() {
   want_fail "once twice" expect_once single 'freertos_guest1: hb'
   want_fail "once twice on one line" expect_once single '[EL3] twice'
   want_fail "once miss" expect_once single 'never printed'
+  want_fail_strict "once miss under pipefail" expect_once single 'never printed'
   want_fail "gap off" expect finish 'guest0_psa done marker'
   want "clean exit" '  [check] PASS  end' expect_end end exit 0
   want "panic exit" '  [check] PASS  end' expect_end end panic 126

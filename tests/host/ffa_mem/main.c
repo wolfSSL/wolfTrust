@@ -390,7 +390,8 @@ static void mailbox_rows(void)
     check(wt_ffa_mailbox_unmap(&mb) == WT_FFA_INVALID_PARAMETERS,
           "FFA_RXTX_UNMAP with nothing mapped is INVALID_PARAMETERS");
     check(wt_ffa_mailbox_rx_release(&mb) == WT_FFA_DENIED,
-          "FFA_RX_RELEASE with nothing mapped is DENIED");
+          "FFA_RX_RELEASE by an endpoint with no registered pair is DENIED: it "
+          "owns no RX buffer (Table 13.22, ACS ffa_rx_release)");
     check(wt_ffa_mailbox_rx_acquire(&mb) == WT_FFA_DENIED,
           "an unmapped RX buffer cannot be acquired");
     check(wt_ffa_mailbox_map(&mb, 0x1000ull, 0x3000ull, 0xFFFFFFC0u | 1u) ==

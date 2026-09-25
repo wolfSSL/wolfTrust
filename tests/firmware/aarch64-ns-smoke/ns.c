@@ -1287,6 +1287,77 @@ static int memneg_bad_buffer(uint64_t addr, uint64_t pages, uint32_t len)
  * malformed descriptors and dynamically allocated buffers (each refused with
  * no crash), reclaim the good handle, and confirm a second reclaim of the
  * now-dead handle is refused. */
+/* FFA_RX_RELEASE(vm) at the NS physical instance: the reply's error code, or
+ * 0 on FFA_SUCCESS. */
+static int32_t memneg_rx_release_smc(uint32_t vm)
+{
+    uint64_t x[5];
+
+    x[0] = WT_FFA_RX_RELEASE;
+    x[1] = vm;
+    x[2] = 0u;
+    x[3] = 0u;
+    x[4] = 0u;
+    smc5(x);
+    return ((uint32_t)x[0] == WT_FFA_SUCCESS32) ? 0 : (int32_t)(uint32_t)x[2];
+}
+
+static int memneg_rx_release_expect(uint32_t vm, int32_t want, const char* what)
+{
+    int32_t got = memneg_rx_release_smc(vm);
+
+    if (got == want) {
+        return 1;
+    }
+    put_str("[NS] memneg BAD rx release ");
+    put_str(what);
+    put_str(" x2=0x");
+    put_hex((uint32_t)got);
+    put_str("\r\n");
+    return 0;
+}
+
+/* FFA_PARTITION_INFO_GET listing every partition into the RX buffer, which
+ * the caller then owns (7.2.2.4.2). */
+static int memneg_fill_rx(void)
+{
+    register uint64_t r0 __asm__("x0") = WT_FFA_PARTITION_INFO_GET;
+    register uint64_t r1 __asm__("x1") = 0;
+    register uint64_t r2 __asm__("x2") = 0;
+    register uint64_t r3 __asm__("x3") = 0;
+    register uint64_t r4 __asm__("x4") = 0;
+    register uint64_t r5 __asm__("x5") = 0;
+
+    __asm__ volatile("smc #0"
+                     : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4), "+r"(r5)
+                     :
+                     : "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
+                       "x15", "x16", "x17", "memory");
+    return ((uint32_t)r0 == WT_FFA_SUCCESS32) && (r2 != 0u);
+}
+
+/* Table 13.21: w1[15:0] names the VM whose RX buffer is released, and only
+ * the primary endpoint has a pair; Table 13.22: a VM with no pair is
+ * INVALID_PARAMETERS, a buffer the caller does not own is DENIED. */
+static int memneg_rx_release_rows(void)
+{
+    int ok;
+
+    ok = memneg_rx_release_expect(0u, WT_FFA_DENIED, "unowned");
+    if (!memneg_fill_rx()) {
+        put_str("[NS] memneg BAD rx release partinfo\r\n");
+        return 0;
+    }
+    ok = ok && memneg_rx_release_expect(1u, WT_FFA_INVALID_PARAMETERS,
+                                        "foreign vm");
+    ok = ok && memneg_rx_release_expect(0u, 0, "owned");
+    ok = ok && memneg_rx_release_expect(0u, WT_FFA_DENIED, "released");
+    if (ok) {
+        put_str("[NS] rx release ok\r\n");
+    }
+    return ok;
+}
+
 static void guest_memneg(void)
 {
     uint64_t x[5];
@@ -1303,6 +1374,7 @@ static void guest_memneg(void)
         return;
     }
     ok = ok && memneg_bad_buffer(0u, 0u, len);  /* no RX/TX pair mapped */
+    ok = ok && memneg_rx_release_expect(0u, WT_FFA_DENIED, "unmapped");
     x[0] = WT_FFA_RXTX_MAP64;
     x[1] = (uint64_t)(uintptr_t)g_memneg_desc;
     x[2] = (uint64_t)(uintptr_t)g_memneg_rx;
@@ -1313,6 +1385,7 @@ static void guest_memneg(void)
         put_str("[NS] memneg BAD rxtx map\r\n");
         return;
     }
+    ok = ok && memneg_rx_release_rows();
     if (mem_share_smc(len, &w2, &w3) != WT_FFA_SUCCESS32) {
         put_str("[NS] memneg BAD share\r\n");
         return;

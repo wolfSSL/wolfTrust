@@ -1685,7 +1685,13 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
             ns_rxtx_unmap(r);
             break;
         case WT_FFA_RX_RELEASE:
-            ns_reply(r, wt_ffa_mailbox_rx_release(&g_ns_mailbox), 0u, 0u);
+            /* w1[15:0] names the VM whose RX buffer is released (Table
+             * 13.21); only the primary endpoint has a pair here. */
+            ns_reply(r,
+                     (((uint32_t)r->x[1] & 0xFFFFu) == WT_FFA_ID_NS_PRIMARY)
+                         ? wt_ffa_mailbox_rx_release(&g_ns_mailbox)
+                         : WT_FFA_INVALID_PARAMETERS,
+                     0u, 0u);
             break;
         case WT_FFA_INTERRUPT:
             ns_interrupt(r);

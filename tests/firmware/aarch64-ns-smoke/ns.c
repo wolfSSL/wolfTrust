@@ -143,9 +143,8 @@ static uint32_t partition_count(void)
     return (uint32_t)r2;
 }
 
-#if defined(WT_NS_GUEST_MEMNEG) || defined(WT_NS_GUEST_FUZZ)
-/* One SMC with x0-x4 in and x0-x4 back, for the fragment exchange and the
- * SMC32 register probe. */
+/* One SMC with x0-x4 in and x0-x4 back, for the fragment exchange, the
+ * SMC32 register probe, and the notification probe. */
 static void smc5(uint64_t* x)
 {
     register uint64_t r0 __asm__("x0") = x[0];
@@ -165,7 +164,32 @@ static void smc5(uint64_t* x)
     x[3] = r3;
     x[4] = r4;
 }
-#endif
+
+/* A PSA partition takes no notifications (discovery leaves its property bit 3
+ * clear), so a SET naming the first one the receiver is DENIED (DEN0077A
+ * Table 16.20), not refused as an unknown id. */
+static void notif_psa_denied(void)
+{
+    uint64_t x[5];
+
+    x[0] = WT_FFA_NOTIFICATION_SET;
+    x[1] = WT_FFA_ID_SP_FIRST;
+    x[2] = 0u;
+    x[3] = 1u;
+    x[4] = 0u;
+    smc5(x);
+    if (((uint32_t)x[0] == WT_FFA_ERROR) &&
+        ((int32_t)(uint32_t)x[2] == WT_FFA_DENIED)) {
+        put_str("[NS] notif set to a PSA partition denied\r\n");
+    }
+    else {
+        put_str("[NS] notif BAD x0=0x");
+        put_hex((uint32_t)x[0]);
+        put_str(" w2=0x");
+        put_hex((uint32_t)x[2]);
+        put_str("\r\n");
+    }
+}
 
 #if defined(WT_NS_GUEST_ECHO)
 /* Send an FF-A direct request to the Secure echo partition and check it
@@ -1836,6 +1860,7 @@ void ns_main(void)
     else {
         put_str("[NS] discovery BAD\r\n");
     }
+    notif_psa_denied();
 
 #if defined(WT_NS_GUEST_ECHO)
     guest_direct();

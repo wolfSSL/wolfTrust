@@ -674,6 +674,8 @@ case "$scenario" in
     refute_re "the Normal world did not misread discovery" '\[NS\] discovery BAD'
     expect "the Normal world negotiated FF-A 1.2 with the SPMD" "[NS] ffa version 1.2"
     expect "the Normal world discovered the partitions through the SPMC" "[NS] discovery ok n=6"
+    refute_re "the notification SET to a PSA partition was not misanswered" '\[NS\] notif BAD'
+    expect "a notification SET naming a PSA partition, which takes none, was DENIED" "[NS] notif set to a PSA partition denied"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   ffa-guest-direct)

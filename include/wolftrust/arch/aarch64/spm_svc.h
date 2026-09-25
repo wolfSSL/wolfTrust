@@ -245,6 +245,10 @@ int wt_spm_partition_info_regs(const uint64_t* x, uint64_t* out18);
 int wt_spm_partition_props(uint16_t id, uint32_t* props);
 /* 0 when id may send FFA_MSG_SEND2, else DENIED (wt_ffa_msg2_sender_allowed). */
 int wt_spm_msg2_sender_allowed(uint16_t id);
+/* FFA_NOTIFICATION_SET from either conduit: a receiver discovery lists as not
+ * taking notifications is DENIED (Table 16.20), the rest wt_ffa_notif_set. */
+int32_t wt_spm_notif_set(uint16_t caller, uint32_t w1, uint32_t w2,
+                         uint64_t bitmap);
 
 /* FF-A native partitions: separately built S-EL0 images that speak FF-A
  * directly rather than hosting an FF-M service (the FF-A ACS endpoints). The

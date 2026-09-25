@@ -816,8 +816,10 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     refute_re "the Normal world never read Secure RAM" '\[NS\] secram LEAK'
+    refute_re "no other exception stood in for the fence's refusal" '\[NS\] secram BAD'
     expect "the Normal world attempted the Secure-RAM read" "[NS] secram read 0x"
-    expect "the Secure-RAM read was refused and the Normal world caught the fault" "[NS] secram refused"
+    expect "the Secure-RAM read took the fence's external data abort at the probe address" \
+      "[NS] secram refused ec=0x25 dfsc=0x10 far=0x$(printf '%x' "$ns_secure_probe") "
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   smcfuzz)

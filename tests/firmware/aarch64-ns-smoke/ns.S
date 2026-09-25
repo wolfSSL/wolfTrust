@@ -61,20 +61,31 @@ ns_exit:
 /* Normal-world EL1 exception vectors: a Secure-RAM read (secramneg) or one of
  * the conformance suite's by-design client aborts lands here, so the guest
  * catches its own abort and answers it instead of hanging on an unset vector.
- * Every entry funnels to one handler. */
+ * Every entry funnels to one handler with ESR, FAR, ELR, and its slot. */
     .section .text
     .balign 0x800
     .globl _ns_vectbl
 _ns_vectbl:
-    .rept 16
+    .irp slot, 0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15
     .balign 0x80
+    mov     x3, #\slot
     b       _ns_abort
     .endr
 _ns_abort:
     mrs     x0, esr_el1
+    mrs     x1, far_el1
+    mrs     x2, elr_el1
     bl      ns_abort_report
 4:  wfi
     b       4b
+
+#if defined(WT_NS_GUEST_SECRAM)
+/* The secramneg probe's one load, so the handler can tell its abort apart. */
+    .globl ns_secram_load
+ns_secram_load:
+    ldr     w0, [x0]
+    ret
+#endif
 #endif
 
     .bss

@@ -29,6 +29,10 @@
 /* RW | ST | EA | FIQ: Group 0 interrupts come to EL3 until the Secure world
  * runs (an FIQ whose target EL is below the current EL stays pending). */
 #define SCR_EL3_INIT    0xC0C
+/* SDD | SPD32 = disabled: Secure self-hosted debug off in both states. */
+#define MDCR_EL3_INIT   0x18000
+/* SPME | STE | NSPB = NSTB = enabled in Secure | TPM | TDA | TDOSA */
+#define MDCR_EL3_DIRTY  0x3063640
 
     .section .el3.text.entry, "ax"
     .globl wt_el3_start
@@ -102,6 +106,30 @@ primary:
     mov     sp, x0
 
     msr     CPTR_EL3, xzr
+#if defined(WT_EL3_EL2_DIRTY_PROBE) && (WT_EL3_EL2_DIRTY_PROBE == 1)
+    /* Test only: stand in for a stage that left Secure counting, tracing,
+     * profiling, and self-hosted debug open and PMU accesses trapped. */
+    ldr     x0, =MDCR_EL3_DIRTY
+    msr     MDCR_EL3, x0
+#endif
+    /* MDCR_EL3: no Secure-state PMU counting, tracing, or profiling, no
+     * Secure self-hosted debug, no traps; the fields a missing PMU, SPE, or
+     * TRBE leaves RES0 stay clear (wt_el3_mdcr_expected mirrors this). */
+    mov     x0, #MDCR_EL3_INIT
+    mrs     x1, ID_AA64DFR0_EL1
+    ubfx    x2, x1, #8, #4
+    cmp     x2, #6
+    b.lo    3f
+    cmp     x2, #0xf
+    b.eq    3f
+    orr     x0, x0, #(1 << 23)
+3:  ubfx    x2, x1, #32, #4
+    cbz     x2, 4f
+    orr     x0, x0, #(2 << 12)
+4:  ubfx    x2, x1, #44, #4
+    cbz     x2, 5f
+    orr     x0, x0, #(2 << 24)
+5:  msr     MDCR_EL3, x0
     tlbi    alle3
     ic      iallu
     dsb     sy

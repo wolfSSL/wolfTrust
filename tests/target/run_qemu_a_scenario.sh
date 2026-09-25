@@ -882,6 +882,8 @@ case "$scenario" in
     : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"; : "${sim_error:=-1}"
     # Every failure must be a named, by-design deviation.
     unexpected=""
+    # val_test_init prints "TEST: <name> SUITE: ..." (with a space); confirmed
+    # against a real setup_discovery log, not "TEST:%s".
     for name in $(grep -aE 'TEST:|RESULT: FAILED' "$log" | grep -a -B1 'RESULT: FAILED' |
                   grep -a 'TEST:' | sed -E 's/.*TEST: ([A-Za-z0-9_]+).*/\1/'); do
       case " $acs_deviations " in

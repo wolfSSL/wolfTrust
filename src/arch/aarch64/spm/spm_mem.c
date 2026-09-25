@@ -466,7 +466,8 @@ static int mem_share(const uint8_t* desc, size_t len, wt_ffa_mem_op_t op,
         if ((ret == 0) && (first == WT_SPM_MEM_NO_INDEX)) {
             first = i;
         }
-        /* Secure memory never leaves the Secure world (10.10.2). */
+        /* No SP-to-NS-Endpoint send is a DEN0140 Table 1.7 combination; rule
+         * 4 of 2.1.1.2, 2.2.1.2, and 2.3.1.2 makes one of Secure memory DENIED. */
         if ((ret == 0) && id_is_secure(sender) && !id_is_secure(receiver)) {
             ret = WT_FFA_DENIED;
         }

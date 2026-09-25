@@ -3210,6 +3210,7 @@ static void relay_ns_donate_rows(void)
     wt_ffa_mem_constituent_t c[2];
     uint64_t h;
     int ret = 0;
+    int ok;
 
     if ((g_mem == NULL) || !relay_reset()) {
         check(0, "ns donate: fixture");
@@ -3244,6 +3245,19 @@ static void relay_ns_donate_rows(void)
           access_of(&g_dom_b, 10u) == WT_DOMAIN_ACCESS_RW &&
           ns_of(&g_dom_b, 10u) != 0,
           "ns donate: a reclaim gives the owner the page back Non-secure");
+    (void)relay_send_from(WT_FFA_MEM_OP_DONATE, c, 1u, RELAY_ID_B,
+                          WT_FFA_ID_NS_PRIMARY, WT_FFA_MEM_PERM_DATA_NOT_SPEC,
+                          &ret);
+    ok = (ret == WT_FFA_DENIED) ? 1 : 0;
+    (void)relay_send_from(WT_FFA_MEM_OP_LEND, c, 1u, RELAY_ID_B,
+                          WT_FFA_ID_NS_PRIMARY, WT_FFA_MEM_PERM_DATA_RW, &ret);
+    ok = ok && (ret == WT_FFA_DENIED);
+    (void)relay_send_from(WT_FFA_MEM_OP_SHARE, c, 1u, RELAY_ID_B,
+                          WT_FFA_ID_NS_PRIMARY, WT_FFA_MEM_PERM_DATA_RW, &ret);
+    check(ok && (ret == WT_FFA_DENIED) &&
+          wt_spm_mem_in_transaction(page(10u), WT_TABLES_PAGE_SIZE) == 0 &&
+          access_of(&g_dom_b, 10u) == WT_DOMAIN_ACCESS_RW,
+          "ns donate: its new owner cannot send it to the Normal world, no SP-to-NS-Endpoint send being a Table 1.7 combination");
     c[1].address = page(PG_B);
     c[1].page_count = 1u;
     (void)relay_send_from(WT_FFA_MEM_OP_LEND, c, 2u, RELAY_ID_B, RELAY_ID_C,

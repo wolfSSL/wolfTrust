@@ -769,8 +769,20 @@ static int prove_preempt(void)
  * FFA_PARTITION_INFO_GET with a Nil UUID while no other partition exists. The
  * SPMC lists exactly that domain's descriptors, under the id FFA_ID_GET gives
  * the caller, in the RX buffer of the pair mapped for it; the partition reads
- * the count and the first descriptor's id back out at S-EL0. */
+ * the count and the first descriptor's id back out at S-EL0. A Normal-world
+ * FFA_MSG_SEND2 to it, a PSA partition, is then DENIED (Table 15.4). */
 static wt_secure_domain_t g_discover_domain;
+static uint8_t g_msg2_probe[WT_FFA_MSG2_HEADER_SIZE];
+
+static int msg2_to_psa(uint16_t receiver)
+{
+    g_msg2_probe[8] = (uint8_t)WT_FFA_MSG2_HEADER_SIZE;
+    g_msg2_probe[12] = (uint8_t)(receiver & 0xFFu);
+    g_msg2_probe[13] = (uint8_t)(receiver >> 8);
+    return wt_spm_msg2_deliver(WT_FFA_ID_NS_PRIMARY, WT_FFA_VERSION_1_2,
+                               g_msg2_probe, (uint32_t)sizeof(g_msg2_probe),
+                               WT_FFA_INSTANCE_NS_PHYSICAL, 0u, 0u);
+}
 
 static int prove_partinfo(uint32_t* out_count)
 {
@@ -833,6 +845,9 @@ static int prove_partinfo(uint32_t* out_count)
     *out_count = (uint32_t)(token & 0xFFFFu);
     if ((uint32_t)((token >> 16) & 0xFFFFu) !=
         (uint32_t)wt_spm_sp_ffa_id((struct wt_co*)co)) {
+        return 0;
+    }
+    if (msg2_to_psa(wt_spm_sp_ffa_id((struct wt_co*)co)) != WT_FFA_DENIED) {
         return 0;
     }
     return (*out_count == expect) ? 1 : 0;
@@ -1558,7 +1573,10 @@ int wt_spm_msg2_deliver(uint16_t caller, uint32_t version, const uint8_t* tx,
                 }
             }
             if (uuid == NULL) {
-                ret = WT_FFA_INVALID_PARAMETERS;
+                /* Table 15.4: a listed partition taking no indirect messages
+                 * (a PSA partition) is DENIED, only an unknown id refused. */
+                ret = (wt_spm_partition_props(msg.receiver, &properties) == 0) ?
+                      WT_FFA_DENIED : WT_FFA_INVALID_PARAMETERS;
             }
             else if (wt_spm_sp_unavailable(
                          wt_spm_ffa_native_by_id(msg.receiver)) != 0) {

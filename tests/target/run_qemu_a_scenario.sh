@@ -135,7 +135,7 @@ case "$scenario:$MACHINE" in
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
     exit 0 ;;
   secramneg:versal-virt)
-    echo "SKIP: qemu-a/secramneg (versal-virt): QEMU xlnx-versal-virt does not model the XMPU/RISAF secure-memory controller, so the secure RAM is not fenced from the Normal world in the model; the fence is proven on the virt cells (VIRT_SECURE_MEM) and enforced by the XMPU/RISAF on silicon"
+    echo "SKIP: qemu-a/secramneg (versal-virt): QEMU xlnx-versal-virt does not model the XMPU/RISAF secure-memory controller, so the secure RAM is not fenced from the Normal world in the model and the port claims no isolation level; the fence is proven on the virt cells (VIRT_SECURE_MEM), and a silicon port claims isolation only once it locks the XMPU/RISAF"
     exit 0 ;;
   *) SMP="${SMP:-4}"; cpus=1 ;;
 esac
@@ -552,7 +552,7 @@ case "$scenario" in
       # the client dereferences; i072/i073/i075/i076/i077 read Secure
       # data/stack/mmio from NS) read Secure RAM without faulting and report
       # Failed. Every other test must pass; the fence is proven on the virt
-      # cells (VIRT_SECURE_MEM) and enforced by the XMPU/RISAF on silicon.
+      # cells (VIRT_SECURE_MEM), and this port claims no isolation level.
       expect_flat "Arm suite TOTAL PASSED : 78 (versal-virt: no NS fence model)" "TOTAL PASSED    : 78"
       expect_flat "Arm suite TOTAL SKIPPED : 4" "TOTAL SKIPPED   : 4"
       expect_flat "Arm suite TOTAL FAILED : 7" "TOTAL FAILED    : 7"

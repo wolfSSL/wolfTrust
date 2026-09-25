@@ -12,6 +12,11 @@
 #             guest0 through its restart budget, quarantines it, and guest1
 #             keeps running.
 #
+# rollbackneg, manifestneg, and spbudgetneg are the shared Secure-verdict
+# scenarios from lib/scenario.sh: each ends on the verdict breakpoint its
+# probe emits, asserted by the port-independent table. remeasureneg joins
+# once this port implements the flash tamper hook.
+#
 # Environment (all optional):
 #   M33MU               prebuilt emulator carrying tests/target/m33mu-imxrt700.patch;
 #                       otherwise M33MU_REF is built under /tmp
@@ -28,8 +33,9 @@ unset TARGET MAKEFLAGS MFLAGS
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|ahbscneg) ;;
-  *) echo "usage: $0 positive|ahbscneg" >&2; exit 2 ;;
+  positive|ahbscneg|rollbackneg|manifestneg|spbudgetneg) ;;
+  *) echo "usage: $0 positive|ahbscneg|rollbackneg|manifestneg|spbudgetneg" >&2
+     exit 2 ;;
 esac
 
 here="$(cd "$(dirname "$0")" && pwd)"
@@ -49,19 +55,14 @@ restart_limit=3
 # tests/firmware/mimxrt700-baremetal/Makefile).
 probe_addr=0x20170000
 
-log()   { printf '%s\n' "$*"; }
-stage() { log "== $*"; }
-fail()  { log "FAIL: $*"; exit 1; }
-check() { if [ "$1" -eq 0 ]; then log "  [check] PASS  $2"; \
-          else log "  [check] FAIL  $2"; exit 1; fi; }
-count()     { grep -c -F -- "$1" "$log" || true; }
-count_re()  { grep -c -E -- "$1" "$log" || true; }
-expect()    { check "$([ "$(count "$2")" -ge 1 ]; echo $?)" "$1"; }
-refute_re() { check "$([ "$(count_re "$2")" -eq 0 ]; echo $?)" "$1"; }
-expect_n()  { local n; n="$(count "$3")"; \
-              check "$([ "$n" -eq "$2" ]; echo $?)" "$1 ($n)"; }
-expect_n_re() { local n; n="$(count_re "$3")"; \
-                check "$([ "$n" -eq "$2" ]; echo $?)" "$1 ($n)"; }
+# shellcheck source=lib/scenario.sh disable=SC1091
+. "$here/lib/scenario.sh"
+
+# Port markers the shared verdict assertions match against.
+# shellcheck disable=SC2034  # matched inside lib/scenario.sh
+GUEST_STARTED_RE='wolfTrust RT700 guest[01]: start'
+# shellcheck disable=SC2034
+GUEST_DONE_RE='wolfTrust RT700 guest[01]: FF-M connect ok, done'
 
 # --- The pinned M33MU with the model fix this chain needs: a Secure AHBSC
 #     SRAM rule keeps the SAU's NSC veneer band callable. Drop the patch once
@@ -125,7 +126,15 @@ export WT_SECURE_IMAGE_HEADER_SIZE=0x400
 rm -rf build
 mkdir -p build
 
-stage "build wolfTrust secure image + CMSE import library"
+secure_flags="$(scenario_secure_flags "$scenario")"
+# Exported, not passed once: the guest build below re-enters the secure
+# Makefile for the CMSE implib, and a build-mode mismatch there would relink
+# the image and drop the wolftrust.bin this runner goes on to patch and sign.
+if [ -n "$secure_flags" ]; then
+  # shellcheck disable=SC2086,SC2163
+  export $secure_flags
+fi
+stage "build wolfTrust secure image + CMSE import library ${secure_flags:-(production)}"
 make -s TARGET=mimxrt700 WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
 
 guest_flags=""
@@ -162,16 +171,26 @@ boot_chain() {
         "M33MU exited with status $want (got $status)"
 }
 
+end="$(scenario_end "$scenario")"
 stage "boot the chain under M33MU (--cpu imxrt700, ${timeout_s}s budget)"
-boot_chain 127 "$log" --uart-stdout
+case "$end" in
+  bkpt:*) boot_chain 0 "$log" --uart-stdout --expect-bkpt "${end#bkpt:}" ;;
+  *)      boot_chain 127 "$log" --uart-stdout ;;
+esac
 
 expect "wolfBoot brought up the SoC" "wolfBoot HAL init: MIMXRT798S"
 expect "wolfBoot verified the wolfTrust image signature" "Verifying signature...done"
-refute_re "wolfTrust never panicked (bkpt 0x7e)" '\[BKPT\] imm=0x7e'
-refute_re "the monitor never lost every guest (bkpt 0x7d)" '\[BKPT\] imm=0x7d'
-refute_re "no HardFault escalation" '\[HARDFLT\]'
-refute_re "no guest reported a failed FF-M handshake" 'guest[01]: FAIL'
-expect "the run ended on the wall-clock budget, not a trap" "wall-clock limit"
+if [ "$end" = "idle" ]; then
+  refute_re "wolfTrust never panicked (bkpt 0x7e)" '\[BKPT\] imm=0x7e'
+  refute_re "the monitor never lost every guest (bkpt 0x7d)" '\[BKPT\] imm=0x7d'
+  refute_re "no HardFault escalation" '\[HARDFLT\]'
+  refute_re "no guest reported a failed FF-M handshake" 'guest[01]: FAIL'
+  expect "the run ended on the wall-clock budget, not a trap" "wall-clock limit"
+else
+  expect "the emulator stopped on the expected verdict breakpoint" \
+      "[EXPECT BKPT] Success"
+  scenario_assert_verdict "$scenario"
+fi
 
 # A guest fault relaunches that guest, so exact launch counts also prove that
 # nothing faulted where nothing should have.

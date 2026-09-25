@@ -143,52 +143,13 @@ make -j1 wolfboot.bin wolfboot_signing_private_key.der
 cd "$repo"
 
 # --- Relocated wolfTrust secure runtime, signed for the reserved slot. The
-#     crossdomain scenario injects a Secure-side probe; the others build the
-#     production secure image. ---
-secure_flags=""
-if [ "$scenario" = "crossdomain" ]; then
-  secure_flags="WT_FFM_NEGATIVE_PROBE=1"
-elif [ "$scenario" = "keystoreneg" ]; then
-  secure_flags="WT_KEYSTORE_NEG_PROBE=1"
-elif [ "$scenario" = "spfaultneg" ]; then
-  secure_flags="WT_SP_FAULT_PROBE=1"
-elif [ "$scenario" = "panicneg" ]; then
-  secure_flags="WT_PANIC_NEG_PROBE=1"
-elif [ "$scenario" = "confboot" ] || [ "$scenario" = "devstorage" ] || \
-     [ "$scenario" = "devcrypto" ] || [ "$scenario" = "devattest" ] || \
-     [ "$scenario" = "devattestqcbor" ]; then
-  secure_flags="WT_CONFORMANCE=1"
-elif [ "$scenario" = "vaultrecover" ]; then
-  secure_flags="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1"
-elif [ "$scenario" = "vaultrecoversec" ]; then
-  secure_flags="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1"
-elif [ "$scenario" = "rollbackneg" ]; then
-  secure_flags="WT_ROLLBACK_PROBE=1"
-elif [ "$scenario" = "remeasureneg" ]; then
-  secure_flags="WT_REMEASURE_PROBE=1"
-elif [ "$scenario" = "bootupdate" ]; then
-  secure_flags="WT_BOOTUPDATE_PROBE=1"
-elif [ "$scenario" = "spbudgetneg" ]; then
-  # Must land in the FIRST secure build: the pre-patch stash taken right
-  # after it is what gets signed and flashed, so a probe assigned in the
-  # guest chain below never reaches the image.
-  secure_flags="WT_SP_FAULT_ALWAYS_PROBE=1"
-elif [ "$scenario" = "vnet" ]; then
-  # Mediated virtual network (WT-FFM-0058): the production chain with the
-  # SERVICE_VNET partition compiled in; guests are the bare-metal wolfIP pair.
-  secure_flags="CONFIG_VNET=y"
-elif [ "$scenario" = "vnetneg" ]; then
-  # Confined-VNET isolation negatives (WT-FFM-0011/0056): the probe reads SPM
-  # RAM (must MemManage-fault) and then executes from the XN vnet data band
-  # (must fault again); the partition quarantines, restarts, and the mediated
-  # ping still completes.
-  secure_flags="CONFIG_VNET=y WT_VNET_NEG_PROBE=1"
-elif [ "$scenario" = "manifestneg" ]; then
-  # Corrupted-manifest activation negative: the probe strips the required IPC
-  # feature bit, validation refuses the manifest, and the production panic
-  # path halts boot before any partition or guest is scheduled.
-  secure_flags="WT_MANIFEST_NEG_PROBE=1"
-fi
+#     Secure-image probe flags come from the shared per-scenario table; the
+#     probe must land in this FIRST secure build, whose pre-patch stash below
+#     is what gets signed and flashed. ---
+# shellcheck source=lib/scenario.sh disable=SC1091
+. "$repo/tests/target/lib/scenario.sh"
+secure_flags="$(scenario_secure_flags "$scenario")"
+# shellcheck disable=SC2086
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 # Stash the pre-patch image and matching elf: the guest build below can relink
 # build/wolftrust.elf (poisoning post-mortem symbolization), and signing now

@@ -699,6 +699,28 @@ static void guest_storage(void)
 extern char _ns_vectbl[];
 extern int32_t val_entry(void);
 
+#if defined(WT_NS_HEAP) && (WT_NS_HEAP == 1)
+#include <stddef.h>
+
+extern void* malloc(size_t n);
+extern void* realloc(void* p, size_t n);
+extern void free(void* p);
+
+/* The guest heap (crypto/ns_crypto_port.c) must refuse a request that the
+ * alignment rounding would wrap into a small one, through realloc too. */
+static void heap_probe(void)
+{
+    void* p = malloc(64u);
+    int ok = (p != NULL);
+
+    ok = ok && (malloc(SIZE_MAX) == NULL);
+    ok = ok && (malloc(SIZE_MAX - 8u) == NULL);
+    ok = ok && (realloc(p, SIZE_MAX - 8u) == NULL);
+    free(p);
+    put_str(ok ? "[NS] heap bound ok\r\n" : "[NS] heap BAD\r\n");
+}
+#endif
+
 void ns_putc(char c)
 {
     put_char(c);
@@ -836,6 +858,9 @@ static void guest_conformance(void)
 #if defined(WT_NS_ATTEST_NEG)
     guest_attest_neg();
     return;
+#endif
+#if defined(WT_NS_HEAP) && (WT_NS_HEAP == 1)
+    heap_probe();
 #endif
     put_str("[NS] conformance val_entry start\r\n");
     (void)val_entry();

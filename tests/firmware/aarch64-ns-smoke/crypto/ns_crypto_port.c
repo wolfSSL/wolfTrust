@@ -74,6 +74,9 @@ void* malloc(size_t n)
     if (n == 0u) {
         n = 1u;
     }
+    if (n > (sizeof(g_heap) - sizeof(*b))) {
+        return NULL;
+    }
     n = (n + (WT_NS_HEAP_ALIGN - 1u)) & ~(size_t)(WT_NS_HEAP_ALIGN - 1u);
     b = (wt_ns_block_t*)(void*)g_heap;
     while ((ret == NULL) && heap_in_range(b)) {

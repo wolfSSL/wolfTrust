@@ -481,12 +481,26 @@ int32_t wt_ffa_notif_info_get(uint16_t caller, int is64,
     return 0;
 }
 
-int32_t wt_ffa_notif_frame_rx_full(uint16_t receiver_id, int sender_secure)
+int32_t wt_ffa_notif_frame_ready(uint16_t receiver_id)
 {
     wt_notif_ep_t* receiver = ep_find(receiver_id);
 
     if (receiver == NULL) {
         return WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((receiver->gone != 0) || (receiver->has_bitmap == 0u)) {
+        return WT_FFA_DENIED;
+    }
+    return 0;
+}
+
+int32_t wt_ffa_notif_frame_rx_full(uint16_t receiver_id, int sender_secure)
+{
+    wt_notif_ep_t* receiver = ep_find(receiver_id);
+    int32_t ret = wt_ffa_notif_frame_ready(receiver_id);
+
+    if (ret != 0) {
+        return ret;
     }
     receiver->pend_fw |= (sender_secure != 0) ? WT_FFA_NOTIF_FW_SPM_RX_FULL
                                               : WT_FFA_NOTIF_FW_NS_RX_FULL;

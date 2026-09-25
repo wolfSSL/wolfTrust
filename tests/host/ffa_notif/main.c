@@ -630,6 +630,41 @@ static void abort_sender_rows(void)
           got.from_vm == 0u, "a retired VM's signal goes with it too");
 }
 
+/* RX-full lives in the receiver's framework bitmap: a VM has one only between
+ * its create and destroy (10.3), and nothing pends for it outside that. */
+static void frame_rows(void)
+{
+    wt_ffa_notif_get_result_t got;
+    wt_ffa_notif_info_result_t info;
+
+    printf("[suite] framework bitmap\n");
+    fixture();
+    check(wt_ffa_notif_frame_ready(BAD_ID) == WT_FFA_INVALID_PARAMETERS,
+          "an unknown receiver is refused");
+    check(wt_ffa_notif_frame_ready(VM0) == WT_FFA_DENIED &&
+          wt_ffa_notif_frame_rx_full(VM0, 1) == WT_FFA_DENIED,
+          "a VM that never created its bitmap takes no RX-full");
+    check(wt_ffa_notif_bitmap_create(VM0, VM0, 1u) == 0 &&
+          wt_ffa_notif_frame_ready(VM0) == 0, "its create makes one");
+    check(wt_ffa_notif_bitmap_destroy(VM0, VM0) == 0 &&
+          wt_ffa_notif_frame_ready(VM0) == WT_FFA_DENIED,
+          "its destroy takes it away");
+    (void)wt_ffa_notif_sri_take();
+    check(wt_ffa_notif_frame_rx_full(VM0, 1) == WT_FFA_DENIED,
+          "so a partition's message after the destroy pends nothing");
+    check(wt_ffa_notif_sri_take() == 0, "and raises no SRI");
+    check(wt_ffa_notif_info_get(VM0, 1, &info) == WT_FFA_NO_DATA,
+          "nor names the VM to its scheduler");
+    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_SPM, &got) == 0 &&
+          got.framework == 0u, "nor comes back from a GET");
+    wt_ffa_notif_retire(SP1, WT_FFA_ABORTED);
+    check(wt_ffa_notif_frame_ready(SP1) == WT_FFA_DENIED &&
+          wt_ffa_notif_frame_rx_full(SP1, 0) == WT_FFA_DENIED,
+          "a partition out of service takes none either");
+    check(wt_ffa_notif_frame_ready(SP2) == 0,
+          "one in service has its bitmap from creation");
+}
+
 int main(void)
 {
     printf("WT-FFA-0013 (FF-A notification bitmaps, binding, signaling)\n");
@@ -645,6 +680,7 @@ int main(void)
     info_page_rows();
     abort_rows();
     abort_sender_rows();
+    frame_rows();
 
     printf("ffa_notif: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

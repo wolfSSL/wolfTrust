@@ -174,5 +174,14 @@ static inline uint64_t wt_current_el(void)
 #define WT_ESR_EC_SERROR         0x2Fu
 #define WT_ESR_EC_BRK            0x3Cu
 #define WT_ESR_FSC_EXTERNAL      0x10u
+/* Synchronous external aborts and parity/ECC errors, on the access itself
+ * or on a translation-table walk at level 0-3. */
+#define WT_ESR_FSC_EXTERNAL_WALK 0x14u
+#define WT_ESR_FSC_PARITY        0x18u
+#define WT_ESR_FSC_PARITY_WALK   0x1Cu
+#define WT_ESR_FSC_IS_EXTERNAL(fsc) \
+    (((fsc) == WT_ESR_FSC_EXTERNAL) || ((fsc) == WT_ESR_FSC_PARITY) || \
+     (((fsc) & 0x3Cu) == WT_ESR_FSC_EXTERNAL_WALK) || \
+     (((fsc) & 0x3Cu) == WT_ESR_FSC_PARITY_WALK))
 
 #endif /* WOLFTRUST_ARCH_AARCH64_SYSREG_H */

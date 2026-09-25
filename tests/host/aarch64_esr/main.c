@@ -65,6 +65,13 @@ static const uint32_t g_illegal_ecs[] = {
     WT_ESR_EC_SYSREG, WT_ESR_EC_BRK
 };
 
+static const uint32_t g_external_fscs[] = {
+    WT_ESR_FSC_EXTERNAL, 0x14u, 0x15u, 0x16u, 0x17u, WT_ESR_FSC_PARITY,
+    0x1Cu, 0x1Du, 0x1Eu, 0x1Fu
+};
+static const uint32_t g_not_external_fscs[] = {
+    0x11u, 0x12u, 0x13u, 0x19u, 0x1Au, 0x1Bu, 0x30u, 0x34u, 0x0Du
+};
 static const uint32_t g_abort_ecs[] = {
     WT_ESR_EC_IABT_LOWER, WT_ESR_EC_IABT_SAME, WT_ESR_EC_DABT_LOWER,
     WT_ESR_EC_DABT_SAME
@@ -145,6 +152,28 @@ int main(void)
           classify(WT_ESR_EC_DABT_LOWER, 0x1FFFFC0u | translation, far_outside,
                    1) == WT_FAULT_MEMORY_VIOLATION,
           "only the FSC bits of the ISS select the external abort");
+
+    ok = 1;
+    for (i = 0u; i < sizeof(g_external_fscs) / sizeof(g_external_fscs[0]);
+         i++) {
+        ok = ok && (classify(WT_ESR_EC_DABT_LOWER, g_external_fscs[i],
+                             far_outside, 1) == WT_FAULT_SECURE_ESCALATION);
+        ok = ok && (classify(WT_ESR_EC_IABT_LOWER, g_external_fscs[i],
+                             far_inside, 1) == WT_FAULT_SECURE_ESCALATION);
+        ok = ok && (classify(WT_ESR_EC_DABT_SAME, g_external_fscs[i],
+                             far_inside, 0) == WT_FAULT_PLATFORM);
+    }
+    check(ok, "external aborts and parity errors on a translation-table walk at "
+              "levels 0-3, and on the access itself, are external, never "
+              "stack overflows");
+    ok = 1;
+    for (i = 0u; i < sizeof(g_not_external_fscs) / sizeof(g_not_external_fscs[0]);
+         i++) {
+        ok = ok && (classify(WT_ESR_EC_DABT_LOWER, g_not_external_fscs[i],
+                             far_outside, 1) == WT_FAULT_MEMORY_VIOLATION);
+    }
+    check(ok, "tag check, reserved, TLB conflict, and lockdown codes next to the "
+              "external encodings stay memory violations");
 
     ok = 1;
     for (i = 0u; i < sizeof(g_align_ecs) / sizeof(g_align_ecs[0]); i++) {

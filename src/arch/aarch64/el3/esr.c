@@ -39,7 +39,7 @@ wt_fault_reason_t wt_esr_classify(uint64_t esr, uint64_t far, int from_ns,
         case WT_ESR_EC_IABT_SAME:
         case WT_ESR_EC_DABT_LOWER:
         case WT_ESR_EC_DABT_SAME:
-            if (WT_ESR_FSC(esr) == WT_ESR_FSC_EXTERNAL) {
+            if (WT_ESR_FSC_IS_EXTERNAL(WT_ESR_FSC(esr))) {
                 reason = (from_ns != 0) ? WT_FAULT_SECURE_ESCALATION
                                         : WT_FAULT_PLATFORM;
             }

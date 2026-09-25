@@ -44,7 +44,7 @@ selected values into C preprocessor defines. Defaults below come from
 | --- | --- | --- |
 | `WT_SECURE_FLASH_BASE` | Secure image link base; standalone default `0x0C000000`. | Must match the bootloader slot and linker layout. |
 | `WT_SECURE_FLASH_SIZE` | Available Secure image bytes; standalone default `0x00020000`. | Must cover the linked image without overlapping another flash region. |
-| `WT_SECURE_IMAGE_HEADER_SIZE` | Bytes reserved before linked code; default `0`. | Set to match the header layout of an image signed for wolfBoot. |
+| `WT_SECURE_IMAGE_HEADER_SIZE` | Bytes reserved before linked code; default `0` (`0x400` for `TARGET=mimxrt700`, wolfBoot's RT700 header). | Set to match the header layout of an image signed for wolfBoot. |
 | `WT_GUEST0_FLASH_BASE` | Guest 0 flash base; standalone default `0x08020000`. | Must match the guest link address and manifest executable window. |
 | `WT_GUEST1_FLASH_BASE` | Guest 1 flash base; standalone default `0x08040000`. | Must match the guest link address and manifest executable window. |
 | `WT_GUEST0_FLASH_SIZE` | Guest 0 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |

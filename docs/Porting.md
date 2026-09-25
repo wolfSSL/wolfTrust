@@ -1,11 +1,14 @@
 # Porting
 
 wolfTrust separates reusable policy and services from architecture, device,
-and board-specific execution. The only currently supported and validated build
-tuple is `armv8m-stm32h563`. Support for additional Cortex-M ports is an
-intended extension point. Such ports may reuse common policy and service code
-and an existing architecture adapter when their execution and protection
-models match.
+and board-specific execution. The fully silicon-validated build tuple is
+`armv8m-stm32h563`. A second Armv8-M tuple, `armv8m-mimxrt700` (external
+octal-NOR execute-in-place), is in hardware bring-up and reuses the
+architecture adapter unchanged; see the [STM32H5 Guide](STM32H5-Guide.md) and
+[MIMXRT700 Guide](MIMXRT700-Guide.md) for the two worked examples. Support for
+additional Cortex-M ports is an intended extension point. Such ports may reuse
+common policy and service code and an existing architecture adapter when their
+execution and protection models match.
 
 Cortex-A support is an architectural goal, not a current capability. It will
 require a new adapter and changes to current internal execution and protection
@@ -160,6 +163,17 @@ The handoff is consumed and cleared from Secure RAM. If a different first
 loader is used, the port must provide equally authenticated lifecycle,
 measurement, and version data and adjust the image layout.
 
+A reference wolfBoot port for a new SoC adds a hardware abstraction layer
+(`hal/<soc>.{c,h,ld}`: a debug console and a flash driver for the boot medium),
+one or more `config/examples/<soc>*.config` entries, and a target section in
+the wolfBoot documentation. The TrustZone configuration enables the generic
+Secure-application handoff so the loader writes `wt_boot_handoff_t` to the
+agreed Secure-RAM address and stays in Secure state across the jump. It signs
+the wolfTrust image and, on parts without a ROM flash API, places the flash
+path in RAM. The loader's flash map and the port's memory map must agree on the
+Secure image base, the update partition, and the boot-handoff address; the
+worked examples above give a concrete map for each board.
+
 ## Add a target
 
 1. Add `src/arch/<arch>/` and `include/wolftrust/arch/<arch>/` only when
@@ -197,6 +211,20 @@ measurement, and version data and adjust the image layout.
 - Cross-build the Secure image with warnings enabled.
 - On the current Armv8-M port, inspect `nm` output and confirm only the five
   FF-M veneers are Non-secure-callable.
+- On silicon, prove a Non-secure call reaches the Secure side. An IDAU can
+  override an SAU Non-secure-callable region (the MIMXRT700 honours NSC only in
+  the Code region), which shows up as an INVEP SecureFault despite a correct SG
+  instruction.
+- Budget the Secure MPU regions against the part's `MPU_TYPE.DREGION`; the
+  whitelist, any executable RAM (for example code that must run while the boot
+  NOR is busy), and Secure Partition domains share them.
+- On a hardware runner, verify every flashed image by readback, start from a
+  fresh vault store, and reset through a line the running Secure image cannot
+  veto; a stale image or persisted rollback floor looks like a port bug.
+- Claim the fabric filter only after a silicon negative passes: a privileged
+  guest disables its own Non-secure MPU and stores into another guest's RAM,
+  and the store must not land. Programming the fabric rules is not evidence
+  that they govern those addresses.
 - Test invalid manifests, memory overlap, pointer ranges, stale handles,
   cross-owner access, and unsupported capabilities.
 - Run authenticated boot, guest tamper, rollback, restart, Secure Partition

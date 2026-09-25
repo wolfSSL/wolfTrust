@@ -81,7 +81,8 @@ TARGET_CFLAGS := \
     -DWT_PSA_NS_WINDOW_SIZE=$(WT_PSA_NS_WINDOW_SIZE)u \
     -DWT_SPM_FLASH_OFFSET=$(WT_SPM_FLASH_OFFSET)u \
     -DWT_QEMU_TEST_ENTROPY=$(WT_QEMU_TEST_ENTROPY) \
-    -DWT_EL3_RESET_LIMIT=$(WT_EL3_RESET_LIMIT)u
+    -DWT_EL3_RESET_LIMIT=$(WT_EL3_RESET_LIMIT)u \
+    -DWT_PORT_EMULATED=1
 # No boot loader runs ahead of the monitor under QEMU: synthesize the boot
 # handoff record it would leave (emulator tests only, never production).
 WT_EL3_TEST_HANDOFF ?= 0

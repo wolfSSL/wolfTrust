@@ -45,6 +45,13 @@
  * looping; production builds leave it unset and every reset proceeds. */
 static uint32_t g_reset_count __attribute__((section(".noinit")));
 
+/* DEN0022 5.11: SYSTEM_RESET is a cold reset of the machine, so only an
+ * emulated one, whose runner stands in for the power cycle, may end instead. */
+#if defined(WT_EL3_RESET_LIMIT) && (WT_EL3_RESET_LIMIT > 0) && \
+    (!defined(WT_PORT_EMULATED) || (WT_PORT_EMULATED != 1))
+#error "WT_EL3_RESET_LIMIT ends the run on a reset: emulated targets only"
+#endif
+
 unsigned int wt_el3_reset_count(void)
 {
     return g_reset_count;

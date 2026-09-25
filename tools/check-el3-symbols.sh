@@ -212,7 +212,7 @@ selftest() {
 
   # A malformed allow-list entry must fail the audit, not silently pass a
   # symbol that entry would otherwise have hidden.
-  badtmp="$(mktemp -d)"
+  badtmp="$(mktemp -d)" || { echo "SELFTEST FAIL: mktemp failed"; exit 1; }
   cp "$ALLOW" "$badtmp/el3-symbols.allow"
   printf '%s\n' '^wt_bad[' >> "$badtmp/el3-symbols.allow"
   out="$(printf 'start.o:\n0000000000000000 T wt_el3_entry\n                 U wt_spm_leak\n' \

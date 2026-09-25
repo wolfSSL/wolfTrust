@@ -906,6 +906,7 @@ static int mem_share_exchange(wt_co_t* co, uint64_t* out_handle)
                          &handle) != 0) {
         return 0;
     }
+    *out_handle = handle;
 
     /* The borrower's retrieve request waits in its TX buffer; its arguments
      * sit at the tail of its RX buffer, clear of the retrieve response. */
@@ -949,7 +950,6 @@ static int mem_share_exchange(wt_co_t* co, uint64_t* out_handle)
                             WT_FFA_MEM_PAGE_SIZE, &len) == 0) {
         return 0;
     }
-    *out_handle = handle;
     return 1;
 }
 
@@ -1000,6 +1000,12 @@ static int prove_mem_share(uint64_t* out_handle)
     wt_spm_mem_unbind(co);
     if (wt_ffa_mailbox_unmap(mb) != 0) {
         ok = 0;
+    }
+    /* However far the proof got, its share ends before any partition runs. */
+    if ((wt_spm_mem_in_transaction((uint64_t)WT_SPM_SHARE_PA,
+                                   WT_FFA_MEM_PAGE_SIZE) != 0) &&
+        (wt_spm_mem_reclaim(*out_handle, WT_FFA_ID_SPMC, 0u) != 0)) {
+        spmc_fail("mem share reclaim", *out_handle);
     }
     return ok;
 }

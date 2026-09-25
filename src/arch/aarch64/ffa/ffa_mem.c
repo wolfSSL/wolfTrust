@@ -971,6 +971,9 @@ void wt_ffa_mailbox_rx_claim(wt_ffa_mailbox_t* mb, uint64_t framework)
     }
 }
 
+/* Table 13.22: an endpoint without a registered pair owns no RX buffer, so
+ * DENIED (the ACS ffa_rx_release test agrees); INVALID_PARAMETERS is for a
+ * VM the Hypervisor names that has no pair. */
 int wt_ffa_mailbox_rx_release(wt_ffa_mailbox_t* mb)
 {
     if ((mb == NULL) || (mb->mapped == 0u) ||

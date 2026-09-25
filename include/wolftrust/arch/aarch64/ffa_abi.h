@@ -274,7 +274,8 @@ static inline int wt_ffa_reply_is_ext(uint32_t forwarded, uint32_t reply)
             (reply == WT_FFA_SUCCESS64));
 }
 
-/* Registers a relayed message occupies: x0-x7, or x0-x17 for REQ2/RESP2. */
+/* Registers a relayed message occupies: x0-x7, or x0-x17 for REQ2/RESP2; an
+ * SMC64 REQ/RESP's x8-x17 are Reserved (SBZ) (Tables 15.7 and 15.11). */
 #define WT_FFA_MSG_REGS     8u
 #define WT_FFA_MSG_REGS_EXT 18u
 

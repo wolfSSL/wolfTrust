@@ -197,8 +197,8 @@ uintptr_t wt_platform_probe_address(unsigned int target)
 
 #define WT_ACS_BAND(n) ((uintptr_t)WT_FFA_ACS_BASE + ((n) * WT_ACS_BAND_SIZE))
 /* The image marks its own data and stack RW with FFA_MEM_PERM_SET at init. */
-#define WT_ACS_IMAGE(n) \
-    { WT_ACS_BAND(n), WT_ACS_BAND_SIZE, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC }
+#define WT_ACS_IMAGE(n) { \
+    WT_ACS_BAND(n), WT_ACS_BAND_SIZE, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC }
 #define WT_ACS_UUID(a, b, c, d) { \
     (uint8_t)(a), (uint8_t)((a) >> 8), (uint8_t)((a) >> 16), (uint8_t)((a) >> 24), \
     (uint8_t)(b), (uint8_t)((b) >> 8), (uint8_t)((b) >> 16), (uint8_t)((b) >> 24), \

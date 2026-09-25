@@ -164,6 +164,7 @@ void Reset_Handler(void)
     uint32_t* src;
     uint32_t* dst;
     uint32_t fw;
+    uint32_t tries;
     psa_handle_t handle;
     int ok = 1;
 
@@ -201,7 +202,16 @@ void Reset_Handler(void)
     mb->hsm_version = psa_version(GUEST0_SERVICE_HSM_SID);
     mb->step = 3u;
 
-    handle = psa_connect(GUEST0_SERVICE_HSM_SID, GUEST0_SERVICE_VERSION);
+    /* A failed connect to the mandatory service is retried: each attempt
+     * re-enters the relay, so a faulting relay spends its restart budget
+     * (spbudgetneg) instead of surviving on one entry per guest. */
+    handle = PSA_NULL_HANDLE;
+    for (tries = 0u; tries < 4u; tries++) {
+        handle = psa_connect(GUEST0_SERVICE_HSM_SID, GUEST0_SERVICE_VERSION);
+        if (PSA_HANDLE_IS_VALID(handle)) {
+            break;
+        }
+    }
     mb->hsm_handle = (int32_t)handle;
     mb->step = 4u;
     if (PSA_HANDLE_IS_VALID(handle)) {

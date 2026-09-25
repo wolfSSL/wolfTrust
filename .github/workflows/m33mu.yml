@@ -340,6 +340,8 @@ jobs:
         scenario:
           - { key: positive, name: "positive lifecycle (SAU guest windows)" }
           - { key: ahbscneg, name: "cross-guest store faults and is contained" }
+          - { key: "rollbackneg manifestneg spbudgetneg",
+              name: "secure verdict negatives" }
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25
@@ -387,4 +389,4 @@ jobs:
           MCUXSDK: "1"
           MCUXPRESSO: ${{ github.workspace }}/mcuxpresso-sdk/mcuxsdk
           MCUXPRESSO_CMSIS: ${{ github.workspace }}/CMSIS_5/CMSIS
-        run: tests/target/run_rt700_m33mu.sh ${{ matrix.scenario.key }}
+        run: tests/target/run_suite.sh rt700-m33mu ${{ matrix.scenario.key }}

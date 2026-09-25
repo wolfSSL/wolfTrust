@@ -179,6 +179,16 @@ through its restart budget, quarantines it, and guest 1 keeps running. The
 runner asserts every step from the emulator log (the guest console lines and
 M33MU's protection-unit trace), never from a debugger.
 
+The runner also carries the shared Secure-verdict negatives from
+`tests/target/lib/scenario.sh`, the per-scenario table both the STM32H563 and
+MIMXRT700 runners draw their Secure-image probe flags from. Each one ends on
+the verdict breakpoint its probe emits, asserted port-independently:
+`rollbackneg` (a downgraded boot is refused fail-closed and no guest enters a
+domain), `manifestneg` (a corrupted manifest halts boot before anything is
+scheduled), and `spbudgetneg` (restart-budget exhaustion escalates to the
+fail-closed platform recovery). `remeasureneg` joins this list once the port
+implements the post-launch flash tamper hook the probe needs.
+
 The runner builds its own pinned emulator and wolfBoot first stage. The
 emulator is `M33MU_REF` plus `tests/target/m33mu-imxrt700.patch`, the model
 correction the chain needs until it lands upstream: a Secure AHBSC SRAM rule

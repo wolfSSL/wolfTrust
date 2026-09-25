@@ -6,6 +6,11 @@ TOOLPREFIX ?= aarch64-none-elf-
 WT_CPU ?= cortex-a72
 WT_GIC_VERSION ?= 3
 AR := $(TOOLPREFIX)ar
+# wolftrust.ld and the EL3 guard select objects by name, which LTO renames.
+WT_LTO ?= 0
+ifneq ($(WT_LTO),0)
+$(error WT_LTO=$(WT_LTO) is unsupported on AArch64 (want 0))
+endif
 CPU_FLAGS := -mcpu=$(WT_CPU) -mgeneral-regs-only -mstrict-align
 ARCH_CFLAGS := -DWT_TARGET_BUILD=1 -DWT_GIC_VERSION=$(WT_GIC_VERSION)
 # Enter the Normal world at EL2 instead of EL1 (a boot loader or an EL2 payload).

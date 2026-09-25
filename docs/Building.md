@@ -176,6 +176,10 @@ make BUILD_DIR=build-no-lto WT_LTO=0 size-report
 Record the LTO setting with published size results. The locally measured TF-M
 v2.1.1 comparison builds did not use LTO.
 
+The AArch64 build keeps `WT_LTO=0` and refuses `1`: its linker script places
+the isolation bands, and the EL3 symbol guard audits the monitor archive, by
+object name.
+
 Changing guest count, addresses, or sizes also requires matching manifest,
 guest linker, emulator-load, flash, and measurement-record settings. See
 [Macros](Macros.md) for the supported values and constraints.

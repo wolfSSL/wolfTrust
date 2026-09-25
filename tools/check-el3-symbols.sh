@@ -68,11 +68,12 @@ audit() {
   valid_patterns "$defines" "$defpats" || return 1
 
   listing="$(cat)"
-  defined="$(printf '%s\n' "$listing" | awk 'NF==3 && $2!="U" && $2!="w" {print $3}' | sort -u)"
-  globals="$(printf '%s\n' "$listing" | awk 'NF==3 && $2 ~ /^[A-Z]$/ && $2!="U" {print $3}' | sort -u)"
-  undefined="$(printf '%s\n' "$listing" | awk 'NF==2 && ($1=="U" || $1=="w") {print $2}' | sort -u)"
-  if [ -n "$defined" ]; then
-    undefined="$(printf '%s\n' "$undefined" | grep -vxF -f <(printf '%s\n' "$defined"))"
+  defined="$(printf '%s\n' "$listing" | awk 'NF==3 && $2!="U" && $2!="w" && $2!="v" {print $3}' | sort -u)"
+  globals="$(printf '%s\n' "$listing" | awk 'NF==3 && (($2 ~ /^[A-Z]$/ && $2!="U") || $2=="u") {print $3}' | sort -u)"
+  undefined="$(printf '%s\n' "$listing" | awk 'NF==2 && ($1=="U" || $1=="w" || $1=="v") {print $2}' | sort -u)"
+  # Only a global definition resolves a reference from another object.
+  if [ -n "$globals" ]; then
+    undefined="$(printf '%s\n' "$undefined" | grep -vxF -f <(printf '%s\n' "$globals"))"
     rc=$?
     if [ "$rc" -ge 2 ]; then
       echo "  internal error filtering resolved symbols"
@@ -191,6 +192,15 @@ selftest() {
   for sym in wt_boot_run wt_domain_init wt_partition_start g_wt_boot_state wt_ffa_notif_bind; do
     case "$out" in *"EL3 archive: $sym"*) ;; *) echo "SELFTEST FAIL: $sym not flagged"; fails=$((fails + 1)) ;; esac
   done
+  out="$(printf 'a.o:\n0000000000000000 T wt_el3_entry\n                 U __udivti3\n\nb.o:\n0000000000000000 t __udivti3\n' \
+    | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: a local definition resolved another object's reference"; fails=$((fails + 1)); }
+  case "$out" in *"allow-list: __udivti3"*) ;; *) echo "SELFTEST FAIL: __udivti3 not flagged"; fails=$((fails + 1)) ;; esac
+  out="$(printf 'a.o:\n0000000000000000 T wt_el3_entry\n                 v wt_spm_weak_obj\n' \
+    | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: weak undefined object reference accepted"; fails=$((fails + 1)); }
+  case "$out" in *"allow-list: wt_spm_weak_obj"*) ;; *) echo "SELFTEST FAIL: wt_spm_weak_obj not flagged"; fails=$((fails + 1)) ;; esac
+  out="$(printf 'a.o:\n0000000000000000 T wt_el3_entry\n0000000000000040 u wt_bogus_unique\n' \
+    | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: unique global outside the defines allow-list accepted"; fails=$((fails + 1)); }
+  case "$out" in *"does not define inside the EL3 archive: wt_bogus_unique"*) ;; *) echo "SELFTEST FAIL: wt_bogus_unique not flagged"; fails=$((fails + 1)) ;; esac
   # A shell status wraps modulo 256, so exactly 256 offenders must still fail.
   out="$(awk 'BEGIN { print "big.o:"; for (i = 0; i < 256; i++) printf "%016x T wt_spm_leak%d\n", i * 4, i }' \
     | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: 256 offenders accepted"; fails=$((fails + 1)); }

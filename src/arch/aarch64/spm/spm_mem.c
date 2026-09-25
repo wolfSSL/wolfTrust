@@ -1002,6 +1002,8 @@ static int effective_permissions(int exclusive, uint8_t granted, uint8_t asked,
     if ((asked & WT_FFA_MEM_PERM_INSTR_MASK) == WT_FFA_MEM_PERM_INSTR_X) {
         return WT_FFA_DENIED;
     }
+    /* b'00 is "Not specified and must be ignored" (Table 1.15), validated only
+     * "if specified" (1.10.2 item 1): the grant stands, instructions NX. */
     if (data == WT_FFA_MEM_PERM_DATA_NOT_SPEC) {
         data = granted_data;
     }

@@ -281,7 +281,10 @@ wt_sp_spin:
  * buffer, and yield both to the SPMC self-test in one token (id in bits 31:16,
  * count in bits 15:0). FFA_RXTX_UNMAP and FFA_RX_RELEASE naming its own id are
  * then INVALID_PARAMETERS (MBZ at this instance, Tables 13.21 and 13.30) and
- * the RX buffer is released with w1 clear; any other answer yields count 0. */
+ * the RX buffer is released with w1 clear. Standing in for a PSA partition,
+ * which takes no notifications, FFA_FEATURES of FFA_NOTIFICATION_GET and the
+ * call itself are NOT_SUPPORTED (10.7 rules 5, 6); any other answer yields
+ * count 0. */
     .section .text.wt_sp_ffa_discover, "ax"
     .globl wt_sp_ffa_discover
 wt_sp_ffa_discover:
@@ -316,8 +319,24 @@ wt_sp_ffa_discover:
     movk    w0, #0x8400, lsl #16
     mov     w1, #0
     svc     #0
-    add     w22, w22, #1                /* FFA_SUCCESS32 (0x84000061) */
+    add     w23, w22, #1                /* FFA_SUCCESS32 (0x84000061) */
+    cmp     w0, w23
+    csel    w20, w20, wzr, eq
+    movz    w0, #0x0064                 /* FFA_FEATURES (0x84000064) */
+    movk    w0, #0x8400, lsl #16
+    movz    w1, #0x0082                 /* FFA_NOTIFICATION_GET (0x84000082) */
+    movk    w1, #0x8400, lsl #16
+    svc     #0
     cmp     w0, w22
+    ccmn    w2, #1, #0, eq              /* NOT_SUPPORTED (-1) */
+    csel    w20, w20, wzr, eq
+    movz    w0, #0x0082
+    movk    w0, #0x8400, lsl #16
+    mov     w1, w21                     /* its own id, vCPU 0 */
+    mov     w2, #1                      /* the partitions' bitmap */
+    svc     #0
+    cmp     w0, w22
+    ccmn    w2, #1, #0, eq
     csel    w20, w20, wzr, eq
     orr     x1, x20, x21, lsl #16       /* token = first_id<<16 | count */
     movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3000101) */

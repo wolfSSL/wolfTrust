@@ -1475,7 +1475,7 @@ static void ns_notif_set(wt_ffa_regs_t* r)
     uint64_t bitmap = (uint64_t)(uint32_t)r->x[3] |
                       ((uint64_t)(uint32_t)r->x[4] << 32);
 
-    ns_reply(r, wt_ffa_notif_set(WT_FFA_ID_NS_PRIMARY, (uint32_t)r->x[1],
+    ns_reply(r, wt_spm_notif_set(WT_FFA_ID_NS_PRIMARY, (uint32_t)r->x[1],
                                  (uint32_t)r->x[2], bitmap), 0u, 0u);
 }
 

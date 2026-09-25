@@ -249,6 +249,28 @@ int wt_spm_msg2_sender_allowed(uint16_t id)
     return wt_ffa_msg2_sender_allowed(g_partinfo, n, id);
 }
 
+/* 10.7 rule 3: discovery's Table 6.2 bit 3 is whether an endpoint takes
+ * notifications, and no PSA partition does. 1 listed with it, 0 listed
+ * without it, -1 not listed. */
+static int notif_receiver(uint16_t id)
+{
+    uint32_t props = 0u;
+
+    if (wt_spm_partition_props(id, &props) != 0) {
+        return -1;
+    }
+    return ((props & WT_FFA_PARTINFO_PROP_NOTIF) != 0u) ? 1 : 0;
+}
+
+int32_t wt_spm_notif_set(uint16_t caller, uint32_t w1, uint32_t w2,
+                         uint64_t bitmap)
+{
+    if (notif_receiver(WT_FFA_NOTIF_W1_LOW(w1)) == 0) {
+        return WT_FFA_DENIED;
+    }
+    return wt_ffa_notif_set(caller, w1, w2, bitmap);
+}
+
 static wt_ffa_mailbox_t* sp_mailbox(void);
 
 static void ffa_partition_info_get_regs(wt_trap_frame_t* frame)
@@ -817,6 +839,19 @@ static int sp_implements(uint32_t fid)
     }
 }
 
+/* 10.7 rules 5 and 6: a partition that does not take notifications has none
+ * of the notification ABIs this instance serves partitions. */
+static int sp_notif_denied(uint32_t fid, const struct wt_co* co)
+{
+    if ((fid != WT_FFA_NOTIFICATION_BIND) &&
+        (fid != WT_FFA_NOTIFICATION_UNBIND) &&
+        (fid != WT_FFA_NOTIFICATION_SET) &&
+        (fid != WT_FFA_NOTIFICATION_GET)) {
+        return 0;
+    }
+    return (notif_receiver(wt_spm_sp_ffa_id(co)) != 1) ? 1 : 0;
+}
+
 /* FFA_FEATURES (13.3): exactly the function ids this instance serves; no
  * optional feature id is implemented. FFA_RXTX_MAP reports the one-page
  * buffer limit ffa_rxtx_map enforces (7.2.2.3). */
@@ -842,7 +877,8 @@ static void ffa_features(wt_trap_frame_t* frame, const struct wt_co* co)
         ffa_success(frame, WT_FFA_FEATURES_RXTX_MAX_PAGES(WT_SP_RXTX_PAGES),
                     0u);
     }
-    else if (WT_FFA_FEATURES_IS_FID(query) && (sp_implements(query) != 0)) {
+    else if (WT_FFA_FEATURES_IS_FID(query) && (sp_implements(query) != 0) &&
+             (sp_notif_denied(query, co) == 0)) {
         ffa_success(frame, 0u, 0u);
     }
     else {
@@ -902,7 +938,7 @@ static void ffa_notif_set(wt_trap_frame_t* frame, const struct wt_co* co)
     uint16_t caller = (uint16_t)wt_spm_sp_ffa_id(co);
     uint64_t bitmap = (uint64_t)(uint32_t)frame->x[3] |
                       ((uint64_t)(uint32_t)frame->x[4] << 32);
-    int32_t ret = wt_ffa_notif_set(caller, (uint32_t)frame->x[1],
+    int32_t ret = wt_spm_notif_set(caller, (uint32_t)frame->x[1],
                                    (uint32_t)frame->x[2], bitmap);
 
     if (ret == 0) {
@@ -1169,6 +1205,9 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if ((fid == WT_FFA_CONSOLE_LOG32) || (fid == WT_FFA_CONSOLE_LOG64)) {
         ffa_console_log(frame, (fid == WT_FFA_CONSOLE_LOG64) ? 1u : 0u);
+    }
+    else if (sp_notif_denied(fid, (const struct wt_co*)co) != 0) {
+        ffa_not_supported(frame);
     }
     else if ((fid == WT_FFA_NOTIFICATION_BIND) ||
              (fid == WT_FFA_NOTIFICATION_UNBIND)) {

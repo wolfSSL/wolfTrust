@@ -982,14 +982,17 @@ int wt_spm_mem_ns_send(wt_ffa_mem_op_t op, const uint8_t* tx,
 
 /* What the borrower asked for against what the owner granted it (11.4.2):
  * it may ask for less, never for more, and never for execution. */
-static int effective_permissions(int exclusive, uint8_t granted, uint8_t asked,
-                                 uint8_t* out)
+static int effective_permissions(int exclusive, int donate, uint8_t granted,
+                                 uint8_t asked, uint8_t* out)
 {
     uint8_t data = asked & WT_FFA_MEM_PERM_DATA_MASK;
     uint8_t instr = asked & WT_FFA_MEM_PERM_INSTR_MASK;
     uint8_t granted_data = granted & WT_FFA_MEM_PERM_DATA_MASK;
 
+    /* A lend or share borrower must state the data access it wants (DEN0140
+     * 1.10.2 item 1, validated per 1.11.3.3). */
     if ((data == WT_FFA_MEM_PERM_DATA_RSVD) ||
+        ((data == WT_FFA_MEM_PERM_DATA_NOT_SPEC) && (donate == 0)) ||
         (instr == WT_FFA_MEM_PERM_INSTR_MASK)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
@@ -1002,8 +1005,8 @@ static int effective_permissions(int exclusive, uint8_t granted, uint8_t asked,
     if ((asked & WT_FFA_MEM_PERM_INSTR_MASK) == WT_FFA_MEM_PERM_INSTR_X) {
         return WT_FFA_DENIED;
     }
-    /* b'00 is "Not specified and must be ignored" (Table 1.15), validated only
-     * "if specified" (1.10.2 item 1): the grant stands, instructions NX. */
+    /* A donate's receiver only should state it (1.10.2 item 2): the grant
+     * stands, instructions NX. */
     if (data == WT_FFA_MEM_PERM_DATA_NOT_SPEC) {
         data = granted_data;
     }
@@ -1162,6 +1165,7 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
         ((e->state == (uint8_t)WT_FFA_MEM_STATE_DONATED) ||
          ((e->state == (uint8_t)WT_FFA_MEM_STATE_LENT) &&
           (e->borrower_count == 1u))) ? 1 : 0,
+        (e->state == (uint8_t)WT_FFA_MEM_STATE_DONATED) ? 1 : 0,
         borrower->permissions, asked, &perms);
     if (ret != 0) {
         return ret;

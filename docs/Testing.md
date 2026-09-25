@@ -68,9 +68,10 @@ symbol twice to prove a rejected ELF, flat binary, map, and CMSE import library
 are deleted instead of being reused by the next Make invocation.
 
 The per-PR core/port split workflow builds the `CONFIG_VNET=y` Secure image.
-The per-PR M33MU matrix builds and runs both that VNET layout and the
-`WT_CONFORMANCE=1` `confboot` layout, so the linked-image check covers both
-optional isolation-band configurations in CI.
+The M33MU smoke tier builds and runs the `WT_CONFORMANCE=1` `confboot` layout
+on every PR; the VNET layout runs with the full matrix (`ci:h5` label, push
+to main, nightly), so both optional isolation-band configurations stay under
+the linked-image check in CI.
 
 ## PSA FF conformance
 
@@ -103,8 +104,9 @@ WT_ENGINE=native make test-target
 WT_ENGINE=hsm make test-target
 ```
 
-It runs the positive lifecycle, guest restart, cross-domain Secure fault, and
-FF-M conformance scenarios. Detection accepts `m33mu` on
+It runs the port's smoke tier (STM32H563: `positive`, `gtzcneg`,
+`crossdomain`, `bothpsa`, `confboot`, `devcrypto`; `WT_TIER=full` runs every
+scenario). Detection accepts `m33mu` on
 `PATH` or a path in `M33MU`. If the emulator is unavailable,
 the target reports a skip rather than a pass.
 
@@ -345,19 +347,25 @@ core/port split checks run on every pull request, including drafts. The fuzz
 target also runs on pull requests as a 60-second libFuzzer smoke pass; the
 nightly schedule and manual dispatch run the 600-second soak instead.
 
-The full M33MU matrix (the `M33MU` workflow: wolfBoot plus both guest
-lifecycles, both crypto engines, and every scenario) runs on every pull
-request, on a push to `main`, on the nightly
-schedule, and on manual dispatch. Every PR gets the full emulator matrix
-automatically — no label or opt-in step. The same workflow carries the
-MIMXRT700 emulator scenarios as `RT700` checks, once per crypto engine.
+The `M33MU` workflow (wolfBoot plus both guest lifecycles, then a `select` job
+that picks each port's tier and one matrix job that runs exactly those scenario
+groups) is tiered. Every pull request runs
+each port's smoke tier on both crypto engines (STM32H563: `positive`,
+`gtzcneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`; MIMXRT700:
+`positive`, `ahbscneg`, `crossdomain`, `bothpsa`). The full matrix runs on a
+push to `main`, on the nightly schedule, on
+manual dispatch (with a `port` input), and on a pull request that carries the
+`ci:h5`, `ci:rt700`, or `ci:all` label. The scenario groups per port and tier
+are in `tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>`
+runs the same smoke tier locally and `WT_TIER=full` every scenario.
 
 ### Running M33MU off a pull request
 
-To run the matrix against a branch without a PR, dispatch the workflow:
+To run a port's full matrix against a branch without a PR, dispatch the
+workflow:
 
 ```sh
-gh workflow run m33mu.yml --ref <branch>
+gh workflow run m33mu.yml --ref <branch> -f port=mimxrt700
 ```
 
 To run a single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>`

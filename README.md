@@ -141,9 +141,10 @@ make test-conformance
 WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 make test-hardware
 ```
 
-`make test-target` runs the port's chain under M33MU: the STM32H563 default
-skips explicitly when M33MU is unavailable, and `TARGET=mimxrt700` builds its
-pinned emulator and wolfBoot first stage itself.
+`make test-target` runs the port's smoke tier under M33MU (`WT_TIER=full` for
+every scenario): the STM32H563 default skips explicitly when M33MU is
+unavailable, and `TARGET=mimxrt700` builds its pinned emulator and wolfBoot
+first stage itself.
 `make test-conformance` instead runs its 20-test host subset and warns that it
 is not full emulator or hardware evidence. `make test-hardware` skips when
 board detection fails; on hosts without `lsusb`, a missing ST-Link can instead

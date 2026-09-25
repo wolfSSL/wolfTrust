@@ -62,22 +62,24 @@ c99-check:
 		EXTRA_CFLAGS="$(C99_CFLAGS)"
 
 # FF-M target scenarios for one port under the M33MU emulator, separate from
-# `make test` (host-only): TARGET=stm32h563 (default) auto-detects an M33MU
-# (or WT_TARGET_SCENARIOS=1) and skips explicitly otherwise so it never
-# silently passes; TARGET=mimxrt700 runs the RT700 chain (its runner builds
-# its own pinned emulator and wolfBoot first stage). Runs inside the
+# `make test` (host-only). TARGET picks the port (stm32h563 by default,
+# mimxrt700 for the RT700 chain, whose runner builds its own pinned emulator
+# and wolfBoot first stage); WT_TIER=smoke (default) runs the per-PR set,
+# WT_TIER=full every scenario, both from tests/target/lib/scenario_matrix.py.
+# The STM32H563 path auto-detects an M33MU (or WT_TARGET_SCENARIOS=1) and skips
+# explicitly otherwise so it never silently passes. Runs inside the
 # wolfboot-ci-m33mu container, never bare-metal.
+WT_TIER ?= smoke
+WT_SCENARIOS = $(shell python3 tests/target/lib/scenario_matrix.py \
+    --port $(TARGET) --tier $(WT_TIER) --engine $(WT_ENGINE) --flat)
 test-target:
 ifeq ($(TARGET),mimxrt700)
-	@tests/target/run_suite.sh rt700-m33mu positive ahbscneg restart authneg \
-	    crossdomain keystoreneg spfaultneg panicneg rollbackneg manifestneg \
-	    spbudgetneg bothpsa bothiso attestneg \
-	    $(if $(filter hsm,$(WT_ENGINE)),hsmattackneg)
+	@tests/target/run_suite.sh rt700-m33mu $(WT_SCENARIOS)
 else
 	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
 		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \
 	else \
-		tests/target/run_suite.sh m33mu positive restart crossdomain confboot; \
+		tests/target/run_suite.sh m33mu $(WT_SCENARIOS); \
 	fi
 endif
 

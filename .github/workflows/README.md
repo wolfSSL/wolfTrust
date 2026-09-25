@@ -1,52 +1,70 @@
 # wolfTrust CI
 
 Two lanes, modeled on wolfProvider's CI: a fast per-PR host lane, and the
-full M33MU emulator matrix, which runs on every pull request (and nightly).
+M33MU emulator matrix, tiered: a per-port smoke set on every pull request,
+the full matrix on labels, main pushes, and nightly.
 
 ## At a glance
 
 | Tier | Trigger | Purpose |
 |------|---------|---------|
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
-| **M33MU matrix** | every PR; push to main; `cron: 0 8 * * *`; `workflow_dispatch` | full M33MU emulator matrix (see below) |
+| **M33MU smoke** | every PR | per port, on both crypto engines: STM32H563 `positive gtzcneg crossdomain bothpsa confboot devcrypto`; MIMXRT700 `positive ahbscneg crossdomain bothpsa` |
+| **M33MU full** | PR labels `ci:all`, `ci:h5`, `ci:rt700`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
 
-The M33MU workflow (`m33mu.yml`) runs the full matrix on every pull request,
-on push to `main`, on the nightly schedule (via
-`nightly.yml`), and on manual dispatch.
+The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
+`pr-osp-select.yml` is: a `select` job checks the routing table
+(`scenario_matrix.py --selftest`), reads the PR's `ci:*` labels, the
+event, and the dispatch input, and one matrix job runs exactly the scenario
+groups it picked, so a job that is not selected never appears as skipped.
+
+| Label | Effect |
+|-------|--------|
+| (no label) | each port's smoke tier on both engines |
+| `ci:h5` | the STM32H563 full matrix (the change touched only that port) |
+| `ci:rt700` | the MIMXRT700 full matrix (the change touched only that port) |
+| `ci:all` / `ci:m33mu` | every scenario of every port (a core change) |
+
+A label keeps applying on later pushes to the PR. Pushes to
+`main`, the nightly schedule (via `nightly.yml`), and
+manual dispatch (with a `port` input) run the full matrix.
 
 ## M33MU matrix
 
-`m33mu.yml` (workflow name **M33MU**) fans out into one named check per test —
-each renders as `M33MU / <name>`. The table below is a representative slice; the
-full scenario list lives in the `matrix` of `m33mu.yml`:
+The `select` job fans out into one check per scenario group and engine,
+rendered wolfBoot-style as `M33MU / <device>_<scenario>_<engine>` (for
+example `M33MU / stm32h563_confboot_native`). The scenario groups per port
+and tier live in `tests/target/lib/scenario_matrix.py`, which `make
+test-target` also reads. The table below is a representative slice:
 
 | Check name | Scenario key | What it proves |
 |------------|--------------|----------------|
-| `M33MU / wolfBoot signed boot and rollback` | — | upstream wolfBoot signed boot + update/rollback |
-| `M33MU / wolfTrust zephyr lifecycle` | — | full FF-M chain, Zephyr guest |
-| `M33MU / wolfTrust freertos lifecycle` | — | full FF-M chain, FreeRTOS guest |
-| `M33MU / Positive lifecycle` | `positive` | lifecycle green, no faults |
-| `M33MU / Guest restart recovery` | `restart` | guest faults → monitor restarts it |
-| `M33MU / Cross-domain isolation (L3)` | `crossdomain` | SP-internal probe read blocked |
-| `M33MU / FF-M IPC conformance (85/4)` | `confboot` | full Arm FF-M IPC suite |
-| `M33MU / dev_apis Storage (s001-s017)` | `devstorage` | PSA ITS/PS conformance |
-| `M33MU / dev_apis Crypto (c001-c080)` | `devcrypto` | PSA Crypto conformance |
-| `M33MU / Vault recovery self-heal` | `vaultrecover` | #95 foreign pool reformatted |
-| `M33MU / Vault recovery fail-closed` | `vaultrecoversec` | #95 SECURED never wipes |
-| `M33MU / RT700 positive lifecycle (SAU guest windows) (<engine>)` | `positive` | MIMXRT700 chain under the RT700 model, both guests finish |
-| `M33MU / RT700 cross-guest store faults and is contained (<engine>)` | `ahbscneg` | guest0's store into guest1's RAM refused by the SAU, contained |
-| `M33MU / RT700 guest restart budget and launch refusal (<engine>)` | `restart authneg` | guest0's launch-time SecureFault spends its restart budget and quarantines it; a tampered guest0 is refused at launch; guest1 runs on |
-| `M33MU / RT700 SP domain isolation negatives (<engine>)` | `crossdomain keystoreneg` | unprivileged SP reads of SPM RAM and the keystore band MemManage-fault, guests ride it out |
-| `M33MU / RT700 SP fault and panic recovery (<engine>)` | `spfaultneg panicneg` | the relay's undefined instruction and the storage SP's programmer-error close UsageFault once, the SPM restarts the SP in place, both guests finish |
-| `M33MU / RT700 both-guest PSA lifecycle and isolation (<engine>)` | `bothpsa bothiso` | the portable PSA guest in both windows: crypto, storage, keys, attestation, and the FF-M negatives from each |
-| `M33MU / RT700 attestation negatives (<engine>)` | `attestneg` | invalid attestation requests refused, tampered tokens fail the guest verify |
-| `M33MU / RT700 wolfHSM cross-namespace + NVM relay negatives (hsm)` | `hsmattackneg` | a forged client id cannot reach the IAK, an NVM-group packet never reaches the server |
-| `M33MU / RT700 secure verdict negatives (<engine>)` | `rollbackneg manifestneg spbudgetneg` | shared Secure-verdict table: rollback refusal, corrupted manifest, restart budget |
+| `stm32h563_wolfboot_signed_boot_rollback` | — | upstream wolfBoot signed boot + update/rollback |
+| `stm32h563_zephyr_lifecycle_<engine>` | — | full FF-M chain, Zephyr guest |
+| `stm32h563_freertos_lifecycle_<engine>` | — | full FF-M chain, FreeRTOS guest |
+| `stm32h563_positive_<engine>` | `positive` | lifecycle green, no faults |
+| `stm32h563_restart_<engine>` | `restart` | guest faults → monitor restarts it |
+| `stm32h563_crossdomain_<engine>` | `crossdomain` | SP-internal probe read blocked |
+| `stm32h563_confboot_<engine>` | `confboot` | full Arm FF-M IPC suite |
+| `stm32h563_devstorage_<engine>` | `devstorage` | PSA ITS/PS conformance |
+| `stm32h563_devcrypto_<engine>` | `devcrypto` | PSA Crypto conformance |
+| `stm32h563_vaultrecover_<engine>` | `vaultrecover` | #95 foreign pool reformatted |
+| `stm32h563_vaultrecoversec_<engine>` | `vaultrecoversec` | #95 SECURED never wipes |
+| `mimxrt700_positive_<engine>` | `positive` | MIMXRT700 chain under the RT700 model, both guests finish |
+| `mimxrt700_ahbscneg_<engine>` | `ahbscneg` | guest0's store into guest1's RAM refused by the SAU, contained |
+| `mimxrt700_restart_authneg_<engine>` | `restart authneg` | guest0's launch-time SecureFault spends its restart budget and quarantines it; a tampered guest0 is refused at launch; guest1 runs on |
+| `mimxrt700_crossdomain_keystoreneg_<engine>` | `crossdomain keystoreneg` | unprivileged SP reads of SPM RAM and the keystore band MemManage-fault, guests ride it out |
+| `mimxrt700_spfaultneg_panicneg_<engine>` | `spfaultneg panicneg` | the relay's undefined instruction and the storage SP's programmer-error close UsageFault once, the SPM restarts the SP in place, both guests finish |
+| `mimxrt700_bothpsa_bothiso_<engine>` | `bothpsa bothiso` | the portable PSA guest in both windows: crypto, storage, keys, attestation, and the FF-M negatives from each |
+| `mimxrt700_attestneg_<engine>` | `attestneg` | invalid attestation requests refused, tampered tokens fail the guest verify |
+| `mimxrt700_hsmattackneg_hsm` | `hsmattackneg` | a forged client id cannot reach the IAK, an NVM-group packet never reaches the server |
+| `mimxrt700_rollbackneg_manifestneg_spbudgetneg_<engine>` | `rollbackneg manifestneg spbudgetneg` | shared Secure-verdict table: rollback refusal, corrupted manifest, restart budget |
 
-Every job runs automatically on every PR — no labels, nothing to add. To run a
-single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>` (the
-`RT700` checks use `tests/target/run_rt700_m33mu.sh <key>`); to run the whole
-matrix off-PR against a branch, `workflow_dispatch` on `m33mu.yml`.
+An unlabeled PR runs only each port's smoke tier; the full matrix needs a
+`ci:` label. To run a single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>` (the
+RT700 checks use `tests/target/run_rt700_m33mu.sh <key>`); to run a port's
+full matrix on a PR, add its `ci:` label; off-PR against a branch,
+`workflow_dispatch` on `m33mu.yml` with the `port` input.
 
 `nightly.yml` also runs the fast lane + `core-port-split`.
 

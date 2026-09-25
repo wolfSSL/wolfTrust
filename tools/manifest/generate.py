@@ -1084,6 +1084,10 @@ def generate_partition_header(partition):
     return file_name, "\n".join(lines)
 
 
+# Marks an absent "ffa" key, so a present null value still meets FFA_SCHEMA.
+NO_FFA = object()
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
@@ -1105,19 +1109,21 @@ def main():
         manifest = json.loads(input_bytes.decode("utf-8"),
                               object_pairs_hook=reject_duplicate_keys)
         word_max = (1 << int(args.address_bits)) - 1
-        ffa = manifest.pop("ffa", None) if isinstance(manifest, dict) else None
+        ffa = manifest.pop("ffa", NO_FFA) if isinstance(manifest, dict) else NO_FFA
         validate(manifest, MANIFEST_SCHEMA, "manifest", word_max)
         validate_policy(manifest, args.supported_features, word_max,
                         args.supported_framework_version, args.mpu_granule)
-        if ffa is not None:
+        if ffa is not NO_FFA:
             if args.address_bits != "64":
                 raise ManifestError("manifest.ffa needs --address-bits 64")
             validate(ffa, FFA_SCHEMA, "manifest.ffa", word_max)
             validate_ffa(ffa, manifest)
         if args.address_bits == "64":
             pool_pages = table_pool_pages(manifest, args.spm_table_pages)
-            if ffa is None:
+            if ffa is NO_FFA:
                 ffa = {"partitions": []}
+        if ffa is NO_FFA:
+            ffa = None
         source = generate_source(manifest, hashlib.sha256(input_bytes).digest(),
                                  ffa, pool_pages)
         args.output.mkdir(parents=True, exist_ok=True)

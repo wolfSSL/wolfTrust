@@ -107,6 +107,10 @@ int32_t wt_ffa_notif_info_get(uint16_t caller, int is64,
  * receiver, on the half of the bitmap the sender's world owns; consumed
  * through GET like any other class. */
 int32_t wt_ffa_notif_frame_rx_full(uint16_t receiver, int sender_secure);
+/* 0 when receiver has a framework bitmap to pend RX-full in; DENIED for a VM
+ * that has none (never created, or destroyed: 10.3 rule 7) or an endpoint out
+ * of service, so a message send is refused before it takes the RX buffer. */
+int32_t wt_ffa_notif_frame_ready(uint16_t receiver);
 
 /* Schedule-receiver interrupt latch: set when a signal leaves work for the
  * Normal-world scheduler, cleared when it asks. */

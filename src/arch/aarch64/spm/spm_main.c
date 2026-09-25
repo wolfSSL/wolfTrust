@@ -1573,6 +1573,9 @@ int wt_spm_msg2_deliver(uint16_t caller, uint32_t version, const uint8_t* tx,
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     if (ret == 0) {
+        ret = wt_ffa_notif_frame_ready(msg.receiver);
+    }
+    if (ret == 0) {
         total = (uint64_t)wt_ffa_msg2_rx_offset(&msg, rx_version) +
                 (uint64_t)msg.size;
         if ((mb != NULL) && (mb->mapped != 0u) &&

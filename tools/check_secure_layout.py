@@ -10,6 +10,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 
+# STM32H563 bands; other ports pass their own with --keystore/--confdata.
 KEYSTORE_ORIGIN = 0x30075000
 KEYSTORE_LIMIT = 0x30089000
 CONFDATA_ORIGIN = 0x30093000
@@ -90,6 +91,18 @@ class Symbol:
     name: str
 
 
+@dataclass(frozen=True)
+class Layout:
+    keystore_origin: int = KEYSTORE_ORIGIN
+    keystore_limit: int = KEYSTORE_LIMIT
+    confdata_origin: int = CONFDATA_ORIGIN
+    confdata_data_limit: int = CONFDATA_DATA_LIMIT
+    wolfhal: bool = True
+
+
+DEFAULT_LAYOUT = Layout()
+
+
 def parse_nm(text):
     symbols = []
     for line in text.splitlines():
@@ -115,7 +128,7 @@ def symbol_table(symbols):
     return table
 
 
-def validate(symbols):
+def validate(symbols, layout=DEFAULT_LAYOUT):
     errors = []
     table = symbol_table(symbols)
 
@@ -146,18 +159,19 @@ def validate(symbols):
                 bounds["_s_vnet"] <= bounds["_e_vnet"] <=
                 bounds["_s_keystore"]):
             errors.append("general, VNET, and keystore RAM ranges overlap")
-        if bounds["_s_keystore"] != KEYSTORE_ORIGIN:
-            errors.append("keystore origin is not 0x%08x" % KEYSTORE_ORIGIN)
+        if bounds["_s_keystore"] != layout.keystore_origin:
+            errors.append("keystore origin is not 0x%08x" %
+                          layout.keystore_origin)
         if not (bounds["_s_keystore"] <= bounds["_e_keystore_data"] <=
                 bounds["_s_keystore_bss"] <= bounds["_e_keystore"] <=
-                KEYSTORE_LIMIT):
+                layout.keystore_limit):
             errors.append("keystore state escapes its isolation band")
-        if bounds["_sconfdata"] != CONFDATA_ORIGIN:
+        if bounds["_sconfdata"] != layout.confdata_origin:
             errors.append("conformance data origin is not 0x%08x" %
-                          CONFDATA_ORIGIN)
+                          layout.confdata_origin)
         if not (bounds["_sconfdata"] <= bounds["_econfdata"] <=
                 bounds["_sconfbss"] <= bounds["_econfbss"] <=
-                CONFDATA_DATA_LIMIT):
+                layout.confdata_data_limit):
             errors.append("conformance state escapes its isolation band")
 
     if (text_start is not None and text_end is not None and
@@ -209,7 +223,10 @@ def validate(symbols):
                 errors.append("VNET state outside its band: %s" % symbol.name)
 
     timeout = table.get("g_whalTimeout", ())
-    if len(timeout) != 1:
+    if not layout.wolfhal:
+        if timeout:
+            errors.append("g_whalTimeout linked into a port without wolfHAL")
+    elif len(timeout) != 1:
         errors.append("expected one g_whalTimeout symbol, found %d" %
                       len(timeout))
     elif (bounds.get("_sdata") is not None and
@@ -220,7 +237,8 @@ def validate(symbols):
     return errors
 
 
-def check_elf(nm, elf, runner=None, output=None, error=None):
+def check_elf(nm, elf, runner=None, output=None, error=None,
+              layout=DEFAULT_LAYOUT):
     if runner is None:
         runner = subprocess.run
     if output is None:
@@ -238,7 +256,7 @@ def check_elf(nm, elf, runner=None, output=None, error=None):
         print(result.stderr, end="", file=error)
         return result.returncode
 
-    errors = validate(parse_nm(result.stdout))
+    errors = validate(parse_nm(result.stdout), layout)
     if errors:
         for message in errors:
             print("FAIL: %s" % message, file=error)
@@ -389,6 +407,37 @@ def self_test():
                   (label, ", ".join(errors)), file=sys.stderr)
             return False
 
+    moved = Layout(keystore_origin=0x301D5000, keystore_limit=0x301E9000,
+                   confdata_origin=0x301F3000,
+                   confdata_data_limit=0x301F5C00, wolfhal=False)
+    port_cases = (
+        ("port keystore band", good, moved,
+         "keystore origin is not 0x301d5000"),
+        ("port conformance band", good, moved,
+         "conformance data origin is not 0x301f3000"),
+        ("timeout without wolfHAL", good, moved,
+         "g_whalTimeout linked into a port without wolfHAL"),
+    )
+    for label, symbols, layout, expected in port_cases:
+        errors = validate(symbols, layout)
+        if not any(expected in message for message in errors):
+            print("self-test did not reject %s: %s" %
+                  (label, ", ".join(errors)), file=sys.stderr)
+            return False
+    if validate(removed(good, "g_whalTimeout"), Layout(wolfhal=False)):
+        print("self-test rejected a port without wolfHAL", file=sys.stderr)
+        return False
+    for text in ("0x2000", "0x3000:0x2000", "base:0x3000"):
+        try:
+            band(text)
+        except argparse.ArgumentTypeError:
+            continue
+        print("self-test accepted band %s" % text, file=sys.stderr)
+        return False
+    if band("0x301D5000:0x301E9000") != (0x301D5000, 0x301E9000):
+        print("self-test misparsed a band", file=sys.stderr)
+        return False
+
     def completed(returncode, stdout="", stderr=""):
         def run(args, **_kwargs):
             return subprocess.CompletedProcess(
@@ -429,10 +478,32 @@ def self_test():
     return True
 
 
+def band(text):
+    origin, separator, limit = text.partition(":")
+    try:
+        if not separator:
+            raise ValueError
+        low = int(origin, 0)
+        high = int(limit, 0)
+    except ValueError:
+        raise argparse.ArgumentTypeError(
+            "expected ORIGIN:LIMIT, got %r" % text) from None
+    if low >= high:
+        raise argparse.ArgumentTypeError(
+            "band %r is empty or reversed" % text)
+    return low, high
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("elf", nargs="?", type=Path)
     parser.add_argument("--nm", default="arm-none-eabi-nm")
+    parser.add_argument("--keystore", type=band, metavar="ORIGIN:LIMIT",
+                        default=(KEYSTORE_ORIGIN, KEYSTORE_LIMIT))
+    parser.add_argument("--confdata", type=band, metavar="ORIGIN:DATA_LIMIT",
+                        default=(CONFDATA_ORIGIN, CONFDATA_DATA_LIMIT))
+    parser.add_argument("--no-wolfhal", action="store_true",
+                        help="the port links no wolfHAL, so no g_whalTimeout")
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()
 
@@ -441,7 +512,12 @@ def main():
     if args.elf is None:
         parser.error("ELF is required unless --self-test is used")
 
-    return check_elf(args.nm, args.elf)
+    layout = Layout(keystore_origin=args.keystore[0],
+                    keystore_limit=args.keystore[1],
+                    confdata_origin=args.confdata[0],
+                    confdata_data_limit=args.confdata[1],
+                    wolfhal=not args.no_wolfhal)
+    return check_elf(args.nm, args.elf, layout=layout)
 
 
 if __name__ == "__main__":

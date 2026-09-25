@@ -106,7 +106,8 @@
 #define WT_FFA_NOT_READY              (-10)
 
 /* Partition ids: bit 15 set = allocated by the SPM (SPMC, SPMD, then SPs);
- * bit 15 clear = Normal-world endpoints, id 0 = the primary NS endpoint. */
+ * bit 15 clear = Normal-world endpoints, id 0 = the primary NS endpoint.
+ * SPMC and SPMD ids are IMPLEMENTATION DEFINED, only unique (DEN0077A 6.3). */
 #define WT_FFA_ID_NS_PRIMARY          0x0000u
 #define WT_FFA_ID_SPMC                0x8000u
 #define WT_FFA_ID_SPMD                0x8001u

@@ -35,6 +35,8 @@
 #endif
 #define WT_RAM_S_BASE         0x0E040000u
 #define WT_RAM_S_SIZE         0x00FC0000u
+/* The secure SRAM and flash0 are Secure-only on the bus (secramneg). */
+#define WT_PORT_NS_MEMORY_FENCE 1
 #define WT_SPM_BOOT_INFO_PA   0x0E040000u
 #ifndef WT_SPM_IMAGE_PA
 #define WT_SPM_IMAGE_PA       0x0E100000u

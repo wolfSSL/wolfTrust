@@ -223,7 +223,14 @@ the reset exit code for the runner to power it on again. A hook that returns
 panics the monitor. A silicon port must also
 fence the Secure bands from the Normal world in hardware (a TZASC, XMPU, or
 RISAF): QEMU `virt` models the fence with its secure memory, and
-`xlnx-versal-virt` does not model one.
+`xlnx-versal-virt` does not model one. The port's `memory_map.h` states which
+through `WT_PORT_NS_MEMORY_FENCE`, and only a port that sets it to `1` claims
+security-state isolation. Every isolation level needs that capability, so the
+core refuses a Level 1, 2, or 3 manifest on an unfenced port: the
+`xlnx-versal-virt` manifests declare `isolation_profile` 0 (service only) and
+are test configurations, never an isolated deployment. A Versal silicon port
+sets the flag only once it programs and locks the XMPU over the Secure bands
+before the Normal world runs, and then declares Level 3.
 
 ## Validation checklist
 

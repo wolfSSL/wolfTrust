@@ -45,8 +45,16 @@ static wt_guest_context_t g_partition_contexts[WT_MAX_GUESTS];
 static uintptr_t g_bound_exec_bases[WT_MAX_GUESTS];
 static size_t g_bound_exec_sizes[WT_MAX_GUESTS];
 
+/* Security-state isolation, and with it every isolation level, needs a bus
+ * fence between the Secure bands and the Normal world. */
+#if defined(WT_PORT_NS_MEMORY_FENCE) && (WT_PORT_NS_MEMORY_FENCE == 1)
+#define WT_PORT_SECURITY_STATE_CAPABILITY WT_CAPABILITY_SECURITY_STATE
+#else
+#define WT_PORT_SECURITY_STATE_CAPABILITY 0U
+#endif
+
 static const wt_profile_capabilities_t g_profile_capabilities = {
-    .capabilities = WT_CAPABILITY_SECURITY_STATE |
+    .capabilities = WT_PORT_SECURITY_STATE_CAPABILITY |
                     WT_CAPABILITY_PRIVILEGE_STATE |
                     WT_CAPABILITY_ROT_ISOLATION |
                     WT_CAPABILITY_DOMAIN_ISOLATION |

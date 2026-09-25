@@ -870,7 +870,8 @@ $(CONF_UPSTREAM_SRCS): $(UPSTREAM_STAMP) ;
 
 # lp64-addr: i072/i084 write sizeof(pointer) bytes into a 4-byte addr_t
 # out-vector, a PROGRAMMER ERROR on LP64 targets; identical bytes on 32-bit.
-$(UPSTREAM_STAMP): | $(BUILD_DIR)
+$(UPSTREAM_STAMP): $(ROOT)/tests/upstream/psa-arch-tests-ec-overflow.patch \
+		$(ROOT)/tests/upstream/psa-arch-tests-lp64-addr.patch | $(BUILD_DIR)
 	$(ROOT)/tests/upstream/fetch_psa_arch_tests.sh \
 		$(BUILD_DIR)/upstream/psa-arch-tests
 	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply --reverse --check \

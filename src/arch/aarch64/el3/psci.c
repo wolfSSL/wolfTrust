@@ -108,6 +108,7 @@ static int psci_target(uint64_t target, uint32_t fid)
     if (!psci_is_smc64(fid)) {
         target &= 0xFFFFFFFFull;
     }
+    /* Only self is masked: a target with an MBZ bit (5.1.4) never equals it. */
     if (target == self) {
         return WT_PSCI_TARGET_BOOT;
     }

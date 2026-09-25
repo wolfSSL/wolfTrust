@@ -16,6 +16,9 @@
 # scenarios from lib/scenario.sh: each ends on the verdict breakpoint its
 # probe emits, asserted by the port-independent table. remeasureneg joins
 # once this port implements the flash tamper hook.
+# crossdomain and keystoreneg fault the storage SP on an out-of-domain read;
+# spfaultneg and panicneg fault an SP on its first entry and prove the SPM
+# restarts it in place while both guests finish.
 #
 # Environment (all optional):
 #   M33MU               prebuilt emulator carrying tests/target/m33mu-imxrt700.patch;
@@ -33,8 +36,8 @@ unset TARGET MAKEFLAGS MFLAGS
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|ahbscneg|crossdomain|keystoreneg|rollbackneg|manifestneg|spbudgetneg) ;;
-  *) echo "usage: $0 positive|ahbscneg|crossdomain|keystoreneg|rollbackneg|manifestneg|spbudgetneg" >&2
+  positive|ahbscneg|crossdomain|keystoreneg|spfaultneg|panicneg|rollbackneg|manifestneg|spbudgetneg) ;;
+  *) echo "usage: $0 positive|ahbscneg|crossdomain|keystoreneg|spfaultneg|panicneg|rollbackneg|manifestneg|spbudgetneg" >&2
      exit 2 ;;
 esac
 
@@ -195,18 +198,37 @@ fi
 # A guest fault relaunches that guest, so exact launch counts also prove that
 # nothing faulted where nothing should have.
 case "$scenario" in
-  positive|crossdomain|keystoreneg)
+  positive|crossdomain|keystoreneg|spfaultneg|panicneg)
     for guest in guest0 guest1; do
         expect_n "$guest launched exactly once (no fault, no relaunch)" 1 \
             "wolfTrust RT700 $guest: start"
         expect_n "$guest reached the SPM through the SG veneers and finished" 1 \
             "wolfTrust RT700 $guest: FF-M connect ok, done"
     done
-    # The deliberate SP probe faults are Secure MemManage faults at the port's
-    # own band addresses; the guests above prove the system rode them out.
-    if [ "$scenario" = "positive" ]; then
+    # The deliberate SP probe faults are Secure faults the guests above prove
+    # the system rode out. M33MU's own fault dumps go to a buffered stdout
+    # that its wall-clock exit drops, so each probe is shown by a second boot
+    # that stops at the first delivered fault.
+    if [ "$scenario" = "positive" ] || [ "$scenario" = "spfaultneg" ]; then
         expect_n "both guests reached the storage service" 2 ": storage connect ok"
-    else
+    elif [ "$scenario" = "panicneg" ]; then
+        # The panic unblocks the client it was serving with an error; the
+        # restarted SP serves the other guest.
+        expect_n "the restarted storage SP served the guest after the panic" 1 \
+            ": storage connect ok"
+    fi
+    if [ "$scenario" = "spfaultneg" ] || [ "$scenario" = "panicneg" ]; then
+        # The relay (spfaultneg) runs an undefined instruction on its first
+        # entry; the storage SP (panicneg) closes an error handle, which the SPM
+        # must panic it for by resuming it on one.
+        stage "boot again, stopping at the first delivered fault"
+        log="$repo/build/rt700_m33mu_${scenario}_trace.log"
+        boot_chain 0 "$log" --quit-on-faults
+        expect "the traced run stopped at a delivered fault" "Execution stopped"
+        expect_n_re "the probed SP took a Secure-Thread UsageFault" 1 \
+            '\[USGFLT\] enter sec=1 mode=0'
+        expect "the fault was the undefined instruction" "[USGFLT] CFSR=0x00010000"
+    elif [ "$scenario" != "positive" ]; then
         # The storage SP's probe faults on its first wake, so the guests'
         # storage connect never succeeds while their own lifecycle survives.
         refute_re "the probed storage SP never served a guest connect" \

@@ -70,7 +70,8 @@ c99-check:
 test-target:
 ifeq ($(TARGET),mimxrt700)
 	@tests/target/run_suite.sh rt700-m33mu positive ahbscneg \
-	    crossdomain keystoreneg rollbackneg manifestneg spbudgetneg
+	    crossdomain keystoreneg spfaultneg panicneg rollbackneg manifestneg \
+	    spbudgetneg
 else
 	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
 		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \

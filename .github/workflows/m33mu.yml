@@ -344,6 +344,8 @@ jobs:
               name: "secure verdict negatives" }
           - { key: "crossdomain keystoreneg",
               name: "SP domain isolation negatives" }
+          - { key: "spfaultneg panicneg",
+              name: "SP fault and panic recovery" }
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25

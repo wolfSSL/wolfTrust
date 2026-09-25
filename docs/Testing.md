@@ -192,7 +192,12 @@ and `keystoreneg` prove the Secure Partition MPU domains: an unprivileged
 storage-SP read of SPM-private RAM, or of the shared keystore band,
 MemManage-faults at the port's band address (shown by a second traced boot),
 the SP's wake never serves the guests' storage connect, and the guests' own
-lifecycle rides it out.
+lifecycle rides it out. `spfaultneg` and `panicneg` prove Secure Partition
+recovery: the crypto relay runs an undefined instruction on its first entry,
+or the storage SP closes an error-status handle, which the SPM must panic it
+for. Either way the SP UsageFaults exactly once, the SPM restarts it in place,
+the restarted SP serves the guests that follow, and both guests finish with no
+escalation.
 
 The runner builds its own pinned emulator and wolfBoot first stage. The
 emulator is `M33MU_REF` plus `tests/target/m33mu-imxrt700.patch`, the model
@@ -206,10 +211,11 @@ linked at the NOR base, the same offset the wolfBoot emulator tests use, so
 building it needs the MCUXpresso SDK or DFP like any RT700 wolfBoot build;
 set `RT700_WOLFBOOT_DIR` to reuse an existing one (the runner stops if that
 tree has no `wolfboot.bin`, rather than replace it). `WT_ENGINE` selects the
-crypto engine as for any build. Both scenarios end on the
-emulator's wall-clock budget because the guests idle once done; M33MU reports
-that as exit status 127, the traced `ahbscneg` boot stops at the fault with
-status 0, and any other status fails the run.
+crypto engine as for any build. A console boot ends on the emulator's
+wall-clock budget because the guests idle once done, which M33MU reports as
+exit status 127; a Secure-verdict boot stops on its breakpoint with status 0,
+as does a traced boot at its first delivered fault; any other status fails
+the run.
 
 These are emulator results. They prove the SAU attribution and the monitor's
 containment on a faithful core model; the silicon `ahbscneg` run on the EVK is
@@ -305,7 +311,7 @@ The workflows under `.github/workflows/` separately run:
   home-directory references in the published docs);
 - fuzz targets;
 - selected and nightly M33MU scenarios; and
-- the MIMXRT700 chain under M33MU's RT700 model (`positive` and `ahbscneg`).
+- the MIMXRT700 chain under M33MU's RT700 model (the `RT700` scenario matrix).
 
 ### Trigger routing
 
@@ -318,7 +324,7 @@ The full M33MU matrix (the `M33MU` workflow: wolfBoot plus both guest
 lifecycles, both crypto engines, and every scenario) runs on every pull
 request, on a push to `main`, on the nightly
 schedule, and on manual dispatch. Every PR gets the full emulator matrix
-automatically — no label or opt-in step. The same workflow carries the two
+automatically — no label or opt-in step. The same workflow carries the
 MIMXRT700 emulator scenarios as `RT700` checks, once per crypto engine.
 
 ### Running M33MU off a pull request

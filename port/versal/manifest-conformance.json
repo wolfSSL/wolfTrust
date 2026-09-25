@@ -2,9 +2,9 @@
   "format_version": 1,
   "generator_version": "WOLFTRUST_GEN_1",
   "features": 1,
-  "isolation_profile": 3,
+  "isolation_profile": 0,
   "profile_capabilities": {
-    "capabilities": 127,
+    "capabilities": 126,
     "max_domains": 11,
     "max_memory_resources_per_domain": 3,
     "max_interrupts_per_domain": 1
@@ -41,7 +41,7 @@
         "restart_window_ticks": 0,
         "initial_delay_ticks": 0
       },
-      "required_capabilities": 127,
+      "required_capabilities": 126,
       "launch_required": 0,
       "launch_min_version": 0
     },

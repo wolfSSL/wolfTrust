@@ -36,6 +36,9 @@
 #endif
 #define WT_RAM_S_BASE         0x7F000000u
 #define WT_RAM_S_SIZE         0x01000000u
+/* xlnx-versal-virt models no XMPU/RISAF, so the Normal world can reach this
+ * band; silicon sets 1 only once it programs and locks the XMPU over it. */
+#define WT_PORT_NS_MEMORY_FENCE 0
 #define WT_SPM_BOOT_INFO_PA   0x7F000000u
 #ifndef WT_SPM_IMAGE_PA
 #define WT_SPM_IMAGE_PA       0x7F100000u

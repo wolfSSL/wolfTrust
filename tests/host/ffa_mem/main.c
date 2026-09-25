@@ -1441,6 +1441,22 @@ static void borrower_list_rows(void)
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) ==
               WT_FFA_INVALID_PARAMETERS,
           "a repeat that hides a missing borrower is INVALID_PARAMETERS");
+    make_rq_as(&rq, e, 2u, 0x8003u);
+    rq.flags = WT_FFA_MEM_FLAG_BYPASS_BORROWERS;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "with the bypass flag, naming itself and one other borrower is INVALID_PARAMETERS");
+    make_rq_as(&rq, e, 3u, 0x8003u);
+    rq.flags = WT_FFA_MEM_FLAG_BYPASS_BORROWERS;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "with the bypass flag, naming every borrower is INVALID_PARAMETERS too");
+    make_rq_as(&rq, e, 1u, 0x8003u);
+    rq.receivers[0] = 0x8003u;
+    rq.access_flags[0] = 0u;
+    rq.flags = WT_FFA_MEM_FLAG_BYPASS_BORROWERS;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8003u) == 0,
+          "with the bypass flag the second borrower names only itself");
 
     e = make_entry(&reg, WT_FFA_MEM_OP_LEND, 1u);
     check(e != NULL, "a single-borrower lend registers");

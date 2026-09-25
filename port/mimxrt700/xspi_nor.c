@@ -32,9 +32,30 @@
 #include "mimxrt798_regs.h"
 #include "xspi_nor.h"
 
+/* The host suite (tests/host/rt700_xspi) compiles this file against a
+ * register model, so the RAM placement and the core barriers are target-only. */
+#if defined(__ARM_EABI__)
 #define WT_RAMFUNC       __attribute__((section(".ramfunc"), noinline))
 #define WT_RAMFUNC_ENTRY __attribute__((section(".ramfunc"), noinline, long_call))
 #define WT_RAMDATA       __attribute__((section(".ramfunc.data")))
+#define WT_XSPI_NOP()    __asm volatile("nop")
+#define WT_XSPI_SYNC()   __asm volatile("dsb sy\n\tisb" ::: "memory")
+#else
+#define WT_RAMFUNC
+#define WT_RAMFUNC_ENTRY
+#define WT_RAMDATA
+#define WT_XSPI_NOP()    do { } while (0)
+#define WT_XSPI_SYNC()   do { } while (0)
+#endif
+
+/* Every register access goes through these so the host suite can put its
+ * model behind them; on the part they are the plain volatile accesses. */
+#ifndef WT_XSPI_RD
+#define WT_XSPI_RD(reg)         (reg)
+#define WT_XSPI_WR(reg, value)  ((reg) = (value))
+#endif
+#define WT_XSPI_SET(reg, bits)  WT_XSPI_WR(reg, WT_XSPI_RD(reg) | (bits))
+#define WT_XSPI_CLR(reg, bits)  WT_XSPI_WR(reg, WT_XSPI_RD(reg) & ~(bits))
 
 #define WT_XSPI_POLL_LIMIT      100000u
 #define WT_XSPI_BUSY_LIMIT      1000000u
@@ -110,7 +131,7 @@ static void WT_RAMFUNC wt_xspi_settle(void)
     uint32_t i;
 
     for (i = 0u; i < 10u; i++) {
-        __asm volatile("nop");
+        WT_XSPI_NOP();
     }
 }
 
@@ -118,15 +139,15 @@ static void WT_RAMFUNC wt_xspi_settle(void)
  * transaction; the module must be enabled to assert and disabled to release. */
 static int WT_RAMFUNC wt_xspi_recover(void)
 {
-    WT_XSPI0_MCR |= WT_XSPI_MCR_IPS_TG_RST;
-    WT_XSPI0_MCR &= ~WT_XSPI_MCR_MDIS;
-    WT_XSPI0_MCR |= WT_XSPI_MCR_SWRSTSD | WT_XSPI_MCR_SWRSTHD;
+    WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_IPS_TG_RST);
+    WT_XSPI_CLR(WT_XSPI0_MCR, WT_XSPI_MCR_MDIS);
+    WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_SWRSTSD | WT_XSPI_MCR_SWRSTHD);
     wt_xspi_settle();
-    WT_XSPI0_MCR |= WT_XSPI_MCR_MDIS;
-    WT_XSPI0_MCR &= ~(WT_XSPI_MCR_SWRSTSD | WT_XSPI_MCR_SWRSTHD);
+    WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_MDIS);
+    WT_XSPI_CLR(WT_XSPI0_MCR, WT_XSPI_MCR_SWRSTSD | WT_XSPI_MCR_SWRSTHD);
     wt_xspi_settle();
-    WT_XSPI0_MCR &= ~WT_XSPI_MCR_MDIS;
-    WT_XSPI0_ERRSTAT = WT_XSPI0_ERRSTAT;
+    WT_XSPI_CLR(WT_XSPI0_MCR, WT_XSPI_MCR_MDIS);
+    WT_XSPI_WR(WT_XSPI0_ERRSTAT, WT_XSPI_RD(WT_XSPI0_ERRSTAT));
     return WT_XSPI_NOR_TIMEOUT;
 }
 
@@ -137,13 +158,13 @@ static int WT_RAMFUNC wt_xspi_check_error(uint32_t err)
         return WT_XSPI_NOR_OK;
     }
     if ((err & WT_XSPI_ERRSTAT_TG0SFAR) != 0u) {
-        WT_XSPI0_TGSFARS |= WT_XSPI_TGSFARS_CLR;
+        WT_XSPI_SET(WT_XSPI0_TGSFARS, WT_XSPI_TGSFARS_CLR);
     }
     if ((err & WT_XSPI_ERRSTAT_TG0IPCR) != 0u) {
-        WT_XSPI0_TGIPCRS |= WT_XSPI_TGIPCRS_CLR;
+        WT_XSPI_SET(WT_XSPI0_TGIPCRS, WT_XSPI_TGIPCRS_CLR);
     }
-    WT_XSPI0_MCR |= WT_XSPI_MCR_CLR_TXF | WT_XSPI_MCR_CLR_RXF;
-    WT_XSPI0_ERRSTAT = err;
+    WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_CLR_TXF | WT_XSPI_MCR_CLR_RXF);
+    WT_XSPI_WR(WT_XSPI0_ERRSTAT, err);
     return WT_XSPI_NOR_BUS;
 }
 
@@ -155,22 +176,23 @@ static int WT_RAMFUNC wt_xspi_ip_start(uint32_t address, uint32_t seq,
     uint32_t t = WT_XSPI_POLL_LIMIT;
     uint32_t err;
 
-    WT_XSPI0_ERRSTAT = WT_XSPI0_ERRSTAT;
-    while (((WT_XSPI0_TGSFARS & WT_XSPI_TGSFARS_VLD) != 0u) && (t > 0u)) {
+    WT_XSPI_WR(WT_XSPI0_ERRSTAT, WT_XSPI_RD(WT_XSPI0_ERRSTAT));
+    while (((WT_XSPI_RD(WT_XSPI0_TGSFARS) & WT_XSPI_TGSFARS_VLD) != 0u) &&
+           (t > 0u)) {
         t--;
     }
     if (t == 0u) {
         return wt_xspi_recover();
     }
-    WT_XSPI0_SFP_TG_SFAR = address;
-    if (((WT_XSPI0_MGC & WT_XSPI_MGC_GVLDMDAD) != 0u) &&
-            ((WT_XSPI0_TG0MDAD & WT_XSPI_TG0MDAD_VLD) != 0u)) {
+    WT_XSPI_WR(WT_XSPI0_SFP_TG_SFAR, address);
+    if (((WT_XSPI_RD(WT_XSPI0_MGC) & WT_XSPI_MGC_GVLDMDAD) != 0u) &&
+            ((WT_XSPI_RD(WT_XSPI0_TG0MDAD) & WT_XSPI_TG0MDAD_VLD) != 0u)) {
         t = WT_XSPI_POLL_LIMIT;
         do {
-            err = WT_XSPI0_TGSFARS &
+            err = WT_XSPI_RD(WT_XSPI0_TGSFARS) &
                   (WT_XSPI_TGSFARS_VLD | WT_XSPI_TGSFARS_ERR);
             if (err == WT_XSPI_TGSFARS_ERR) {
-                WT_XSPI0_TGSFARS |= WT_XSPI_TGSFARS_CLR;
+                WT_XSPI_SET(WT_XSPI0_TGSFARS, WT_XSPI_TGSFARS_CLR);
                 return WT_XSPI_NOR_BUS;
             }
             t--;
@@ -179,17 +201,18 @@ static int WT_RAMFUNC wt_xspi_ip_start(uint32_t address, uint32_t seq,
             return wt_xspi_recover();
         }
     }
-    WT_XSPI0_SFP_TG_IPCR = WT_XSPI_IPCR_IDATSZ(size) | WT_XSPI_IPCR_SEQID(seq);
+    WT_XSPI_WR(WT_XSPI0_SFP_TG_IPCR,
+               WT_XSPI_IPCR_IDATSZ(size) | WT_XSPI_IPCR_SEQID(seq));
     t = WT_XSPI_POLL_LIMIT;
     while (t > 0u) {
-        err = WT_XSPI0_ERRSTAT;
+        err = WT_XSPI_RD(WT_XSPI0_ERRSTAT);
         if ((err & WT_XSPI_ERRSTAT_ARB_WIN) != 0u) {
             break;
         }
         if ((err & WT_XSPI_ERRSTAT_ERRORS) != 0u) {
             (void)wt_xspi_check_error(err);
-            WT_XSPI0_TGIPCRS |= WT_XSPI_TGIPCRS_CLR;
-            WT_XSPI0_TGSFARS |= WT_XSPI_TGSFARS_CLR;
+            WT_XSPI_SET(WT_XSPI0_TGIPCRS, WT_XSPI_TGIPCRS_CLR);
+            WT_XSPI_SET(WT_XSPI0_TGSFARS, WT_XSPI_TGSFARS_CLR);
             return WT_XSPI_NOR_BUS;
         }
         t--;
@@ -197,7 +220,7 @@ static int WT_RAMFUNC wt_xspi_ip_start(uint32_t address, uint32_t seq,
     if (t == 0u) {
         return wt_xspi_recover();
     }
-    WT_XSPI0_ERRSTAT = WT_XSPI_ERRSTAT_ARB_WIN;
+    WT_XSPI_WR(WT_XSPI0_ERRSTAT, WT_XSPI_ERRSTAT_ARB_WIN);
     return WT_XSPI_NOR_OK;
 }
 
@@ -205,7 +228,7 @@ static int WT_RAMFUNC wt_xspi_ip_idle(void)
 {
     uint32_t t = WT_XSPI_POLL_LIMIT;
 
-    while (((WT_XSPI0_SR & WT_XSPI_SR_BUSY) != 0u) && (t > 0u)) {
+    while (((WT_XSPI_RD(WT_XSPI0_SR) & WT_XSPI_SR_BUSY) != 0u) && (t > 0u)) {
         t--;
     }
     return (t == 0u) ? wt_xspi_recover() : WT_XSPI_NOR_OK;
@@ -215,7 +238,7 @@ static int WT_RAMFUNC wt_xspi_ip_released(void)
 {
     uint32_t t = WT_XSPI_POLL_LIMIT;
 
-    while (((WT_XSPI0_SR & WT_XSPI_SR_IP_ACC) != 0u) && (t > 0u)) {
+    while (((WT_XSPI_RD(WT_XSPI0_SR) & WT_XSPI_SR_IP_ACC) != 0u) && (t > 0u)) {
         t--;
     }
     return (t == 0u) ? wt_xspi_recover() : WT_XSPI_NOR_OK;
@@ -230,7 +253,7 @@ static int WT_RAMFUNC wt_xspi_ip_command(uint32_t address, uint32_t seq)
         rc = wt_xspi_ip_idle();
     }
     if (rc == WT_XSPI_NOR_OK) {
-        rc = wt_xspi_check_error(WT_XSPI0_ERRSTAT);
+        rc = wt_xspi_check_error(WT_XSPI_RD(WT_XSPI0_ERRSTAT));
     }
     if (rc == WT_XSPI_NOR_OK) {
         rc = wt_xspi_ip_released();
@@ -251,37 +274,39 @@ static int WT_RAMFUNC wt_xspi_ip_write(uint32_t address, uint32_t seq,
     if (rc != WT_XSPI_NOR_OK) {
         return rc;
     }
-    WT_XSPI0_MCR |= WT_XSPI_MCR_CLR_TXF;
+    WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_CLR_TXF);
     wt_xspi_settle();
     t = WT_XSPI_POLL_LIMIT;
-    while (((WT_XSPI0_FSMSTAT & WT_XSPI_FSMSTAT_STATE) != 1u) && (t > 0u)) {
+    while (((WT_XSPI_RD(WT_XSPI0_FSMSTAT) & WT_XSPI_FSMSTAT_STATE) != 1u) &&
+           (t > 0u)) {
         t--;
     }
     if (t == 0u) {
         return wt_xspi_recover();
     }
-    WT_XSPI0_TBCT = (WT_XSPI_TX_DEPTH_WORDS + 1u) - count;
-    rc = wt_xspi_check_error(WT_XSPI0_ERRSTAT);
+    WT_XSPI_WR(WT_XSPI0_TBCT, (WT_XSPI_TX_DEPTH_WORDS + 1u) - count);
+    rc = wt_xspi_check_error(WT_XSPI_RD(WT_XSPI0_ERRSTAT));
     for (i = 0u; (rc == WT_XSPI_NOR_OK) && (i < count); i++) {
         t = WT_XSPI_POLL_LIMIT;
-        while (((WT_XSPI0_SR & WT_XSPI_SR_TXFULL) != 0u) && (t > 0u)) {
+        while (((WT_XSPI_RD(WT_XSPI0_SR) & WT_XSPI_SR_TXFULL) != 0u) &&
+               (t > 0u)) {
             t--;
         }
         if (t == 0u) {
             return wt_xspi_recover();
         }
-        WT_XSPI0_TBDR = words[i];
+        WT_XSPI_WR(WT_XSPI0_TBDR, words[i]);
     }
     if (rc != WT_XSPI_NOR_OK) {
         return rc;
     }
-    WT_XSPI0_FR = WT_XSPI_FR_TBFF;
+    WT_XSPI_WR(WT_XSPI0_FR, WT_XSPI_FR_TBFF);
     rc = wt_xspi_ip_released();
     if (rc == WT_XSPI_NOR_OK) {
         rc = wt_xspi_ip_idle();
     }
     if (rc == WT_XSPI_NOR_OK) {
-        rc = wt_xspi_check_error(WT_XSPI0_ERRSTAT);
+        rc = wt_xspi_check_error(WT_XSPI_RD(WT_XSPI0_ERRSTAT));
     }
     return rc;
 }
@@ -293,33 +318,33 @@ static int WT_RAMFUNC wt_xspi_ip_read_word(uint32_t address, uint32_t seq,
     uint32_t t;
     int rc;
 
-    WT_XSPI0_MCR |= WT_XSPI_MCR_CLR_RXF;
+    WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_CLR_RXF);
     wt_xspi_settle();
-    if ((WT_XSPI0_SR & WT_XSPI_SR_IP_ACC) != 0u) {
+    if ((WT_XSPI_RD(WT_XSPI0_SR) & WT_XSPI_SR_IP_ACC) != 0u) {
         return WT_XSPI_NOR_BUS;
     }
-    WT_XSPI0_RBCT = 0u;
+    WT_XSPI_WR(WT_XSPI0_RBCT, 0u);
     rc = wt_xspi_ip_start(address, seq, size);
     if (rc != WT_XSPI_NOR_OK) {
         return rc;
     }
-    if ((WT_XSPI0_FSMSTAT & WT_XSPI_FSMSTAT_VLD) == 0u) {
-        WT_XSPI0_MCR |= WT_XSPI_MCR_CLR_RXF;
+    if ((WT_XSPI_RD(WT_XSPI0_FSMSTAT) & WT_XSPI_FSMSTAT_VLD) == 0u) {
+        WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_CLR_RXF);
         return WT_XSPI_NOR_BUS;
     }
     t = WT_XSPI_POLL_LIMIT;
-    while (((WT_XSPI0_SR & WT_XSPI_SR_BUSY) == 0u) &&
-           ((WT_XSPI0_SR & WT_XSPI_SR_IP_ACC) != 0u) && (t > 0u)) {
+    while (((WT_XSPI_RD(WT_XSPI0_SR) & WT_XSPI_SR_BUSY) == 0u) &&
+           ((WT_XSPI_RD(WT_XSPI0_SR) & WT_XSPI_SR_IP_ACC) != 0u) && (t > 0u)) {
         t--;
     }
     if (t == 0u) {
         return wt_xspi_recover();
     }
     t = WT_XSPI_POLL_LIMIT;
-    while (((WT_XSPI0_SR & WT_XSPI_SR_RXWE) == 0u) && (t > 0u)) {
-        if ((WT_XSPI0_ERRSTAT & WT_XSPI_ERRSTAT_TO_ERR) != 0u) {
-            WT_XSPI0_MCR |= WT_XSPI_MCR_CLR_RXF;
-            WT_XSPI0_ERRSTAT = WT_XSPI_ERRSTAT_TO_ERR;
+    while (((WT_XSPI_RD(WT_XSPI0_SR) & WT_XSPI_SR_RXWE) == 0u) && (t > 0u)) {
+        if ((WT_XSPI_RD(WT_XSPI0_ERRSTAT) & WT_XSPI_ERRSTAT_TO_ERR) != 0u) {
+            WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_CLR_RXF);
+            WT_XSPI_WR(WT_XSPI0_ERRSTAT, WT_XSPI_ERRSTAT_TO_ERR);
             return wt_xspi_recover();
         }
         t--;
@@ -327,17 +352,17 @@ static int WT_RAMFUNC wt_xspi_ip_read_word(uint32_t address, uint32_t seq,
     if (t == 0u) {
         return wt_xspi_recover();
     }
-    if ((WT_XSPI0_RBSR & WT_XSPI_RBSR_RDBFL) != 1u) {
-        WT_XSPI0_MCR |= WT_XSPI_MCR_CLR_RXF;
+    if ((WT_XSPI_RD(WT_XSPI0_RBSR) & WT_XSPI_RBSR_RDBFL) != 1u) {
+        WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_CLR_RXF);
         return WT_XSPI_NOR_BUS;
     }
-    rc = wt_xspi_check_error(WT_XSPI0_ERRSTAT);
+    rc = wt_xspi_check_error(WT_XSPI_RD(WT_XSPI0_ERRSTAT));
     if (rc != WT_XSPI_NOR_OK) {
-        WT_XSPI0_MCR |= WT_XSPI_MCR_CLR_RXF;
+        WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_CLR_RXF);
         return rc;
     }
-    *word = WT_XSPI0_RBDR0;
-    WT_XSPI0_MCR |= WT_XSPI_MCR_CLR_RXF;
+    *word = WT_XSPI_RD(WT_XSPI0_RBDR0);
+    WT_XSPI_SET(WT_XSPI0_MCR, WT_XSPI_MCR_CLR_RXF);
     return wt_xspi_ip_idle();
 }
 
@@ -411,8 +436,8 @@ static int WT_RAMFUNC wt_xspi_lut_install(void)
 
     for (s = 0u; s < (sizeof(g_wt_xspi_lut) / sizeof(g_wt_xspi_lut[0])); s++) {
         for (i = 0u; i < WT_NOR_SEQ_WORDS; i++) {
-            if (WT_XSPI0_LUT(WT_NOR_SEQ_WORDS * g_wt_xspi_lut[s].seq + i) !=
-                    g_wt_xspi_lut[s].words[i]) {
+            if (WT_XSPI_RD(WT_XSPI0_LUT(WT_NOR_SEQ_WORDS * g_wt_xspi_lut[s].seq +
+                                        i)) != g_wt_xspi_lut[s].words[i]) {
                 differ = 1u;
             }
         }
@@ -421,17 +446,17 @@ static int WT_RAMFUNC wt_xspi_lut_install(void)
         rc = wt_xspi_ip_idle();
     }
     if ((rc == WT_XSPI_NOR_OK) && (differ != 0u)) {
-        WT_XSPI0_LUTKEY = WT_XSPI_LUT_KEY;
-        WT_XSPI0_LCKCR = WT_XSPI_LCKCR_UNLOCK;
+        WT_XSPI_WR(WT_XSPI0_LUTKEY, WT_XSPI_LUT_KEY);
+        WT_XSPI_WR(WT_XSPI0_LCKCR, WT_XSPI_LCKCR_UNLOCK);
         for (s = 0u; s < (sizeof(g_wt_xspi_lut) / sizeof(g_wt_xspi_lut[0]));
                 s++) {
             for (i = 0u; i < WT_NOR_SEQ_WORDS; i++) {
-                WT_XSPI0_LUT(WT_NOR_SEQ_WORDS * g_wt_xspi_lut[s].seq + i) =
-                    g_wt_xspi_lut[s].words[i];
+                WT_XSPI_WR(WT_XSPI0_LUT(WT_NOR_SEQ_WORDS * g_wt_xspi_lut[s].seq +
+                                        i), g_wt_xspi_lut[s].words[i]);
             }
         }
-        WT_XSPI0_LUTKEY = WT_XSPI_LUT_KEY;
-        WT_XSPI0_LCKCR = WT_XSPI_LCKCR_LOCK;
+        WT_XSPI_WR(WT_XSPI0_LUTKEY, WT_XSPI_LUT_KEY);
+        WT_XSPI_WR(WT_XSPI0_LCKCR, WT_XSPI_LCKCR_LOCK);
     }
     return rc;
 }
@@ -443,24 +468,26 @@ static int WT_RAMFUNC wt_xspi_read_path_flush(void)
     uint32_t t = WT_XSPI_POLL_LIMIT;
     int rc = WT_XSPI_NOR_OK;
 
-    WT_XSPI0_SPTRCLR |= WT_XSPI_SPTRCLR_ABRT_CLR;
-    while (((WT_XSPI0_SPTRCLR & WT_XSPI_SPTRCLR_ABRT_CLR) != 0u) && (t > 0u)) {
+    WT_XSPI_SET(WT_XSPI0_SPTRCLR, WT_XSPI_SPTRCLR_ABRT_CLR);
+    while (((WT_XSPI_RD(WT_XSPI0_SPTRCLR) & WT_XSPI_SPTRCLR_ABRT_CLR) != 0u) &&
+           (t > 0u)) {
         t--;
     }
     if (t == 0u) {
         rc = WT_XSPI_NOR_TIMEOUT;
     }
-    WT_CACHE64_CTRL0_CCR |= WT_CACHE64_CCR_INVW0 | WT_CACHE64_CCR_INVW1 |
-                            WT_CACHE64_CCR_GO;
+    WT_XSPI_SET(WT_CACHE64_CTRL0_CCR, WT_CACHE64_CCR_INVW0 |
+                WT_CACHE64_CCR_INVW1 | WT_CACHE64_CCR_GO);
     t = WT_XSPI_POLL_LIMIT;
-    while (((WT_CACHE64_CTRL0_CCR & WT_CACHE64_CCR_GO) != 0u) && (t > 0u)) {
+    while (((WT_XSPI_RD(WT_CACHE64_CTRL0_CCR) & WT_CACHE64_CCR_GO) != 0u) &&
+           (t > 0u)) {
         t--;
     }
-    WT_CACHE64_CTRL0_CCR &= ~(WT_CACHE64_CCR_INVW0 | WT_CACHE64_CCR_INVW1);
+    WT_XSPI_CLR(WT_CACHE64_CTRL0_CCR, WT_CACHE64_CCR_INVW0 | WT_CACHE64_CCR_INVW1);
     if ((rc == WT_XSPI_NOR_OK) && (t == 0u)) {
         rc = WT_XSPI_NOR_TIMEOUT;
     }
-    __asm volatile("dsb sy\n\tisb" ::: "memory");
+    WT_XSPI_SYNC();
     return rc;
 }
 
@@ -524,15 +551,21 @@ static int WT_RAMFUNC_ENTRY wt_xspi_nor_program_ram(uint32_t address,
 
 static uint32_t wt_xspi_irq_mask(void)
 {
-    uint32_t primask;
+    uint32_t primask = 0u;
 
+#if defined(__ARM_EABI__)
     __asm volatile("mrs %0, primask\n\tcpsid i" : "=r"(primask) :: "memory");
+#endif
     return primask;
 }
 
 static void wt_xspi_irq_restore(uint32_t primask)
 {
+#if defined(__ARM_EABI__)
     __asm volatile("msr primask, %0" :: "r"(primask) : "memory");
+#else
+    (void)primask;
+#endif
 }
 
 /* The range must lie wholly inside one writable window. */

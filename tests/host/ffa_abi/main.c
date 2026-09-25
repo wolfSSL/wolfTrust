@@ -626,7 +626,7 @@ static void partition_info_mailbox_rows(void)
           { 0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,
             0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,0x20 } }
     };
-    static _Alignas(4096) uint8_t pair[2][4096];
+    static uint8_t pair[2][4096] __attribute__((aligned(4096)));
     const uint32_t v12 = WT_FFA_VERSION_1_2;
     wt_ffa_mailbox_t mb;
     uint64_t x[8] = { WT_FFA_PARTITION_INFO_GET, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
@@ -699,7 +699,7 @@ static void partition_info_version_rows(void)
           { 0x11,0x12,0x13,0x14,0x15,0x16,0x17,0x18,
             0x19,0x1A,0x1B,0x1C,0x1D,0x1E,0x1F,0x20 } }
     };
-    static _Alignas(4096) uint8_t pair[2][4096];
+    static uint8_t pair[2][4096] __attribute__((aligned(4096)));
     wt_ffa_mailbox_t mb;
     uint64_t x[8] = { WT_FFA_PARTITION_INFO_GET, 0u, 0u, 0u, 0u, 0u, 0u, 0u };
     uint32_t count = 0u;

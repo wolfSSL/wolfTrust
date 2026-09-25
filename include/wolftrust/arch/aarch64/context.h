@@ -26,6 +26,8 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+#include "wolftrust/platform.h"
+
 /* Lower-EL exception frame the S-EL1 vectors build: x0-x30, then the
  * banked state. Offsets are fixed for the assembly entry paths. */
 struct wt_trap_frame {
@@ -37,8 +39,6 @@ struct wt_trap_frame {
     uint64_t far;
 };
 
-typedef struct wt_trap_frame wt_trap_frame_t;
-
 /* Non-secure endpoint context held by the neutral runtime; the NS gateway
  * fills it in when the Normal world arrives. */
 struct wt_guest_context {
@@ -49,8 +49,6 @@ struct wt_guest_context {
     uintptr_t pc;
     bool frame_stacked;
 };
-
-typedef struct wt_guest_context wt_guest_context_t;
 
 #define WT_TRAP_FRAME_SIZE 288u
 

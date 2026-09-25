@@ -92,6 +92,20 @@ static void reset_console(void)
     g_console[0] = '\0';
 }
 
+/* The Normal world negotiates a version: its FFA_VERSION is forwarded to the
+ * SPMC as the Table 13.7 message and the SPMC's answer settles it. */
+static void ns_settle(uint32_t version)
+{
+    uint64_t x[18];
+
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_VERSION;
+    x[1] = version;
+    (void)wt_ffa_spmd_ns_forward(x);
+    wt_ffa_fwk_version_resp(x, (int32_t)version);
+    wt_ffa_spmd_ns_reply(x);
+}
+
 static void ns_call(wt_ffa_regs_t* r, uint32_t fid)
 {
     memset(r, 0, sizeof(*r));
@@ -241,6 +255,7 @@ static uint32_t ns_version_call(uint32_t asked)
 static void ns_version_rows(void)
 {
     uint64_t x[18];
+    wt_ffa_regs_t r;
     unsigned int i;
     int ok;
 
@@ -310,6 +325,42 @@ static void ns_version_rows(void)
     check(!wt_ffa_fwk_version_is_req(x),
           "a partition message between the same ids is not the version message");
 
+    ns_settle(WT_FFA_VERSION_MAKE(1u, 0u));
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_FEATURES;
+    r.x[1] = WT_FFA_MSG_SEND_DIRECT_REQ2;
+    wt_ffa_spmd_ns_call(&r);
+    check(is_error(&r, WT_FFA_NOT_SUPPORTED) &&
+              wt_ffa_spmd_ns_forwards(WT_FFA_MSG_SEND_DIRECT_REQ2) == 0 &&
+              wt_ffa_spmd_ns_forwards(WT_FFA_NOTIFICATION_SET) == 0,
+          "a Normal world settled at 1.0 is told DIRECT_REQ2 and NOTIFICATION_SET "
+          "are NOT_SUPPORTED and neither is forwarded (13.2.2)");
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_MSG_SEND_DIRECT_REQ2;
+    r.x[1] = 0x00008002u;
+    wt_ffa_spmd_ns_call(&r);
+    check(is_error(&r, WT_FFA_NOT_SUPPORTED),
+          "and a DIRECT_REQ2 it sends anyway is NOT_SUPPORTED, not DENIED");
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_FEATURES;
+    r.x[1] = WT_FFA_MSG_SEND_DIRECT_REQ32;
+    wt_ffa_spmd_ns_call(&r);
+    check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 &&
+              wt_ffa_spmd_ns_forwards(WT_FFA_MSG_SEND_DIRECT_REQ32) == 1,
+          "while a 1.0 ABI is still implemented and forwarded for it");
+    ns_settle(WT_FFA_VERSION_MAKE(1u, 1u));
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_FEATURES;
+    r.x[1] = WT_FFA_NOTIFICATION_SET;
+    wt_ffa_spmd_ns_call(&r);
+    check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 &&
+              wt_ffa_spmd_ns_forwards(WT_FFA_NOTIFICATION_SET) == 1 &&
+              wt_ffa_spmd_ns_forwards(WT_FFA_MSG_SEND_DIRECT_REQ2) == 0,
+          "settled at 1.1 the notifications are back and DIRECT_REQ2 still not");
+    ns_settle(WT_FFA_VERSION_1_2);
+    check(wt_ffa_spmd_ns_forwards(WT_FFA_MSG_SEND_DIRECT_REQ2) == 1,
+          "settled at 1.2 every implemented ABI is forwarded");
+
     wt_ffa_spmd_ns_note(WT_FFA_ID_GET);
     check(wt_ffa_spmd_ns_forwards(WT_FFA_VERSION) == 0,
           "after its first other call the SPMD stops forwarding FFA_VERSION");
@@ -339,6 +390,16 @@ int main(void)
     call(&r, WT_FFA_VERSION, WT_FFA_VERSION_MAKE(1u, 1u));
     check((uint32_t)r.x[0] == WT_FFA_VERSION_1_2,
           "the SPMC may renegotiate before its first other call");
+    call(&r, WT_FFA_FEATURES, WT_FFA_CONSOLE_LOG32);
+    check(is_error(&r, WT_FFA_NOT_SUPPORTED),
+          "an SPMC settled at 1.1 is told the 1.2 FFA_CONSOLE_LOG is "
+          "NOT_SUPPORTED (13.2.2)");
+    call(&r, WT_FFA_CONSOLE_LOG32, 1u);
+    check(is_error(&r, WT_FFA_NOT_SUPPORTED) && g_console_len == 0u,
+          "and an FFA_CONSOLE_LOG it sends anyway logs nothing");
+    call(&r, WT_FFA_FEATURES, WT_FFA_SPM_ID_GET);
+    check((uint32_t)r.x[0] == WT_FFA_SUCCESS32,
+          "while the 1.1 FFA_SPM_ID_GET stays implemented for it");
     wt_ffa_spmd_secure_note(WT_FFA_VERSION);
     call(&r, WT_FFA_VERSION, WT_FFA_VERSION_1_2);
     check((uint32_t)r.x[0] == WT_FFA_VERSION_1_2,

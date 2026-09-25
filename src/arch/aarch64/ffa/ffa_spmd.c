@@ -234,6 +234,10 @@ void wt_ffa_spmd_secure_note(uint32_t fid)
  * no mailbox): they are forwarded to the SPMC. */
 int wt_ffa_spmd_ns_forwards(uint32_t fid)
 {
+    if (!wt_ffa_fid_available(
+            fid, wt_ffa_version_of(&g_ns_version, WT_FFA_VERSION_1_2))) {
+        return 0;
+    }
     switch (fid) {
         case WT_FFA_VERSION:
             /* 13.2.3.2: the SPMC chooses what the Normal world negotiates; once
@@ -365,8 +369,13 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
 {
     uint32_t fid = (uint32_t)r->x[0];
     uint32_t w1 = (uint32_t)r->x[1];
+    uint32_t version = wt_ffa_version_of(&g_ns_version, WT_FFA_VERSION_1_2);
     unsigned int i;
 
+    if (!wt_ffa_fid_available(fid, version)) {
+        reply_error(r, WT_FFA_NOT_SUPPORTED);
+        return;
+    }
     switch (fid) {
         case WT_FFA_VERSION:
             for (i = 1u; i < 8u; i++) {
@@ -383,7 +392,8 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
                      (w1 == WT_FFA_MEM_RETRIEVE_REQ64)) {
                 reply_success(r, WT_FFA_FEATURES_RETRIEVE_NS_BIT, 0u);
             }
-            else if (WT_FFA_FEATURES_IS_FID(w1) && ns_implements(w1)) {
+            else if (WT_FFA_FEATURES_IS_FID(w1) && ns_implements(w1) &&
+                     wt_ffa_fid_available(w1, version)) {
                 /* w3[5:0] caps RXTX_MAP at 63 pages: no limit (Tbl 13.25). */
                 reply_success(r, 0u, 0u);
             }
@@ -417,8 +427,13 @@ int wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
 {
     uint32_t fid = (uint32_t)r->x[0];
     uint32_t w1 = (uint32_t)r->x[1];
+    uint32_t version = wt_ffa_version_of(&g_spmc_version, WT_FFA_VERSION_1_2);
     unsigned int i;
 
+    if (!wt_ffa_fid_available(fid, version)) {
+        reply_error(r, WT_FFA_NOT_SUPPORTED);
+        return WT_SPMD_ACTION_REPLY;
+    }
     switch (fid) {
         case WT_FFA_VERSION:
             for (i = 1u; i < 8u; i++) {
@@ -428,7 +443,8 @@ int wt_ffa_spmd_secure_call(wt_ffa_regs_t* r)
                 &g_spmc_version, w1, WT_FFA_VERSION_1_2);
             break;
         case WT_FFA_FEATURES:
-            if (WT_FFA_FEATURES_IS_FID(w1) && spmd_implements(w1)) {
+            if (WT_FFA_FEATURES_IS_FID(w1) && spmd_implements(w1) &&
+                wt_ffa_fid_available(w1, version)) {
                 reply_success(r, 0u, 0u);
             }
             else {

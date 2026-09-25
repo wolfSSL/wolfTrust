@@ -212,6 +212,48 @@ static inline int32_t wt_ffa_version_negotiate(wt_ffa_version_state_t* st,
     return reply;
 }
 
+/* The Framework version an ABI first appeared in (DEN0077A revision
+ * history: notifications, indirect messaging, RX_ACQUIRE, and SPM_ID_GET in
+ * v1.1; CONSOLE_LOG, PARTITION_INFO_GET_REGS, and DIRECT_REQ2/RESP2 in v1.2). */
+static inline uint32_t wt_ffa_fid_min_version(uint32_t fid)
+{
+    uint32_t version;
+
+    switch (fid) {
+        case WT_FFA_NOTIFICATION_BITMAP_CREATE:
+        case WT_FFA_NOTIFICATION_BITMAP_DESTROY:
+        case WT_FFA_NOTIFICATION_BIND:
+        case WT_FFA_NOTIFICATION_UNBIND:
+        case WT_FFA_NOTIFICATION_SET:
+        case WT_FFA_NOTIFICATION_GET:
+        case WT_FFA_NOTIFICATION_INFO_GET32:
+        case WT_FFA_NOTIFICATION_INFO_GET64:
+        case WT_FFA_RX_ACQUIRE:
+        case WT_FFA_SPM_ID_GET:
+        case WT_FFA_MSG_SEND2:
+            version = WT_FFA_VERSION_MAKE(1u, 1u);
+            break;
+        case WT_FFA_CONSOLE_LOG32:
+        case WT_FFA_CONSOLE_LOG64:
+        case WT_FFA_PARTITION_INFO_GET_REGS:
+        case WT_FFA_MSG_SEND_DIRECT_REQ2:
+        case WT_FFA_MSG_SEND_DIRECT_RESP2:
+            version = WT_FFA_VERSION_MAKE(1u, 2u);
+            break;
+        default:
+            version = WT_FFA_VERSION_MAKE(1u, 0u);
+            break;
+    }
+    return version;
+}
+
+/* 13.2.2: the negotiated version is the only one the callee supports for the
+ * caller, so an ABI introduced after it is not implemented for that caller. */
+static inline int wt_ffa_fid_available(uint32_t fid, uint32_t negotiated)
+{
+    return !wt_ffa_version_less(negotiated, wt_ffa_fid_min_version(fid));
+}
+
 /* The version a caller's data structures are encoded at (18.5.3): the one it
  * negotiated, or ours when it never asked. */
 static inline uint32_t wt_ffa_version_of(const wt_ffa_version_state_t* st,

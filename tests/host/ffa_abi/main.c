@@ -1130,6 +1130,38 @@ int main(void)
                                          WT_FFA_FEATURES_RETRIEVE_NS_BIT) == 0,
           "a v1.1+ partition must request the NS bit (DEN0140 1.10.4.1.1), or "
           "the query is NOT_SUPPORTED (13.3)");
+    check(wt_ffa_fid_min_version(WT_FFA_VERSION) == WT_FFA_VERSION_MAKE(1u, 0u) &&
+          wt_ffa_fid_min_version(WT_FFA_MSG_SEND_DIRECT_REQ64) ==
+              WT_FFA_VERSION_MAKE(1u, 0u) &&
+          wt_ffa_fid_min_version(WT_FFA_MEM_FRAG_TX) ==
+              WT_FFA_VERSION_MAKE(1u, 0u) &&
+          wt_ffa_fid_min_version(WT_FFA_NOTIFICATION_SET) ==
+              WT_FFA_VERSION_MAKE(1u, 1u) &&
+          wt_ffa_fid_min_version(WT_FFA_MSG_SEND2) ==
+              WT_FFA_VERSION_MAKE(1u, 1u) &&
+          wt_ffa_fid_min_version(WT_FFA_SPM_ID_GET) ==
+              WT_FFA_VERSION_MAKE(1u, 1u) &&
+          wt_ffa_fid_min_version(WT_FFA_MSG_SEND_DIRECT_REQ2) ==
+              WT_FFA_VERSION_1_2 &&
+          wt_ffa_fid_min_version(WT_FFA_MSG_SEND_DIRECT_RESP2) ==
+              WT_FFA_VERSION_1_2 &&
+          wt_ffa_fid_min_version(WT_FFA_PARTITION_INFO_GET_REGS) ==
+              WT_FFA_VERSION_1_2 &&
+          wt_ffa_fid_min_version(WT_FFA_CONSOLE_LOG64) == WT_FFA_VERSION_1_2,
+          "each ABI carries the Framework version it appeared in (revision "
+          "history: notifications, MSG_SEND2, SPM_ID_GET 1.1; DIRECT_REQ2, "
+          "PARTITION_INFO_GET_REGS, CONSOLE_LOG 1.2)");
+    check(wt_ffa_fid_available(WT_FFA_MSG_SEND_DIRECT_REQ32,
+                               WT_FFA_VERSION_MAKE(1u, 0u)) &&
+          !wt_ffa_fid_available(WT_FFA_NOTIFICATION_SET,
+                                WT_FFA_VERSION_MAKE(1u, 0u)) &&
+          wt_ffa_fid_available(WT_FFA_NOTIFICATION_SET,
+                               WT_FFA_VERSION_MAKE(1u, 1u)) &&
+          !wt_ffa_fid_available(WT_FFA_MSG_SEND_DIRECT_REQ2,
+                                WT_FFA_VERSION_MAKE(1u, 1u)) &&
+          wt_ffa_fid_available(WT_FFA_MSG_SEND_DIRECT_REQ2, WT_FFA_VERSION_1_2),
+          "an ABI is available only from the version it appeared in (13.2.2: "
+          "the negotiated version is the only one supported for the caller)");
     check(!wt_ffa_ns_bit_used(WT_FFA_VERSION_MAKE(1u, 0u), 0) &&
               wt_ffa_ns_bit_used(WT_FFA_VERSION_MAKE(1u, 0u), 1) &&
               wt_ffa_ns_bit_used(WT_FFA_VERSION_MAKE(1u, 1u), 0) &&

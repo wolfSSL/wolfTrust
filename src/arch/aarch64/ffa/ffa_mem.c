@@ -1413,7 +1413,10 @@ int wt_ffa_mem_handle_retrieve(wt_ffa_mem_registry_t* reg, uint64_t handle,
         return WT_FFA_INVALID_PARAMETERS;
     }
     b = wt_ffa_mem_handle_borrower(reg, handle, borrower);
-    if ((b == NULL) || (b->retrieved != 0u)) {
+    if (b == NULL) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (b->retrieved != 0u) {
         return WT_FFA_DENIED;
     }
     b->retrieved = 1u;
@@ -1436,7 +1439,10 @@ int wt_ffa_mem_handle_relinquish(wt_ffa_mem_registry_t* reg, uint64_t handle,
         return WT_FFA_INVALID_PARAMETERS;
     }
     b = wt_ffa_mem_handle_borrower(reg, handle, borrower);
-    if ((b == NULL) || (b->retrieved == 0u)) {
+    if (b == NULL) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if (b->retrieved == 0u) {
         return WT_FFA_DENIED;
     }
     b->retrieved = 0u;
@@ -1473,7 +1479,7 @@ int wt_ffa_mem_handle_reclaim(wt_ffa_mem_registry_t* reg, uint64_t handle,
         return WT_FFA_INVALID_PARAMETERS;
     }
     if (e->owner != owner) {
-        return WT_FFA_DENIED;
+        return WT_FFA_INVALID_PARAMETERS;
     }
     if (e->retrieved != 0u) {
         return WT_FFA_DENIED;

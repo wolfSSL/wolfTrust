@@ -511,20 +511,26 @@ static void registry_rows(void)
               WT_FFA_INVALID_PARAMETERS,
           "an unknown handle does not look up");
 
-    check(wt_ffa_mem_handle_retrieve(&reg, h[0], 0x9999u) == WT_FFA_DENIED,
-          "the wrong borrower cannot retrieve a handle");
+    check(wt_ffa_mem_handle_retrieve(&reg, h[0], 0x9999u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a handle not sent to the caller cannot be retrieved: "
+          "INVALID_PARAMETERS (DEN0140 1.11.1)");
     check(wt_ffa_mem_handle_retrieve(&reg, h[0], 0x8002u) == 0,
           "the declared borrower retrieves the handle");
     check(wt_ffa_mem_handle_retrieve(&reg, h[0], 0x8002u) == WT_FFA_DENIED,
           "a handle cannot be retrieved twice");
     check(wt_ffa_mem_handle_reclaim(&reg, h[0], 0u) == WT_FFA_DENIED,
           "the owner cannot reclaim a handle the borrower still holds");
-    check(wt_ffa_mem_handle_relinquish(&reg, h[0], 0x9999u) == WT_FFA_DENIED,
-          "the wrong borrower cannot relinquish a handle");
+    check(wt_ffa_mem_handle_relinquish(&reg, h[0], 0x9999u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a caller the handle was not sent to cannot relinquish it: "
+          "INVALID_PARAMETERS (DEN0140 2.6.1.2 rules 1-2)");
     check(wt_ffa_mem_handle_relinquish(&reg, h[0], 0x8002u) == 0,
           "the borrower relinquishes the handle");
-    check(wt_ffa_mem_handle_reclaim(&reg, h[0], 0x9999u) == WT_FFA_DENIED,
-          "the wrong owner cannot reclaim a handle");
+    check(wt_ffa_mem_handle_reclaim(&reg, h[0], 0x9999u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a caller that does not own the handle cannot reclaim it: "
+          "INVALID_PARAMETERS (DEN0140 2.7.1.2 rule 1)");
     check(wt_ffa_mem_handle_reclaim(&reg, h[0], 0u) == 0,
           "the owner reclaims the relinquished handle");
     check(wt_ffa_mem_handle_lookup(&reg, h[0], &e) == WT_FFA_INVALID_PARAMETERS,

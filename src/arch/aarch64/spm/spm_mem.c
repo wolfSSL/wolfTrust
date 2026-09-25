@@ -1152,7 +1152,11 @@ int wt_spm_mem_retrieve(const uint8_t* req, size_t len, uint16_t receiver,
     }
     borrower = wt_ffa_mem_handle_borrower(&g_reg, rq.handle, receiver);
     b = bind_by_id(receiver);
-    if ((borrower == NULL) || (b == NULL) || (borrower->retrieved != 0u)) {
+    /* 1.11.1: a handle not sent to this receiver is INVALID_PARAMETERS. */
+    if (borrower == NULL) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((b == NULL) || (borrower->retrieved != 0u)) {
         return WT_FFA_DENIED;
     }
     ret = wt_ffa_mem_retrieve_req_check(e, &rq, receiver);
@@ -1317,7 +1321,12 @@ int wt_spm_mem_relinquish(const uint8_t* rel, size_t len, uint16_t endpoint)
     }
     borrower = wt_ffa_mem_handle_borrower(&g_reg, handle, endpoint);
     b = bind_by_id(endpoint);
-    if ((borrower == NULL) || (b == NULL) || (borrower->retrieved == 0u)) {
+    /* 2.6.1.2: a caller the region was not sent to is INVALID_PARAMETERS;
+     * one that has not retrieved it is DENIED. */
+    if (borrower == NULL) {
+        return WT_FFA_INVALID_PARAMETERS;
+    }
+    if ((b == NULL) || (borrower->retrieved == 0u)) {
         return WT_FFA_DENIED;
     }
     /* The zero-memory flag is MBZ for shared memory, and for a borrower

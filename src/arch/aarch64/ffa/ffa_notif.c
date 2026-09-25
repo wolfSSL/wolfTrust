@@ -124,6 +124,9 @@ void wt_ffa_notif_retire(uint16_t id, int32_t code)
                 g_eps[i].bound_sender[b] = 0u;
                 g_eps[i].bound_mask &= ~(1ull << b);
                 g_eps[i].bound_pcpu &= ~(1ull << b);
+                /* Only its sender could have pended a bound id. */
+                g_eps[i].pend_sp &= ~(1ull << b);
+                g_eps[i].pend_vm &= ~(1ull << b);
             }
         }
     }

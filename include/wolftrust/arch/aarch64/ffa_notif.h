@@ -83,9 +83,10 @@ typedef struct wt_ffa_notif_info_result {
 void wt_ffa_notif_reset(void);
 int wt_ffa_notif_register(uint16_t id, int secure);
 /* An endpoint out of service: its bindings and pending notifications go, as
- * does every binding naming it the sender; its id stays recognized, and a
- * BIND/UNBIND naming it the sender or a SET to it answers code (ABORTED for
- * one that aborted, Tables 16.12, 16.16, 16.20). */
+ * does every binding naming it the sender, with whatever it pended through
+ * that binding; its id stays recognized, and a BIND/UNBIND naming it the
+ * sender or a SET to it answers code (ABORTED for one that aborted, Tables
+ * 16.12, 16.16, 16.20). */
 void wt_ffa_notif_retire(uint16_t id, int32_t code);
 
 int32_t wt_ffa_notif_bitmap_create(uint16_t caller, uint32_t vm_id,

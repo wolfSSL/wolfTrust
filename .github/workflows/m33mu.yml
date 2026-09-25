@@ -342,6 +342,8 @@ jobs:
           - { key: ahbscneg, name: "cross-guest store faults and is contained" }
           - { key: "rollbackneg manifestneg spbudgetneg",
               name: "secure verdict negatives" }
+          - { key: "crossdomain keystoreneg",
+              name: "SP domain isolation negatives" }
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25

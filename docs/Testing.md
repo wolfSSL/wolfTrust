@@ -187,7 +187,12 @@ the verdict breakpoint its probe emits, asserted port-independently:
 domain), `manifestneg` (a corrupted manifest halts boot before anything is
 scheduled), and `spbudgetneg` (restart-budget exhaustion escalates to the
 fail-closed platform recovery). `remeasureneg` joins this list once the port
-implements the post-launch flash tamper hook the probe needs.
+implements the post-launch flash tamper hook the probe needs. `crossdomain`
+and `keystoreneg` prove the Secure Partition MPU domains: an unprivileged
+storage-SP read of SPM-private RAM, or of the shared keystore band,
+MemManage-faults at the port's band address (shown by a second traced boot),
+the SP's wake never serves the guests' storage connect, and the guests' own
+lifecycle rides it out.
 
 The runner builds its own pinned emulator and wolfBoot first stage. The
 emulator is `M33MU_REF` plus `tests/target/m33mu-imxrt700.patch`, the model

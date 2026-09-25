@@ -32,6 +32,7 @@
 
 /* SERVICE_HSM from the platform manifest (port/mimxrt700/manifest.json). */
 #define GUEST0_SERVICE_HSM_SID   4102u
+#define GUEST0_SERVICE_ITS_SID   4099u
 #define GUEST0_SERVICE_VERSION   1u
 
 /* One source builds both guests; the Makefile names each on the console. */
@@ -230,6 +231,16 @@ void Reset_Handler(void)
     else {
         mb->status = GUEST0_STATUS_FAIL;
         guest0_uart_puts("wolfTrust RT700 " GUEST_NAME ": FAIL\r\n");
+    }
+
+    /* Touch a second service so the storage SP wakes: the crossdomain and
+     * keystoreneg probes fault on its entry, so this connect failing is their
+     * verdict, never this guest's. */
+    handle = psa_connect(GUEST0_SERVICE_ITS_SID, GUEST0_SERVICE_VERSION);
+    if (PSA_HANDLE_IS_VALID(handle)) {
+        psa_close(handle);
+        guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+                         ": storage connect ok\r\n");
     }
 
 #if defined(WT_AHBSC_PROBE)

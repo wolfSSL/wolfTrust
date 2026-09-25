@@ -13,6 +13,7 @@ check() { if [ "$1" -eq 0 ]; then log "  [check] PASS  $2"; \
 count()     { grep -c -F -- "$1" "$log" || true; }
 count_re()  { grep -c -E -- "$1" "$log" || true; }
 expect()    { check "$([ "$(count "$2")" -ge 1 ]; echo $?)" "$1"; }
+expect_re() { check "$([ "$(count_re "$2")" -ge 1 ]; echo $?)" "$1"; }
 refute_re() { check "$([ "$(count_re "$2")" -eq 0 ]; echo $?)" "$1"; }
 expect_n()  { local n; n="$(count "$3")"; \
               check "$([ "$n" -eq "$2" ]; echo $?)" "$1 ($n)"; }

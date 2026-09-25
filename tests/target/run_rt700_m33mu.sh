@@ -33,8 +33,8 @@ unset TARGET MAKEFLAGS MFLAGS
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|ahbscneg|rollbackneg|manifestneg|spbudgetneg) ;;
-  *) echo "usage: $0 positive|ahbscneg|rollbackneg|manifestneg|spbudgetneg" >&2
+  positive|ahbscneg|crossdomain|keystoreneg|rollbackneg|manifestneg|spbudgetneg) ;;
+  *) echo "usage: $0 positive|ahbscneg|crossdomain|keystoreneg|rollbackneg|manifestneg|spbudgetneg" >&2
      exit 2 ;;
 esac
 
@@ -195,13 +195,33 @@ fi
 # A guest fault relaunches that guest, so exact launch counts also prove that
 # nothing faulted where nothing should have.
 case "$scenario" in
-  positive)
+  positive|crossdomain|keystoreneg)
     for guest in guest0 guest1; do
         expect_n "$guest launched exactly once (no fault, no relaunch)" 1 \
             "wolfTrust RT700 $guest: start"
         expect_n "$guest reached the SPM through the SG veneers and finished" 1 \
             "wolfTrust RT700 $guest: FF-M connect ok, done"
     done
+    # The deliberate SP probe faults are Secure MemManage faults at the port's
+    # own band addresses; the guests above prove the system rode them out.
+    if [ "$scenario" = "positive" ]; then
+        expect_n "both guests reached the storage service" 2 ": storage connect ok"
+    else
+        # The storage SP's probe faults on its first wake, so the guests'
+        # storage connect never succeeds while their own lifecycle survives.
+        refute_re "the probed storage SP never served a guest connect" \
+            ": storage connect ok"
+        case "$scenario" in
+          crossdomain) neg_addr=0x30188000 ;;
+          keystoreneg) neg_addr=0x301d5000 ;;
+        esac
+        stage "boot again with the protection-unit trace, stopping at the first fault"
+        log="$repo/build/rt700_m33mu_${scenario}_trace.log"
+        M33MU_PROT_TRACE=1 boot_chain 0 "$log" --quit-on-faults
+        expect "the traced run stopped at a delivered fault" "Execution stopped"
+        expect_re "the fault was the SP's out-of-domain read at the band address" \
+            "\[MEMFAULT_CAUSE\] sec=S type=READ addr=$neg_addr reason=mpu-ap"
+    fi
     ;;
   ahbscneg)
     faults=$((restart_limit + 1))

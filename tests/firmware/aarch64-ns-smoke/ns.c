@@ -1731,6 +1731,46 @@ static int a32_walk(void)
     return ok;
 }
 
+/* A target_cpu naming the boot core but with a Must-be-zero bit set (DEN0022
+ * 5.1.4: bits[31:24] and, for SMC64, bits[63:40]) names no core. */
+static int psci_mbz_target(uint64_t self)
+{
+    static const uint32_t fids[] = {
+        WT_PSCI_CPU_ON64, WT_PSCI_AFFINITY_INFO64, WT_PSCI_MIGRATE64,
+        WT_PSCI_CPU_ON32, WT_PSCI_AFFINITY_INFO32, WT_PSCI_MIGRATE32
+    };
+    static const unsigned int bits[] = { 24u, 31u, 40u, 63u };
+    uint64_t got;
+    unsigned int f;
+    unsigned int b;
+    int smc64;
+    int ok = 1;
+
+    for (f = 0u; f < sizeof(fids) / sizeof(fids[0]); f++) {
+        smc64 = ((fids[f] & 0x40000000u) != 0u) ? 1 : 0;
+        for (b = 0u; b < sizeof(bits) / sizeof(bits[0]); b++) {
+            if ((smc64 == 0) && (bits[b] >= 32u)) {
+                continue;
+            }
+            got = psci_call(fids[f], self | (1ull << bits[b]), 0u);
+            if (((smc64 != 0) &&
+                 (got != (uint64_t)(int64_t)WT_PSCI_INVALID_PARAMS)) ||
+                ((smc64 == 0) &&
+                 ((int32_t)(uint32_t)got != WT_PSCI_INVALID_PARAMS))) {
+                put_str("[NS] psci BAD mbz target fid=0x");
+                put_hex(fids[f]);
+                put_str(" bit=");
+                put_dec(bits[b]);
+                put_str(" x0=0x");
+                put_hex((uint32_t)got);
+                put_str("\r\n");
+                ok = 0;
+            }
+        }
+    }
+    return ok;
+}
+
 /* The mandatory PSCI 1.1 set as a boot-core-only Normal world sees it. */
 static void psci_walk(void)
 {
@@ -1789,6 +1829,7 @@ static void psci_walk(void)
     ok &= psci_expect64("migrate bogus",
                         psci_call(WT_PSCI_MIGRATE64, self | 0x00FF0000u, 0u),
                         WT_PSCI_INVALID_PARAMS);
+    ok &= psci_mbz_target(self);
     ok &= psci_expect("migrate_info_type",
                       psci_call(WT_PSCI_MIGRATE_INFO_TYPE, 0u, 0u),
                       (int32_t)WT_PSCI_TOS_UP_NOT_MIGRATABLE);

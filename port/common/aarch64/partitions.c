@@ -38,6 +38,8 @@
  * turns these endpoints on; until then the port offers none, so the core
  * schedules only Secure Partitions and idles on FF-A. */
 #define WT_PORT_NS_GUESTS 0u
+/* An object, not the macro: gcc -Wtype-limits rejects the loop test i < 0u. */
+static const size_t g_port_ns_guests = WT_PORT_NS_GUESTS;
 
 static wt_guest_config_t g_partition_configs[WT_MAX_GUESTS];
 static wt_guest_runtime_t g_partition_runtime[WT_MAX_GUESTS];
@@ -145,7 +147,7 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
     }
     wt_partitions_wire();
 
-    for (i = 0U; i < WT_PORT_NS_GUESTS; ++i) {
+    for (i = 0U; i < g_port_ns_guests; ++i) {
         wt_guest_config_t* config = &g_partition_configs[i];
         const wt_domain_descriptor_t* domain;
 

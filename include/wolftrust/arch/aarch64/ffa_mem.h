@@ -369,7 +369,13 @@ int wt_ffa_mem_relinquish_parse(const uint8_t* buf, size_t len,
 int wt_ffa_rxtx_validate(uint64_t tx, uint64_t rx, uint32_t pages);
 
 /* One endpoint's RX/TX pair and who owns its RX buffer (7.2.2): the producer
- * acquires RX before it writes, the endpoint hands it back with RX_RELEASE. */
+ * acquires RX before it writes, the endpoint hands it back with RX_RELEASE.
+ * rx_full is one of the WT_FFA_RX_* states below. */
+#define WT_FFA_RX_EMPTY  0u
+#define WT_FFA_RX_OWNED  1u
+/* Full with a partition message, still the producer's until the endpoint
+ * retrieves its RX-full notification (7.2.2.4.2 rule 2.1.1). */
+#define WT_FFA_RX_POSTED 2u
 typedef struct wt_ffa_mailbox {
     uint64_t tx;
     uint64_t rx;
@@ -398,9 +404,15 @@ int wt_ffa_mailbox_overlaps(const wt_ffa_mailbox_t* mb, uint64_t base,
  * pair, or a descriptor longer than the TX buffer. */
 int wt_ffa_mem_tx_buffer(const wt_ffa_mailbox_t* mb, uint64_t addr,
                          uint32_t pages, uint32_t len, uint64_t* out_tx);
-/* DENIED when no pair is mapped, BUSY while the endpoint still owns RX. */
+/* DENIED when no pair is mapped, BUSY while RX is full. The endpoint owns
+ * the framework message written next (7.2.2.4.2 rule 2.2). */
 int wt_ffa_mailbox_rx_acquire(wt_ffa_mailbox_t* mb);
-/* DENIED unless the endpoint owns a full RX buffer. */
+/* As rx_acquire, for an FFA_MSG_SEND2 partition message: RX is posted. */
+int wt_ffa_mailbox_rx_post(wt_ffa_mailbox_t* mb);
+/* A completed FFA_NOTIFICATION_GET whose framework bitmap carried an RX-full
+ * notification hands a posted RX buffer to the endpoint. */
+void wt_ffa_mailbox_rx_claim(wt_ffa_mailbox_t* mb, uint64_t framework);
+/* DENIED unless the endpoint owns RX (Table 13.22). */
 int wt_ffa_mailbox_rx_release(wt_ffa_mailbox_t* mb);
 
 /* Memory transaction handle registry (handle lifetime state). A handle names a

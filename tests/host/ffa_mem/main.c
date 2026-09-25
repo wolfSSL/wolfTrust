@@ -30,6 +30,7 @@
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_mem.h"
+#include "wolftrust/arch/aarch64/ffa_notif.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/tables.h"
@@ -416,6 +417,26 @@ static void mailbox_rows(void)
     check(wt_ffa_mailbox_rx_release(&mb) == 0 &&
               wt_ffa_mailbox_rx_acquire(&mb) == 0,
           "FFA_RX_RELEASE hands the buffer back to the producer");
+    check(wt_ffa_mailbox_rx_release(&mb) == 0 &&
+              wt_ffa_mailbox_rx_post(&mb) == 0 &&
+              wt_ffa_mailbox_rx_post(&mb) == WT_FFA_BUSY &&
+              wt_ffa_mailbox_rx_acquire(&mb) == WT_FFA_BUSY,
+          "a partition message posted to RX makes the next one BUSY");
+    check(wt_ffa_mailbox_rx_release(&mb) == WT_FFA_DENIED &&
+              mb.rx_full == WT_FFA_RX_POSTED,
+          "RX_RELEASE before the RX-full notification is retrieved is DENIED "
+          "and the message stays (7.2.2.4.2 rule 2.1.1, Table 13.22)");
+    wt_ffa_mailbox_rx_claim(&mb, WT_FFA_NOTIF_FW_SPM_MASK &
+                                     ~WT_FFA_NOTIF_FW_SPM_RX_FULL);
+    check(mb.rx_full == WT_FFA_RX_POSTED,
+          "a GET that returns no RX-full notification hands nothing over");
+    wt_ffa_mailbox_rx_claim(&mb, WT_FFA_NOTIF_FW_NS_RX_FULL);
+    check(mb.rx_full == WT_FFA_RX_OWNED && wt_ffa_mailbox_rx_release(&mb) == 0,
+          "retrieving the RX-full notification hands RX to the endpoint, "
+          "which releases it");
+    wt_ffa_mailbox_rx_claim(&mb, WT_FFA_NOTIF_FW_SPM_RX_FULL);
+    check(mb.rx_full == WT_FFA_RX_EMPTY && wt_ffa_mailbox_rx_acquire(&mb) == 0,
+          "an RX-full bit with no message posted claims nothing");
     check(wt_ffa_mailbox_unmap(&mb) == 0 && mb.mapped == 0u &&
               mb.rx_full == 0u &&
               wt_ffa_mailbox_overlaps(&mb, 0x1000ull, 0x1000ull) == 0,

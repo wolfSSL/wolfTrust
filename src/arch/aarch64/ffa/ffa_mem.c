@@ -24,6 +24,7 @@
 
 #include "wolftrust/arch/aarch64/ffa_mem.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/ffa_notif.h"
 
 static uint32_t rd_u16(const uint8_t* p)
 {
@@ -939,24 +940,44 @@ int wt_ffa_mem_tx_buffer(const wt_ffa_mailbox_t* mb, uint64_t addr,
     return 0;
 }
 
-int wt_ffa_mailbox_rx_acquire(wt_ffa_mailbox_t* mb)
+static int mailbox_rx_fill(wt_ffa_mailbox_t* mb, uint8_t state)
 {
     if ((mb == NULL) || (mb->mapped == 0u)) {
         return WT_FFA_DENIED;
     }
-    if (mb->rx_full != 0u) {
+    if (mb->rx_full != WT_FFA_RX_EMPTY) {
         return WT_FFA_BUSY;
     }
-    mb->rx_full = 1u;
+    mb->rx_full = state;
     return 0;
+}
+
+int wt_ffa_mailbox_rx_acquire(wt_ffa_mailbox_t* mb)
+{
+    return mailbox_rx_fill(mb, (uint8_t)WT_FFA_RX_OWNED);
+}
+
+int wt_ffa_mailbox_rx_post(wt_ffa_mailbox_t* mb)
+{
+    return mailbox_rx_fill(mb, (uint8_t)WT_FFA_RX_POSTED);
+}
+
+void wt_ffa_mailbox_rx_claim(wt_ffa_mailbox_t* mb, uint64_t framework)
+{
+    if ((mb != NULL) && (mb->rx_full == WT_FFA_RX_POSTED) &&
+        ((framework & (WT_FFA_NOTIF_FW_SPM_RX_FULL |
+                       WT_FFA_NOTIF_FW_NS_RX_FULL)) != 0u)) {
+        mb->rx_full = (uint8_t)WT_FFA_RX_OWNED;
+    }
 }
 
 int wt_ffa_mailbox_rx_release(wt_ffa_mailbox_t* mb)
 {
-    if ((mb == NULL) || (mb->mapped == 0u) || (mb->rx_full == 0u)) {
+    if ((mb == NULL) || (mb->mapped == 0u) ||
+        (mb->rx_full != WT_FFA_RX_OWNED)) {
         return WT_FFA_DENIED;
     }
-    mb->rx_full = 0u;
+    mb->rx_full = (uint8_t)WT_FFA_RX_EMPTY;
     return 0;
 }
 

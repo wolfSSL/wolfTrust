@@ -698,6 +698,7 @@ case "$scenario" in
       expect "NS-EL1 read ICC_SRE_EL1 with SRE set under the GICv3" "[NS] icc_sre_el1 sre=1"
     fi
     expect "secondary cores parked ($cpus cores)" " secondaries parked mask=$expected_mask"
+    expect "EL3 set the fail-closed debug and PMU policy in MDCR_EL3" "[EL3] mdcr_el3 ok"
     expect "the Normal world read the PSCI version from the SPMD" "[NS] psci version 1.1"
     refute_re "no PSCI call returned an off-spec value" '\[NS\] psci BAD'
     expect "SMCCC_VERSION reported 1.2 and x4-x7 survived a PSCI call" "[NS] smccc version 1.2"
@@ -963,6 +964,8 @@ case "$scenario" in
     refute_re "no SPMC panic" '\[SPM\] panic'
     expect "the Normal-world test harness ran at NS-EL1" "[NS] hello el=1"
     expect "val started from the payload" "[NS] conformance val_entry start"
+    refute_re "the guest heap did not hand out a wrapped oversized request" '\[NS\] heap BAD'
+    expect "the guest heap refused requests the alignment rounding would wrap" "[NS] heap bound ok"
     flat="$(tr -d '\r\n' < "$log")"
     passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)

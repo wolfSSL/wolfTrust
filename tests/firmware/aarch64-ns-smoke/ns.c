@@ -1408,16 +1408,45 @@ static void guest_reset(void)
 #if defined(WT_NS_GUEST_SECRAM)
 extern char _ns_vectbl[];
 extern void ns_exit(int code);
+extern uint32_t ns_secram_load(uintptr_t pa);
+
+/* The fence's refusal as the NS-EL1h guest takes it (vector slot 4): a data
+ * abort without a change in Exception level (EC 0x25) that is a synchronous
+ * external abort (DFSC 0x10) on a read, with FAR valid (FnV 0). */
+#define WT_NS_VEC_SYNC_CUR_SPX 4u
+#define WT_NS_ESR_EC_DABT_CUR  0x25u
+#define WT_NS_ESR_DFSC_EXT     0x10u
+#define WT_NS_ESR_WNR          (1u << 6)
+#define WT_NS_ESR_FNV          (1u << 10)
 
 /* The Normal world's own abort vector (ns.S) lands here when the Secure-RAM read
- * faults: report the refusal and end the run. A hang (no handler) or a returned
- * value (a leak) would both be failures. */
-void ns_abort_report(uint64_t esr)
+ * faults. Only the fence's abort on the probe load and address is a refusal;
+ * any other exception, a hang (no handler), or a returned value (a leak) is a
+ * failure. */
+void ns_abort_report(uint64_t esr, uint64_t far, uint64_t elr, uint64_t slot)
 {
-    put_str("[NS] secram refused esr=0x");
+    uint32_t ec = (uint32_t)(esr >> 26) & 0x3Fu;
+    uint32_t dfsc = (uint32_t)esr & 0x3Fu;
+    int ok = (slot == WT_NS_VEC_SYNC_CUR_SPX) &&
+             (ec == WT_NS_ESR_EC_DABT_CUR) && (dfsc == WT_NS_ESR_DFSC_EXT) &&
+             (((uint32_t)esr & (WT_NS_ESR_WNR | WT_NS_ESR_FNV)) == 0u) &&
+             (far == (uint64_t)WT_NS_SECURE_PROBE_PA) &&
+             (elr == (uint64_t)(uintptr_t)ns_secram_load);
+
+    put_str((ok != 0) ? "[NS] secram refused ec=0x" : "[NS] secram BAD ec=0x");
+    put_hex(ec);
+    put_str(" dfsc=0x");
+    put_hex(dfsc);
+    put_str(" far=0x");
+    put_hex((uint32_t)far);
+    put_str(" esr=0x");
     put_hex((uint32_t)esr);
+    put_str(" slot=");
+    put_dec((uint32_t)slot);
+    put_str(" elr=0x");
+    put_hex((uint32_t)elr);
     put_str("\r\n");
-    ns_exit(0);
+    ns_exit((ok != 0) ? 0 : 1);
 }
 
 /* Attempt to read Secure RAM from the Normal world: the secure physical region
@@ -1426,14 +1455,13 @@ void ns_abort_report(uint64_t esr)
  * is broken. */
 static void guest_secram(void)
 {
-    volatile uint32_t* p = (volatile uint32_t*)(uintptr_t)WT_NS_SECURE_PROBE_PA;
     uint32_t v;
 
     __asm__ volatile("msr vbar_el1, %0\n\tisb" : : "r"(_ns_vectbl));
     put_str("[NS] secram read 0x");
     put_hex((uint32_t)WT_NS_SECURE_PROBE_PA);
     put_str("\r\n");
-    v = *p;
+    v = ns_secram_load((uintptr_t)WT_NS_SECURE_PROBE_PA);
     put_str("[NS] secram LEAK 0x");
     put_hex(v);
     put_str("\r\n");

@@ -47,6 +47,9 @@
 # This is the single source the local make test-target harness, the box skill
 # scripts, and the CI jobs all drive, so each scenario's markers stay identical.
 set -euo pipefail
+# make test-target hands TARGET and MAKEFLAGS to every child make; wolfBoot's
+# own TARGET must come from its config, so drop both before any build.
+unset TARGET MAKEFLAGS MFLAGS
 set -o pipefail
 
 scenario="${1:-}"

@@ -33,10 +33,13 @@ full scenario list lives in the `matrix` of `m33mu.yml`:
 | `M33MU / dev_apis Crypto (c001-c080)` | `devcrypto` | PSA Crypto conformance |
 | `M33MU / Vault recovery self-heal` | `vaultrecover` | #95 foreign pool reformatted |
 | `M33MU / Vault recovery fail-closed` | `vaultrecoversec` | #95 SECURED never wipes |
+| `M33MU / RT700 positive lifecycle (SAU guest windows) (<engine>)` | `positive` | MIMXRT700 chain under the RT700 model, both guests finish |
+| `M33MU / RT700 cross-guest store faults and is contained (<engine>)` | `ahbscneg` | guest0's store into guest1's RAM refused by the SAU, contained |
 
 Every job runs automatically on every PR — no labels, nothing to add. To run a
-single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>`; to run
-the whole matrix off-PR against a branch, `workflow_dispatch` on `m33mu.yml`.
+single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>` (the
+`RT700` checks use `tests/target/run_rt700_m33mu.sh <key>`); to run the whole
+matrix off-PR against a branch, `workflow_dispatch` on `m33mu.yml`.
 
 `nightly.yml` also runs the fast lane + `core-port-split`.
 

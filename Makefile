@@ -61,17 +61,22 @@ c99-check:
 		BUILD_ROOT="$(abspath $(BUILD_DIR))/c99" \
 		EXTRA_CFLAGS="$(C99_CFLAGS)"
 
-# FF-M target-only scenarios (partition restart, cross-domain isolation) that
-# need a real Cortex-M execution model. Separate from `make test` (host-only),
-# like `make test-conformance`. Auto-detect an M33MU emulator (or set
-# WT_TARGET_SCENARIOS=1); skip explicitly otherwise so it never silently passes.
-# Runs inside the wolfboot-ci-m33mu container, never bare-metal.
+# FF-M target scenarios for one port under the M33MU emulator, separate from
+# `make test` (host-only): TARGET=stm32h563 (default) auto-detects an M33MU
+# (or WT_TARGET_SCENARIOS=1) and skips explicitly otherwise so it never
+# silently passes; TARGET=mimxrt700 runs the RT700 chain (its runner builds
+# its own pinned emulator and wolfBoot first stage). Runs inside the
+# wolfboot-ci-m33mu container, never bare-metal.
 test-target:
+ifeq ($(TARGET),mimxrt700)
+	@tests/target/run_suite.sh rt700-m33mu positive ahbscneg
+else
 	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
 		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \
 	else \
 		tests/target/run_suite.sh m33mu positive restart crossdomain confboot; \
 	fi
+endif
 
 # Real STM32H563 hardware equivalence suite: positive lifecycle + restart
 # recovery + cross-domain isolation on a Nucleo-H563ZI, the on-silicon

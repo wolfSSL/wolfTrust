@@ -1503,6 +1503,7 @@ static void ns_notif_get(wt_ffa_regs_t* r)
 
     ns_reply(r, (int)ret, 0u, 0u);
     if (ret == 0) {
+        wt_ffa_mailbox_rx_claim(&g_ns_mailbox, got.framework);
         r->x[2] = (uint32_t)got.from_sp;
         r->x[3] = (uint32_t)(got.from_sp >> 32);
         r->x[4] = (uint32_t)got.from_vm;
@@ -1602,7 +1603,7 @@ int wt_spm_msg2_deliver(uint16_t caller, uint32_t version, const uint8_t* tx,
             ret = WT_FFA_INVALID_PARAMETERS;
         }
         else {
-            ret = wt_ffa_mailbox_rx_acquire(mb);
+            ret = wt_ffa_mailbox_rx_post(mb);
         }
     }
     if (ret == 0) {

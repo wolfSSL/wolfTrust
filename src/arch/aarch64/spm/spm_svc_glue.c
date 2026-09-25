@@ -985,6 +985,7 @@ static void ffa_notif_get(wt_trap_frame_t* frame, const struct wt_co* co)
                                    (uint32_t)frame->x[2], &got);
 
     if (ret == 0) {
+        wt_ffa_mailbox_rx_claim(sp_mailbox(), got.framework);
         ffa_success(frame, (uint32_t)got.from_sp,
                     (uint32_t)(got.from_sp >> 32));
         frame->x[4] = (uint32_t)got.from_vm;

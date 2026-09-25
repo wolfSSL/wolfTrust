@@ -658,6 +658,18 @@ static void guest_psa(void)
 /* An ITS round trip is the first Normal-world request whose service calls a
  * second partition: SERVICE_ITS fronts the VAULT partition, so every op below
  * crosses the SVC gate SP-to-SP and back before the reply reaches the guest. */
+static int bytes_equal(const uint8_t* a, const uint8_t* b, size_t n)
+{
+    size_t i;
+
+    for (i = 0u; i < n; i++) {
+        if (a[i] != b[i]) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void guest_storage(void)
 {
     static const uint8_t its_in[4] = { 0x11u, 0x22u, 0x33u, 0x44u };
@@ -685,7 +697,7 @@ static void guest_storage(void)
     put_str("\r\n");
     if ((st_info == PSA_ERROR_DOES_NOT_EXIST) && (st_set == PSA_SUCCESS) &&
         (st_get == PSA_SUCCESS) && (got == sizeof(its_in)) &&
-        (its_out[0] == its_in[0]) && (its_out[3] == its_in[3])) {
+        bytes_equal(its_out, its_in, sizeof(its_in))) {
         put_str("[NS] its ok\r\n");
     }
     else {

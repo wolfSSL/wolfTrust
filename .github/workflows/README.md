@@ -38,6 +38,9 @@ full scenario list lives in the `matrix` of `m33mu.yml`:
 | `M33MU / RT700 guest restart budget and launch refusal (<engine>)` | `restart authneg` | guest0's launch-time SecureFault spends its restart budget and quarantines it; a tampered guest0 is refused at launch; guest1 runs on |
 | `M33MU / RT700 SP domain isolation negatives (<engine>)` | `crossdomain keystoreneg` | unprivileged SP reads of SPM RAM and the keystore band MemManage-fault, guests ride it out |
 | `M33MU / RT700 SP fault and panic recovery (<engine>)` | `spfaultneg panicneg` | the relay's undefined instruction and the storage SP's programmer-error close UsageFault once, the SPM restarts the SP in place, both guests finish |
+| `M33MU / RT700 both-guest PSA lifecycle and isolation (<engine>)` | `bothpsa bothiso` | the portable PSA guest in both windows: crypto, storage, keys, attestation, and the FF-M negatives from each |
+| `M33MU / RT700 attestation negatives (<engine>)` | `attestneg` | invalid attestation requests refused, tampered tokens fail the guest verify |
+| `M33MU / RT700 wolfHSM cross-namespace + NVM relay negatives (hsm)` | `hsmattackneg` | a forged client id cannot reach the IAK, an NVM-group packet never reaches the server |
 | `M33MU / RT700 secure verdict negatives (<engine>)` | `rollbackneg manifestneg spbudgetneg` | shared Secure-verdict table: rollback refusal, corrupted manifest, restart budget |
 
 Every job runs automatically on every PR — no labels, nothing to add. To run a

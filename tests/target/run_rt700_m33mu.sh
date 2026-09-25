@@ -22,15 +22,24 @@
 # restart budget on a launch-time fault; authneg refuses a tampered guest0 at
 # launch. guest1 runs on through all of them.
 #
+# bothpsa, bothiso, attestneg, and hsmattackneg run the portable
+# PSA test guest (tests/firmware/psa-guest) in both windows: the H5 guest's
+# crypto, storage, key, attestation, and FF-M negative lifecycle from a guest
+# with no operating system. hsmattackneg drives the raw wolfHSM client wire,
+# so it exists only under WT_ENGINE=hsm.
+#
 # Environment (all optional):
 #   M33MU               prebuilt emulator carrying tests/target/m33mu-imxrt700.patch;
 #                       otherwise M33MU_REF is built under /tmp
 #   RT700_WOLFBOOT_DIR  wolfBoot tree holding wolfboot.bin, tools/keytools/sign
-#                       and wolfboot_signing_private_key.der; otherwise
-#                       WOLFBOOT_REF is built from config/examples/imx-rt700-tz.config
-#                       (the MCUXpresso SDK/DFP must be reachable exactly as for
-#                       any RT700 wolfBoot build)
-#   RT700_M33MU_TIMEOUT emulator wall-clock budget in seconds (default 60)
+#                       and wolfboot_signing_private_key.der, built with
+#                       tests/target/wolfboot-imxrt700-lifecycle.patch applied;
+#                       otherwise WOLFBOOT_REF is built from
+#                       config/examples/imx-rt700-tz.config (the MCUXpresso
+#                       SDK/DFP must be reachable exactly as for any RT700
+#                       wolfBoot build)
+#   RT700_M33MU_TIMEOUT emulator wall-clock budget in seconds (default 60,
+#                       180 for the PSA guest scenarios)
 set -eu
 # make test-target hands TARGET and MAKEFLAGS to every child make; wolfBoot's
 # own TARGET must come from its config, so drop both before any build.
@@ -38,16 +47,27 @@ unset TARGET MAKEFLAGS MFLAGS
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|ahbscneg|restart|authneg|crossdomain|keystoreneg|spfaultneg|panicneg|rollbackneg|manifestneg|spbudgetneg) ;;
-  *) echo "usage: $0 positive|ahbscneg|restart|authneg|crossdomain|keystoreneg|spfaultneg|panicneg|rollbackneg|manifestneg|spbudgetneg" >&2
+  positive|ahbscneg|restart|authneg|crossdomain|keystoreneg|spfaultneg|panicneg|rollbackneg|manifestneg|spbudgetneg|bothpsa|bothiso|attestneg|hsmattackneg) ;;
+  *) echo "usage: $0 positive|ahbscneg|restart|authneg|crossdomain|keystoreneg|spfaultneg|panicneg|rollbackneg|manifestneg|spbudgetneg|bothpsa|bothiso|attestneg|hsmattackneg" >&2
      exit 2 ;;
 esac
+if [ "$scenario" = "hsmattackneg" ] && [ "${WT_ENGINE:-native}" != "hsm" ]; then
+  echo "hsmattackneg drives the raw wolfHSM client wire; run it with WT_ENGINE=hsm" >&2
+  exit 2
+fi
 
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
-guest_build="$repo/tests/firmware/mimxrt700-baremetal/build"
+case "$scenario" in
+  bothpsa|bothiso|attestneg|hsmattackneg)
+    guest_dir="tests/firmware/psa-guest"
+    timeout_s="${RT700_M33MU_TIMEOUT:-180}" ;;
+  *)
+    guest_dir="tests/firmware/mimxrt700-baremetal"
+    timeout_s="${RT700_M33MU_TIMEOUT:-60}" ;;
+esac
+guest_build="$repo/$guest_dir/build"
 wolfboot_dir="${RT700_WOLFBOOT_DIR:-/tmp/wolfboot_rt700}"
-timeout_s="${RT700_M33MU_TIMEOUT:-60}"
 log="$repo/build/rt700_m33mu_$scenario.log"
 
 WOLFBOOT_REF=e6d169c7218d82e33bd04e2c086146ed37ec0cca
@@ -97,15 +117,22 @@ fi
 #     M33MU has no RT700 boot ROM or FCB and takes the reset vector from the
 #     start of the NOR, so wolfBoot links at the NOR base instead of
 #     0x28004000, the same override the wolfBoot emulator tests apply. ---
-if [ ! -s "$wolfboot_dir/wolfboot.bin" ]; then
+# The cache is keyed on the wolfBoot ref and the lifecycle patch, so a first
+# stage left by an earlier checkout is rebuilt rather than reused.
+wolfboot_stamp="$WOLFBOOT_REF $(cksum "$here/wolfboot-imxrt700-lifecycle.patch" | cut -d' ' -f1)"
+if [ ! -s "$wolfboot_dir/wolfboot.bin" ] || \
+   [ "$(cat "$wolfboot_dir/.wt_first_stage" 2>/dev/null)" != "$wolfboot_stamp" ]; then
   if [ -n "${RT700_WOLFBOOT_DIR:-}" ]; then
-    fail "no wolfboot.bin in RT700_WOLFBOOT_DIR=$wolfboot_dir; build it there or unset it"
+    fail "wolfboot.bin in RT700_WOLFBOOT_DIR=$wolfboot_dir is missing or was built from another wolfBoot ref or lifecycle patch; rebuild it there or unset it"
   fi
   stage "build wolfBoot $WOLFBOOT_REF (imx-rt700-tz, emulator link offset)"
   rm -rf "$wolfboot_dir"
   git clone --no-checkout https://github.com/wolfSSL/wolfBoot.git "$wolfboot_dir"
   git -C "$wolfboot_dir" fetch --depth 1 origin "$WOLFBOOT_REF"
   git -C "$wolfboot_dir" checkout --detach "$WOLFBOOT_REF"
+  # The RT700 HAL reports no PSA lifecycle at WOLFBOOT_REF, which leaves the
+  # attestation service degraded; drop the patch once wolfBoot carries it.
+  git -C "$wolfboot_dir" apply "$here/wolfboot-imxrt700-lifecycle.patch"
   git -C "$wolfboot_dir" submodule update --init --single-branch --depth 1
   cp "$wolfboot_dir/config/examples/imx-rt700-tz.config" "$wolfboot_dir/.config"
   # wolfBoot locates its key tools from the shell's working directory, so
@@ -118,6 +145,7 @@ if [ ! -s "$wolfboot_dir/wolfboot.bin" ]; then
     make -j1 ARCH_FLASH_OFFSET=0x28000000 BOOTLOADER_PARTITION_SIZE=0x40000 \
          wolfboot.bin
   )
+  printf '%s\n' "$wolfboot_stamp" > "$wolfboot_dir/.wt_first_stage"
 fi
 [ -x "$wolfboot_dir/tools/keytools/sign" ] || fail "keytools missing in $wolfboot_dir"
 [ -s "$wolfboot_dir/wolfboot_signing_private_key.der" ] || \
@@ -142,15 +170,21 @@ if [ -n "$secure_flags" ]; then
   export $secure_flags
 fi
 stage "build wolfTrust secure image + CMSE import library ${secure_flags:-(production)}"
-make -s TARGET=mimxrt700 WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
+make -s TARGET=mimxrt700 secure-image TOOLPREFIX=arm-none-eabi-
 
 guest_flags=""
-[ "$scenario" = "ahbscneg" ] && guest_flags="WT_AHBSC_PROBE=1"
-[ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
-stage "build the Non-secure guests ${guest_flags:-(no probes)}"
-make -s -C tests/firmware/mimxrt700-baremetal clean
+case "$scenario" in
+  ahbscneg)     guest_flags="WT_AHBSC_PROBE=1" ;;
+  restart)      guest_flags="WT_GUEST_FAULT_PROBE=1" ;;
+  attestneg)    guest_flags="WT_ATTEST_NEG_PROBE=1" ;;
+  hsmattackneg) guest_flags="WT_HSM_ATTACK_PROBE=1" ;;
+esac
+stage "build the Non-secure guests from $guest_dir ${guest_flags:-(no probes)}"
+make -s -C "$guest_dir" clean
+# The emulator boots with the development lifecycle the attestation token
+# reports; the guest's verify pins it.
 # shellcheck disable=SC2086
-make -s -C tests/firmware/mimxrt700-baremetal TARGET=mimxrt700 $guest_flags
+make -s -C "$guest_dir" TARGET=mimxrt700 WT_EXPECTED_LIFECYCLE=0x1000u $guest_flags
 
 stage "pin both guest measurements, then wolfBoot-sign wolfTrust"
 python3 tools/measure/patch_guest_digests.py build/wolftrust.bin \
@@ -159,6 +193,10 @@ IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x10
     "$wolfboot_dir/tools/keytools/sign" --ecc256 build/wolftrust.bin \
     "$wolfboot_dir/wolfboot_signing_private_key.der" 1
 [ -s build/wolftrust_v1_signed.bin ] || fail "signing produced no image"
+# The harness, not the guest, holds wolfBoot's measurement of the signed image
+# and matches the attestation token's reported value against it.
+expected_measurement="$(python3 tests/scripts/read_wolfboot_measurement.py \
+    build/wolftrust_v1_signed.bin)"
 
 if [ "$scenario" = "authneg" ]; then
   # One byte of guest0 flips after its digest was pinned: launch verification
@@ -206,6 +244,8 @@ if [ "$end" = "idle" ]; then
   refute_re "the monitor never lost every guest (bkpt 0x7d)" '\[BKPT\] imm=0x7d'
   refute_re "no HardFault escalation" '\[HARDFLT\]'
   refute_re "no guest reported a failed FF-M handshake" 'guest[01]: FAIL'
+  refute_re "no PSA guest lifecycle step failed" \
+      'guest[01]: .*(FAILED|failed|NOT re|SUCCEEDED|accepted|unavailable|wrong data|not refused|not rejected)'
   expect "the run ended on the wall-clock budget, not a trap" "wall-clock limit"
 else
   expect "the emulator stopped on the expected verdict breakpoint" \
@@ -293,6 +333,81 @@ case "$scenario" in
         "wolfTrust RT700 guest1: FF-M connect ok, done"
     expect_n "guest1 reached the storage service" 1 \
         "wolfTrust RT700 guest1: storage connect ok"
+    ;;
+  bothpsa|bothiso|attestneg|hsmattackneg)
+    for guest in guest0 guest1; do
+        expect_n "$guest launched exactly once (no fault, no relaunch)" 1 \
+            "$guest: alive"
+        expect_n "$guest ran its whole PSA lifecycle" 1 "$guest: done"
+    done
+    case "$scenario" in
+      bothpsa)
+        # The same PSA client behaviour from both guests in one boot.
+        for guest in guest0 guest1; do
+            expect "$guest: mediated SERVICE_CRYPTO SHA-256 KAT" \
+                "$guest: wolfTrust FF-M mediated crypto dispatch verified"
+            expect "$guest: PSA psa_generate_random" \
+                "$guest: psa_generate_random st=0"
+            expect "$guest: PSA psa_hash_compute(SHA-256) KAT" \
+                "$guest: psa_hash_compute(SHA-256) KAT verified"
+            expect "$guest: PSA AES-CTR through a volatile key" \
+                "$guest: psa_cipher_encrypt(AES-CTR) st=0"
+            expect "$guest: ITS set/get through SERVICE_ITS" \
+                "$guest: wolfTrust ITS set/get verified"
+            expect "$guest: PS sealed set/get through SERVICE_PS" \
+                "$guest: wolfTrust PS sealed set/get verified"
+            expect "$guest: key-ops sign/verify through the mediated path" \
+                "$guest: wolfTrust key-ops sign/verify verified"
+            expect "$guest: cross-key verify refused" \
+                "$guest: wolfTrust key negatives verified"
+            expect "$guest: initial attestation token issued" \
+                "$guest: psa_initial_attestation st=0"
+            expect "$guest: COSE_Sign1 token verified against the IAK" \
+                "$guest: wolfTrust attestation: COSE_Sign1 verified"
+            expect "$guest: token measurement equals wolfBoot's measurement of the signed image" \
+                "$guest: wolfTrust attestation: token measurement=$expected_measurement"
+        done
+        ;;
+      bothiso)
+        # The SPM rejects the same abuse from both guests, and each guest
+        # still gets served afterwards.
+        for guest in guest0 guest1; do
+            expect "$guest: forged-handle call rejected" \
+                "$guest: wolfTrust FF-M forged-handle call rejected"
+            expect "$guest: oversized-vector call rejected" \
+                "$guest: wolfTrust FF-M oversized-vector call rejected"
+            expect "$guest: cross-guest vector refused (caller-banded memcheck)" \
+                "$guest: wolfTrust FF-M cross-guest vector rejected"
+            expect "$guest: unknown-SID connect refused" \
+                "$guest: wolfTrust FF-M unknown-SID connect refused"
+            expect "$guest: still served after the negatives" \
+                "$guest: psa_hash_compute(SHA-256) KAT verified"
+        done
+        ;;
+      attestneg)
+        expect "attestation baseline token verified" \
+            "guest0: wolfTrust attestation: COSE_Sign1 verified"
+        expect "oversized challenge rejected st=-135" \
+            "guest0: attestneg oversized challenge rejected st=-135"
+        expect "zero token buffer rejected st=-135" \
+            "guest0: attestneg zero token buffer rejected st=-135"
+        expect "tampered token fails the guest verify" \
+            "guest0: attestneg tampered token rejected"
+        expect "misattributed lifecycle fails the guest verify" \
+            "guest0: attestneg lifecycle mismatch rejected"
+        expect "attestation negatives verified" \
+            "guest0: wolfTrust attestation negatives verified"
+        ;;
+      hsmattackneg)
+        expect "forged COMM_INIT attempted" \
+            "guest0: hsmattackneg forged COMM_INIT"
+        expect "IAK sign refused" "guest0: hsmattackneg IAK sign refused"
+        expect "rollback NVM group refused" \
+            "guest0: hsmattackneg rollback NVM group refused"
+        expect "own-namespace crypto still works" \
+            "guest0: hsmattackneg own-namespace crypto still works"
+        ;;
+    esac
     ;;
   ahbscneg)
     faults=$((restart_limit + 1))

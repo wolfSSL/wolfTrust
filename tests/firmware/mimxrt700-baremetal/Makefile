@@ -52,9 +52,11 @@ CLIENT_OBJ := $(BUILD)/psa_ffm_client.o
 
 all: $(BUILD)/guest0.bin $(BUILD)/guest1.bin
 
+# The image's build mode comes from the environment; forcing one here would
+# relink the image in another mode and drop the wolftrust.bin the runners sign.
 $(SECURE_CMSE_IMPLIB): FORCE
 	$(MAKE) -C $(ROOT) ARCH=$(ARCH) TARGET=$(TARGET) TOOLPREFIX=$(TOOLPREFIX) \
-	    WT_ATTEST_COSE=0 build/secure_cmse_implib.o
+	    build/secure_cmse_implib.o
 
 $(BUILD)/guest0.o: guest0.c | $(BUILD)
 	$(CC) $(CFLAGS) $(GUEST0_CFLAGS) -c -o $@ $<

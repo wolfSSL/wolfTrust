@@ -1,0 +1,28 @@
+diff --git a/hal/imx_rt7xx.c b/hal/imx_rt7xx.c
+index a5b40299..559c8822 100644
+--- a/hal/imx_rt7xx.c
++++ b/hal/imx_rt7xx.c
+@@ -21,6 +21,7 @@
+ #include <stdint.h>
+ #include "image.h"
+ #include "hal.h"
++#include "wolfboot/secure_handoff.h"
+ #include "loader.h"
+ #include "printf.h"
+ #include "imx_rt7xx.h"
+@@ -1051,3 +1052,15 @@ void hal_prepare_boot(void)
+     }
+ #endif
+ }
++
++/* The PSA security lifecycle the Secure application attests. The OTP
++ * lifecycle state is not read yet, so this reports the development state
++ * rather than claim a secured device. */
++int hal_attestation_get_lifecycle(uint32_t *lifecycle)
++{
++    if (lifecycle == NULL) {
++        return -1;
++    }
++    *lifecycle = WOLFBOOT_SECURE_HANDOFF_LIFECYCLE_ASSEMBLY_AND_TEST;
++    return 0;
++}

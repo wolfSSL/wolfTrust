@@ -348,6 +348,17 @@ jobs:
               name: "SP domain isolation negatives" }
           - { key: "spfaultneg panicneg",
               name: "SP fault and panic recovery" }
+          - { key: "bothpsa bothiso",
+              name: "both-guest PSA lifecycle and isolation" }
+          - { key: attestneg, name: "attestation negatives" }
+          - { key: hsmattackneg,
+              name: "wolfHSM cross-namespace + NVM relay negatives" }
+        exclude:
+          # hsmattackneg drives the raw wolfHSM client wire; the native engine
+          # does not link it.
+          - { engine: native,
+              scenario: { key: hsmattackneg,
+                          name: "wolfHSM cross-namespace + NVM relay negatives" } }
     timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25

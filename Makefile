@@ -71,7 +71,8 @@ test-target:
 ifeq ($(TARGET),mimxrt700)
 	@tests/target/run_suite.sh rt700-m33mu positive ahbscneg restart authneg \
 	    crossdomain keystoreneg spfaultneg panicneg rollbackneg manifestneg \
-	    spbudgetneg
+	    spbudgetneg bothpsa bothiso attestneg \
+	    $(if $(filter hsm,$(WT_ENGINE)),hsmattackneg)
 else
 	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
 		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \

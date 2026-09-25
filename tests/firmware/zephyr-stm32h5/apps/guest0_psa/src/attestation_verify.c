@@ -35,6 +35,10 @@
 #define WT_PSA_CLAIM_SW_COMPONENTS 2399
 #define WT_PSA_SW_MEASUREMENT_TYPE 1
 #define WT_PSA_SW_MEASUREMENT_VALUE 2
+/* NSPE guest N attests as PSA client id -(N + 1); guest0 unless told otherwise. */
+#ifndef WT_ATTEST_EXPECTED_CLIENT_ID
+#define WT_ATTEST_EXPECTED_CLIENT_ID (-1)
+#endif
 #define WT_PSA_SW_MEASUREMENT_SIGNER_ID 5
 #define WT_PSA_SW_MEASUREMENT_DESCRIPTION 6
 #define WT_REQUIRED_CLAIMS 0xFFu
@@ -253,9 +257,8 @@ static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
         }
         else if ((ret == 0) && (label == WT_PSA_CLAIM_CLIENT_ID)) {
             ret = wc_CBOR_DecodeInt(&cbor, &signedValue);
-            /* guest0 is the first NSPE client: its PSA client id is -1, and
-             * any nonnegative id in the claim is a spoofed secure caller. */
-            if ((ret == 0) && (signedValue == -1)) {
+            /* Any nonnegative id in the claim is a spoofed secure caller. */
+            if ((ret == 0) && (signedValue == WT_ATTEST_EXPECTED_CLIENT_ID)) {
                 claims |= 4u;
             }
             else {

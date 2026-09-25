@@ -203,6 +203,24 @@ quarantines it, and guest 1 runs on. `authneg` flips one byte of guest 0's
 image after its digest was pinned, so launch verification refuses guest 0
 while guest 1 boots and runs normally.
 
+The remaining scenarios run the portable PSA test guest
+(`tests/firmware/psa-guest/`) in both Non-secure windows. It is the STM32H563
+Zephyr guest's client lifecycle with no operating system underneath: wolfPSA
+over the SPM-mediated client for the PSA Crypto API, the OS-neutral FF-M,
+storage, and attestation clients, and the wolfCOSE verifier for the token. A
+port supplies a linker window and a console (`boards/<target>/`), nothing
+else. `bothpsa` runs the whole lifecycle from both guests in one boot: the
+mediated SHA-256 KAT, ITS and sealed PS set/get, volatile P-256 key-ops with
+a cross-key refusal, RNG, AES-CTR, and an attestation token verified against
+the IAK public key and wolfBoot's measurement of the signed Secure image.
+`bothiso` proves the SPM rejects a forged handle, an oversized vector, a
+vector inside the peer guest's window, and an unknown SID from both guests.
+`attestneg` adds the attestation negatives (invalid requests refused with
+the statuses Arm's tests expect; tampered and misattributed tokens fail the
+guest verify). `hsmattackneg` (hsm engine only, it drives the raw wolfHSM client
+wire) proves a forged client id cannot reach the IAK and an NVM-group packet
+never reaches the server.
+
 The runner builds its own pinned emulator and wolfBoot first stage. The
 emulator is `M33MU_REF` plus `tests/target/m33mu-imxrt700.patch`, the model
 correction the chain needs until it lands upstream: a Secure AHBSC SRAM rule
@@ -211,7 +229,10 @@ attribution, so the SG veneers in the Secure-ruled code-RAM band stay callable
 as the SRM's transaction check allows. The rules otherwise apply to CPU0 as
 documented, which is stricter than the EVK measured.
 wolfBoot is `WOLFBOOT_REF` built from `config/examples/imx-rt700-tz.config`
-linked at the NOR base, the same offset the wolfBoot emulator tests use, so
+plus `tests/target/wolfboot-imxrt700-lifecycle.patch` (the RT700 HAL's PSA
+lifecycle hook, which the attestation service needs; it goes once wolfBoot
+carries it), linked at the NOR base, the same offset the wolfBoot emulator
+tests use, so
 building it needs the MCUXpresso SDK or DFP like any RT700 wolfBoot build;
 set `RT700_WOLFBOOT_DIR` to reuse an existing one (the runner stops if that
 tree has no `wolfboot.bin`, rather than replace it). `WT_ENGINE` selects the

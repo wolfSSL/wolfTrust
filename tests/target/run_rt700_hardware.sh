@@ -167,11 +167,12 @@ run_chain() {
     # boot base + 0x400 and is signed with a matching header. Exported so the
     # secure image and the guest CMSE import library agree (mirrors the H5 runner).
     export WT_SECURE_IMAGE_HEADER_SIZE=0x400
+    export WT_ATTEST_COSE=0
     rm -rf "$repo/build"
     mkdir -p "$work"
 
     stage "build wolfTrust secure image + CMSE import library"
-    make -s -C "$repo" TARGET=mimxrt700 WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
+    make -s -C "$repo" TARGET=mimxrt700 secure-image TOOLPREFIX=arm-none-eabi-
 
     stage "build the Non-secure guests ${guest_flags:-(no probes)}"
     make -s -C "$repo/tests/firmware/mimxrt700-baremetal" clean

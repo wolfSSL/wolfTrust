@@ -505,6 +505,80 @@ static void guest_vault_secured(void)
 }
 #endif
 
+/* SGI 15 in the boot core's GICv3 redistributor SGI frame. */
+#define NS_IRQ_PROBE_SGI     15u
+#define NS_GICR_SGI_BASE     (WT_NS_GICR + 0x10000u)
+#define NS_GICR_ISENABLER0   (NS_GICR_SGI_BASE + 0x0100u)
+#define NS_GICR_ICENABLER0   (NS_GICR_SGI_BASE + 0x0180u)
+#define NS_GICR_ISPENDR0     (NS_GICR_SGI_BASE + 0x0200u)
+#define NS_GICR_ICPENDR0     (NS_GICR_SGI_BASE + 0x0280u)
+#define NS_GICR_IPRIORITYR   (NS_GICR_SGI_BASE + 0x0400u)
+
+static volatile uint32_t* ns_gicr(uint32_t addr)
+{
+    return (volatile uint32_t*)(uintptr_t)addr;
+}
+
+/* Leave a Normal-world interrupt pending and signaled to this core, masked
+ * only by PSTATE.I here; returns 0 without a GICv3 system-register interface. */
+static int ns_irq_hold(void)
+{
+    uint64_t pfr0;
+    uint64_t sre;
+
+    __asm__ volatile("mrs %0, id_aa64pfr0_el1" : "=r"(pfr0));
+    if (((pfr0 >> 24) & 0xFu) == 0u) {
+        return 0;
+    }
+    __asm__ volatile("mrs %0, icc_sre_el1" : "=r"(sre));
+    if ((sre & 1u) == 0u) {
+        return 0;
+    }
+    *(volatile uint8_t*)(uintptr_t)(NS_GICR_IPRIORITYR + NS_IRQ_PROBE_SGI) =
+        0x40u;
+    *ns_gicr(NS_GICR_ISENABLER0) = 1u << NS_IRQ_PROBE_SGI;
+    __asm__ volatile("msr icc_pmr_el1, %0\n\t"
+                     "msr icc_igrpen1_el1, %1\n\t"
+                     "isb" : : "r"((uint64_t)0xFFu), "r"((uint64_t)1u));
+    *ns_gicr(NS_GICR_ISPENDR0) = 1u << NS_IRQ_PROBE_SGI;
+    __asm__ volatile("dsb sy\n\tisb" ::: "memory");
+    return 1;
+}
+
+/* Non-zero if the interrupt was still pending; it is then withdrawn. */
+static int ns_irq_release(void)
+{
+    uint32_t pending = (*ns_gicr(NS_GICR_ISPENDR0) >> NS_IRQ_PROBE_SGI) & 1u;
+
+    *ns_gicr(NS_GICR_ICPENDR0) = 1u << NS_IRQ_PROBE_SGI;
+    *ns_gicr(NS_GICR_ICENABLER0) = 1u << NS_IRQ_PROBE_SGI;
+    __asm__ volatile("msr icc_igrpen1_el1, xzr\n\tisb" ::: "memory");
+    return (int)pending;
+}
+
+/* 9.3.1.3: a data-carrying call made with a Normal-world interrupt pending
+ * completes, and hands that interrupt back still pending. */
+static void guest_psa_ns_irq(void)
+{
+    int ok;
+
+    if (ns_irq_hold() == 0) {
+        put_str("[NS] psa call with an ns irq pending skipped: no GICv3\r\n");
+        return;
+    }
+#if defined(WT_NS_ENGINE_NATIVE)
+    ok = guest_native_random();
+#else
+    ok = guest_hsm_echo();
+#endif
+    if ((ns_irq_release() != 0) && (ok != 0)) {
+        put_str("[NS] psa call with an ns irq pending ok\r\n");
+    }
+    else {
+        put_str("[NS] psa call with an ns irq pending BAD\r\n");
+    }
+}
+
 static void guest_psa(void)
 {
     uint32_t fw;
@@ -560,6 +634,7 @@ static void guest_psa(void)
     else {
         put_str("[NS] psa call BAD\r\n");
     }
+    guest_psa_ns_irq();
 #if defined(WT_NS_HSM_ATTACK) && !defined(WT_NS_ENGINE_NATIVE)
     guest_hsm_attack();
 #endif

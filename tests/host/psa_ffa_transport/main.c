@@ -32,6 +32,7 @@
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
+#include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/psa_ffa.h"
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/ffm_boot.h"
@@ -130,6 +131,23 @@ int wt_arch_ns_check_writable(const void* address, size_t size)
            wt_spm_mem_ns_access((uint64_t)(uintptr_t)address, (uint64_t)size, 1);
 }
 
+/* The CPU interface priority mask, and what it was while a service ran. */
+static uint32_t g_pmr = 0xFFu;
+static uint32_t g_pmr_in_service;
+
+static uint32_t stub_swap_pmr(uint32_t pmr)
+{
+    uint32_t prev = g_pmr;
+
+    g_pmr = pmr;
+    return prev;
+}
+
+static const struct wt_gic_ops g_stub_gic = {
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, stub_swap_pmr, 3u
+};
+const struct wt_gic_ops* const wt_gic = &g_stub_gic;
+
 static uint32_t g_req_fid;
 static uint32_t g_resp_fid;
 
@@ -160,6 +178,7 @@ static int test_sha_submit(void* submit_ctx, int32_t client_id,
 
     (void)submit_ctx;
     (void)client_id;
+    g_pmr_in_service = g_pmr;
     if (resp_cap < WC_SHA256_DIGEST_SIZE) {
         return -1;
     }
@@ -307,6 +326,9 @@ int main(void)
           "psa_call round-trips client -> FF-A -> front-end -> gateway -> core -> relay: SHA-256 KAT matches");
     check(out_vec.len == sizeof(digest),
           "the out-vec length is written back through the guest's vector block");
+    check(g_pmr_in_service == WT_GIC_PMR_MASK_NS && g_pmr == 0xFFu,
+          "the service ran with Normal-world interrupts queued behind the "
+          "priority mask, put back once it answered (9.3.1.3)");
 
     st = psa_call((psa_handle_t)0x7777, PSA_IPC_CALL, &in_vec, 1u, &out_vec, 1u);
     check(st == PSA_ERROR_PROGRAMMER_ERROR,

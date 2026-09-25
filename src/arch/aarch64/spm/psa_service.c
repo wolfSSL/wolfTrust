@@ -28,6 +28,7 @@
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
+#include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/psa_ffa.h"
 #include "wolftrust/ffm_gateway.h"
 #include "wolftrust/ffm_veneer.h"
@@ -68,7 +69,11 @@ int wt_spm_psa_framework(wt_ffa_regs_t* r)
     int32_t result = 0;
     int ok = 1;
     unsigned int i;
+    uint32_t pmr;
 
+    /* 9.3.1.3: answered only with a response, never FFA_INTERRUPT for an
+     * FFA_RUN to resume, so the partitions an FF-M call runs queue NS-Ints. */
+    pmr = wt_gic->swap_pmr(WT_GIC_PMR_MASK_NS);
     switch (op) {
         case WT_PSA_FFA_OP_FRAMEWORK_VERSION:
             result = (int32_t)wt_ffm_gateway_framework_version();
@@ -98,6 +103,7 @@ int wt_spm_psa_framework(wt_ffa_regs_t* r)
             ok = 0;
             break;
     }
+    (void)wt_gic->swap_pmr(pmr);
     if (ok == 0) {
         for (i = 0u; i < 8u; i++) {
             r->x[i] = 0u;

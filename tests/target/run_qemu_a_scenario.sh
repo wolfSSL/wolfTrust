@@ -744,6 +744,10 @@ case "$scenario" in
       expect "the native crypto client drew distinct random blocks from the crypto partition" "[NS] native random ok"
     fi
     expect "the guest closed its handle" "[NS] psa close ok"
+    refute_re "a call made with a Normal-world interrupt pending neither failed nor consumed it" '\[NS\] psa call with an ns irq pending BAD'
+    if [ "$GIC" = 3 ]; then
+      expect "a psa_call made with a Normal-world interrupt pending completed, the interrupt queued for the Normal world (9.3.1.3)" "[NS] psa call with an ns irq pending ok"
+    fi
     expect "the Normal-world guest reached the services and finished" "[NS] guest0 ok"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;

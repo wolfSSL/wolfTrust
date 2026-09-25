@@ -2,6 +2,7 @@
 /build/
 tests/firmware/stm32h563/build/
 tests/firmware/stm32h563-vnet/build/
+tests/firmware/mimxrt700-baremetal/build/
 tests/firmware/stm32h563-vnet/stm32h563_OTP.bin
 *.o
 /wolftrust

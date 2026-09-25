@@ -12,7 +12,7 @@ PATTERN='wolfTrust-internal-docs|internal-docs|/Users/[A-Za-z]|/home/[A-Za-z]|~/
 
 selftest() {
   local dir fails=0
-  dir="$(mktemp -d)"
+  dir="$(mktemp -d)" || { echo "SELFTEST FAIL: mktemp failed"; exit 1; }
   printf 'See ~/wolfTrust-internal-docs/task-list.md for the rows.\n' > "$dir/bad1.md"
   printf 'Logs live in /home/aidangarske/wolfTrust-l3-work.\n' > "$dir/bad2.md"
   printf 'Run `tools/check-core-port-split.sh --selftest` first.\n' > "$dir/ok.md"

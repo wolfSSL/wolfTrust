@@ -87,7 +87,8 @@ selftest() {
     echo "SELFTEST FAIL: well-formed pattern rejected"; fails=$((fails + 1)); fi
   # A malformed built-in pattern must stop the script before any scan runs,
   # not silently scan zero files.
-  badcopy="$(mktemp -d)/check-core-port-split.sh"
+  badcopy="$(mktemp -d)" || { echo "SELFTEST FAIL: mktemp failed"; exit 1; }
+  badcopy="$badcopy/check-core-port-split.sh"
   sed "s/^M_VOCAB=.*/M_VOCAB='['/" "$0" > "$badcopy"
   chmod +x "$badcopy"
   if "$badcopy" --selftest > /dev/null 2>&1; then
@@ -95,7 +96,7 @@ selftest() {
     fails=$((fails + 1))
   fi
   rm -rf "$(dirname "$badcopy")"
-  dir="$(mktemp -d)"
+  dir="$(mktemp -d)" || { echo "SELFTEST FAIL: mktemp failed"; exit 1; }
   printf 'int f(void) { return MPU->CTRL; } /* PendSV */\n' > "$dir/m.c"
   printf 'int g(void) { return SCTLR_EL1; }\n' > "$dir/a.c"
   printf '#include "memory_map.h"\nint h;\n' > "$dir/p.c"

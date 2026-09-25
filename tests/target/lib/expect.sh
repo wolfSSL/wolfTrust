@@ -91,7 +91,7 @@ expect_end() {
 
 selftest() {
   local dir fails=0 out
-  dir="$(mktemp -d)"
+  dir="$(mktemp -d)" || { echo "SELFTEST FAIL: mktemp failed"; exit 1; }
   printf 'wolfTrust TEE client initialized\r\nTOTAL SKfreertos_guest1: hb\r\nIPPED   : 4\r\nguest0_psa freertos_guest1: hb\r\ndone marker\r\n[EL3] twice [EL3] twice\r\n' \
     > "$dir/log"
   export WT_EXPECT_LOG="$dir/log"

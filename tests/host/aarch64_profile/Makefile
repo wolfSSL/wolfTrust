@@ -64,8 +64,21 @@ $(BUILD_DIR)/test_$(call field,$(1),1): $(SRCS) \
 endef
 $(foreach v,$(VARIANTS),$(eval $(call variant_rule,$(v))))
 
+# DEN0022 5.11: the reset budget that ends an emulator run on SYSTEM_RESET
+# builds only for a port marked emulated.
+PSCI_SRC := $(ROOT)/src/arch/aarch64/el3/psci.c
+
 run: $(BINS)
 	@set -e; for bin in $(BINS); do $$bin; done
+	@$(CC) -E -I$(ROOT)/include -DWT_EL3_RESET_LIMIT=1u -DWT_PORT_EMULATED=1 \
+		$(PSCI_SRC) > /dev/null
+	@if $(CC) -E -I$(ROOT)/include -DWT_EL3_RESET_LIMIT=1u $(PSCI_SRC) 2>&1 | \
+		grep -q "emulated targets only"; then \
+		echo "  [check] PASS  a reset budget builds only for an emulated port"; \
+	else \
+		echo "  [check] FAIL  a reset budget builds for a port not marked emulated"; \
+		exit 1; \
+	fi
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

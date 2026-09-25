@@ -390,6 +390,7 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
             }
             else if ((w1 == WT_FFA_MEM_RETRIEVE_REQ32) ||
                      (w1 == WT_FFA_MEM_RETRIEVE_REQ64)) {
+                /* The NS-bit request is an SP rule (DEN0140 1.10.4.1.1). */
                 reply_success(r, WT_FFA_FEATURES_RETRIEVE_NS_BIT, 0u);
             }
             else if (WT_FFA_FEATURES_IS_FID(w1) && ns_implements(w1) &&

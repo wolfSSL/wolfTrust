@@ -2586,9 +2586,9 @@ static void relay_icache_rows(void)
     check(g_domain_fails == 0u, "icache: no domain operation failed closed");
 }
 
-/* who (B or C) retrieves h read-write, naming the other as a non-retrieval
- * borrower. */
-static int relay_retrieve_of_two(uint64_t h, uint16_t who)
+/* who (B or C) retrieves h asking for perms, naming the other as a
+ * non-retrieval borrower with the read-write access the lender gave it. */
+static int relay_retrieve_of_two_as(uint64_t h, uint16_t who, uint8_t perms)
 {
     uint8_t req[128];
     uint8_t resp[256];
@@ -2598,11 +2598,12 @@ static int relay_retrieve_of_two(uint64_t h, uint16_t who)
     int ret;
 
     ret = wt_ffa_mem_retrieve_req_build(req, sizeof(req), h, RELAY_ID_A, who,
-                                        WT_FFA_MEM_PERM_DATA_RW, &len);
+                                        perms, &len);
     if (ret == 0) {
         memcpy(&req[len], &req[WT_FFA_MEM_TXN_HDR_SIZE], WT_FFA_MEM_ACCESS_SIZE);
         req[len + WT_FFA_MEM_ACC_OFF_RECEIVER] = (uint8_t)(other & 0xFFu);
         req[len + WT_FFA_MEM_ACC_OFF_RECEIVER + 1u] = (uint8_t)(other >> 8);
+        req[len + WT_FFA_MEM_ACC_OFF_PERMS] = (uint8_t)WT_FFA_MEM_PERM_DATA_RW;
         req[len + WT_FFA_MEM_ACC_OFF_FLAGS] =
             (uint8_t)WT_FFA_MEM_ACC_FLAG_NON_RETRIEVAL;
         put32(&req[WT_FFA_MEM_TXN_OFF_ACC_COUNT], 2u);
@@ -2610,6 +2611,13 @@ static int relay_retrieve_of_two(uint64_t h, uint16_t who)
                                   sizeof(resp), &resp_len);
     }
     return ret;
+}
+
+/* who (B or C) retrieves h read-write, naming the other as a non-retrieval
+ * borrower. */
+static int relay_retrieve_of_two(uint64_t h, uint16_t who)
+{
+    return relay_retrieve_of_two_as(h, who, WT_FFA_MEM_PERM_DATA_RW);
 }
 
 static int relay_relinquish_as(uint64_t h, uint16_t who)
@@ -2786,6 +2794,70 @@ static void relay_multi_zero_rows(void)
     check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
           g_domain_fails == 0u,
           "multi zero: the owner reclaims it and no domain operation failed closed");
+}
+
+/* WT-FFA-0009 (a lend or share borrower states the data access it wants in
+ * its retrieve request, DEN0140 1.10.2 item 1; a donate's receiver only should,
+ * item 2, and one that does not is given the owner's). */
+static void relay_own_access_rows(void)
+{
+    static const wt_ffa_mem_op_t ops[2] = {
+        WT_FFA_MEM_OP_LEND, WT_FFA_MEM_OP_SHARE
+    };
+    wt_ffa_mem_constituent_t c[1];
+    uint8_t desc[256];
+    uint64_t h = 0u;
+    size_t len = 0u;
+    unsigned int i;
+    int ret = 0;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "own access: fixture");
+        return;
+    }
+    c[0].address = page(PG_RW);
+    c[0].page_count = 1u;
+    for (i = 0u; i < 2u; i++) {
+        h = relay_send(ops[i], c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u, &ret);
+        check(ret == 0 &&
+              relay_retrieve(h, WT_FFA_MEM_PERM_DATA_NOT_SPEC, 0u) ==
+                  WT_FFA_INVALID_PARAMETERS &&
+              access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
+              (i == 0u)
+                  ? "own access: a lend borrower leaving its data access unspecified is INVALID_PARAMETERS"
+                  : "own access: so is a share borrower");
+        check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RSVD, 0u) ==
+                  WT_FFA_INVALID_PARAMETERS &&
+              relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+              access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW &&
+              relay_relinquish(h, 0u) == 0 &&
+              wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+              "own access: the reserved encoding too; stating it, the borrower retrieves");
+    }
+    ret = relay_build(desc, sizeof(desc), WT_FFA_MEM_OP_LEND, c, 1u,
+                      WT_FFA_MEM_PERM_DATA_RW, 0u, &len);
+    if (ret == 0) {
+        len = add_receiver_c(desc, len);
+        ret = wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_LEND, RELAY_ID_A, &h);
+    }
+    check(ret == 0 &&
+          relay_retrieve_of_two_as(h, RELAY_ID_B,
+                                   WT_FFA_MEM_PERM_DATA_NOT_SPEC) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
+          relay_retrieve_of_two_as(h, RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RO) == 0 &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RO,
+          "own access: so is one of two lend borrowers, which retrieves once it states it");
+    check(relay_relinquish_as(h, RELAY_ID_B) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "own access: the two-borrower lend is reclaimed");
+    h = relay_send(WT_FFA_MEM_OP_DONATE, c, 1u, WT_FFA_MEM_PERM_DATA_NOT_SPEC,
+                   0u, &ret);
+    check(ret == 0 &&
+          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_NOT_SPEC, 0u) == 0 &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW,
+          "own access: a donate's receiver that leaves it unspecified gets the owner's read-write access");
+    check(g_domain_fails == 0u, "own access: no domain operation failed closed");
 }
 
 /* Non-zero when the last clean covered exactly page pg, after it was zeroed. */
@@ -3924,6 +3996,7 @@ int main(void)
     relay_perm_rows();
     relay_zero_rows();
     relay_multi_zero_rows();
+    relay_own_access_rows();
     relay_clean_rows();
     relay_region_rows();
     relay_donate_rows();

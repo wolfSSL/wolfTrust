@@ -30,6 +30,9 @@
 #define WT_GIC_INTID_SECURE_TIMER 29u
 /* INTIDs from 1020 are special: no register lies past the last SPI. */
 #define WT_GIC_INTID_LIMIT     1020u
+/* A priority mask at the top of the Non-secure range: Secure priorities pass
+ * it and a Normal-world interrupt stays pending behind it (9.3.1.3). */
+#define WT_GIC_PMR_MASK_NS     0x80u
 
 struct wt_gic_ops {
     void (*init_secure)(void);

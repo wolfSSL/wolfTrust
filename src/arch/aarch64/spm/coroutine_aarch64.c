@@ -81,7 +81,6 @@ void wt_co_trampoline(void);
  * priority mask at the top of the Non-secure range, so a Normal-world
  * interrupt stays pending until it returns there instead of preempting it
  * (ns-interrupts-action = queued); Secure priorities stay below the mask. */
-#define WT_SP_PMR_MASK_NS 0x80u
 static uint8_t g_ns_queued[WT_CO_MAX];
 /* Non-secure interrupts stay queued for a run the SPMC scheduled for a Secure
  * interrupt (9.2.4 rule 3) and for a callee whose caller queues them (9.3.1.4). */
@@ -1265,7 +1264,7 @@ void wt_co_arch_enter(struct wt_co *to)
         write_tpidr(sp_arch(to)->tpidr_el0);
         if ((g_ns_queued[to->id - 1u] != 0u) ||
             (g_ns_inherited[to->id - 1u] != 0u)) {
-            pmr = wt_gic->swap_pmr(WT_SP_PMR_MASK_NS);
+            pmr = wt_gic->swap_pmr(WT_GIC_PMR_MASK_NS);
             masked = 1u;
         }
         wt_sp_el0_enter(&sp_arch(to)->frame);

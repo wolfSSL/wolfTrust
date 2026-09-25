@@ -44,11 +44,14 @@ BUILD_DIR ?= build/$(MACHINE)
 CC := $(TOOLPREFIX)gcc
 OBJCOPY := $(TOOLPREFIX)objcopy
 
+# GICR: the boot core's GICv3 redistributor, probed only under a GICv3.
 ifeq ($(MACHINE),virt)
 UART := 0x09000000
+GICR := 0x080A0000
 WT_NS_CONFDATA_PA ?= 0x0E2C0000
 else ifeq ($(MACHINE),versal-virt)
 UART := 0xFF000000
+GICR := 0xF9080000
 WT_NS_CONFDATA_PA ?= 0x7F2C0000
 else
 $(error unsupported MACHINE=$(MACHINE) (virt or versal-virt))
@@ -58,7 +61,8 @@ endif
 WT_NS_GUEST_ECHO ?= 0
 CFLAGS := -mcpu=generic -mgeneral-regs-only -mstrict-align -ffreestanding \
     -fno-builtin -fno-pic -fno-stack-protector -nostdlib -O2 -g \
-    -Wall -Wextra -Werror -I$(ROOT)/include -DWT_NS_UART=$(UART)u
+    -Wall -Wextra -Werror -I$(ROOT)/include -DWT_NS_UART=$(UART)u \
+    -DWT_NS_GICR=$(GICR)u
 ifeq ($(WT_NS_GUEST_ECHO),1)
 CFLAGS += -DWT_NS_GUEST_ECHO=1
 endif

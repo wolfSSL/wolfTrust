@@ -1552,11 +1552,13 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
         }
     }
     /* Every entry is a borrower, so the same count with no repeat is the
-     * lender's whole list. */
+     * lender's whole list; the bypass flag's IMPLEMENTATION DEFINED action
+     * (1.11.3.3) is that the receiver names itself alone. */
     if ((ret == 0) &&
         ((repeated != 0) ||
-         (((rq->flags & WT_FFA_MEM_FLAG_BYPASS_BORROWERS) == 0u) &&
-          (rq->receiver_count != (uint32_t)e->borrower_count)))) {
+         (rq->receiver_count !=
+          (((rq->flags & WT_FFA_MEM_FLAG_BYPASS_BORROWERS) != 0u)
+               ? 1u : (uint32_t)e->borrower_count)))) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     if (ret == 0) {

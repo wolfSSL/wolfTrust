@@ -69,7 +69,7 @@ c99-check:
 # wolfboot-ci-m33mu container, never bare-metal.
 test-target:
 ifeq ($(TARGET),mimxrt700)
-	@tests/target/run_suite.sh rt700-m33mu positive ahbscneg \
+	@tests/target/run_suite.sh rt700-m33mu positive ahbscneg restart authneg \
 	    crossdomain keystoreneg spfaultneg panicneg rollbackneg manifestneg \
 	    spbudgetneg
 else

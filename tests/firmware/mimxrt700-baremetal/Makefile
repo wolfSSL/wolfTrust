@@ -41,6 +41,12 @@ ifeq ($(WT_AHBSC_PROBE),1)
 GUEST0_CFLAGS += -DWT_AHBSC_PROBE -DGUEST_PROBE_ADDR=0x20170000u \
     -DGUEST_PROBE_VALUE=0xDEADBEEFu
 endif
+# WT_GUEST_FAULT_PROBE=1 makes guest0 read Secure RAM on every launch, so the
+# monitor spends its restart budget and quarantines it (restart).
+WT_GUEST_FAULT_PROBE ?= 0
+ifeq ($(WT_GUEST_FAULT_PROBE),1)
+GUEST0_CFLAGS += -DWT_GUEST_FAULT_PROBE -DGUEST_FAULT_ADDR=0x30188000u
+endif
 
 CLIENT_OBJ := $(BUILD)/psa_ffm_client.o
 

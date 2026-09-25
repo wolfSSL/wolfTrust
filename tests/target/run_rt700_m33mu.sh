@@ -18,7 +18,9 @@
 # once this port implements the flash tamper hook.
 # crossdomain and keystoreneg fault the storage SP on an out-of-domain read;
 # spfaultneg and panicneg fault an SP on its first entry and prove the SPM
-# restarts it in place while both guests finish.
+# restarts it in place while both guests finish. restart spends guest0's
+# restart budget on a launch-time fault; authneg refuses a tampered guest0 at
+# launch. guest1 runs on through all of them.
 #
 # Environment (all optional):
 #   M33MU               prebuilt emulator carrying tests/target/m33mu-imxrt700.patch;
@@ -36,8 +38,8 @@ unset TARGET MAKEFLAGS MFLAGS
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|ahbscneg|crossdomain|keystoreneg|spfaultneg|panicneg|rollbackneg|manifestneg|spbudgetneg) ;;
-  *) echo "usage: $0 positive|ahbscneg|crossdomain|keystoreneg|spfaultneg|panicneg|rollbackneg|manifestneg|spbudgetneg" >&2
+  positive|ahbscneg|restart|authneg|crossdomain|keystoreneg|spfaultneg|panicneg|rollbackneg|manifestneg|spbudgetneg) ;;
+  *) echo "usage: $0 positive|ahbscneg|restart|authneg|crossdomain|keystoreneg|spfaultneg|panicneg|rollbackneg|manifestneg|spbudgetneg" >&2
      exit 2 ;;
 esac
 
@@ -57,6 +59,8 @@ restart_limit=3
 # Where guest0's probe stores: inside guest1's RAM window (GUEST_PROBE_ADDR in
 # tests/firmware/mimxrt700-baremetal/Makefile).
 probe_addr=0x20170000
+# Where guest0's restart probe reads: Secure RAM (GUEST_FAULT_ADDR there).
+fault_addr=0x30188000
 
 # shellcheck source=lib/scenario.sh disable=SC1091
 . "$here/lib/scenario.sh"
@@ -142,6 +146,7 @@ make -s TARGET=mimxrt700 WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
 
 guest_flags=""
 [ "$scenario" = "ahbscneg" ] && guest_flags="WT_AHBSC_PROBE=1"
+[ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
 stage "build the Non-secure guests ${guest_flags:-(no probes)}"
 make -s -C tests/firmware/mimxrt700-baremetal clean
 # shellcheck disable=SC2086
@@ -154,6 +159,19 @@ IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x10
     "$wolfboot_dir/tools/keytools/sign" --ecc256 build/wolftrust.bin \
     "$wolfboot_dir/wolfboot_signing_private_key.der" 1
 [ -s build/wolftrust_v1_signed.bin ] || fail "signing produced no image"
+
+if [ "$scenario" = "authneg" ]; then
+  # One byte of guest0 flips after its digest was pinned: launch verification
+  # must refuse guest0 while guest1 and the platform keep running.
+  python3 - "$guest_build/guest0.bin" <<'PYEOF'
+import sys
+with open(sys.argv[1], "r+b") as f:
+    f.seek(0x40)
+    byte = f.read(1)
+    f.seek(0x40)
+    f.write(bytes([byte[0] ^ 0x01]))
+PYEOF
+fi
 
 # The guests idle forever once done, so a console boot ends on the wall-clock
 # budget (M33MU status 127) and a --quit-on-faults boot at the fault (0).
@@ -244,6 +262,37 @@ case "$scenario" in
         expect_re "the fault was the SP's out-of-domain read at the band address" \
             "\[MEMFAULT_CAUSE\] sec=S type=READ addr=$neg_addr reason=mpu-ap"
     fi
+    ;;
+  restart)
+    faults=$((restart_limit + 1))
+    expect_n "guest0 relaunched through its restart budget, then quarantined" \
+        "$faults" "wolfTrust RT700 guest0: start"
+    refute_re "guest0 never got past its launch-time fault" \
+        "wolfTrust RT700 guest0: FF-M connect ok"
+    expect_n "guest1 launched once, untouched by guest0's faults" 1 \
+        "wolfTrust RT700 guest1: start"
+    expect_n "guest1 completed the FF-M handshake" 1 \
+        "wolfTrust RT700 guest1: FF-M connect ok, done"
+    stage "boot again with the protection-unit trace, stopping at the first fault"
+    log="$repo/build/rt700_m33mu_${scenario}_trace.log"
+    M33MU_PROT_TRACE=1 boot_chain 0 "$log" --quit-on-faults
+    expect "the traced run stopped at a delivered fault" "Execution stopped"
+    refused="\[MEMFAULT_CAUSE\] sec=NS type=READ addr=$fault_addr reason=secure-attr"
+    expect_n_re "the fault was guest0's read of Secure RAM, refused as Secure" \
+        1 "$refused"
+    sau_refusals="$(grep -A1 -E -- "$refused" "$log" | grep -c "src=SAU" || true)"
+    check "$([ "$sau_refusals" -eq 1 ]; echo $?)" \
+        "the refusal came from the SAU"
+    ;;
+  authneg)
+    refute_re "the tampered guest0 never entered its domain" \
+        "wolfTrust RT700 guest0: start"
+    expect_n "guest1 launched once after guest0's refusal" 1 \
+        "wolfTrust RT700 guest1: start"
+    expect_n "guest1 completed the FF-M handshake" 1 \
+        "wolfTrust RT700 guest1: FF-M connect ok, done"
+    expect_n "guest1 reached the storage service" 1 \
+        "wolfTrust RT700 guest1: storage connect ok"
     ;;
   ahbscneg)
     faults=$((restart_limit + 1))

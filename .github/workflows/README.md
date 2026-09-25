@@ -35,6 +35,7 @@ full scenario list lives in the `matrix` of `m33mu.yml`:
 | `M33MU / Vault recovery fail-closed` | `vaultrecoversec` | #95 SECURED never wipes |
 | `M33MU / RT700 positive lifecycle (SAU guest windows) (<engine>)` | `positive` | MIMXRT700 chain under the RT700 model, both guests finish |
 | `M33MU / RT700 cross-guest store faults and is contained (<engine>)` | `ahbscneg` | guest0's store into guest1's RAM refused by the SAU, contained |
+| `M33MU / RT700 guest restart budget and launch refusal (<engine>)` | `restart authneg` | guest0's launch-time SecureFault spends its restart budget and quarantines it; a tampered guest0 is refused at launch; guest1 runs on |
 | `M33MU / RT700 SP domain isolation negatives (<engine>)` | `crossdomain keystoreneg` | unprivileged SP reads of SPM RAM and the keystore band MemManage-fault, guests ride it out |
 | `M33MU / RT700 SP fault and panic recovery (<engine>)` | `spfaultneg panicneg` | the relay's undefined instruction and the storage SP's programmer-error close UsageFault once, the SPM restarts the SP in place, both guests finish |
 | `M33MU / RT700 secure verdict negatives (<engine>)` | `rollbackneg manifestneg spbudgetneg` | shared Secure-verdict table: rollback refusal, corrupted manifest, restart budget |

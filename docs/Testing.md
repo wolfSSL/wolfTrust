@@ -197,7 +197,11 @@ recovery: the crypto relay runs an undefined instruction on its first entry,
 or the storage SP closes an error-status handle, which the SPM must panic it
 for. Either way the SP UsageFaults exactly once, the SPM restarts it in place,
 the restarted SP serves the guests that follow, and both guests finish with no
-escalation.
+escalation. `restart` makes guest 0 read Secure RAM on every launch: the SAU
+refuses it, the monitor relaunches guest 0 through its restart budget and
+quarantines it, and guest 1 runs on. `authneg` flips one byte of guest 0's
+image after its digest was pinned, so launch verification refuses guest 0
+while guest 1 boots and runs normally.
 
 The runner builds its own pinned emulator and wolfBoot first stage. The
 emulator is `M33MU_REF` plus `tests/target/m33mu-imxrt700.patch`, the model

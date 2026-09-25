@@ -340,6 +340,8 @@ jobs:
         scenario:
           - { key: positive, name: "positive lifecycle (SAU guest windows)" }
           - { key: ahbscneg, name: "cross-guest store faults and is contained" }
+          - { key: "restart authneg",
+              name: "guest restart budget and launch refusal" }
           - { key: "rollbackneg manifestneg spbudgetneg",
               name: "secure verdict negatives" }
           - { key: "crossdomain keystoreneg",

@@ -193,6 +193,11 @@ void Reset_Handler(void)
 
     guest0_uart_puts("wolfTrust RT700 " GUEST_NAME ": start\r\n");
 
+#if defined(WT_GUEST_FAULT_PROBE)
+    /* A Non-secure read of Secure RAM faults on every launch. */
+    mb->probe_read = *(volatile const uint32_t*)GUEST_FAULT_ADDR;
+#endif
+
     fw = psa_framework_version();
     mb->framework = fw;
     mb->step = 2u;

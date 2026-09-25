@@ -878,6 +878,7 @@ static void ffa_features(wt_trap_frame_t* frame, const struct wt_co* co)
                     0u);
     }
     else if (WT_FFA_FEATURES_IS_FID(query) && (sp_implements(query) != 0) &&
+             wt_ffa_fid_available(query, sp_version(co)) &&
              (sp_notif_denied(query, co) == 0)) {
         ffa_success(frame, 0u, 0u);
     }
@@ -1136,6 +1137,11 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
         frame->x[0] = 0u;
     }
 #endif
+    else if (wt_ffa_fid_in_range(fid) && (co != NULL) &&
+             !wt_ffa_fid_available(fid, sp_version((const struct wt_co*)co))) {
+        /* 13.2.2: an ABI from after the partition's negotiated version. */
+        ffa_not_supported(frame);
+    }
     else if (fid == WT_FFA_MSG_WAIT) {
         /* 8.2/8.5: the partition enters the waiting state, which for one
          * still initializing signals success; the next direct request is

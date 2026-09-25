@@ -57,6 +57,7 @@ Each row mirrors the deviation grammar of the internal FF-A alignment register.
 | `FFA_NOTIFICATION_GET` refuses flag bits 31:4 with `INVALID_PARAMETERS`, although Table 16.23 marks them SBZ. | ACS-driven | Every other SBZ field is ignored; the ACS `notification_get` test requires this one refused. |
 | An S-EL0 partition reports failed initialization with `FFA_ERROR`, and may complete a direct request with `FFA_SUCCESS`, through the SVC conduit. | Interpretation | Tables 12.3 and 12.6 list SMC and ERET at the Secure virtual instance, but section 4.4 makes SVC the S-EL0 partition's only conduit, mirroring SMC, and sections 8.5 and 15.2 require both transitions. |
 | Manifests use the wolfTrust JSON generator and boot information uses an IMPDEF descriptor type. | Integration difference | Allowed by sections 5.2.1 and 5.4; the mandatory partition properties are all present. |
+| The vault, attestation, and crypto partitions still share one writable keystore band on both architectures, which FF-M isolation level 3 (DEN0063 3.1.3) forbids between partitions; a `qemuvirt` manifest that declares `isolation_profile` 3 therefore holds level 2 for those three partitions until the band is split. | Known gap | The split into private bands with IPC doors between the three partitions is a separate change proposed against main first; every other partition pair already shares no writable memory, and the manifest guard for it lands with that change. |
 
 ## ACS conformance results
 

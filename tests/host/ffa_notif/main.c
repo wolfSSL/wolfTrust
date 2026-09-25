@@ -588,6 +588,48 @@ static void abort_rows(void)
           "one that failed initialization answers DENIED instead");
 }
 
+/* What a retired sender had pended goes with the binding it rode on, in the
+ * class its world pends to, so no receiver later drains an unbound id. */
+static void abort_sender_rows(void)
+{
+    wt_ffa_notif_get_result_t got;
+    wt_ffa_notif_info_result_t info;
+
+    printf("[suite] abort (sender)\n");
+    fixture();
+    check(wt_ffa_notif_bitmap_create(VM0, VM0, 1u) == 0 &&
+          wt_ffa_notif_bind(VM0, IDS(SP1, VM0), 0u, BIT(0)) == 0 &&
+          wt_ffa_notif_bind(VM0, IDS(SP2, VM0), 0u, BIT(1)) == 0 &&
+          wt_ffa_notif_bind(SP3, IDS(SP1, SP3), 0u, BIT(2)) == 0 &&
+          wt_ffa_notif_bind(SP3, IDS(VM0, SP3), 0u, BIT(3)) == 0,
+          "the VM and SP3 bind ids from SP1, SP2, and the VM");
+    check(wt_ffa_notif_set(SP1, IDS(SP1, VM0), 0u, BIT(0)) == 0 &&
+          wt_ffa_notif_set(SP1, IDS(SP1, SP3), 0u, BIT(2)) == 0 &&
+          wt_ffa_notif_set(VM0, IDS(VM0, SP3), 0u, BIT(3)) == 0,
+          "SP1 signals the VM and SP3, and the VM signals SP3");
+    wt_ffa_notif_retire(SP1, WT_FFA_ABORTED);
+    check(wt_ffa_notif_get(VM0, VM0, WT_FFA_NOTIF_GET_FLAG_SP, &got) == 0 &&
+          got.from_sp == 0u,
+          "the VM drains nothing SP1 pended before it aborted");
+    check(wt_ffa_notif_get(SP3, SP3, WT_FFA_NOTIF_GET_FLAG_SP, &got) == 0 &&
+          got.from_sp == 0u, "nor does a partition");
+    check(wt_ffa_notif_info_get(VM0, 1, &info) == 0 &&
+          info.w2 == WT_FFA_NOTIF_INFO_COUNT(1u) && info.regs[0] == SP3,
+          "the scheduler is sent only to SP3, for the VM's id");
+    check(wt_ffa_notif_get(SP3, SP3, WT_FFA_NOTIF_GET_FLAG_VM, &got) == 0 &&
+          got.from_vm == BIT(3), "which another sender's binding kept pending");
+    check(wt_ffa_notif_bitmap_destroy(VM0, VM0) == WT_FFA_DENIED &&
+          wt_ffa_notif_unbind(VM0, IDS(SP2, VM0), 0u, BIT(1)) == 0 &&
+          wt_ffa_notif_bitmap_destroy(VM0, VM0) == 0,
+          "the VM's bitmap is masked and non-pending once SP2 is unbound");
+    check(wt_ffa_notif_bind(SP2, IDS(VM0, SP2), 0u, BIT(5)) == 0 &&
+          wt_ffa_notif_set(VM0, IDS(VM0, SP2), 0u, BIT(5)) == 0,
+          "SP2 binds an id from the VM, which signals it");
+    wt_ffa_notif_retire(VM0, WT_FFA_ABORTED);
+    check(wt_ffa_notif_get(SP2, SP2, WT_FFA_NOTIF_GET_FLAG_VM, &got) == 0 &&
+          got.from_vm == 0u, "a retired VM's signal goes with it too");
+}
+
 int main(void)
 {
     printf("WT-FFA-0013 (FF-A notification bitmaps, binding, signaling)\n");
@@ -602,6 +644,7 @@ int main(void)
     info_rows();
     info_page_rows();
     abort_rows();
+    abort_sender_rows();
 
     printf("ffa_notif: %d checks, %d failures\n", checks, failures);
     return (failures == 0) ? 0 : 1;

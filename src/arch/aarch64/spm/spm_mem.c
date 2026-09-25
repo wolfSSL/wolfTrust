@@ -949,6 +949,37 @@ int wt_spm_mem_frag_share(uint64_t handle, uint16_t sender)
     return ret;
 }
 
+/* The Normal world can rewrite its TX buffer while the SPMC reads it, so its
+ * descriptor is parsed only from one Secure copy, no larger than a reassembled
+ * one. */
+static uint8_t g_ns_desc[WT_FFA_MEM_FRAG_MAX];
+
+int wt_spm_mem_ns_send(wt_ffa_mem_op_t op, const uint8_t* tx,
+                       uint32_t frag_len, uint32_t total, uint64_t* handle)
+{
+    int ret = 0;
+
+    if ((tx == NULL) || (handle == NULL) || (frag_len == 0u) ||
+        (frag_len > total)) {
+        ret = WT_FFA_INVALID_PARAMETERS;
+    }
+    else if (frag_len > (uint32_t)sizeof(g_ns_desc)) {
+        ret = WT_FFA_NO_MEMORY;
+    }
+    if (ret == 0) {
+        (void)memcpy(g_ns_desc, tx, (size_t)frag_len);
+        if (frag_len < total) {
+            ret = wt_spm_mem_frag_begin((uint8_t)op, WT_FFA_ID_NS_PRIMARY,
+                                        g_ns_desc, frag_len, total, handle);
+        }
+        else {
+            ret = mem_share(g_ns_desc, (size_t)total, op, WT_FFA_ID_NS_PRIMARY,
+                            0u, handle);
+        }
+    }
+    return ret;
+}
+
 /* What the borrower asked for against what the owner granted it (11.4.2):
  * it may ask for less, never for more, and never for execution. */
 static int effective_permissions(int exclusive, uint8_t granted, uint8_t asked,

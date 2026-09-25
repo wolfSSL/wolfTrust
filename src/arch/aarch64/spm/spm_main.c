@@ -1396,18 +1396,13 @@ static void ns_mem_send(wt_ffa_regs_t* r, wt_ffa_mem_op_t op)
                        (ns_range_ok(addr, (uint64_t)frag) == 0))) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
-    if ((ret == 0) && (frag < total)) {
-        ret = wt_spm_mem_frag_begin((uint8_t)op, WT_FFA_ID_NS_PRIMARY,
-                                    (const uint8_t*)(uintptr_t)addr, frag,
-                                    total, &handle);
-        if (ret == 0) {
-            ns_frag_rx_reply(r, handle, frag);
-            return;
-        }
+    if (ret == 0) {
+        ret = wt_spm_mem_ns_send(op, (const uint8_t*)(uintptr_t)addr, frag,
+                                 total, &handle);
     }
-    else if (ret == 0) {
-        ret = wt_spm_mem_share((const uint8_t*)(uintptr_t)addr, (size_t)total,
-                               op, WT_FFA_ID_NS_PRIMARY, &handle);
+    if ((ret == 0) && (frag < total)) {
+        ns_frag_rx_reply(r, handle, frag);
+        return;
     }
     ns_handle_reply(r, ret, handle);
 }

@@ -1677,8 +1677,17 @@ int32_t wt_spm_sp_unavailable(const struct wt_co* co)
 /* The one RX/TX pair the rows map, standing in for every endpoint's. */
 static wt_ffa_mailbox_t g_relay_mailbox;
 
+/* A byte a racing Normal world rewrites in its TX buffer, landing at the
+ * relayer's first mailbox check: after validation, before registration. */
+static uint8_t* g_race_at;
+static uint8_t g_race_to;
+
 int wt_spm_mailbox_overlaps(uint64_t base, uint64_t size)
 {
+    if (g_race_at != NULL) {
+        *g_race_at = g_race_to;
+        g_race_at = NULL;
+    }
     return wt_ffa_mailbox_overlaps(&g_relay_mailbox, base, size);
 }
 
@@ -3800,6 +3809,90 @@ static void relay_ns_access_rows(void)
     check(g_domain_fails == 0u, "ns access: no domain operation failed closed");
 }
 
+/* WT-FFA-0009 (the Normal world can rewrite its TX buffer while the relayer
+ * reads it: what is registered is the descriptor that was validated, whole or
+ * reassembled from fragments, and one too large to copy is NO_MEMORY). */
+static void relay_ns_snapshot_rows(void)
+{
+    static uint8_t big[WT_FFA_MEM_FRAG_MAX + 16u];
+    wt_ffa_mem_constituent_t c[1];
+    wt_ffa_mem_build_t in;
+    uint8_t* recv;
+    uint8_t tx[256];
+    uint64_t h = 0u;
+    uint32_t offset = 0u;
+    size_t len = 0u;
+    int done = 0;
+    int ret;
+
+    if ((g_mem == NULL) || !relay_reset()) {
+        check(0, "ns snapshot: fixture");
+        return;
+    }
+    wt_spm_mem_ns_window(page(PG_NS), 2u * WT_TABLES_PAGE_SIZE);
+    c[0].address = page(PG_NS);
+    c[0].page_count = 1u;
+    (void)memset(&in, 0, sizeof(in));
+    in.constituents = c;
+    in.constituent_count = 1u;
+    in.op = WT_FFA_MEM_OP_LEND;
+    in.sender = WT_FFA_ID_NS_PRIMARY;
+    in.receiver = RELAY_ID_B;
+    in.permissions = WT_FFA_MEM_PERM_DATA_RW;
+    in.access_desc_size = (uint8_t)WT_FFA_MEM_ACCESS_SIZE;
+    ret = wt_ffa_mem_txn_build(tx, sizeof(tx), &in, &len);
+    recv = &tx[WT_FFA_MEM_TXN_HDR_SIZE + WT_FFA_MEM_ACC_OFF_RECEIVER];
+    g_race_at = recv;
+    g_race_to = (uint8_t)(RELAY_ID_C & 0xFFu);
+    if (ret == 0) {
+        ret = wt_spm_mem_ns_send(WT_FFA_MEM_OP_LEND, tx, (uint32_t)len,
+                                 (uint32_t)len, &h);
+    }
+    check(ret == 0 && g_race_at == NULL &&
+          relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_C,
+                            WT_FFA_MEM_PERM_DATA_RW) != 0 &&
+          relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
+                            WT_FFA_MEM_PERM_DATA_RW) == 0,
+          "ns snapshot: a descriptor rewritten mid-send lends to the borrower it was validated with");
+    check(relay_relinquish_as(h, RELAY_ID_B) == 0 &&
+          wt_spm_mem_reclaim(h, WT_FFA_ID_NS_PRIMARY, 0u) == 0,
+          "ns snapshot: and that borrower hands it back to the Normal world");
+    *recv = (uint8_t)(RELAY_ID_B & 0xFFu);
+    ret = wt_spm_mem_ns_send(WT_FFA_MEM_OP_LEND, tx, 40u, (uint32_t)len, &h);
+    if (ret == 0) {
+        ret = wt_spm_mem_frag_next(h, WT_FFA_ID_NS_PRIMARY, &tx[40],
+                                   (uint32_t)len - 40u, &offset, &done);
+    }
+    g_race_at = recv;
+    if ((ret == 0) && (done == 1)) {
+        ret = wt_spm_mem_frag_share(h, WT_FFA_ID_NS_PRIMARY);
+    }
+    check(ret == 0 && g_race_at == NULL &&
+          relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_C,
+                            WT_FFA_MEM_PERM_DATA_RW) != 0 &&
+          relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
+                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+          relay_relinquish_as(h, RELAY_ID_B) == 0 &&
+          wt_spm_mem_reclaim(h, WT_FFA_ID_NS_PRIMARY, 0u) == 0,
+          "ns snapshot: so does one sent in fragments and rewritten once they are in");
+    g_race_at = NULL;
+    (void)memcpy(big, tx, len);
+    check(wt_spm_mem_ns_send(WT_FFA_MEM_OP_LEND, big, (uint32_t)sizeof(big),
+                             (uint32_t)sizeof(big), &h) == WT_FFA_NO_MEMORY &&
+          wt_spm_mem_ns_send(WT_FFA_MEM_OP_LEND, big,
+                             WT_FFA_MEM_FRAG_MAX + 1u,
+                             WT_FFA_MEM_FRAG_MAX + 2u, &h) ==
+              WT_FFA_NO_MEMORY &&
+          wt_spm_mem_ns_send(WT_FFA_MEM_OP_LEND, tx, (uint32_t)len,
+                             (uint32_t)len - 1u, &h) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_ns_send(WT_FFA_MEM_OP_LEND, tx, 0u, (uint32_t)len, &h) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          wt_spm_mem_in_transaction(page(PG_NS), WT_TABLES_PAGE_SIZE) == 0,
+          "ns snapshot: past the Secure copy is NO_MEMORY, a bad length INVALID_PARAMETERS, nothing registered");
+    check(g_domain_fails == 0u, "ns snapshot: no domain operation failed closed");
+}
+
 int main(void)
 {
     printf("WT-FFA-0009 (FF-A memory transaction descriptors and handle state)\n");
@@ -3849,6 +3942,7 @@ int main(void)
     relay_frag_abort_rows();
     relay_frag_busy_rows();
     relay_ns_access_rows();
+    relay_ns_snapshot_rows();
 
     if (g_mem != NULL) {
         (void)munmap(g_mem, (size_t)RELAY_MEM_PAGES * WT_TABLES_PAGE_SIZE);

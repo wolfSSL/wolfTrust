@@ -77,6 +77,12 @@ const uint8_t* wt_spm_mem_frag_desc(uint64_t handle, uint16_t sender,
                                     uint32_t* len, uint8_t* op);
 void wt_spm_mem_frag_release(uint64_t handle, uint16_t sender);
 int wt_spm_mem_frag_share(uint64_t handle, uint16_t sender);
+/* A lend, share, or donate from the Normal world's TX buffer: its whole
+ * descriptor, or first fragment when frag_len < total, is copied once into
+ * Secure memory and then sent as wt_spm_mem_share or begun as
+ * wt_spm_mem_frag_begin would. WT_FFA_NO_MEMORY past WT_FFA_MEM_FRAG_MAX. */
+int wt_spm_mem_ns_send(wt_ffa_mem_op_t op, const uint8_t* tx,
+                       uint32_t frag_len, uint32_t total, uint64_t* handle);
 /* The sender unmapped the TX buffer its fragments come through: its next
  * FFA_MEM_FRAG_TX is answered WT_FFA_ABORTED and the transfer ends. */
 void wt_spm_mem_frag_abort(uint16_t sender);

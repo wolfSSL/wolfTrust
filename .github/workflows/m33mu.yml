@@ -329,3 +329,62 @@ jobs:
 
       - name: Run FF-M target scenario
         run: tests/target/run_m33mu_scenario.sh ${{ matrix.scenario.key }}
+
+  wolfboot-wolftrust-rt700-m33mu:
+    name: RT700 ${{ matrix.scenario.name }} (${{ matrix.engine }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        engine: [native, hsm]
+        scenario:
+          - { key: positive, name: "positive lifecycle (SAU guest windows)" }
+          - { key: ahbscneg, name: "cross-guest store faults and is contained" }
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      # The RT700 wolfBoot first stage builds against the MCUXpresso SDK, staged
+      # the way wolfBoot's own imxrt700 emulator workflow stages it.
+      - uses: actions/checkout@v4
+        with:
+          repository: nxp-mcuxpresso/CMSIS_5
+          ref: f9cf5df6d51a95f0146930d75af3d71977cf795a
+          path: CMSIS_5
+
+      - name: Cache MCUXpresso SDK
+        id: cache-mcuxpresso
+        uses: actions/cache@v4
+        with:
+          path: |
+            mcuxpresso-sdk
+            venv
+          key: mcuxpresso-sdk-mimxrt700evk-${{ hashFiles('.github/workflows/m33mu.yml') }}
+
+      - name: Setup MCUXpresso SDK
+        if: steps.cache-mcuxpresso.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv venv
+          . venv/bin/activate
+          pip install west==1.5.0
+          west init -m https://github.com/nxp-mcuxpresso/mcuxsdk-manifests.git \
+            --mr v26.06.00-LTS mcuxpresso-sdk
+          cd mcuxpresso-sdk
+          sed -i '/se_hostlib\|emwin/d' manifests/boards/mimxrt700evk.yml
+          west update_board --set board mimxrt700evk
+
+      - name: Run RT700 target scenario
+        env:
+          MCUXSDK: "1"
+          MCUXPRESSO: ${{ github.workspace }}/mcuxpresso-sdk/mcuxsdk
+          MCUXPRESSO_CMSIS: ${{ github.workspace }}/CMSIS_5/CMSIS
+        run: tests/target/run_rt700_m33mu.sh ${{ matrix.scenario.key }}

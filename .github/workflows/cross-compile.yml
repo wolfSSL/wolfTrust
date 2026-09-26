@@ -77,3 +77,15 @@ jobs:
         run: make TARGET=stm32h563 WT_ENGINE=hsm secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_hsm
       - name: Build the native-engine secure image (WT_ENGINE=native)
         run: make TARGET=stm32h563 WT_ENGINE=native secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_native
+      - name: Build the MIMXRT700 secure image (both engines, default layout)
+        run: |
+          for engine in native hsm; do
+            make TARGET=mimxrt700 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
+              secure-image TOOLPREFIX=arm-none-eabi- \
+              BUILD_DIR=build_rt700_$engine
+            # The default must leave wolfBoot's 0x400 header before the vectors.
+            vectors="$(arm-none-eabi-objdump -h build_rt700_$engine/wolftrust.elf \
+              | awk '$2 == ".vectors" { print $4 }')"
+            test "$vectors" = "38040400" || \
+              { echo "RT700 .vectors at 0x$vectors, want 0x38040400"; exit 1; }
+          done

@@ -159,6 +159,47 @@ Validation of the engine split completed under both engines with:
 The engine dimension changes crypto dispatch, not what M33MU proves. Emulator
 results still do not establish STM32 attribution or physical flash behavior.
 
+## MIMXRT700 emulator scenarios
+
+M33MU also models the i.MX RT700 (`--cpu imxrt700`), so the MIMXRT700 port has
+an emulator gate that mirrors its hardware runner:
+
+```sh
+make test-target TARGET=mimxrt700
+tests/target/run_rt700_m33mu.sh positive
+tests/target/run_rt700_m33mu.sh ahbscneg
+```
+
+`positive` boots the whole chain: wolfBoot verifies the wolfTrust image, and
+both bare-metal guests launch, reach the SPM through the SG veneers, and
+finish. `ahbscneg` adds the CPU isolation negative: guest 0 stores into
+guest 1's RAM window, which the per-dispatch SAU window keeps Secure, so the
+SAU refuses the store; the monitor contains the fault, relaunches guest 0
+through its restart budget, quarantines it, and guest 1 keeps running. The
+runner asserts every step from the emulator log (the guest console lines and
+M33MU's protection-unit trace), never from a debugger.
+
+The runner builds its own pinned emulator and wolfBoot first stage. The
+emulator is `M33MU_REF` plus `tests/target/m33mu-imxrt700.patch`, the model
+correction the chain needs until it lands upstream: a Secure AHBSC SRAM rule
+refuses Non-secure transactions but no longer overrides the SAU's NSC
+attribution, so the SG veneers in the Secure-ruled code-RAM band stay callable
+as the SRM's transaction check allows. The rules otherwise apply to CPU0 as
+documented, which is stricter than the EVK measured.
+wolfBoot is `WOLFBOOT_REF` built from `config/examples/imx-rt700-tz.config`
+linked at the NOR base, the same offset the wolfBoot emulator tests use, so
+building it needs the MCUXpresso SDK or DFP like any RT700 wolfBoot build;
+set `RT700_WOLFBOOT_DIR` to reuse an existing one (the runner stops if that
+tree has no `wolfboot.bin`, rather than replace it). `WT_ENGINE` selects the
+crypto engine as for any build. Both scenarios end on the
+emulator's wall-clock budget because the guests idle once done; M33MU reports
+that as exit status 127, the traced `ahbscneg` boot stops at the fault with
+status 0, and any other status fails the run.
+
+These are emulator results. They prove the SAU attribution and the monitor's
+containment on a faithful core model; the silicon `ahbscneg` run on the EVK is
+recorded separately.
+
 ## STM32H563 hardware
 
 The published hardware run requires:
@@ -247,8 +288,9 @@ The workflows under `.github/workflows/` separately run:
 - dependency integration;
 - the core/port split guard and the docs guard (no internal-ledger or
   home-directory references in the published docs);
-- fuzz targets; and
-- selected and nightly M33MU scenarios.
+- fuzz targets;
+- selected and nightly M33MU scenarios; and
+- the MIMXRT700 chain under M33MU's RT700 model (`positive` and `ahbscneg`).
 
 ### Trigger routing
 
@@ -261,7 +303,8 @@ The full M33MU matrix (the `M33MU` workflow: wolfBoot plus both guest
 lifecycles, both crypto engines, and every scenario) runs on every pull
 request, on a push to `master`, `main`, or `wolfTrust-dev`, on the nightly
 schedule, and on manual dispatch. Every PR gets the full emulator matrix
-automatically — no label or opt-in step.
+automatically — no label or opt-in step. The same workflow carries the two
+MIMXRT700 emulator scenarios as `RT700` checks, once per crypto engine.
 
 ### Running M33MU off a pull request
 

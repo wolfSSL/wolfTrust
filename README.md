@@ -86,6 +86,18 @@ FreeRTOS reference guests use wolfPSA's PSA Crypto API through five Cortex-M
 Security Extensions (CMSE) gateway veneers. Those mechanisms describe the
 current reference port, not a requirement imposed on every intended port.
 
+## Ports
+
+wolfTrust currently supports two ports; each guide covers the board, the
+first-stage loader contract, and the runners:
+
+- STM32H563 (NUCLEO-H563ZI): [STM32H5 Guide](docs/STM32H5-Guide.md)
+- NXP MIMXRT700 (MIMXRT700-EVK): [MIMXRT700 Guide](docs/MIMXRT700-Guide.md)
+
+Both build with `TARGET=<port>` (`stm32h563` is the default) and run the
+same scenario set under the M33MU emulator with `make test-target
+TARGET=<port>`.
+
 ## Quick start
 
 For the initial Secure build and host tests, install GNU Make, Python 3, Git, a
@@ -124,11 +136,14 @@ Common validation entry points:
 ```sh
 make test
 make test-target
+make test-target TARGET=mimxrt700
 make test-conformance
 WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 make test-hardware
 ```
 
-`make test-target` skips explicitly when M33MU is unavailable.
+`make test-target` runs the port's chain under M33MU: the STM32H563 default
+skips explicitly when M33MU is unavailable, and `TARGET=mimxrt700` builds its
+pinned emulator and wolfBoot first stage itself.
 `make test-conformance` instead runs its 20-test host subset and warns that it
 is not full emulator or hardware evidence. `make test-hardware` skips when
 board detection fails; on hosts without `lsusb`, a missing ST-Link can instead

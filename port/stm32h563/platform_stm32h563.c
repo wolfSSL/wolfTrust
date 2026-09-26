@@ -24,6 +24,7 @@
 #include "wolftrust/monitor.h"
 #include "wolftrust/arch/armv8m/context.h"
 #include "wolftrust/arch/armv8m/armv8m.h"
+#include "wolftrust/fabric_windows.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -397,37 +398,46 @@ void wt_platform_init(void)
  * guest RAM extent at the fabric (blocks marked Secure reject Non-secure
  * transactions regardless of privilege) and reopens only the arriving
  * guest's declared writable windows. */
-void wt_platform_program_memory_windows(const wt_memory_window_t* windows,
-                                        size_t count)
+static void wt_gtzc_close_all(void)
 {
     uintptr_t extent_end = WT_GUEST1_RAM_BASE + WT_GUEST_RAM_SIZE;
     size_t nsWords = (extent_end - WT_RAM_NS_BASE) / (512u * 32u);
     size_t i;
-    size_t w;
 
     for (i = 0; i < nsWords && i < 16u; ++i) {
         WT_GTZC1_MPCBB1_SECCFGR[i] = 0xFFFFFFFFu;
     }
-    for (w = 0; windows != NULL && w < count; ++w) {
-        uintptr_t base = windows[w].base;
-        uintptr_t end = base + windows[w].size;
-        size_t block;
-        size_t first;
-        size_t last;
+}
 
-        if ((windows[w].attributes & WT_MEM_ATTR_WRITE) == 0u ||
-                base < WT_RAM_NS_BASE || end > extent_end || end <= base) {
-            continue;
-        }
-        first = (base - WT_RAM_NS_BASE) / 512u;
-        last = (end - WT_RAM_NS_BASE + 511u) / 512u;
-        for (block = first; block < last; ++block) {
-            WT_GTZC1_MPCBB1_SECCFGR[block / 32u] &=
-                ~(1u << (block % 32u));
-        }
+static void wt_gtzc_open_window(uintptr_t base, size_t size)
+{
+    size_t first = (base - WT_RAM_NS_BASE) / 512u;
+    size_t last = (base + size - WT_RAM_NS_BASE + 511u) / 512u;
+    size_t block;
+
+    for (block = first; block < last; ++block) {
+        WT_GTZC1_MPCBB1_SECCFGR[block / 32u] &= ~(1u << (block % 32u));
     }
+}
+
+static void wt_gtzc_commit(void)
+{
     wt_dsb();
     wt_isb();
+}
+
+void wt_platform_program_memory_windows(const wt_memory_window_t* windows,
+                                        size_t count)
+{
+    static const wt_fabric_windows_t fabric = {
+        WT_RAM_NS_BASE,
+        WT_GUEST1_RAM_BASE + WT_GUEST_RAM_SIZE,
+        wt_gtzc_close_all,
+        wt_gtzc_open_window,
+        wt_gtzc_commit
+    };
+
+    wt_fabric_apply_windows(&fabric, windows, count);
 }
 
 /* End of executable image code (secure.ld): the SP thread tables grant RX up

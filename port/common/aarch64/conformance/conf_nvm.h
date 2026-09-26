@@ -36,8 +36,15 @@ int wt_conf_nvm_sync(uint8_t *buf, uint32_t len, int store);
  * poke via SVC; the interrupt itself is delivered through the real vector. */
 int wt_conf_irq_set(int on);
 
-/* Bytes of the DRIVER partition's NVMEM: the PAL shadow and the NVMEM_0
- * range pal_config.h advertises. */
+/* Bytes of the DRIVER partition's NVMEM: the PAL shadow, the privileged
+ * store, and the NVMEM_0 range pal_config.h advertises. */
 #define WT_CONF_NVM_SIZE 0x100u
+
+/* Pseudo-MMIO pages the isolation tests probe, one per owning partition,
+ * carved out of the conformance data band above its data (pal_config.h and
+ * wt_platform_conf_sp_grants agree through these). */
+#define WT_CONF_SERVER_MMIO_OFFSET 0x1C000u
+#define WT_CONF_DRIVER_MMIO_OFFSET 0x1D000u
+#define WT_CONF_MMIO_HOLE_SIZE     0x1000u
 
 #endif /* WOLFTRUST_STM32H563_CONF_NVM_H */

@@ -18,26 +18,31 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Arm psa-arch-tests PAL target configuration for wolfTrust on STM32H563.
- * P3a supplies the compile surface the partition sources include; the driver
- * plane (P3b) binds the UART/WD/NVMEM values to real secure devices and the
- * isolation MMIO windows (P4) to enforced regions. */
+/* Arm psa-arch-tests PAL target configuration for wolfTrust on the AArch64
+ * QEMU virt / Versal targets. The DRIVER partition's NVMEM is a RAM shadow
+ * written through the SVC gate into a .noinit band (survives the warm reset the
+ * panic tests use); the UART/watchdog values name devices the driver plane
+ * uses once VERBOSITY routing lands. The per-partition MMIO holes are unmapped
+ * secure addresses the isolation tests probe expecting a fault. */
 
 #ifndef _PAL_CONFIG_H_
 #define _PAL_CONFIG_H_
 
 #include "conf_nvm.h"
 
+/* The val suite runs the same tests at every level; xlnx-versal-virt fences
+ * no Secure band, so its manifests declare profile 0 (docs/Porting.md) and
+ * the runner records the seven NS-fence tests it cannot pass. */
 #define PLATFORM_PSA_ISOLATION_LEVEL 3
 
 #define UART_NUM                               1
-#define UART_0_BASE                            0x44002400
-#define UART_0_SIZE                            0x3FF
+#define UART_0_BASE                            0x09000000
+#define UART_0_SIZE                            0xFFF
 #define UART_0_INTR_ID                         0xFF
 #define UART_0_PERMISSION                      TYPE_READ_WRITE
 
 #define WATCHDOG_NUM                           1
-#define WATCHDOG_0_BASE                        0x40003000
+#define WATCHDOG_0_BASE                        0x0E3F0000
 #define WATCHDOG_0_SIZE                        0x3FF
 #define WATCHDOG_0_INTR_ID                     0xFF
 #define WATCHDOG_0_PERMISSION                  TYPE_READ_WRITE
@@ -48,27 +53,28 @@
 #define WATCHDOG_0_TIMEOUT_IN_MICRO_SEC_CRYPTO 0x1312D00
 
 #define NVMEM_NUM                              1
-#define NVMEM_0_START                          0x0C07FC00
+#define NVMEM_0_START                          0x0E3F1000
 #define NVMEM_0_END                            (NVMEM_0_START + WT_CONF_NVM_SIZE - 1u)
 #define NVMEM_0_PERMISSION                     TYPE_READ_WRITE
 
 #define NSPE_MMIO_NUM                          1
-#define NSPE_MMIO_0_START                      0x20038F00
-#define NSPE_MMIO_0_END                        0x20038F1F
+#define NSPE_MMIO_0_START                      0x44080000
+#define NSPE_MMIO_0_END                        0x4408001F
 #define NSPE_MMIO_0_PERMISSION                 TYPE_READ_WRITE
 
-/* Per-partition pseudo-MMIO holes carved from the top of the shared CONFDATA
- * window, above the conformance .data/.bss fill. MUST match the
- * WT_CONF_*_MMIO_* constants in port/stm32h563/memory_map.h (an #error
- * cross-check in conf_nvm_sync.c enforces it). */
+/* Per-partition pseudo-MMIO holes near the top of the shared conformance data
+ * band, above its .data/.bss fill. The band is granted to the test partitions,
+ * so a partition reaches its own hole; the L3 isolation tests carve each hole
+ * out of every other partition's grant (a later slice) so a cross-partition
+ * poke faults. WT_SPM_CONFDATA_PA is a -D on the secure conformance build. */
 #define SERVER_PARTITION_MMIO_NUM              1
-#define SERVER_PARTITION_MMIO_0_START          0x30095C00
-#define SERVER_PARTITION_MMIO_0_END            0x30095D00
+#define SERVER_PARTITION_MMIO_0_START          (WT_SPM_CONFDATA_PA + WT_CONF_SERVER_MMIO_OFFSET)
+#define SERVER_PARTITION_MMIO_0_END            (SERVER_PARTITION_MMIO_0_START + 0x100u)
 #define SERVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define DRIVER_PARTITION_MMIO_NUM              1
-#define DRIVER_PARTITION_MMIO_0_START          0x30095E00
-#define DRIVER_PARTITION_MMIO_0_END            0x30095F00
+#define DRIVER_PARTITION_MMIO_0_START          (WT_SPM_CONFDATA_PA + WT_CONF_DRIVER_MMIO_OFFSET)
+#define DRIVER_PARTITION_MMIO_0_END            (DRIVER_PARTITION_MMIO_0_START + 0x100u)
 #define DRIVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define PLATFORM_WD_BASE                        WATCHDOG_0_BASE
@@ -91,9 +97,8 @@
 #include "psa_manifest/pid.h"
 #endif
 
-/* dev_apis Storage (P4-S6): the val NSPE and test TUs reach the PSA storage
- * types and API version macros through this per-target config, mirroring the
- * upstream tgt_dev_apis targets. */
+/* dev_apis Storage: the val NSPE and test TUs reach the PSA storage types and
+ * API version macros through this per-target config. */
 #if defined(STORAGE) || defined(INTERNAL_TRUSTED_STORAGE) || \
     defined(PROTECTED_STORAGE)
 #include "psa/internal_trusted_storage.h"
@@ -101,8 +106,8 @@
 #define ARCH_TEST_STORAGE_UID_MAX_SIZE 512
 #endif
 
-/* dev_apis Crypto (P4-S6): wolfPSA is the guest's psa_* provider; the
- * algorithm surface the suite may exercise lives in pal_crypto_config.h. */
+/* dev_apis Crypto: wolfPSA is the guest's psa_* provider; the algorithm
+ * surface the suite may exercise lives in pal_crypto_config.h. */
 #if defined(CRYPTO)
 #include "psa/crypto.h"
 #include "pal_crypto_config.h"

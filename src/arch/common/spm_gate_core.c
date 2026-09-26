@@ -386,6 +386,11 @@ int wt_spm_dispatch_call(wt_spm_call_t* call, wt_trap_frame_t* frame)
     call->ret_tick = (sched != NULL) ? sched->monotonic_ticks : 0u;
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    if ((call->op == WT_SPM_OP_CONF_NVM_SYNC ||
+            call->op == WT_SPM_OP_CONF_IRQ_SET) &&
+            slot->partition_id != DRIVER_PARTITION_ID) {
+        return WT_FFM_ERROR_ARGUMENT;
+    }
     /* Platform NVM service (P5 K2): the unprivileged DRIVER partition cannot
      * touch the flash controller, so it traps its shadow buffer here for the
      * privileged sync. Validate the buffer inside the caller's domain (written

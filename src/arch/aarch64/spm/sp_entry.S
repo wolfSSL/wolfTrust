@@ -1,0 +1,533 @@
+/* sp_entry.S
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* S-EL0 partition entry and exit. wt_sp_el0_enter parks the S-EL1 caller's
+ * callee-saved state, loads a wt_trap_frame into the EL0 register state and
+ * ERETs; a lower-EL synchronous exception lands in wt_sp_lower_sync_entry,
+ * which builds the frame for wt_spm_lower_sync and either ERETs back into
+ * the partition or, when the handler unwinds through wt_sp_el0_leave,
+ * resumes the parked S-EL1 caller. Frame layout: include/wolftrust/arch/
+ * aarch64/context.h (x0..x30, SP_EL0, ELR, SPSR, ESR, FAR; 288 bytes). */
+
+#define FRAME_SP_EL0 248
+#define FRAME_ELR    256
+#define FRAME_SPSR   264
+#define FRAME_ESR    272
+#define FRAME_FAR    280
+#define FRAME_SIZE   288
+
+    .section .bss.g_wt_sp_kernel_ctx, "aw", %nobits
+    .balign 16
+    .globl g_wt_sp_kernel_ctx
+g_wt_sp_kernel_ctx:
+    .skip   112
+
+    .section .text.wt_sp_el0_enter, "ax"
+    .globl wt_sp_el0_enter
+wt_sp_el0_enter:
+    adrp    x1, g_wt_sp_kernel_ctx
+    add     x1, x1, :lo12:g_wt_sp_kernel_ctx
+    stp     x19, x20, [x1, #0]
+    stp     x21, x22, [x1, #16]
+    stp     x23, x24, [x1, #32]
+    stp     x25, x26, [x1, #48]
+    stp     x27, x28, [x1, #64]
+    stp     x29, x30, [x1, #80]
+    mov     x2, sp
+    str     x2, [x1, #96]
+    ldr     x1, [x0, #FRAME_SP_EL0]
+    msr     SP_EL0, x1
+    ldr     x1, [x0, #FRAME_ELR]
+    msr     ELR_EL1, x1
+    ldr     x1, [x0, #FRAME_SPSR]
+    msr     SPSR_EL1, x1
+    ldp     x2, x3, [x0, #16]
+    ldp     x4, x5, [x0, #32]
+    ldp     x6, x7, [x0, #48]
+    ldp     x8, x9, [x0, #64]
+    ldp     x10, x11, [x0, #80]
+    ldp     x12, x13, [x0, #96]
+    ldp     x14, x15, [x0, #112]
+    ldp     x16, x17, [x0, #128]
+    ldp     x18, x19, [x0, #144]
+    ldp     x20, x21, [x0, #160]
+    ldp     x22, x23, [x0, #176]
+    ldp     x24, x25, [x0, #192]
+    ldp     x26, x27, [x0, #208]
+    ldp     x28, x29, [x0, #224]
+    ldr     x30, [x0, #240]
+    ldp     x0, x1, [x0, #0]
+    eret
+
+    .section .text.wt_sp_el0_leave, "ax"
+    .globl wt_sp_el0_leave
+wt_sp_el0_leave:
+    adrp    x1, g_wt_sp_kernel_ctx
+    add     x1, x1, :lo12:g_wt_sp_kernel_ctx
+    ldp     x19, x20, [x1, #0]
+    ldp     x21, x22, [x1, #16]
+    ldp     x23, x24, [x1, #32]
+    ldp     x25, x26, [x1, #48]
+    ldp     x27, x28, [x1, #64]
+    ldp     x29, x30, [x1, #80]
+    ldr     x2, [x1, #96]
+    mov     sp, x2
+    ret
+
+    .section .text.wt_sp_lower_sync_entry, "ax"
+    .globl wt_sp_lower_sync_entry
+wt_sp_lower_sync_entry:
+    sub     sp, sp, #FRAME_SIZE
+    stp     x0, x1, [sp, #0]
+    stp     x2, x3, [sp, #16]
+    stp     x4, x5, [sp, #32]
+    stp     x6, x7, [sp, #48]
+    stp     x8, x9, [sp, #64]
+    stp     x10, x11, [sp, #80]
+    stp     x12, x13, [sp, #96]
+    stp     x14, x15, [sp, #112]
+    stp     x16, x17, [sp, #128]
+    stp     x18, x19, [sp, #144]
+    stp     x20, x21, [sp, #160]
+    stp     x22, x23, [sp, #176]
+    stp     x24, x25, [sp, #192]
+    stp     x26, x27, [sp, #208]
+    stp     x28, x29, [sp, #224]
+    str     x30, [sp, #240]
+    mrs     x0, SP_EL0
+    str     x0, [sp, #FRAME_SP_EL0]
+    mrs     x0, ELR_EL1
+    str     x0, [sp, #FRAME_ELR]
+    mrs     x0, SPSR_EL1
+    str     x0, [sp, #FRAME_SPSR]
+    mrs     x0, ESR_EL1
+    str     x0, [sp, #FRAME_ESR]
+    mrs     x0, FAR_EL1
+    str     x0, [sp, #FRAME_FAR]
+    mov     x0, sp
+    bl      wt_spm_lower_sync
+    ldr     x0, [sp, #FRAME_SPSR]
+    msr     SPSR_EL1, x0
+    ldr     x0, [sp, #FRAME_ELR]
+    msr     ELR_EL1, x0
+    ldr     x0, [sp, #FRAME_SP_EL0]
+    msr     SP_EL0, x0
+    ldr     x30, [sp, #240]
+    ldp     x28, x29, [sp, #224]
+    ldp     x26, x27, [sp, #208]
+    ldp     x24, x25, [sp, #192]
+    ldp     x22, x23, [sp, #176]
+    ldp     x20, x21, [sp, #160]
+    ldp     x18, x19, [sp, #144]
+    ldp     x16, x17, [sp, #128]
+    ldp     x14, x15, [sp, #112]
+    ldp     x12, x13, [sp, #96]
+    ldp     x10, x11, [sp, #80]
+    ldp     x8, x9, [sp, #64]
+    ldp     x6, x7, [sp, #48]
+    ldp     x4, x5, [sp, #32]
+    ldp     x2, x3, [sp, #16]
+    ldp     x0, x1, [sp, #0]
+    add     sp, sp, #FRAME_SIZE
+    eret
+
+/* Lower-EL FIQ (a Group 0 interrupt while an S-EL0 partition runs): build the
+ * same frame the sync path does and call wt_spm_lower_fiq. It returns here to
+ * resume the partition when nothing preempts it; when the tick preempts, it
+ * unwinds through wt_sp_el0_leave to the scheduler and never comes back. */
+    .section .text.wt_sp_lower_fiq_entry, "ax"
+    .globl wt_sp_lower_fiq_entry
+wt_sp_lower_fiq_entry:
+    sub     sp, sp, #FRAME_SIZE
+    stp     x0, x1, [sp, #0]
+    stp     x2, x3, [sp, #16]
+    stp     x4, x5, [sp, #32]
+    stp     x6, x7, [sp, #48]
+    stp     x8, x9, [sp, #64]
+    stp     x10, x11, [sp, #80]
+    stp     x12, x13, [sp, #96]
+    stp     x14, x15, [sp, #112]
+    stp     x16, x17, [sp, #128]
+    stp     x18, x19, [sp, #144]
+    stp     x20, x21, [sp, #160]
+    stp     x22, x23, [sp, #176]
+    stp     x24, x25, [sp, #192]
+    stp     x26, x27, [sp, #208]
+    stp     x28, x29, [sp, #224]
+    str     x30, [sp, #240]
+    mrs     x0, SP_EL0
+    str     x0, [sp, #FRAME_SP_EL0]
+    mrs     x0, ELR_EL1
+    str     x0, [sp, #FRAME_ELR]
+    mrs     x0, SPSR_EL1
+    str     x0, [sp, #FRAME_SPSR]
+    mrs     x0, ESR_EL1
+    str     x0, [sp, #FRAME_ESR]
+    mrs     x0, FAR_EL1
+    str     x0, [sp, #FRAME_FAR]
+    mov     x0, sp
+    bl      wt_spm_lower_fiq
+    ldr     x0, [sp, #FRAME_SPSR]
+    msr     SPSR_EL1, x0
+    ldr     x0, [sp, #FRAME_ELR]
+    msr     ELR_EL1, x0
+    ldr     x0, [sp, #FRAME_SP_EL0]
+    msr     SP_EL0, x0
+    ldr     x30, [sp, #240]
+    ldp     x28, x29, [sp, #224]
+    ldp     x26, x27, [sp, #208]
+    ldp     x24, x25, [sp, #192]
+    ldp     x22, x23, [sp, #176]
+    ldp     x20, x21, [sp, #160]
+    ldp     x18, x19, [sp, #144]
+    ldp     x16, x17, [sp, #128]
+    ldp     x14, x15, [sp, #112]
+    ldp     x12, x13, [sp, #96]
+    ldp     x10, x11, [sp, #80]
+    ldp     x8, x9, [sp, #64]
+    ldp     x6, x7, [sp, #48]
+    ldp     x4, x5, [sp, #32]
+    ldp     x2, x3, [sp, #16]
+    ldp     x0, x1, [sp, #0]
+    add     sp, sp, #FRAME_SIZE
+    eret
+
+/* Lower-EL IRQ (a Normal-world Group 1 interrupt while an S-EL0 partition
+ * runs): the same frame, handed to wt_spm_lower_irq, which preempts the
+ * partition so the Normal world can take its interrupt. */
+    .section .text.wt_sp_lower_irq_entry, "ax"
+    .globl wt_sp_lower_irq_entry
+wt_sp_lower_irq_entry:
+    sub     sp, sp, #FRAME_SIZE
+    stp     x0, x1, [sp, #0]
+    stp     x2, x3, [sp, #16]
+    stp     x4, x5, [sp, #32]
+    stp     x6, x7, [sp, #48]
+    stp     x8, x9, [sp, #64]
+    stp     x10, x11, [sp, #80]
+    stp     x12, x13, [sp, #96]
+    stp     x14, x15, [sp, #112]
+    stp     x16, x17, [sp, #128]
+    stp     x18, x19, [sp, #144]
+    stp     x20, x21, [sp, #160]
+    stp     x22, x23, [sp, #176]
+    stp     x24, x25, [sp, #192]
+    stp     x26, x27, [sp, #208]
+    stp     x28, x29, [sp, #224]
+    str     x30, [sp, #240]
+    mrs     x0, SP_EL0
+    str     x0, [sp, #FRAME_SP_EL0]
+    mrs     x0, ELR_EL1
+    str     x0, [sp, #FRAME_ELR]
+    mrs     x0, SPSR_EL1
+    str     x0, [sp, #FRAME_SPSR]
+    mrs     x0, ESR_EL1
+    str     x0, [sp, #FRAME_ESR]
+    mrs     x0, FAR_EL1
+    str     x0, [sp, #FRAME_FAR]
+    mov     x0, sp
+    bl      wt_spm_lower_irq
+    ldr     x0, [sp, #FRAME_SPSR]
+    msr     SPSR_EL1, x0
+    ldr     x0, [sp, #FRAME_ELR]
+    msr     ELR_EL1, x0
+    ldr     x0, [sp, #FRAME_SP_EL0]
+    msr     SP_EL0, x0
+    ldr     x30, [sp, #240]
+    ldp     x28, x29, [sp, #224]
+    ldp     x26, x27, [sp, #208]
+    ldp     x24, x25, [sp, #192]
+    ldp     x22, x23, [sp, #176]
+    ldp     x20, x21, [sp, #160]
+    ldp     x18, x19, [sp, #144]
+    ldp     x16, x17, [sp, #128]
+    ldp     x14, x15, [sp, #112]
+    ldp     x12, x13, [sp, #96]
+    ldp     x10, x11, [sp, #80]
+    ldp     x8, x9, [sp, #64]
+    ldp     x6, x7, [sp, #48]
+    ldp     x4, x5, [sp, #32]
+    ldp     x2, x3, [sp, #16]
+    ldp     x0, x1, [sp, #0]
+    add     sp, sp, #FRAME_SIZE
+    eret
+
+/* S-EL0 spinner for the preemption self-test: loops until a tick preempts it. */
+    .section .text.wt_sp_spin, "ax"
+    .globl wt_sp_spin
+wt_sp_spin:
+1:  b       1b
+
+/* S-EL0 FF-A discovery partition: FFA_PARTITION_INFO_GET with a Nil UUID lists
+ * every configured partition into the RX buffer (its base is x0 on entry). Read
+ * the match count from w2 and the first descriptor's partition id from the RX
+ * buffer, and yield both to the SPMC self-test in one token (id in bits 31:16,
+ * count in bits 15:0). FFA_RXTX_UNMAP and FFA_RX_RELEASE naming its own id are
+ * then INVALID_PARAMETERS (MBZ at this instance, Tables 13.21 and 13.30) and
+ * the RX buffer is released with w1 clear. Standing in for a PSA partition,
+ * which takes no notifications, FFA_FEATURES of FFA_NOTIFICATION_GET and the
+ * call itself are NOT_SUPPORTED (10.7 rules 5, 6); any other answer yields
+ * count 0. */
+    .section .text.wt_sp_ffa_discover, "ax"
+    .globl wt_sp_ffa_discover
+wt_sp_ffa_discover:
+    mov     x19, x0                     /* saved RX base */
+    movz    w0, #0x0068                 /* FFA_PARTITION_INFO_GET (0x84000068) */
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0                      /* Nil UUID in w1-w4 */
+    mov     x2, #0
+    mov     x3, #0
+    mov     x4, #0
+    mov     x5, #0                      /* flags: full descriptors */
+    svc     #0
+    uxth    w20, w2                     /* match count (w2) */
+    ldrh    w21, [x19]                  /* first descriptor's partition id */
+    movz    w22, #0x0060                /* FFA_ERROR (0x84000060) */
+    movk    w22, #0x8400, lsl #16
+    movz    w0, #0x0067                 /* FFA_RXTX_UNMAP (0x84000067) */
+    movk    w0, #0x8400, lsl #16
+    lsl     w1, w21, #16
+    svc     #0
+    cmp     w0, w22
+    ccmn    w2, #2, #0, eq              /* INVALID_PARAMETERS (-2) */
+    csel    w20, w20, wzr, eq
+    movz    w0, #0x0065                 /* FFA_RX_RELEASE (0x84000065) */
+    movk    w0, #0x8400, lsl #16
+    mov     w1, w21
+    svc     #0
+    cmp     w0, w22
+    ccmn    w2, #2, #0, eq
+    csel    w20, w20, wzr, eq
+    movz    w0, #0x0065
+    movk    w0, #0x8400, lsl #16
+    mov     w1, #0
+    svc     #0
+    add     w23, w22, #1                /* FFA_SUCCESS32 (0x84000061) */
+    cmp     w0, w23
+    csel    w20, w20, wzr, eq
+    movz    w0, #0x0064                 /* FFA_FEATURES (0x84000064) */
+    movk    w0, #0x8400, lsl #16
+    movz    w1, #0x0082                 /* FFA_NOTIFICATION_GET (0x84000082) */
+    movk    w1, #0x8400, lsl #16
+    svc     #0
+    cmp     w0, w22
+    ccmn    w2, #1, #0, eq              /* NOT_SUPPORTED (-1) */
+    csel    w20, w20, wzr, eq
+    movz    w0, #0x0082
+    movk    w0, #0x8400, lsl #16
+    mov     w1, w21                     /* its own id, vCPU 0 */
+    mov     w2, #1                      /* the partitions' bitmap */
+    svc     #0
+    cmp     w0, w22
+    ccmn    w2, #1, #0, eq
+    csel    w20, w20, wzr, eq
+    orr     x1, x20, x21, lsl #16       /* token = first_id<<16 | count */
+    movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3000101) */
+    movk    w0, #0xC300, lsl #16
+    svc     #0
+1:  b       1b
+
+/* S-EL0 memory-sharing borrower: x0 = argument block {handle, shared page base,
+ * TX base, retrieve request length, own id}. FFA_MEM_RETRIEVE_REQ (request
+ * pre-written in TX by the SPMC) maps the shared page; read its four seeded
+ * bytes, write a reply byte through the mapping, and yield the bytes. Then
+ * build a relinquish descriptor in TX, FFA_MEM_RELINQUISH, and yield the
+ * status. A failed retrieve yields its status straight away. */
+    .section .text.wt_sp_ffa_borrow, "ax"
+    .globl wt_sp_ffa_borrow
+wt_sp_ffa_borrow:
+    mov     x19, x0
+    ldr     x20, [x19]                  /* handle */
+    ldr     x21, [x19, #8]              /* shared page base */
+    ldr     x22, [x19, #16]             /* TX base */
+    ldr     x23, [x19, #24]             /* retrieve request length */
+    movz    w0, #0x0074                 /* FFA_MEM_RETRIEVE_REQ32 (0x84000074) */
+    movk    w0, #0x8400, lsl #16
+    mov     x1, x23                     /* total length */
+    mov     x2, x23                     /* fragment length */
+    mov     x3, #0                      /* descriptor in the TX buffer */
+    mov     x4, #0
+    svc     #0
+    movz    w4, #0x0075                 /* FFA_MEM_RETRIEVE_RESP (0x84000075) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    2f
+    ldr     w1, [x21]                   /* the four seeded bytes */
+    mov     w5, #0xEE
+    strb    w5, [x21, #4]               /* reply written through the mapping */
+    movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3000101) */
+    movk    w0, #0xC300, lsl #16
+    svc     #0
+    str     x20, [x22]                  /* relinquish descriptor: handle */
+    str     wzr, [x22, #8]              /* flags */
+    mov     w5, #1
+    str     w5, [x22, #12]              /* endpoint count */
+    ldr     x5, [x19, #32]
+    strh    w5, [x22, #16]              /* endpoint: own id */
+    movz    w0, #0x0076                 /* FFA_MEM_RELINQUISH (0x84000076) */
+    movk    w0, #0x8400, lsl #16
+    svc     #0
+2:  mov     x1, x0                      /* yield the FF-A status */
+    movz    w0, #0x0101
+    movk    w0, #0xC300, lsl #16
+    svc     #0
+1:  b       1b
+
+/* S-EL0 probe for the boot self-test of failed initialization (8.5 rule 3):
+ * FFA_ERROR with w1 set, then with no error code in w2, must each come back
+ * INVALID_PARAMETERS; FFA_ERROR(NO_MEMORY) then reports the failure and must
+ * never return. Anything else yields the token 0xBAD. */
+    .section .text.wt_sp_ffa_init_fail, "ax"
+    .globl wt_sp_ffa_init_fail
+wt_sp_ffa_init_fail:
+    movz    w0, #0x0060                 /* FFA_ERROR (0x84000060) */
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #1                      /* w1 MBZ at this instance */
+    movn    w2, #2                      /* NO_MEMORY (-3) */
+    svc     #0
+    movz    w4, #0x0060
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    9f
+    cmn     w2, #2                      /* INVALID_PARAMETERS (-2) */
+    b.ne    9f
+    movz    w0, #0x0060
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0
+    mov     x2, #0                      /* not an error code */
+    svc     #0
+    movz    w4, #0x0060
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    9f
+    cmn     w2, #2
+    b.ne    9f
+    movz    w0, #0x0060
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0
+    movn    w2, #2
+    svc     #0
+9:  mov     x1, #0xBAD
+    movz    w0, #0x0101                 /* WT_SPM_SVC_FID_YIELD (0xC3000101) */
+    movk    w0, #0xC300, lsl #16
+    svc     #0
+1:  b       1b
+
+/* S-EL0 probe for the boot self-test: yield twice with distinct tokens. */
+    .section .text.wt_sp_el0_probe, "ax"
+    .globl wt_sp_el0_probe
+wt_sp_el0_probe:
+    mov     w0, #0x0101
+    movk    w0, #0xC300, lsl #16
+    mov     x1, #0x5A
+    svc     #0
+    mov     w0, #0x0101
+    movk    w0, #0xC300, lsl #16
+    mov     x1, #0xA5
+    svc     #0
+1:  b       1b
+
+/* S-EL0 FF-A echo partition: FFA_MSG_WAIT to signal init and wait, then for
+ * each delivered direct request (x0=REQ fid, x1=sender/receiver ids, x3=first
+ * payload word) reply with FFA_MSG_SEND_DIRECT_RESP32, swapping the ids and
+ * complementing the payload word. A delivered FFA_INTERRUPT (x0) is a Secure
+ * interrupt: acknowledge it by returning to waiting. Its w1/w2 are MBZ for an
+ * S-EL0 partition (12.4.1 item 3), so a nonzero one faults the partition. The
+ * response SVC also waits for the next request, so control resumes at label 1
+ * with it. Before its first wait it checks that an SVC32 call is read from
+ * w1-w7 alone (FFA_MEM_PERM_GET32 on its own stack page, with junk above the
+ * address in x1, must succeed) and that the SPMC, which scheduled its init,
+ * refuses its FFA_YIELD with DENIED (8.5 rule 4); either failing faults it.
+ * A request whose first payload word is 0x5CCE is completed with FFA_SUCCESS
+ * instead of a response (15.2), after checking that one with a nonzero w3
+ * (MBZ) is refused. */
+    .section .text.wt_sp_ffa_echo, "ax"
+    .globl wt_sp_ffa_echo
+wt_sp_ffa_echo:
+    mov     x1, sp
+    sub     x1, x1, #1
+    and     x1, x1, #0xFFFFFFFFFFFFF000 /* the stack's top page */
+    movk    x1, #0xDEAD, lsl #48        /* upper half, not an argument */
+    movz    w0, #0x0088                 /* FFA_MEM_PERM_GET32 (0x84000088) */
+    movk    w0, #0x8400, lsl #16
+    svc     #0
+    movz    w4, #0x0061                 /* FFA_SUCCESS32 (0x84000061) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    9f
+    movz    w0, #0x006C                 /* FFA_YIELD (0x8400006C) */
+    movk    w0, #0x8400, lsl #16
+    svc     #0
+    movz    w4, #0x0060                 /* FFA_ERROR (0x84000060) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    9f
+    cmn     w2, #6                      /* DENIED (-6) */
+    b.eq    0f
+9:  udf     #0
+0:  movz    w0, #0x006B                 /* FFA_MSG_WAIT (0x8400006B) */
+    movk    w0, #0x8400, lsl #16
+    svc     #0
+1:  movz    w4, #0x0062                 /* FFA_INTERRUPT (0x84000062) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    2f
+    orr     w5, w1, w2
+    cbz     w5, 0b                      /* interrupt: acknowledge and re-wait */
+    udf     #0
+2:  movz    w5, #0x5CCE
+    cmp     w3, w5
+    b.ne    3f
+    movz    w0, #0x0061                 /* FFA_SUCCESS32 (0x84000061) */
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0
+    mov     x2, #0
+    mov     x3, #1                      /* MBZ: must be refused */
+    mov     x4, #0
+    mov     x5, #0
+    mov     x6, #0
+    mov     x7, #0
+    svc     #0
+    movz    w4, #0x0060                 /* FFA_ERROR (0x84000060) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.ne    9b
+    cmn     w2, #2                      /* INVALID_PARAMETERS (-2) */
+    b.ne    9b
+    movz    w0, #0x0061
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0
+    mov     x2, #0
+    mov     x3, #0
+    mov     x4, #0
+    mov     x5, #0
+    mov     x6, #0
+    mov     x7, #0
+    svc     #0
+    b       1b
+3:  lsr     x2, x1, #16                 /* original sender */
+    ubfx    x1, x1, #0, #16             /* original receiver = our id */
+    orr     x1, x2, x1, lsl #16         /* reply w1 = our_id<<16 | sender */
+    mvn     x3, x3                      /* echo ~payload */
+    mov     x2, #0                      /* w2 SBZ */
+    movz    w0, #0x0070                 /* FFA_MSG_SEND_DIRECT_RESP32 (0x84000070) */
+    movk    w0, #0x8400, lsl #16
+    svc     #0
+    b       1b

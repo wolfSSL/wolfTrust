@@ -426,6 +426,20 @@ int main(void)
           "FFA_FEATURES refuses a function the SPMD does not implement yet");
     call(&r, WT_FFA_FEATURES, 0x1u);
     check(is_error(&r, WT_FFA_NOT_SUPPORTED), "FFA_FEATURES refuses feature ids");
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_FEATURES;
+    r.x[1] = WT_FFA_FEATURE_SRI;
+    r.x[2] = 1u;
+    wt_ffa_spmd_ns_call(&r);
+    check(is_error(&r, WT_FFA_NOT_SUPPORTED),
+          "an SRI feature query with the MBZ input properties set is "
+          "NOT_SUPPORTED (Table 13.11)");
+    memset(&r, 0, sizeof(r));
+    r.x[0] = WT_FFA_FEATURES;
+    r.x[1] = WT_FFA_FEATURE_SRI;
+    wt_ffa_spmd_ns_call(&r);
+    check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 && r.x[2] == WT_FFA_SRI_INTID,
+          "and with w2 zero it reports the SRI");
     call(&r, WT_FFA_FEATURES, WT_FFA_NORMAL_WORLD_RESUME);
     check((uint32_t)r.x[0] == WT_FFA_SUCCESS32 && rest_zero(r.x, 1u, 7u),
           "FFA_FEATURES reports FFA_NORMAL_WORLD_RESUME, which the SPMD serves");

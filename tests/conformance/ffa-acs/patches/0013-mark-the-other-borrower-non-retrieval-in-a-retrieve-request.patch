@@ -1,0 +1,221 @@
+diff --git a/test/v1.0/memory_manage/donate_state_machine/donate_state_machine_3_server.c b/test/v1.0/memory_manage/donate_state_machine/donate_state_machine_3_server.c
+index 37e5bd0..16308a3 100644
+--- a/test/v1.0/memory_manage/donate_state_machine/donate_state_machine_3_server.c
++++ b/test/v1.0/memory_manage/donate_state_machine/donate_state_machine_3_server.c
+@@ -75,10 +75,10 @@ uint32_t donate_state_machine_3_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver    = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+ #if (PLATFORM_OUTER_SHAREABLE_SUPPORT_ONLY == 1)
+diff --git a/test/v1.0/memory_manage/donate_state_machine/donate_state_machine_5_server.c b/test/v1.0/memory_manage/donate_state_machine/donate_state_machine_5_server.c
+index 25a70d6..fcb5277 100644
+--- a/test/v1.0/memory_manage/donate_state_machine/donate_state_machine_5_server.c
++++ b/test/v1.0/memory_manage/donate_state_machine/donate_state_machine_5_server.c
+@@ -83,10 +83,10 @@ uint32_t donate_state_machine_5_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+     msg_size = val_ffa_memory_retrieve_request_init(&mem_region_init, handle);
+diff --git a/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks5_server.c b/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks5_server.c
+index aa9f5a2..aead642 100644
+--- a/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks5_server.c
++++ b/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks5_server.c
+@@ -89,10 +89,10 @@ uint32_t lend_retrieve_input_checks5_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+ #if (PLATFORM_OUTER_SHAREABLE_SUPPORT_ONLY == 1)
+diff --git a/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks9_server.c b/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks9_server.c
+index 18099d4..c935a28 100644
+--- a/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks9_server.c
++++ b/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks9_server.c
+@@ -81,10 +81,10 @@ uint32_t lend_retrieve_input_checks9_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+ #if (PLATFORM_OUTER_SHAREABLE_SUPPORT_ONLY == 1)
+diff --git a/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_1_server.c b/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_1_server.c
+index ff5d681..b1d8f27 100644
+--- a/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_1_server.c
++++ b/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_1_server.c
+@@ -76,10 +76,10 @@ uint32_t lend_state_machine_1_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+ #if (PLATFORM_OUTER_SHAREABLE_SUPPORT_ONLY == 1)
+diff --git a/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_4_server.c b/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_4_server.c
+index 4e66950..7a9b319 100644
+--- a/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_4_server.c
++++ b/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_4_server.c
+@@ -77,10 +77,10 @@ uint32_t lend_state_machine_4_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+ #if (PLATFORM_OUTER_SHAREABLE_SUPPORT_ONLY == 1)
+diff --git a/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_6_server.c b/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_6_server.c
+index e5790b6..d73959d 100644
+--- a/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_6_server.c
++++ b/test/v1.0/memory_manage/lend_state_machine/lend_state_machine_6_server.c
+@@ -83,10 +83,10 @@ uint32_t lend_state_machine_6_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+     msg_size = val_ffa_memory_retrieve_request_init(&mem_region_init, handle);
+diff --git a/test/v1.0/memory_manage/relinquish_state_machine/relinquish_state_machine_4_server.c b/test/v1.0/memory_manage/relinquish_state_machine/relinquish_state_machine_4_server.c
+index 486b94e..af6b451 100644
+--- a/test/v1.0/memory_manage/relinquish_state_machine/relinquish_state_machine_4_server.c
++++ b/test/v1.0/memory_manage/relinquish_state_machine/relinquish_state_machine_4_server.c
+@@ -90,10 +90,10 @@ uint32_t relinquish_state_machine_4_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver  = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+ #if (PLATFORM_OUTER_SHAREABLE_SUPPORT_ONLY == 1)
+diff --git a/test/v1.0/memory_manage/share_state_machine/share_state_machine_1_server.c b/test/v1.0/memory_manage/share_state_machine/share_state_machine_1_server.c
+index 47f118b..77e1d50 100644
+--- a/test/v1.0/memory_manage/share_state_machine/share_state_machine_1_server.c
++++ b/test/v1.0/memory_manage/share_state_machine/share_state_machine_1_server.c
+@@ -92,10 +92,10 @@ uint32_t share_state_machine_1_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+     msg_size = val_ffa_memory_retrieve_request_init(&mem_region_init, handle);
+diff --git a/test/v1.0/memory_manage/share_state_machine/share_state_machine_4_server.c b/test/v1.0/memory_manage/share_state_machine/share_state_machine_4_server.c
+index af6ca52..471449e 100644
+--- a/test/v1.0/memory_manage/share_state_machine/share_state_machine_4_server.c
++++ b/test/v1.0/memory_manage/share_state_machine/share_state_machine_4_server.c
+@@ -92,10 +92,10 @@ uint32_t share_state_machine_4_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+     msg_size = val_ffa_memory_retrieve_request_init(&mem_region_init, handle);
+diff --git a/test/v1.0/memory_manage/share_state_machine/share_state_machine_6_server.c b/test/v1.0/memory_manage/share_state_machine/share_state_machine_6_server.c
+index 2d26bfe..06c4aee 100644
+--- a/test/v1.0/memory_manage/share_state_machine/share_state_machine_6_server.c
++++ b/test/v1.0/memory_manage/share_state_machine/share_state_machine_6_server.c
+@@ -92,10 +92,10 @@ uint32_t share_state_machine_6_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ #endif
+ 
+     msg_size = val_ffa_memory_retrieve_request_init(&mem_region_init, handle);
+diff --git a/test/v1.2/memory_manage/mem_lend_impdef/mem_lend_impdef_server.c b/test/v1.2/memory_manage/mem_lend_impdef/mem_lend_impdef_server.c
+index 38dfa60..a6911df 100644
+--- a/test/v1.2/memory_manage/mem_lend_impdef/mem_lend_impdef_server.c
++++ b/test/v1.2/memory_manage/mem_lend_impdef/mem_lend_impdef_server.c
+@@ -73,10 +73,10 @@ uint32_t mem_lend_impdef_server(ffa_args_t args)
+     borrower_2 = (uint16_t)(borrower_list >> 16 & 0xFFFF);
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ 
+ #if (PLATFORM_OUTER_SHAREABLE_SUPPORT_ONLY == 1)
+     mem_region_init.shareability = FFA_MEMORY_OUTER_SHAREABLE;
+diff --git a/test/v1.2/memory_manage/mem_share_impdef/mem_share_impdef_server.c b/test/v1.2/memory_manage/mem_share_impdef/mem_share_impdef_server.c
+index 63f4e45..d2a5f2d 100644
+--- a/test/v1.2/memory_manage/mem_share_impdef/mem_share_impdef_server.c
++++ b/test/v1.2/memory_manage/mem_share_impdef/mem_share_impdef_server.c
+@@ -91,10 +91,10 @@ uint32_t mem_share_impdef_server(ffa_args_t args)
+ 
+     mem_region_init.receivers[0].receiver_permissions.receiver = borrower_1;
+     mem_region_init.receivers[0].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[0].receiver_permissions.flags = 0;
++    mem_region_init.receivers[0].receiver_permissions.flags = (borrower_1 == sender) ? 0 : 1;
+     mem_region_init.receivers[1].receiver_permissions.receiver = borrower_2;
+     mem_region_init.receivers[1].receiver_permissions.permissions = FFA_DATA_ACCESS_RW;
+-    mem_region_init.receivers[1].receiver_permissions.flags = 0;
++    mem_region_init.receivers[1].receiver_permissions.flags = (borrower_2 == sender) ? 0 : 1;
+ 
+ #if (PLATFORM_FFA_V >= FFA_V_1_2)
+     /* Try Mem Retrieve with Invalid Impdef Values */

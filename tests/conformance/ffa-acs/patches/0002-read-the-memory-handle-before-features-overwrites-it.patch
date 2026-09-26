@@ -1,0 +1,44 @@
+diff --git a/test/v1.0/memory_manage/multiple_retrievals_by_borrower/lend_multiple_retrievals_server.c b/test/v1.0/memory_manage/multiple_retrievals_by_borrower/lend_multiple_retrievals_server.c
+index 6338758..a5f7277 100644
+--- a/test/v1.0/memory_manage/multiple_retrievals_by_borrower/lend_multiple_retrievals_server.c
++++ b/test/v1.0/memory_manage/multiple_retrievals_by_borrower/lend_multiple_retrievals_server.c
+@@ -64,6 +64,9 @@ uint32_t lend_multiple_retrievals_server(ffa_args_t args)
+         goto rxtx_unmap;
+     }
+ 
++    /* The handle arrived in the direct request; FFA_FEATURES reuses payload */
++    handle = payload.arg3;
++
+     val_memset(&payload, 0, sizeof(ffa_args_t));
+     if (fid == FFA_MEM_LEND_64)
+         payload.arg1 = FFA_MEM_RETRIEVE_REQ_64;
+@@ -95,7 +98,6 @@ uint32_t lend_multiple_retrievals_server(ffa_args_t args)
+        LOG(TEST, "Outstanding retrievals count %d", outstanding_retrieve_count);
+     }
+ 
+-    handle = payload.arg3;
+ 
+     val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = mb.send;
+diff --git a/test/v1.0/memory_manage/multiple_retrievals_by_borrower/share_multiple_retrievals_server.c b/test/v1.0/memory_manage/multiple_retrievals_by_borrower/share_multiple_retrievals_server.c
+index 6b2e758..c93fec5 100644
+--- a/test/v1.0/memory_manage/multiple_retrievals_by_borrower/share_multiple_retrievals_server.c
++++ b/test/v1.0/memory_manage/multiple_retrievals_by_borrower/share_multiple_retrievals_server.c
+@@ -64,6 +64,9 @@ uint32_t share_multiple_retrievals_server(ffa_args_t args)
+         goto rxtx_unmap;
+     }
+ 
++    /* The handle arrived in the direct request; FFA_FEATURES reuses payload */
++    handle = payload.arg3;
++
+     val_memset(&payload, 0, sizeof(ffa_args_t));
+     if (fid == FFA_MEM_SHARE_64)
+         payload.arg1 = FFA_MEM_RETRIEVE_REQ_64;
+@@ -95,7 +98,6 @@ uint32_t share_multiple_retrievals_server(ffa_args_t args)
+        LOG(TEST, "Outstanding retrievals count %d", outstanding_retrieve_count);
+     }
+ 
+-    handle = payload.arg3;
+ 
+     val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = mb.send;

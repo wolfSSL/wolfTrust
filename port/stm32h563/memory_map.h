@@ -124,9 +124,9 @@
 #define WT_CONF_SP_DATA_BASE     (WT_RAM_S_BASE + 0x0006B000u)  /* 0x30093000 */
 #define WT_CONF_SP_DATA_SIZE     0x00003000u                    /* 12 KiB */
 
-/* Vault partition stack (WT-FFM-0047). The vault runs as a scheduled
- * PRIVILEGED coroutine (its ops block on the shared wolfHSM NVM mutex), so
- * this band is its manifest-declared execution stack, not an MPU domain.
+/* Vault partition stack (WT-FFM-0047). The vault runs as a confined,
+ * unprivileged scheduled SP; this band is its execution stack and MPU-domain
+ * RW resource. NVM and flash operations cross the privileged SVC gate.
  * Sits just below the conformance data window; the linker RAM window is
  * shortened to 420 KiB to make room. MUST match the VAULTSTACK region in
  * src/services/wolfhsm/runner/secure.ld. */
@@ -146,11 +146,11 @@
 #define WT_SP_PS_STACK_BASE      (WT_RAM_S_BASE + 0x00063000u)  /* 0x3008B000 */
 #define WT_SP_PS_STACK_SIZE      WT_SP_SECURE_STACK_SIZE
 
-/* FWU partition stack: the PSA Firmware Update SP runs as a scheduled
- * PRIVILEGED coroutine (it programs the wolfBoot update partition flash), so
- * this band is its manifest-declared execution stack. Sits just below the PS
- * stack; the linker RAM window is shortened to 388 KiB to make room. MUST
- * match the FWUSTACK region in src/services/wolfhsm/runner/secure.ld. */
+/* FWU partition stack: the PSA Firmware Update service runs as a confined,
+ * unprivileged scheduled SP. This band is its execution stack and MPU-domain
+ * RW resource; flash operations cross the privileged SVC gate. Sits just
+ * below the PS stack; the linker RAM window is shortened to 388 KiB to make
+ * room. MUST match the FWUSTACK region in secure.ld. */
 #define WT_SP_FWU_STACK_BASE     (WT_RAM_S_BASE + 0x00061000u)  /* 0x30089000 */
 #define WT_SP_FWU_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
 

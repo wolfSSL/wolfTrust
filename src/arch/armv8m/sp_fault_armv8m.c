@@ -59,9 +59,9 @@ static volatile uint32_t g_tasklet_fault_co_sp;
  * Recovery model:
  *   1. C dispatcher logs the fault, identifies the running tasklet
  *      (g_tasklet_current via wt_tasklet_current), maps it back to a guest_id,
- *      hands the NS client a WH_ERROR_ABORTED via wt_hsm_signal_fault,
- *      drops any mutex held by the dying tasklet, and marks the
- *      tasklet WT_TASKLET_FAULTED.
+ *      invokes wt_hsm_signal_fault's optional notification hook (a no-op in
+ *      current ports), drops any mutex held by the dying tasklet, erases its
+ *      retained state, and marks the tasklet WT_TASKLET_FAULTED.
  *   2. The naked handler asm restores MSP_S to the bootstrap SP that
  *      PendSV saved (r4-r11 push + preserved exception frame), pops
  *      r4-r11, and EXC_RETURNs through the preserved bootstrap frame —

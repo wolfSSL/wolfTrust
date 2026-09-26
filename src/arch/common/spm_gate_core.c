@@ -69,6 +69,7 @@
 #define WT_SPM_WAIT_NONE 0U
 #define WT_SPM_WAIT_SIG  1U
 #define WT_SPM_WAIT_MSG  2U
+#define WT_SPM_WAIT_LOCK 3U
 
 typedef struct wt_spm_sp {
     wt_co_t* co;
@@ -543,7 +544,11 @@ int wt_spm_dispatch_call(wt_spm_call_t* call, wt_trap_frame_t* frame)
                     /* Enqueued behind the holder: block on exception return
                      * and report retry; the release hands the mutex over
                      * before waking, so the re-issue observes ownership. */
+                    slot->wait_kind = WT_SPM_WAIT_LOCK;
                     wt_co_block();
+                }
+                else if (ks_ret == 0) {
+                    slot->wait_kind = WT_SPM_WAIT_NONE;
                 }
             }
             else if (call->call_type == WT_SPM_KS_LOCK_RELEASE) {
@@ -689,6 +694,9 @@ static int wt_spm_slot_ready(const wt_ffm_runtime_t* runtime,
     if (slot->wait_kind == WT_SPM_WAIT_MSG) {
         return wt_ffm_msg_complete(runtime, slot->wait_msg);
     }
+    if (slot->wait_kind == WT_SPM_WAIT_LOCK) {
+        return 0;
+    }
     /* No recorded wait (the partition has not run since boot): pending
      * signals mean queued work; a spurious wake lands in its psa_wait and
      * re-blocks harmlessly. */
@@ -697,7 +705,9 @@ static int wt_spm_slot_ready(const wt_ffm_runtime_t* runtime,
 
 static int wt_spm_run_co(wt_co_t* co)
 {
-    wt_co_wake(co);
+    if (wt_co_state(co) == WT_CO_BLOCKED) {
+        wt_co_wake(co);
+    }
     while (wt_co_state(co) == WT_CO_RUNNABLE) {
         if (wt_co_run(co) == 0u) {
             return WT_FFM_ERROR_STATE;
@@ -713,7 +723,7 @@ static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,
     size_t i;
 
     if (which == 0) {
-        /* nibbles: per-slot wait_kind (0..2) then co state (3..5) */
+        /* nibbles: per-slot wait_kind (0..3) then coroutine state */
         for (i = 0u; i < g_spm_sp_count && i < 3u; i++) {
             value |= ((uint32_t)g_spm_sp[i].wait_kind & 0xFu) << (4u * i);
             value |= ((uint32_t)wt_co_state(g_spm_sp[i].co) & 0xFu) <<
@@ -842,9 +852,12 @@ static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
         for (i = 0u; i < g_spm_sp_count; i++) {
             wt_spm_sp_t* slot = &g_spm_sp[i];
 
+            wt_co_state_t state = wt_co_state(slot->co);
+
             if (slot->in_use == 0u ||
-                    wt_co_state(slot->co) != WT_CO_BLOCKED ||
-                    wt_spm_slot_ready(runtime, slot) == 0) {
+                    (state != WT_CO_RUNNABLE &&
+                     (state != WT_CO_BLOCKED ||
+                      wt_spm_slot_ready(runtime, slot) == 0))) {
                 continue;
             }
             if (wt_spm_run_co(slot->co) != WT_FFM_SUCCESS) {

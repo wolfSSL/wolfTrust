@@ -334,6 +334,10 @@ static void wt_dispatch_guest(wt_guest_id_t guest_id)
         }
     }
 
+    /* Stop the departing guest's SysTick before replacing its memory
+     * protection; a short residual period can otherwise fault in the
+     * departing guest's handler under the arriving guest's MPU. */
+    wt_arch_guest_context_prepare(guest_id, runtime->context);
     wt_apply_partition(guest_id);
     runtime->state = WT_GUEST_RUNNING;
     g_scheduler.current_guest = guest_id;
@@ -342,7 +346,6 @@ static void wt_dispatch_guest(wt_guest_id_t guest_id)
     wt_vnet_service_refresh_irq(guest_id);
 #endif
     wt_arch_start_secure_timer(config->timeslice_ms);
-    wt_arch_guest_context_prepare(guest_id, runtime->context);
     wt_arch_guest_context_restore(runtime->context);
 }
 
@@ -413,6 +416,10 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
     /* Quarantined or restarted, the guest will never close its handles. */
     (void)wt_ffm_fail_client_connections(wt_ffm_boot_runtime_mut(),
                                          -(psa_client_id_t)(guest_id + 1U));
+    restart_window = wt_find_restart_clear_window(config);
+    if (restart_window != NULL) {
+        wt_arch_zero_guest_memory(restart_window->base, restart_window->size);
+    }
     if (wt_restart_policy_evaluate(config->restart_policy.restart_limit,
                                    config->restart_policy.restart_window_ticks,
                                    g_scheduler.monotonic_ticks,
@@ -431,10 +438,6 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
     runtime->remaining_delay_ticks =
         config->restart_policy.initial_delay_ticks;
 
-    restart_window = wt_find_restart_clear_window(config);
-    if (restart_window != NULL) {
-        wt_arch_zero_guest_memory(restart_window->base, restart_window->size);
-    }
 }
 
 static void wt_schedule_next_guest(void)
@@ -639,6 +642,8 @@ void wt_monitor_quarantine_guest(wt_guest_id_t guest_id)
         return;
     }
 
+    (void)wt_ffm_fail_client_connections(wt_ffm_boot_runtime_mut(),
+                                         -(psa_client_id_t)(guest_id + 1U));
     runtime->state = WT_GUEST_FAULTED;
     g_wt_quarantine_events++;
     g_wt_launch_refused_mask |= (uint32_t)1U << guest_id;

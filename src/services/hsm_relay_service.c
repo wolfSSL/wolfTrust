@@ -19,6 +19,7 @@
  */
 
 #include "wolftrust/services/hsm_relay.h"
+#include "wolftrust/zeroize.h"
 
 #include <string.h>
 
@@ -108,18 +109,6 @@ static int wt_hsm_relay_write_resp(wt_ffm_runtime_t* runtime,
     return WT_FFM_SUCCESS;
 }
 
-/* Scrub a relay copy buffer. volatile so the clear is not optimized away; the
- * relay unit is port-free and does not link wolfCrypt's ForceZero. */
-static void wt_hsm_relay_zeroize(uint8_t* buf, size_t len)
-{
-    volatile uint8_t* p = buf;
-    size_t i;
-
-    for (i = 0U; i < len; i++) {
-        p[i] = 0U;
-    }
-}
-
 static psa_status_t wt_hsm_relay_call_inner(wt_ffm_runtime_t* runtime,
                                             int32_t partition_id,
                                             const psa_msg_t* msg)
@@ -154,33 +143,27 @@ static psa_status_t wt_hsm_relay_call_inner(wt_ffm_runtime_t* runtime,
         return PSA_ERROR_NOT_SUPPORTED;
     }
     if (submit(g_relay_submit_ctx, msg->client_id, g_relay_io.req, req_len,
-               g_relay_io.resp,
-               resp_cap, &resp_len) != 0) {
+               g_relay_io.resp, resp_cap, &resp_len) != 0) {
         return PSA_ERROR_GENERIC_ERROR;
     }
     if (resp_len == 0U || resp_len > resp_cap) {
         return PSA_ERROR_GENERIC_ERROR;
     }
     if (wt_hsm_relay_write_resp(runtime, partition_id, msg->handle,
-                                g_relay_io.resp, resp_len) !=
-            WT_FFM_SUCCESS) {
+                                g_relay_io.resp, resp_len) != WT_FFM_SUCCESS) {
         return PSA_ERROR_GENERIC_ERROR;
     }
     return PSA_SUCCESS;
 }
 
-/* Single cleanup path (key hygiene): the relay copy buffers live in the shared
- * keystore band and carry imported key material and decrypted plaintext, so
- * scrub both after every call, on success and on every error path. */
+/* Relay packets carry key material, so scrub them on every call path. */
 static psa_status_t wt_hsm_relay_call(wt_ffm_runtime_t* runtime,
                                       int32_t partition_id,
                                       const psa_msg_t* msg)
 {
-    psa_status_t status;
+    psa_status_t status = wt_hsm_relay_call_inner(runtime, partition_id, msg);
 
-    status = wt_hsm_relay_call_inner(runtime, partition_id, msg);
-    wt_hsm_relay_zeroize(g_relay_io.req, sizeof(g_relay_io.req));
-    wt_hsm_relay_zeroize(g_relay_io.resp, sizeof(g_relay_io.resp));
+    wt_forceZero(&g_relay_io, sizeof(g_relay_io));
     return status;
 }
 

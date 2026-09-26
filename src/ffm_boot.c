@@ -34,12 +34,11 @@
 
 static wt_ffm_runtime_t g_ffm_runtime;
 
-/* WT-FFM-0012: the SPM validates every external memory reference before
- * an API transfer. Every registered service today declares
- * nonsecure_clients, so the only caller identity this port validates is a
- * Non-secure guest (caller < 0). Secure-Partition callers (caller > 0)
- * have no memory-envelope check yet and stay fail-closed until item 5
- * gives each SP its own L3 domain. */
+/* WT-FFM-0012: NS callers are validated by the installed NS-window checks.
+ * Positive Secure-Partition callers are accepted here because wt_spm_gate
+ * validates each dereferenced SP pointer against that caller's resolved
+ * protection domain. Service nonsecure_clients policy is independent of
+ * these pointer checks. */
 static int wt_ffm_boot_caller_guest(psa_client_id_t caller,
                                     wt_guest_id_t* guest_id)
 {

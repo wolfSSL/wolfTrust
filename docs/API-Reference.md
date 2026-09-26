@@ -476,9 +476,9 @@ monotonic version. The current service supports one primary component and
 commits installation at authenticated reboot. It does not offer a persistent
 trial state, so `psa_fwu_accept` returns
 `PSA_ERROR_NOT_SUPPORTED`.
-Unlike PSA Firmware Update 1.0, the service rejects unaligned block sizes rather
-than padding them and returns `PSA_ERROR_INVALID_ARGUMENT` for unknown
-component IDs instead of `PSA_ERROR_DOES_NOT_EXIST`.
+The service pads an unaligned block size to the backend write alignment. It
+returns `PSA_ERROR_INVALID_ARGUMENT` for unknown component IDs instead of
+`PSA_ERROR_DOES_NOT_EXIST`.
 
 ## Initial Attestation
 

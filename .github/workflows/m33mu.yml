@@ -289,6 +289,7 @@ jobs:
           - { key: crossdomain,     name: "Cross-domain isolation (L3)" }
           - { key: keystoreneg,     name: "Keystore-band isolation (L3)" }
           - { key: spfaultneg,      name: "Graceful SP fault recovery" }
+          - { key: hsmfaultneg,     name: "HSM tasklet fault containment" }
           - { key: panicneg,        name: "Secure-caller misuse panic" }
           - { key: confboot,        name: "FF-M IPC conformance (85/4)" }
           - { key: devstorage,      name: "dev_apis Storage (s001-s017)" }
@@ -310,6 +311,8 @@ jobs:
           - { key: gtzcneg,         name: "NS MPU bypass cannot reach peer guest RAM" }
           - { key: spbudgetneg,     name: "SP restart-budget exhaustion escalates" }
         exclude:
+          # The native engine has no per-guest HSM tasklet to fault.
+          - { engine: native, scenario: { key: hsmfaultneg, name: "HSM tasklet fault containment" } }
           # hsmattackneg drives the raw wolfHSM client wire from the guest;
           # the native engine does not link that wire, so the attack surface
           # under test does not exist there.

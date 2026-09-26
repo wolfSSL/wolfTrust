@@ -152,16 +152,16 @@ exported.
 ## Firmware Update
 
 `SERVICE_FWU` exposes a single-component subset of PSA Firmware Update 1.0.
-Unlike the specification, it rejects unaligned block sizes instead of padding
-them and returns `PSA_ERROR_INVALID_ARGUMENT` rather than
-`PSA_ERROR_DOES_NOT_EXIST` for unknown component IDs. The normal flow is:
+It pads an unaligned block size to the backend write alignment and returns
+`PSA_ERROR_INVALID_ARGUMENT` rather than `PSA_ERROR_DOES_NOT_EXIST` for an
+unknown component ID. The normal flow is:
 
 ```text
 READY -> WRITING -> CANDIDATE -> STAGED -> authenticated reboot
 ```
 
-Writes are copied, bounded, aligned to the target flash granularity, and staged
-in the wolfBoot update partition. Finish validates the complete wolfBoot image
+Writes are copied, bounded, offset-aligned, padded with erased-flash bytes when
+needed, and staged in the wolfBoot update partition. Finish validates the image
 header and binds the candidate version. Install checks the candidate again
 against the persistent version floor loaded when the Firmware Update partition
 started, then writes the wolfBoot update trigger. A reboot request is allowed

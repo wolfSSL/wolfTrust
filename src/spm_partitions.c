@@ -234,10 +234,10 @@ int wt_spm_its_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
                             (void*)(intptr_t)partition_id);
 }
 
-/* The PS partition: the same unprivileged storage loop, but every request is
- * forwarded SEALED — AES-GCM under the device-unique wolfHSM key plus
- * rollback binding, applied inside the privileged vault domain
- * (WT-FFM-0048). The NO_* client hints are accepted and recorded, never
+/* The PS partition uses the same unprivileged storage loop, but every request
+ * is forwarded SEALED. AES-GCM and rollback binding run in the confined vault
+ * partition using the device-unique wolfHSM key (WT-FFM-0048). The NO_*
+ * client hints are accepted and recorded, never
  * honoured downward: wolfTrust always stores at full strength. */
 static void wt_spm_ps_entry(void* arg)
 {

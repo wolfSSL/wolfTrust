@@ -30,7 +30,8 @@
  * never a caller-supplied field (WT-FFM-0044). Non-secure clients are
  * refused by the manifest (nonsecure_clients = false). */
 
-/* psa_call request types. REMOVE also destroys keys (psa_destroy_key). */
+/* psa_call request types. REMOVE applies to storage objects; the current
+ * vault backend does not support key deletion. */
 #define WT_VAULT_OP_SET               1
 #define WT_VAULT_OP_GET               2
 #define WT_VAULT_OP_GET_INFO          3
@@ -56,8 +57,8 @@
 
 /* Internal flag a storage frontend ORs in (never a PSA create flag): the
  * object is AES-GCM sealed under the device-unique wolfHSM key with the
- * monotonic rollback counter as nonce (WT-FFM-0048). Sealing runs entirely
- * inside the privileged vault domain. */
+ * monotonic rollback counter as nonce (WT-FFM-0048). Sealing runs inside the
+ * confined vault partition. */
 #define WT_VAULT_FLAG_SEALED 0x10000U
 
 /* Label marker for key objects (WT-FFM-0046). Never accepted from a storage
@@ -129,9 +130,9 @@ typedef struct wt_vault_backend {
     psa_status_t (*remove)(int32_t owner, int32_t sub, uint64_t uid);
 } wt_vault_backend_t;
 
-/* Key-operation vtable (WT-FFM-0046): every operation executes INSIDE the
- * privileged vault domain against material that never leaves it. There is
- * deliberately no private-export entry point. sign/verify operate on a
+/* Key-operation vtable (WT-FFM-0046): every operation executes inside the
+ * confined vault partition against material in its keystore trust band. There
+ * is deliberately no private-export entry point. sign/verify operate on a
  * caller-supplied digest; encrypt frames its output [nonce][ct][tag] and
  * decrypt consumes the same framing. */
 typedef struct wt_vault_key_backend {
@@ -156,8 +157,8 @@ typedef struct wt_vault_key_backend {
                             uint8_t* out, size_t cap, size_t* out_len);
 } wt_vault_key_backend_t;
 
-/* Vault-domain randomness (WT-FFM-0054): fill out[0..len) from an RNG owned
- * by the privileged vault domain, never a frontend partition. This is entropy
+/* Vault randomness (WT-FFM-0054): fill out[0..len) from an RNG owned by the
+ * confined vault partition, never a frontend partition. This is entropy
  * plumbing, kept separate from the key backend so retiring the key backend
  * does not disturb the RANDOM face. */
 typedef psa_status_t (*wt_vault_rng_fn)(uint8_t* out, size_t len);

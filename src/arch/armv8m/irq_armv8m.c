@@ -31,7 +31,7 @@
 
 void wt_arch_mask_all_guest_irqs(void)
 {
-    volatile uint32_t* icer = (volatile uint32_t*)0xE000E180u;
+    volatile uint32_t* icer = (volatile uint32_t*)0xE002E180u;
     size_t i;
 
     for (i = 0; i < WT_MAX_IRQ_WORDS; ++i) {
@@ -41,7 +41,7 @@ void wt_arch_mask_all_guest_irqs(void)
 
 void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask)
 {
-    volatile uint32_t* iser = (volatile uint32_t*)0xE000E100u;
+    volatile uint32_t* iser = (volatile uint32_t*)0xE002E100u;
     size_t i;
 
     if (mask == NULL) {
@@ -55,7 +55,7 @@ void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask)
 
 void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* allowed_mask)
 {
-    volatile uint32_t* icpr = (volatile uint32_t*)0xE000E280u;
+    volatile uint32_t* icpr = (volatile uint32_t*)0xE002E280u;
     size_t i;
 
     if (allowed_mask == NULL) {
@@ -69,42 +69,36 @@ void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* allowed_mask)
 
 void wt_arch_secure_irq_enable(uint32_t irq)
 {
+    volatile uint32_t* iser = (volatile uint32_t*)0xE000E100u;
+    volatile uint32_t* icpr = (volatile uint32_t*)0xE000E280u;
+    volatile uint32_t* itns = (volatile uint32_t*)0xE000E380u;
     uint32_t word = irq >> 5;
     uint32_t bit = irq & 31u;
 
-    if (word > 1u)
+    if (word >= WT_MAX_IRQ_WORDS) {
         return;
+    }
     /* Route to Secure, drop any stale pending, lowest priority so the line
      * never preempts the active SVC gate, then unmask. */
-    if (word == 0u) {
-        WT_NVIC_ITNS0 &= ~(1u << bit);
-        WT_NVIC_ICPR0 = (1u << bit);
-    } else {
-        WT_NVIC_ITNS1 &= ~(1u << bit);
-        WT_NVIC_ICPR1 = (1u << bit);
-    }
+    itns[word] &= ~(1u << bit);
+    icpr[word] = (1u << bit);
     WT_NVIC_IPR_BASE[irq] = 0xFFu;
     __asm volatile("dsb\nisb" ::: "memory");
-    if (word == 0u)
-        WT_NVIC_ISER0 = (1u << bit);
-    else
-        WT_NVIC_ISER1 = (1u << bit);
+    iser[word] = (1u << bit);
 }
 
 void wt_arch_secure_irq_disable(uint32_t irq)
 {
+    volatile uint32_t* icer = (volatile uint32_t*)0xE000E180u;
+    volatile uint32_t* icpr = (volatile uint32_t*)0xE000E280u;
     uint32_t word = irq >> 5;
     uint32_t bit = irq & 31u;
 
-    if (word > 1u)
+    if (word >= WT_MAX_IRQ_WORDS) {
         return;
-    if (word == 0u) {
-        WT_NVIC_ICER0 = (1u << bit);
-        WT_NVIC_ICPR0 = (1u << bit);
-    } else {
-        WT_NVIC_ICER1 = (1u << bit);
-        WT_NVIC_ICPR1 = (1u << bit);
     }
+    icer[word] = (1u << bit);
+    icpr[word] = (1u << bit);
     __asm volatile("dsb\nisb" ::: "memory");
 }
 

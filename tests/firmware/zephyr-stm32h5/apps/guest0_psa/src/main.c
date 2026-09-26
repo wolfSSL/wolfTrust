@@ -308,7 +308,7 @@ static void exercise_ffm_its(void)
 }
 
 /* P4-S3: the sealed-storage round trip. Same wire as ITS, but SERVICE_PS
- * AES-GCM-seals every object inside the privileged vault domain, so a clean
+ * routes each object through the confined vault partition, so a clean
  * set/get proves seal + rollback-counter + unseal end to end on target. */
 static void exercise_ffm_ps(void)
 {
@@ -1094,8 +1094,8 @@ static void wt_guest_fault_probe(void)
 #endif
 
 #if defined(WT_FWU_PROBE)
-/* P6-S4: drive SERVICE_FWU from a Non-secure guest. The privileged FWU SP
- * stages the candidate into the real wolfBoot update partition flash and
+/* P6-S4: drive SERVICE_FWU from a Non-secure guest. The unprivileged FWU SP
+ * stages the candidate through its privileged SVC flash gate and
  * verifies each block by read-back, so a clean start/write/finish/install
  * proves the isolated update service end to end on target. The wolfBoot swap
  * of the armed image rides the full boot-and-update gate (P6-S6). */

@@ -29,8 +29,8 @@
  * (WT-FFM-0056). A non-secure guest reaches its switch port only through
  * psa_connect/psa_call; the operation rides the FF-M call type and the SPM
  * stamps the caller identity, which selects the port. Frame bytes cross as
- * copied FF-M vectors, so pool slot/generation tokens never leave the
- * secure side and cannot be forged or replayed by a guest. */
+ * copied FF-M vectors. RX_FETCH returns the slot/generation metadata only
+ * after the relay has consumed and released the corresponding token. */
 
 /* The WT_VNET_OP_* operation codes and SID live in vnet_abi.h, shared with
  * the non-secure client transport.

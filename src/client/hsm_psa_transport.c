@@ -33,6 +33,14 @@
 #include "psa/client.h"
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/hsm_psa_transport.h"
+#include "wolftrust/zeroize.h"
+
+static void wt_hsm_psa_clear_response(wt_hsm_psa_transport_ctx_t* ctx)
+{
+    wt_forceZero(ctx->resp, sizeof(ctx->resp));
+    ctx->resp_len = 0U;
+    ctx->has_resp = 0U;
+}
 
 static int wt_hsm_psa_init(void* ctx_v, const void* cfg_v,
                            whCommSetConnectedCb connectcb,
@@ -42,7 +50,12 @@ static int wt_hsm_psa_init(void* ctx_v, const void* cfg_v,
     const wt_hsm_psa_transport_cfg_t* cfg =
         (const wt_hsm_psa_transport_cfg_t*)cfg_v;
 
-    if (ctx == NULL || cfg == NULL) {
+    if (ctx == NULL) {
+        return WH_ERROR_BADARGS;
+    }
+    wt_hsm_psa_clear_response(ctx);
+    ctx->handle = 0;
+    if (cfg == NULL) {
         return WH_ERROR_BADARGS;
     }
     ctx->handle = (int32_t)psa_connect(cfg->sid, cfg->version);
@@ -53,8 +66,6 @@ static int wt_hsm_psa_init(void* ctx_v, const void* cfg_v,
     if (ctx->handle <= 0) {
         return WH_ERROR_ABORTED;
     }
-    ctx->resp_len = 0U;
-    ctx->has_resp = 0U;
     if (connectcb != NULL) {
         connectcb(connectcb_arg, WH_COMM_CONNECTED);
     }
@@ -70,9 +81,9 @@ static int wt_hsm_psa_cleanup(void* ctx_v)
     }
     if (ctx->handle > 0) {
         psa_close((psa_handle_t)ctx->handle);
-        ctx->handle = 0;
     }
-    ctx->has_resp = 0U;
+    ctx->handle = 0;
+    wt_hsm_psa_clear_response(ctx);
     return WH_ERROR_OK;
 }
 
@@ -87,12 +98,15 @@ static int wt_hsm_psa_send(void* ctx_v, uint16_t data_size, const void* data)
     psa_outvec out_vec;
     psa_status_t status;
 
-    if (ctx == NULL || data == NULL || ctx->handle <= 0) {
+    if (ctx == NULL) {
         return WH_ERROR_BADARGS;
     }
-    if (data_size == 0U || data_size > WT_HSM_RELAY_MSG_MAX) {
+    if (data == NULL || ctx->handle <= 0 || data_size == 0U ||
+            data_size > WT_HSM_RELAY_MSG_MAX) {
+        wt_hsm_psa_clear_response(ctx);
         return WH_ERROR_BADARGS;
     }
+    wt_hsm_psa_clear_response(ctx);
     in_vec.base = data;
     in_vec.len = data_size;
     out_vec.base = ctx->resp;
@@ -101,7 +115,7 @@ static int wt_hsm_psa_send(void* ctx_v, uint16_t data_size, const void* data)
                       &out_vec, 1U);
     if (status != PSA_SUCCESS || out_vec.len == 0U ||
             out_vec.len > sizeof(ctx->resp)) {
-        ctx->has_resp = 0U;
+        wt_hsm_psa_clear_response(ctx);
         return WH_ERROR_ABORTED;
     }
     ctx->resp_len = (uint16_t)out_vec.len;
@@ -121,7 +135,7 @@ static int wt_hsm_psa_recv(void* ctx_v, uint16_t* out_size, void* data)
     }
     (void)memcpy(data, ctx->resp, ctx->resp_len);
     *out_size = ctx->resp_len;
-    ctx->has_resp = 0U;
+    wt_hsm_psa_clear_response(ctx);
     return WH_ERROR_OK;
 }
 

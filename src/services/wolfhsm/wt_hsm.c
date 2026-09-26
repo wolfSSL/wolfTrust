@@ -62,6 +62,7 @@
 
 /* wolfTrust headers. */
 #include "wolftrust/types.h"
+#include "wolftrust/arch.h"
 #include "wolftrust/guest_verify.h"
 #include "wolftrust/monitor.h"
 #include "wolftrust/rollback.h"
@@ -149,6 +150,7 @@ static int g_foreign_probe_fired;
  * Forward declaration — tasklet body defined below.
  * ---------------------------------------------------------------------- */
 static void wt_hsm_tasklet_main(void *arg);
+static void wt_hsm_force_zero(void* memory, size_t size);
 
 /* =========================================================================
  * wt_hsm_init
@@ -203,10 +205,10 @@ static int wt_hsm_vault_format(void)
     return rc;
 }
 
-/* Vault-domain RNG (WT-FFM-0054): a wolfCrypt DRBG owned by the privileged
- * vault domain, installed on SERVICE_VAULT's RANDOM face at boot. Kept
- * separate from the wolfHSM server keystore — the single crypto backend for
- * keys — because this is entropy plumbing, not key storage. */
+/* Vault RNG (WT-FFM-0054): a wolfCrypt DRBG in the shared keystore trust
+ * band, installed on SERVICE_VAULT's RANDOM face at boot. It remains separate
+ * from the wolfHSM server keystore because this is entropy plumbing, not key
+ * storage. */
 static WC_RNG g_vault_rng;
 static int g_vault_rng_ready;
 
@@ -259,6 +261,9 @@ static void wt_hsm_tasklet_main(void *arg)
 {
     wt_guest_id_t   gid = (wt_guest_id_t)(uintptr_t)arg;
     wt_hsm_guest_t *g   = &g_guests[gid];
+#if defined(WT_HSM_FAULT_PROBE) && (WT_HSM_FAULT_PROBE == 1)
+    static int fault_probe_fired;
+#endif
 
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     /* Key provisioning touches the shared persistent store and therefore
@@ -271,6 +276,13 @@ static void wt_hsm_tasklet_main(void *arg)
                 wt_tasklet_block();
             }
         }
+    }
+#endif
+
+#if defined(WT_HSM_FAULT_PROBE) && (WT_HSM_FAULT_PROBE == 1)
+    if (gid == 0U && fault_probe_fired == 0) {
+        fault_probe_fired = 1;
+        wt_arch_sp_fault_probe(0U);
     }
 #endif
 
@@ -468,7 +480,9 @@ static int wt_hsm_relay_srv_send(void* context, uint16_t size,
 
 static int wt_hsm_relay_srv_cleanup(void* context)
 {
-    (void)context;
+    if (context != NULL) {
+        wt_hsm_force_zero(context, sizeof(wt_hsm_relay_buf_t));
+    }
     return WH_ERROR_OK;
 }
 
@@ -512,6 +526,7 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
     }
     g = &g_guests[gid];
     buf = &g_relay_bufs[gid];
+    *resp_len = 0U;
     if (!g->ready || g->transport_ctx != buf) {
         return WH_ERROR_NOTREADY;
     }
@@ -547,15 +562,18 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
         }
     }
     if (buf->resp_ready == 0u) {
-        buf->req_pending = 0u;
-        return (rc != WH_ERROR_OK) ? rc : WH_ERROR_ABORTED;
+        rc = (rc != WH_ERROR_OK) ? rc : WH_ERROR_ABORTED;
     }
-    if (buf->resp_len > resp_cap) {
-        return WH_ERROR_ABORTED;
+    else if (buf->resp_len > resp_cap) {
+        rc = WH_ERROR_ABORTED;
     }
-    (void)memcpy(resp, buf->resp, buf->resp_len);
-    *resp_len = buf->resp_len;
-    return WH_ERROR_OK;
+    else {
+        (void)memcpy(resp, buf->resp, buf->resp_len);
+        *resp_len = buf->resp_len;
+        rc = WH_ERROR_OK;
+    }
+    wt_hsm_force_zero(buf, sizeof(*buf));
+    return rc;
 }
 
 /* =========================================================================
@@ -638,12 +656,10 @@ wt_guest_id_t wt_hsm_guest_for_tasklet(const struct wt_co *tasklet)
 /* =========================================================================
  * wt_hsm_signal_fault
  *
- * Called from the Secure fault dispatcher after wt_tasklet_mark_faulted has
- * removed the tasklet from the scheduler. Drops any NVM lock the dying
- * tasklet still held, writes a WH_ERROR_ABORTED fatal-response into
- * the guest's transport so the NS client unblocks with a clean error,
- * and clears the ready bit so future NSC veneers reject HSM calls from
- * this guest.
+ * Called from the Secure fault dispatcher for a terminal tasklet fault. Drops
+ * any NVM lock the tasklet held, invokes the optional transport notification
+ * hook, erases retained tasklet state, and clears the ready bit. The default
+ * notification hook is a no-op, and no current port replaces it.
  *
  * Idempotent: calling on an already-faulted guest is harmless.
  * ====================================================================== */
@@ -676,6 +692,9 @@ int wt_hsm_relay_reinit_servers(void)
          * and tasklet stored in g persist — only the live contexts reset. */
         (void)wh_Server_Cleanup(&g->server);
         (void)wc_FreeRng(g->crypto.rng);
+        wt_hsm_force_zero(&g_relay_bufs[gid], sizeof(g_relay_bufs[gid]));
+        wt_hsm_force_zero(&g->server, sizeof(g->server));
+        wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
         rc = wc_InitRng_ex(g->crypto.rng, NULL, INVALID_DEVID);
         if (rc == 0) {
             rc = wh_Server_Init(&g->server, &g->server_cfg);
@@ -684,6 +703,12 @@ int wt_hsm_relay_reinit_servers(void)
             rc = wh_Server_SetConnected(&g->server, WH_COMM_CONNECTED);
         }
         if (rc != 0) {
+            wt_hsm_force_zero(&g->server, sizeof(g->server));
+            wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
+            if (g->tasklet != NULL) {
+                wt_hsm_release_locks(g->tasklet);
+                wt_tasklet_mark_faulted(g->tasklet);
+            }
             g->ready = false;
             break;
         }
@@ -707,10 +732,19 @@ int wt_hsm_signal_fault(wt_guest_id_t guest_id)
         wt_hsm_release_locks(g->tasklet);
     }
 
-    /* Tell the NS client. Failure here just means the transport was
-     * never wired (guest_id outside transport range) — still safe. */
+    /* Notify through the optional port hook before erasing transport state. */
     (void)g_hsm_fault_notify(guest_id);
 
+    wt_hsm_force_zero(&g_relay_bufs[guest_id],
+                      sizeof(g_relay_bufs[guest_id]));
+    wt_hsm_force_zero(&g->server, sizeof(g->server));
+    wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
+    wt_hsm_force_zero(g_co_stack_slots[guest_id].guard,
+                      sizeof(g_co_stack_slots[guest_id].guard));
+    /* Keep the canary at stack[0] for do_switch's post-fault check. */
+    wt_hsm_force_zero(g_co_stack_slots[guest_id].stack + sizeof(uint32_t),
+                      sizeof(g_co_stack_slots[guest_id].stack) -
+                          sizeof(uint32_t));
     g->ready = false;
     return WH_ERROR_OK;
 }

@@ -45,6 +45,7 @@
 #define WT_HSM_VAULT_LABEL_MAGIC 0x31565457UL /* "WTV1" little-endian */
 #define WT_HSM_VAULT_TABLE_MAGIC 0x43565457UL /* "WTVC" little-endian */
 #define WT_HSM_VAULT_STAGE_ID    0x0123U
+#define WT_HSM_VAULT_DELETE_MARKER_BASE WT_HSM_VAULT_ID_COUNT
 
 #define WT_HSM_VAULT_FLAG_MASK \
     (WT_VAULT_FLAG_WRITE_ONCE | WT_VAULT_FLAG_NO_CONFIDENTIALITY | \
@@ -55,7 +56,8 @@
  * object, so a power loss can never make a GCM nonce repeat; slot[] holds the
  * counter each in-window object was sealed under, so a replayed (rolled-back)
  * ciphertext fails tag authentication on the next read. reserved holds the
- * slot plus one while its prior object is staged for rollback. */
+ * slot plus one while its prior object is staged for rollback, or the
+ * delete marker base plus slot plus one while deletion is in progress. */
 typedef struct wt_hsm_vault_table {
     uint32_t magic;
     uint32_t reserved;
@@ -66,7 +68,7 @@ typedef struct wt_hsm_vault_table {
 static whNvmContext* g_vault_nvm;
 static const wt_vault_sealer_t* g_vault_sealer;
 
-/* Sealed-object staging, privileged vault domain only. */
+/* Sealed-object staging in the shared keystore trust band. */
 static uint8_t g_vault_ct[WT_VAULT_OBJECT_MAX + WT_VAULT_SEAL_TAG_LEN];
 static uint8_t g_vault_pt[WT_VAULT_OBJECT_MAX];
 
@@ -118,7 +120,8 @@ static psa_status_t wt_hsm_vault_table_load(wt_hsm_vault_table_t* table)
     rc = wh_Nvm_Read(g_vault_nvm, WT_HSM_VAULT_TABLE_ID, 0U,
                      (whNvmSize)sizeof(*table), (uint8_t*)table);
     if (rc != WH_ERROR_OK || table->magic != WT_HSM_VAULT_TABLE_MAGIC ||
-            table->reserved > WT_HSM_VAULT_ID_COUNT) {
+            table->reserved >
+                WT_HSM_VAULT_DELETE_MARKER_BASE + WT_HSM_VAULT_ID_COUNT) {
         return PSA_ERROR_STORAGE_FAILURE;
     }
     return wt_hsm_vault_recover(table);
@@ -330,9 +333,42 @@ static psa_status_t wt_hsm_vault_recover(wt_hsm_vault_table_t* table)
     whNvmMetadata stage_meta;
     whNvmId id;
     uint32_t slot;
+    uint32_t label_magic;
     size_t pt_len;
     psa_status_t status;
 
+    if (table->reserved > WT_HSM_VAULT_DELETE_MARKER_BASE) {
+        slot = table->reserved - WT_HSM_VAULT_DELETE_MARKER_BASE - 1U;
+        id = (whNvmId)(WT_HSM_VAULT_ID_BASE + slot);
+        status = wt_hsm_vault_map_err(
+            wh_Nvm_GetMetadata(g_vault_nvm, id, &meta));
+        if (status == PSA_SUCCESS) {
+            (void)memcpy(&label_magic, meta.label, sizeof(label_magic));
+            /* Only the key writer bypasses table recovery. Preserve a key
+             * that reused the slot; reclaim the old sealed object even if
+             * its ciphertext is corrupt and cannot be authenticated. */
+            if (label_magic != WT_HSM_VAULT_LABEL_MAGIC ||
+                    (wt_hsm_vault_flags_of(meta.label) &
+                     WT_VAULT_FLAG_KEY) == 0U ||
+                    (wt_hsm_vault_flags_of(meta.label) &
+                     WT_VAULT_FLAG_SEALED) != 0U ||
+                    (meta.flags & WH_NVM_FLAGS_NONEXPORTABLE) == 0U) {
+                status = wt_hsm_vault_map_err(
+                    wh_Nvm_DestroyObjectsChecked(g_vault_nvm, 1U, &id));
+                if (status != PSA_SUCCESS &&
+                        status != PSA_ERROR_DOES_NOT_EXIST) {
+                    return status;
+                }
+            }
+        }
+        else if (status != PSA_SUCCESS &&
+                 status != PSA_ERROR_DOES_NOT_EXIST) {
+            return status;
+        }
+        table->slot[slot] = 0U;
+        table->reserved = 0U;
+        return wt_hsm_vault_table_store(table);
+    }
     if (table->reserved == 0U) {
         return wt_hsm_vault_destroy_stage();
     }
@@ -379,7 +415,7 @@ static psa_status_t wt_hsm_vault_recover(wt_hsm_vault_table_t* table)
     return wt_hsm_vault_destroy_stage();
 }
 
-/* Shared directory lookup for privileged vault backends: find the
+/* Shared directory lookup for confined vault backends: find the
  * (owner, sub, uid) object in the vault id window. Returns PSA_SUCCESS
  * with the id + metadata, or PSA_ERROR_DOES_NOT_EXIST. out_free_id receives
  * the lowest unused id in the window (WH_NVM_ID_INVALID when full). */
@@ -715,6 +751,7 @@ static psa_status_t wt_hsm_vault_remove(int32_t owner, int32_t sub,
     whNvmMetadata meta;
     wt_hsm_vault_table_t table;
     whNvmId id = WH_NVM_ID_INVALID;
+    uint32_t flags;
     psa_status_t status;
 
     if (g_vault_nvm == NULL) {
@@ -728,26 +765,49 @@ static psa_status_t wt_hsm_vault_remove(int32_t owner, int32_t sub,
     if (status != PSA_SUCCESS) {
         return status;
     }
-    /* Key objects hold WT_VAULT_KEY_USAGE_* bits in the low label bits that
-     * alias WT_VAULT_FLAG_WRITE_ONCE (USAGE_SIGN == WRITE_ONCE == 0x1); they
-     * are never write-once stores, so apply the storage gate to non-key
-     * objects only and let REMOVE destroy a key as psa_destroy_key promises. */
-    if ((wt_hsm_vault_flags_of(meta.label) & WT_VAULT_FLAG_KEY) == 0U &&
-            (wt_hsm_vault_flags_of(meta.label) &
-             WT_VAULT_FLAG_WRITE_ONCE) != 0U) {
+    flags = wt_hsm_vault_flags_of(meta.label);
+    if ((flags & WT_VAULT_FLAG_KEY) != 0U ||
+            (flags & WT_VAULT_FLAG_WRITE_ONCE) != 0U) {
         return PSA_ERROR_NOT_PERMITTED;
     }
-    if ((wt_hsm_vault_flags_of(meta.label) & WT_VAULT_FLAG_SEALED) != 0U) {
-        /* Retire the counter first: a later flash-level resurrection of the
-         * destroyed ciphertext then fails authentication (WT-FFM-0048). */
-        table.slot[id - WT_HSM_VAULT_ID_BASE] = 0U;
+    if ((flags & WT_VAULT_FLAG_SEALED) != 0U) {
+        status = wt_hsm_vault_reserve(
+            2U * wt_hsm_vault_storage_size(sizeof(table)), 2U);
+        if (status != PSA_SUCCESS) {
+            return status;
+        }
+        table.reserved = WT_HSM_VAULT_DELETE_MARKER_BASE +
+                         (id - WT_HSM_VAULT_ID_BASE) + 1U;
         status = wt_hsm_vault_table_store(&table);
         if (status != PSA_SUCCESS) {
             return status;
         }
     }
-    return wt_hsm_vault_map_err(
+    status = wt_hsm_vault_map_err(
         wh_Nvm_DestroyObjectsChecked(g_vault_nvm, 1U, &id));
+    if (status != PSA_SUCCESS) {
+        if ((flags & WT_VAULT_FLAG_SEALED) != 0U &&
+                wh_Nvm_GetMetadata(g_vault_nvm, id, &meta) == WH_ERROR_OK &&
+                wt_hsm_vault_label_match(meta.label, owner, sub, uid) != 0 &&
+                wt_hsm_vault_read_sealed(
+                    id, &meta, table.slot[id - WT_HSM_VAULT_ID_BASE]) ==
+                    PSA_SUCCESS) {
+            /* The original object survived intact, so cancel the deletion. */
+            wt_hsm_vault_zeroize(
+                g_vault_pt, (size_t)meta.len - WT_VAULT_SEAL_TAG_LEN);
+            table.reserved = 0U;
+            if (wt_hsm_vault_table_store(&table) != PSA_SUCCESS) {
+                return PSA_ERROR_STORAGE_FAILURE;
+            }
+        }
+        return status;
+    }
+    if ((flags & WT_VAULT_FLAG_SEALED) != 0U) {
+        table.slot[id - WT_HSM_VAULT_ID_BASE] = 0U;
+        table.reserved = 0U;
+        return wt_hsm_vault_table_store(&table);
+    }
+    return PSA_SUCCESS;
 }
 
 const wt_vault_backend_t wt_hsm_vault_backend = {

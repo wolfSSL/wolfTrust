@@ -106,6 +106,9 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
                 call->must_panic = 1U;
             }
         }
+        else {
+            call->must_panic = 1U;
+        }
         call->ret_int = ret;
         break;
     case WT_SPM_OP_GET:

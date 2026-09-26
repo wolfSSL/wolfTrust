@@ -111,11 +111,9 @@ struct wt_co *wt_hsm_guest_tasklet(wt_guest_id_t guest_id);
  * dispatcher to map a faulted tasklet back to its NS client. */
 wt_guest_id_t wt_hsm_guest_for_tasklet(const struct wt_co *tasklet);
 
-/* Signal a terminal Secure-side fault for guest_id: drops the NVM lock
- * if the dying tasklet was holding it, writes a WH_ERROR_ABORTED
- * fatal-response into the guest's transport, and clears the ready bit
- * so subsequent NSC veneers reject HSM calls from this guest. Safe to
- * call from handler mode. Returns WH_ERROR_OK on success. */
+/* Signal a terminal Secure-side fault for guest_id: drop held locks, invoke
+ * the optional fault-notification hook, erase retained tasklet state, and
+ * clear the ready bit. Safe from handler mode. */
 int wt_hsm_signal_fault(wt_guest_id_t guest_id);
 
 /* Drop every secure-side wolfHSM lock held by a faulted coroutine. Used by the
@@ -134,9 +132,8 @@ struct wt_mutex *wt_hsm_nvm_lock_mutex(void);
  * state unusable. Fails closed — a guest whose re-init fails stays down. */
 int wt_hsm_relay_reinit_servers(void);
 
-/* Terminal-fault NS-client notifier. wt_hsm_signal_fault calls the installed
- * callback; the arch transport installs its concrete notifier at boot. The
- * default is a no-op so engine-less/host builds link. */
+/* Terminal-fault NS-client notifier. The default is a no-op, and no current
+ * port installs a replacement, so this path does not notify NS clients. */
 typedef int (*wt_hsm_fault_notify_fn)(wt_guest_id_t guest_id);
 void wt_hsm_set_fault_notify(wt_hsm_fault_notify_fn fn);
 
@@ -167,9 +164,9 @@ int wt_hsm_vault_init(struct whNvmContext_t* nvm);
 struct wt_vault_backend;
 extern const struct wt_vault_backend wt_hsm_vault_backend;
 
-/* Vault sealer (WT-FFM-0048): AES-GCM confidentiality + rollback binding for
- * WT_VAULT_FLAG_SEALED objects, running entirely inside the privileged vault
- * domain — the device-unique key never reaches any Secure Partition. seal
+/* Vault sealer (WT-FFM-0048): AES-GCM confidentiality and rollback binding
+ * for WT_VAULT_FLAG_SEALED objects. Operations run in the confined vault SP,
+ * with the device-unique key kept in the shared keystore trust band. seal
  * writes pt_len + WT_VAULT_SEAL_TAG_LEN bytes ([ciphertext][tag]); unseal
  * takes ct_len >= tag length and writes ct_len - tag plaintext bytes. The
  * monotonic rollback counter is the GCM nonce, so a replayed (rolled-back)
@@ -200,7 +197,7 @@ void wt_hsm_vault_set_sealer(const wt_vault_sealer_t* sealer);
 int wt_hsm_seal_init(struct whNvmContext_t* nvm);
 extern const wt_vault_sealer_t wt_hsm_sealer;
 
-/* Shared vault directory helpers (wt_hsm_vault.c) for privileged backends:
+/* Shared vault directory helpers (wt_hsm_vault.c) for confined backends:
  * label-addressed lookup over the vault NVM id window, and the label
  * make/flags codec. whNvmMetadata is an untagged typedef, so wh_common.h
  * must be included for the real type. */

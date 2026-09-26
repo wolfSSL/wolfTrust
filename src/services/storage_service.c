@@ -19,6 +19,7 @@
  */
 
 #include "wolftrust/services/storage_service.h"
+#include "wolftrust/zeroize.h"
 
 #include <string.h>
 
@@ -169,98 +170,104 @@ static psa_status_t wt_storage_service_call(wt_storage_service_ctx_t* ctx,
     size_t cap;
     psa_status_t status;
 
-    if (msg->in_size[0] < sizeof(req)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
-    }
-    if (msg->in_size[0] > sizeof(buffer)) {
-        return PSA_ERROR_INSUFFICIENT_STORAGE;
-    }
-    if (wt_storage_read_req(ctx, runtime, partition_id, msg->handle, buffer,
-                            sizeof(buffer), &in_len) != WT_FFM_SUCCESS ||
-            in_len < sizeof(req)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
-    }
-    (void)memcpy(&req, buffer, sizeof(req));
-    /* PSA Storage: uid 0 is invalid for every operation. */
-    if (req.uid == 0U) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+    status = PSA_ERROR_INVALID_ARGUMENT;
+    if (msg->in_size[0] >= sizeof(req)) {
+        if (msg->in_size[0] > sizeof(buffer)) {
+            status = PSA_ERROR_INSUFFICIENT_STORAGE;
+        }
+        else if (wt_storage_read_req(ctx, runtime, partition_id, msg->handle,
+                                     buffer, sizeof(buffer), &in_len) !=
+                    WT_FFM_SUCCESS || in_len < sizeof(req)) {
+            status = PSA_ERROR_INVALID_ARGUMENT;
+        }
+        else {
+            (void)memcpy(&req, buffer, sizeof(req));
+            /* PSA Storage: uid 0 is invalid for every operation. */
+            if (req.uid == 0U) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            /* Optional PS features (create/set_extended): psa_ps_get_support
+             * advertises none, so refuse them until implemented. */
+            else if (msg->type == WT_PS_OP_CREATE ||
+                    msg->type == WT_PS_OP_SET_EXTENDED) {
+                status = PSA_ERROR_NOT_SUPPORTED;
+            }
+            else {
+                status = wt_storage_vault_handle(ctx, runtime, partition_id);
+            }
+        }
     }
 
-    /* Optional PS features (create/set_extended): psa_ps_get_support
-     * advertises none (ctx->caps stays 0), so these are refused honestly —
-     * a build that raises caps must implement them first. */
-    if (msg->type == WT_PS_OP_CREATE || msg->type == WT_PS_OP_SET_EXTENDED) {
-        return PSA_ERROR_NOT_SUPPORTED;
-    }
+    if (status == PSA_SUCCESS) {
+        /* The vault namespaces by (this partition, end client, uid): the
+         * SPM-stamped message client id is the delegated sub_owner. */
+        (void)memset(&vreq, 0, sizeof(vreq));
+        vreq.uid = req.uid;
+        vreq.flags = req.flags;
+        vreq.offset = req.offset;
+        vreq.sub_owner = msg->client_id;
 
-    status = wt_storage_vault_handle(ctx, runtime, partition_id);
-    if (status != PSA_SUCCESS) {
-        return status;
-    }
-
-    /* The vault namespaces by (this partition, end client, uid): the
-     * SPM-stamped message client id is the delegated sub_owner. */
-    (void)memset(&vreq, 0, sizeof(vreq));
-    vreq.uid = req.uid;
-    vreq.flags = req.flags;
-    vreq.offset = req.offset;
-    vreq.sub_owner = msg->client_id;
-
-    switch (msg->type) {
-    case WT_ITS_OP_SET:
-        if ((req.flags & ~ctx->client_flags_mask) != 0U) {
+        switch (msg->type) {
+        case WT_ITS_OP_SET:
+            if ((req.flags & ~ctx->client_flags_mask) != 0U) {
+                status = PSA_ERROR_NOT_SUPPORTED;
+                break;
+            }
+            vreq.flags = req.flags | ctx->vault_flags;
+            status = wt_storage_vault_call(ctx, runtime, partition_id,
+                                           WT_VAULT_OP_SET, &vreq,
+                                           buffer + sizeof(req),
+                                           in_len - sizeof(req), NULL, 0U,
+                                           NULL);
+            break;
+        case WT_ITS_OP_GET:
+            cap = msg->out_size[0];
+            if (cap > WT_VAULT_OBJECT_MAX) {
+                cap = WT_VAULT_OBJECT_MAX;
+            }
+            status = wt_storage_vault_call(ctx, runtime, partition_id,
+                                           WT_VAULT_OP_GET, &vreq, NULL, 0U,
+                                           buffer, cap, &out_len);
+            if (status == PSA_SUCCESS &&
+                    wt_storage_write_reply(ctx, runtime, partition_id,
+                                           msg->handle, buffer, out_len) !=
+                        WT_FFM_SUCCESS) {
+                status = PSA_ERROR_GENERIC_ERROR;
+            }
+            break;
+        case WT_ITS_OP_GET_INFO:
+            if (msg->out_size[0] < sizeof(info)) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else {
+                status = wt_storage_vault_call(ctx, runtime, partition_id,
+                                               WT_VAULT_OP_GET_INFO, &vreq,
+                                               NULL, 0U, &info, sizeof(info),
+                                               NULL);
+                if (status == PSA_SUCCESS) {
+                    /* Hide the frontend's internal sealing flag. */
+                    info.flags &= ~ctx->vault_flags;
+                }
+                if (status == PSA_SUCCESS &&
+                        wt_storage_write_reply(ctx, runtime, partition_id,
+                                               msg->handle, &info,
+                                               sizeof(info)) !=
+                            WT_FFM_SUCCESS) {
+                    status = PSA_ERROR_GENERIC_ERROR;
+                }
+            }
+            break;
+        case WT_ITS_OP_REMOVE:
+            status = wt_storage_vault_call(ctx, runtime, partition_id,
+                                           WT_VAULT_OP_REMOVE, &vreq, NULL,
+                                           0U, NULL, 0U, NULL);
+            break;
+        default:
             status = PSA_ERROR_NOT_SUPPORTED;
             break;
         }
-        vreq.flags = req.flags | ctx->vault_flags;
-        status = wt_storage_vault_call(ctx, runtime, partition_id,
-                                       WT_VAULT_OP_SET, &vreq,
-                                       buffer + sizeof(req),
-                                       in_len - sizeof(req), NULL, 0U, NULL);
-        break;
-    case WT_ITS_OP_GET:
-        cap = msg->out_size[0];
-        if (cap > WT_VAULT_OBJECT_MAX) {
-            cap = WT_VAULT_OBJECT_MAX;
-        }
-        status = wt_storage_vault_call(ctx, runtime, partition_id,
-                                       WT_VAULT_OP_GET, &vreq, NULL, 0U,
-                                       buffer, cap, &out_len);
-        if (status == PSA_SUCCESS &&
-                wt_storage_write_reply(ctx, runtime, partition_id,
-                                       msg->handle, buffer, out_len) !=
-                    WT_FFM_SUCCESS) {
-            status = PSA_ERROR_GENERIC_ERROR;
-        }
-        break;
-    case WT_ITS_OP_GET_INFO:
-        if (msg->out_size[0] < sizeof(info)) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        status = wt_storage_vault_call(ctx, runtime, partition_id,
-                                       WT_VAULT_OP_GET_INFO, &vreq, NULL, 0U,
-                                       &info, sizeof(info), NULL);
-        if (status == PSA_SUCCESS) {
-            /* Clients see the create flags they passed, not the frontend's
-             * internal sealing flag. */
-            info.flags &= ~ctx->vault_flags;
-        }
-        if (status == PSA_SUCCESS &&
-                wt_storage_write_reply(ctx, runtime, partition_id,
-                                       msg->handle, &info, sizeof(info)) !=
-                    WT_FFM_SUCCESS) {
-            status = PSA_ERROR_GENERIC_ERROR;
-        }
-        break;
-    case WT_ITS_OP_REMOVE:
-        status = wt_storage_vault_call(ctx, runtime, partition_id,
-                                       WT_VAULT_OP_REMOVE, &vreq, NULL, 0U,
-                                       NULL, 0U, NULL);
-        break;
-    default:
-        status = PSA_ERROR_NOT_SUPPORTED;
-        break;
     }
+    wt_forceZero(buffer, sizeof(buffer));
     return status;
 }
 

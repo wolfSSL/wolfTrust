@@ -19,6 +19,7 @@
  */
 
 #include "wolftrust/services/vault_service.h"
+#include "wolftrust/zeroize.h"
 
 #include <string.h>
 
@@ -252,175 +253,192 @@ static psa_status_t wt_vault_service_call(wt_ffm_runtime_t* runtime,
     size_t cap;
     psa_status_t status;
 
-    if (msg->in_size[0] != sizeof(req)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+    status = PSA_ERROR_INVALID_ARGUMENT;
+    if (msg->in_size[0] == sizeof(req) &&
+            wt_vault_read_vec(runtime, partition_id, msg->handle, 0U,
+                              (uint8_t*)&req, sizeof(req), &req_len) ==
+                WT_FFM_SUCCESS && req_len == sizeof(req)) {
+        switch (msg->type) {
+        case WT_VAULT_OP_SET:
+            if (msg->in_size[1] > sizeof(data)) {
+                status = PSA_ERROR_INSUFFICIENT_STORAGE;
+            }
+            else if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U,
+                                       data, sizeof(data), &data_len) !=
+                    WT_FFM_SUCCESS) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else {
+                status = g_vault_backend->set(msg->client_id, req.sub_owner,
+                                              req.uid, req.flags, data, data_len);
+            }
+            break;
+        case WT_VAULT_OP_GET:
+            /* A caller buffer larger than the object bound is legal PSA usage.
+             * Clamp it because no object exceeds the transfer buffer. */
+            data_len = msg->out_size[0];
+            if (data_len > sizeof(data)) {
+                data_len = sizeof(data);
+            }
+            status = g_vault_backend->get(msg->client_id, req.sub_owner, req.uid,
+                                          req.offset, data, data_len, &out_len);
+            if (status == PSA_SUCCESS &&
+                    wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
+                                       data, out_len) != WT_FFM_SUCCESS) {
+                status = PSA_ERROR_GENERIC_ERROR;
+            }
+            break;
+        case WT_VAULT_OP_GET_INFO:
+            if (msg->out_size[0] < sizeof(info)) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else {
+                status = g_vault_backend->get_info(msg->client_id, req.sub_owner,
+                                                   req.uid, &info);
+                if (status == PSA_SUCCESS &&
+                        wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
+                                           &info, sizeof(info)) !=
+                            WT_FFM_SUCCESS) {
+                    status = PSA_ERROR_GENERIC_ERROR;
+                }
+            }
+            break;
+        case WT_VAULT_OP_REMOVE:
+            status = g_vault_backend->remove(msg->client_id, req.sub_owner,
+                                             req.uid);
+            break;
+        case WT_VAULT_OP_KEY_GENERATE:
+            /* Key ops carry type in reserved and usage in flags. */
+            status = g_vault_key_backend->generate(msg->client_id, req.sub_owner,
+                                                   req.uid, req.reserved,
+                                                   req.flags);
+            break;
+        case WT_VAULT_OP_KEY_IMPORT:
+            if (msg->in_size[1] > sizeof(data)) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U,
+                                       data, sizeof(data), &data_len) !=
+                    WT_FFM_SUCCESS) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else {
+                status = g_vault_key_backend->import(msg->client_id,
+                                                     req.sub_owner, req.uid,
+                                                     req.reserved, req.flags,
+                                                     data, data_len);
+            }
+            break;
+        case WT_VAULT_OP_KEY_EXPORT_PUBLIC:
+            cap = msg->out_size[0];
+            if (cap > sizeof(out)) {
+                cap = sizeof(out);
+            }
+            status = g_vault_key_backend->export_public(msg->client_id,
+                                                        req.sub_owner, req.uid,
+                                                        out, cap, &out_len);
+            if (status == PSA_SUCCESS &&
+                    wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
+                                       out, out_len) != WT_FFM_SUCCESS) {
+                status = PSA_ERROR_GENERIC_ERROR;
+            }
+            break;
+        case WT_VAULT_OP_KEY_SIGN:
+            if (msg->in_size[1] > sizeof(data)) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U,
+                                       data, sizeof(data), &data_len) !=
+                    WT_FFM_SUCCESS) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else {
+                cap = msg->out_size[0];
+                if (cap > sizeof(out)) {
+                    cap = sizeof(out);
+                }
+                status = g_vault_key_backend->sign(msg->client_id, req.sub_owner,
+                                                   req.uid, data, data_len, out,
+                                                   cap, &out_len);
+                if (status == PSA_SUCCESS &&
+                        wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
+                                           out, out_len) != WT_FFM_SUCCESS) {
+                    status = PSA_ERROR_GENERIC_ERROR;
+                }
+            }
+            break;
+        case WT_VAULT_OP_KEY_VERIFY:
+            /* invec[1] = [digest][raw r||s signature]. */
+            if (msg->in_size[1] > sizeof(data)) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U,
+                                       data, sizeof(data), &data_len) !=
+                        WT_FFM_SUCCESS ||
+                    data_len <= WT_VAULT_KEY_SIG_LEN) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else {
+                status = g_vault_key_backend->verify(
+                    msg->client_id, req.sub_owner, req.uid, data,
+                    data_len - WT_VAULT_KEY_SIG_LEN,
+                    data + data_len - WT_VAULT_KEY_SIG_LEN,
+                    WT_VAULT_KEY_SIG_LEN);
+            }
+            break;
+        case WT_VAULT_OP_KEY_ENCRYPT:
+        case WT_VAULT_OP_KEY_DECRYPT:
+            if (msg->in_size[1] > sizeof(data)) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U,
+                                       data, sizeof(data), &data_len) !=
+                    WT_FFM_SUCCESS) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else {
+                cap = msg->out_size[0];
+                if (cap > sizeof(out)) {
+                    cap = sizeof(out);
+                }
+                if (msg->type == WT_VAULT_OP_KEY_ENCRYPT) {
+                    status = g_vault_key_backend->encrypt(
+                        msg->client_id, req.sub_owner, req.uid, data, data_len,
+                        out, cap, &out_len);
+                }
+                else {
+                    status = g_vault_key_backend->decrypt(
+                        msg->client_id, req.sub_owner, req.uid, data, data_len,
+                        out, cap, &out_len);
+                }
+                if (status == PSA_SUCCESS &&
+                        wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
+                                           out, out_len) != WT_FFM_SUCCESS) {
+                    status = PSA_ERROR_GENERIC_ERROR;
+                }
+            }
+            break;
+        case WT_VAULT_OP_RANDOM:
+            cap = msg->out_size[0];
+            if (cap == 0U || cap > WT_VAULT_RANDOM_MAX) {
+                status = PSA_ERROR_INVALID_ARGUMENT;
+            }
+            else {
+                status = g_vault_rng(out, cap);
+                if (status == PSA_SUCCESS &&
+                        wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
+                                           out, cap) != WT_FFM_SUCCESS) {
+                    status = PSA_ERROR_GENERIC_ERROR;
+                }
+            }
+            break;
+        default:
+            status = PSA_ERROR_NOT_SUPPORTED;
+            break;
+        }
     }
-    if (wt_vault_read_vec(runtime, partition_id, msg->handle, 0U,
-                          (uint8_t*)&req, sizeof(req), &req_len) !=
-            WT_FFM_SUCCESS || req_len != sizeof(req)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
-    }
-
-    switch (msg->type) {
-    case WT_VAULT_OP_SET:
-        if (msg->in_size[1] > sizeof(data)) {
-            return PSA_ERROR_INSUFFICIENT_STORAGE;
-        }
-        if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U, data,
-                              sizeof(data), &data_len) != WT_FFM_SUCCESS) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        status = g_vault_backend->set(msg->client_id, req.sub_owner, req.uid,
-                                      req.flags, data, data_len);
-        break;
-    case WT_VAULT_OP_GET:
-        /* A caller buffer larger than the object bound is legal PSA usage;
-         * clamp to the copied-transfer buffer — no object exceeds it. */
-        data_len = msg->out_size[0];
-        if (data_len > sizeof(data)) {
-            data_len = sizeof(data);
-        }
-        status = g_vault_backend->get(msg->client_id, req.sub_owner, req.uid,
-                                      req.offset, data, data_len, &out_len);
-        if (status == PSA_SUCCESS &&
-                wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
-                                   data, out_len) != WT_FFM_SUCCESS) {
-            status = PSA_ERROR_GENERIC_ERROR;
-        }
-        break;
-    case WT_VAULT_OP_GET_INFO:
-        if (msg->out_size[0] < sizeof(info)) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        status = g_vault_backend->get_info(msg->client_id, req.sub_owner,
-                                           req.uid, &info);
-        if (status == PSA_SUCCESS &&
-                wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
-                                   &info, sizeof(info)) != WT_FFM_SUCCESS) {
-            status = PSA_ERROR_GENERIC_ERROR;
-        }
-        break;
-    case WT_VAULT_OP_REMOVE:
-        status = g_vault_backend->remove(msg->client_id, req.sub_owner,
-                                         req.uid);
-        break;
-    case WT_VAULT_OP_KEY_GENERATE:
-        /* Key ops carry type in reserved and usage in flags. */
-        status = g_vault_key_backend->generate(msg->client_id, req.sub_owner,
-                                               req.uid, req.reserved,
-                                               req.flags);
-        break;
-    case WT_VAULT_OP_KEY_IMPORT:
-        if (msg->in_size[1] > sizeof(data)) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U, data,
-                              sizeof(data), &data_len) != WT_FFM_SUCCESS) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        status = g_vault_key_backend->import(msg->client_id, req.sub_owner,
-                                             req.uid, req.reserved, req.flags,
-                                             data, data_len);
-        break;
-    case WT_VAULT_OP_KEY_EXPORT_PUBLIC:
-        cap = msg->out_size[0];
-        if (cap > sizeof(out)) {
-            cap = sizeof(out);
-        }
-        status = g_vault_key_backend->export_public(msg->client_id,
-                                                    req.sub_owner, req.uid,
-                                                    out, cap, &out_len);
-        if (status == PSA_SUCCESS &&
-                wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
-                                   out, out_len) != WT_FFM_SUCCESS) {
-            status = PSA_ERROR_GENERIC_ERROR;
-        }
-        break;
-    case WT_VAULT_OP_KEY_SIGN:
-        if (msg->in_size[1] > sizeof(data)) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U, data,
-                              sizeof(data), &data_len) != WT_FFM_SUCCESS) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        cap = msg->out_size[0];
-        if (cap > sizeof(out)) {
-            cap = sizeof(out);
-        }
-        status = g_vault_key_backend->sign(msg->client_id, req.sub_owner,
-                                           req.uid, data, data_len, out, cap,
-                                           &out_len);
-        if (status == PSA_SUCCESS &&
-                wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
-                                   out, out_len) != WT_FFM_SUCCESS) {
-            status = PSA_ERROR_GENERIC_ERROR;
-        }
-        break;
-    case WT_VAULT_OP_KEY_VERIFY:
-        /* invec[1] = [digest][raw r||s signature]. */
-        if (msg->in_size[1] > sizeof(data)) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U, data,
-                              sizeof(data), &data_len) != WT_FFM_SUCCESS ||
-                data_len <= WT_VAULT_KEY_SIG_LEN) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        status = g_vault_key_backend->verify(msg->client_id, req.sub_owner,
-                                             req.uid, data,
-                                             data_len - WT_VAULT_KEY_SIG_LEN,
-                                             data + data_len -
-                                                 WT_VAULT_KEY_SIG_LEN,
-                                             WT_VAULT_KEY_SIG_LEN);
-        break;
-    case WT_VAULT_OP_KEY_ENCRYPT:
-    case WT_VAULT_OP_KEY_DECRYPT:
-        if (msg->in_size[1] > sizeof(data)) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        if (wt_vault_read_vec(runtime, partition_id, msg->handle, 1U, data,
-                              sizeof(data), &data_len) != WT_FFM_SUCCESS) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        cap = msg->out_size[0];
-        if (cap > sizeof(out)) {
-            cap = sizeof(out);
-        }
-        if (msg->type == WT_VAULT_OP_KEY_ENCRYPT) {
-            status = g_vault_key_backend->encrypt(msg->client_id,
-                                                  req.sub_owner, req.uid,
-                                                  data, data_len, out, cap,
-                                                  &out_len);
-        }
-        else {
-            status = g_vault_key_backend->decrypt(msg->client_id,
-                                                  req.sub_owner, req.uid,
-                                                  data, data_len, out, cap,
-                                                  &out_len);
-        }
-        if (status == PSA_SUCCESS &&
-                wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
-                                   out, out_len) != WT_FFM_SUCCESS) {
-            status = PSA_ERROR_GENERIC_ERROR;
-        }
-        break;
-    case WT_VAULT_OP_RANDOM:
-        cap = msg->out_size[0];
-        if (cap == 0U || cap > WT_VAULT_RANDOM_MAX) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        status = g_vault_rng(out, cap);
-        if (status == PSA_SUCCESS &&
-                wt_vault_write_vec(runtime, partition_id, msg->handle, 0U,
-                                   out, cap) != WT_FFM_SUCCESS) {
-            status = PSA_ERROR_GENERIC_ERROR;
-        }
-        break;
-    default:
-        status = PSA_ERROR_NOT_SUPPORTED;
-        break;
-    }
+    wt_forceZero(data, sizeof(data));
+    wt_forceZero(out, sizeof(out));
     return status;
 }
 

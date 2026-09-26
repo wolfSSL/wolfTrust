@@ -114,7 +114,7 @@ where the platform and feature set are held constant.
 | Internal Trusted Storage | 1.0 | Core set/get/get-info/remove subset with the `WRITE_ONCE` lifecycle deviation below | `include/psa/internal_trusted_storage.h` and `src/services/wolfhsm/wt_hsm_vault.c` |
 | Protected Storage | 1.0 | Core set/get/get-info/remove subset; optional create/set-extended absent and the `WRITE_ONCE` lifecycle deviation below applies | `include/psa/protected_storage.h` and `src/services/storage_service.c` |
 | Initial Attestation | 1.0 API subset with a nonconformant RFC 9783-derived token | Token and exact-size operations are supported, but the advertised TF-M profile has the claim-semantic deviations below | `lib/wolfPSA/wolfpsa/psa/initial_attestation.h` and `src/services/initial_attestation.c` |
-| Firmware Update | 1.0 subset | Single-component staging and authenticated reboot supported, with the alignment and status deviations below | `include/psa/update.h` and `src/services/fwu_service.c` |
+| Firmware Update | 1.0 subset | Single-component staging and authenticated reboot supported, with the status deviation below | `include/psa/update.h` and `src/services/fwu_service.c` |
 | RoT lifecycle query | FF-M 1.0 | Secure Partition only; there is no Non-secure adapter or veneer | `include/psa/lifecycle.h` and `src/arch/common/spm_sp_api.c` |
 | Secure Partition signals and IRQ APIs | FF-M 1.0 plus one wolfTrust-specific beta-extension backport | The 1.0 signal APIs and `psa_eoi` are supported; only `psa_irq_enable()` is backported from the FF-M 1.1 Extension Beta, Issue 0, while `psa_irq_status_t`, `psa_irq_is_enabled`, `psa_irq_disable`, and `psa_irq_restore` are absent | `include/psa/service.h` and the Armv8-M SVC implementation |
 | Guest identity | FF-M convention | Non-secure guest `N` is client `-(N + 1)` | `src/arch/armv8m/ffm_nsc.c` |
@@ -139,7 +139,7 @@ where the platform and feature set are held constant.
 | The attestation token advertises `tag:psacertified.org,2023:psa#tfm` but does not implement that profile's claim semantics. | Known token-profile deviation | The boot seed is deterministic across equivalent boots; software-component measurement type and description values are reversed; signer ID hashes the literal name `wolfBoot` rather than identifying the signing key; and implementation ID hashes a software label rather than identifying the immutable PSA RoT hardware assembly. A distinct derived profile identifier is required until these claims conform to [RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html). |
 | Firmware Update has no persistent trial-accept flow. | Scoped | Installation commits only after wolfBoot authenticates the swapped image at reboot; `psa_fwu_accept()` returns `PSA_ERROR_NOT_SUPPORTED`. |
 | The firmware-update detached manifest is a 32-bit version word. | Scoped integration | Passing `NULL, 0` instead binds the version from the staged wolfBoot header. Other manifest encodings require an adapter. |
-| Firmware Update rejects unaligned block sizes and reports unknown component IDs as `PSA_ERROR_INVALID_ARGUMENT`. | Known API deviations | PSA Firmware Update 1.0 pads unaligned final block sizes and specifies `PSA_ERROR_DOES_NOT_EXIST` for unknown component IDs. |
+| Firmware Update reports unknown component IDs as `PSA_ERROR_INVALID_ARGUMENT`. | Known API deviation | PSA Firmware Update 1.0 specifies `PSA_ERROR_DOES_NOT_EXIST` for unknown component IDs. Unaligned block sizes are padded to the backend write alignment. |
 | Secure memory uses no dynamic allocation. | Stronger resource policy | Fixed pools and buffers can reject excess work rather than expanding at runtime. |
 | Manifests use wolfTrust JSON and generated C. | Integration difference | Existing TF-M manifests are not consumed directly. Security resources and services must be represented in the wolfTrust schema. |
 | Secure Partition entry functions are bound at build time instead of being selected by each manifest's `entry_point` field. | Integration difference | The numeric field validates an executable window, but adding a service also requires a compiled entry wrapper and an explicit start call in `wt_ffm_boot_start_sched()`. |
@@ -185,9 +185,9 @@ actual boundary.
    and manifest.
 5. Check data-size assumptions against the copied IPC and service limits.
    Stream update images in blocks no larger than `PSA_FWU_MAX_WRITE_SIZE`.
-   For wolfTrust, both the image offset and block size must be aligned to
-   `1 << PSA_FWU_LOG2_WRITE_ALIGN`, including the final block. This is stricter
-   than PSA Firmware Update 1.0, which permits padding an unaligned final block.
+   For wolfTrust, the image offset must be aligned to
+   `1 << PSA_FWU_LOG2_WRITE_ALIGN`. An unaligned final block is padded by the
+   service to the backend write alignment.
 6. Check optional APIs before use. In particular, treat Protected Storage
    create/set-extended and Firmware Update accept as unsupported.
 7. Express Secure services, dependencies, memory, interrupts, restart policy,

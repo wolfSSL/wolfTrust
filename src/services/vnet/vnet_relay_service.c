@@ -219,8 +219,8 @@ static psa_status_t wt_vnet_relay_tx(wt_ffm_runtime_t* runtime,
     return PSA_SUCCESS;
 }
 
-/* Dequeue one frame: poll, copy the payload out, release the slot. The
- * slot/generation cookie stays secure-side for its whole lifetime. */
+/* Dequeue one frame: poll, copy the payload out, release the slot, then return
+ * metadata including the now-consumed slot/generation token to the caller. */
 static psa_status_t wt_vnet_relay_rx_fetch(wt_ffm_runtime_t* runtime,
                                            int32_t partition_id,
                                            vnet_switch_t* sw, uint32_t vm,

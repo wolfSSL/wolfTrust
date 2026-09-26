@@ -39,9 +39,9 @@ MEMORY {
    * SPM RAM into one MPU-alignable region so the keystore partitions can be
    * granted exactly it while running unprivileged. Top of the general window. */
   KEYSTORE (rw): ORIGIN = 0x30075000, LENGTH = 80K
-  /* FWU partition stack: the PSA Firmware Update SP's execution stack
-   * (WT_SP_FWU_STACK_* in memory_map.h). Privileged coroutine that programs
-   * the wolfBoot update partition flash. Lowest SP band. */
+  /* FWU partition stack: the confined, unprivileged PSA Firmware Update SP's
+   * execution stack and MPU-domain RW resource. Flash programming crosses
+   * the privileged SVC gate. Lowest SP band. */
   FWUSTACK (rw): ORIGIN = 0x30089000, LENGTH = 8K
   /* PS partition stack: the sealed-storage SP's execution stack and
    * MPU-domain RW resource (WT_SP_PS_STACK_* in memory_map.h). */
@@ -49,8 +49,8 @@ MEMORY {
   /* ITS partition stack: the unprivileged storage SP's execution stack and
    * MPU-domain RW resource (WT_SP_ITS_STACK_* in memory_map.h). */
   ITSSTACK (rw): ORIGIN = 0x3008D000, LENGTH = 8K
-  /* Vault partition stack (WT-FFM-0047): the privileged vault coroutine's
-   * manifest-declared execution stack (WT_SP_VAULT_STACK_* in memory_map.h).
+  /* Vault partition stack (WT-FFM-0047): the confined, unprivileged vault
+   * SP's execution stack and MPU-domain RW resource (WT_SP_VAULT_STACK_*).
    * 16K: ECC verify's point-table frame overflows 8K (PSPLIM STKOF). */
   VAULTSTACK (rw): ORIGIN = 0x3008F000, LENGTH = 16K
   /* Conformance Secure-Partition .data/.bss (P3a). Arm's partition sources hold

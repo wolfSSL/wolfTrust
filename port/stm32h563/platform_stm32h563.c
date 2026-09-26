@@ -97,8 +97,8 @@ static const wt_armv8m_mpu_region_t g_mpu_s_whitelist[] = {
       WT_MPU_RLAR_ATTRIDX_NORMAL },
 
     /* Region 3: NS RAM RW-NX. Secure code touches this through the
-     * 0x20000000 alias to exchange HSM transport buffers with guests
-     * and to write fault-response CSRs. */
+     * 0x20000000 alias to validate and copy mediated service vectors. HSM
+     * tasklet faults do not write a response through this mapping. */
     { WT_RAM_NS_BASE, WT_RAM_NS_BASE + 0x0001FFFFu,
       WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
       WT_MPU_RLAR_ATTRIDX_NORMAL },

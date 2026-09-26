@@ -33,7 +33,7 @@
  * (partition, client id, uid) via the delegated sub_owner (WT-FFM-0044).
  * The PS instance additionally ORs WT_VAULT_FLAG_SEALED into every request:
  * AES-GCM under the device-unique wolfHSM key plus rollback binding, applied
- * entirely inside the privileged vault domain (WT-FFM-0048). */
+ * inside the confined vault partition (WT-FFM-0048). */
 
 /* psa_call request types (client face). Ops 1-4 are the shared ITS/PS core;
  * 5-7 exist only on the PS face. */

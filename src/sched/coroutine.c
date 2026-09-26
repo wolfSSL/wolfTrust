@@ -112,7 +112,7 @@ static struct wt_co *runqueue_dequeue(void)
 
 static void check_canary(struct wt_co *co)
 {
-    if (co->stack_base == (uint8_t *)0) {
+    if (co == (struct wt_co *)0 || co->stack_base == (uint8_t *)0) {
         return; /* bootstrap has no stack buffer */
     }
     if (*(volatile uint32_t *)(void *)co->stack_base != WT_CO_STACK_CANARY) {
@@ -130,11 +130,13 @@ static void do_switch(struct wt_co *to)
         to = &g_wt_co_bootstrap;
     }
 
-    check_canary(&g_wt_co_bootstrap);
+    check_canary(g_wt_co_current);
+    check_canary(to);
     g_wt_co_current = to;
     to->state = WT_CO_RUNNING;
     wt_co_arch_enter(to);
     /* Execution resumes here when `to` blocks or faults back to bootstrap. */
+    check_canary(to);
 }
 
 static void runqueue_unlink(struct wt_co *co)

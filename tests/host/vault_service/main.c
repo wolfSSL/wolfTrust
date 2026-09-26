@@ -309,6 +309,8 @@ int main(void)
     static const whNvmCb nvm_cb[1] = {WH_NVM_FLASH_CB};
     whNvmConfig nvm_cfg;
     whNvmContext nvm_ctx;
+    whNvmMetadata key_meta;
+    whNvmId key_id = WH_NVM_ID_INVALID;
     wt_ffm_runtime_t runtime;
     psa_handle_t handle_a;
     psa_handle_t handle_b;
@@ -440,6 +442,27 @@ int main(void)
                        buffer, sizeof(buffer), &got);
     check(status == PSA_ERROR_DOES_NOT_EXIST,
           "removed uid is gone");
+
+    status = wt_hsm_vault_lookup(TEST_CLIENT_A, 0, 0x44ULL, NULL, NULL,
+                                 &key_id);
+    check(status == PSA_ERROR_DOES_NOT_EXIST &&
+          key_id != WH_NVM_ID_INVALID, "found a slot for a key object");
+    if (key_id == WH_NVM_ID_INVALID) {
+        return 1;
+    }
+    (void)memset(&key_meta, 0, sizeof(key_meta));
+    key_meta.id = key_id;
+    key_meta.access = WH_NVM_ACCESS_ANY;
+    key_meta.flags = WH_NVM_FLAGS_SENSITIVE | WH_NVM_FLAGS_NONEXPORTABLE;
+    key_meta.len = (whNvmSize)sizeof(data_a);
+    wt_hsm_vault_make_label(key_meta.label, TEST_CLIENT_A, 0, 0x44ULL,
+                            WT_VAULT_FLAG_KEY | WT_VAULT_KEY_USAGE_VERIFY);
+    check(wh_Nvm_AddObject(&nvm_ctx, &key_meta, key_meta.len, data_a) ==
+          WH_ERROR_OK, "created key object in shared vault window");
+    status = vault_remove(&runtime, TEST_CLIENT_A, handle_a, 0x44ULL);
+    check(status == PSA_ERROR_NOT_PERMITTED &&
+          wh_Nvm_GetMetadata(&nvm_ctx, key_id, &key_meta) == WH_ERROR_OK,
+          "storage remove cannot delete a key object");
 
     /* Malformed request header is refused, not misparsed. */
     (void)memset(short_req, 0, sizeof(short_req));

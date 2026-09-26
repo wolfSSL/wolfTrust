@@ -327,6 +327,9 @@ static void test_mutex_faulted_waiter(void)
     wt_mutex_init(&m);
     EXPECT_INT(wt_mutex_acquire_queued(&m, a), 0);
     EXPECT_INT(wt_mutex_acquire_queued(&m, b), 1);
+    EXPECT_INT(wt_mutex_acquire_queued(&m, b), 1);
+    EXPECT_TRUE(m.wait_head == b && m.wait_tail == b &&
+                b->next_wait == NULL);
     EXPECT_INT(wt_mutex_acquire_queued(&m, c), 1);
     EXPECT_TRUE(wt_mutex_holder(&m) == a);
 
@@ -354,8 +357,10 @@ static void test_mutex_faulted_waiter(void)
     wt_mutex_remove_waiter(&m, c);
     wt_mutex_release_if_holder(&m, a);
     EXPECT_TRUE(wt_mutex_holder(&m) == b);
+    EXPECT_TRUE(m.wait_head == NULL && m.wait_tail == NULL);
+    EXPECT_INT(wt_mutex_acquire_queued(&m, b), 0);
 
-    (void)printf("PASS: faulted mutex waiter removed from wait queue\n");
+    (void)printf("PASS: mutex waiter handoff and fault cleanup\n");
 }
 
 int main(void)

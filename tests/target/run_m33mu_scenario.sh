@@ -13,6 +13,8 @@
 #   run_m33mu_scenario.sh spfaultneg   the crypto SP faults once; wolfTrust
 #                                       gracefully restarts it in place (no
 #                                       reset) and it serves again, guests live
+#   run_m33mu_scenario.sh hsmfaultneg  a guest HSM tasklet faults once;
+#                                       the other guest survives without panic
 #   run_m33mu_scenario.sh confboot     conformance image (Arm server/client SPs
 #                                       scheduled, WT_CONFORMANCE=1) boots the
 #                                       full positive lifecycle green
@@ -51,8 +53,8 @@ set -o pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg|spbudgetneg) ;;
-  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg|spbudgetneg" >&2; exit 2 ;;
+  positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|hsmfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg|spbudgetneg) ;;
+  *) echo "usage: $0 positive|bothpsa|bothiso|restart|crossdomain|keystoreneg|spfaultneg|hsmfaultneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|attestneg|hsmattackneg|vaultrecover|vaultrecoversec|authneg|rollbackneg|fwustage|remeasureneg|bootupdate|vnet|vnetneg|manifestneg|gtzcneg|spbudgetneg" >&2; exit 2 ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -149,6 +151,8 @@ elif [ "$scenario" = "keystoreneg" ]; then
   secure_flags="WT_KEYSTORE_NEG_PROBE=1"
 elif [ "$scenario" = "spfaultneg" ]; then
   secure_flags="WT_SP_FAULT_PROBE=1"
+elif [ "$scenario" = "hsmfaultneg" ]; then
+  secure_flags="WT_HSM_FAULT_PROBE=1"
 elif [ "$scenario" = "panicneg" ]; then
   secure_flags="WT_PANIC_NEG_PROBE=1"
 elif [ "$scenario" = "confboot" ] || [ "$scenario" = "devstorage" ] || \
@@ -298,6 +302,9 @@ fi
 quit_flag="--quit-on-faults"
 timeout_s=60
 if [ "$scenario" = "restart" ]; then
+  quit_flag=""
+  timeout_s=40
+elif [ "$scenario" = "hsmfaultneg" ]; then
   quit_flag=""
   timeout_s=40
 elif [ "$scenario" = "spbudgetneg" ]; then
@@ -713,6 +720,16 @@ case "$scenario" in
       "freertos_guest1: ffm sha256 ok"
     expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
     echo "PASS: target/spfaultneg"
+    ;;
+
+  hsmfaultneg)
+    # A guest0 HSM tasklet fault must not turn its post-fault stack-canary
+    # check into a platform panic. Guest1 must keep running.
+    expect "guest0 HSM tasklet faulted" "[USGFLT]"
+    refute_re "HSM fault stayed contained" '(\[HARDFLT\]|HardFault|SecureFault|\[BKPT\] imm=0x7e)'
+    expect "other guest remains functional" "freertos_guest1: ffm sha256 ok"
+    expect "full chain exits cleanly" "[EXPECT BKPT] Success"
+    echo "PASS: target/hsmfaultneg"
     ;;
 
   panicneg)

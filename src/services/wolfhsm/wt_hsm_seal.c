@@ -20,9 +20,8 @@
 
 /* wolfCrypt AES-256-GCM vault sealer (WT-FFM-0048). The device-unique key is
  * generated on first boot, stored at WT_HSM_SEAL_KEY_ID as NONEXPORTABLE and
- * immutable, and cached only in privileged vault-domain RAM — it never
- * reaches a Secure Partition, which is the property that beats TF-M's
- * Crypto-partition-RAM key storage. The GCM nonce is the caller-supplied
+ * immutable, and cached in the shared keystore trust band granted only to the
+ * confined keystore partitions. The GCM nonce is the caller-supplied
  * monotonic rollback counter, unique per sealed write by construction, so a
  * rolled-back ciphertext fails tag authentication on unseal. */
 

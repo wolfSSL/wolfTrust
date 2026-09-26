@@ -38,6 +38,7 @@
 #include "psa/storage_common.h"
 #include "psa/internal_trusted_storage.h"
 #include "psa/protected_storage.h"
+#include "wolftrust/zeroize.h"
 
 /* Wire header + ops, kept in lockstep with storage_service.h (the SPM-side
  * definition pulls in Secure-only headers and is not includable here). */
@@ -90,12 +91,15 @@ static psa_status_t wt_storage_ns_write(uint32_t sid, int32_t op, uint64_t uid,
     }
     handle = psa_connect(sid, 1U);
     if (handle <= 0) {
-        return PSA_ERROR_GENERIC_ERROR;
+        status = PSA_ERROR_GENERIC_ERROR;
     }
-    in_vec[0].base = buffer;
-    in_vec[0].len = sizeof(hdr) + len;
-    status = psa_call(handle, op, in_vec, 1U, NULL, 0U);
-    psa_close(handle);
+    else {
+        in_vec[0].base = buffer;
+        in_vec[0].len = sizeof(hdr) + len;
+        status = psa_call(handle, op, in_vec, 1U, NULL, 0U);
+        psa_close(handle);
+    }
+    wt_forceZero(buffer, sizeof(buffer));
     return status;
 }
 

@@ -276,7 +276,16 @@ static void secure_smc(wt_el3_frame_t* frame)
     }
     if (fid == WT_FFA_CONSOLE_LOG64) {
         /* Characters span x2-x17: use the saved frame, not the 8-register copy. */
-        wt_ffa_spmd_console_call(frame->x, 1u);
+        if (wt_ffa_spmd_secure_available(fid)) {
+            wt_ffa_spmd_console_call(frame->x, 1u);
+        }
+        else {
+            for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
+                frame->x[i] = 0u;
+            }
+            frame->x[0] = WT_FFA_ERROR;
+            frame->x[2] = (uint64_t)(uint32_t)WT_FFA_NOT_SUPPORTED;
+        }
         return;
     }
     if (wt_ffa_fid_in_range(fid)) {

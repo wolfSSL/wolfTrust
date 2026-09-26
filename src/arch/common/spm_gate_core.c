@@ -394,6 +394,14 @@ int wt_spm_dispatch_call(wt_spm_call_t* call, wt_trap_frame_t* frame)
     if (call->op == WT_SPM_OP_CONF_NVM_SYNC) {
         int nvm_ret = WT_FFM_ERROR_BUFFER;
 
+#if defined(DRIVER_PARTITION_ID)
+        if (slot->partition_id != DRIVER_PARTITION_ID) {
+            return WT_FFM_ERROR_ARGUMENT;
+        }
+#endif
+        if (call->call_type != 0 && call->call_type != 1) {
+            return WT_FFM_ERROR_ARGUMENT;
+        }
         if (wt_secure_domain_contains(&slot->table, (uintptr_t)call->buffer,
                 call->num_bytes, call->call_type == 0 ? 1 : 0) != 0) {
             nvm_ret = wt_conf_nvm_flash_sync((uint8_t*)call->buffer,
@@ -407,6 +415,14 @@ int wt_spm_dispatch_call(wt_spm_call_t* call, wt_trap_frame_t* frame)
      * for the privileged device poke. The interrupt itself is delivered
      * through the real NVIC vector, not simulated. */
     if (call->op == WT_SPM_OP_CONF_IRQ_SET) {
+#if defined(DRIVER_PARTITION_ID)
+        if (slot->partition_id != DRIVER_PARTITION_ID) {
+            return WT_FFM_ERROR_ARGUMENT;
+        }
+#endif
+        if (call->call_type != 0 && call->call_type != 1) {
+            return WT_FFM_ERROR_ARGUMENT;
+        }
         wt_conf_uart_irq_set(call->call_type);
         call->ret_int = WT_FFM_SUCCESS;
         return WT_FFM_SUCCESS;

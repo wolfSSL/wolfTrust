@@ -68,9 +68,10 @@ symbol twice to prove a rejected ELF, flat binary, map, and CMSE import library
 are deleted instead of being reused by the next Make invocation.
 
 The per-PR core/port split workflow builds the `CONFIG_VNET=y` Secure image.
-The per-PR M33MU matrix builds and runs both that VNET layout and the
-`WT_CONFORMANCE=1` `confboot` layout, so the linked-image check covers both
-optional isolation-band configurations in CI.
+The M33MU smoke tier builds and runs the `WT_CONFORMANCE=1` `confboot` layout
+on every PR; the VNET layout runs with the full matrix (`ci:h5` label, push
+to main, nightly), so both optional isolation-band configurations stay under
+the linked-image check in CI.
 
 ## PSA FF conformance
 
@@ -103,8 +104,9 @@ WT_ENGINE=native make test-target
 WT_ENGINE=hsm make test-target
 ```
 
-It runs the positive lifecycle, guest restart, cross-domain Secure fault, and
-FF-M conformance scenarios. Detection accepts `m33mu` on
+It runs the port's smoke tier (STM32H563: `positive`, `gtzcneg`,
+`crossdomain`, `bothpsa`, `confboot`, `devcrypto`; `WT_TIER=full` runs every
+scenario). Detection accepts `m33mu` on
 `PATH` or a path in `M33MU`. If the emulator is unavailable,
 the target reports a skip rather than a pass.
 
@@ -158,6 +160,113 @@ Validation of the engine split completed under both engines with:
 
 The engine dimension changes crypto dispatch, not what M33MU proves. Emulator
 results still do not establish STM32 attribution or physical flash behavior.
+
+## MIMXRT700 emulator scenarios
+
+M33MU also models the i.MX RT700 (`--cpu imxrt700`), so the MIMXRT700 port has
+an emulator gate that mirrors its hardware runner:
+
+```sh
+make test-target TARGET=mimxrt700
+tests/target/run_rt700_m33mu.sh positive
+tests/target/run_rt700_m33mu.sh ahbscneg
+```
+
+`positive` boots the whole chain: wolfBoot verifies the wolfTrust image, and
+both bare-metal guests launch, reach the SPM through the SG veneers, and
+finish. `ahbscneg` adds the CPU isolation negative: guest 0 stores into
+guest 1's RAM window, which the per-dispatch SAU window keeps Secure, so the
+SAU refuses the store; the monitor contains the fault, relaunches guest 0
+through its restart budget, quarantines it, and guest 1 keeps running. The
+runner asserts every step from the emulator log (the guest console lines and
+M33MU's protection-unit trace), never from a debugger.
+
+The runner also carries the shared Secure-verdict negatives from
+`tests/target/lib/scenario.sh`, the per-scenario table both the STM32H563 and
+MIMXRT700 runners draw their Secure-image probe flags from. Each one ends on
+the verdict breakpoint its probe emits, asserted port-independently:
+`rollbackneg` (a downgraded boot is refused fail-closed and no guest enters a
+domain), `remeasureneg` (guest 0 measures clean at launch verification, its
+image is then tampered in flash, and the on-demand re-measure before dispatch
+must catch it and quarantine the domain), `manifestneg` (a corrupted manifest
+halts boot before anything is scheduled), and `spbudgetneg` (restart-budget
+exhaustion escalates to the fail-closed platform recovery). `crossdomain` and `keystoreneg` prove the
+Secure Partition MPU domains: an unprivileged storage-SP read of SPM-private
+RAM, or of the shared keystore band, MemManage-faults at the port's band
+address (shown by a second traced boot), the SP's wake never serves the
+guests' storage connect, and the guests' own lifecycle rides it out.
+`spfaultneg` and `panicneg` prove Secure Partition recovery: the crypto relay
+runs an undefined instruction on its first entry, or the storage SP closes an
+error-status handle, which the SPM must panic it for. Either way the SP
+UsageFaults exactly once, the SPM restarts it in place, the restarted SP
+serves the guests that follow, and both guests finish with no escalation.
+`restart` makes guest 0 read Secure RAM on every launch: the SAU refuses it,
+the monitor relaunches guest 0 through its restart budget and quarantines it,
+and guest 1 runs on. `authneg` flips one byte of guest 0's image after its
+digest was pinned, so launch verification refuses guest 0 while guest 1 boots
+and runs normally.
+
+The remaining scenarios run the portable PSA test guest
+(`tests/firmware/psa-guest/`) in both Non-secure windows. It is the STM32H563
+Zephyr guest's client lifecycle with no operating system underneath: wolfPSA
+over the SPM-mediated client for the PSA Crypto API, the OS-neutral FF-M,
+storage, and attestation clients, and the wolfCOSE verifier for the token. A
+port supplies a linker window and a console (`boards/<target>/`), nothing
+else. `bothpsa` runs the whole lifecycle from both guests in one boot: the
+mediated SHA-256 KAT, ITS and sealed PS set/get, volatile P-256 key-ops with
+a cross-key refusal, RNG, AES-CTR, and an attestation token verified against
+the IAK public key and wolfBoot's measurement of the signed Secure image.
+`bothiso` proves the SPM rejects a forged handle, an oversized vector, a
+vector inside the peer guest's window, and an unknown SID from both guests.
+`attestneg` adds the attestation negatives (invalid requests refused with
+the statuses Arm's tests expect; tampered and misattributed tokens fail the
+guest verify). `fwustage` stages a candidate into the wolfBoot update
+partition through SERVICE_FWU, arms it, and proves reject/clean restore
+READY. `hsmattackneg` (hsm engine only, it drives the raw wolfHSM client
+wire) proves a forged client id cannot reach the IAK and an NVM-group packet
+never reaches the server.
+
+The conformance scenarios are the same drop-in proof the STM32H563 gives:
+`confboot` hosts Arm's unmodified psa-arch-tests FF-M IPC suite in the PSA
+guest against the conformance Secure image (`WT_CONFORMANCE=1`, the manifest
+that adds Arm's server, driver, and client partitions) and expects the same
+85 passed, 4 heap tests skipped, 0 failed; `devstorage`, `devcrypto`,
+`devattest`, and `devattestqcbor` run the dev_apis storage, crypto, and
+initial-attestation suites; `vaultrecover` proves a foreign vault pool
+self-heals on a development device (the crypto suite passes after the
+reformat), and `vaultrecoversec` forces the SECURED lifecycle and proves the
+refusal is graceful on the emulator: no fault, and the guest still starts
+(the vault-not-wiped and attestation-degraded counters are hardware-runner
+evidence, read over the debug port as on the STM32H563). The port supplies `port/mimxrt700/manifest-conformance.json`
+and `port/mimxrt700/conformance/` (the PAL bindings: console, watchdog,
+the flash-backed NVMEM boot flag, and the isolation MMIO windows); the val
+framework, its PAL, and the test lists are the upstream sources the Secure
+build fetches and generates.
+
+The runner builds its own pinned emulator and wolfBoot first stage. The
+emulator is `M33MU_REF` plus `tests/target/m33mu-imxrt700.patch`, the model
+correction the chain needs until it lands upstream: a Secure AHBSC SRAM rule
+refuses Non-secure transactions but no longer overrides the SAU's NSC
+attribution, so the SG veneers in the Secure-ruled code-RAM band stay callable
+as the SRM's transaction check allows. The rules otherwise apply to CPU0 as
+documented, which is stricter than the EVK measured.
+wolfBoot is `WOLFBOOT_REF` built from `config/examples/imx-rt700-tz.config`
+plus `tests/target/wolfboot-imxrt700-lifecycle.patch` (the RT700 HAL's PSA
+lifecycle hook, which the attestation service needs; it goes once wolfBoot
+carries it), linked at the NOR base, the same offset the wolfBoot emulator
+tests use, so
+building it needs the MCUXpresso SDK or DFP like any RT700 wolfBoot build;
+set `RT700_WOLFBOOT_DIR` to reuse an existing one (the runner stops if that
+tree has no `wolfboot.bin`, rather than replace it). `WT_ENGINE` selects the
+crypto engine as for any build. A console boot ends on the emulator's
+wall-clock budget because the guests idle once done, which M33MU reports as
+exit status 127; a Secure-verdict boot stops on its breakpoint with status 0,
+as does a traced boot at its first delivered fault; any other status fails
+the run.
+
+These are emulator results. They prove the SAU attribution and the monitor's
+containment on a faithful core model; the silicon `ahbscneg` run on the EVK is
+recorded separately.
 
 ## STM32H563 hardware
 
@@ -247,8 +356,9 @@ The workflows under `.github/workflows/` separately run:
 - dependency integration;
 - the core/port split guard and the docs guard (no internal-ledger or
   home-directory references in the published docs);
-- fuzz targets; and
-- selected and nightly M33MU scenarios.
+- fuzz targets;
+- selected and nightly M33MU scenarios; and
+- the MIMXRT700 chain under M33MU's RT700 model (the `RT700` scenario matrix).
 
 ### Trigger routing
 
@@ -257,18 +367,26 @@ core/port split checks run on every pull request, including drafts. The fuzz
 target also runs on pull requests as a 60-second libFuzzer smoke pass; the
 nightly schedule and manual dispatch run the 600-second soak instead.
 
-The full M33MU matrix (the `M33MU` workflow: wolfBoot plus both guest
-lifecycles, both crypto engines, and every scenario) runs on every pull
-request, on a push to `master`, `main`, or `wolfTrust-dev`, on the nightly
-schedule, and on manual dispatch. Every PR gets the full emulator matrix
-automatically — no label or opt-in step.
+The `M33MU` workflow (wolfBoot plus both guest lifecycles, then a `select` job
+that picks each port's tier and one matrix job that runs exactly those scenario
+groups) is tiered. Every pull request runs
+each port's smoke tier on both crypto engines (STM32H563: `positive`,
+`gtzcneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`; MIMXRT700:
+`positive`, `ahbscneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`).
+The full matrix runs on a
+push to `master`, `main`, or `wolfTrust-dev`, on the nightly schedule, on
+manual dispatch (with a `port` input), and on a pull request that carries the
+`ci:h5`, `ci:rt700`, or `ci:all` label. The scenario groups per port and tier
+are in `tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>`
+runs the same smoke tier locally and `WT_TIER=full` every scenario.
 
 ### Running M33MU off a pull request
 
-To run the matrix against a branch without a PR, dispatch the workflow:
+To run a port's full matrix against a branch without a PR, dispatch the
+workflow:
 
 ```sh
-gh workflow run m33mu.yml --ref <branch>
+gh workflow run m33mu.yml --ref <branch> -f port=mimxrt700
 ```
 
 To run a single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>`

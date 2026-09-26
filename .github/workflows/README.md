@@ -7,8 +7,9 @@ full M33MU emulator matrix, which runs on every pull request (and nightly).
 
 | Tier | Trigger | Purpose |
 |------|---------|---------|
-| **Fast (per-PR)** | every PR; push to master/main/dev/churn | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
+| **Fast (per-PR)** | every PR; push to master/main/dev/churn | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile (Cortex-M33), compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
 | **M33MU matrix** | every PR; push to master/main/wolfTrust-dev; `cron: 0 8 * * *`; `workflow_dispatch` | full M33MU emulator matrix (see below) |
+| **AArch64 QEMU** | every PR; push to master/main/wolfTrust-dev/wolfTrust-dev2; `workflow_dispatch` | EL3 monitor and SPMC build with the EL3 symbol guard, every QEMU AArch64 scenario, and the Arm FF-A ACS groups, on three QEMU cells under both crypto engines (see below) |
 
 The M33MU workflow (`m33mu.yml`) runs the full matrix on every pull request,
 on push to `master`/`main`/`wolfTrust-dev`, on the nightly schedule (via
@@ -42,6 +43,20 @@ the whole matrix off-PR against a branch, `workflow_dispatch` on `m33mu.yml`.
 
 The local box gate `run_m33mu.sh` (a Zephyr+FreeRTOS lifecycle) and the
 `make test-target` loop remain the pre-push mirror of the M33MU jobs.
+
+## AArch64 QEMU
+
+`aarch64-cross-compile.yml` (workflow name **AArch64 cross compilation**) runs
+in `ghcr.io/wolfssl/wolfboot-ci-aarch64` on three cells, `virt-gicv2-a35`,
+`virt-gicv3-a72`, and `versal-virt`, each under `native` and `hsm`:
+
+| Check name | What it proves |
+|------------|----------------|
+| `EL3 smoke on <cell> (<engine>)` | the EL3 image links under the symbol guard, then every QEMU AArch64 scenario runs through `tests/target/run_suite.sh qemu-a` |
+| `FF-A ACS on <cell> (<engine>)` | the Arm FF-A ACS groups (discovery, direct and indirect messaging, memory, notifications, interrupts) at their asserted floors |
+
+To run a scenario locally, use `tests/target/run_qemu_a_scenario.sh <key>`
+with `MACHINE`, `GIC`, `CPU`, and `WT_ENGINE` set as in the workflow.
 
 ## Host unit suites (per-suite checks)
 

@@ -21,7 +21,7 @@ include mk/common.mk
 
 .DEFAULT_GOAL := all
 
-.PHONY: all secure-image size-report test c99-check test-conformance test-target test-hardware fetch-psa-ff-tests \
+.PHONY: all secure-image size-report test c99-check test-conformance test-target test-target-a test-hardware fetch-psa-ff-tests \
 		clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
@@ -71,6 +71,18 @@ test-target:
 		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \
 	else \
 		tests/target/run_suite.sh m33mu positive restart crossdomain confboot; \
+	fi
+
+# AArch64 twin of test-target on QEMU (virt GICv2/GICv3, xlnx-versal-virt);
+# auto-detect qemu-system-aarch64 + aarch64-none-elf (or WT_TARGET_SCENARIOS=1),
+# skip explicitly otherwise. MACHINE/GIC/CPU/SMP pass through to the runner.
+WT_QEMU_A_SCENARIOS ?= smoke boot boot-smp2 positive-secure crossdomain spfaultneg
+test-target-a:
+	@if ! tests/target/detect_qemu_a.sh >/dev/null 2>&1; then \
+		echo "SKIP: AArch64 QEMU scenarios ($$(tests/target/detect_qemu_a.sh 2>&1))"; \
+	else \
+		MACHINE="$(MACHINE)" GIC="$(GIC)" CPU="$(CPU)" SMP="$(SMP)" \
+			tests/target/run_suite.sh qemu-a $(WT_QEMU_A_SCENARIOS); \
 	fi
 
 # Real STM32H563 hardware equivalence suite: positive lifecycle + restart
@@ -137,6 +149,8 @@ clean:
 	rm -rf $(BUILD_DIR)
 	$(MAKE) -C tests/firmware/stm32h563 clean
 	$(MAKE) -C tests/firmware/stm32h563-vnet clean
+	$(MAKE) -C tests/firmware/aarch64-smoke clean
+	$(MAKE) -C tests/firmware/aarch64-ns-smoke clean
 	$(MAKE) -C tests/host/domain clean
 	$(MAKE) -C tests/host/manifest clean
 	$(MAKE) -C tests/host/lifecycle clean

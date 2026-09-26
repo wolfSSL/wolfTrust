@@ -2,7 +2,7 @@ name: Cross compilation
 
 on:
   push:
-    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev]
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev, wolfTrust-dev2]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   cortex-m33:
     name: Cortex-M33 cross compilation
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15

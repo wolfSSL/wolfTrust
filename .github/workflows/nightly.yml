@@ -37,6 +37,9 @@ jobs:
   cross-compile:
     uses: ./.github/workflows/cross-compile.yml
 
+  aarch64-cross-compile:
+    uses: ./.github/workflows/aarch64-cross-compile.yml
+
   core-port-split:
     uses: ./.github/workflows/core-port-split.yml
 

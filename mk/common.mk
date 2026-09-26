@@ -84,6 +84,7 @@ WT_VNET_NEG_PROBE ?= 0
 WT_MANIFEST_NEG_PROBE ?= 0
 WT_REMEASURE_PROBE ?= 0
 WT_BOOTUPDATE_PROBE ?= 0
+WT_TABLES_NEGATIVE ?= 0
 WT_CONFORMANCE ?= 0
 
 # Virtual-Ethernet (VNET) subsystem. Off until Wave 2 lands a working
@@ -183,6 +184,28 @@ endif
 ifeq ($(WT_BOOTUPDATE_PROBE),1)
 SECURE_CFLAGS += -DWT_BOOTUPDATE_PROBE=1
 endif
+ifeq ($(WT_TABLES_NEGATIVE),1)
+SECURE_CFLAGS += -DWT_TABLES_NEGATIVE=1
+endif
+WT_EL3_TEST_DRIVER ?= 0
+ifeq ($(WT_EL3_TEST_DRIVER),1)
+SECURE_CFLAGS += -DWT_EL3_TEST_DRIVER=1
+endif
+WT_EL3_NS_SMOKE ?= 0
+ifeq ($(WT_EL3_NS_SMOKE),1)
+SECURE_CFLAGS += -DWT_EL3_NS_SMOKE=1
+endif
+# Build the FF-A echo partition for a Normal-world guest to exchange a direct
+# message with (the ffa-guest-direct proof), without the EL3 test driver.
+WT_NS_GUEST_ECHO ?= 0
+ifeq ($(WT_NS_GUEST_ECHO),1)
+SECURE_CFLAGS += -DWT_NS_GUEST_ECHO=1
+endif
+# Arm a Secure tick that preempts the Normal world (the ffa-preempt proof).
+WT_NS_PREEMPT ?= 0
+ifeq ($(WT_NS_PREEMPT),1)
+SECURE_CFLAGS += -DWT_NS_PREEMPT=1
+endif
 # Hardware guest-flash write protection: refuse to launch a guest whose image
 # sectors are not WRP-protected, so a peer Non-secure guest cannot reprogram a
 # suspended guest's flash. Silicon only (the M33MU model has no flash WRP).
@@ -259,6 +282,7 @@ ifeq ($(WT_ENGINE),native)
 WOLFHSM_SECURE_SRCS := $(filter %/wh_nvm.c %/wh_nvm_flash.c %/wh_flash_unit.c \
     %/wh_lock.c %/wh_utils.c %/wh_keyid.c,$(WOLFHSM_SECURE_SRCS))
 endif
+WOLFHSM_SECURE_SRCS += $(ARCH_WOLFHSM_SRCS)
 
 WOLFCRYPT_SECURE_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/aes.c \
@@ -351,13 +375,14 @@ MANIFEST_OBJ := $(BUILD_DIR)/wt_sec_wolftrust_manifest_generated.o
 ARCH_TREE_SRCS ?=
 ARCH_ASM_SRCS ?=
 ARCH_TREE_OBJS := $(foreach s,$(ARCH_TREE_SRCS) $(ARCH_ASM_SRCS),$(BUILD_DIR)/wt_sec_$(notdir $(basename $(s))).o)
+ARCH_SECURE_OBJS ?= $(ARCH_TREE_OBJS)
 
 ALL_SECURE_OBJS := $(strip \
     $(HSM_SECURE_BASE_OBJS) \
     $(HSM_WOLFHSM_SEC_OBJS) \
     $(HSM_WOLFCRYPT_SEC_OBJS) \
     $(HSM_WT_EXTRA_OBJS) \
-    $(ARCH_TREE_OBJS) \
+    $(ARCH_SECURE_OBJS) \
     $(MANIFEST_OBJ))
 
 # LTO cannot safely rewrite objects whose symbols are consumed by inline
@@ -794,7 +819,10 @@ CONF_UPSTREAM_SRCS := \
 
 $(CONF_UPSTREAM_SRCS): $(UPSTREAM_STAMP) ;
 
-$(UPSTREAM_STAMP): | $(BUILD_DIR)
+# lp64-addr: i072/i084 write sizeof(pointer) bytes into a 4-byte addr_t
+# out-vector, a PROGRAMMER ERROR on LP64 targets; identical bytes on 32-bit.
+$(UPSTREAM_STAMP): $(ROOT)/tests/upstream/psa-arch-tests-ec-overflow.patch \
+		$(ROOT)/tests/upstream/psa-arch-tests-lp64-addr.patch | $(BUILD_DIR)
 	$(ROOT)/tests/upstream/fetch_psa_arch_tests.sh \
 		$(BUILD_DIR)/upstream/psa-arch-tests
 	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply --reverse --check \
@@ -802,6 +830,11 @@ $(UPSTREAM_STAMP): | $(BUILD_DIR)
 		2>/dev/null || \
 	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply \
 		$(abspath $(ROOT)/tests/upstream/psa-arch-tests-ec-overflow.patch)
+	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply --reverse --check \
+		$(abspath $(ROOT)/tests/upstream/psa-arch-tests-lp64-addr.patch) \
+		2>/dev/null || \
+	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply \
+		$(abspath $(ROOT)/tests/upstream/psa-arch-tests-lp64-addr.patch)
 	touch $@
 
 # Derived schedule, not a suite edit: skipped tests need a runtime capability
@@ -1344,7 +1377,8 @@ $(MANIFEST_DIR):
 
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.
-MANIFEST_MODE := MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --supported-framework-version 0x100 --address-bits 32
+MANIFEST_ARCH_OPTS ?= --address-bits 32
+MANIFEST_MODE := MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --supported-framework-version 0x100 $(MANIFEST_ARCH_OPTS)
 
 $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		FORCE | $(MANIFEST_DIR)
@@ -1355,7 +1389,7 @@ $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 	else \
 		python3 $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 			$(MANIFEST_DIR) --supported-features 0x1 \
-			--supported-framework-version 0x100 --address-bits 32 \
+			--supported-framework-version 0x100 $(MANIFEST_ARCH_OPTS) \
 			&& printf '%s\n' '$(MANIFEST_MODE)' > "$@"; \
 	fi
 
@@ -1399,6 +1433,19 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_MANIFEST_NEG_PROBE=$(WT_MANIFEST_NEG_PROBE)' \
 		'WT_REMEASURE_PROBE=$(WT_REMEASURE_PROBE)' \
 		'WT_BOOTUPDATE_PROBE=$(WT_BOOTUPDATE_PROBE)' \
+		'WT_ENGINE=$(WT_ENGINE)' \
+		'WT_TABLES_NEGATIVE=$(WT_TABLES_NEGATIVE)' \
+		'WT_EL3_TEST_DRIVER=$(WT_EL3_TEST_DRIVER)' \
+		'WT_EL3_NS_SMOKE=$(WT_EL3_NS_SMOKE)' \
+		'WT_NS_GUEST_ECHO=$(WT_NS_GUEST_ECHO)' \
+		'WT_NS_PREEMPT=$(WT_NS_PREEMPT)' \
+		'WT_GUEST_FLASH_WRP=$(WT_GUEST_FLASH_WRP)' \
+		'WT_VAULT_FOREIGN_PROBE=$(WT_VAULT_FOREIGN_PROBE)' \
+		'WT_VAULT_PROBE_SECURED=$(WT_VAULT_PROBE_SECURED)' \
+		'CPU_FLAGS=$(CPU_FLAGS)' \
+		'ARCH_CFLAGS=$(ARCH_CFLAGS)' \
+		'TARGET_CFLAGS=$(TARGET_CFLAGS)' \
+		'TARGET_LDFLAGS=$(TARGET_LDFLAGS)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \
@@ -1441,6 +1488,9 @@ $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sync/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAM
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/port/common/$(ARCH)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
@@ -1490,6 +1540,9 @@ $(BUILD_DIR)/sec_$(notdir $(TARGET_PLATFORM_SRC:.c=.o)): $(TARGET_PLATFORM_SRC) 
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/sec_%.o: $(ROOT)/port/common/$(ARCH)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)

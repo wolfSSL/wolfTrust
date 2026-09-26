@@ -27,6 +27,25 @@ ASM='__asm|asm[[:space:]]+volatile'
 RETIRED='\bwt_mpu_region(_t)?\b|\bWT_MAX_MPU_REGIONS\b|\bmpu_region(s|_count)\b|\bWT_BOOT_HANDOFF_ADDRESS\b'
 RETIRED="$RETIRED"'|\bwt_platform_(start_secure_timer|mask_all_guest_irqs|apply_irq_mask|quarantine_pending_irqs|program_ns_mpu|program_secure_partition_domain|program_sp_thread_domain|restore_spm_domain|prepare_guest_return|capture_guest_context|trap_pc|restore_guest_context|svc_guest_return|in_handler_mode|ns_thread_mode_trap|secure_psp_thread_trap|return_to_secure_thread|zero_guest_memory|read_fault_address|restore_ns_bank|secure_irq_(en|dis)able|active_guest_id|configure_ns_irq|set_ns_irq_pending|dmb|dsb|guest_context_ready)\b|\bwt_spm_thread_unprivileged\b|\bwt_ffm_nsc_install\b|__ARM_FEATURE_CMSE'
 PORT_ARCH_DEF='^[A-Za-z_][A-Za-z0-9_ *]*[[:space:]*]wt_arch_[a-z0-9_]+[[:space:]]*\('
+FFA_FID='\b0[xX][8Cc]40000[6-9A-Fa-f][0-9A-Fa-f]([uU]([lL]{1,2})?|[lL]{1,2}[uU]?)?\b'
+
+# valid_ere <pattern> : true unless grep -E rejects <pattern> as malformed
+# (a grep exit status of 2 or more; 0/1 are match/no-match, both fine). A
+# scan whose regex can't compile must not silently report zero hits.
+valid_ere() {
+  local rc
+  grep -E -q -- "$1" /dev/null 2>/dev/null
+  rc=$?
+  [ "$rc" -le 1 ]
+}
+
+for _re_name in M_VOCAB A_VOCAB PORT_HEADERS ARCH_HEADERS CMSE ASM RETIRED PORT_ARCH_DEF FFA_FID; do
+  if ! valid_ere "${!_re_name}"; then
+    echo "FAIL: invalid built-in pattern $_re_name: ${!_re_name}" >&2
+    exit 2
+  fi
+done
+unset _re_name
 
 # Replace every block comment with newlines so line numbers survive.
 strip_comments() { # file
@@ -61,14 +80,32 @@ scan_code() { # kind  label  regex  files...   (comments stripped)
 }
 
 selftest() {
-  local dir fails=0
-  dir="$(mktemp -d)"
+  local dir fails=0 lines badcopy
+  if valid_ere '['; then
+    echo "SELFTEST FAIL: malformed pattern accepted as valid"; fails=$((fails + 1)); fi
+  if ! valid_ere '^wt_[a-z_]+$'; then
+    echo "SELFTEST FAIL: well-formed pattern rejected"; fails=$((fails + 1)); fi
+  # A malformed built-in pattern must stop the script before any scan runs,
+  # not silently scan zero files.
+  badcopy="$(mktemp -d)" || { echo "SELFTEST FAIL: mktemp failed"; exit 1; }
+  badcopy="$badcopy/check-core-port-split.sh"
+  sed "s/^M_VOCAB=.*/M_VOCAB='['/" "$0" > "$badcopy"
+  chmod +x "$badcopy"
+  if "$badcopy" --selftest > /dev/null 2>&1; then
+    echo "SELFTEST FAIL: a malformed built-in pattern did not stop the script"
+    fails=$((fails + 1))
+  fi
+  rm -rf "$(dirname "$badcopy")"
+  dir="$(mktemp -d)" || { echo "SELFTEST FAIL: mktemp failed"; exit 1; }
   printf 'int f(void) { return MPU->CTRL; } /* PendSV */\n' > "$dir/m.c"
   printf 'int g(void) { return SCTLR_EL1; }\n' > "$dir/a.c"
   printf '#include "memory_map.h"\nint h;\n' > "$dir/p.c"
   printf '/* SysTick and PendSV are explained here only */\nint ok;\n' > "$dir/ok.c"
   printf 'void wt_arch_init(void)\n{\n}\n' > "$dir/portdef.c"
   printf 'static void x(void)\n{\n    wt_arch_init();\n}\n' > "$dir/portcall.c"
+  printf 'unsigned fid = 0x84000063u; /* 0xC4000066 */\n' > "$dir/fid.c"
+  printf 'unsigned a = 0X84000063U;\nunsigned long b = 0x84000063UL;\nunsigned long long c = 0xc4000066ull;\nunsigned long d = 0xC400006ALu;\nunsigned e = 0x8400006f;\n' > "$dir/fidspell.c"
+  printf 'unsigned id = 0x8000u; unsigned oem = 0xC3000004u;\n' > "$dir/nofid.c"
   check() { # expect(hit|clean) regex file
     local got
     got="$(strip_comments "$3" | grep -cE "$2" || true)"
@@ -82,6 +119,10 @@ selftest() {
   check clean "$A_VOCAB" "$dir/ok.c"
   check hit "$PORT_ARCH_DEF" "$dir/portdef.c"
   check clean "$PORT_ARCH_DEF" "$dir/portcall.c"
+  check hit "$FFA_FID" "$dir/fid.c"
+  lines="$(grep -cE "$FFA_FID" "$dir/fidspell.c" || true)"
+  [ "$lines" -eq 5 ] || { echo "SELFTEST FAIL: $lines of 5 FF-A id spellings matched"; fails=$((fails + 1)); }
+  check clean "$FFA_FID" "$dir/nofid.c"
   rm -rf "$dir"
   if [ "$fails" -ne 0 ]; then echo "SELFTEST: $fails failure(s)"; exit 1; fi
   echo "SELFTEST: ok"
@@ -98,6 +139,11 @@ core="$({ git ls-files 'src/*' 'include/wolftrust/*' 2>/dev/null \
 common="$({ git ls-files 'src/arch/common/*' 2>/dev/null \
   || find src/arch/common -type f 2>/dev/null; } | grep -E '\.(c|h)$' || true)"
 ports="$({ git ls-files 'port/*' 2>/dev/null || find port -type f; } | grep -E '\.c$')"
+# FF-A function ids live in one table; everything else names them.
+ffa_scope="$({ git ls-files 'src/*' 'include/*' 'port/*' 'tests/*' 2>/dev/null \
+  || find src include port tests -type f; } \
+  | grep -E '\.(c|h|S)$' \
+  | grep -vE '(^|/)include/wolftrust/arch/aarch64/ffa_abi\.h$')"
 
 echo "wolfTrust core/port split guard (CORE = src + include/wolftrust, minus arch)"
 
@@ -109,6 +155,7 @@ scan hard 'retired pre-split contract names in core' "$RETIRED" $core $common
 scan_code hard 'M-profile register or instruction vocabulary in core code' "$M_VOCAB" $core $common
 scan_code hard 'A-profile register or instruction vocabulary in core code' "$A_VOCAB" $core $common
 scan_code hard 'port defines an architecture operation (belongs in src/arch/)' "$PORT_ARCH_DEF" $ports
+scan_code hard 'FF-A function-id literal outside include/wolftrust/arch/aarch64/ffa_abi.h' "$FFA_FID" $ffa_scope
 scan soft 'M-profile vocabulary in core comments' "$M_VOCAB" $core
 scan soft 'raw peripheral or system-control addresses in core' '\b0x(E00[0-9A-Fa-f]{5}|[45]0[0-9A-Fa-f]{6}|F[0-9A-Fa-f]{7})[uU]?\b' $core
 

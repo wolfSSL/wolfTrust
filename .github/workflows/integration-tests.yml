@@ -2,7 +2,7 @@ name: Dependency integrations
 
 on:
   push:
-    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev]
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev, wolfTrust-dev2]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -22,7 +22,7 @@ jobs:
   wolfcose:
     name: wolfCOSE integration (${{ matrix.name }})
     needs: resolve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container:
       image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd
     timeout-minutes: 30
@@ -69,7 +69,7 @@ jobs:
   wolfpsa:
     name: wolfPSA integration (${{ matrix.name }})
     needs: resolve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container:
       image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd
     timeout-minutes: 30

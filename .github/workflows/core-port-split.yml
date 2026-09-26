@@ -2,7 +2,7 @@ name: Core/port split guard
 
 on:
   push:
-    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev]
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev, wolfTrust-dev2]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   core-port-split:
     name: core/port split guard + vnet image
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
@@ -25,11 +25,13 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
 
-      - name: Self-test the split and port-only-diff guards
+      - name: Self-test the guards and the scenario assertion library
         run: |
           tools/check-core-port-split.sh --selftest
           tools/check-port-only-diff.sh --selftest
           tools/check-docs-no-internal-links.sh --selftest
+          tools/check-el3-symbols.sh --selftest
+          tests/target/lib/expect.sh --selftest
 
       - name: Enforce the core/port split (strict)
         run: WT_SPLIT_STRICT=1 tools/check-core-port-split.sh

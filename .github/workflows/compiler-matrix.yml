@@ -2,7 +2,7 @@ name: Compiler matrix
 
 on:
   push:
-    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev]
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev, wolfTrust-dev2]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -13,7 +13,7 @@ permissions:
 jobs:
   host-unit-tests:
     name: Host tests (${{ matrix.name }})
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 30
     container:
       image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd

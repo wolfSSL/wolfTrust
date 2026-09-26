@@ -1,0 +1,117 @@
+name: AArch64 cross compilation
+
+on:
+  push:
+    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev, wolfTrust-dev2]
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+permissions:
+  contents: read
+
+jobs:
+  qemu-a-smoke:
+    name: EL3 smoke on ${{ matrix.cell.name }} (${{ matrix.engine }})
+    runs-on: ubuntu-22.04
+    # The serial list takes 15-18 min per cell on the reference box; the
+    # per-scenario QEMU budgets are hang detectors, not expected runtimes.
+    timeout-minutes: 75
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-aarch64:v1.15
+    strategy:
+      fail-fast: false
+      matrix:
+        cell:
+          - { name: virt-gicv2-a35, machine: virt, target: qemuvirt, gic: 2, cpu: cortex-a35, smp: 2 }
+          - { name: virt-gicv3-a72, machine: virt, target: qemuvirt, gic: 3, cpu: cortex-a72, smp: 2 }
+          - { name: versal-virt, machine: versal-virt, target: versal, gic: 3, cpu: cortex-a72, smp: 4 }
+        engine: [native, hsm]
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
+      MACHINE: ${{ matrix.cell.machine }}
+      GIC: ${{ matrix.cell.gic }}
+      CPU: ${{ matrix.cell.cpu }}
+      SMP: ${{ matrix.cell.smp }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Initialize wolfTrust dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE lib/wolfPSA
+
+      - name: Toolchain and emulator versions
+        run: |
+          aarch64-none-elf-gcc --version | head -1
+          qemu-system-aarch64 --version | head -1
+
+      - name: Self-test the EL3 symbol guard and the expect library
+        run: |
+          tools/check-el3-symbols.sh --selftest
+          tests/target/lib/expect.sh --selftest
+
+      - name: Cross-build the EL3 monitor image (the symbol guard runs at link)
+        run: make ARCH=aarch64 TARGET=${{ matrix.cell.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" BUILD_DIR=build-aarch64-guard el3-image
+
+      - name: Boot the EL3 smoke and the wolfTrust EL3 monitor
+        run: tests/target/run_suite.sh qemu-a smoke boot boot-smp2 positive-secure crossdomain spfaultneg tablesneg manifestneg keystoreneg spbudgetneg panicneg ffa-direct ffa-sint ns-smoke ffa-discovery ffa-guest-direct psci psci-el2 parkneg rdistneg tickneg el2dirtyneg ffa-preempt positive guest1 smcfuzz secramneg resetneg ffa-memneg hsmattackneg attestneg vaultrecover vaultrecoversec confboot storage devstorage devattest devcrypto
+
+      - name: Show the boot logs
+        if: always()
+        run: |
+          for f in logs/target-*.log; do
+            echo "== $f"
+            cat "$f" || true
+          done
+
+  qemu-a-ffa-acs:
+    name: FF-A ACS on ${{ matrix.cell.name }} (${{ matrix.engine }})
+    runs-on: ubuntu-22.04
+    # The six groups take about 4 min per cell on the reference box.
+    timeout-minutes: 60
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-aarch64:v1.15
+    strategy:
+      fail-fast: false
+      matrix:
+        cell:
+          - { name: virt-gicv2-a35, machine: virt, target: qemuvirt, gic: 2, cpu: cortex-a35, smp: 2 }
+          - { name: virt-gicv3-a72, machine: virt, target: qemuvirt, gic: 3, cpu: cortex-a72, smp: 2 }
+          - { name: versal-virt, machine: versal-virt, target: versal, gic: 3, cpu: cortex-a72, smp: 4 }
+        engine: [native, hsm]
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
+      MACHINE: ${{ matrix.cell.machine }}
+      GIC: ${{ matrix.cell.gic }}
+      CPU: ${{ matrix.cell.cpu }}
+      SMP: ${{ matrix.cell.smp }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Initialize wolfTrust dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE lib/wolfPSA
+
+      - name: Fetch the pinned Arm FF-A ACS once for the three groups
+        run: |
+          tests/upstream/fetch_ffa_acs.sh "$GITHUB_WORKSPACE/.acs-cache"
+          echo "WT_FFA_ACS_CACHE=$GITHUB_WORKSPACE/.acs-cache" >> "$GITHUB_ENV"
+
+      - name: Run the Arm FF-A ACS against the SPMC
+        run: tests/target/run_suite.sh qemu-a ffaacs-discovery ffaacs-direct ffaacs-memory ffaacs-notify ffaacs-indirect ffaacs-interrupts
+
+      - name: Show the ACS logs
+        if: always()
+        run: |
+          for f in logs/target-*.log; do
+            echo "== $f"
+            cat "$f" || true
+          done

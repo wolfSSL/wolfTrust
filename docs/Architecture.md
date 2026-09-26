@@ -7,12 +7,13 @@ Secure service dispatch. Architecture and target ports provide the execution,
 memory-protection, interrupt, storage, entropy, and boot mechanisms needed to
 enforce that policy.
 
-The only currently supported and validated reference implementation combines
-the Armv8-M adapter with the STM32H563 port. Its configuration runs two
-Non-secure guests on one Cortex-M33 and exposes Secure services only through
-FF-M IPC. These are current reference-port choices. The common policy and
-service design is intended for reuse, but current internal contracts still
-contain Armv8-M-specific types and assumptions.
+Two architecture ports run the same policy and service code. The Armv8-M
+adapter with the STM32H563 port is the reference implementation validated on
+hardware; it runs two Non-secure guests on one Cortex-M33 and exposes Secure
+services only through FF-M IPC. The AArch64 adapter replaces Trusted
+Firmware-A on Cortex-A and is validated under QEMU; see
+[AArch64 architecture](#aarch64-architecture). The boot flow, isolation, and
+scheduling sections below describe the Armv8-M reference port.
 
 ## Software stack
 
@@ -28,20 +29,22 @@ contain Armv8-M-specific types and assumptions.
 
 ## Portability boundary
 
-Most policy and service code lives under `src/` outside `src/arch/`, but the
-current internal contracts still expose Armv8-M exception-frame and
-MPU-oriented types. `src/arch/armv8m/` supplies the CMSE gateway and pointer
-checks, Secure Partition coroutine switching, and the Secure SVC transport.
-The companion `port/stm32h563/` supplies device startup and guest exception
-paths, context handling, GTZC attribution, guest and Secure MPU programming,
-interrupt routing, flash, entropy, timers, and boot handoff.
+Policy and service code lives under `src/` outside `src/arch/` and names no
+architecture or SoC. It reaches the hardware through two contracts:
+`wolftrust/arch.h` (`wt_arch_*`: execution, opaque trap frames, protection
+domains, interrupts) and `wolftrust/platform.h` (`wt_platform_*`: device,
+console, flash, entropy, and boot handoff). `src/arch/common/` holds the
+Secure Partition gate, scheduler, and FF-M gateway bodies every architecture
+links.
 
-Additional Cortex-M ports may reuse the existing interfaces when their
-execution and protection models match. Cortex-A support is an architectural
-goal, not a current capability. It will require a new adapter and changes to
-current internal execution and protection contracts; the design goal is to
-preserve the public manifest, service, IPC, and PSA API contracts. See
-[Porting](Porting.md) for the current boundary.
+`src/arch/armv8m/` supplies the CMSE gateway and pointer checks, Secure
+Partition coroutine switching, and the Secure SVC transport; the companion
+`port/stm32h563/` supplies device startup and guest exception paths, GTZC
+attribution, guest and Secure MPU programming, interrupt routing, flash,
+entropy, timers, and boot handoff. `src/arch/aarch64/` supplies the EL3
+monitor, the FF-A layer, the Secure EL1 SPMC, and the GIC drivers; the QEMU
+ports are `port/qemuvirt/`, `port/versal/`, and the shared
+`port/common/aarch64/`. See [Porting](Porting.md) for the boundary.
 
 ## Boot flow
 
@@ -160,3 +163,39 @@ lifecycle value fails closed.
 
 See [Security Model](Security-Model.md), [Services](Services.md), and [Threat Model](Threat-Model.md) for the security
 properties built on this design.
+
+## AArch64 architecture
+
+The AArch64 port replaces Trusted Firmware-A with the FF-A configuration of
+an SPMD at EL3, an SPMC at Secure EL1, and Secure Partitions at Secure EL0,
+with no Normal-world Hypervisor. [FF-A Compatibility](FF-A-Compatibility.md)
+lists the implemented interfaces and the intentional differences.
+
+| Level | Component | Role |
+| --- | --- | --- |
+| EL3 | Monitor and SPMD (`src/arch/aarch64/el3/`, `ffa/ffa_spmd.c`) | Initializes the GIC and the secure timer, switches worlds, answers PSCI, and relays FF-A calls between the Normal world and the SPMC. Its archive holds no SPM, service, or crypto code. |
+| Secure EL1 | SPMC (`src/arch/aarch64/spm/`) | Runs the common runtime (manifest, services, scheduler, FF-M gateway), builds each partition's stage-1 translation table, and implements FF-A messaging, memory sharing, notifications, and interrupt handling. |
+| Secure EL0 | Secure Partitions | Each runs under its own stage-1 table and ASID, enters by exception return, and calls the SPMC by SVC. |
+| NS-EL1 | Normal world | Calls FF-A by SMC; PSA client calls ride FF-A direct requests to the SPMC's framework endpoint. |
+
+On the QEMU targets, the monitor starts from the reset vector, builds the FF-A
+boot-information blob, places the SPMC image in its band, and enters Secure
+EL1. The SPMC turns on its MMU, validates the manifest, starts the services,
+runs each Secure Partition's initialization at Secure EL0 until it calls
+`FFA_MSG_WAIT`, and then completes its own initialization with
+`FFA_MSG_WAIT`, after which the monitor launches the Normal world.
+
+A Normal-world PSA call is an FF-A direct request that the SPMD relays to the
+SPMC. The SPMC's FF-M gateway validates the handle, copies the caller's
+vectors through the Normal-world window, and dispatches the request to the
+owning partition; the reply returns as a direct response. Partition stage-1
+tables are 4 KB-granule, refuse writable and executable mappings, and map
+data execute-never. A partition that touches memory outside its domain takes
+a data abort at Secure EL0 and is restarted or quarantined by its manifest
+policy.
+
+The secure timer and Secure interrupts are Group 0 and reach the SPMC as FIQs
+while Secure code runs. The SPMC signals a Secure interrupt to a waiting
+owner and queues it for a running one. A Non-secure interrupt either preempts
+the Secure world back to the Normal world or stays pending, per the running
+partition's manifest action.

@@ -1,17 +1,15 @@
 # Porting
 
 wolfTrust separates reusable policy and services from architecture, device,
-and board-specific execution. The only currently supported and validated build
-tuple is `armv8m-stm32h563`. Support for additional Cortex-M ports is an
-intended extension point. Such ports may reuse common policy and service code
-and an existing architecture adapter when their execution and protection
-models match.
+and board-specific execution. Two build tuples are supported:
+`armv8m-stm32h563`, validated on hardware, and `aarch64` with the `qemuvirt`
+and `versal` targets, validated under QEMU (`versal` builds the
+`xlnx-versal-virt` model today). Additional ports are an intended extension
+point. They may reuse common policy and service code and an existing
+architecture adapter when their execution and protection models match.
 
-Cortex-A support is an architectural goal, not a current capability. It will
-require a new adapter and changes to current internal execution and protection
-contracts. The design goal is to preserve the public manifest, service, IPC,
-and PSA API contracts. Every new port must report its actual capabilities and
-must not claim security properties until they are tested on that target.
+Every new port must report its actual capabilities and must not claim
+security properties until they are tested on that target.
 
 ## Port layers
 
@@ -181,6 +179,43 @@ measurement, and version data and adjust the image layout.
 8. Add safe provisioning tooling for the target's security attribution,
    application-image write protection, debug policy, and product lifecycle.
 
+## AArch64 targets
+
+An AArch64 SoC port adds:
+
+- `mk/target-<soc>.mk`: the EL3 text and RAM bands, the Secure EL1 bands
+  (SPMC image, RAM, keystore, RX/TX pages, shared page, boot-information
+  page, and stage-1 table pool), the boot CPU count, and whether the loader
+  already configured the UART and the counter frequency;
+- `port/<soc>/memory_map.h`, `el3_board.c`, and `uart.c` for the monitor;
+- `port/<soc>/manifest.json`, whose optional `ffa` section gives each Secure
+  Partition's FF-A properties (see [Building](Building.md)).
+
+The QEMU targets share their Secure EL1 platform code in
+`port/common/aarch64/`: the `wolftrust/platform.h` operations, the partition
+entry table, a RAM-backed NVM, and a test entropy source that a silicon port
+must replace. The EL3 monitor archive `libwt_el3.a` may reference only the
+port hooks listed in `tools/el3-symbols.allow` (`wt_platform_board_init`,
+`wt_platform_board_system_reset`, the console pair), may define globally only
+the monitor symbols `tools/el3-defines.allow` names, and must define no SPM,
+service, or crypto code; the link rule runs `tools/check-el3-symbols.sh` on
+every build and again whenever either list changes. `wt_platform_board_system_reset`
+performs the machine cold reset of PSCI `SYSTEM_RESET` and does not return:
+`virt` drives the restart line of its Secure PL061, and `xlnx-versal-virt`,
+whose model leaves its reset blocks unimplemented, powers the model off with
+the reset exit code for the runner to power it on again. A hook that returns
+panics the monitor. A silicon port must also
+fence the Secure bands from the Normal world in hardware (a TZASC, XMPU, or
+RISAF): QEMU `virt` models the fence with its secure memory, and
+`xlnx-versal-virt` does not model one. The port's `memory_map.h` states which
+through `WT_PORT_NS_MEMORY_FENCE`, and only a port that sets it to `1` claims
+security-state isolation. Every isolation level needs that capability, so the
+core refuses a Level 1, 2, or 3 manifest on an unfenced port: the
+`xlnx-versal-virt` manifests declare `isolation_profile` 0 (service only) and
+are test configurations, never an isolated deployment. A Versal silicon port
+sets the flag only once it programs and locks the XMPU over the Secure bands
+before the Normal world runs, and then declares Level 3.
+
 ## Validation checklist
 
 - Run `make test` for common policy and service behavior.
@@ -194,6 +229,11 @@ measurement, and version data and adjust the image layout.
   two build fragments, tests, docs, and workflows.
 - Run `tools/check-docs-no-internal-links.sh`; `docs/` is published to the
   wiki and must not reference internal ledgers or developer paths.
+- On an AArch64 port, run `tools/check-el3-symbols.sh <libwt_el3.a>`: the
+  EL3 monitor archive may leave unresolved only the hooks listed in
+  `tools/el3-symbols.allow`, may define globally only the symbols
+  `tools/el3-defines.allow` names, and must define no SPM, service, or crypto
+  code.
 - Cross-build the Secure image with warnings enabled.
 - On the current Armv8-M port, inspect `nm` output and confirm only the five
   FF-M veneers are Non-secure-callable.

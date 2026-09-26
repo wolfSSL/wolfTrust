@@ -49,7 +49,11 @@ static wt_ns_block_t* heap_next(wt_ns_block_t* b)
 
 static int heap_in_range(const wt_ns_block_t* b)
 {
-    return ((const uint8_t*)b + sizeof(*b)) <= (g_heap + sizeof(g_heap));
+    uintptr_t at = (uintptr_t)b;
+    uintptr_t lo = (uintptr_t)g_heap;
+    uintptr_t hi = lo + sizeof(g_heap);
+
+    return (at >= lo) && (at <= (hi - sizeof(*b)));
 }
 
 static void heap_init(void)

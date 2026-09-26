@@ -4,7 +4,7 @@
 ^g_wt_el3_[a-z0-9_]+$
 ^wt_el3_[a-z0-9_]+$
 ^wt_esr_[a-z0-9_]+$
-^wt_ffa_[a-z0-9_]+$
+^wt_ffa_(boot_info|direct|fwk|mailbox|mem|msg|msg2|run|rxtx|spmd)_[a-z0-9_]+$
 ^wt_gic(_[a-z0-9_]+)?$
 ^wt_pl011_[a-z0-9_]+$
 ^wt_psci_[a-z0-9_]+$

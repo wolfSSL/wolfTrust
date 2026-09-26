@@ -56,3 +56,4 @@ SECTIONS
 
 ASSERT((wt_el3_vectors & 0x7FF) == 0, "EL3 vector table must be 2 KiB aligned")
 ASSERT(__el3_ram_end <= WT_EL3_RAM_BASE + WT_EL3_RAM_SIZE, "EL3 RAM band overflow")
+ASSERT(__data_lma + SIZEOF(.data) <= WT_EL3_LOAD_LIMIT, "EL3 load image overruns its flash or OCM band")

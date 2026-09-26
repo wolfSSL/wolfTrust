@@ -365,7 +365,8 @@ int wt_ffa_mem_relinquish_parse(const uint8_t* buf, size_t len,
  * page-aligned, distinct, and non-overlapping. Returns 0 or
  * WT_FFA_INVALID_PARAMETERS. */
 #define WT_FFA_RXTX_MIN_PAGES           1u
-#define WT_FFA_RXTX_MAX_PAGES           64u
+/* w3[5:0] carries the count (Table 13.25), so 63 is the most it can name. */
+#define WT_FFA_RXTX_MAX_PAGES           63u
 int wt_ffa_rxtx_validate(uint64_t tx, uint64_t rx, uint32_t pages);
 
 /* One endpoint's RX/TX pair and who owns its RX buffer (7.2.2): the producer

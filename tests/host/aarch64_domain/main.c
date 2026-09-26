@@ -25,12 +25,13 @@
 #include "wolftrust/arch.h"
 #include "wolftrust/arch/aarch64/domain.h"
 #include "wolftrust/arch/aarch64/tables.h"
+#include "wolftrust/sched/coroutine_internal.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-#define POOL_PAGES 64u
+#define POOL_PAGES 256u
 #define POOL_PA    0x0E041000ull
 
 static int checks;
@@ -152,6 +153,40 @@ static const wt_memory_region_t g_sp_partial[] = {
     { 0x00000000u, 0x10000u, RX },
     { 0x0E601000u, 0x1000u, RW }
 };
+
+/* One private page each, distinct region sets: as many tables as the cache
+ * must hold for every partition plus the retained boot proofs and a borrower
+ * rebuild, and one more to prove the cap. */
+static wt_memory_region_t g_many[WT_DOMAIN_MAX_TABLES + 1u][1];
+
+static void capacity_rows(void)
+{
+    size_t built = wt_domain_tables_built();
+    size_t fails = g_fails;
+    size_t i;
+    int ok = 1;
+
+    check(WT_DOMAIN_MAX_TABLES >= (WT_CO_MAX + WT_DOMAIN_PROOF_TABLES + 1u),
+          "the table cache holds every partition, the five boot proof domains, "
+          "and a borrower rebuild");
+    for (i = 0u; (built + i) < WT_DOMAIN_MAX_TABLES; i++) {
+        g_many[i][0].base = 0x0E700000u + (i * 0x1000u);
+        g_many[i][0].size = 0x1000u;
+        g_many[i][0].attributes = RW;
+        wt_arch_program_sp_thread_domain(g_many[i], 1u);
+        ok = ok && (g_fails == fails) &&
+             (wt_domain_tables_built() == built + i + 1u);
+    }
+    check(ok && wt_domain_tables_built() == WT_DOMAIN_MAX_TABLES,
+          "distinct region sets build up to the cache size without a failure");
+    g_many[i][0].base = 0x0E700000u + (i * 0x1000u);
+    g_many[i][0].size = 0x1000u;
+    g_many[i][0].attributes = RW;
+    wt_arch_program_sp_thread_domain(g_many[i], 1u);
+    check(g_fails == fails + 1u && g_last_fail == WT_DOMAIN_FAIL_SLOTS &&
+          wt_domain_tables_built() == WT_DOMAIN_MAX_TABLES,
+          "one region set past the cache size fails closed on slots");
+}
 
 static const wt_memory_region_t g_sp0[] = {
     { 0x0E200000u, 0x2000u, RX },
@@ -348,6 +383,7 @@ int main(void)
           wt_domain_page_owned(g_sp_owned_exact, 1u, 0x0E501000u) != 0,
           "the region that is exactly the owned band takes it over at EL0");
     owner_rows();
+    capacity_rows();
 
     check(wt_domain_pool_pages_used() <= POOL_PAGES, "pool accounting stays inside the pool");
 

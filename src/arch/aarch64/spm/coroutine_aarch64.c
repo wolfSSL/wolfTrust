@@ -46,8 +46,8 @@
 
 /* One stage-1 table per coroutine domain, so the table cap must cover every
  * coroutine (the boot self-tests keep theirs too). */
-#if WT_DOMAIN_MAX_TABLES < WT_CO_MAX
-#error "WT_DOMAIN_MAX_TABLES must be at least WT_CO_MAX"
+#if WT_DOMAIN_MAX_TABLES < (WT_CO_MAX + WT_DOMAIN_PROOF_TABLES + 1u)
+#error "WT_DOMAIN_MAX_TABLES must cover WT_CO_MAX partitions, the boot proofs, and a borrower rebuild"
 #endif
 
 /* FF-A ids: SPMC 0x8000, SPMD 0x8001, partitions follow in creation order. */

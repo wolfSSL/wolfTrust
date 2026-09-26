@@ -31,9 +31,12 @@
  * keyed by the stable regions pointer the core hands to the wt_arch_*
  * domain operations; ASID 0 is the SPM-only table, partitions get 1.. */
 
-/* Every partition plus each boot self-test domain, and the extra table a
- * memory-sharing borrower rebuilds while it holds a retrieved region. */
-#define WT_DOMAIN_MAX_TABLES 16u
+/* Every partition (WT_CO_MAX) plus each boot self-test domain, which stays
+ * built (spm_main.c: prove_el0, the echo, spin, discover, and borrow
+ * partitions), and the extra table a memory-sharing borrower rebuilds while
+ * it holds a retrieved region; coroutine_aarch64.c checks the sum. */
+#define WT_DOMAIN_PROOF_TABLES 5u
+#define WT_DOMAIN_MAX_TABLES 20u
 /* Fill entries a partition table keeps EL1-only unless the partition's own
  * regions cover one flagged WT_DOMAIN_FILL_SHARED entirely, in which case
  * the partition's mapping (EL0 + EL1) replaces it. Partial cover still

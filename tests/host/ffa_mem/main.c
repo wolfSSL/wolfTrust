@@ -376,6 +376,14 @@ static void rxtx_rows(void)
     check(wt_ffa_rxtx_validate(0x1000ull, 0x2000ull, 0u) ==
               WT_FFA_INVALID_PARAMETERS,
           "a zero page count is INVALID_PARAMETERS");
+    check(WT_FFA_RXTX_MAX_PAGES == 63u &&
+              WT_FFA_RXTX_PAGE_COUNT(WT_FFA_RXTX_MAX_PAGES) == 63u &&
+              WT_FFA_RXTX_PAGE_COUNT(64u) == 0u &&
+              wt_ffa_rxtx_validate(0x1000ull, 0x40000ull, 63u) == 0 &&
+              wt_ffa_rxtx_validate(0x1000ull, 0x41000ull, 64u) ==
+                  WT_FFA_INVALID_PARAMETERS,
+          "the largest pair is the 63 pages w3[5:0] can name; 64 is not "
+          "encodable and not valid");
     check(wt_ffa_rxtx_validate(0x1000ull, 0x2000ull, WT_FFA_RXTX_MAX_PAGES + 1u) ==
               WT_FFA_INVALID_PARAMETERS,
           "more than the maximum page count is INVALID_PARAMETERS");
@@ -1392,6 +1400,14 @@ static void access_flag_rows(void)
     check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
               WT_FFA_INVALID_PARAMETERS,
           "the bypass flag does not excuse another borrower's clear flag");
+    make_rq_as(&rq, e, 1u, 0x8003u);
+    rq.flags = WT_FFA_MEM_FLAG_BYPASS_BORROWERS;
+    rq.receivers[0] = 0x8003u;
+    rq.access_flags[0] = 0u;
+    check(wt_ffa_mem_retrieve_req_check(e, &rq, 0x8002u) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a bypass request whose only entry is another borrower is "
+          "INVALID_PARAMETERS even with its flags in order");
 }
 
 /* WT-FFA-0009 (without the bypass flag a retrieve request names the lender's

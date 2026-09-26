@@ -1589,7 +1589,9 @@ int wt_ffa_mem_retrieve_req_check(const wt_ffa_mem_handle_entry_t* e,
         ((repeated != 0) ||
          (rq->receiver_count !=
           (((rq->flags & WT_FFA_MEM_FLAG_BYPASS_BORROWERS) != 0u)
-               ? 1u : (uint32_t)e->borrower_count)))) {
+               ? 1u : (uint32_t)e->borrower_count)) ||
+         (((rq->flags & WT_FFA_MEM_FLAG_BYPASS_BORROWERS) != 0u) &&
+          (rq->receivers[0] != receiver)))) {
         ret = WT_FFA_INVALID_PARAMETERS;
     }
     if (ret == 0) {

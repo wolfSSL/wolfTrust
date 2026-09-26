@@ -385,7 +385,8 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r)
                 &g_ns_version, w1, WT_FFA_VERSION_1_2);
             break;
         case WT_FFA_FEATURES:
-            if (w1 == WT_FFA_FEATURE_SRI) {
+            /* Table 13.11: w2 is MBZ for a feature id query. */
+            if ((w1 == WT_FFA_FEATURE_SRI) && ((uint32_t)r->x[2] == 0u)) {
                 reply_success(r, WT_FFA_SRI_INTID, 0u);
             }
             else if ((w1 == WT_FFA_MEM_RETRIEVE_REQ32) ||

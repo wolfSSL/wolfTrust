@@ -118,6 +118,8 @@ void WolfTrust_FFM_Close(int32_t handle)
     (void)wt_ffm_close(wt_ffm_boot_runtime_mut(), TEST_NS_CLIENT, handle);
 }
 
+static uint32_t g_veneer_in_len_seen;
+
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
                            wt_ffm_veneer_iovec_t* iv)
 {
@@ -133,6 +135,9 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
     }
     memset(in, 0, sizeof(in));
     memset(out, 0, sizeof(out));
+    if (iv->in_count != 0u) {
+        g_veneer_in_len_seen = iv->in[0].len;
+    }
     for (i = 0u; i < iv->in_count; i++) {
         in[i].base = iv->in[i].base;
         in[i].len = iv->in[i].len;
@@ -307,6 +312,7 @@ int main(void)
     psa_fwu_component_info_t fwu_info;
     psa_handle_t handle;
     psa_invec in_vec;
+    psa_invec big_vec;
     psa_outvec out_vec;
     psa_status_t status;
 
@@ -347,6 +353,28 @@ int main(void)
     status = psa_call(handle, PSA_IPC_CALL, &in_vec, 5U, &out_vec, 1U);
     check(status == PSA_ERROR_PROGRAMMER_ERROR,
           "P7-S1 psa_call rejects an over-count invec (PROGRAMMER_ERROR)");
+#if SIZE_MAX > UINT32_MAX
+    /* LP64: a count that would wrap to a valid 32-bit one must stay an
+     * over-count at the veneer, and a length above 32 bits must not wrap. */
+    g_veneer_in_len_seen = 0u;
+    status = psa_call(handle, PSA_IPC_CALL, &in_vec,
+                      (size_t)1u << 32 | 1u, &out_vec, 1U);
+    check(status == PSA_ERROR_PROGRAMMER_ERROR,
+          "P7-S1 psa_call keeps a 2^32+1 invec count a PROGRAMMER_ERROR on LP64");
+    status = psa_call(handle, PSA_IPC_CALL, &in_vec, 1U, &out_vec,
+                      (size_t)1u << 32 | 1u);
+    check(status == PSA_ERROR_PROGRAMMER_ERROR,
+          "P7-S1 psa_call keeps a 2^32+1 outvec count a PROGRAMMER_ERROR on LP64");
+    check(g_veneer_in_len_seen == 0u,
+          "P7-S1 an over-count never marshals a vector");
+    big_vec.base = in_vec.base;
+    big_vec.len = (size_t)1u << 32 | 16u;
+    g_veneer_in_len_seen = 0u;
+    (void)psa_call(handle, PSA_IPC_CALL, &big_vec, 1U, &out_vec, 1U);
+    check(g_veneer_in_len_seen == UINT32_MAX,
+          "P7-S1 a 2^32+16 invec length saturates at the veneer instead of "
+          "wrapping to 16");
+#endif
 
     /* ---- PSA FWU 1.0 through the public client (SRC-PSA-FWU) ---- */
     (void)memset(&g_fwu_ctx, 0, sizeof(g_fwu_ctx));

@@ -46,6 +46,7 @@ case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|d
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
+. "$repo/tests/target/lib/expect.sh"
 
 # Manifest guest restart_limit (port/stm32h563/manifest.json domain id 1).
 RESTART_LIMIT=3
@@ -72,21 +73,12 @@ if ! : >> "$LOGFILE" 2>/dev/null; then
 fi
 uart="$repo/h5-uart-capture.log"
 cli_log="/tmp/h5-flash-cli.$$.log"
+# Both guests raw-write USART3, so another guest's burst can splice into the
+# middle of a marker: expect() falls back to its bounded word-gap match.
+WT_EXPECT_LOG="$uart"
+WT_EXPECT_GAP=1
 
 stage()      { printf '  ... %s\n' "$1"; }
-check_pass() { printf '  [check] PASS  %s\n' "$1"; }
-check_fail() { printf '  [check] FAIL  %s  (%s)\n' "$1" "$2"; exit 1; }
-# Both guests raw-write USART3, so another guest's burst can splice into the
-# middle of a marker; fall back to a word-gap regex that tolerates bounded
-# interleaved fragments between the marker's words.
-expect()     { local tol
-               if grep -Faq "$2" "$uart"; then check_pass "$1"; return; fi
-               tol=$(printf "%s" "$2" | \
-                 sed -e 's/[][\\.^$*+?(){}|/]/\\&/g' -e 's/ /.{0,160}/g')
-               if grep -zaEq "$tol" "$uart"; then check_pass "$1"; \
-               else check_fail "$1" "missing: $2"; fi; }
-refute_re()  { if grep -Eq "$2" "$uart"; then check_fail "$1" "unexpected: $2"; \
-               else check_pass "$1"; fi; }
 
 # Flash addresses: secure images to the secure alias (SECWM-covered), guests to
 # the Non-secure alias (beyond the watermark). Match WT_*_FLASH_BASE.

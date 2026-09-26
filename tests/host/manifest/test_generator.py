@@ -42,15 +42,17 @@ class GeneratorTest(unittest.TestCase):
              "--address-bits", "32"],
             check=False, capture_output=True, text=True)
 
-    def compile_generated(self, output, executable):
+    def compile_generated(self, output, executable, defines=(),
+                          main=TEST_DIR / "generated_main.c"):
         command = shlex.split(os.environ.get("CC", "cc"))
+        command.extend(defines)
         command.extend([
             "-std=c99", "-Wall", "-Wextra", "-Werror", "-pedantic",
             "-I" + str(ROOT / "include"), "-I" + str(output),
             str(ROOT / "src" / "domain.c"),
             str(ROOT / "src" / "manifest.c"),
             str(output / "wolftrust_manifest_generated.c"),
-            str(TEST_DIR / "generated_main.c"), "-o", str(executable),
+            str(main), "-o", str(executable),
         ])
         return subprocess.run(command, check=False, capture_output=True,
                               text=True)
@@ -282,6 +284,199 @@ class GeneratorTest(unittest.TestCase):
             result = self.run_generator(source, root / "output")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("partition interrupt", result.stderr)
+
+    def run_generator_64(self, source, output, extra=()):
+        return subprocess.run(
+            [sys.executable, str(GENERATOR), str(source), str(output),
+             "--supported-features", "0x5", "--address-bits", "64", *extra],
+            check=False, capture_output=True, text=True)
+
+    def test_64_bit_header_sizes_the_table_pool(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "pool.json"
+            output = root / "output"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            domain = manifest["domains"][2]
+            domain["memory_resources"][1].update(base=0x1FF000, size=0x2000)
+            domain["stack_base"] = 0x1FF800
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator_64(source, output,
+                                           ("--spm-table-pages", "4"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            header = (output / "wolftrust_manifest_generated.h").read_text(
+                encoding="utf-8")
+            self.assertIn("#define WT_GENERATED_TABLE_POOL_PAGES 14U", header)
+
+    def test_64_bit_source_refuses_a_table_pool_below_the_manifest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "pool.json"
+            output = root / "output"
+            source.write_text(json.dumps(self.ffa_manifest()), encoding="utf-8")
+
+            result = self.run_generator_64(source, output,
+                                           ("--spm-table-pages", "4"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            header = (output / "wolftrust_manifest_generated.h").read_text(
+                encoding="utf-8")
+            need = int(header.split("WT_GENERATED_TABLE_POOL_PAGES ")[1]
+                       .split("U")[0])
+            for defines, ok in ((("-DWT_SPM_TABLE_POOL_PAGES={}U".format(need),),
+                                 True),
+                                (("-DWT_SPM_TABLE_POOL_PAGES={}U".format(
+                                    need - 1),), False),
+                                ((), False)):
+                compiled = self.compile_generated(output, root / "generated",
+                                                  defines)
+                if ok:
+                    self.assertEqual(compiled.returncode, 0, compiled.stderr)
+                else:
+                    self.assertNotEqual(compiled.returncode, 0, defines)
+                    self.assertIn("WT_GENERATED_TABLE_POOL_PAGES",
+                                  compiled.stderr, defines)
+
+    def test_32_bit_header_has_no_table_pool(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "output"
+            self.assertEqual(self.run_generator(FIXTURE, output).returncode, 0)
+            header = (output / "wolftrust_manifest_generated.h").read_text(
+                encoding="utf-8")
+            self.assertNotIn("TABLE_POOL", header)
+
+    def ffa_manifest(self):
+        manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        manifest["ffa"] = {"partitions": [{
+            "domain_id": manifest["partitions"][0]["domain_id"],
+            "ffa_version": "1.2",
+            "uuids": ["b4b5671e-4a90-4fe1-b81f-fb13dae1dacb",
+                      "01234567-0123-4567-89ab-0123456789ab"],
+            "execution_contexts": 1,
+            "runtime_el": "S-EL0",
+            "messaging": "none",
+            "ns_interrupt_action": "signaled",
+            "boot_info_register": "none",
+        }]}
+        return manifest
+
+    def test_ffa_section_emits_a_separate_partition_table(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "ffa.json"
+            output = root / "output"
+            source.write_text(json.dumps(self.ffa_manifest()), encoding="utf-8")
+
+            result = self.run_generator_64(source, output)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            generated = (output / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            self.assertIn('#include "wolftrust/arch/aarch64/ffa_manifest.h"',
+                          generated)
+            self.assertIn("wt_generated_ffa_partitions[1]", generated)
+            self.assertIn(".uuid_count = 2U", generated)
+            self.assertIn("0xb4U, 0xb5U, 0x67U, 0x1eU", generated)
+            self.assertIn(".messaging = 0U", generated)
+            self.assertIn(".ffa_version = 65538U", generated)
+            self.assertIn(".boot_info_register = 4294967295U", generated)
+            self.assertIn("wt_generated_ffa_partitions_get(size_t* count)",
+                          generated)
+            compiled = self.compile_generated(
+                output, root / "generated", ("-DWT_SPM_TABLE_POOL_PAGES=4096U",))
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+
+    def test_64_bit_manifest_without_ffa_links_an_empty_table(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "output"
+            main = root / "ffa_main.c"
+            main.write_text(
+                "#include \"wolftrust_manifest_generated.h\"\n"
+                "#include \"wolftrust/arch/aarch64/ffa_manifest.h\"\n"
+                "int main(void)\n"
+                "{\n"
+                "    size_t count = 1U;\n"
+                "    const wt_ffa_partition_manifest_t* parts =\n"
+                "        wt_generated_ffa_partitions_get(&count);\n"
+                "    return ((parts != NULL) && (count == 0U)) ? 0 : 1;\n"
+                "}\n", encoding="utf-8")
+            self.assertEqual(self.run_generator_64(FIXTURE, output).returncode, 0)
+            generated = (output / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            self.assertIn("wt_generated_ffa_partitions_get(size_t* count)",
+                          generated)
+            compiled = self.compile_generated(
+                output, root / "ffa_empty", ("-DWT_SPM_TABLE_POOL_PAGES=4096U",),
+                main)
+            self.assertEqual(compiled.returncode, 0, compiled.stderr)
+            ran = subprocess.run([str(root / "ffa_empty")], check=False)
+            self.assertEqual(ran.returncode, 0)
+
+    def test_32_bit_manifest_emits_no_ffa_symbols(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            output = root / "output"
+            self.assertEqual(self.run_generator(FIXTURE, output).returncode, 0)
+            generated = (output / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            self.assertNotIn("ffa", generated)
+
+    def test_ffa_section_needs_a_64_bit_target(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "ffa32.json"
+            source.write_text(json.dumps(self.ffa_manifest()), encoding="utf-8")
+
+            result = self.run_generator(source, root / "output")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("--address-bits 64", result.stderr)
+
+    def test_ffa_null_section_is_rejected_before_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "null.json"
+            output = root / "output"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["ffa"] = None
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator_64(source, output)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("manifest.ffa", result.stderr)
+            self.assertFalse(output.exists())
+
+    def test_ffa_policy_is_rejected_before_output(self):
+        cases = (
+            ("uuids", ["B4B5671E-4A90-4FE1-B81F-FB13DAE1DACB"], "canonical"),
+            ("uuids", [], "1 to 4 UUIDs"),
+            ("domain_id", 250, "unknown domain"),
+            ("execution_contexts", 2, "one execution context"),
+            ("ffa_version", "1.1", "ffa_version must be 1.2"),
+            ("ffa_version", 0x10002, "ffa_version must be"),
+            ("runtime_el", "EL2", "runtime_el"),
+            ("runtime_el", "S-EL1", "runtime_el must be S-EL0"),
+            ("messaging", "smoke", "messaging"),
+            ("messaging", "indirect", "messaging must be none"),
+            ("messaging", "direct", "messaging must be none"),
+            ("ns_interrupt_action", "drop", "ns_interrupt_action"),
+            ("ns_interrupt_action", "queued", "must be signaled"),
+            ("boot_info_register", 4, "boot_info_register"),
+            ("boot_info_register", "x0", "boot_info_register must be none"),
+        )
+        for field, value, message in cases:
+            with tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = root / "bad.json"
+                output = root / "output"
+                manifest = self.ffa_manifest()
+                manifest["ffa"]["partitions"][0][field] = value
+                source.write_text(json.dumps(manifest), encoding="utf-8")
+
+                result = self.run_generator_64(source, output)
+                self.assertNotEqual(result.returncode, 0, field)
+                self.assertIn(message, result.stderr, field)
+                self.assertFalse(output.exists(), field)
 
 
 if __name__ == "__main__":

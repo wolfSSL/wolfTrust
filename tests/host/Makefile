@@ -37,11 +37,14 @@ UNIT_SUITES := domain manifest lifecycle guest_verify rollback sp_recovery \
     keystore_isolation \
     attestation_service attestation attestation_token \
     attestation_golden attestation_negatives attestation_replay \
-    attestation_iak ffm_domain sp_layout port_binding boot_handoff spm_gate \
+    attestation_iak ffm_domain sp_layout port_binding boot_handoff ffa_abi \
+    aarch64_esr aarch64_libc ffa_boot_info aarch64_tables aarch64_domain ffa_spmd \
+    aarch64_profile \
+    ffa_mem ffa_notif ffa_runtime spm_irq spm_gate \
     flash_nvm ffm_veneer secure_layout \
     vault_service storage_service ps_service negatives qcbor_shim \
     fwu_service runtime_verify psa_ffm_client psa_storage_client vnet_relay \
-    psa_headers
+    psa_headers psa_ffa_transport
 
 .PHONY: all test test-compilers test-sanitize test-valgrind print-suites clean
 

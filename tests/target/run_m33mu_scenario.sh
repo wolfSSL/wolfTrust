@@ -57,6 +57,7 @@ esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
+. "$repo/tests/target/lib/expect.sh"
 
 # Manifest guest restart_limit (port/stm32h563/manifest.json domain id 1).
 RESTART_LIMIT=3
@@ -362,21 +363,14 @@ emu_status=${PIPESTATUS[0]}
 set -e
 echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
 
-# Per-assertion reporting so make test-target surfaces what each scenario
-# actually checks, not just a single PASS. The Makefile greps these tagged
-# lines out of the log; the full boot log stays underneath.
-check_pass() { printf '  [check] PASS  %s\n' "$1"; }
-check_fail() { printf '  [check] FAIL  %s  (%s)\n' "$1" "$2"; exit 1; }
-expect()     { if grep -Fq "$2" "$log"; then check_pass "$1"; \
-               else check_fail "$1" "missing: $2"; fi; }
-# Shared-UART tolerant match: guest1's console can interject mid-line in a
-# secure print (e.g. "TOTAL SK<freertos_guest1: ...>IPPED   : 4"), so strip
-# guest1 text and rejoin split lines before requiring the exact bytes.
-expect_flat() { if sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n' | \
-                    grep -Fq "$2"; then check_pass "$1"; \
-                else check_fail "$1" "missing: $2"; fi; }
-refute_re()  { if grep -Eq "$2" "$log"; then check_fail "$1" "unexpected: $2"; \
-               else check_pass "$1"; fi; }
+# Per-assertion reporting (tests/target/lib/expect.sh) so make test-target
+# surfaces what each scenario actually checks, not just a single PASS.
+WT_EXPECT_LOG="$log"
+# m33mu prints this only when it stops on the expected breakpoint, then exits
+# 0; the negatives end on another breakpoint or the timeout by design.
+if grep -Faq "[EXPECT BKPT] Success" "$log"; then
+  expect_end "m33mu stopped on the expected breakpoint and exited cleanly" exit "$emu_status"
+fi
 
 case "$scenario" in
   positive)

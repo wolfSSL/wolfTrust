@@ -29,7 +29,11 @@ for s in "$@"; do
   echo "RUN: target/$s"
   if "tests/target/$runner" "$s" > "$logdir/target-$s.log" 2>&1; then
     grep -F '  [check] ' "$logdir/target-$s.log" || true
-    echo "PASS: target/$s"
+    if grep -q '^SKIP:' "$logdir/target-$s.log"; then
+      echo "SKIP: target/$s ($(grep -m1 '^SKIP:' "$logdir/target-$s.log" | sed -E 's/^SKIP: [^:]*: //'))"
+    else
+      echo "PASS: target/$s"
+    fi
   else
     grep -F '  [check] ' "$logdir/target-$s.log" || true
     echo "FAIL: target/$s (tail of $logdir/target-$s.log):"

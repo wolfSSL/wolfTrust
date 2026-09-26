@@ -107,7 +107,10 @@ TARGET_CFLAGS += -DWT_FFA_ACS=1 -DWT_FFA_ACS_BASE=$(WT_FFA_ACS_BASE)u \
     -DWT_FFA_ACS_FLASH_SIZE=$(WT_FFA_ACS_FLASH_SIZE)u \
     -DWT_FFA_ACS_NVM_OFFSET=$(WT_FFA_ACS_NVM_OFFSET)u
 endif
+# The monitor's load image must end before the SPMC image packed behind it in
+# the one pflash file (run_qemu_a_scenario.sh truncates to this offset).
 TARGET_LDFLAGS := \
+    -Wl,--defsym=WT_EL3_LOAD_LIMIT=$(WT_EL3_TEXT_BASE)+$(WT_SPM_FLASH_OFFSET) \
     -Wl,--defsym=WT_EL3_TEXT_BASE=$(WT_EL3_TEXT_BASE) \
     -Wl,--defsym=WT_EL3_RAM_BASE=$(WT_EL3_RAM_BASE) \
     -Wl,--defsym=WT_EL3_RAM_SIZE=$(WT_EL3_RAM_SIZE) \

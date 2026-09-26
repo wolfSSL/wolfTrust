@@ -92,6 +92,7 @@ ifeq ($(WT_FFA_ACS),1)
 TARGET_CFLAGS += -DWT_FFA_ACS=1 -DWT_FFA_ACS_BASE=$(WT_FFA_ACS_BASE)u
 endif
 TARGET_LDFLAGS := \
+    -Wl,--defsym=WT_EL3_LOAD_LIMIT=$(WT_EL3_RAM_BASE) \
     -Wl,--defsym=WT_EL3_TEXT_BASE=$(WT_EL3_TEXT_BASE) \
     -Wl,--defsym=WT_EL3_RAM_BASE=$(WT_EL3_RAM_BASE) \
     -Wl,--defsym=WT_EL3_RAM_SIZE=$(WT_EL3_RAM_SIZE) \

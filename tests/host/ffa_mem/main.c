@@ -548,6 +548,7 @@ static void share_rows(void)
     wt_ffa_mem_txn_t txn;
     wt_ffa_mem_region_t regs[WT_FFA_MEM_MAX_REGIONS];
     wt_ffa_mem_registry_t reg;
+    const wt_ffa_mem_handle_entry_t* e = NULL;
     uint32_t n = 0u;
     uint64_t h = 0u;
     size_t len;
@@ -572,6 +573,14 @@ static void share_rows(void)
           "a mapping list smaller than the constituent count is NO_MEMORY");
 
     wt_ffa_mem_registry_init(&reg);
+    h = 0u;
+    check(wt_ffa_mem_share_register(&reg, (wt_ffa_mem_op_t)7, 0u, 0x8002u,
+                                    regs, 2u, &h) == WT_FFA_INVALID_PARAMETERS &&
+              h == 0u && wt_ffa_mem_handle_lookup(&reg, 1u, &e) ==
+                             WT_FFA_INVALID_PARAMETERS &&
+              reg.entries[0].state == (uint8_t)WT_FFA_MEM_STATE_FREE,
+          "an operation that is not share, lend, or donate registers nothing "
+          "and hands out no handle");
     check(wt_ffa_mem_share_register(&reg, WT_FFA_MEM_OP_SHARE, 0u, 0x8002u,
                                     regs, 2u, &h) == 0,
           "a share registers a handle with its captured regions");

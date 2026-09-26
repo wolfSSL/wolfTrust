@@ -541,6 +541,9 @@ typedef struct wt_sp_msg {
     uint8_t yielded;
     uint8_t calling;
     uint8_t req2;
+    /* The requester left service while this endpoint was yielded to it:
+     * anyone may run it, and its response has no receiver. */
+    uint8_t orphaned;
 } wt_sp_msg_t;
 
 static wt_sp_msg_t g_sp_msg[WT_CO_MAX];
@@ -655,6 +658,16 @@ static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason,
         }
         wt_ffa_regs_normalize(out);
         wt_ffa_direct_clear_sbz(out);
+        if (m->orphaned != 0u) {
+            /* No requester is left to take the response: the endpoint is
+             * waiting again, which is what whoever ran it is told. */
+            for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
+                out[i] = 0u;
+            }
+            out[0] = WT_FFA_MSG_WAIT;
+            out[1] = (uint64_t)wt_spm_sp_ffa_id(co) << 16;
+            m->orphaned = 0u;
+        }
         m->busy = 0u;
         *deliver = sint_stage(co);
         return 0;
@@ -955,7 +968,8 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
         return WT_FFA_BUSY;
     }
     if (m->yielded != 0u) {
-        if ((m->busy != 0u) && (m->requester != caller)) {
+        if ((m->busy != 0u) && (m->requester != caller) &&
+            (m->orphaned == 0u)) {
             return WT_FFA_DENIED;
         }
         m->yielded = 0u;
@@ -1099,6 +1113,13 @@ static void sp_release(struct wt_co* co, int32_t code)
                  sizeof(g_sp_sint_pending[0]));
     g_sint_delivered[co->id - 1u] = 0u;
     (void)memset(&g_sp_msg[co->id - 1u], 0, sizeof(g_sp_msg[0]));
+    for (i = 0u; i < WT_CO_MAX; i++) {
+        if ((i != (co->id - 1u)) && (g_sp_msg[i].busy != 0u) &&
+            (g_sp_msg[i].yielded != 0u) &&
+            (g_sp_msg[i].requester == wt_spm_sp_ffa_id(co))) {
+            g_sp_msg[i].orphaned = 1u;
+        }
+    }
     wt_spm_sp_ffa_reset(co);
     wt_ffa_notif_retire(wt_spm_sp_ffa_id(co), code);
 }

@@ -849,6 +849,10 @@ def validate_ffa(ffa, manifest):
             policy_error(path + " ns_interrupt_action must be signaled")
         if entry["boot_info_register"] not in FFA_BOOT_INFO_REGISTER:
             policy_error(path + " boot_info_register must be none")
+    missing = sorted(partition_domains - seen)
+    if missing:
+        policy_error("manifest.ffa lacks an entry for partition domain {}"
+                     .format(missing[0]))
 
 
 def uuid_bytes(uuid):

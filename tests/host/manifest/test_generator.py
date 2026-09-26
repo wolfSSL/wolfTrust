@@ -375,17 +375,22 @@ class GeneratorTest(unittest.TestCase):
 
     def ffa_manifest(self):
         manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
-        manifest["ffa"] = {"partitions": [{
-            "domain_id": manifest["partitions"][0]["domain_id"],
-            "ffa_version": "1.2",
-            "uuids": ["b4b5671e-4a90-4fe1-b81f-fb13dae1dacb",
-                      "01234567-0123-4567-89ab-0123456789ab"],
-            "execution_contexts": 1,
-            "runtime_el": "S-EL0",
-            "messaging": "none",
-            "ns_interrupt_action": "signaled",
-            "boot_info_register": "none",
-        }]}
+        entries = []
+        for index, partition in enumerate(manifest["partitions"]):
+            entries.append({
+                "domain_id": partition["domain_id"],
+                "ffa_version": "1.2",
+                "uuids": ["b4b5671e-4a90-4fe1-b81f-fb13dae1dacb",
+                          "01234567-0123-4567-89ab-0123456789ab"]
+                if index == 0 else
+                ["0f0e0d0c-0b0a-4908-8706-050403020100"],
+                "execution_contexts": 1,
+                "runtime_el": "S-EL0",
+                "messaging": "none",
+                "ns_interrupt_action": "signaled",
+                "boot_info_register": "none",
+            })
+        manifest["ffa"] = {"partitions": entries}
         return manifest
 
     def test_ffa_section_emits_a_separate_partition_table(self):
@@ -401,7 +406,8 @@ class GeneratorTest(unittest.TestCase):
                 encoding="utf-8")
             self.assertIn('#include "wolftrust/arch/aarch64/ffa_manifest.h"',
                           generated)
-            self.assertIn("wt_generated_ffa_partitions[1]", generated)
+            self.assertIn("wt_generated_ffa_partitions[{}]".format(
+                len(self.ffa_manifest()["ffa"]["partitions"])), generated)
             self.assertIn(".uuid_count = 2U", generated)
             self.assertIn("0xb4U, 0xb5U, 0x67U, 0x1eU", generated)
             self.assertIn(".messaging = 0U", generated)
@@ -458,6 +464,20 @@ class GeneratorTest(unittest.TestCase):
             result = self.run_generator(source, root / "output")
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("--address-bits 64", result.stderr)
+
+    def test_ffa_section_missing_a_partition_is_rejected_before_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "partial.json"
+            output = root / "output"
+            manifest = self.ffa_manifest()
+            manifest["ffa"]["partitions"].pop()
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+
+            result = self.run_generator_64(source, output)
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("lacks an entry for partition domain", result.stderr)
+            self.assertFalse(output.exists())
 
     def test_ffa_null_section_is_rejected_before_output(self):
         with tempfile.TemporaryDirectory() as temporary:

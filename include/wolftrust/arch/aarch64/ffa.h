@@ -84,6 +84,7 @@ void wt_ffa_spmd_ns_call(wt_ffa_regs_t* r);
 void wt_ffa_spmd_ns_note(uint32_t fid);
 /* Called for every Secure physical instance call from the SPMC. */
 void wt_ffa_spmd_secure_note(uint32_t fid);
+int wt_ffa_spmd_secure_available(uint32_t fid);
 /* Non-zero when an NS-instance FID must be forwarded to the SPMC rather than
  * answered by the SPMD (partition discovery, guest-to-SP messaging). */
 int wt_ffa_spmd_ns_forwards(uint32_t fid);

@@ -222,6 +222,14 @@ void wt_ffa_spmd_ns_note(uint32_t fid)
     }
 }
 
+/* An ABI the SPMC's negotiated version has (13.2.2), for the calls the
+ * monitor serves outside wt_ffa_spmd_secure_call. */
+int wt_ffa_spmd_secure_available(uint32_t fid)
+{
+    return wt_ffa_fid_available(
+        fid, wt_ffa_version_of(&g_spmc_version, WT_FFA_VERSION_1_2));
+}
+
 /* Any SPMC call but FFA_VERSION settles the version it negotiated (13.2). */
 void wt_ffa_spmd_secure_note(uint32_t fid)
 {

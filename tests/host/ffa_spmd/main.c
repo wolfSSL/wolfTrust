@@ -400,6 +400,12 @@ int main(void)
     call(&r, WT_FFA_FEATURES, WT_FFA_SPM_ID_GET);
     check((uint32_t)r.x[0] == WT_FFA_SUCCESS32,
           "while the 1.1 FFA_SPM_ID_GET stays implemented for it");
+    check(wt_ffa_spmd_secure_available(WT_FFA_CONSOLE_LOG64) == 0 &&
+              wt_ffa_spmd_secure_available(WT_FFA_CONSOLE_LOG32) == 0 &&
+              wt_ffa_spmd_secure_available(WT_FFA_SPM_ID_GET) == 1 &&
+              wt_ffa_spmd_secure_available(WT_FFA_MSG_WAIT) == 1,
+          "the monitor's own extended-register console path asks the same "
+          "question: no FFA_CONSOLE_LOG64 for an SPMC settled at 1.1");
     wt_ffa_spmd_secure_note(WT_FFA_VERSION);
     call(&r, WT_FFA_VERSION, WT_FFA_VERSION_1_2);
     check((uint32_t)r.x[0] == WT_FFA_VERSION_1_2,

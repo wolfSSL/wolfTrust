@@ -960,7 +960,8 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
          * requester only. */
         if ((wt_co_state((wt_co_t*)co) == WT_CO_RUNNABLE) &&
             (m->busy != 0u)) {
-            if (wt_ffa_run_busy_check(m->requester, caller, 0u, 1u) != 0) {
+            if ((m->orphaned == 0u) &&
+                (wt_ffa_run_busy_check(m->requester, caller, 0u, 1u) != 0)) {
                 return WT_FFA_DENIED;
             }
             return run_endpoint(co, out, 0u);
@@ -1114,8 +1115,9 @@ static void sp_release(struct wt_co* co, int32_t code)
     g_sint_delivered[co->id - 1u] = 0u;
     (void)memset(&g_sp_msg[co->id - 1u], 0, sizeof(g_sp_msg[0]));
     for (i = 0u; i < WT_CO_MAX; i++) {
+        /* Yielded to it, or preempted mid-request by a Non-secure interrupt
+         * (runnable): either way only its requester could have run it. */
         if ((i != (co->id - 1u)) && (g_sp_msg[i].busy != 0u) &&
-            (g_sp_msg[i].yielded != 0u) &&
             (g_sp_msg[i].requester == wt_spm_sp_ffa_id(co))) {
             g_sp_msg[i].orphaned = 1u;
         }

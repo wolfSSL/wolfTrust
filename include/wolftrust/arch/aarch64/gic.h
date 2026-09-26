@@ -1,0 +1,57 @@
+/* gic.h
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+#ifndef WOLFTRUST_ARCH_AARCH64_GIC_H
+#define WOLFTRUST_ARCH_AARCH64_GIC_H
+
+#include <stdint.h>
+
+/* One driver per GIC architecture version, bound at build by WT_GIC_VERSION.
+ * Secure interrupts are Group 0 (FIQ), Non-secure ones Group 1. */
+
+#define WT_GIC_INTID_SPURIOUS  1023u
+#define WT_GIC_INTID_SECURE_TIMER 29u
+/* INTIDs from 1020 are special: no register lies past the last SPI. */
+#define WT_GIC_INTID_LIMIT     1020u
+/* A priority mask at the top of the Non-secure range: Secure priorities pass
+ * it and a Normal-world interrupt stays pending behind it (9.3.1.3). */
+#define WT_GIC_PMR_MASK_NS     0x80u
+
+struct wt_gic_ops {
+    void (*init_secure)(void);
+    void (*set_group0)(uint32_t intid);
+    void (*enable)(uint32_t intid);
+    void (*disable)(uint32_t intid);
+    void (*set_priority)(uint32_t intid, uint8_t priority);
+    uint32_t (*ack_group0)(void);
+    void (*eoi_group0)(uint32_t intid);
+    void (*set_pending)(uint32_t intid);
+    void (*raise_ns_sgi)(uint32_t intid);
+    /* Set the CPU interface priority mask, returning the previous one. */
+    uint32_t (*swap_pmr)(uint32_t pmr);
+    unsigned int version;
+};
+
+extern const struct wt_gic_ops* const wt_gic;
+
+/* 1 once a GICv3 redistributor reports its children awake; always 1 on GICv2. */
+unsigned int wt_gic_rdist_woken(void);
+
+#endif /* WOLFTRUST_ARCH_AARCH64_GIC_H */

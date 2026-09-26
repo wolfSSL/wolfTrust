@@ -50,6 +50,13 @@ static void flash_power_on(void)
     g_flash_powered = 1;
 }
 
+/* The backend refusing every access (a rejected trap or a dead controller)
+ * with the sector's contents intact. */
+static void flash_backend_down(int down)
+{
+    g_flash_powered = (down != 0) ? 0 : 1;
+}
+
 /* The PAL interrupt hooks are irrelevant to the NVM logic under test. */
 int wt_conf_irq_set(int on)
 {
@@ -151,6 +158,33 @@ int main(void)
     check(pal_nvmem_read(0u, 0u, readback, 4) == 1, "read after blank power-on");
     check(readback[0] == 0xFFu && readback[3] == 0xFFu,
           "blank sector reads erased 0xFF");
+
+    /* A backend that refuses the load must not fabricate a blank sector, and
+     * a store it refuses must not show through the shadow. */
+    check(pal_nvmem_write(0u, 0u, boot, 4) == 1, "write before the backend fails");
+    flash_backend_down(1);
+    wt_conf_drv_nvm_test_reset();
+    (void)memset(readback, 0x55, sizeof(readback));
+    check(pal_nvmem_read(0u, 0u, readback, 4) == 0 && readback[0] == 0x55u,
+          "a read whose reload the backend refuses fails and returns nothing");
+    check(pal_nvmem_write(0u, 0u, data, 4) == 0,
+          "a write whose reload the backend refuses fails");
+    flash_backend_down(0);
+    check(pal_nvmem_read(0u, 0u, readback, 4) == 1 &&
+              memcmp(readback, "BOOT", 4) == 0,
+          "once the backend answers, the next access reloads the real contents");
+    flash_backend_down(1);
+    check(pal_nvmem_write(0u, 0u, data, 4) == 0,
+          "a write whose store the backend refuses fails");
+    flash_backend_down(0);
+    check(pal_nvmem_read(0u, 0u, readback, 4) == 1 &&
+              memcmp(readback, "BOOT", 4) == 0,
+          "and the shadow still reads the last committed value, not the "
+          "rejected one");
+    wt_conf_drv_nvm_test_reset();
+    check(pal_nvmem_read(0u, 0u, readback, 4) == 1 &&
+              memcmp(readback, "BOOT", 4) == 0,
+          "which is also what flash holds after a reset");
 
     if (g_failures == 0) {
         printf("PASS: flash_nvm survive-reset NVM\n");

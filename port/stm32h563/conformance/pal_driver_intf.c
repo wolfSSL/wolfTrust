@@ -35,16 +35,17 @@
 typedef uintptr_t addr_t;
 
 static uint8_t g_drv_nvm[WT_CONF_NVM_SIZE];
+static uint8_t g_drv_stage[WT_CONF_NVM_SIZE];
 static uint8_t g_drv_nvm_ready;
 static uint8_t g_drv_wd_enabled;
 
+/* A load that fails leaves the shadow unready: a read then fails instead of
+ * returning a fabricated blank sector, and the next access reloads. */
 static int wt_conf_drv_nvm_init(void)
 {
     if (g_drv_nvm_ready == 0u) {
-        /* Reload the persisted contents; a blank sector reads back 0xFF, the
-         * same power-on state the RAM store used to fabricate. */
         if (wt_conf_nvm_sync(g_drv_nvm, sizeof(g_drv_nvm), 0) != 0) {
-            (void)memset(g_drv_nvm, 0xFF, sizeof(g_drv_nvm));
+            return -1;
         }
         g_drv_nvm_ready = 1u;
     }
@@ -80,7 +81,9 @@ int pal_print(uint8_t c)
 int pal_nvmem_write(addr_t base, uint32_t offset, void* buffer, int size)
 {
     (void)base;
-    (void)wt_conf_drv_nvm_init();
+    if (wt_conf_drv_nvm_init() != 0) {
+        return 0;
+    }
     /* Wrap-safe: offset + size overflows size_t on a 32-bit target, so
      * compare each side against the array bound without adding them. */
     if (buffer == NULL || size < 0 ||
@@ -88,18 +91,23 @@ int pal_nvmem_write(addr_t base, uint32_t offset, void* buffer, int size)
             (size_t)size > sizeof(g_drv_nvm) - (size_t)offset) {
         return 0;
     }
-    (void)memcpy(&g_drv_nvm[offset], buffer, (size_t)size);
-    /* Write through to flash so the value survives an AIRCR reset. */
-    if (wt_conf_nvm_sync(g_drv_nvm, sizeof(g_drv_nvm), 1) != 0) {
+    /* Write through to flash first; the shadow takes the bytes only once
+     * they are persisted, so a failed store never reads back as committed. */
+    (void)memcpy(g_drv_stage, g_drv_nvm, sizeof(g_drv_stage));
+    (void)memcpy(&g_drv_stage[offset], buffer, (size_t)size);
+    if (wt_conf_nvm_sync(g_drv_stage, sizeof(g_drv_stage), 1) != 0) {
         return 0;
     }
+    (void)memcpy(g_drv_nvm, g_drv_stage, sizeof(g_drv_nvm));
     return 1;
 }
 
 int pal_nvmem_read(addr_t base, uint32_t offset, void* buffer, int size)
 {
     (void)base;
-    (void)wt_conf_drv_nvm_init();
+    if (wt_conf_drv_nvm_init() != 0) {
+        return 0;
+    }
     /* Wrap-safe: offset + size overflows size_t on a 32-bit target, so
      * compare each side against the array bound without adding them. */
     if (buffer == NULL || size < 0 ||

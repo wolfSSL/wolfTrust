@@ -768,6 +768,24 @@ static void version_state_rows(void)
 
     st.version = 0u;
     st.locked = 0u;
+    check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 0u),
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_1_2 &&
+          wt_ffa_version_of(&st, WT_FFA_VERSION_1_2) ==
+              WT_FFA_VERSION_MAKE(1u, 0u),
+          "a 1.0 caller is told 1.2 before the lock and settles on 1.0");
+    wt_ffa_version_lock(&st, WT_FFA_VERSION_1_2);
+    check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 0u),
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_MAKE(1u, 0u) &&
+          wt_ffa_version_negotiate(&st, WT_FFA_VERSION_1_2,
+                                   WT_FFA_VERSION_1_2) ==
+              (int32_t)WT_FFA_VERSION_MAKE(1u, 0u),
+          "once locked at 1.0 that is the only version it is told, for 1.0 "
+          "and for a later 1.2 alike (13.2.2)");
+
+    st.version = 0u;
+    st.locked = 0u;
     check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 4u),
                                    WT_FFA_VERSION_1_2) ==
               (int32_t)WT_FFA_VERSION_1_2 &&
@@ -792,7 +810,7 @@ static void version_state_rows(void)
     wt_ffa_version_lock(&st, WT_FFA_VERSION_1_2);
     check(wt_ffa_version_negotiate(&st, WT_FFA_VERSION_MAKE(1u, 0u),
                                    WT_FFA_VERSION_1_2) ==
-              (int32_t)WT_FFA_VERSION_1_2 &&
+              (int32_t)WT_FFA_VERSION_MAKE(1u, 0u) &&
           wt_ffa_version_negotiate(&st, WT_FFA_VERSION_1_2,
                                    WT_FFA_VERSION_1_2) ==
               (int32_t)WT_FFA_VERSION_MAKE(1u, 0u) &&

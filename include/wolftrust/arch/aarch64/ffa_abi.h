@@ -203,7 +203,7 @@ static inline int32_t wt_ffa_version_negotiate(wt_ffa_version_state_t* st,
     }
     if (st->locked != 0u) {
         if (input == st->version) {
-            return reply;
+            return (int32_t)st->version;
         }
         return wt_ffa_version_less(st->version, input)
                    ? (int32_t)st->version : (int32_t)WT_FFA_NOT_SUPPORTED;

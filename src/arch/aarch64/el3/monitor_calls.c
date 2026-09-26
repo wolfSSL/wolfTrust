@@ -291,7 +291,10 @@ static void secure_smc(wt_el3_frame_t* frame)
         for (i = 0u; i < 8u; i++) {
             frame->x[i] = regs.x[i];
         }
-        wt_ffa_reply_clear_ext(fid, frame->x);
+        /* 11.2: the SPMC's hypcall completes over ERET, x8-x17 MBZ. */
+        for (i = 8u; i < WT_FFA_MSG_REGS_EXT; i++) {
+            frame->x[i] = 0u;
+        }
         return;
     }
     frame->x[0] = wt_el3_monitor_call(fid, frame->x[1]);

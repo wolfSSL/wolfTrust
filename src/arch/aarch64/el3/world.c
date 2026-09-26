@@ -165,8 +165,13 @@ void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
     unsigned int count = wt_ffa_msg_reg_count(frame->x[0]);
     unsigned int i;
 
+    /* 11.2: over ERET every unused parameter register is MBZ, so nothing the
+     * SPMC left in x8-x17 at its last SMC survives into an 8-register call. */
     for (i = 0u; i < count; i++) {
         g_world[WT_WORLD_SECURE].frame.x[i] = frame->x[i];
+    }
+    for (i = count; i < WT_FFA_MSG_REGS_EXT; i++) {
+        g_world[WT_WORLD_SECURE].frame.x[i] = 0u;
     }
     g_ns_forwarded_fid = (uint32_t)frame->x[0];
     g_ns_pending = WT_NS_PENDING_REPLY;
@@ -180,7 +185,7 @@ void wt_el3_world_preempt_to_secure(wt_el3_frame_t* frame)
     /* Hand the SPMC an FFA_INTERRUPT event with w1/w2 MBZ; the preempted NS
      * context is saved by the switch and resumed unchanged once the SPMC yields
      * the Normal world. */
-    for (i = 0u; i < 8u; i++) {
+    for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
         g_world[WT_WORLD_SECURE].frame.x[i] = 0u;
     }
     g_world[WT_WORLD_SECURE].frame.x[0] = WT_FFA_INTERRUPT;

@@ -304,6 +304,11 @@ else
   # virt boots one pflash image: the monitor at 0, the SPMC image behind it
   # at WT_SPM_FLASH_OFFSET (mk/target-qemuvirt.mk), copied to RAM by EL3.
   image_bin="$build/pflash.bin"
+  el3_size=$(wc -c < "$build/wolftrust_el3.bin")
+  if [ "$el3_size" -gt $((0x100000)) ]; then
+    echo "EL3 image is $el3_size bytes, past the SPMC flash offset 0x100000" >&2
+    exit 1
+  fi
   cp "$build/wolftrust_el3.bin" "$image_bin"
   truncate -s $((0x100000)) "$image_bin"
   cat "$build/wolftrust.bin" >> "$image_bin"
@@ -674,6 +679,8 @@ case "$scenario" in
     refute_re "the Normal world did not misread discovery" '\[NS\] discovery BAD'
     expect "the Normal world negotiated FF-A 1.2 with the SPMD" "[NS] ffa version 1.2"
     expect "the Normal world discovered the partitions through the SPMC" "[NS] discovery ok n=6"
+    refute_re "no 8-register event reached the SPMC with x8-x17 carried over from its last SMC" '\[SPM\] eret sbz BAD'
+    expect "8-register events reach the SPMC over ERET with x8-x17 zero (11.2)" "[SPM] eret sbz ok"
     refute_re "the notification SET to a PSA partition was not misanswered" '\[NS\] notif BAD'
     expect "a notification SET naming a PSA partition, which takes none, was DENIED" "[NS] notif set to a PSA partition denied"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"

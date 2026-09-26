@@ -121,7 +121,10 @@ audit() {
   # The compiler's clones (name.constprop.N, .isra.N, .part.N, .cold) are
   # matched by the name they were cloned from.
   locals="$(printf '%s\n' "$listing" | awk 'NF==3 && $2 ~ /^[a-z]$/ && $3 ~ /^(g_)?wt_/ {sub(/\..*$/, "", $3); print $3}' | sort -u)"
-  out="$(printf '%s\n' "$locals" | grep -vE -f <(printf '%s\n' "$defpats"))"
+  # ffa_abi.h inline helpers the compiler emits out of line are local
+  # wt_ffa_* symbols of the monitor's own headers; DENY still catches the
+  # SPMC-only FF-A families among them.
+  out="$(printf '%s\n' "$locals" | grep -vE -f <(printf '%s\n%s\n' "$defpats" '^wt_ffa_[a-z0-9_]+$'))"
   rc=$?
   if [ "$rc" -ge 2 ]; then
     echo "  defines allow-list matcher error: $defines"
@@ -221,6 +224,11 @@ selftest() {
   out="$(printf 'core.o:\n0000000000000000 T wt_el3_entry\n0000000000000040 t wt_boot_helper.isra.0\n' \
     | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: a cloned local core helper accepted"; fails=$((fails + 1)); }
   case "$out" in *"EL3 archive: wt_boot_helper"*) ;; *) echo "SELFTEST FAIL: cloned wt_boot_helper not flagged"; fails=$((fails + 1)) ;; esac
+  out="$(printf 'extra.o:\n0000000000000000 T wt_el3_entry\n0000000000000040 T wt_ffa_bogus_extra\n' \
+    | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: an FF-A family the monitor does not build accepted"; fails=$((fails + 1)); }
+  case "$out" in *"EL3 archive: wt_ffa_bogus_extra"*) ;; *) echo "SELFTEST FAIL: wt_ffa_bogus_extra not flagged"; fails=$((fails + 1)) ;; esac
+  out="$(printf 'spmd.o:\n0000000000000000 T wt_el3_entry\n0000000000000040 T wt_ffa_spmd_ns_call\n0000000000000080 T wt_ffa_mem_constituent\n00000000000000c0 t wt_ffa_fid_available\n' \
+    | audit "$ALLOW" "$DEFINES")" || { echo "SELFTEST FAIL: the monitor's own FF-A families rejected:"; echo "$out"; fails=$((fails + 1)); }
   out="$(printf 'a.o:\n0000000000000000 T wt_el3_entry\n                 v wt_spm_weak_obj\n' \
     | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: weak undefined object reference accepted"; fails=$((fails + 1)); }
   case "$out" in *"allow-list: wt_spm_weak_obj"*) ;; *) echo "SELFTEST FAIL: wt_spm_weak_obj not flagged"; fails=$((fails + 1)) ;; esac

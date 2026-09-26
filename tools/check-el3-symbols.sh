@@ -116,6 +116,22 @@ audit() {
     echo "  global symbol the monitor does not define inside the EL3 archive: $hit"
     bad=$((bad + 1))
   done < <(printf '%s\n' "$out")
+  # A local (static) wolfTrust-named definition is held to the same monitor
+  # namespaces: a core helper compiled into an EL3 object stays visible.
+  # The compiler's clones (name.constprop.N, .isra.N, .part.N, .cold) are
+  # matched by the name they were cloned from.
+  locals="$(printf '%s\n' "$listing" | awk 'NF==3 && $2 ~ /^[a-z]$/ && $3 ~ /^(g_)?wt_/ {sub(/\..*$/, "", $3); print $3}' | sort -u)"
+  out="$(printf '%s\n' "$locals" | grep -vE -f <(printf '%s\n' "$defpats"))"
+  rc=$?
+  if [ "$rc" -ge 2 ]; then
+    echo "  defines allow-list matcher error: $defines"
+    return 1
+  fi
+  while IFS= read -r hit; do
+    [ -z "$hit" ] && continue
+    echo "  local wolfTrust symbol outside the monitor namespaces inside the EL3 archive: $hit"
+    bad=$((bad + 1))
+  done < <(printf '%s\n' "$out")
 
   [ "$bad" -eq 0 ]
 }
@@ -195,6 +211,16 @@ selftest() {
   out="$(printf 'a.o:\n0000000000000000 T wt_el3_entry\n                 U __udivti3\n\nb.o:\n0000000000000000 t __udivti3\n' \
     | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: a local definition resolved another object's reference"; fails=$((fails + 1)); }
   case "$out" in *"allow-list: __udivti3"*) ;; *) echo "SELFTEST FAIL: __udivti3 not flagged"; fails=$((fails + 1)) ;; esac
+  out="$(printf 'core.o:\n0000000000000000 T wt_el3_entry\n0000000000000040 t wt_boot_secret_helper\n0000000000000080 t wt_domain_secret_helper\n00000000000000c0 t wt_partition_secret_helper\n0000000000000000 b g_wt_boot_state\n' \
+    | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: local core helpers accepted"; fails=$((fails + 1)); }
+  for sym in wt_boot_secret_helper wt_domain_secret_helper wt_partition_secret_helper g_wt_boot_state; do
+    case "$out" in *"EL3 archive: $sym"*) ;; *) echo "SELFTEST FAIL: local $sym not flagged"; fails=$((fails + 1)) ;; esac
+  done
+  out="$(printf 'world.o:\n0000000000000000 T wt_el3_entry\n0000000000000040 t wt_el3_mdcr_ok\n0000000000000080 t world_switch\n00000000000000c0 t reply_error\n0000000000000000 b g_wt_el3_ready\n0000000000000100 t wt_ffa_version_negotiate.constprop.0\n' \
+    | audit "$ALLOW" "$DEFINES")" || { echo "SELFTEST FAIL: monitor-named, plain, and compiler-cloned local helpers rejected:"; echo "$out"; fails=$((fails + 1)); }
+  out="$(printf 'core.o:\n0000000000000000 T wt_el3_entry\n0000000000000040 t wt_boot_helper.isra.0\n' \
+    | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: a cloned local core helper accepted"; fails=$((fails + 1)); }
+  case "$out" in *"EL3 archive: wt_boot_helper"*) ;; *) echo "SELFTEST FAIL: cloned wt_boot_helper not flagged"; fails=$((fails + 1)) ;; esac
   out="$(printf 'a.o:\n0000000000000000 T wt_el3_entry\n                 v wt_spm_weak_obj\n' \
     | audit "$ALLOW" "$DEFINES")" && { echo "SELFTEST FAIL: weak undefined object reference accepted"; fails=$((fails + 1)); }
   case "$out" in *"allow-list: wt_spm_weak_obj"*) ;; *) echo "SELFTEST FAIL: wt_spm_weak_obj not flagged"; fails=$((fails + 1)) ;; esac

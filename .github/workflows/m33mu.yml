@@ -1,13 +1,20 @@
 name: M33MU
 
 on:
-  # Full M33MU emulator matrix on every pull request, plus integration-branch
-  # pushes, the nightly schedule (workflow_call from nightly.yml), and manual
-  # dispatch.
+  # Pull requests run each port's smoke tier; the ci:all, ci:h5, and ci:rt700
+  # labels, integration-branch pushes, the nightly schedule (workflow_call from
+  # nightly.yml), and manual dispatch run a port's full matrix.
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
   push:
     branches: [master, main, wolfTrust-dev]
   workflow_dispatch:
+    inputs:
+      port:
+        description: Port whose full matrix to run
+        type: choice
+        options: [all, stm32h563, mimxrt700]
+        default: all
   workflow_call:
 
 permissions:
@@ -274,49 +281,42 @@ jobs:
             need_raw "freertos_guest1: psa hash ok"
           fi
 
-  wolfboot-wolftrust-m33mu-scenarios:
-    name: ${{ matrix.scenario.name }} (${{ matrix.engine }})
+  # Label-selected, the wolfProvider way: one select job reads the ci:* labels
+  # (ci:h5 or ci:rt700 for that port's full matrix when only that port
+  # changed, ci:all or ci:m33mu for everything after a core change, no label
+  # for each port's smoke tier), the event, and the dispatch input, then one
+  # matrix job runs exactly those scenario groups, so nothing shows up skipped.
+  select:
+    name: M33MU select
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: p
+        env:
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          PORT_INPUT: ${{ inputs.port }}
+        run: |
+          python3 tests/target/lib/scenario_matrix.py --selftest
+          matrix=$(python3 tests/target/lib/scenario_matrix.py --ci-plan)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          printf '%s' "$matrix" | python3 -c 'import json, sys
+          for e in json.load(sys.stdin):
+              print(e["job"], "(" + e["engine"] + ")")'
+
+  scenarios:
+    name: ${{ matrix.job }} (${{ matrix.engine }})
+    needs: select
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        engine: [native, hsm]
-        scenario:
-          - { key: positive,        name: "Positive lifecycle" }
-          - { key: bothpsa,         name: "Both-OS PSA parity (Zephyr + FreeRTOS)" }
-          - { key: bothiso,         name: "Both-OS FF-M isolation negatives" }
-          - { key: restart,         name: "Guest restart recovery" }
-          - { key: crossdomain,     name: "Cross-domain isolation (L3)" }
-          - { key: keystoreneg,     name: "Keystore-band isolation (L3)" }
-          - { key: spfaultneg,      name: "Graceful SP fault recovery" }
-          - { key: panicneg,        name: "Secure-caller misuse panic" }
-          - { key: confboot,        name: "FF-M IPC conformance (85/4)" }
-          - { key: devstorage,      name: "dev_apis Storage (s001-s017)" }
-          - { key: devcrypto,       name: "dev_apis Crypto (c001-c080)" }
-          - { key: devattest,       name: "dev_apis Initial Attestation (a001, shim)" }
-          - { key: devattestqcbor,  name: "dev_apis Initial Attestation (a001, QCBOR)" }
-          - { key: attestneg,       name: "Attestation negatives (IPC + tamper)" }
-          - { key: hsmattackneg,    name: "wolfHSM cross-namespace + NVM relay negatives" }
-          - { key: authneg,         name: "Authenticated launch fail-closed" }
-          - { key: rollbackneg,     name: "Anti-rollback downgrade refused" }
-          - { key: vaultrecover,    name: "Vault recovery self-heal" }
-          - { key: vaultrecoversec, name: "Vault recovery fail-closed" }
-          - { key: fwustage,        name: "PSA Firmware Update staging" }
-          - { key: remeasureneg,    name: "Runtime re-measurement quarantine" }
-          - { key: bootupdate,      name: "Full boot-and-update swap gate" }
-          - { key: vnet,            name: "wolfIP virtual network (mediated ping)" }
-          - { key: vnetneg,         name: "Confined VNET isolation negatives" }
-          - { key: manifestneg,     name: "Corrupted-manifest activation refused" }
-          - { key: gtzcneg,         name: "NS MPU bypass cannot reach peer guest RAM" }
-          - { key: spbudgetneg,     name: "SP restart-budget exhaustion escalates" }
-        exclude:
-          # hsmattackneg drives the raw wolfHSM client wire from the guest;
-          # the native engine does not link that wire, so the attack surface
-          # under test does not exist there.
-          - { engine: native, scenario: { key: hsmattackneg, name: "wolfHSM cross-namespace + NVM relay negatives" } }
+        include: ${{ fromJSON(needs.select.outputs.matrix) }}
     timeout-minutes: 45
     container:
-      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+      image: ${{ matrix.image }}
     env:
       WT_ENGINE: ${{ matrix.engine }}
     steps:
@@ -327,5 +327,40 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
 
-      - name: Run FF-M target scenario
-        run: tests/target/run_m33mu_scenario.sh ${{ matrix.scenario.key }}
+      # The RT700 wolfBoot first stage builds against the MCUXpresso SDK, staged
+      # the way wolfBoot's own imxrt700 emulator workflow stages it.
+      - uses: actions/checkout@v4
+        if: matrix.port == 'mimxrt700'
+        with:
+          repository: nxp-mcuxpresso/CMSIS_5
+          ref: f9cf5df6d51a95f0146930d75af3d71977cf795a
+          path: CMSIS_5
+
+      - name: Cache MCUXpresso SDK
+        if: matrix.port == 'mimxrt700'
+        id: cache-mcuxpresso
+        uses: actions/cache@v4
+        with:
+          path: |
+            mcuxpresso-sdk
+            venv
+          key: mcuxpresso-sdk-mimxrt700evk-${{ hashFiles('.github/workflows/m33mu.yml') }}
+
+      - name: Setup MCUXpresso SDK
+        if: matrix.port == 'mimxrt700' && steps.cache-mcuxpresso.outputs.cache-hit != 'true'
+        run: |
+          python3 -m venv venv
+          . venv/bin/activate
+          pip install west==1.5.0
+          west init -m https://github.com/nxp-mcuxpresso/mcuxsdk-manifests.git \
+            --mr v26.06.00-LTS mcuxpresso-sdk
+          cd mcuxpresso-sdk
+          sed -i '/se_hostlib\|emwin/d' manifests/boards/mimxrt700evk.yml
+          west update_board --set board mimxrt700evk
+
+      - name: Run target scenarios
+        env:
+          MCUXSDK: ${{ matrix.port == 'mimxrt700' && '1' || '' }}
+          MCUXPRESSO: ${{ github.workspace }}/mcuxpresso-sdk/mcuxsdk
+          MCUXPRESSO_CMSIS: ${{ github.workspace }}/CMSIS_5/CMSIS
+        run: tests/target/run_suite.sh ${{ matrix.arm }} ${{ matrix.key }}

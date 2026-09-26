@@ -1060,7 +1060,8 @@ int wt_ffa_mem_share_register_as(wt_ffa_mem_registry_t* reg,
     unsigned int i;
     uint32_t r;
 
-    if ((reg == NULL) || (handle == 0u)) {
+    if ((reg == NULL) || (handle == 0u) ||
+        (op_state(op) == (uint8_t)WT_FFA_MEM_STATE_FREE)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if ((n > WT_FFA_MEM_MAX_REGIONS) || ((n > 0u) && (regions == NULL))) {

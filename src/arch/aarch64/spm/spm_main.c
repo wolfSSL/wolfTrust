@@ -1653,10 +1653,40 @@ static void ns_partition_info_get_regs(wt_ffa_regs_ext_t* e)
 }
 
 /* One forwarded event; the reply is left in e for the loop's SMC. */
+#if defined(WT_EL3_NS_SMOKE)
+/* An 8-register event delivered over ERET must arrive with x8-x17 zero
+ * (11.2), never with what the SPMC handed the monitor at its last SMC. */
+static void eret_sbz_probe(const wt_ffa_regs_ext_t* e)
+{
+    static uint8_t seen;
+    unsigned int i;
+    int clean = 1;
+
+    if (wt_ffa_msg_reg_count((uint32_t)e->base.x[0]) != WT_FFA_MSG_REGS) {
+        return;
+    }
+    for (i = 0u; i < (WT_FFA_MSG_REGS_EXT - WT_FFA_MSG_REGS); i++) {
+        if (e->ext[i] != 0u) {
+            clean = 0;
+        }
+    }
+    if (!clean) {
+        wt_el3_puts("[SPM] eret sbz BAD\r\n");
+    }
+    else if (seen == 0u) {
+        seen = 1u;
+        wt_el3_puts("[SPM] eret sbz ok\r\n");
+    }
+}
+#endif
+
 static void idle_dispatch(wt_ffa_regs_ext_t* e)
 {
     wt_ffa_regs_t* r = &e->base;
 
+#if defined(WT_EL3_NS_SMOKE)
+    eret_sbz_probe(e);
+#endif
     switch ((uint32_t)r->x[0]) {
         case WT_FFA_MSG_SEND_DIRECT_REQ32:
         case WT_FFA_MSG_SEND_DIRECT_REQ64:
@@ -1794,7 +1824,12 @@ void wt_spm_idle(void)
         /* Only an extended reply carries x8-x17 out of the SPMC. */
         if (wt_ffa_reply_is_ext(event, (uint32_t)e.base.x[0]) == 0) {
             for (i = 0u; i < (WT_FFA_MSG_REGS_EXT - WT_FFA_MSG_REGS); i++) {
+#if defined(WT_EL3_NS_SMOKE)
+                /* Test only: a value the monitor must not hand back (11.2). */
+                e.ext[i] = 0xC0DE0000u + i;
+#else
                 e.ext[i] = 0u;
+#endif
             }
         }
         /* Every hand-off to the Normal world funnels through this SMC, so

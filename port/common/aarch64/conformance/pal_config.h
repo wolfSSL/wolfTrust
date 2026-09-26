@@ -30,6 +30,9 @@
 
 #include "conf_nvm.h"
 
+/* The val suite runs the same tests at every level; xlnx-versal-virt fences
+ * no Secure band, so its manifests declare profile 0 (docs/Porting.md) and
+ * the runner records the seven NS-fence tests it cannot pass. */
 #define PLATFORM_PSA_ISOLATION_LEVEL 3
 
 #define UART_NUM                               1

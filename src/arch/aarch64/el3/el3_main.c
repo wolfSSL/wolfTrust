@@ -38,6 +38,9 @@
 #ifndef WT_PORT_BOOT_CPUS
 #define WT_PORT_BOOT_CPUS 1u
 #endif
+#if (WT_PORT_BOOT_CPUS < 1u) || (WT_PORT_BOOT_CPUS > WT_EL3_MAX_CPUS)
+#error "WT_PORT_BOOT_CPUS must be between 1 and WT_EL3_MAX_CPUS"
+#endif
 #ifndef WT_SPM_BOOT_INFO_PA
 #error "the target fragment must place the FF-A boot information page"
 #endif

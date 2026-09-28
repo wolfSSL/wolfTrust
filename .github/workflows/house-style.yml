@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   house-style:
-    name: C house-style conventions
+    name: c_house_style
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

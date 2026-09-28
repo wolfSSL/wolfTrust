@@ -13,10 +13,10 @@ jobs:
   c99:
     uses: ./.github/workflows/c99-compliance.yml
 
-  house-style:
+  house_style:
     uses: ./.github/workflows/house-style.yml
 
-  empty-brace-scan:
+  empty_brace_scan:
     uses: ./.github/workflows/empty-brace-scan.yml
 
   unit:
@@ -34,10 +34,10 @@ jobs:
   valgrind:
     uses: ./.github/workflows/valgrind.yml
 
-  cross-compile:
+  cross_compile:
     uses: ./.github/workflows/cross-compile.yml
 
-  core-port-split:
+  core_port_split:
     uses: ./.github/workflows/core-port-split.yml
 
   m33mu:

@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   core-port-split:
-    name: core/port split guard + vnet image
+    name: core_port_split_guard_vnet_image
     runs-on: ubuntu-latest
     timeout-minutes: 20
     container:

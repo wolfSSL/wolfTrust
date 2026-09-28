@@ -31,7 +31,7 @@ jobs:
           test -n "$latest"
           jq -nc --arg latest "$latest" \
             '{include:[{name:"pinned",ref:"pinned"},
-                      {name:"latest-stable",ref:$latest},
+                      {name:"latest_stable",ref:$latest},
                       {name:"master",ref:"master"}]}' \
             | tee matrix.json
           echo "matrix=$(cat matrix.json)" >> "$GITHUB_OUTPUT"

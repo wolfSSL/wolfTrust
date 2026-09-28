@@ -20,7 +20,7 @@ jobs:
     uses: ./.github/workflows/_resolve-wolfssl.yml
 
   wolfcose:
-    name: wolfCOSE integration (${{ matrix.name }})
+    name: wolfcose_integration_${{ matrix.name }}
     needs: resolve
     runs-on: ubuntu-latest
     container:
@@ -67,7 +67,7 @@ jobs:
             WOLFSSL_PREFIX="$GITHUB_WORKSPACE/.deps/wolfssl"
 
   wolfpsa:
-    name: wolfPSA integration (${{ matrix.name }})
+    name: wolfpsa_integration_${{ matrix.name }}
     needs: resolve
     runs-on: ubuntu-latest
     container:

@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   host-unit-tests:
-    name: Host tests (${{ matrix.name }})
+    name: host_tests_${{ matrix.name }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:
@@ -21,17 +21,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - name: GCC 12
+          - name: gcc_12
             cc: gcc-12
-          - name: GCC 13
+          - name: gcc_13
             cc: gcc-13
-          - name: GCC 14
+          - name: gcc_14
             cc: gcc-14
-          - name: GCC 15
+          - name: gcc_15
             cc: gcc-15
-          - name: Clang 19
+          - name: clang_19
             cc: clang-19
-          - name: Clang 21
+          - name: clang_21
             cc: clang-21
     steps:
       - uses: actions/checkout@v4

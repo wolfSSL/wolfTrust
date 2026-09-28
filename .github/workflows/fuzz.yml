@@ -30,13 +30,14 @@ jobs:
           esac
           MATRIX=$(jq -nc --argjson want "$WANT" '{
             include: [
-              {name:"spm-full",  target:"wt_spm_fuzz", fuzz_time:600, smoke_only:false, max_len:4096},
-              {name:"spm-smoke", target:"wt_spm_fuzz", fuzz_time:60,  smoke_only:true,  max_len:4096}
+              {name:"spm_full",  target:"wt_spm_fuzz", fuzz_time:600, smoke_only:false, max_len:4096},
+              {name:"spm_smoke", target:"wt_spm_fuzz", fuzz_time:60,  smoke_only:true,  max_len:4096}
             ] | map(select(.smoke_only == $want))
           }')
           echo "matrix=$MATRIX" >> "$GITHUB_OUTPUT"
 
   fuzz:
+    name: fuzz_${{ matrix.name }}
     needs: select
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -80,7 +81,7 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: fuzz-findings-${{ matrix.name }}
+          name: fuzz_findings_${{ matrix.name }}
           path: |
             tests/fuzz/crash-*
             tests/fuzz/oom-*

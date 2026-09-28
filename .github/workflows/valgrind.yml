@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   host-valgrind:
-    name: Host tests (Valgrind)
+    name: host_tests_valgrind
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:

@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   discover:
-    name: Discover host suites
+    name: discover_host_suites
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd
@@ -49,7 +49,7 @@ jobs:
         run: make -C tests/host/${{ matrix.suite }} clean run
 
   psa-ff-conformance:
-    name: Arm PSA FF conformance
+    name: arm_psa_ff_conformance
     # Bare runner, not the CI image: the image inherits m33mu, and
     # make test-conformance takes the emulator path when m33mu is on PATH.
     runs-on: ubuntu-latest
@@ -60,7 +60,7 @@ jobs:
         run: make test-conformance
 
   qcbor-interop:
-    name: CBOR interop (wolfCOSE and QCBOR)
+    name: cbor_interop_wolfcose_qcbor
     runs-on: ubuntu-latest
     container:
       image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd

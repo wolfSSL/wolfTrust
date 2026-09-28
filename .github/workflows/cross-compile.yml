@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   cortex-m33:
-    name: Cortex-M33 cross compilation
+    name: cortex_m33_cross_compile
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:

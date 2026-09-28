@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   host-sanitizers:
-    name: Host tests (ASan and UBSan)
+    name: host_tests_asan_ubsan
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:

@@ -1,4 +1,4 @@
-name: Empty Brace Scope Scan
+name: empty_brace_scope_scan
 
 on:
   push:
@@ -12,7 +12,7 @@ permissions:
 
 jobs:
   empty-brace-scan:
-    name: Empty Brace Scope Scan
+    name: empty_brace_scope_scan
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:

@@ -16,7 +16,7 @@ permissions:
 
 jobs:
   c99-check:
-    name: ISO C99 (${{ matrix.cc }})
+    name: iso_c99_${{ matrix.cc }}
     runs-on: ubuntu-latest
     timeout-minutes: 30
     strategy:

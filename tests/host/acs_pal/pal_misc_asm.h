@@ -18,8 +18,15 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* pal_misc.c includes the assembly helpers' header; the host rows need none. */
+/* pal_misc.c includes the assembly helpers' header. */
 
 #ifndef WT_TEST_PAL_MISC_ASM_H
 #define WT_TEST_PAL_MISC_ASM_H
+
+#include <stdint.h>
+
+/* Only the dispatcher's build calls it; the device-map rows compile it. */
+uint64_t pal_syscall_for_psci(uint64_t fid, uint64_t x1, uint64_t x2,
+                              uint64_t x3);
+
 #endif /* WT_TEST_PAL_MISC_ASM_H */

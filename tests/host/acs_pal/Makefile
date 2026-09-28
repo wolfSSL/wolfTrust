@@ -46,8 +46,17 @@ $(BUILD_DIR):
 $(TEST_BIN): main.c $(PAL_SRC) pal_interfaces.h pal_misc_asm.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ main.c $(PAL_SRC)
 
+# Each image's device map builds under ISO C: the dispatcher's, and a
+# partition with no devices, whose map is empty.
+PAL_CHECK := $(CC) -I. -std=c99 -Wall -Wextra -Werror -pedantic -c \
+	-o /dev/null $(PAL_SRC)
+
 run: $(TEST_BIN)
 	$(TEST_BIN)
+	@$(PAL_CHECK) -DVM1_COMPILE=1
+	@echo "  [check] PASS  the dispatcher's device map builds"
+	@$(PAL_CHECK)
+	@echo "  [check] PASS  a partition with no devices builds an empty device map"
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

@@ -31,6 +31,7 @@ static uint32_t is_buffer_in_use[WT_ACS_BUFFER_COUNT];
 __attribute__ ((aligned (PAGE_SIZE_4K)))
 static uint8_t pal_buffer_4k[WT_ACS_BUFFER_COUNT][PAGE_SIZE_4K];
 
+#if defined(SP1_COMPILE) || defined(VM1_COMPILE)
 static memory_region_descriptor_t endpoint_device_regions[] = {
 #if defined(SP1_COMPILE)
     {PLATFORM_NVM_BASE, PLATFORM_NVM_BASE, PLATFORM_NVM_SIZE, ATTR_DEVICE_RW_S},
@@ -43,13 +44,19 @@ static memory_region_descriptor_t endpoint_device_regions[] = {
     {GICC_BASE, GICC_BASE, GICC_SIZE, ATTR_DEVICE_RW},
 #endif
 };
+#endif
 
 uint32_t pal_get_endpoint_device_map(void **region_list,
                                      size_t *no_of_mem_regions)
 {
+#if defined(SP1_COMPILE) || defined(VM1_COMPILE)
     *region_list = (void *)endpoint_device_regions;
     *no_of_mem_regions = sizeof(endpoint_device_regions) /
                          sizeof(endpoint_device_regions[0]);
+#else
+    *region_list = NULL;
+    *no_of_mem_regions = 0u;
+#endif
     return PAL_SUCCESS;
 }
 

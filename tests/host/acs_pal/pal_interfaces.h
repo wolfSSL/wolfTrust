@@ -34,6 +34,15 @@
 #define PLATFORM_NVM_BASE 0x0E800000u
 #define PLATFORM_NVM_SIZE 0x10000u
 #define ATTR_DEVICE_RW_S  0x5u
+#define ATTR_DEVICE_RW    0x4u
+#define PLATFORM_NS_UART_BASE 0x09000000u
+#define PLATFORM_NS_UART_SIZE 0x1000u
+#define GICD_BASE 0x08000000u
+#define GICD_SIZE 0x10000u
+#define GICR_BASE 0x080A0000u
+#define GICR_SIZE 0x200000u
+#define GICC_BASE 0x08010000u
+#define GICC_SIZE 0x10000u
 
 typedef struct {
     uint64_t virtual_address;

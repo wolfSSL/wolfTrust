@@ -2,7 +2,7 @@ name: AArch64 cross compilation
 
 on:
   push:
-    branches: [master, main, "release/**", wolfpsa-v5.9.1-ci, wolftfm-l3, wolfTrust-dev, wolfTrust-dev2]
+    branches: [main]
   pull_request:
   workflow_dispatch:
   workflow_call:
@@ -12,8 +12,8 @@ permissions:
 
 jobs:
   qemu-a-smoke:
-    name: EL3 smoke on ${{ matrix.cell.name }} (${{ matrix.engine }})
-    runs-on: ubuntu-22.04
+    name: el3_smoke_${{ matrix.cell.slug }}_${{ matrix.engine }}
+    runs-on: ubuntu-latest
     # The serial list takes 15-18 min per cell on the reference box; the
     # per-scenario QEMU budgets are hang detectors, not expected runtimes.
     timeout-minutes: 75
@@ -23,9 +23,9 @@ jobs:
       fail-fast: false
       matrix:
         cell:
-          - { name: virt-gicv2-a35, machine: virt, target: qemuvirt, gic: 2, cpu: cortex-a35, smp: 2 }
-          - { name: virt-gicv3-a72, machine: virt, target: qemuvirt, gic: 3, cpu: cortex-a72, smp: 2 }
-          - { name: versal-virt, machine: versal-virt, target: versal, gic: 3, cpu: cortex-a72, smp: 4 }
+          - { name: virt-gicv2-a35, slug: virt_gicv2_a35, machine: virt, target: qemuvirt, gic: 2, cpu: cortex-a35, smp: 2 }
+          - { name: virt-gicv3-a72, slug: virt_gicv3_a72, machine: virt, target: qemuvirt, gic: 3, cpu: cortex-a72, smp: 2 }
+          - { name: versal-virt, slug: versal_virt, machine: versal-virt, target: versal, gic: 3, cpu: cortex-a72, smp: 4 }
         engine: [native, hsm]
     env:
       WT_ENGINE: ${{ matrix.engine }}
@@ -69,8 +69,8 @@ jobs:
           done
 
   qemu-a-ffa-acs:
-    name: FF-A ACS on ${{ matrix.cell.name }} (${{ matrix.engine }})
-    runs-on: ubuntu-22.04
+    name: ffa_acs_${{ matrix.cell.slug }}_${{ matrix.engine }}
+    runs-on: ubuntu-latest
     # The six groups take about 4 min per cell on the reference box.
     timeout-minutes: 60
     container:
@@ -79,9 +79,9 @@ jobs:
       fail-fast: false
       matrix:
         cell:
-          - { name: virt-gicv2-a35, machine: virt, target: qemuvirt, gic: 2, cpu: cortex-a35, smp: 2 }
-          - { name: virt-gicv3-a72, machine: virt, target: qemuvirt, gic: 3, cpu: cortex-a72, smp: 2 }
-          - { name: versal-virt, machine: versal-virt, target: versal, gic: 3, cpu: cortex-a72, smp: 4 }
+          - { name: virt-gicv2-a35, slug: virt_gicv2_a35, machine: virt, target: qemuvirt, gic: 2, cpu: cortex-a35, smp: 2 }
+          - { name: virt-gicv3-a72, slug: virt_gicv3_a72, machine: virt, target: qemuvirt, gic: 3, cpu: cortex-a72, smp: 2 }
+          - { name: versal-virt, slug: versal_virt, machine: versal-virt, target: versal, gic: 3, cpu: cortex-a72, smp: 4 }
         engine: [native, hsm]
     env:
       WT_ENGINE: ${{ matrix.engine }}

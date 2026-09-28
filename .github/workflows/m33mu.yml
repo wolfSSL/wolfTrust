@@ -1,8 +1,8 @@
 name: M33MU
 
 on:
-  # Full M33MU emulator matrix on every pull request, plus integration-branch
-  # pushes, the nightly schedule (workflow_call from nightly.yml), and manual
+  # Full M33MU emulator matrix on every pull request, plus pushes to main,
+  # the nightly schedule (workflow_call from nightly.yml), and manual
   # dispatch.
   pull_request:
   push:

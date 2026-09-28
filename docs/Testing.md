@@ -259,7 +259,7 @@ nightly schedule and manual dispatch run the 600-second soak instead.
 
 The full M33MU matrix (the `M33MU` workflow: wolfBoot plus both guest
 lifecycles, both crypto engines, and every scenario) runs on every pull
-request, on a push to `master`, `main`, or `wolfTrust-dev`, on the nightly
+request, on a push to `main`, on the nightly
 schedule, and on manual dispatch. Every PR gets the full emulator matrix
 automatically — no label or opt-in step.
 

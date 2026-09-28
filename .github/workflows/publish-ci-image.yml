@@ -4,7 +4,7 @@ name: Publish CI image
 # ghcr.io/wolfssl/wolftrust-ci:latest so the host build/test jobs just pull the
 # image instead of apt-get installing toolchains on every run.
 #
-# Published out of band, like wolfBoot's CI images: only accepted main/master
+# Published out of band, like wolfBoot's CI images: only accepted main
 # state (or a manual dispatch) produces :latest. It never runs on a pull
 # request, so PR jobs always pull a known-good image and never race a rebuild.
 

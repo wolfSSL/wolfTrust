@@ -23,6 +23,9 @@
 
 #define WT_ACS_PSCI_SYSTEM_OFF 0x84000008u
 #define WT_ACS_BUFFER_COUNT    5
+/* Each page records the span of the allocation it heads, or that it is the
+ * tail of a two-page one. */
+#define WT_ACS_BUFFER_TAIL     3u
 
 static uint32_t is_buffer_in_use[WT_ACS_BUFFER_COUNT];
 __attribute__ ((aligned (PAGE_SIZE_4K)))
@@ -80,7 +83,8 @@ void *pal_memory_alloc(uint64_t size)
             /* The pool reuses pages across tests; a message header built in
              * one must not inherit reserved or UUID bytes from another. */
             for (r = i; r < (i + span); r++) {
-                is_buffer_in_use[r] = 1u;
+                is_buffer_in_use[r] = (r == i) ? (uint32_t)span
+                                               : WT_ACS_BUFFER_TAIL;
                 for (b = 0u; b < PAGE_SIZE_4K; b++) {
                     pal_buffer_4k[r][b] = 0u;
                 }
@@ -91,13 +95,22 @@ void *pal_memory_alloc(uint64_t size)
     return NULL;
 }
 
+/* Only the head of a live allocation of the same span is released; anything
+ * else is refused, so a wrong size can never free a neighbour's page. */
 uint32_t pal_memory_free(void *address, uint64_t size)
 {
-    int span = (size == (PAGE_SIZE_4K * 2)) ? 2 : 1;
+    int span = 0;
     int i;
 
-    for (i = 0; (i + span) <= WT_ACS_BUFFER_COUNT; i++) {
-        if (&pal_buffer_4k[i][0] == address) {
+    if (size == PAGE_SIZE_4K) {
+        span = 1;
+    }
+    else if (size == (PAGE_SIZE_4K * 2)) {
+        span = 2;
+    }
+    for (i = 0; (span != 0) && ((i + span) <= WT_ACS_BUFFER_COUNT); i++) {
+        if ((&pal_buffer_4k[i][0] == address) &&
+            (is_buffer_in_use[i] == (uint32_t)span)) {
             is_buffer_in_use[i] = 0u;
             if (span == 2) {
                 is_buffer_in_use[i + 1] = 0u;

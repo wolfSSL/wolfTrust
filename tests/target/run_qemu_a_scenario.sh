@@ -48,21 +48,23 @@ esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
 # implements.
+# Each group's tests that fail by design, which must be exactly the failures
+# the run reports: ffa_partition_info_get_lsp looks for TF-A's own EL3 logical
+# partition, an implementation detail of TF-A and not part of FF-A. (The
+# S-EL1-partition notification tests are excluded by the ACS itself at
+# PLATFORM_SP_EL=0, so the notifications group totals ten tests here.)
 acs_suite=""
 acs_floor=0
+acs_deviations=""
 case "$scenario" in
-  ffaacs-discovery) acs_suite=setup_discovery; acs_floor=14 ;;
+  ffaacs-discovery) acs_suite=setup_discovery; acs_floor=14
+                    acs_deviations="ffa_partition_info_get_lsp" ;;
   ffaacs-direct)    acs_suite=direct_messaging; acs_floor=5 ;;
   ffaacs-memory)    acs_suite=memory_manage; acs_floor=70 ;;
   ffaacs-notify)    acs_suite=notifications; acs_floor=10 ;;
   ffaacs-indirect)  acs_suite=indirect_messaging; acs_floor=2 ;;
   ffaacs-interrupts) acs_suite=interrupts; acs_floor=6 ;;
 esac
-# Tests that fail by design: this one looks for TF-A's own EL3 logical
-# partition, which is an implementation detail of TF-A and not part of FF-A.
-# (The S-EL1-partition notification tests are excluded by the ACS itself at
-# PLATFORM_SP_EL=0, so the notifications group totals ten tests here.)
-acs_deviations="ffa_partition_info_get_lsp"
 # The dev_apis Crypto schedule wolfPSA answers: a newly skipped test is a
 # regression, not a pass (77 scheduled; c047 is configuration-skipped).
 crypto_passed=64
@@ -895,23 +897,15 @@ case "$scenario" in
     failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     sim_error=$(printf '%s' "$flat" | grep -oE 'TOTAL SIM ERROR[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     : "${passed:=-1}"; : "${skipped:=-1}"; : "${failed:=-1}"; : "${sim_error:=-1}"
-    # Every failure must be a named, by-design deviation.
-    unexpected=""
-    # val_test_init prints "TEST: <name> SUITE: ..." (with a space); confirmed
-    # against a real setup_discovery log, not "TEST:%s".
-    for name in $(grep -aE 'TEST:|RESULT: FAILED' "$log" | grep -a -B1 'RESULT: FAILED' |
-                  grep -a 'TEST:' | sed -E 's/.*TEST: ([A-Za-z0-9_]+).*/\1/'); do
-      case " $acs_deviations " in
-        *" $name "*) ;;
-        *) unexpected="$unexpected $name" ;;
-      esac
-    done
-    # A SIM ERROR is a test that could not run to a verdict: never by design.
-    if [ -z "$unexpected" ] && [ "$failed" -ge 0 ] && [ "$sim_error" = 0 ] && \
-       [ "$passed" -ge "$acs_floor" ]; then
+    # The failures must be exactly the group's by-design set, by name and by
+    # the printed total (acs_failures_ok, expect.sh); a SIM ERROR is a test
+    # that could not run to a verdict: never by design.
+    acs_why=""
+    if acs_why=$(acs_failures_ok "$failed" "$acs_deviations" "$log") && \
+       [ "$sim_error" = 0 ] && [ "$passed" -ge "$acs_floor" ]; then
       check_pass "FF-A ACS $acs_suite: ${passed} passed, ${skipped} skipped, ${failed} by-design deviation(s), 0 sim errors"
     else
-      check_fail "FF-A ACS $acs_suite" "passed=$passed (want >= $acs_floor) skipped=$skipped failed=$failed sim_error=$sim_error (want 0) unexpected:${unexpected:- none}"
+      check_fail "FF-A ACS $acs_suite" "passed=$passed (want >= $acs_floor) skipped=$skipped failed=$failed sim_error=$sim_error (want 0)${acs_why:+; $acs_why}"
     fi
     expect "the dispatcher ended the run" "END OF ACS"
     expect "the dispatcher's PSCI SYSTEM_OFF ended the emulator cleanly" "[EXPECT EXIT] Success"

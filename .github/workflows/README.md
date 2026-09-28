@@ -1,20 +1,9 @@
 # wolfTrust CI
 
-CI has a fast per-PR host lane, the tiered M33MU emulator matrix, and static
-analysis. M33MU runs a per-port smoke set on every pull request and the full
-matrix on labels, main pushes, and nightly.
-
-`codeql.yml` runs C security queries. `coverity.yml` runs on Sundays at
-00:00 UTC or by manual dispatch. Both build the host suites and secure images
-for STM32H563 and MIMXRT700 with both crypto engines.
-
-Coverity scans wolfTrust runtime, ports, tests, and generated policy code.
-`tools/ci-coverity-filter.py` removes dependency source units before upload
-and rejects an invalid capture. Keep submodules under `lib/` and enable
-**Ignore component in analysis** for the `Third party dependencies` component
-(`.*/lib/.*`) in Coverity Scan to exclude dependency headers too.
-
-An accepted upload queues analysis; results appear after Coverity processes it.
+Three lanes, modeled on wolfProvider's CI: a fast per-PR host lane, the M33MU
+emulator matrix, and the AArch64 QEMU matrix. Both emulator lanes are tiered: a
+smoke set on every pull request, and the full matrix on labels, main pushes,
+and nightly.
 
 ## At a glance
 

@@ -100,7 +100,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf "git@github.com:"
           git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE lib/wolfPSA
 
-      - name: Fetch the pinned Arm FF-A ACS once for the three groups
+      - name: Fetch the pinned Arm FF-A ACS once for the six groups
         run: |
           tests/upstream/fetch_ffa_acs.sh "$GITHUB_WORKSPACE/.acs-cache"
           echo "WT_FFA_ACS_CACHE=$GITHUB_WORKSPACE/.acs-cache" >> "$GITHUB_ENV"

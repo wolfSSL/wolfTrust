@@ -29,7 +29,7 @@ ifeq ($(WT_GIC_SPI_ROUTE_PROBE),1)
 ARCH_CFLAGS += -DWT_GIC_SPI_ROUTE_PROBE=1
 endif
 # Test only: the monitor sees its redistributor asleep (1) or never gets its
-# secure tick (2) and must stop the boot.
+# secure tick (2), or an SPMC boot self-test fails (3), and the boot must stop.
 WT_EL3_BOOT_NEG_PROBE ?= 0
 ifneq ($(WT_EL3_BOOT_NEG_PROBE),0)
 ARCH_CFLAGS += -DWT_EL3_BOOT_NEG_PROBE=$(WT_EL3_BOOT_NEG_PROBE)

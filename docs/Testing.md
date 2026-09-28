@@ -393,6 +393,7 @@ assert through `tests/target/lib/expect.sh`.
 | `spfaultneg`, `panicneg` | A partition that faults once, or is panicked for a programmer error, is restarted by manifest policy and every partition still initializes |
 | `spbudgetneg` | A partition that faults on every entry exhausts its restart budget and escalates to fail-closed recovery |
 | `tablesneg` | The stage-1 table builder refuses a writable and executable region and the SPMC panics before its MMU is on |
+| `proofneg` | A boot self-test forced to fail stops the SPMC with its panic before any partition starts |
 | `manifestneg` | A corrupted manifest stops activation with the manifest-validation panic code |
 | `ffa-direct` | A direct request from the monitor's test driver reaches an S-EL0 echo partition and returns complemented |
 | `ffa-sint` | A Secure interrupt is signaled to its owning partition while it waits and queued while it runs |

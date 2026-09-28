@@ -1914,6 +1914,14 @@ static int relay_build(uint8_t* desc, size_t cap, wt_ffa_mem_op_t op,
 }
 
 /* Send n constituents from A to B; *ret gets the relayer's answer. */
+/* What a receiver states when the memory becomes its alone (a donate, or a
+ * lend to one borrower): its data access and, DEN0140 1.10.3 item 2, the
+ * instruction access it wants, which this relayer only ever grants as
+ * not-executable. A share's or a multi-borrower lend's borrower leaves the
+ * instruction access unspecified (item 1). */
+#define OWN_RW (uint8_t)(WT_FFA_MEM_PERM_DATA_RW | WT_FFA_MEM_PERM_INSTR_NX)
+#define OWN_RO (uint8_t)(WT_FFA_MEM_PERM_DATA_RO | WT_FFA_MEM_PERM_INSTR_NX)
+
 static uint64_t relay_send(wt_ffa_mem_op_t op, const wt_ffa_mem_constituent_t* c,
                            uint32_t n, uint8_t perms, uint32_t flags, int* ret)
 {
@@ -2004,7 +2012,7 @@ static void relay_rows(void)
     check(ret == 0 && access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
           access_of(&g_dom_a, PG_RW + 2u) == WT_DOMAIN_ACCESS_RW,
           "relayer: a lend takes the lent pages, and only those, from the owner");
-    check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+    check(relay_retrieve(h, OWN_RW, 0u) == 0 &&
           access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW &&
           access_of(&g_dom_b, PG_RW + 1u) == WT_DOMAIN_ACCESS_RW,
           "relayer: a retrieve maps the lent pages into the borrower");
@@ -2025,7 +2033,7 @@ static void relay_rows(void)
           access_of(&g_dom_a, PG_RW) == WT_DOMAIN_ACCESS_RW &&
           access_of(&g_dom_a, PG_RW + 1u) == WT_DOMAIN_ACCESS_RW,
           "relayer: a reclaim gives the owner its access back");
-    check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) != 0,
+    check(relay_retrieve(h, OWN_RW, 0u) != 0,
           "relayer: a reclaimed handle cannot be retrieved");
     check(g_domain_fails == 0u, "relayer: no domain operation failed closed");
 }
@@ -2076,7 +2084,7 @@ static void relay_owner_rows(void)
 
 /* B's retrieve of h asking for the given attributes; *resp_attrs gets the
  * attributes the response reports. */
-static int relay_retrieve_attrs(uint64_t h, uint16_t attributes,
+static int relay_retrieve_attrs(uint64_t h, uint16_t attributes, uint8_t perms,
                                 uint16_t* resp_attrs)
 {
     uint8_t req[128];
@@ -2086,8 +2094,7 @@ static int relay_retrieve_attrs(uint64_t h, uint16_t attributes,
     int ret;
 
     ret = wt_ffa_mem_retrieve_req_build(req, sizeof(req), h, RELAY_ID_A,
-                                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW,
-                                        &len);
+                                        RELAY_ID_B, perms, &len);
     if (ret == 0) {
         req[WT_FFA_MEM_TXN_OFF_ATTRS] = (uint8_t)(attributes & 0xFFu);
         req[WT_FFA_MEM_TXN_OFF_ATTRS + 1u] = (uint8_t)(attributes >> 8);
@@ -2133,13 +2140,13 @@ static void relay_attr_rows(void)
     ret = wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_SHARE, RELAY_ID_A, &h);
     check(ret == 0,
           "attr: neither refused share held the page, and a Normal write-back inner-shareable share of it is accepted");
-    check(relay_retrieve_attrs(h, 0x27u, &got) == WT_FFA_INVALID_PARAMETERS &&
+    check(relay_retrieve_attrs(h, 0x27u, WT_FFA_MEM_PERM_DATA_RW, &got) == WT_FFA_INVALID_PARAMETERS &&
           access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
           "attr: a retrieve asking for non-cacheable memory is INVALID_PARAMETERS and maps nothing");
-    check(relay_retrieve_attrs(h, 0x2Eu, &got) == WT_FFA_DENIED &&
+    check(relay_retrieve_attrs(h, 0x2Eu, WT_FFA_MEM_PERM_DATA_RW, &got) == WT_FFA_DENIED &&
           access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
           "attr: a retrieve asking for more than the lender gave is DENIED and maps nothing");
-    check(relay_retrieve_attrs(h, 0x2Fu, &got) == 0 && got == 0x2Fu &&
+    check(relay_retrieve_attrs(h, 0x2Fu, WT_FFA_MEM_PERM_DATA_RW, &got) == 0 && got == 0x2Fu &&
           access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW,
           "attr: a retrieve asking for the lender's attributes maps them and reports them");
     check(relay_relinquish(h, 0u) == 0 &&
@@ -2148,7 +2155,7 @@ static void relay_attr_rows(void)
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                    &ret);
     got = 0u;
-    check(ret == 0 && relay_retrieve_attrs(h, 0u, &got) == 0 && got == 0x2Fu &&
+    check(ret == 0 && relay_retrieve_attrs(h, 0u, OWN_RW, &got) == 0 && got == 0x2Fu &&
           relay_relinquish(h, 0u) == 0 &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
           "attr: a lend to one borrower reports the Normal write-back inner-shareable mapping the relayer chose");
@@ -2174,7 +2181,7 @@ static void relay_perm_rows(void)
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                    &ret);
     p[0] = 0xA5u;
-    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RO, 0u) == 0 &&
+    check(ret == 0 && relay_retrieve(h, OWN_RO, 0u) == 0 &&
           access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RO,
           "perm: a borrower granted read-write may retrieve read-only");
     check(relay_relinquish(h, WT_FFA_MEM_RELINQ_FLAG_ZERO) == WT_FFA_DENIED &&
@@ -2205,7 +2212,7 @@ static void relay_region_rows(void)
     c[1].page_count = 1u;
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 2u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                    &ret);
-    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+    check(ret == 0 && relay_retrieve(h, OWN_RW, 0u) == 0 &&
           relay_relinquish(h, 0u) == 0 && b_entry(PG_FILL) == 1 &&
           b_entry(PG_RW) == 1 &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
@@ -2216,7 +2223,7 @@ static void relay_region_rows(void)
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                    &ret);
     check(ret == 0 &&
-          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == WT_FFA_NO_MEMORY &&
+          relay_retrieve(h, OWN_RW, 0u) == WT_FFA_NO_MEMORY &&
           access_of(&g_dom_b, PG_GAP) == WT_DOMAIN_ACCESS_NONE &&
           wt_domain_pool_pages_used() == used &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
@@ -2229,7 +2236,7 @@ static void relay_region_rows(void)
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 3u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                    &ret);
     check(ret == 0 &&
-          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == WT_FFA_NO_MEMORY &&
+          relay_retrieve(h, OWN_RW, 0u) == WT_FFA_NO_MEMORY &&
           b_entry(PG_FILL) == 1 && b_entry(PG_RW) == 1 &&
           access_of(&g_dom_b, PG_GAP) == WT_DOMAIN_ACCESS_NONE &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
@@ -2251,7 +2258,7 @@ static void relay_region_rows(void)
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RO, 0u,
                    &ret);
     check(ret == 0 && access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_NONE &&
-          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RO, 0u) == 0 &&
+          relay_retrieve(h, OWN_RO, 0u) == 0 &&
           relay_relinquish(h, 0u) == 0 &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
           wt_domain_get_permissions(g_dom_a.regions, g_dom_a.region_count,
@@ -2324,13 +2331,13 @@ static void relay_donate_rows(void)
         h = relay_send(WT_FFA_MEM_OP_DONATE, c, 2u,
                        WT_FFA_MEM_PERM_DATA_NOT_SPEC, 0u, &ret);
         check(ret == 0 &&
-              relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == WT_FFA_DENIED &&
+              relay_retrieve(h, OWN_RW, 0u) == WT_FFA_DENIED &&
               access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
               access_of(&g_dom_b, PG_RO) == WT_DOMAIN_ACCESS_NONE,
               (order == 0)
                   ? "donate: a read-write then read-only donate is DENIED to a read-write retrieve"
                   : "donate: a read-only then read-write donate is DENIED to a read-write retrieve");
-        check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RO, 0u) == 0 &&
+        check(relay_retrieve(h, OWN_RO, 0u) == 0 &&
               access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RO &&
               access_of(&g_dom_b, PG_RO) == WT_DOMAIN_ACCESS_RO,
               "donate: the receiver maps every page read-only");
@@ -2638,7 +2645,7 @@ static void relay_icache_rows(void)
                    &ret);
     g_syncs = 0u;
     check(ret == 0 && access_of(&g_dom_a, PG_RX) == WT_DOMAIN_ACCESS_NONE &&
-          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RO, 0u) == 0 &&
+          relay_retrieve(h, OWN_RO, 0u) == 0 &&
           relay_relinquish(h, 0u) == 0 && g_syncs == 0u,
           "icache: lending the executable page, and a borrower mapping it execute-never, need no sync");
     check(wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 &&
@@ -2648,7 +2655,7 @@ static void relay_icache_rows(void)
     c[0].address = page(PG_FILL2);
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                    &ret);
-    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+    check(ret == 0 && relay_retrieve(h, OWN_RW, 0u) == 0 &&
           relay_relinquish(h, 0u) == 0 &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 && g_syncs == 1u,
           "icache: a reclaim that gives back execute-never data needs none");
@@ -2702,7 +2709,8 @@ static int relay_relinquish_as(uint64_t h, uint16_t who)
     return ret;
 }
 
-/* B retrieves h from A asking for flags; *resp_flags gets the response's. */
+/* B retrieves h, a lend to it alone, from A asking for flags; *resp_flags
+ * gets the response's. */
 static int relay_retrieve_flags(uint64_t h, uint32_t flags,
                                 uint32_t* resp_flags)
 {
@@ -2714,8 +2722,7 @@ static int relay_retrieve_flags(uint64_t h, uint32_t flags,
 
     *resp_flags = 0xFFFFFFFFu;
     ret = wt_ffa_mem_retrieve_req_build(req, sizeof(req), h, RELAY_ID_A,
-                                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW,
-                                        &len);
+                                        RELAY_ID_B, OWN_RW, &len);
     if (ret == 0) {
         put32(&req[WT_FFA_MEM_TXN_OFF_FLAGS], flags);
         ret = wt_spm_mem_retrieve(req, len, RELAY_ID_B, resp, sizeof(resp),
@@ -2767,7 +2774,7 @@ static void relay_zero_rows(void)
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW,
                    0xFFFFFFFCu, &ret);
     p[0] = 0xC1u;
-    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+    check(ret == 0 && relay_retrieve(h, OWN_RW, 0u) == 0 &&
           relay_relinquish(h, 0u) == 0 &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0 && p[0] == 0xC1u,
           "zero: a lend's SBZ flag bits are ignored and never ask the relayer for a wipe");
@@ -2878,6 +2885,7 @@ static void relay_own_access_rows(void)
     uint64_t h = 0u;
     size_t len = 0u;
     unsigned int i;
+    uint8_t instr;
     int ret = 0;
 
     if ((g_mem == NULL) || !relay_reset()) {
@@ -2887,22 +2895,53 @@ static void relay_own_access_rows(void)
     c[0].address = page(PG_RW);
     c[0].page_count = 1u;
     for (i = 0u; i < 2u; i++) {
+        instr = (ops[i] == WT_FFA_MEM_OP_LEND) ? WT_FFA_MEM_PERM_INSTR_NX
+                                               : WT_FFA_MEM_PERM_INSTR_NOT_SPEC;
         h = relay_send(ops[i], c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u, &ret);
         check(ret == 0 &&
-              relay_retrieve(h, WT_FFA_MEM_PERM_DATA_NOT_SPEC, 0u) ==
-                  WT_FFA_INVALID_PARAMETERS &&
+              relay_retrieve(h, (uint8_t)(WT_FFA_MEM_PERM_DATA_NOT_SPEC | instr),
+                             0u) == WT_FFA_INVALID_PARAMETERS &&
               access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
               (i == 0u)
                   ? "own access: a lend borrower leaving its data access unspecified is INVALID_PARAMETERS"
                   : "own access: so is a share borrower");
-        check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RSVD, 0u) ==
-                  WT_FFA_INVALID_PARAMETERS &&
-              relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+        check(relay_retrieve(h, (uint8_t)(WT_FFA_MEM_PERM_DATA_RSVD | instr),
+                             0u) == WT_FFA_INVALID_PARAMETERS &&
+              relay_retrieve(h, (uint8_t)(WT_FFA_MEM_PERM_DATA_RW | instr),
+                             0u) == 0 &&
               access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW &&
               relay_relinquish(h, 0u) == 0 &&
               wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
               "own access: the reserved encoding too; stating it, the borrower retrieves");
     }
+    /* 1.10.3: the one borrower of a lend states its instruction access, a
+     * share's leaves it unspecified, and neither is ever mapped executable. */
+    h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u, &ret);
+    check(ret == 0 &&
+          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
+          "own access: a lend's one borrower leaving its instruction access unspecified is INVALID_PARAMETERS (1.10.3 item 2)");
+    check(relay_retrieve(h, (uint8_t)(WT_FFA_MEM_PERM_DATA_RW |
+                                      WT_FFA_MEM_PERM_INSTR_X), 0u) ==
+              WT_FFA_DENIED &&
+          relay_retrieve(h, (uint8_t)(WT_FFA_MEM_PERM_DATA_RW |
+                                      WT_FFA_MEM_PERM_INSTR_MASK), 0u) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
+          relay_retrieve(h, OWN_RW, 0u) == 0 &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW &&
+          relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "own access: asking for executable is DENIED and the reserved encoding INVALID_PARAMETERS; stating not-executable, it retrieves");
+    h = relay_send(WT_FFA_MEM_OP_SHARE, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u, &ret);
+    check(ret == 0 &&
+          relay_retrieve(h, OWN_RW, 0u) == WT_FFA_INVALID_PARAMETERS &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
+          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+          relay_relinquish(h, 0u) == 0 &&
+          wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
+          "own access: a share borrower stating an instruction access is INVALID_PARAMETERS (item 1)");
     ret = relay_build(desc, sizeof(desc), WT_FFA_MEM_OP_LEND, c, 1u,
                       WT_FFA_MEM_PERM_DATA_RW, 0u, &len);
     if (ret == 0) {
@@ -2923,9 +2962,17 @@ static void relay_own_access_rows(void)
     h = relay_send(WT_FFA_MEM_OP_DONATE, c, 1u, WT_FFA_MEM_PERM_DATA_NOT_SPEC,
                    0u, &ret);
     check(ret == 0 &&
-          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_NOT_SPEC, 0u) == 0 &&
+          relay_retrieve(h, WT_FFA_MEM_PERM_DATA_NOT_SPEC, 0u) ==
+              WT_FFA_INVALID_PARAMETERS &&
+          relay_retrieve(h, (uint8_t)(WT_FFA_MEM_PERM_DATA_NOT_SPEC |
+                                      WT_FFA_MEM_PERM_INSTR_X), 0u) ==
+              WT_FFA_DENIED &&
+          access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE,
+          "own access: a donate's receiver states its instruction access too, and executable is DENIED");
+    check(relay_retrieve(h, (uint8_t)(WT_FFA_MEM_PERM_DATA_NOT_SPEC |
+                                      WT_FFA_MEM_PERM_INSTR_NX), 0u) == 0 &&
           access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_RW,
-          "own access: a donate's receiver that leaves it unspecified gets the owner's read-write access");
+          "own access: a donate's receiver that leaves its data access unspecified gets the owner's read-write access");
     check(g_domain_fails == 0u, "own access: no domain operation failed closed");
 }
 
@@ -2956,7 +3003,7 @@ static void relay_clean_rows(void)
     check(ret == 0 && cleaned(PG_RW),
           "clean: a lend that asks for zeroing cleans the zeroed page");
     g_cleans = 0u;
-    check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+    check(relay_retrieve(h, OWN_RW, 0u) == 0 &&
           g_cleans == 0u,
           "clean: the retrieve that follows neither wipes nor cleans it again");
     check(relay_relinquish(h, WT_FFA_MEM_RELINQ_FLAG_ZERO) == 0 &&
@@ -3005,9 +3052,9 @@ static void relay_teardown_rows(void)
     wiped[0] = 0x5Au;
     kept[0] = 0x5Au;
     check(ret == 0 && ret2 == 0 &&
-          relay_retrieve(h1, WT_FFA_MEM_PERM_DATA_RW,
+          relay_retrieve(h1, OWN_RW,
                          WT_FFA_MEM_FLAG_ZERO_AFTER) == 0 &&
-          relay_retrieve(h2, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0,
+          relay_retrieve(h2, OWN_RW, 0u) == 0,
           "teardown: the borrower holds two lent pages, one to be zeroed after");
     wt_spm_mem_endpoint_teardown(CO_B);
     check(access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
@@ -3028,7 +3075,7 @@ static void relay_teardown_rows(void)
     h2 = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                     &ret2);
     check(ret == 0 && ret2 == 0 &&
-          relay_retrieve(h2, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0,
+          relay_retrieve(h2, OWN_RW, 0u) == 0,
           "teardown: the owner lends two pages, the borrower retrieves one");
     (void)relay_build(desc, sizeof(desc), WT_FFA_MEM_OP_LEND, c, 1u,
                       WT_FFA_MEM_PERM_DATA_RW, 0u, &len);
@@ -3053,12 +3100,11 @@ static void relay_teardown_rows(void)
 }
 
 /* B retrieves h from owner with a v1.0 retrieve request. */
-static int relay_retrieve_v10(uint64_t h, uint16_t owner, uint8_t* resp,
-                              size_t* resp_len)
+static int relay_retrieve_v10(uint64_t h, uint16_t owner, uint8_t perms,
+                              uint8_t* resp, size_t* resp_len)
 {
     uint8_t req[64];
-    size_t len = v10_retrieve_req(req, h, owner, RELAY_ID_B,
-                                  WT_FFA_MEM_PERM_DATA_RW);
+    size_t len = v10_retrieve_req(req, h, owner, RELAY_ID_B, perms);
 
     return wt_spm_mem_retrieve(req, len, RELAY_ID_B, resp, 256u, resp_len);
 }
@@ -3069,7 +3115,8 @@ static uint8_t ns_bit_told(uint64_t h, int* ret)
     size_t resp_len = 0u;
 
     memset(resp, 0, sizeof(resp));
-    *ret = relay_retrieve_v10(h, WT_FFA_ID_NS_PRIMARY, resp, &resp_len);
+    *ret = relay_retrieve_v10(h, WT_FFA_ID_NS_PRIMARY, WT_FFA_MEM_PERM_DATA_RW,
+                              resp, &resp_len);
     if (*ret == 0) {
         *ret = relay_relinquish(h, 0u);
     }
@@ -3114,7 +3161,7 @@ static void relay_v10_rows(void)
     check(wt_spm_mem_share(desc, len, WT_FFA_MEM_OP_LEND, RELAY_ID_A, &h) == 0,
           "v1.0: the relayer takes a lend from a v1.0 owner in its layout");
     memset(resp, 0xA5, sizeof(resp));
-    check(relay_retrieve_v10(h, RELAY_ID_A, resp, &resp_len) == 0 &&
+    check(relay_retrieve_v10(h, RELAY_ID_A, OWN_RW, resp, &resp_len) == 0 &&
               resp_len == 80u && get32(&resp[24]) == 0u &&
               get32(&resp[28]) == 1u && resp[32] == (RELAY_ID_B & 0xFFu) &&
               get32(&resp[32u + WT_FFA_MEM_ACC_OFF_COMP_OFF]) == 48u &&
@@ -3192,7 +3239,7 @@ static void relay_unbind_rows(void)
     c[0].page_count = 1u;
     h = relay_send(WT_FFA_MEM_OP_LEND, c, 1u, WT_FFA_MEM_PERM_DATA_RW, 0u,
                    &ret);
-    check(ret == 0 && relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == 0 &&
+    check(ret == 0 && relay_retrieve(h, OWN_RW, 0u) == 0 &&
           wt_spm_mem_binding(CO_B) != NULL,
           "unbind: a bound borrower holds a lent page");
     wt_spm_mem_unbind(CO_B);
@@ -3200,7 +3247,7 @@ static void relay_unbind_rows(void)
           access_of(&g_dom_b, PG_RW) == WT_DOMAIN_ACCESS_NONE &&
           wt_spm_mem_binding(CO_A) != NULL,
           "unbind: the coroutine loses its binding and the page it held, no other");
-    check(relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, 0u) == WT_FFA_DENIED &&
+    check(relay_retrieve(h, OWN_RW, 0u) == WT_FFA_DENIED &&
           wt_spm_mem_reclaim(h, RELAY_ID_A, 0u) == 0,
           "unbind: the unbound endpoint cannot retrieve and the owner reclaims");
 }
@@ -3276,7 +3323,7 @@ static void relay_ns_donate_rows(void)
                         RELAY_ID_B, WT_FFA_MEM_PERM_DATA_NOT_SPEC, &ret);
     check(ret == 0 &&
           relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
-                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+                            OWN_RW) == 0 &&
           access_of(&g_dom_b, 10u) == WT_DOMAIN_ACCESS_RW &&
           ns_of(&g_dom_b, 10u) != 0,
           "ns donate: the Normal world donates a page and the receiver maps it Non-secure");
@@ -3290,7 +3337,7 @@ static void relay_ns_donate_rows(void)
                         WT_FFA_MEM_PERM_DATA_RW, &ret);
     check(ret == 0 && access_of(&g_dom_b, 10u) == WT_DOMAIN_ACCESS_NONE &&
           relay_retrieve_by(h, RELAY_ID_B, RELAY_ID_C,
-                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+                            OWN_RW) == 0 &&
           ns_of(&g_dom_c, 10u) != 0,
           "ns donate: its new owner lends it on, and the borrower maps it Non-secure too");
     check(relay_relinquish_as(h, RELAY_ID_C) == 0 &&
@@ -3333,8 +3380,8 @@ static int relay_retrieve_sized(uint64_t h, uint32_t req_version,
     int ret;
 
     ret = wt_ffa_mem_retrieve_req_build_at(req, sizeof(req), h, RELAY_ID_A,
-                                           RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW,
-                                           req_version, &len);
+                                           RELAY_ID_B, OWN_RW, req_version,
+                                           &len);
     if (ret == 0) {
         ret = wt_spm_mem_retrieve(req, len, RELAY_ID_B, resp, sizeof(resp),
                                   &resp_len);
@@ -3414,8 +3461,7 @@ static int relay_retrieve_ranges(uint64_t h, const wt_ffa_mem_constituent_t* r,
     int ret;
 
     ret = wt_ffa_mem_retrieve_req_build(req, sizeof(req), h, RELAY_ID_A,
-                                        RELAY_ID_B, WT_FFA_MEM_PERM_DATA_RW,
-                                        &len);
+                                        RELAY_ID_B, OWN_RW, &len);
     if (ret != 0) {
         return ret;
     }
@@ -3592,7 +3638,7 @@ static int relay_align_at(uint64_t base, uint32_t n)
                        &sent);
     }
     if (sent == 0) {
-        ret = relay_retrieve(h, WT_FFA_MEM_PERM_DATA_RW, ALIGN_VALID | (n << 5));
+        ret = relay_retrieve(h, OWN_RW, ALIGN_VALID | (n << 5));
         if ((ret == 0) && (relay_relinquish(h, 0u) != 0)) {
             ret = -99;
         }
@@ -3674,7 +3720,7 @@ static void relay_donated_perm_rows(void)
                         WT_FFA_MEM_PERM_DATA_NOT_SPEC, &ret);
     check(ret == 0 &&
           relay_retrieve_by(h, RELAY_ID_A, RELAY_ID_B,
-                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+                            OWN_RW) == 0 &&
           wt_spm_mem_perm_get(&g_dom_b, page(PG_RW), &perm) == 0 &&
           perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN),
           "donated perm: the receiver reads back the page it was donated");
@@ -3700,7 +3746,7 @@ static void relay_donated_perm_rows(void)
                         WT_FFA_MEM_PERM_DATA_RW, &ret);
     check(ret == 0 &&
           relay_retrieve_by(h, RELAY_ID_A, RELAY_ID_B,
-                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+                            OWN_RW) == 0 &&
           wt_spm_mem_perm_get(&g_dom_b, page(PG_FILL2), &perm) ==
               WT_FFA_INVALID_PARAMETERS &&
           wt_spm_mem_perm_set(&g_dom_b, &g_relay_mailbox, page(PG_FILL2), 1u,
@@ -3730,7 +3776,7 @@ static void relay_donated_perm_rows(void)
                         RELAY_ID_B, WT_FFA_MEM_PERM_DATA_NOT_SPEC, &ret);
     check(ret == 0 &&
           relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
-                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+                            OWN_RW) == 0 &&
           wt_spm_mem_perm_get(&g_dom_b, page(PG_NS), &perm) == 0 &&
           perm == (WT_FFA_PERM_DATA_RW | WT_FFA_PERM_XN) &&
           wt_spm_mem_rxtx_ok(&g_dom_b, page(PG_NS)) == 0,
@@ -3910,7 +3956,7 @@ static void relay_ns_access_rows(void)
           wt_spm_mem_ns_access(base + pg, 8u, 1) == 1,
           "ns access: a page it lent is neither read nor written for it, even by a span that only reaches into it");
     check(relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
-                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+                            OWN_RW) == 0 &&
           wt_spm_mem_ns_access(base, 8u, 0) == 0 &&
           relay_relinquish_as(h, RELAY_ID_B) == 0 &&
           wt_spm_mem_ns_access(base, 8u, 0) == 0 &&
@@ -3951,7 +3997,7 @@ static void relay_ns_access_rows(void)
                         RELAY_ID_B, WT_FFA_MEM_PERM_DATA_NOT_SPEC, &ret);
     check(ret == 0 && wt_spm_mem_ns_access(base, 8u, 0) == 0 &&
           relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
-                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+                            OWN_RW) == 0 &&
           wt_spm_mem_in_transaction(base, pg) == 0 &&
           wt_spm_mem_ns_access(base, 8u, 0) == 0 &&
           wt_spm_mem_ns_access(base, 8u, 1) == 0 &&
@@ -4005,9 +4051,9 @@ static void relay_ns_snapshot_rows(void)
     }
     check(ret == 0 && g_race_at == NULL &&
           relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_C,
-                            WT_FFA_MEM_PERM_DATA_RW) != 0 &&
+                            OWN_RW) != 0 &&
           relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
-                            WT_FFA_MEM_PERM_DATA_RW) == 0,
+                            OWN_RW) == 0,
           "ns snapshot: a descriptor rewritten mid-send lends to the borrower it was validated with");
     check(relay_relinquish_as(h, RELAY_ID_B) == 0 &&
           wt_spm_mem_reclaim(h, WT_FFA_ID_NS_PRIMARY, 0u) == 0,
@@ -4024,9 +4070,9 @@ static void relay_ns_snapshot_rows(void)
     }
     check(ret == 0 && g_race_at == NULL &&
           relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_C,
-                            WT_FFA_MEM_PERM_DATA_RW) != 0 &&
+                            OWN_RW) != 0 &&
           relay_retrieve_by(h, WT_FFA_ID_NS_PRIMARY, RELAY_ID_B,
-                            WT_FFA_MEM_PERM_DATA_RW) == 0 &&
+                            OWN_RW) == 0 &&
           relay_relinquish_as(h, RELAY_ID_B) == 0 &&
           wt_spm_mem_reclaim(h, WT_FFA_ID_NS_PRIMARY, 0u) == 0,
           "ns snapshot: so does one sent in fragments and rewritten once they are in");

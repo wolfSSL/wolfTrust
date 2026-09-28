@@ -997,10 +997,11 @@ static int effective_permissions(int exclusive, int donate, uint8_t granted,
         (instr == WT_FFA_MEM_PERM_INSTR_MASK)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
-    /* A receiver states instruction access only when the memory becomes its
-     * alone (a donate, or a lend to one borrower); for a share or a lend to
-     * several it is the relayer's (Table 5.14 usage). */
-    if ((exclusive == 0) && (instr != WT_FFA_MEM_PERM_INSTR_NOT_SPEC)) {
+    /* A receiver states the instruction access it wants only when the memory
+     * becomes its alone (a donate, or a lend to one borrower: 1.10.3 item 2);
+     * for a share or a lend to several it is the relayer's (item 1). */
+    if ((exclusive != 0) ? (instr == WT_FFA_MEM_PERM_INSTR_NOT_SPEC)
+                         : (instr != WT_FFA_MEM_PERM_INSTR_NOT_SPEC)) {
         return WT_FFA_INVALID_PARAMETERS;
     }
     if ((asked & WT_FFA_MEM_PERM_INSTR_MASK) == WT_FFA_MEM_PERM_INSTR_X) {

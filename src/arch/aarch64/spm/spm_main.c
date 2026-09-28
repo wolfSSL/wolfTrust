@@ -85,6 +85,9 @@ static void spmc_fail(const char* what, uint64_t value)
     wt_el3_puts("\r\n");
     wt_platform_console_flush();
     (void)wt_mon_call(WT_MON_FID_PANIC, 0xF1u);
+    for (;;) {
+        __asm__ volatile("wfi");
+    }
 }
 
 static void ffa_call(wt_ffa_regs_t* r, uint32_t fid, uint64_t x1)
@@ -1124,6 +1127,7 @@ void wt_spm_main(uint64_t boot_info_pa)
     uint32_t sint_id;
     uint32_t partinfo_n = 0u;
     uint64_t share_handle = 0u;
+    int shared;
 
     wt_el3_puts("[SPM] spmc entered at S-EL1\r\n");
     consume_boot_info(boot_info_pa);
@@ -1139,7 +1143,7 @@ void wt_spm_main(uint64_t boot_info_pa)
         wt_el3_puts("[SPM] tick ok intid=29\r\n");
     }
     else {
-        wt_el3_puts("[SPM] tick TIMEOUT\r\n");
+        spmc_fail("tick", 0u);
     }
 #if defined(WT_FFA_ACS) && (WT_FFA_ACS == 1)
     /* The conformance partitions time their waits on the virtual counter
@@ -1151,31 +1155,31 @@ void wt_spm_main(uint64_t boot_info_pa)
         wt_el3_puts("[SPM] coroutine ok\r\n");
     }
     else {
-        wt_el3_puts("[SPM] coroutine FAIL\r\n");
+        spmc_fail("coroutine", 0u);
     }
     if (prove_el0()) {
         wt_el3_puts("[SPM] el0 svc ok\r\n");
     }
     else {
-        wt_el3_puts("[SPM] el0 svc FAIL\r\n");
+        spmc_fail("el0 svc", 0u);
     }
     if (prove_ffa_direct()) {
         wt_el3_puts("[SPM] ffa direct ok\r\n");
     }
     else {
-        wt_el3_puts("[SPM] ffa direct FAIL\r\n");
+        spmc_fail("ffa direct", 0u);
     }
     if (prove_preempt()) {
         wt_el3_puts("[SPM] preempt ok\r\n");
     }
     else {
-        wt_el3_puts("[SPM] preempt FAIL\r\n");
+        spmc_fail("preempt", 0u);
     }
     if (prove_orphan()) {
         wt_el3_puts("[SPM] orphan ok\r\n");
     }
     else {
-        wt_el3_puts("[SPM] orphan FAIL\r\n");
+        spmc_fail("orphan", 0u);
     }
     sint_id = wt_spm_prove_sint();
     if (sint_id != 0u) {
@@ -1184,7 +1188,7 @@ void wt_spm_main(uint64_t boot_info_pa)
         wt_el3_puts("\r\n");
     }
     else {
-        wt_el3_puts("[SPM] sint gic FAIL\r\n");
+        spmc_fail("sint gic", 0u);
     }
     if (prove_partinfo(&partinfo_n)) {
         wt_el3_puts("[SPM] partinfo ok n=");
@@ -1192,15 +1196,19 @@ void wt_spm_main(uint64_t boot_info_pa)
         wt_el3_puts("\r\n");
     }
     else {
-        wt_el3_puts("[SPM] partinfo FAIL\r\n");
+        spmc_fail("partinfo", partinfo_n);
     }
-    if (prove_mem_share(&share_handle)) {
+    shared = prove_mem_share(&share_handle);
+#if defined(WT_EL3_BOOT_NEG_PROBE) && (WT_EL3_BOOT_NEG_PROBE == 3)
+    shared = 0;
+#endif
+    if (shared) {
         wt_el3_puts("[SPM] mem share ok handle=0x");
         wt_el3_puthex(share_handle, 4u);
         wt_el3_puts("\r\n");
     }
     else {
-        wt_el3_puts("[SPM] mem share FAIL\r\n");
+        spmc_fail("mem share", share_handle);
     }
     discover_spmd();
     prove_console_log();

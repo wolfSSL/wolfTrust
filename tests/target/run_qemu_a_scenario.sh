@@ -42,8 +42,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -121,7 +121,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   # The Normal world probes PSCI with a real parked secondary beside it.
   psci:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
@@ -164,6 +164,7 @@ else
     crossdomain) probe=(WT_FFM_NEGATIVE_PROBE=1) ;;
     spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
     tablesneg)   probe=(WT_TABLES_NEGATIVE=1) ;;
+    proofneg)    probe=(WT_EL3_BOOT_NEG_PROBE=3) ;;
     manifestneg) probe=(WT_MANIFEST_NEG_PROBE=1) ;;
     keystoreneg) probe=(WT_KEYSTORE_NEG_PROBE=1) ;;
     spbudgetneg) probe=(WT_SP_FAULT_ALWAYS_PROBE=1) ;;
@@ -466,7 +467,7 @@ case "$scenario" in
     expect "a software-raised Secure SPI reached the SPMC as a Group 0 FIQ" "[SPM] sint gic ok intid=0x28"
     expect "an S-EL0 partition discovered itself under its own endpoint id through FFA_PARTITION_INFO_GET" "[SPM] partinfo ok n=1"
     expect "an S-EL0 partition retrieved a page the SPMC shared, wrote it, relinquished it, and the owner reclaimed it" "[SPM] mem share ok handle="
-    refute_re "the memory-sharing self-test did not fail" '\[SPM\] mem share FAIL'
+    refute_re "no SPMC boot proof failed" '\[SPM\] FAIL '
     expect "FF-A version negotiated with the SPMD" "[SPM] ffa version 1.2 negotiated"
     expect "the monitor answered the SMCCC architecture calls from the Secure world" "[SPM] smccc version 1.2"
     expect "FF-A discovery at the Secure physical instance" "[SPM] ffa discovery ok id=0x8000 spmd=0x8001"
@@ -603,6 +604,13 @@ case "$scenario" in
     refute_re "the run did not exit cleanly" '\[EXPECT EXIT\] Success'
     expect "a writable and executable region was refused when the SPM table was built (W^X)" "[SPM] FAIL domain x0=0x00000001"
     expect "the SPMC panicked through the monitor" "[EL3] panic code=0x000000f1"
+    ;;
+  proofneg)
+    expect "the memory-sharing boot proof was forced to fail" "[SPM] FAIL mem share"
+    expect "the SPMC panicked through the monitor" "[EL3] panic code=0x000000f1"
+    refute_re "no partition started after a failed boot proof" '\[SP\] init id='
+    refute_re "the partitions never went live" '\[SPM\] partitions ready'
+    refute_re "the run did not exit cleanly" '\[EXPECT EXIT\] Success'
     ;;
   manifestneg)
     refute_re "no partition initialized off the corrupted manifest" '\[SPM\] partitions ready'
@@ -1004,7 +1012,7 @@ esac
 # the emulator build's reset limit; every other scenario exits cleanly.
 end_want=exit
 case "$scenario" in
-  parkneg|rdistneg|tickneg|crossdomain|tablesneg|manifestneg|keystoreneg|spbudgetneg) end_want=panic ;;
+  parkneg|rdistneg|tickneg|crossdomain|tablesneg|proofneg|manifestneg|keystoreneg|spbudgetneg) end_want=panic ;;
   resetneg) end_want=reset-limit ;;
 esac
 expect_end "the emulator ended the run by $end_want" "$end_want" "$emu_status"

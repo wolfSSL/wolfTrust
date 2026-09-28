@@ -402,13 +402,32 @@ static int el1_only_page(uint64_t desc)
            ((ap == WT_TABLES_AP_EL1_RW) || (ap == WT_TABLES_AP_EL1_RO));
 }
 
+/* The EL1-only entry a revoke puts back: non-global Normal read-write data,
+ * Secure or Non-secure as the page is. */
+static int64_t window_home(uint64_t desc)
+{
+    uint32_t attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE |
+                          WT_TABLES_ATTR_NG;
+
+    if ((desc & PTE_NS) != 0u) {
+        attributes |= WT_TABLES_ATTR_NS;
+    }
+    return encode(attributes, 1);
+}
+
 /* Only a non-global entry may become an EL0 page: a global one cached under
  * any ASID would still match after the grant's per-ASID invalidation. A page
- * its owner made no-access is still its own, never a window. */
+ * its owner made no-access is still its own, never a window. And only the
+ * exact entry a revoke rebuilds is granted, so a revoke restores it; a held
+ * page reaches here only once its donate completed, leaving the hold spent. */
 static int grantable_page(uint64_t desc)
 {
-    return el1_only_page(desc) && ((desc & PTE_NG) != 0u) &&
-           !hidden_page(desc);
+    uint64_t hw = desc & ~PTE_ADDR_MASK;
+
+    if ((desc & PTE_SW_HELD) != 0u) {
+        hw &= ~PTE_SW_MASK;
+    }
+    return hw == (uint64_t)window_home(desc);
 }
 
 static int window_range_ok(const wt_tables_t* t, uint64_t va, size_t pages)
@@ -455,7 +474,9 @@ int wt_tables_grant_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
         if ((probe == NULL) || ((*probe & DESC_VALID) == 0u)) {
             return WT_TABLES_ERROR_UNMAPPED;
         }
-        if (!grantable_page(*probe)) {
+        if (!grantable_page(*probe) ||
+            (((*probe & PTE_NS) != 0u) !=
+             ((attributes & WT_TABLES_ATTR_NS) != 0u))) {
             return WT_TABLES_ERROR_OVERLAP;
         }
     }
@@ -473,8 +494,6 @@ int wt_tables_revoke_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
     uint64_t* entry;
     uint64_t end;
     uint64_t at;
-    uint32_t attributes;
-    int64_t pte;
     int ret = window_range_ok(t, va, pages);
 
     if ((ret == WT_TABLES_OK) && (pool == NULL)) {
@@ -497,12 +516,7 @@ int wt_tables_revoke_el0(wt_tables_t* t, const wt_tables_pool_t* pool,
             *entry = 0u;
             continue;
         }
-        attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_TABLES_ATTR_NG;
-        if ((*entry & PTE_NS) != 0u) {
-            attributes |= WT_TABLES_ATTR_NS;
-        }
-        pte = encode(attributes, 1);
-        *entry = (uint64_t)pte | (*entry & PTE_ADDR_MASK);
+        *entry = (uint64_t)window_home(*entry) | (*entry & PTE_ADDR_MASK);
     }
     return WT_TABLES_OK;
 }

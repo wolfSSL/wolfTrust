@@ -601,7 +601,14 @@ static void guest_direct_preempted(void)
     put_str(" x0=0x");
     put_hex((uint32_t)x[0]);
     put_str("\r\n");
-    /* FFA_RUN to the echo while it waits gives it cycles it waits out. */
+}
+
+/* FFA_RUN to the echo while it waits gives it cycles it waits out. */
+static void guest_idle_echo_run(void)
+{
+    uint64_t x[18];
+    unsigned int i;
+
     for (i = 0u; i < 18u; i++) {
         x[i] = 0u;
     }
@@ -2181,6 +2188,7 @@ void ns_main(void)
     guest_direct();
     guest_req2_refused();
     guest_direct_preempted();
+    guest_idle_echo_run();
 #endif
 
 #if defined(WT_NS_GUEST_PSA)

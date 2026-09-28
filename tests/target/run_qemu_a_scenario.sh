@@ -706,7 +706,11 @@ case "$scenario" in
     refute_re "a refused REQ2 did not hand back its own payload in x8-x17" '\[NS\] req2 refused BAD'
     expect "a refused REQ2 returned FFA_ERROR with x8-x17 zero" "[NS] req2 refused x8-x17 zero"
     refute_re "the preempted echo request was not left unresumable" '\[NS\] direct preempt BAD'
-    expect "a Normal-world interrupt preempted the echo partition mid-request, and FFA_RUN with the id FFA_INTERRUPT named resumed it to its response" "[NS] direct preempt resumed ok w1=0x80fe0000"
+    if [ "$GIC" = 3 ]; then
+      expect "a Normal-world interrupt preempted the echo partition mid-request, and FFA_RUN with the id FFA_INTERRUPT named resumed it to its response" "[NS] direct preempt resumed ok w1=0x80fe0000"
+    else
+      expect "the Normal-world preemption probe needs the GICv3 pending hold and reported its skip" "[NS] direct preempt skipped: no GICv3"
+    fi
     refute_re "FFA_RUN to the waiting echo partition did not leave it spinning" '\[NS\] idle echo run BAD'
     expect "FFA_RUN to the waiting echo partition gave it cycles and it waited again" "[NS] idle echo run waits x0=0x8400006b"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"

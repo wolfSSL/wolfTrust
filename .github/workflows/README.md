@@ -12,6 +12,8 @@ and nightly.
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
 | **M33MU smoke** | every PR | per port, on both crypto engines: STM32H563 `positive gtzcneg crossdomain bothpsa confboot devcrypto`; MIMXRT700 `positive ahbscneg crossdomain bothpsa confboot devcrypto` |
 | **M33MU full** | PR labels `ci:all`, `ci:h5`, `ci:rt700`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
+| **AArch64 smoke** | every PR | a representative subset on both crypto engines: `virt-gicv3-a72` `boot positive crossdomain ffa-direct confboot devcrypto`, and `versal-virt` the same on the native engine |
+| **AArch64 full** | PR labels `ci:all`, `ci:aarch64`, `ci:qemu-virt`, `ci:qemu-versal`; push to main; nightly; `workflow_dispatch` (cell input) | every AArch64 scenario and the Arm FF-A ACS groups on three QEMU cells under both crypto engines (see below) |
 
 The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
 `pr-osp-select.yml` is: a `select` job checks the routing table
@@ -83,8 +85,8 @@ in `ghcr.io/wolfssl/wolfboot-ci-aarch64` on three cells, `virt-gicv2-a35`,
 
 | Check name | What it proves |
 |------------|----------------|
-| `EL3 smoke on <cell> (<engine>)` | the EL3 image links under the symbol guard, then every QEMU AArch64 scenario runs through `tests/target/run_suite.sh qemu-a` |
-| `FF-A ACS on <cell> (<engine>)` | the Arm FF-A ACS groups (discovery, direct and indirect messaging, memory, notifications, interrupts) at their asserted floors |
+| `el3_smoke_<cell>_<engine>` | the EL3 image links under the symbol guard, then every QEMU AArch64 scenario runs through `tests/target/run_suite.sh qemu-a` |
+| `ffa_acs_<cell>_<engine>` | the Arm FF-A ACS groups (discovery, direct and indirect messaging, memory, notifications, interrupts) at their asserted floors |
 
 To run a scenario locally, use `tests/target/run_qemu_a_scenario.sh <key>`
 with `MACHINE`, `GIC`, `CPU`, and `WT_ENGINE` set as in the workflow.

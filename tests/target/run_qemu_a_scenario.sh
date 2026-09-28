@@ -707,6 +707,8 @@ case "$scenario" in
     expect "a refused REQ2 returned FFA_ERROR with x8-x17 zero" "[NS] req2 refused x8-x17 zero"
     refute_re "the preempted echo request was not left unresumable" '\[NS\] direct preempt BAD'
     expect "a Normal-world interrupt preempted the echo partition mid-request, and FFA_RUN with the id FFA_INTERRUPT named resumed it to its response" "[NS] direct preempt resumed ok w1=0x80fe0000"
+    refute_re "FFA_RUN to the waiting echo partition did not leave it spinning" '\[NS\] idle echo run BAD'
+    expect "FFA_RUN to the waiting echo partition gave it cycles and it waited again" "[NS] idle echo run waits x0=0x8400006b"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   psci|psci-el2|el2dirtyneg)

@@ -537,10 +537,14 @@ wt_sp_ffa_echo:
 1:  movz    w4, #0x0062                 /* FFA_INTERRUPT (0x84000062) */
     movk    w4, #0x8400, lsl #16
     cmp     w0, w4
-    b.ne    2f
+    b.ne    4f
     orr     w5, w1, w2
     cbz     w5, 0b                      /* interrupt: acknowledge and re-wait */
     udf     #0
+4:  movz    w4, #0x006D                 /* FFA_RUN (0x8400006D) */
+    movk    w4, #0x8400, lsl #16
+    cmp     w0, w4
+    b.eq    0b                          /* cycles with no request: re-wait */
 2:  movz    w5, #0x5CCE
     cmp     w3, w5
     b.ne    3f

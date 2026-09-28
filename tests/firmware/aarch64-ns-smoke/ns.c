@@ -601,6 +601,17 @@ static void guest_direct_preempted(void)
     put_str(" x0=0x");
     put_hex((uint32_t)x[0]);
     put_str("\r\n");
+    /* FFA_RUN to the echo while it waits gives it cycles it waits out. */
+    for (i = 0u; i < 18u; i++) {
+        x[i] = 0u;
+    }
+    x[0] = WT_FFA_RUN;
+    x[1] = (uint64_t)WT_FFA_ID_ECHO << 16;
+    smc18(x);
+    put_str(((uint32_t)x[0] == WT_FFA_MSG_WAIT) ? "[NS] idle echo run waits x0=0x"
+                                                  : "[NS] idle echo run BAD x0=0x");
+    put_hex((uint32_t)x[0]);
+    put_str("\r\n");
 }
 #endif
 

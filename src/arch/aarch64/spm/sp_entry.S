@@ -444,6 +444,38 @@ wt_sp_el0_probe:
     svc     #0
 1:  b       1b
 
+/* S-EL0 FF-A yielding partition: FFA_MSG_WAIT to signal init and wait, then
+ * for each delivered direct request FFA_YIELD (w1-w3 MBZ, Table 14.9), and once
+ * FFA_RUN resumes it reply with FFA_MSG_SEND_DIRECT_RESP32, swapping the ids
+ * and complementing the first payload word, as the echo partition does. */
+    .section .text.wt_sp_ffa_yield, "ax"
+    .globl wt_sp_ffa_yield
+wt_sp_ffa_yield:
+    movz    w0, #0x006B                 /* FFA_MSG_WAIT (0x8400006B) */
+    movk    w0, #0x8400, lsl #16
+    svc     #0
+1:  mov     x19, x1                     /* sender/receiver ids of the request */
+    mov     x20, x3                     /* its first payload word */
+    movz    w0, #0x006C                 /* FFA_YIELD (0x8400006C) */
+    movk    w0, #0x8400, lsl #16
+    mov     x1, #0
+    mov     x2, #0
+    mov     x3, #0
+    mov     x4, #0
+    mov     x5, #0
+    mov     x6, #0
+    mov     x7, #0
+    svc     #0
+    lsr     x2, x19, #16                /* original sender */
+    ubfx    x1, x19, #0, #16            /* original receiver = our id */
+    orr     x1, x2, x1, lsl #16         /* reply w1 = our_id<<16 | sender */
+    mvn     x3, x20                     /* echo ~payload */
+    mov     x2, #0                      /* w2 SBZ */
+    movz    w0, #0x0070                 /* FFA_MSG_SEND_DIRECT_RESP32 (0x84000070) */
+    movk    w0, #0x8400, lsl #16
+    svc     #0
+    b       1b
+
 /* S-EL0 FF-A echo partition: FFA_MSG_WAIT to signal init and wait, then for
  * each delivered direct request (x0=REQ fid, x1=sender/receiver ids, x3=first
  * payload word) reply with FFA_MSG_SEND_DIRECT_RESP32, swapping the ids and

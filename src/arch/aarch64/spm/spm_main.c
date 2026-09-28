@@ -764,6 +764,109 @@ static int prove_preempt(void)
              WT_FFA_ABORTED)) ? 1 : 0;
 }
 
+/* Prove that an endpoint yielded to a requester that then leaves service is
+ * orphaned: until then only that requester may resume it, so the Normal
+ * world's FFA_RUN and another partition's are DENIED and a direct request
+ * finds it busy; after, a direct request still finds it busy, the Normal
+ * world's FFA_RUN runs it and is told FFA_MSG_WAIT (its response has no
+ * receiver), after which it takes a request as usual, and another
+ * partition's FFA_RUN of a second orphan is accepted. */
+static wt_secure_domain_t g_yield_domain;
+
+static int prove_orphan(void)
+{
+    static const uint32_t none[WT_FFA_DIRECT_PAYLOAD_WORDS];
+    wt_memory_region_t band;
+    const wt_domain_descriptor_t* d = first_partition_domain(&band);
+    uint64_t req[WT_FFA_MSG_REGS_EXT];
+    uint64_t out[WT_FFA_MSG_REGS_EXT];
+    uint8_t* stack;
+    size_t half;
+    wt_co_t* a;
+    wt_co_t* y1;
+    wt_co_t* y2;
+    uint16_t a_id;
+
+    if (d == NULL) {
+        return 0;
+    }
+    stack = (uint8_t*)band.base;
+    half = (band.size / 2u) & ~(size_t)15u;
+    g_yield_domain.regions[0].base = (uintptr_t)WT_SPM_IMAGE_PA;
+    g_yield_domain.regions[0].size = (uintptr_t)_e_secure_text - (uintptr_t)WT_SPM_IMAGE_PA;
+    g_yield_domain.regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
+    g_yield_domain.regions[1].base = (uintptr_t)stack;
+    g_yield_domain.regions[1].size = band.size;
+    g_yield_domain.regions[1].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    g_yield_domain.region_count = 2u;
+    /* The requester only lends its id and never runs. */
+    a = wt_co_create_blocked_ex(g_prove_co_stack, sizeof(g_prove_co_stack),
+                                (wt_co_entry_fn)wt_sp_spin, (void*)0);
+    y1 = wt_co_create_blocked_ex(stack, half, (wt_co_entry_fn)wt_sp_ffa_yield,
+                                 (void*)0);
+    y2 = wt_co_create_blocked_ex(stack + half, half,
+                                 (wt_co_entry_fn)wt_sp_ffa_yield, (void*)0);
+    if ((a == NULL) || (y1 == NULL) || (y2 == NULL)) {
+        return 0;
+    }
+    wt_co_set_domain(a, &g_yield_domain, 1u);
+    wt_co_set_domain(y1, &g_yield_domain, 1u);
+    wt_co_set_domain(y2, &g_yield_domain, 1u);
+    a_id = wt_spm_sp_ffa_id((const struct wt_co*)a);
+    wt_co_wake(y1);
+    if ((wt_co_run(y1) != 1u) || (wt_co_state(y1) != WT_CO_BLOCKED)) {
+        return 0;
+    }
+    wt_co_wake(y2);
+    if ((wt_co_run(y2) != 1u) || (wt_co_state(y2) != WT_CO_BLOCKED)) {
+        return 0;
+    }
+    wt_ffa_direct_build(req, WT_FFA_MSG_SEND_DIRECT_REQ32, a_id,
+                        wt_spm_sp_ffa_id((const struct wt_co*)y1), none);
+    if ((wt_spm_ffa_direct_deliver((struct wt_co*)y1, req, out) != 0) ||
+        ((uint32_t)out[0] != WT_FFA_YIELD)) {
+        return 0;
+    }
+    wt_ffa_direct_build(req, WT_FFA_MSG_SEND_DIRECT_REQ32, a_id,
+                        wt_spm_sp_ffa_id((const struct wt_co*)y2), none);
+    if ((wt_spm_ffa_direct_deliver((struct wt_co*)y2, req, out) != 0) ||
+        ((uint32_t)out[0] != WT_FFA_YIELD)) {
+        return 0;
+    }
+    wt_ffa_direct_build(req, WT_FFA_MSG_SEND_DIRECT_REQ32, WT_FFA_ID_NS_PRIMARY,
+                        wt_spm_sp_ffa_id((const struct wt_co*)y1), none);
+    if ((wt_spm_ffa_run((struct wt_co*)y1, WT_FFA_ID_NS_PRIMARY, out) !=
+         WT_FFA_DENIED) ||
+        (wt_spm_ffa_sp_call((const struct wt_co*)y1, (struct wt_co*)y2,
+                            NULL) != WT_FFA_DENIED) ||
+        (wt_spm_ffa_direct_deliver((struct wt_co*)y1, req, out) !=
+         WT_FFA_BUSY)) {
+        return 0;
+    }
+    wt_spm_sp_retire((struct wt_co*)a);
+    if (wt_spm_ffa_direct_deliver((struct wt_co*)y1, req, out) != WT_FFA_BUSY) {
+        return 0;
+    }
+    if ((wt_spm_ffa_run((struct wt_co*)y1, WT_FFA_ID_NS_PRIMARY, out) != 0) ||
+        ((uint32_t)out[0] != WT_FFA_MSG_WAIT) ||
+        (out[1] != ((uint64_t)wt_spm_sp_ffa_id((const struct wt_co*)y1) << 16)) ||
+        (wt_co_state(y1) != WT_CO_BLOCKED)) {
+        return 0;
+    }
+    if ((wt_spm_ffa_direct_deliver((struct wt_co*)y1, req, out) != 0) ||
+        ((uint32_t)out[0] != WT_FFA_YIELD) ||
+        (wt_spm_ffa_run((struct wt_co*)y1, WT_FFA_ID_NS_PRIMARY, out) != 0) ||
+        ((uint32_t)out[0] != WT_FFA_MSG_SEND_DIRECT_RESP32) ||
+        (wt_ffa_direct_sender(out[1]) !=
+         wt_spm_sp_ffa_id((const struct wt_co*)y1)) ||
+        (wt_ffa_direct_receiver(out[1]) != WT_FFA_ID_NS_PRIMARY) ||
+        ((uint32_t)out[3] != (uint32_t)~none[0])) {
+        return 0;
+    }
+    return (wt_spm_ffa_sp_call((const struct wt_co*)y1, (struct wt_co*)y2,
+                               NULL) == 0) ? 1 : 0;
+}
+
 /* Prove FF-A partition discovery: an S-EL0 partition standing in for the
  * first configured partition (its domain and stack) calls
  * FFA_PARTITION_INFO_GET with a Nil UUID while no other partition exists. The
@@ -1064,6 +1167,12 @@ void wt_spm_main(uint64_t boot_info_pa)
     }
     else {
         wt_el3_puts("[SPM] preempt FAIL\r\n");
+    }
+    if (prove_orphan()) {
+        wt_el3_puts("[SPM] orphan ok\r\n");
+    }
+    else {
+        wt_el3_puts("[SPM] orphan FAIL\r\n");
     }
     sint_id = wt_spm_prove_sint();
     if (sint_id != 0u) {

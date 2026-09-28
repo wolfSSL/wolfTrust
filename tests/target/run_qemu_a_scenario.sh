@@ -645,6 +645,7 @@ case "$scenario" in
     refute_re "the response was not judged bad" '\[EL3\] direct resp BAD'
     expect "the echo partition initialized alongside the six services" "[SPM] partitions ready n=7"
     expect "the echo partition, preempted before its first wait, was resumed to finish init" "[SP] init resumed id=0x"
+    expect "an endpoint yielded to a partition that left service was resumed by the Normal world and by another partition" "[SPM] orphan ok"
     expect "the SPMD sent a direct request to the echo partition" "[EL3] direct req to=0x80fe"
     expect "the SPMC relayed it at the NS-physical instance" "[SPM] direct req from=0x0000 to=0x80fe"
     expect "the echo partition's response reached the SPMD with the payload complemented" "[EL3] direct resp ok from=0x80fe x3=0xedcb5432"
@@ -657,6 +658,7 @@ case "$scenario" in
     refute_re "no unexpected FF-A event at the SPMC" '\[SPM\] unexpected event'
     expect "the echo partition initialized alongside the six services" "[SPM] partitions ready n=7"
     expect "the echo partition, preempted before its first wait, was resumed to finish init" "[SP] init resumed id=0x"
+    expect "an endpoint yielded to a partition that left service was resumed by the Normal world and by another partition" "[SPM] orphan ok"
     refute_re "every FFA_INTERRUPT the echo partition got carried w1/w2 zero, or its MBZ check would fault it" '^\[SYNC EL=0'
     expect "a Secure interrupt was signalled to the owner while it waited, and a pending Normal-world interrupt stayed queued until the owner waited again" "[SPM] sint signaled id=0x28"
     expect "a Secure interrupt queued while the owner handled another was delivered on its next wait and named by the get" "[SPM] sint queued id=0x28"

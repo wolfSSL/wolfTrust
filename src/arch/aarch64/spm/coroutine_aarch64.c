@@ -902,8 +902,13 @@ int wt_spm_ffa_sp_call(const struct wt_co* caller, struct wt_co* target,
     else {
         m = &g_sp_msg[target->id - 1u];
         preempted = (wt_co_state((wt_co_t*)target) == WT_CO_RUNNABLE) ? 1u : 0u;
+        /* Orphaned (its requester left service), any partition may resume it,
+         * as the Normal world may in wt_spm_ffa_run. */
         if ((m->busy == 0u) ||
-            (wt_ffa_run_busy_check(m->requester, wt_spm_sp_ffa_id(caller),
+            (wt_ffa_run_busy_check(m->requester,
+                                   (m->orphaned != 0u)
+                                       ? m->requester
+                                       : wt_spm_sp_ffa_id(caller),
                                    m->yielded, preempted) != 0)) {
             return WT_FFA_DENIED;
         }

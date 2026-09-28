@@ -126,6 +126,10 @@ extern volatile uint32_t g_wt_ffa_direct_resp_ready;
  * ids swapped and the first payload word complemented. */
 void wt_sp_ffa_echo(void);
 
+/* S-EL0 yielding partition (sp_entry.S): FFA_YIELD on each direct request,
+ * and the echo partition's reply once FFA_RUN resumes it. */
+void wt_sp_ffa_yield(void);
+
 /* S-EL0 discovery partition (sp_entry.S): calls FFA_PARTITION_INFO_GET with a
  * Nil UUID (RX base in x0) and yields the match count and first id. */
 void wt_sp_ffa_discover(void);

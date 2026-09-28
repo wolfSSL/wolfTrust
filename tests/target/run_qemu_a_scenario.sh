@@ -705,6 +705,8 @@ case "$scenario" in
     expect "a guest direct request reached the Secure partition and echoed back" "[NS] direct resp ok x3=0x"
     refute_re "a refused REQ2 did not hand back its own payload in x8-x17" '\[NS\] req2 refused BAD'
     expect "a refused REQ2 returned FFA_ERROR with x8-x17 zero" "[NS] req2 refused x8-x17 zero"
+    refute_re "the preempted echo request was not left unresumable" '\[NS\] direct preempt BAD'
+    expect "a Normal-world interrupt preempted the echo partition mid-request, and FFA_RUN with the id FFA_INTERRUPT named resumed it to its response" "[NS] direct preempt resumed ok w1=0x80fe0000"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   psci|psci-el2|el2dirtyneg)

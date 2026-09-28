@@ -436,6 +436,24 @@ uint16_t wt_spm_sp_ffa_id(const struct wt_co* co)
     return (uint16_t)(WT_SP_FFA_ID_BASE + co->id);
 }
 
+/* The id a requester names an endpoint by: the echo partition's is fixed. */
+static uint16_t endpoint_id(const struct wt_co* co)
+{
+    if ((co != NULL) && (co == wt_spm_ffa_echo_partition())) {
+        return (uint16_t)WT_FFA_ID_ECHO;
+    }
+    return wt_spm_sp_ffa_id(co);
+}
+
+struct wt_co* wt_spm_ffa_endpoint_by_id(uint16_t id)
+{
+    if ((id == (uint16_t)WT_FFA_ID_ECHO) &&
+        (wt_spm_ffa_echo_partition() != NULL)) {
+        return wt_spm_ffa_echo_partition();
+    }
+    return wt_spm_ffa_native_by_id(id);
+}
+
 struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id)
 {
     uint32_t slot;
@@ -665,7 +683,7 @@ static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason,
                 out[i] = 0u;
             }
             out[0] = WT_FFA_MSG_WAIT;
-            out[1] = (uint64_t)wt_spm_sp_ffa_id(co) << 16;
+            out[1] = (uint64_t)endpoint_id(co) << 16;
             m->orphaned = 0u;
         }
         m->busy = 0u;
@@ -674,13 +692,13 @@ static int run_one(struct wt_co* co, uint64_t* out, uint32_t* reason,
     }
     if (*reason == WT_FFA_SP_EXIT_NSINT) {
         out[0] = WT_FFA_INTERRUPT;
-        out[1] = (uint64_t)wt_spm_sp_ffa_id(co) << 16;
+        out[1] = (uint64_t)endpoint_id(co) << 16;
         return 0;
     }
     if (*reason == WT_FFA_SP_EXIT_YIELD) {
         m->yielded = 1u;
         out[0] = WT_FFA_YIELD;
-        out[1] = (uint64_t)wt_spm_sp_ffa_id(co) << 16;
+        out[1] = (uint64_t)endpoint_id(co) << 16;
         return 0;
     }
     if (*reason == WT_FFA_SP_EXIT_WAIT) {
@@ -985,7 +1003,7 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
         return WT_FFA_DENIED;
     }
     else {
-        deliver_event(co, WT_FFA_RUN, (uint64_t)wt_spm_sp_ffa_id(co) << 16);
+        deliver_event(co, WT_FFA_RUN, (uint64_t)endpoint_id(co) << 16);
     }
     return run_endpoint(co, out, 0u);
 }

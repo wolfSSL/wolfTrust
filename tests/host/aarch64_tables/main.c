@@ -215,6 +215,109 @@ static void run_scan(void)
     check(spm_pool == 0, "the SPM-only table maps the whole table pool");
 }
 
+/* EL1-only pages a partition does not own, one of each kind a grant can meet. */
+static const wt_memory_region_t g_el1_kinds[] = {
+    { 0x0E045000u, 0x1000u, RW | WT_TABLES_ATTR_NG },
+    { 0x0E046000u, 0x1000u, WT_MEM_ATTR_READ | WT_TABLES_ATTR_NG },
+    { 0x0E047000u, 0x1000u, RW | WT_TABLES_ATTR_NS | WT_TABLES_ATTR_NG },
+    { 0x09041000u, 0x1000u, RW | WT_MEM_ATTR_DEVICE | WT_TABLES_ATTR_NG }
+};
+
+/* A revoke rebuilds the EL1-only entry, so a grant takes only a page whose
+ * entry is exactly the one the revoke rebuilds. */
+static void run_window_restore(void)
+{
+    wt_tables_pool_t pool;
+    wt_tables_t t;
+    int mapped = 0;
+
+    wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, sizeof(g_pool_mem));
+    if (wt_tables_build(&t, 7u, NULL, 0u, g_el1_kinds,
+                        sizeof(g_el1_kinds) / sizeof(g_el1_kinds[0]),
+                        &pool) != WT_TABLES_OK) {
+        check(0, "the window table builds");
+        return;
+    }
+    check(wt_tables_grant_el0(&t, &pool, 0x0E046000u, 1u, WT_MEM_ATTR_READ,
+                              &mapped) == WT_TABLES_ERROR_OVERLAP &&
+          walk_is(&t, &pool, 0x0E046000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RO, 1u, 1u, 1u),
+          "window: a read-only EL1 page is never granted, and stays read-only");
+    check(wt_tables_grant_el0(&t, &pool, 0x09041000u, 1u, WT_MEM_ATTR_READ,
+                              &mapped) == WT_TABLES_ERROR_OVERLAP &&
+          walk_is(&t, &pool, 0x09041000u, WT_TABLES_ATTR_DEVICE_NGNRE,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
+          "window: a Device EL1 page is never granted, and stays Device");
+    check(wt_tables_grant_el0(&t, &pool, 0x0E045000u, 1u,
+                              RW | WT_TABLES_ATTR_NS, &mapped) ==
+              WT_TABLES_ERROR_OVERLAP &&
+          walk_is(&t, &pool, 0x0E045000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u) &&
+          wt_tables_grant_el0(&t, &pool, 0x0E047000u, 1u, RW, &mapped) ==
+              WT_TABLES_ERROR_OVERLAP &&
+          walk_ns_is(&t, &pool, 0x0E047000u, WT_TABLES_AP_EL1_RW, 1u),
+          "window: a page is never granted in the other security state");
+    check(wt_tables_grant_el0(&t, &pool, 0x0E045000u, 1u, WT_MEM_ATTR_READ,
+                              &mapped) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E045000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RO, 1u, 1u, 1u) &&
+          wt_tables_revoke_el0(&t, &pool, 0x0E045000u, 1u, 1) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E045000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
+          "window: a read-only grant of a read-write page revokes to the entry it replaced");
+    check(wt_tables_grant_el0(&t, &pool, 0x0E047000u, 1u,
+                              RW | WT_TABLES_ATTR_NS, &mapped) == WT_TABLES_OK &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x0E047000u, 1u,
+                                       WT_MEM_ATTR_READ) == WT_TABLES_OK &&
+          walk_ns_is(&t, &pool, 0x0E047000u, WT_TABLES_AP_ALL_RO, 1u) &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x0E047000u, 1u, 0u) ==
+              WT_TABLES_OK &&
+          walk_ns_is(&t, &pool, 0x0E047000u, WT_TABLES_AP_EL1_RW, 1u) &&
+          wt_tables_set_el0_attributes(&t, &pool, 0x0E047000u, 1u, RW) ==
+              WT_TABLES_OK &&
+          walk_ns_is(&t, &pool, 0x0E047000u, WT_TABLES_AP_ALL_RW, 1u),
+          "re-permission: a Non-secure EL0 page goes read-only, no access, and read-write, and stays Non-secure");
+    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E047000u, 1u, RX) ==
+              WT_TABLES_ERROR_WX &&
+          walk_ns_is(&t, &pool, 0x0E047000u, WT_TABLES_AP_ALL_RW, 1u) &&
+          wt_tables_revoke_el0(&t, &pool, 0x0E047000u, 1u, 1) == WT_TABLES_OK &&
+          walk_ns_is(&t, &pool, 0x0E047000u, WT_TABLES_AP_EL1_RW, 1u),
+          "re-permission: a Non-secure page is never made executable, and its revoke restores the Non-secure EL1 page");
+}
+
+/* Memory a partition donated comes back to it: its own entry for the page is
+ * the spent hold, which a grant takes and a revoke leaves EL1 read-write. */
+static void run_spent_hold(void)
+{
+    wt_tables_pool_t pool;
+    wt_tables_t t;
+    int mapped = 0;
+
+    wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, sizeof(g_pool_mem));
+    if (build(&t, 8u, g_sp, sizeof(g_sp) / sizeof(g_sp[0]), &pool) !=
+            WT_TABLES_OK) {
+        check(0, "the spent-hold table builds");
+        return;
+    }
+    check(wt_tables_hold_el0(&t, &pool, 0x0E202000u, 1u, 0) == WT_TABLES_OK &&
+          wt_tables_grant_el0(&t, &pool, 0x0E202000u, 1u, RW, &mapped) ==
+              WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_ALL_RW, 1u, 1u, 1u) &&
+          wt_tables_revoke_el0(&t, &pool, 0x0E202000u, 1u, 1) == WT_TABLES_OK &&
+          walk_is(&t, &pool, 0x0E202000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RW, 1u, 1u, 1u) &&
+          wt_tables_release_el0(&t, &pool, 0x0E202000u, 1u) ==
+              WT_TABLES_ERROR_UNMAPPED,
+          "window: a spent hold on donated read-write data is granted back, and its revoke leaves no hold to release");
+    check(wt_tables_hold_el0(&t, &pool, 0x0E203000u, 1u, 0) == WT_TABLES_OK &&
+          wt_tables_grant_el0(&t, &pool, 0x0E203000u, 1u, WT_MEM_ATTR_READ,
+                              &mapped) == WT_TABLES_ERROR_OVERLAP &&
+          walk_is(&t, &pool, 0x0E203000u, WT_TABLES_ATTR_NORMAL_WBWA,
+                  WT_TABLES_AP_EL1_RO, 1u, 1u, 1u),
+          "window: a held read-only page is never granted, since a revoke could not put it back");
+}
+
 int main(void)
 {
     wt_tables_pool_t pool;
@@ -494,24 +597,6 @@ int main(void)
                   WT_TABLES_AP_EL1_RW, 1u, 1u, 1u),
           "hold: a page never held is not released, and a range reaching an EL1-only page changes nothing");
 
-    check(wt_tables_grant_el0(&t, &pool, 0x0E046000u, 1u,
-                              RW | WT_TABLES_ATTR_NS, &mapped) == WT_TABLES_OK &&
-          wt_tables_set_el0_attributes(&t, &pool, 0x0E046000u, 1u,
-                                       WT_MEM_ATTR_READ) == WT_TABLES_OK &&
-          walk_ns_is(&t, &pool, 0x0E046000u, WT_TABLES_AP_ALL_RO, 1u) &&
-          wt_tables_set_el0_attributes(&t, &pool, 0x0E046000u, 1u, 0u) ==
-              WT_TABLES_OK &&
-          walk_ns_is(&t, &pool, 0x0E046000u, WT_TABLES_AP_EL1_RW, 1u) &&
-          wt_tables_set_el0_attributes(&t, &pool, 0x0E046000u, 1u, RW) ==
-              WT_TABLES_OK &&
-          walk_ns_is(&t, &pool, 0x0E046000u, WT_TABLES_AP_ALL_RW, 1u),
-          "re-permission: a Non-secure EL0 page goes read-only, no access, and read-write, and stays Non-secure");
-    check(wt_tables_set_el0_attributes(&t, &pool, 0x0E046000u, 1u, RX) ==
-              WT_TABLES_ERROR_WX &&
-          walk_ns_is(&t, &pool, 0x0E046000u, WT_TABLES_AP_ALL_RW, 1u) &&
-          wt_tables_revoke_el0(&t, &pool, 0x0E046000u, 1u, 1) == WT_TABLES_OK,
-          "re-permission: a Non-secure page is never made executable, and changes nothing");
-
     wt_tables_pool_init(&pool, g_pool_mem, POOL_PA, 4u * WT_TABLES_PAGE_SIZE);
     check(build(&t2, 6u, g_sp, 1u, &pool) == WT_TABLES_OK &&
           wt_tables_pool_pages_used(&pool) == 4u &&
@@ -534,6 +619,8 @@ int main(void)
           ((WT_TABLES_TCR_EL1 >> 23) & 1u) == 1u,
           "MAIR indexes and TCR (T0SZ 25, IPS 40-bit, EPD1) match the design");
 
+    run_window_restore();
+    run_spent_hold();
     run_scan();
 
     printf("aarch64_tables: %d checks, %d failures\n", checks, failures);

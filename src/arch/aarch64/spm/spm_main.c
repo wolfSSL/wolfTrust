@@ -518,7 +518,8 @@ static int prove_coroutine(void)
 
 /* Prove the S-EL0 path: an unprivileged coroutine confined to the shared
  * text band and one partition band runs at EL0, yields through SVC with a
- * token, resumes after the SVC, and yields again. */
+ * token, resumes after the SVC, and yields again; the S-EL1 handler of each
+ * yield must not take itself for the unprivileged caller. */
 extern void wt_sp_el0_probe(void);
 static wt_secure_domain_t g_el0_domain;
 
@@ -564,11 +565,13 @@ static int prove_el0(void)
     }
     wt_co_set_domain(co, &g_el0_domain, 1u);
     wt_co_wake(co);
-    if (wt_co_run(co) != 1u || wt_spm_yield_token() != 0x5Au) {
+    if (wt_co_run(co) != 1u || wt_spm_yield_token() != 0x5Au ||
+        wt_spm_yield_unprivileged() != 0u) {
         return 0;
     }
     wt_co_wake(co);
-    if (wt_co_run(co) != 1u || wt_spm_yield_token() != 0xA5u) {
+    if (wt_co_run(co) != 1u || wt_spm_yield_token() != 0xA5u ||
+        wt_spm_yield_unprivileged() != 0u) {
         return 0;
     }
     return 1;

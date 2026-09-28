@@ -81,6 +81,8 @@ void wt_sp_el0_enter(wt_trap_frame_t* frame);
 void wt_sp_el0_leave(void) __attribute__((noreturn));
 void wt_spm_lower_sync(wt_trap_frame_t* frame);
 uint64_t wt_spm_yield_token(void);
+/* What wt_arch_thread_unprivileged said inside the last yield's handler. */
+uint32_t wt_spm_yield_unprivileged(void);
 
 /* Set once the core owns the partitions: each S-EL0 partition's successful
  * initialization is then counted and reported. */

@@ -56,12 +56,18 @@
 wt_trap_frame_t* volatile g_wt_spm_live_frame;
 struct wt_co* volatile g_wt_spm_handler_co;
 static uint64_t g_yield_token;
+static uint32_t g_yield_unprivileged;
 uint64_t g_wt_ffa_direct_resp[18];
 volatile uint32_t g_wt_ffa_direct_resp_ready;
 
 uint64_t wt_spm_yield_token(void)
 {
     return g_yield_token;
+}
+
+uint32_t wt_spm_yield_unprivileged(void)
+{
+    return g_yield_unprivileged;
 }
 
 static void ffa_error(wt_trap_frame_t* frame, int32_t code)
@@ -1098,6 +1104,7 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
     }
     else if (fid == WT_SPM_SVC_FID_YIELD) {
         g_yield_token = frame->x[1];
+        g_yield_unprivileged = (uint32_t)wt_arch_thread_unprivileged();
         frame->x[0] = 0u;
         wt_co_block();
     }

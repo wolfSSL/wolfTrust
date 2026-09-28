@@ -96,6 +96,7 @@ void wt_arch_diag_trap(uint32_t a, uint32_t b, uint32_t c)
 #endif
 }
 
+/* Every lower-EL entry parks and clears the id, so S-EL1 reads zero. */
 int wt_arch_thread_unprivileged(void)
 {
     uint64_t id;

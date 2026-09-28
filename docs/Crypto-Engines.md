@@ -403,7 +403,7 @@ of allocation headroom over the tested peak. It is not a precise high-water
 measurement or a guarantee for different workloads. This is a fixed
 allocation, not a heap or a claim that every run consumes all 10 KiB.
 
-See [TF-M Compatibility](TF-M-Compatibility.md) for the complete local
+See [Footprint Comparison](Footprint-Comparison.md) for the complete local
 footprint comparison and methodology.
 
 ## Build invariants

@@ -440,15 +440,15 @@ engine images.
 
 ## Source anchors
 
-- [FF-M gateway](../src/arch/armv8m/ffm_nsc.c)
-- [Secure Partition scheduler and SVC gates](../src/arch/armv8m/spm_svc.c)
-- [Secure stack sealing and context switch](../src/arch/armv8m/coroutine_armv8m.c)
-- [Secure fault attribution and SPM halt](../src/arch/armv8m/sp_fault_armv8m.c)
-- [Secure MPU tables and the SPM RAM cover](../src/arch/armv8m/mpu_armv8m.c)
-- [Guest verification](../src/guest_verify.c)
-- [HSM relay binding](../src/services/wolfhsm/wt_hsm.c)
-- [Native crypto dispatch](../src/services/native/crypto_native.c)
-- [Native vault key backend](../src/services/native/keyvault.c)
-- [Vault storage](../src/services/wolfhsm/wt_hsm_vault.c)
+- [FF-M gateway](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/ffm_nsc.c)
+- [Secure Partition scheduler and SVC gates](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/spm_svc.c)
+- [Secure stack sealing and context switch](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/coroutine_armv8m.c)
+- [Secure fault attribution and SPM halt](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/sp_fault_armv8m.c)
+- [Secure MPU tables and the SPM RAM cover](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/mpu_armv8m.c)
+- [Guest verification](https://github.com/wolfSSL/wolfTrust/blob/main/src/guest_verify.c)
+- [HSM relay binding](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/wolfhsm/wt_hsm.c)
+- [Native crypto dispatch](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/native/crypto_native.c)
+- [Native vault key backend](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/native/keyvault.c)
+- [Vault storage](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/wolfhsm/wt_hsm_vault.c)
 
 See [Threat Model](Threat-Model.md) for assumptions and residual risks.

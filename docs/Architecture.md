@@ -37,11 +37,8 @@ paths, context handling, GTZC attribution, guest and Secure MPU programming,
 interrupt routing, flash, entropy, timers, and boot handoff.
 
 Additional Cortex-M ports may reuse the existing interfaces when their
-execution and protection models match. Cortex-A support is an architectural
-goal, not a current capability. It will require a new adapter and changes to
-current internal execution and protection contracts; the design goal is to
-preserve the public manifest, service, IPC, and PSA API contracts. See
-[Porting](Porting.md) for the current boundary.
+execution and protection models match. See [Porting](Porting.md) for the
+current boundary.
 
 ## Boot flow
 

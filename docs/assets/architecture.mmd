@@ -1,0 +1,22 @@
+flowchart TB
+    BOOT["wolfBoot authenticated loader"]
+    ZEPHYR["Zephyr guest"]
+    FREERTOS["FreeRTOS guest"]
+    CLIENT["wolfPSA client and selected crypto engine"]
+    GATE["FF-M client gateway"]
+    SPM["wolfTrust SPM: identity, policy, IPC"]
+    SERVICES["Secure crypto, storage, attestation, update"]
+    PORT["Armv8-M and STM32H563 port"]
+
+    ZEPHYR --> CLIENT
+    FREERTOS --> CLIENT
+    CLIENT --> GATE
+    GATE --> SPM
+    BOOT --> SPM
+    SPM --> SERVICES
+    SPM --> PORT
+
+    classDef secure fill:#eefbfc,stroke:#1fbeca,color:#111;
+    classDef nonsecure fill:#fff6ed,stroke:#c46715,color:#111;
+    class SPM,GATE,SERVICES,PORT secure;
+    class ZEPHYR,FREERTOS,CLIENT nonsecure;

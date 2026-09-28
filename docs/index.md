@@ -7,75 +7,18 @@ common runtime implements Arm Platform Security Architecture (PSA) Firmware
 Framework for M (FF-M) interprocess communication (IPC), manifest policy,
 scheduling, lifecycle management, fault recovery, and services.
 
-The only currently supported and validated reference implementation combines
-the Armv8-M adapter with the STM32H563 Cortex-M33 port. Support for additional
-Cortex-M ports is an intended extension point. Such ports may reuse the common
-runtime and, where applicable, the Armv8-M layer. Cortex-A support is an
-architectural goal, not a current capability. It will require a new adapter and
-changes to current internal execution and protection contracts; the design goal
-is to preserve the public manifest, service, IPC, and PSA API contracts.
+The currently supported and validated reference implementation combines
+the Armv8-M adapter with the STM32H563 Cortex-M33 port. Additional Cortex-M
+ports may reuse the common runtime and, where applicable, the Armv8-M layer.
+
+[Download the wolfTrust Manual (PDF)](https://www.wolfssl.com/documentation/manuals/wolftrust/wolfTrust-Manual.pdf)
 
 ## Architecture
 
-```mermaid
-flowchart TB
-    BOOT[Trusted first-stage loader<br/>current reference: wolfBoot]
+![wolfTrust architecture from authenticated boot through guest clients, FF-M services, and the STM32H563 port](assets/architecture.png)
 
-    subgraph APP[Application domains]
-        GA[Cortex-M client A<br/>Zephyr, FreeRTOS, or bare metal]
-        GB[Optional Cortex-M client B<br/>Zephyr, FreeRTOS, or bare metal]
-    end
-
-    subgraph PORT[Architecture and target ports]
-        GW[Client gateway<br/>current: five Armv8-M CMSE veneers]
-        ARCH[Architecture adapter<br/>current: Armv8-M]
-        TARGET[Target and board port<br/>current: STM32H563]
-        GW --- ARCH
-        ARCH --- TARGET
-    end
-
-    subgraph WT[wolfTrust policy and service runtime]
-        SPM[Secure Partition Manager<br/>policy, identity, IPC, scheduling, lifecycle, recovery]
-        subgraph SP[Secure services]
-            CR["Selected crypto engine<br/>native or wolfHSM"]
-            ST["Internal Trusted Storage (ITS),<br/>Protected Storage, and vault"]
-            AT[Initial Attestation]
-            FW[Optional Firmware Update]
-            VN[Optional virtual networking]
-        end
-        SPM --> CR
-        SPM --> ST
-        SPM --> AT
-        SPM --> FW
-        SPM --> VN
-    end
-
-    subgraph LIBS[wolfSSL ecosystem components]
-        PSA[wolfPSA<br/>guest wolfCrypt; optional wolfHSM client]
-        WC[Secure wolfCrypt<br/>optional wolfHSM server]
-        COSE[wolfCOSE]
-        HAL[wolfHAL]
-        IP[wolfIP<br/>optional bare-metal reference networking]
-    end
-
-    BOOT -->|authenticated measurement, lifecycle, and version handoff| SPM
-    GA -->|generic FF-M client API| GW
-    GB -->|generic FF-M client API| GW
-    GA -->|PSA Crypto| PSA
-    GB -->|PSA Crypto| PSA
-    PSA -->|protected operations over FF-M| GW
-    GA -->|optional networking| IP
-    GB -->|optional networking| IP
-    IP -->|VNet service over FF-M| GW
-    GW -->|validated requests| SPM
-    SPM -->|Secure execution operations| ARCH
-    SPM -->|platform callbacks| TARGET
-    CR --> WC
-    ST --> WC
-    AT --> COSE
-    AT --> WC
-    TARGET -->|current register and RNG access| HAL
-```
+The optional wolfIP/VNET reference uses separate bare-metal guests, not the
+Zephyr and FreeRTOS PSA guest pair.
 
 ### Current reference port
 
@@ -103,13 +46,17 @@ port's five CMSE gateway veneers.
 | Page | Contents |
 | --- | --- |
 | [Getting Started](Getting-Started.md) | Prerequisites, checkout, first builds, emulator use, and hardware entry points |
+| [Supported Targets](Targets.md) | Validated hardware and emulator environments, with setup paths |
 | [Architecture](Architecture.md) | Boot flow, isolation layers, FF-M IPC, services, and scheduling |
 | [Crypto Engines](Crypto-Engines.md) | Native and wolfHSM engine behavior, selection, key models, and measured cost |
 | [Security Model](Security-Model.md) | Trust boundaries and enforced security properties |
 | [Threat Model](Threat-Model.md) | Protected assets, attacker capabilities, controls, and residual risks |
 | [API Reference](API-Reference.md) | PSA client, service, storage, update, lifecycle, attestation, and gateway APIs |
 | [Services](Services.md) | Behavior and access policy for each Secure service |
-| [TF-M Compatibility](TF-M-Compatibility.md) | Supported interfaces, intentional differences, and migration guidance |
+| [Standards and Claims](Standards.md) | Arm specifications, implemented scope, deviations, and claim boundaries |
+| [FF-M Compatibility](FF-M-Compatibility.md) | Arm FF-M requirements, implemented framework interfaces, and known deviations |
+| [PSA Compatibility](PSA-Compatibility.md) | PSA service APIs, implemented subsets, known deviations, and porting guidance |
+| [Footprint Comparison](Footprint-Comparison.md) | Dated local Secure-image measurements and methodology |
 | [Macros](Macros.md) | Supported build and manifest configuration |
 | [Footprint](Footprint.md) | Measured image sizes and the options that change them |
 | [Porting](Porting.md) | Architecture and target port contracts |

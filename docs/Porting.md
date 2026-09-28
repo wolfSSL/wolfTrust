@@ -13,11 +13,8 @@ and board-specific execution. The registered ports, each with its guide and
 its validation status, are in [Ports](Ports.md); every one reuses the Armv8-M
 architecture adapter unchanged.
 
-Cortex-A support is an architectural goal, not a current capability. It will
-require a new adapter and changes to current internal execution and protection
-contracts. The design goal is to preserve the public manifest, service, IPC,
-and PSA API contracts. Every new port must report its actual capabilities and
-must not claim security properties until they are tested on that target.
+Every new port must report its actual capabilities and must not claim security
+properties until they are tested on that target.
 
 ## Port layers
 
@@ -454,10 +451,10 @@ a `lock` step behind the typed acceptance, or refused outright by the port.
 - Run `make test` for common policy and service behavior.
 - Run `WT_SPLIT_STRICT=1 tools/check-core-port-split.sh` and resolve
   hard core-to-architecture leaks (arch or port headers, CMSE, inline
-  assembly, retired names, M-profile or A-profile register vocabulary in
+  assembly, retired names, architecture-specific register vocabulary in
   core code, and `wt_arch_*` definitions inside a port).
-- Run `tools/check-docs-no-internal-links.sh`; `docs/` is published to the
-  wiki and must not reference internal ledgers or developer paths.
+- Run `tools/check-docs-no-internal-links.sh`; `docs/` is published as the
+  manual and must not reference internal ledgers or developer paths.
 - Cross-build the Secure image with warnings enabled.
 - On the current Armv8-M port, inspect `nm` output and confirm only the five
   FF-M veneers are Non-secure-callable.

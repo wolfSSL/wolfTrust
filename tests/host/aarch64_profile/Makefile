@@ -67,6 +67,10 @@ $(foreach v,$(VARIANTS),$(eval $(call variant_rule,$(v))))
 # DEN0022 5.11: the reset budget that ends an emulator run on SYSTEM_RESET
 # builds only for a port marked emulated.
 PSCI_SRC := $(ROOT)/src/arch/aarch64/el3/psci.c
+# The EL3 parking state holds WT_EL3_MAX_CPUS cores; a port may declare no
+# more, and no fewer than its boot core.
+EL3_MAIN_CPP := $(CC) -E -I$(ROOT)/include -DWT_SPM_BOOT_INFO_PA=0x0E040000u \
+	$(ROOT)/src/arch/aarch64/el3/el3_main.c
 
 run: $(BINS)
 	@set -e; for bin in $(BINS); do $$bin; done
@@ -79,6 +83,18 @@ run: $(BINS)
 		echo "  [check] FAIL  a reset budget builds for a port not marked emulated"; \
 		exit 1; \
 	fi
+	@for n in 1u 4u; do \
+		$(EL3_MAIN_CPP) -DWT_PORT_BOOT_CPUS=$$n > /dev/null || exit 1; \
+	done; \
+	echo "  [check] PASS  a port declaring 1 to WT_EL3_MAX_CPUS boot cores builds"
+	@for n in 0u 5u 32u; do \
+		if ! $(EL3_MAIN_CPP) -DWT_PORT_BOOT_CPUS=$$n 2>&1 | \
+			grep -q "must be between"; then \
+			echo "  [check] FAIL  WT_PORT_BOOT_CPUS=$$n builds"; \
+			exit 1; \
+		fi; \
+	done; \
+	echo "  [check] PASS  no boot cores, or more than the EL3 parking state holds, is refused"
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

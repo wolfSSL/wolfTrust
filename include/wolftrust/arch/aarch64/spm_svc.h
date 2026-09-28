@@ -319,6 +319,8 @@ int wt_spm_msg2_deliver(uint16_t caller, uint32_t version, const uint8_t* tx,
  * enable_mmu publishes its stack band (the slot after the last manifest
  * partition stack) and the init pass builds the partition on it. */
 struct wt_co* wt_spm_ffa_echo_partition(void);
+/* The runnable endpoint a Normal-world FFA_RUN names: the echo or a native. */
+struct wt_co* wt_spm_ffa_endpoint_by_id(uint16_t id);
 extern uintptr_t g_wt_spm_echo_stack_base;
 extern uintptr_t g_wt_spm_echo_stack_size;
 

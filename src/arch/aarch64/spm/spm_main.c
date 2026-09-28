@@ -1416,7 +1416,7 @@ static void ns_run(wt_ffa_regs_ext_t* e)
     int ret = wt_ffa_run_target((uint32_t)e->base.x[1], &id);
 
     if (ret == 0) {
-        co = wt_spm_ffa_native_by_id(id);
+        co = wt_spm_ffa_endpoint_by_id(id);
         ret = (co != NULL) ? wt_spm_ffa_run(co, WT_FFA_ID_NS_PRIMARY, out)
                            : WT_FFA_INVALID_PARAMETERS;
     }

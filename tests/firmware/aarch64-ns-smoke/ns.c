@@ -505,6 +505,9 @@ static void guest_vault_secured(void)
 }
 #endif
 
+#endif
+
+#if defined(WT_NS_GUEST_PSA) || defined(WT_NS_GUEST_ECHO)
 /* SGI 15 in the boot core's GICv3 redistributor SGI frame. */
 #define NS_IRQ_PROBE_SGI     15u
 #define NS_GICR_SGI_BASE     (WT_NS_GICR + 0x10000u)
@@ -555,6 +558,53 @@ static int ns_irq_release(void)
     __asm__ volatile("msr icc_igrpen1_el1, xzr\n\tisb" ::: "memory");
     return (int)pending;
 }
+#endif
+
+#if defined(WT_NS_GUEST_ECHO)
+/* Ch.9: a Normal-world interrupt preempts the echo partition mid-request, the
+ * guest is told FFA_INTERRUPT with the echo's id, and FFA_RUN with that id
+ * resumes it to its direct response. */
+static void guest_direct_preempted(void)
+{
+    uint64_t x[18];
+    uint32_t target = 0u;
+    unsigned int i;
+    int ok = 0;
+
+    if (ns_irq_hold() == 0) {
+        put_str("[NS] direct preempt skipped: no GICv3\r\n");
+        return;
+    }
+    for (i = 0u; i < 18u; i++) {
+        x[i] = 0u;
+    }
+    x[0] = WT_FFA_MSG_SEND_DIRECT_REQ32;
+    x[1] = ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16) | WT_FFA_ID_ECHO;
+    x[3] = WT_FFA_TEST_PAYLOAD;
+    smc18(x);
+    (void)ns_irq_release();
+    if (((uint32_t)x[0] == WT_FFA_INTERRUPT) &&
+        (((uint32_t)x[1] >> 16) == WT_FFA_ID_ECHO)) {
+        target = (uint32_t)x[1];
+        for (i = 0u; i < 18u; i++) {
+            x[i] = 0u;
+        }
+        x[0] = WT_FFA_RUN;
+        x[1] = target;
+        smc18(x);
+        ok = ((uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_RESP32) &&
+             ((uint32_t)x[3] == (uint32_t)~WT_FFA_TEST_PAYLOAD);
+    }
+    put_str(ok ? "[NS] direct preempt resumed ok w1=0x"
+               : "[NS] direct preempt BAD w1=0x");
+    put_hex(target);
+    put_str(" x0=0x");
+    put_hex((uint32_t)x[0]);
+    put_str("\r\n");
+}
+#endif
+
+#if defined(WT_NS_GUEST_PSA)
 
 /* 9.3.1.3: a data-carrying call made with a Normal-world interrupt pending
  * completes, and hands that interrupt back still pending. */
@@ -2119,6 +2169,7 @@ void ns_main(void)
 #if defined(WT_NS_GUEST_ECHO)
     guest_direct();
     guest_req2_refused();
+    guest_direct_preempted();
 #endif
 
 #if defined(WT_NS_GUEST_PSA)

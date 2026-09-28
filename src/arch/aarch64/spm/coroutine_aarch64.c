@@ -1312,7 +1312,8 @@ void wt_co_arch_enter(struct wt_co *to)
     g_wt_spm_handler_depth = handler_depth;
     g_wt_spm_handler_co = handler_co;
     g_wt_co_current = prev;
-    write_tpidrro((prev->unprivileged != 0u) ? (uint64_t)prev->id : 0u);
+    /* Back at S-EL1: a lower-EL exit restores the id its entry parked. */
+    write_tpidrro(0u);
     if (prev->domain != NULL) {
         wt_arch_program_sp_thread_domain(prev->domain->regions,
                                          prev->domain->region_count);

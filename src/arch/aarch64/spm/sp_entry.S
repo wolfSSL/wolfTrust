@@ -32,6 +32,8 @@
 #define FRAME_ESR    272
 #define FRAME_FAR    280
 #define FRAME_SIZE   288
+/* The frame plus the partition id the entry parks from TPIDRRO_EL0. */
+#define FRAME_STACK  304
 
     .section .bss.g_wt_sp_kernel_ctx, "aw", %nobits
     .balign 16
@@ -94,7 +96,7 @@ wt_sp_el0_leave:
     .section .text.wt_sp_lower_sync_entry, "ax"
     .globl wt_sp_lower_sync_entry
 wt_sp_lower_sync_entry:
-    sub     sp, sp, #FRAME_SIZE
+    sub     sp, sp, #FRAME_STACK
     stp     x0, x1, [sp, #0]
     stp     x2, x3, [sp, #16]
     stp     x4, x5, [sp, #32]
@@ -121,6 +123,9 @@ wt_sp_lower_sync_entry:
     str     x0, [sp, #FRAME_ESR]
     mrs     x0, FAR_EL1
     str     x0, [sp, #FRAME_FAR]
+    mrs     x0, TPIDRRO_EL0
+    str     x0, [sp, #FRAME_SIZE]
+    msr     TPIDRRO_EL0, xzr
     mov     x0, sp
     bl      wt_spm_lower_sync
     ldr     x0, [sp, #FRAME_SPSR]
@@ -129,6 +134,8 @@ wt_sp_lower_sync_entry:
     msr     ELR_EL1, x0
     ldr     x0, [sp, #FRAME_SP_EL0]
     msr     SP_EL0, x0
+    ldr     x0, [sp, #FRAME_SIZE]
+    msr     TPIDRRO_EL0, x0
     ldr     x30, [sp, #240]
     ldp     x28, x29, [sp, #224]
     ldp     x26, x27, [sp, #208]
@@ -145,7 +152,7 @@ wt_sp_lower_sync_entry:
     ldp     x4, x5, [sp, #32]
     ldp     x2, x3, [sp, #16]
     ldp     x0, x1, [sp, #0]
-    add     sp, sp, #FRAME_SIZE
+    add     sp, sp, #FRAME_STACK
     eret
 
 /* Lower-EL FIQ (a Group 0 interrupt while an S-EL0 partition runs): build the
@@ -155,7 +162,7 @@ wt_sp_lower_sync_entry:
     .section .text.wt_sp_lower_fiq_entry, "ax"
     .globl wt_sp_lower_fiq_entry
 wt_sp_lower_fiq_entry:
-    sub     sp, sp, #FRAME_SIZE
+    sub     sp, sp, #FRAME_STACK
     stp     x0, x1, [sp, #0]
     stp     x2, x3, [sp, #16]
     stp     x4, x5, [sp, #32]
@@ -182,6 +189,9 @@ wt_sp_lower_fiq_entry:
     str     x0, [sp, #FRAME_ESR]
     mrs     x0, FAR_EL1
     str     x0, [sp, #FRAME_FAR]
+    mrs     x0, TPIDRRO_EL0
+    str     x0, [sp, #FRAME_SIZE]
+    msr     TPIDRRO_EL0, xzr
     mov     x0, sp
     bl      wt_spm_lower_fiq
     ldr     x0, [sp, #FRAME_SPSR]
@@ -190,6 +200,8 @@ wt_sp_lower_fiq_entry:
     msr     ELR_EL1, x0
     ldr     x0, [sp, #FRAME_SP_EL0]
     msr     SP_EL0, x0
+    ldr     x0, [sp, #FRAME_SIZE]
+    msr     TPIDRRO_EL0, x0
     ldr     x30, [sp, #240]
     ldp     x28, x29, [sp, #224]
     ldp     x26, x27, [sp, #208]
@@ -206,7 +218,7 @@ wt_sp_lower_fiq_entry:
     ldp     x4, x5, [sp, #32]
     ldp     x2, x3, [sp, #16]
     ldp     x0, x1, [sp, #0]
-    add     sp, sp, #FRAME_SIZE
+    add     sp, sp, #FRAME_STACK
     eret
 
 /* Lower-EL IRQ (a Normal-world Group 1 interrupt while an S-EL0 partition
@@ -215,7 +227,7 @@ wt_sp_lower_fiq_entry:
     .section .text.wt_sp_lower_irq_entry, "ax"
     .globl wt_sp_lower_irq_entry
 wt_sp_lower_irq_entry:
-    sub     sp, sp, #FRAME_SIZE
+    sub     sp, sp, #FRAME_STACK
     stp     x0, x1, [sp, #0]
     stp     x2, x3, [sp, #16]
     stp     x4, x5, [sp, #32]
@@ -242,6 +254,9 @@ wt_sp_lower_irq_entry:
     str     x0, [sp, #FRAME_ESR]
     mrs     x0, FAR_EL1
     str     x0, [sp, #FRAME_FAR]
+    mrs     x0, TPIDRRO_EL0
+    str     x0, [sp, #FRAME_SIZE]
+    msr     TPIDRRO_EL0, xzr
     mov     x0, sp
     bl      wt_spm_lower_irq
     ldr     x0, [sp, #FRAME_SPSR]
@@ -250,6 +265,8 @@ wt_sp_lower_irq_entry:
     msr     ELR_EL1, x0
     ldr     x0, [sp, #FRAME_SP_EL0]
     msr     SP_EL0, x0
+    ldr     x0, [sp, #FRAME_SIZE]
+    msr     TPIDRRO_EL0, x0
     ldr     x30, [sp, #240]
     ldp     x28, x29, [sp, #224]
     ldp     x26, x27, [sp, #208]
@@ -266,7 +283,7 @@ wt_sp_lower_irq_entry:
     ldp     x4, x5, [sp, #32]
     ldp     x2, x3, [sp, #16]
     ldp     x0, x1, [sp, #0]
-    add     sp, sp, #FRAME_SIZE
+    add     sp, sp, #FRAME_STACK
     eret
 
 /* S-EL0 spinner for the preemption self-test: loops until a tick preempts it. */

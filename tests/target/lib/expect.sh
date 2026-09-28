@@ -59,6 +59,40 @@ refute_re() {
   fi
 }
 
+# acs_failed_tests <log>: the Arm FF-A ACS tests whose verdict is FAILED, one
+# name per line, sorted and unique. val prints "TEST: <name> SUITE: <group>"
+# when a test starts and "RESULT: <verdict>" when it ends, with the test's own
+# output in between; a verdict with no test open is ignored.
+acs_failed_tests() {
+  awk '/TEST: [A-Za-z0-9_]+/ {
+         match($0, /TEST: [A-Za-z0-9_]+/)
+         name = substr($0, RSTART + 6, RLENGTH - 6)
+         next
+       }
+       /RESULT: FAILED/ { if (name != "") print name }
+       /RESULT: / { name = "" }' "$1" | sort -u
+}
+
+# acs_failures_ok <failed-total> <by-design names> <log>: succeeds only when
+# the tests parsed as FAILED are exactly the by-design set and the ACS-printed
+# failed total is that set's size; otherwise prints why and fails, so a lost
+# test header, a new failure, or a count the names do not explain all fail.
+acs_failures_ok() {
+  local want got n name
+  want=$(for name in $2; do printf '%s\n' "$name"; done | sort -u | tr '\n' ' ')
+  got=$(acs_failed_tests "$3" | tr '\n' ' ')
+  n=$(printf '%s' "$want" | wc -w | tr -d ' ')
+  if [ "$got" != "$want" ]; then
+    echo "failed tests [${got% }] are not the by-design set [${want% }]"
+    return 1
+  fi
+  if [ "$1" != "$n" ]; then
+    echo "failed total $1 is not the $n by design"
+    return 1
+  fi
+  return 0
+}
+
 # emu_end <status>: how the emulator run in WT_EXPECT_LOG ended. exit is a
 # clean status 0; reset-limit is status 0 at an emulator build's reset limit;
 # panic is the AArch64 monitor's 0x7e exit; timeout is timeout(1)'s 124.
@@ -101,6 +135,14 @@ selftest() {
     out="$("$@" 2>&1)"
     if [ "$out" != "$expected" ]; then
       echo "SELFTEST FAIL: $label: got '$out'"; fails=$((fails + 1))
+    fi
+  }
+  want_rc() { # label status command...
+    local label="$1" rc="$2" got=0
+    shift 2
+    if "$@" >/dev/null 2>&1; then got=0; else got=$?; fi
+    if [ "$got" != "$rc" ]; then
+      echo "SELFTEST FAIL: $label: status $got, want $rc"; fails=$((fails + 1))
     fi
   }
   want_fail() { # label command...
@@ -158,6 +200,25 @@ selftest() {
   else
     echo "SELFTEST: gap case skipped (needs GNU grep)"
   fi
+  # The ACS verdict parser: names come from the TEST: header that precedes
+  # each RESULT:, across the test's own output, and the by-design set must
+  # explain both the names and the printed total.
+  printf '[0000 0]\tTEST: ffa_version SUITE: setup_discovery \r\n[0000 0]\tRESULT: PASSED\r\n[0000 0]\tTEST: ffa_partition_info_get_lsp SUITE: setup_discovery \r\n[0000 0]\tCheck failed: no lsp\r\nfreertos_guest1: hb\r\n[0000 0]\tRESULT: FAILED\r\n[0000 0]\tTEST: ffa_rx_release SUITE: setup_discovery \r\n[0000 0]\tRESULT: SKIPPED\r\n[0000 0]\tTEST: ffa_features SUITE: setup_discovery \r\n[0000 0]\tRESULT: PASSED\r\n[0000 0]\tRESULT: FAILED\r\n[0000 0]\t   TOTAL FAILED    : 1\r\n' \
+    > "$dir/acs"
+  want "acs parse" 'ffa_partition_info_get_lsp' acs_failed_tests "$dir/acs"
+  want_rc "acs by design" 0 acs_failures_ok 1 'ffa_partition_info_get_lsp' "$dir/acs"
+  want_rc "acs total above the names" 1 acs_failures_ok 2 'ffa_partition_info_get_lsp' "$dir/acs"
+  want_rc "acs total below the names" 1 acs_failures_ok 0 'ffa_partition_info_get_lsp' "$dir/acs"
+  want_rc "acs failure not by design" 1 acs_failures_ok 1 '' "$dir/acs"
+  want_rc "acs by-design name missing from the log" 1 acs_failures_ok 1 'ffa_partition_info_get_lsp ffa_features' "$dir/acs"
+  want_rc "acs total unparsed" 1 acs_failures_ok -1 'ffa_partition_info_get_lsp' "$dir/acs"
+  printf '[0000 0]\tTEST: b_test SUITE: g \r\n[0000 0]\tRESULT: FAILED\r\n[0000 0]\tTEST: a_test SUITE: g \r\n[0000 0]\tRESULT: FAILED\r\n[0000 0]\tTEST: c_test SUITE: g \r\n[0000 0]\tRESULT: PASSED\r\n' \
+    > "$dir/acs2"
+  want_rc "acs two by design in any order" 0 acs_failures_ok 2 'b_test a_test' "$dir/acs2"
+  want_rc "acs two failed, one by design" 1 acs_failures_ok 2 'a_test' "$dir/acs2"
+  printf '[0000 0]\tTEST: a_test SUITE: g \r\n[0000 0]\tRESULT: PASSED\r\n' > "$dir/acs3"
+  want_rc "acs clean group" 0 acs_failures_ok 0 '' "$dir/acs3"
+  want_rc "acs clean group with a deviation recorded" 1 acs_failures_ok 0 'a_test' "$dir/acs3"
   rm -rf "$dir"
   if [ "$fails" -ne 0 ]; then echo "SELFTEST: $fails failure(s)"; exit 1; fi
   echo "SELFTEST: ok"

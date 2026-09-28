@@ -2,7 +2,7 @@ name: Empty Brace Scope Scan
 
 on:
   push:
-    branches: [master, main, 'release/**', wolfTrust-dev, wolftfm-l3, wolfpsa-v5.9.1-ci]
+    branches: [main]
   pull_request:
   workflow_dispatch:
   workflow_call:

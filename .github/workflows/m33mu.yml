@@ -6,7 +6,7 @@ on:
   # dispatch.
   pull_request:
   push:
-    branches: [master, main, wolfTrust-dev]
+    branches: [main]
   workflow_dispatch:
   workflow_call:
 

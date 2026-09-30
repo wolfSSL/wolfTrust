@@ -76,7 +76,7 @@ are deleted instead of being reused by the next Make invocation.
 
 The per-PR core/port split workflow builds the `CONFIG_VNET=y` Secure image.
 The M33MU smoke tier builds and runs the `WT_CONFORMANCE=1` `confboot` layout
-on every PR; the VNET layout runs with the full matrix (`ci:h5` label, push
+on every PR; the VNET layout runs with the full matrix (`ci:stm32h563` label, push
 to main, nightly), so both optional isolation-band configurations stay under
 the linked-image check in CI.
 
@@ -534,7 +534,7 @@ each port's smoke tier on both crypto engines (STM32H563: `positive`,
 The full matrix runs on a
 push to `main`, on the nightly schedule, on
 manual dispatch (with a `port` input), and on a pull request that carries the
-`ci:h5`, `ci:rt700`, or `ci:all` label. The scenario groups per port and tier
+`ci:stm32h563`, `ci:imxrt700`, or `ci:all` label. The scenario groups per port and tier
 are in `tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>`
 runs the same smoke tier locally and `WT_TIER=full` every scenario.
 

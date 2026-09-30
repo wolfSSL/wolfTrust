@@ -1,7 +1,7 @@
 name: M33MU
 
 on:
-  # Pull requests run each port's smoke tier; the ci:all, ci:h5, and ci:rt700
+  # Pull requests run each port's smoke tier; the ci:all, ci:stm32h563, and ci:imxrt700
   # labels, pushes to main, the nightly schedule (workflow_call from
   # nightly.yml), and manual dispatch run a port's full matrix.
   pull_request:
@@ -280,7 +280,7 @@ jobs:
           fi
 
   # Label-selected, the wolfProvider way: one select job reads the ci:* labels
-  # (ci:h5 or ci:rt700 for that port's full matrix when only that port
+  # (ci:stm32h563 or ci:imxrt700 for that port's full matrix when only that port
   # changed, ci:all or ci:m33mu for everything after a core change, no label
   # for each port's smoke tier), the event, and the dispatch input, then one
   # matrix job runs exactly those scenario groups, so nothing shows up skipped.

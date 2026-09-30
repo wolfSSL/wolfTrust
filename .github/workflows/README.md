@@ -10,8 +10,8 @@ and nightly.
 | Tier | Trigger | Purpose |
 |------|---------|---------|
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
-| **M33MU smoke** | every PR | per port, on both crypto engines: STM32H563 `positive gtzcneg crossdomain bothpsa confboot devcrypto`; MIMXRT700 `positive ahbscneg crossdomain bothpsa confboot devcrypto` |
-| **M33MU full** | PR labels `ci:all`, `ci:h5`, `ci:rt700`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
+| **M33MU smoke** | every PR | per port, on both crypto engines: STM32H563 `positive gtzcneg crossdomain bothpsa confboot devcrypto`; MIMXRT700 `positive ahbscneg crossdomain bothpsa` |
+| **M33MU full** | PR labels `ci:all`, `ci:stm32h563`, `ci:imxrt700`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
 | **AArch64 smoke** | every PR | a representative subset: `virt-gicv3-a72` `smoke boot positive crossdomain ffa-direct confboot devcrypto` on both crypto engines, and `versal-virt` the same on the native engine |
 | **AArch64 full** | PR labels `ci:all`, `ci:aarch64`, `ci:qemu-virt`, `ci:qemu-versal`; push to main; nightly; `workflow_dispatch` (cell input) | every AArch64 scenario and the Arm FF-A ACS groups on three QEMU cells under both crypto engines (see below) |
 
@@ -24,8 +24,8 @@ groups it picked, so a job that is not selected never appears as skipped.
 | Label | Effect |
 |-------|--------|
 | (no label) | each port's smoke tier on both engines |
-| `ci:h5` | the STM32H563 full matrix (the change touched only that port) |
-| `ci:rt700` | the MIMXRT700 full matrix (the change touched only that port) |
+| `ci:stm32h563` | the STM32H563 full matrix (the change touched only that port) |
+| `ci:imxrt700` | the MIMXRT700 full matrix (the change touched only that port) |
 | `ci:all` / `ci:m33mu` | every scenario of every port (a core change) |
 
 A label keeps applying on later pushes to the PR. Pushes to

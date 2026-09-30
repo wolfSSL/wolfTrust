@@ -25,7 +25,7 @@ reads the whole run with --ci-plan (the event, the PR labels, and the dispatch
 input pick each port's tier), and `make test-target` reads one port's
 scenario list with --flat, so a scenario is registered in exactly one place.
 
-    GITHUB_EVENT_NAME=pull_request PR_LABELS="ci:rt700" scenario_matrix.py --ci-plan
+    GITHUB_EVENT_NAME=pull_request PR_LABELS="ci:imxrt700" scenario_matrix.py --ci-plan
     scenario_matrix.py --port mimxrt700 --tier smoke --json
     scenario_matrix.py --port stm32h563 --tier full --engine native --flat
 """
@@ -46,7 +46,7 @@ HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
 # tier, packed so each job builds the emulator and wolfBoot once.
 PORTS = {
     "stm32h563": {
-        "label": "ci:h5",
+        "label": "ci:stm32h563",
         "arm": "m33mu",
         "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15",
         "smoke": ("positive", "gtzcneg", "crossdomain", "bothpsa", "confboot",
@@ -102,7 +102,7 @@ PORTS = {
         ),
     },
     "mimxrt700": {
-        "label": "ci:rt700",
+        "label": "ci:imxrt700",
         "arm": "rt700-m33mu",
         "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25",
         "smoke": ("positive", "ahbscneg", "crossdomain", "bothpsa", "confboot",
@@ -281,11 +281,11 @@ def ci_plan(event, labels, port_input):
 
 SELFTEST = (
     ("pull_request", "", "", "mimxrt700:smoke stm32h563:smoke"),
-    ("pull_request", "ci:rt700", "", "mimxrt700:full stm32h563:smoke"),
-    ("pull_request", "ci:h5", "", "mimxrt700:smoke stm32h563:full"),
+    ("pull_request", "ci:imxrt700", "", "mimxrt700:full stm32h563:smoke"),
+    ("pull_request", "ci:stm32h563", "", "mimxrt700:smoke stm32h563:full"),
     ("pull_request", "ci:all", "", "mimxrt700:full stm32h563:full"),
     ("pull_request", "ci:m33mu", "", "mimxrt700:full stm32h563:full"),
-    ("pull_request", "ci:h5 ci:rt700", "", "mimxrt700:full stm32h563:full"),
+    ("pull_request", "ci:stm32h563 ci:imxrt700", "", "mimxrt700:full stm32h563:full"),
     ("push", "", "", "mimxrt700:full stm32h563:full"),
     ("schedule", "", "", "mimxrt700:full stm32h563:full"),
     ("workflow_dispatch", "", "", "mimxrt700:full stm32h563:full"),

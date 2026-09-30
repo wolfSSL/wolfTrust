@@ -413,10 +413,15 @@ Both engine builds enforce the following after linking:
 1. `mk/arch-armv8m.mk` runs `arm-none-eabi-nm` and writes the complete symbol
    list to `BUILD_DIR/nsc-syms.txt`.
 2. The link check rejects any `__acle_se_*` symbol outside this exact `nm`
-   set: `__acle_se_WolfTrust_FFM_FrameworkVersion`,
-   `__acle_se_WolfTrust_FFM_ServiceVersion`,
-   `__acle_se_WolfTrust_FFM_Connect`, `__acle_se_WolfTrust_FFM_Call`, and
-   `__acle_se_WolfTrust_FFM_Close`.
+   set:
+
+   ```text
+   __acle_se_WolfTrust_FFM_FrameworkVersion
+   __acle_se_WolfTrust_FFM_ServiceVersion
+   __acle_se_WolfTrust_FFM_Connect
+   __acle_se_WolfTrust_FFM_Call
+   __acle_se_WolfTrust_FFM_Close
+   ```
 3. A separate count check requires exactly five `__acle_se_*` symbols, so a
    missing veneer also fails the build.
 4. The same symbol list is searched for `malloc`, `free`, `calloc`,

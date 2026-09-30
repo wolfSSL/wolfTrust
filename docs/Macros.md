@@ -165,9 +165,9 @@ build `full` only, because their checks assert both guests.
 | `WT_TIMESLICE_MS` | Guest scheduler interval in milliseconds; default `2`. | Must be nonzero and supported by the target timer. |
 | `WT_GUEST_HANDLER_SLICE_LIMIT` | Consecutive slice expiries a guest may spend in a Non-secure handler before it is restarted (Secure calls made from that handler count); default `50`. A C define, not a Make variable: set it with `WT_EXTRA_CFLAGS=-DWT_GUEST_HANDLER_SLICE_LIMIT=<n>`. | Must be 1 to `0xFFFFFFFF` (other values fail the build); size it above the longest legitimate guest interrupt handler. |
 | `WT_CO_STACK_SIZE` | Default fixed coroutine stack size in bytes, including each per-guest wolfHSM server tasklet in the hsm engine; default `10240` (measured: the deep M33MU workloads pass at 8K with PSPLIM overflow detection armed, so 10K carries at least 2K margin). With two guests, the hsm-only server slots total 20,480 stack bytes plus 512 guard bytes. Manifest-sized Secure Partition stacks use their declared sizes instead. | Size from measured stack high-water marks and keep at least the scheduler minimum. |
-| `WT_SHARED_UART` | Reference guest UART selection; default `3`. | Guest and Secure builds must use a consistent value. |
-| `WT_GUEST_CORE_CLOCK_HZ` | Guest core-clock value; default `240000000`. | Must match the configured target clock. |
-| `WT_GUEST_UART_CLOCK_HZ` | Guest UART-clock value; default `120000000`. | Must match the selected UART clock source. |
+| `WT_SHARED_UART` | Reference guest UART selection; STM32H563 default `3`, MIMXRT700 default `0`. | Guest and Secure builds must use a consistent value. |
+| `WT_GUEST_CORE_CLOCK_HZ` | Guest core-clock value; STM32H563 default `240000000`, MIMXRT700 default `237500000`. | Must match the configured target clock. |
+| `WT_GUEST_UART_CLOCK_HZ` | Guest UART-clock value; STM32H563 default `120000000`, MIMXRT700 default `24000000`. | Must match the selected UART clock source. |
 
 ## Security and service options
 
@@ -183,7 +183,7 @@ build `full` only, because their checks assert both guests.
 | `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `0`, the portable C `sp_c32.c`, which is smaller. `1` trades flash for faster ECC and, on the native engine, raises the crypto partition stack from 5 KiB to 9 KiB for its deeper P-256 verify. | `1` requires compatible Armv8-M assembly sources and toolchain. |
 | `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `0`, portable C AES with small tables. `1` trades flash for faster AES and SHA-256. | `1` requires a compatible GNU Arm toolchain and `WT_SECURE_PSA=0`: the Thumb-2 AES is not constant time, which wolfPSA refuses. [`WT_SHA256_FAST`](#wt_sha256_fast-unrolled-sha-256) picks the SHA-256 transform either way. |
 | `WT_WOLFCRYPT_STM32_HASH` | STM32 HASH acceleration selector; default `0`. | Must remain `0`: the Makefile rejects other values because wolfHSM SHA state is not compatible with the peripheral representation. |
-| `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | Use only for conformance builds; the default production manifest is selected at `0`. |
+| `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | STM32H563 only; MIMXRT700 rejects this selector because it has no conformance manifest. |
 
 ## Image layout
 
@@ -215,15 +215,25 @@ guest linker files, measurement records, and flash commands consistent.
 
 ## Virtual network options
 
-| Define | Description | Requirement |
-| --- | --- | --- |
-| `CONFIG_VNET` | Select the VNET manifest and link the Secure switch when set to `y`; default `n`. | Both guests must use the matching VNET transport and memory layout. |
-| `WT_VNET_POOL_SLOTS` | Secure frame-pool slot count; default `8`. | Static VNET data must fit its manifest region. |
-| `WT_VNET_FRAME_MAX` | Internal maximum Ethernet frame bytes; default `1536`. | Must be large enough for the selected link frame; PSA transport still limits the exposed MTU to 1000. |
-| `WT_VNET_RX_QUEUE_DEPTH` | Per-port receive queue depth; default `8`. | Static queue storage must fit the VNET data region. |
-| `WT_VNET_RX_IRQ` | Synthetic Non-secure receive interrupt; default `130`. | Must be representable and assigned consistently in the target IRQ policy. |
-| `WT_VNET_TIMEOUT_TICKS` | Frame-expiration threshold in scheduler ticks; default `500`. | When a transmit finds the frame pool full, `SERVICE_VNET` drops queued frames older than this and retries once, so a port that stops fetching cannot hold the pool. Frames are not aged out while the pool has free slots. |
-| `WT_VNET_UNKNOWN_UCAST_FLOOD` | Flood unknown unicast frames when set to `1`; default `0`. | Enable only when the guest-network policy permits it. |
+- `CONFIG_VNET`: Select the VNET manifest and link the Secure switch when set
+  to `y`; default `n`. STM32H563 only; MIMXRT700 rejects this selector. Both
+  guests need the matching transport and memory layout.
+- `WT_VNET_POOL_SLOTS`: Secure frame-pool slot count; default `8`. Static VNET
+  data must fit its manifest region.
+- `WT_VNET_FRAME_MAX`: Internal maximum Ethernet frame bytes; default `1536`.
+  It must fit the selected link frame; PSA transport limits the exposed MTU to
+  1000.
+- `WT_VNET_RX_QUEUE_DEPTH`: Per-port receive queue depth; default `8`. Static
+  queue storage must fit the VNET data region.
+- `WT_VNET_RX_IRQ`: Synthetic Non-secure receive interrupt; default `130`.
+  Assign it consistently in the target IRQ policy.
+- `WT_VNET_TIMEOUT_TICKS`: Frame-expiration threshold in scheduler ticks;
+  default `500`. When a transmit finds the frame pool full, `SERVICE_VNET`
+  drops queued frames older than this and retries once, so a port that stops
+  fetching cannot hold the pool. Frames are not aged out while the pool has
+  free slots.
+- `WT_VNET_UNKNOWN_UCAST_FLOOD`: Flood unknown unicast frames when set to `1`;
+  default `0`. Enable only when the guest-network policy permits it.
 
 ## Fixed Secure wolfCrypt defines
 

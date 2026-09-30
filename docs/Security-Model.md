@@ -440,14 +440,14 @@ engine images.
 
 ## Source anchors
 
-- [FF-M gateway](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/ffm_nsc.c)
-- [Secure Partition scheduler and SVC gates](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/spm_svc.c)
+- FF-M gateway: [copied request handling](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/common/ffm_gateway.c) and [Armv8-M veneers](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/ffm_nsc.c)
+- Secure Partition scheduling and SVC gates: [common gate](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/common/spm_gate_core.c) and [Armv8-M SVC](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/spm_svc.c)
 - [Secure stack sealing and context switch](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/coroutine_armv8m.c)
 - [Secure fault attribution and SPM halt](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/sp_fault_armv8m.c)
 - [Secure MPU tables and the SPM RAM cover](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/mpu_armv8m.c)
 - [Guest verification](https://github.com/wolfSSL/wolfTrust/blob/main/src/guest_verify.c)
-- [HSM relay binding](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/wolfhsm/wt_hsm.c)
-- [Native crypto dispatch](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/native/crypto_native.c)
+- [HSM relay binding](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/hsm_relay_service.c)
+- Native crypto dispatch: [service](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/native/crypto_native.c) and [wire protocol](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/native/native_wire.c)
 - [Native vault key backend](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/native/keyvault.c)
 - [Vault storage](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/wolfhsm/wt_hsm_vault.c)
 

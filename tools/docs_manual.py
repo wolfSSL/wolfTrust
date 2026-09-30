@@ -93,6 +93,7 @@ def stage(documentation_root, source_root):
 
     header = (documentation_root / "wolfBoot" / "header.txt").read_text()
     header = header.replace("wolfBoot Documentation", "wolfTrust Manual")
+    header = re.sub(r"(\\copyright\s+)\d{4}", r"\g<1>2026", header)
     (manual / "header.txt").write_text(header)
     return manual
 

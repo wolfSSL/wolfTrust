@@ -5,7 +5,7 @@ repo_url: https://github.com/wolfSSL/wolfTrust
 edit_uri: edit/main/docs/
 docs_dir: docs
 site_dir: build/docs-site
-copyright: Copyright © wolfSSL Inc.
+copyright: Copyright © 2026 wolfSSL Inc.
 use_directory_urls: false
 
 nav:
@@ -16,10 +16,11 @@ nav:
       - Threat Model: Threat-Model.md
   - Get started:
       - Getting Started: Getting-Started.md
-      - Supported Targets: Targets.md
-      - STM32H563 Board Guide: STM32H5-Guide.md
       - Building: Building.md
       - Testing: Testing.md
+  - Ports:
+      - Supported targets: Targets.md
+      - STM32H563 board guide: STM32H5-Guide.md
   - Use wolfTrust:
       - Services: Services.md
       - API Reference: API-Reference.md

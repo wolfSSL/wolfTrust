@@ -288,17 +288,21 @@ that exact attack surface does not exist there. Native key and namespace
 behavior remains covered by the common positive, cross-domain, keystore,
 storage, attestation, and Crypto-validation rows.
 
-Validation of the engine split completed under both engines with:
+The engine split is exercised under both engines by:
 
 - the applicable M33MU scenario matrix;
 - the Arm FF-M IPC suite at 85 passed, 4 heap-dependent tests skipped, and
   0 failed, test for test as recorded in
-  [`tests/target/ffm_ipc_results.txt`](../tests/target/ffm_ipc_results.txt);
+  [`tests/target/ffm_ipc_results.txt`](https://github.com/wolfSSL/wolfTrust/blob/main/tests/target/ffm_ipc_results.txt);
 - the current dev_apis Crypto schedule at 64 passed, 13 skipped, and 0 failed
   (77 scheduled tests; c047 is configuration-skipped in addition to the
   upstream schedule); and
 - the STM32H563 positive, restart, cross-domain, and conformance hardware
   suite.
+
+Pass and skip counts depend on the build and test revisions. Use the logs from
+the selected CI run for exact results; the runner checks the scheduled test
+total and treats failures as failures.
 
 The engine dimension changes crypto dispatch, not what M33MU proves. Emulator
 results still do not establish STM32 attribution or physical flash behavior.

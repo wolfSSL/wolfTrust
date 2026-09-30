@@ -13,6 +13,11 @@ and board-specific execution. The registered ports, each with its guide and
 its validation status, are in [Ports](Ports.md); every one reuses the Armv8-M
 architecture adapter unchanged.
 
+No AArch64 architecture adapter or target is implemented or validated in the
+current release. An AArch64 port needs a separate architecture layer and device
+port; the common contracts describe its intended boundary, not an available
+build.
+
 Every new port must report its actual capabilities and must not claim security
 properties until they are tested on that target.
 

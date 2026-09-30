@@ -46,7 +46,7 @@ port's five CMSE gateway veneers.
 | Page | Contents |
 | --- | --- |
 | [Getting Started](Getting-Started.md) | Prerequisites, checkout, first builds, emulator use, and hardware entry points |
-| [Supported Targets](Targets.md) | Validated hardware and emulator environments, with setup paths |
+| [Ports and supported targets](Targets.md) | Supported Armv8-M environments and architecture groups for future ports |
 | [Architecture](Architecture.md) | Boot flow, isolation layers, FF-M IPC, services, and scheduling |
 | [Crypto Engines](Crypto-Engines.md) | Native and wolfHSM engine behavior, selection, key models, and measured cost |
 | [Security Model](Security-Model.md) | Trust boundaries and enforced security properties |

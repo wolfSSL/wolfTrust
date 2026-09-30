@@ -51,17 +51,40 @@ It records the dependency revisions below. Later commits may produce
 different sizes.
 
 - **wolfCOSE** (`v2.0.0`):
-  `f907071b10127f3ae2dd7719749a91b039ff04a1`
+
+  ```text
+  f907071b10127f3ae2dd7719749a91b039ff04a1
+  ```
+
 - **wolfHSM** (`wolfHSM-v1.4.0-171-ga032315`):
-  `a0323156606282448f00473a3fcb7aaa69361921`
+
+  ```text
+  a0323156606282448f00473a3fcb7aaa69361921
+  ```
+
 - **wolfIP** (`v1.0-91-g146de4b`):
-  `146de4b6362c3a076787e27332f50daa0a445cf5`
+
+  ```text
+  146de4b6362c3a076787e27332f50daa0a445cf5
+  ```
+
 - **wolfPSA** (`v5.9.1-129-g1b9ec29`):
-  `1b9ec29706bc63f785682ad688350195a33b22e8`
+
+  ```text
+  1b9ec29706bc63f785682ad688350195a33b22e8
+  ```
+
 - **wolfSSL** (`v5.9.1-stable-1088-g22e505bcf`):
-  `22e505bcfad8ce21067ee4232128728543767a95`
+
+  ```text
+  22e505bcfad8ce21067ee4232128728543767a95
+  ```
+
 - **wolfHAL** (no reachable tag):
-  `2bc2938b0bbcc977177153a7f38393710702bf70`
+
+  ```text
+  2bc2938b0bbcc977177153a7f38393710702bf70
+  ```
 
 To reproduce the wolfTrust snapshot, use a separate checkout at that commit.
 Its historical `.gitmodules` has SSH URLs for three submodules; the one-time

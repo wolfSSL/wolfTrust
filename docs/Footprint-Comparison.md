@@ -41,18 +41,27 @@ and network access for source checkouts. The commands use POSIX shell syntax;
 see the [TF-M build instructions](https://tf-m.docs.trustedfirmware.org/en/latest/building/tfm_build_instruction.html)
 for its remaining host prerequisites.
 
-The wolfTrust rows were measured on 2026-09-18 from wolfTrust commit
-`c8baa2681b8b1e2ec57e5720cba28519bb306ab3`, which records the dependency
-revisions below. Later commits may produce different sizes.
+The wolfTrust rows were measured on 2026-09-18 from this wolfTrust commit:
 
-| Component | Pinned revision | Git description |
-| --- | --- | --- |
-| wolfCOSE | `f907071b10127f3ae2dd7719749a91b039ff04a1` | `v2.0.0` |
-| wolfHSM | `a0323156606282448f00473a3fcb7aaa69361921` | `wolfHSM-v1.4.0-171-ga032315` |
-| wolfIP | `146de4b6362c3a076787e27332f50daa0a445cf5` | `v1.0-91-g146de4b` |
-| wolfPSA | `1b9ec29706bc63f785682ad688350195a33b22e8` | `v5.9.1-129-g1b9ec29` |
-| wolfSSL | `22e505bcfad8ce21067ee4232128728543767a95` | `v5.9.1-stable-1088-g22e505bcf` |
-| wolfHAL | `2bc2938b0bbcc977177153a7f38393710702bf70` | No reachable tag |
+```text
+c8baa2681b8b1e2ec57e5720cba28519bb306ab3
+```
+
+It records the dependency revisions below. Later commits may produce
+different sizes.
+
+- **wolfCOSE** (`v2.0.0`):
+  `f907071b10127f3ae2dd7719749a91b039ff04a1`
+- **wolfHSM** (`wolfHSM-v1.4.0-171-ga032315`):
+  `a0323156606282448f00473a3fcb7aaa69361921`
+- **wolfIP** (`v1.0-91-g146de4b`):
+  `146de4b6362c3a076787e27332f50daa0a445cf5`
+- **wolfPSA** (`v5.9.1-129-g1b9ec29`):
+  `1b9ec29706bc63f785682ad688350195a33b22e8`
+- **wolfSSL** (`v5.9.1-stable-1088-g22e505bcf`):
+  `22e505bcfad8ce21067ee4232128728543767a95`
+- **wolfHAL** (no reachable tag):
+  `2bc2938b0bbcc977177153a7f38393710702bf70`
 
 To reproduce the wolfTrust snapshot, use a separate checkout at that commit.
 Its historical `.gitmodules` has SSH URLs for three submodules; the one-time
@@ -75,10 +84,15 @@ The measured wolfTrust files were the two `wolftrust.elf` outputs. Their raw
 `text`, `data`, and `bss` values are recorded in
 [Crypto Engines](Crypto-Engines.md).
 
-The TF-M source was the `TF-Mv2.1.1-LTS` tag at commit
-`02bf279913439a07082dd581df033f370a8fbb92`. In a separate directory,
-clone and check out that revision; run the remaining commands from its source
-root. These AN521 GNU Arm builds enable BL2 and no regression tests:
+The TF-M source was the `TF-Mv2.1.1-LTS` tag at this commit:
+
+```text
+02bf279913439a07082dd581df033f370a8fbb92
+```
+
+In a separate directory, clone and check out that revision; run the remaining
+commands from its source root. These AN521 GNU Arm builds enable BL2 and no
+regression tests:
 
 ```sh
 git clone https://github.com/TrustedFirmware-M/trusted-firmware-m.git tf-m

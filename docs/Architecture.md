@@ -85,17 +85,14 @@ The reference port combines several mechanisms:
 - CMSE checks require every request pointer to be Non-secure and inside the
   active guest's declared readable or writable window.
 - The Secure MPU gives each Secure Partition thread shared read/execute image
-  text, read-only constants, its private stack and data, and only its declared
-  shared resources.
+  text, read-only constants, and its own stack and data band. Together these
+  meet FF-M isolation level 3; see
+  [Security Model](Security-Model.md#ff-m-isolation-level-3).
 
 All shipped service loops are scheduled as unprivileged Secure coroutines.
 Operations requiring wider Secure access, including flash programming, entropy,
 NVM locking, and platform reset, trap through privileged SVC handlers that
 verify the calling partition and operation.
-
-The single-image design shares executable text among Secure Partitions. The
-MPU isolates writable state, not code identity; this is an explicit difference
-from separately linked partition images.
 
 Both guest images share one Non-secure flash attribution window, so a privileged
 guest can read peer flash. Hardware write protection (STM32 WRP or the

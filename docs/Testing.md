@@ -178,29 +178,29 @@ hardware scenario. M33MU also drops `FAULTMASK_NS` writes, so the fixture's
 guest IRQs are queued for retirement; the retiring exception return itself
 runs only in the MIMXRT700 `handlerirqneg` hardware scenario.
 
-Five scenarios cover processor-state isolation, and the emulator proves less
-than their names suggest:
+### Isolation scenarios
 
-- `fpneg` proves containment only. A floating-point instruction in the
-  SERVICE_HSM partition takes the NOCP UsageFault and does not escalate.
-  M33MU ends the run when it raises NOCP, so partition restart and guest
-  survival are not shown here; the STM32H563 `fpneg` run checks them.
-- `sealneg` and `sealhaltneg` prove only the SPM's software check. In
-  `sealneg` a partition overwrites its own stack-top seal, that partition alone
-  faults at its next resume, and the guests keep running. In `sealhaltneg` a
-  partition's seal is overwritten before its first dispatch (the same check
-  runs on every dispatch) and the platform halts before that partition runs.
-  No architectural unstack fault is exercised, on the emulator or by the
-  STM32H563 `sealneg` run; M33MU models neither the seal nor the function
-  return integrity check.
-- `sealbootneg` damages one main-stack seal word in the reset path; the boot
-  halts on the production panic before any partition or guest runs.
-- `sealpivotneg` issues a partition's blocking wait with the stack pointer
-  parked on its stack top, so the exception frame lands on the seal words;
-  that partition alone faults and restarts, and the guests keep running.
+These scenarios back the [level 3 claim](Security-Model.md#ff-m-isolation-level-3).
+Each runs on both engines unless marked.
 
-`bandneg1` through `bandneg6` prove the vault, attestation, and crypto
-partitions cannot reach each other's data band:
+| Scenario | Proves |
+| --- | --- |
+| `crossdomain` | A partition read of SPM-private RAM faults. |
+| `keystoreneg` | A partition without a keystore band cannot read the vault's band. |
+| `bandneg1`-`bandneg6` | Each pair of the vault, attestation, and crypto partitions can neither read nor write the other's band. |
+| `restartneg1`-`restartneg3` | A restarted partition starts from its band's link image. |
+| `deputyneg` | The privileged flash handler ignores a partition-rewritten flash context. |
+| `hsmpinneg` (hsm) | wolfHSM server pointers are pinned before the relay runs. |
+| `manifestneg`, `manifestneg2`, `manifestneg3` | Boot refuses a manifest with a missing feature, at level 2, or with a composed table that reaches another band. |
+| `periphneg` | Non-secure access to the SPM's RNG and Non-secure DMA out of Secure memory are blocked. |
+| `periphspneg` (M33MU) | A partition read of an SPM peripheral faults. |
+| `fpneg` | A partition FP instruction faults without escalating. |
+| `sealneg`, `sealpivotneg` | A damaged partition stack seal faults only that partition. |
+| `sealhaltneg`, `sealbootneg` | A seal damaged before dispatch, or the main-stack seal, halts the platform. |
+| `mspovfneg` | An SPM stack overflow hits `MSPLIM_S` and halts. |
+| `xnneg` | Privileged execution from SPM RAM is denied. |
+| `svcneg` | A partition that issues the guest-return SVC is panicked alone. |
+| `busfaultneg`, `nsbusfaultneg` (STM32H563 only) | A partition or guest bus error is contained to its owner. |
 
 | Scenario | Prober | Band touched |
 | --- | --- | --- |

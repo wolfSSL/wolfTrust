@@ -10,9 +10,8 @@ The engine choice does not change the actual Non-secure-to-Secure boundary.
 Both builds use the same five CMSE veneers, generated manifest, service IDs,
 SPM-owned caller identity, copied IOVEC rules, isolation bands, storage
 services, attestation service, firmware-update service, and Secure Partition
-recovery path. The STM32H563 manifest requests isolation profile 3 in both
-builds. That value is wolfTrust's validated policy profile, not proof of
-independent TF-M Level 3 code and data isolation.
+recovery path. Both engines meet FF-M isolation level 3; see
+[Security Model](Security-Model.md#ff-m-isolation-level-3).
 
 ## At a glance
 

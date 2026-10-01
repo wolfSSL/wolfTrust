@@ -83,7 +83,8 @@ On the STM32H563 reference chain, wolfBoot authenticates wolfTrust, Armv8-M
 TrustZone isolates the Secure runtime from Non-secure guests, and STM32 Global
 TrustZone Controller (GTZC) memory attribution isolates guest RAM. Zephyr and
 FreeRTOS reference guests use wolfPSA's PSA Crypto API through five Cortex-M
-Security Extensions (CMSE) gateway veneers. Those mechanisms describe the
+Security Extensions (CMSE) gateway veneers. The Secure side meets PSA FF-M
+isolation level 3 ([Security Model](docs/Security-Model.md#ff-m-isolation-level-3)). Those mechanisms describe the
 current reference port, not a requirement imposed on every intended port.
 
 ## Ports

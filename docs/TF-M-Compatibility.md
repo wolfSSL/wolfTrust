@@ -132,25 +132,12 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
 | Secure Partition entry functions are bound at build time instead of being selected by each manifest's `entry_point` field. | Integration difference | The numeric field validates an executable window, but adding a service also requires a compiled entry wrapper and an explicit start call in `wt_ffm_boot_start_sched()`. |
 | Service IDs are generated from the selected manifest. | Integration difference | Applications should include generated `psa_manifest/sid.h` instead of hard-coding target-specific values. |
 
-## Isolation-profile interpretation
+## Isolation level
 
-The STM32H563 manifest sets `isolation_profile` to
-`WT_ISOLATION_PROFILE_LEVEL_3` and declares the capabilities the manifest
-generator checks against the port's own. Only level 3 is implemented, so the
-generator and the optional boot-time validator refuse levels 1 and 2. The manifest declares its Non-secure guests
-privileged, matching the runtime, which initializes `CONTROL_NS.nPRIV` to zero.
-It declares every Secure Partition unprivileged, and the generator and the
-validator refuse a privileged one. TrustZone protects Secure state, GTZC isolates peer
-guest RAM, and unprivileged Secure threads use per-partition Secure MPU regions.
-The guest Non-secure MPU and interrupt masks are scheduling policy because a
-privileged guest can reprogram them.
-
-The current single-image layout still shares Secure executable text; every
-partition's writable state is its own, and the crypto, vault, and attestation
-partitions interact only through FF-M IPC. Treat the profile field as a
-requested and validated wolfTrust policy level, not by itself as proof of
-independent TF-M isolation certification. [Security Model](Security-Model.md) describes the
-actual boundary.
+wolfTrust implements FF-M isolation level 3 only, and refuses a manifest that
+declares level 1 or 2 or a privileged Secure Partition. The rule-by-rule
+mapping and the deviations are in
+[Security Model](Security-Model.md#ff-m-isolation-level-3).
 
 ## Migrating an application
 

@@ -8,6 +8,49 @@ RAM isolation. Its security properties come from the authenticated boot chain,
 hardware attribution, SPM-owned identity, copied IPC, and service-specific
 policy.
 
+## FF-M isolation level 3
+
+On the STM32H563, wolfTrust implements isolation level 3 of the PSA Firmware
+Framework for M 1.0 (Arm DEN 0063) and meets every mandatory isolation rule at
+that level, with either crypto engine. The rules are cited by number below;
+their text is in the specification.
+
+| Requirement | wolfTrust |
+| --- | --- |
+| I1, only Code is executable (section 3.1.2) | Partition tables map data execute-never, the SPM maps all writable Secure RAM execute-never, and the domain validator refuses a writable and executable resource. |
+| I2, only Private data is writable (section 3.1.2) | Code and constant data are read-only in every partition table; a partition can write only its own stack and data band. |
+| I3, NSPE to SPE (sections 3.1.3 and 3.1.4) | SAU/IDAU and GTZC attribution, five CMSE veneers, and copied IPC. HASH, RNG, and PKA are Secure-only and read back at boot, and Non-secure DMA cannot reach Secure memory. |
+| I3, Secure Partition to Secure Partition and to the SPM (sections 3.1.3 and 3.1.4) | Each partition runs unprivileged with its own MPU table. The link check places every writable object in its owner's band or in SPM-private RAM, and boot refuses a composed table that can write another partition's memory or reach SPM-private RAM. |
+| I3, indirect access (section 3.1.4) | A partition maps a peripheral only if the port assigns it one that is not a bus master and reads back Secure. |
+| Private runtime state (section 4.2.1) | A partition's writable state is its own stack and, where it has one, its own data band, restored from the link image when the partition restarts. The image has no heap. |
+| Violation handling (section 3.1.6) | A partition access that breaks a rule faults and terminates that partition. A fault in the SPM halts the platform. |
+
+### Deviations
+
+- Only level 3 is implemented. A manifest that declares level 1 or 2 is
+  refused.
+- Manifest `mmio_regions` are not supported, and no port assigns a peripheral
+  to a partition. Partitions reach hardware through SPM operations pinned to
+  the calling partition.
+- The PSA Root of Trust domain is the SPM and its privileged handlers. The
+  crypto, storage, attestation, and update services run as Secure Partitions
+  and are isolated like any other partition.
+- A faulted partition is restarted under its manifest restart policy, with a
+  bounded budget, instead of staying terminated.
+- Non-secure guests run privileged. Isolation between guests is a wolfTrust
+  hypervisor property outside FF-M; see [Guest isolation](#guest-isolation).
+- The claim covers the STM32H563 port. The MIMXRT700 port does not make it yet.
+
+### Evidence
+
+- The Arm psa-arch-tests FF-M IPC suite, pinned in
+  [`tests/upstream/psa-arch-tests.rev`](../tests/upstream/psa-arch-tests.rev),
+  passes 85 tests with 4 heap tests skipped, recorded test by test in
+  [`tests/target/ffm_ipc_results.txt`](../tests/target/ffm_ipc_results.txt).
+- The isolation negatives in [Testing](Testing.md#isolation-scenarios) run on
+  both engines under M33MU. The STM32H563 hardware suite runs the positive and
+  conformance scenarios and the negatives the emulator cannot show.
+
 ## Trusted computing base
 
 The reference trusted computing base includes:
@@ -87,10 +130,9 @@ windows are non-overlapping and hardware-isolated by GTZC.
 
 Guest flash windows are non-overlapping but share one Non-secure attribution
 window and remain mutually readable. Hardware write protection (STM32 WRP or
-the MIMXRT700 guest fence) plus `WT_GUEST_FLASH_WRP=1` protects
-their integrity, not confidentiality. A hostile guest can also reach peripherals
-left Non-secure by the boot chain; manifest resource lists do not independently
-enforce peripheral ownership in the current port.
+the MIMXRT700 guest fence) plus `WT_GUEST_FLASH_WRP=1` protects their
+integrity, not confidentiality. A guest can also reach any peripheral the boot
+chain leaves Non-secure; the port does not assign peripherals between guests.
 
 On a guest fault, wolfTrust captures the reason, masks its interrupts, and
 applies the bounded restart policy. If restart is allowed, it clears RAM marked
@@ -113,12 +155,16 @@ overrun limit still applies.
 
 ## Secure Partition isolation
 
-Every shipped service loop runs as a scheduled unprivileged Secure coroutine.
-Its Secure MPU view contains:
+Each partition's MPU view holds the shared Secure text (read and execute), the
+Secure constants (read-only), its own stack, and its own data band. The vault
+owns the NVM store, the sealer, and its DRBG; the crypto partition
+(`SERVICE_HSM`) owns the engine state; the attestation partition owns the token
+state. Persistent keys cross between them only as FF-M IPC:
 
-- shared read/execute Secure image text;
-- read-only Secure image constants; and
-- its private stack and its own writable data band.
+- the crypto partition reads and writes key objects through the keystore door
+  on `SERVICE_VAULT`; and
+- the attestation partition obtains signatures and the IAK public key through
+  the attestation door on `SERVICE_HSM`.
 
 No two Secure Partitions share a writable byte (FF-M isolation level 3). The
 vault partition owns the NVM object store, its flash context, the sealer, and
@@ -136,26 +182,32 @@ silently; `WT_MANIFEST_RUNTIME_CHECK=1` repeats that check at boot.
 The keystore door hands the crypto partition the key objects it asks for.
 That is an IPC contract between two partitions, not shared memory.
 
-The tables the MPU is programmed from are checked again after they are
-composed. Before any partition runs, the SPM refuses to boot if a composed
-table grants write access to memory another partition can reach, or any access
-to SPM-private RAM. A request from a Secure Partition is checked against that
-partition's own composed table, and the SPM acts on one private copy of the
-request block, so the memory references it validated are the ones it uses.
+Mechanical checks:
+
+- [`tools/secure_owners.txt`](../tools/secure_owners.txt) gives every linked
+  object one owner. The post-link check fails the build if writable state
+  lands outside its owner's region, an object has no owner, a shared object
+  holds writable state, or a production image carries conformance code.
+  Objects that hold band state are built without LTO so the map names them.
+- The generator and the domain validator refuse writable memory shared between
+  partitions.
+- Before any partition runs, boot checks every composed MPU table against the
+  other partitions' bands and SPM-private RAM.
+- A request from a partition is copied once into SPM memory and checked against
+  that partition's own table.
+
+Privileged handlers keep the SPM view. Flash, entropy, the NVM lock, and reset
+are SVC operations that check the calling partition, and the state they use
+lives in SPM-private RAM.
 
 ### Partition restart
 
-A restarted partition keeps nothing its previous instance held. The SPM:
+A restarted partition keeps nothing from its previous instance. Requests it was
+serving fail, the connections and handles it held are released, its signals and
+interrupt lines are cleared and masked, its stack is cleared, and its band is
+restored from the link image. Only the NVM store persists.
 
-- fails every request the partition was serving and drops every connection to
-  it to the error state;
-- releases every connection and request the partition held as a client, so a
-  handle from the old instance is refused;
-- clears its asserted signals and masks its interrupt lines until the new
-  instance enables them;
-- clears its stack and returns its data band to its link-time image; and
-- rebuilds the band with the setup boot ran, from inputs the SPM holds: the
-  boot handoff, the attestation public key, and the contents of the store.
+### Processor state and the SPM
 
 Persistent state is the NVM store alone. Nothing in a partition's RAM survives
 its restart.

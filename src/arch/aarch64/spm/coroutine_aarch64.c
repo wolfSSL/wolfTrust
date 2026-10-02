@@ -152,7 +152,7 @@ static int run_pending_partition(unsigned int i)
     state = wt_co_state((wt_co_t*)co);
     if (state == WT_CO_RUNNABLE) {
         wt_el3_puts("[SP] init resumed id=0x");
-        wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + co->id, 4u);
+        wt_el3_puthex((uint64_t)wt_spm_sp_ffa_id(co), 4u);
         wt_el3_puts("\r\n");
     }
     else if (state != WT_CO_BLOCKED) {
@@ -162,7 +162,7 @@ static int run_pending_partition(unsigned int i)
         if (g_faulted_once[i] != 0u) {
             g_faulted_once[i] = 0u;
             wt_el3_puts("[SP] restarted id=0x");
-            wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + co->id, 4u);
+            wt_el3_puthex((uint64_t)wt_spm_sp_ffa_id(co), 4u);
             wt_el3_puts("\r\n");
         }
         init_preempt_probe(co);
@@ -427,13 +427,23 @@ void wt_spm_init_partitions(void)
     }
 }
 
-/* A partition's FF-A endpoint id follows its creation order (0x8002 up). */
+/* A partition's FF-A endpoint id follows its creation order among the
+ * partitions (0x8002 up); a privileged tasklet is no endpoint. */
 uint16_t wt_spm_sp_ffa_id(const struct wt_co* co)
 {
-    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX)) {
+    uint32_t ordinal = 1u;
+    uint32_t i;
+
+    if ((co == NULL) || (co->id == 0u) || (co->id > WT_CO_MAX) ||
+        (co->unprivileged == 0u)) {
         return 0u;
     }
-    return (uint16_t)(WT_SP_FFA_ID_BASE + co->id);
+    for (i = 0u; i + 1u < co->id; i++) {
+        if ((g_created[i] != NULL) && (g_created[i]->unprivileged != 0u)) {
+            ordinal++;
+        }
+    }
+    return (uint16_t)(WT_SP_FFA_ID_BASE + ordinal);
 }
 
 /* The id a requester names an endpoint by: the echo partition's is fixed. */
@@ -456,16 +466,17 @@ struct wt_co* wt_spm_ffa_endpoint_by_id(uint16_t id)
 
 struct wt_co* wt_spm_sp_by_ffa_id(uint16_t id)
 {
-    uint32_t slot;
+    uint32_t i;
 
     if ((id <= WT_SP_FFA_ID_BASE) || (id > (WT_SP_FFA_ID_BASE + WT_CO_MAX))) {
         return NULL;
     }
-    slot = (uint32_t)id - WT_SP_FFA_ID_BASE - 1u;
-    if ((g_created[slot] == NULL) || (g_created[slot]->unprivileged == 0u)) {
-        return NULL;
+    for (i = 0u; i < WT_CO_MAX; i++) {
+        if ((g_created[i] != NULL) && (wt_spm_sp_ffa_id(g_created[i]) == id)) {
+            return g_created[i];
+        }
     }
-    return g_created[slot];
+    return NULL;
 }
 
 /* The live endpoint id of the partition confined to a manifest domain, or 0
@@ -513,7 +524,7 @@ void wt_spm_sp_init_complete(const struct wt_co* co)
     if (g_wt_spm_partitions_live != 0u) {
         g_sp_init_count++;
         wt_el3_puts("[SP] init id=0x");
-        wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + co->id, 4u);
+        wt_el3_puthex((uint64_t)wt_spm_sp_ffa_id(co), 4u);
         wt_el3_puts("\r\n");
     }
 }
@@ -528,7 +539,7 @@ void wt_spm_sp_init_failed(struct wt_co* co, int32_t code)
     sp_release(co, WT_FFA_DENIED);
     if (g_wt_spm_partitions_live != 0u) {
         wt_el3_puts("[SP] init failed id=0x");
-        wt_el3_puthex((uint64_t)WT_SP_FFA_ID_BASE + co->id, 4u);
+        wt_el3_puthex((uint64_t)wt_spm_sp_ffa_id(co), 4u);
         wt_el3_puts(" err=-");
         wt_el3_putdec((uint64_t)(0 - (int64_t)code));
         wt_el3_puts("\r\n");

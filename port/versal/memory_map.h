@@ -84,4 +84,7 @@
 #define WT_UART_CLOCK_HZ      100000000u
 #define WT_UART_BAUD          115200u
 
+/* Everything above the low DDR window is device space or OCM. */
+#define WT_PORT_MMIO_WINDOWS  { { 0x80000000u, 0x100000000u } }
+
 #endif /* WOLFTRUST_VERSAL_MEMORY_MAP_H */

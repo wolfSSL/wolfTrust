@@ -451,7 +451,9 @@
           "connection_based": true
         }
       ],
-      "dependencies": [],
+      "dependencies": [
+        4102
+      ],
       "interrupts": []
     },
     {
@@ -472,7 +474,9 @@
           "connection_based": true
         }
       ],
-      "dependencies": [],
+      "dependencies": [
+        4098
+      ],
       "interrupts": []
     },
     {

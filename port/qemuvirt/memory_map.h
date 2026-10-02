@@ -84,4 +84,8 @@
 #define WT_UART_CLOCK_HZ      24000000u
 #define WT_UART_BAUD          115200u
 
+/* Device space: the virt peripherals below Secure RAM, then PCIe. */
+#define WT_PORT_MMIO_WINDOWS  { { 0x08000000u, 0x0E000000u }, \
+                                { 0x10000000u, 0x40000000u } }
+
 #endif /* WOLFTRUST_QEMUVIRT_MEMORY_MAP_H */

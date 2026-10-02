@@ -161,9 +161,9 @@ QEMU_A_SUITE = (
     "ffa-discovery", "ffa-guest-direct", "psci", "psci-el2", "parkneg",
     "rdistneg", "tickneg", "el2dirtyneg", "ffa-preempt", "positive",
     "guest1", "smcfuzz", "secramneg", "periphneg", "periphspneg",
-    "resetneg", "ffa-memneg", "hsmattackneg", "attestneg", "vaultrecover",
-    "vaultrecoversec", "confboot", "storage", "devstorage", "devattest",
-    "devattestqcbor", "devcrypto",
+    "resetneg", "ffa-memneg", "hsmattackneg", "hsmpinneg", "attestneg",
+    "vaultrecover", "vaultrecoversec", "confboot", "storage", "devstorage",
+    "devattest", "devattestqcbor", "devcrypto",
 )
 QEMU_A_ACS = (
     "ffaacs-discovery", "ffaacs-direct", "ffaacs-memory", "ffaacs-notify",

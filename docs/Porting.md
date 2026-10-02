@@ -226,11 +226,10 @@ RISAF): QEMU `virt` models the fence with its secure memory, and
 `xlnx-versal-virt` does not model one. The port's `memory_map.h` states which
 through `WT_PORT_NS_MEMORY_FENCE`, and only a port that sets it to `1` claims
 security-state isolation. Every isolation level needs that capability, so the
-core refuses a Level 1, 2, or 3 manifest on an unfenced port: the
-`xlnx-versal-virt` manifests declare `isolation_profile` 0 (service only) and
-are test configurations, never an isolated deployment. A Versal silicon port
-sets the flag only once it programs and locks the XMPU over the Secure bands
-before the Normal world runs, and then declares Level 3.
+core refuses a Level 1, 2, or 3 manifest on an unfenced port. Both AArch64
+ports' manifests declare `isolation_profile` 0 (service only) for now and claim
+no isolation level. A Versal silicon port sets the flag only once it programs
+and locks the XMPU over the Secure bands before the Normal world runs.
 
 ## Validation checklist
 

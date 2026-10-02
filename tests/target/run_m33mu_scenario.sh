@@ -512,7 +512,7 @@ case "$scenario" in
       "wolfTrust FF-M oversized-vector call rejected"
     expect "psa_hash_compute(SHA-256) KAT verified" \
       "psa_hash_compute(SHA-256) KAT verified"
-    expect "psa_initial_attestation st=0" "psa_initial_attestation st=0"
+    expect_flat "psa_initial_attestation st=0" "psa_initial_attestation st=0"
     expect "attestation COSE_Sign1 verified" \
       "wolfTrust attestation: COSE_Sign1 verified"
     expect "token measurement equals wolfBoot measurement of the signed image" \
@@ -724,7 +724,7 @@ case "$scenario" in
     # Production image + guest probe: the secure side must reject invalid
     # attestation requests over IPC and tampered/misattributed tokens must
     # fail the guest verify, with the positive lifecycle still green.
-    expect "psa_initial_attestation st=0" "psa_initial_attestation st=0"
+    expect_flat "psa_initial_attestation st=0" "psa_initial_attestation st=0"
     expect "attestation COSE_Sign1 verified" \
       "wolfTrust attestation: COSE_Sign1 verified"
     expect "attestneg oversized challenge rejected st=-135" \

@@ -40,6 +40,7 @@ include mk/common.mk
 all: $(ARCH_DEFAULT_GOALS)
 
 test:
+	@python3 tests/scripts/test_m33mu_console.py
 	@$(MAKE) --no-print-directory -C tests/host test
 
 C99_CFLAGS := -std=c99 -pedantic-errors -Werror=vla \

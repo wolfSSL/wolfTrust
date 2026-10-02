@@ -383,6 +383,11 @@ emu_status=${PIPESTATUS[0]}
 set -e
 echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
 
+# Preserve raw evidence for guest1 and fault checks. Rejoin guest0 lines only
+# across complete, recognized console interjections; retain normal newlines.
+guest0_log="$repo/ci-m33mu-$scenario-guest0.log"
+python3 "$repo/tests/target/lib/m33mu_console.py" "$log" > "$guest0_log"
+
 # Per-assertion reporting so make test-target surfaces what each scenario
 # actually checks, not just a single PASS. The Makefile greps these tagged
 # lines out of the log; the full boot log stays underneath.
@@ -390,14 +395,8 @@ check_pass() { printf '  [check] PASS  %s\n' "$1"; }
 check_fail() { printf '  [check] FAIL  %s  (%s)\n' "$1" "$2"; exit 1; }
 expect()     { if grep -Fq "$2" "$log"; then check_pass "$1"; \
                else check_fail "$1" "missing: $2"; fi; }
-# Shared-UART tolerant match: guest1's console, or the emulator's own
-# "[UART] ... attached" note when guest1 first opens it, can interject
-# mid-line in a secure or guest0 print (e.g. "TOTAL SK<freertos_guest1:
-# ...>IPPED   : 4"), so strip both and rejoin split lines before requiring
-# the exact bytes.
-expect_flat() { if sed -e 's/freertos_guest1:.*$//' \
-                        -e 's/\[UART\] [0-9a-f]* attached to [^ ]*//' "$log" | \
-                    tr -d '\r\n' | grep -Fq "$2"; then check_pass "$1"; \
+# Shared-UART tolerant match against the same guest0 view used by CI.
+expect_flat() { if grep -Fq "$2" "$guest0_log"; then check_pass "$1"; \
                 else check_fail "$1" "missing: $2"; fi; }
 refute_re()  { if grep -Eq "$2" "$log"; then check_fail "$1" "unexpected: $2"; \
                else check_pass "$1"; fi; }
@@ -502,31 +501,31 @@ case "$scenario" in
       refute_re "no fault markers in boot log" \
         '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
     fi
-    expect "TEE client initialized" "wolfTrust TEE client initialized"
-    expect "FF-M psa_framework_version=0x0100" \
+    expect_flat "TEE client initialized" "wolfTrust TEE client initialized"
+    expect_flat "FF-M psa_framework_version=0x0100" \
       "wolfTrust FF-M psa_framework_version=0x0100"
-    expect "mediated crypto dispatch verified" \
+    expect_flat "mediated crypto dispatch verified" \
       "wolfTrust FF-M mediated crypto dispatch verified"
-    expect "ITS set/get verified" \
+    expect_flat "ITS set/get verified" \
       "wolfTrust ITS set/get verified"
-    expect "PS sealed set/get verified" \
+    expect_flat "PS sealed set/get verified" \
       "wolfTrust PS sealed set/get verified"
-    expect "key-ops sign/verify verified" \
+    expect_flat "key-ops sign/verify verified" \
       "wolfTrust key-ops sign/verify verified"
-    expect "key negatives verified" \
+    expect_flat "key negatives verified" \
       "wolfTrust key negatives verified"
     expect_flat "forged-handle call rejected" \
       "wolfTrust FF-M forged-handle call rejected"
     expect_flat "oversized-vector call rejected" \
       "wolfTrust FF-M oversized-vector call rejected"
-    expect "psa_hash_compute(SHA-256) KAT verified" \
+    expect_flat "psa_hash_compute(SHA-256) KAT verified" \
       "psa_hash_compute(SHA-256) KAT verified"
-    expect "psa_initial_attestation st=0" "psa_initial_attestation st=0"
-    expect "attestation COSE_Sign1 verified" \
+    expect_flat "psa_initial_attestation st=0" "psa_initial_attestation st=0"
+    expect_flat "attestation COSE_Sign1 verified" \
       "wolfTrust attestation: COSE_Sign1 verified"
-    expect "token measurement equals wolfBoot measurement of the signed image" \
+    expect_flat "token measurement equals wolfBoot measurement of the signed image" \
       "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
-    expect "attestation fields verify=0 lifecycle=0x1000 measurement=ok cose=ES256" \
+    expect_flat "attestation fields verify=0 lifecycle=0x1000 measurement=ok cose=ES256" \
       "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256"
     expect "guest1 FF-M SHA-256 KAT through SERVICE_CRYPTO (P7-S3)" \
       "freertos_guest1: ffm sha256 ok"
@@ -653,8 +652,7 @@ case "$scenario" in
         "$conf_want was not recorded for psa-arch-tests $conf_rev"
     fi
     conf_got="$repo/build/ffm-ipc-results.txt"
-    sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n' | \
-      grep -aoE 'Num=[0-9]+|Result=[A-Za-z]+' | \
+    grep -aoE 'Num=[0-9]+|Result=[A-Za-z]+' "$guest0_log" | \
       awk -F= '$1 == "Num" { num = $2 }
                $1 == "Result" { if (num != "") print num, $2; num = "" }' | \
       sort -n -u > "$conf_got"
@@ -672,9 +670,9 @@ case "$scenario" in
     expect "TEE client initialized" "wolfTrust TEE client initialized"
     expect "conformance val_entry start" \
       "wolfTrust FF-M conformance: val_entry start"
-    # Flatten the shared UART (guest1 can interject mid-line), then read the
-    # suite totals: every dev_apis storage test must pass or skip, none FAIL.
-    flat="$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')"
+    # Read suite totals from the reconstructed guest0 console: every storage
+    # test must pass or skip, none FAIL.
+    flat="$(cat "$guest0_log")"
     passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
@@ -692,7 +690,7 @@ case "$scenario" in
     expect "TEE client initialized" "wolfTrust TEE client initialized"
     expect "conformance val_entry start" \
       "wolfTrust FF-M conformance: val_entry start"
-    flat="$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')"
+    flat="$(cat "$guest0_log")"
     passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
@@ -716,7 +714,7 @@ case "$scenario" in
       "wolfTrust FF-M conformance: val_entry start"
     # test_a001 is the whole suite: get_token/get_token_size across all
     # challenge sizes plus val's own COSE_Sign1 verify of the returned token.
-    flat="$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')"
+    flat="$(cat "$guest0_log")"
     passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     : "${passed:=-1}"; : "${failed:=-1}"
@@ -774,7 +772,7 @@ case "$scenario" in
     # read over SWD on the H5 board; the emulator asserts the suite instead.)
     expect "conformance val_entry start" \
       "wolfTrust FF-M conformance: val_entry start"
-    flat="$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')"
+    flat="$(cat "$guest0_log")"
     passed=$(printf '%s' "$flat" | grep -oE 'TOTAL PASSED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     skipped=$(printf '%s' "$flat" | grep -oE 'TOTAL SKIPPED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)
     failed=$(printf '%s' "$flat" | grep -oE 'TOTAL FAILED[[:space:]]*:[[:space:]]*[0-9]+' | grep -oE '[0-9]+' | tail -1 || true)

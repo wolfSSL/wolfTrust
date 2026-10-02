@@ -241,13 +241,11 @@ jobs:
           if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' "$log"; then
             exit 1
           fi
-          # Both guests raw-write the same UART, so guest1 can splice into the
-          # middle of a secure/guest0 marker line. Flatten (strip guest1 text,
-          # rejoin the split line) before matching those markers; match guest1's
-          # own markers against the raw log. Mirrors run_m33mu_scenario.sh's
-          # expect_flat.
-          flat=$(sed 's/freertos_guest1:.*$//' "$log" | tr -d '\r\n')
-          need()     { printf '%s' "$flat" | grep -Fq "$1" || { echo "missing: $1" >&2; exit 1; }; }
+          # Rejoin guest0 lines interrupted by UART attach banners or complete
+          # guest1 records. Keep the raw log for guest1 and fault checks.
+          guest0_log="$RUNNER_TEMP/wolfboot-wolftrust-m33mu-guest0.log"
+          python3 tests/target/lib/m33mu_console.py "$log" > "$guest0_log"
+          need()     { grep -Fq "$1" "$guest0_log" || { echo "missing: $1" >&2; exit 1; }; }
           need_raw() { grep -Fq "$1" "$log" || { echo "missing: $1" >&2; exit 1; }; }
           need "wolfTrust TEE client initialized"
           need "wolfTrust FF-M mediated crypto dispatch verified"

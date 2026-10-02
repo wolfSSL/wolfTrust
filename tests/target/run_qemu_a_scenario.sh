@@ -42,8 +42,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -109,6 +109,11 @@ if [ "$scenario" = guest1 ]; then
   exit 0
 fi
 
+if [ "$scenario" = hsmpinneg ] && [ "$WT_ENGINE" = native ]; then
+  echo "SKIP: qemu-a/hsmpinneg (native engine): the native engine links no wolfHSM relay or server, so there are no server pointers to pin"
+  exit 0
+fi
+
 if [ "$scenario" = hsmattackneg ] && [ "$WT_ENGINE" = native ]; then
   echo "SKIP: qemu-a/hsmattackneg (native engine): the native engine links no wolfHSM client wire, server, or message handlers, so the forged COMM_INIT and NVM-group attack surface does not exist"
   exit 0
@@ -121,7 +126,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|manifestneg2:virt|keystoreneg:virt|bandneg[1-6]:virt|periphspneg:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|periphneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|manifestneg2:virt|keystoreneg:virt|bandneg[1-6]:virt|periphspneg:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|periphneg:virt|ffa-memneg:virt|hsmattackneg:virt|hsmpinneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   # The Normal world probes PSCI with a real parked secondary beside it.
   psci:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
@@ -193,6 +198,7 @@ else
     ffaacs-*) probe=(WT_EL3_NS_SMOKE=1 WT_FFA_ACS=1 WT_EL3_NS_EL2=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 "WT_SPM_TABLE_POOL_PA=$acs_pool_pa" WT_SPM_TABLE_POOL_PAGES=512) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
+    hsmpinneg) probe=(WT_EL3_NS_SMOKE=1 WT_HSM_PIN_NEG_PROBE=1) ;;
     # The test handoff's unlocked lifecycle leaves the forced SECURED
     # lifecycle as the only thing that refuses the reformat.
     vaultrecoversec) probe=(WT_EL3_NS_SMOKE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1 WT_EL3_TEST_HANDOFF=1) ;;
@@ -225,6 +231,7 @@ else
      [ "$scenario" = resetneg ] || \
      [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
      [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
+     [ "$scenario" = hsmpinneg ] || \
      [ "$scenario" = vaultrecover ] || [ "$scenario" = attestneg ] || \
      [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devattestqcbor ] || [ "$scenario" = devcrypto ]; then
@@ -241,6 +248,7 @@ else
     [ "$scenario" = positive ] && ns_psa=1
     ns_hsmattack=0
     [ "$scenario" = hsmattackneg ] && { ns_psa=1; ns_hsmattack=1; }
+    [ "$scenario" = hsmpinneg ] && ns_psa=1
     [ "$scenario" = vaultrecoversec ] && ns_psa=1
     ns_vault_secured=0
     [ "$scenario" = vaultrecoversec ] && ns_vault_secured=1
@@ -382,7 +390,7 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
    [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
    [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
-   [ "$scenario" = periphneg ] || \
+   [ "$scenario" = hsmpinneg ] || [ "$scenario" = periphneg ] || \
    [ "$scenario" = vaultrecover ] || [ "$scenario" = attestneg ] || \
    [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devattestqcbor ] || [ "$scenario" = devcrypto ]; then
@@ -849,7 +857,19 @@ case "$scenario" in
     expect "the Normal world resumed after the preemption" "[NS] resumed after preempt"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
-  positive)
+  positive|hsmpinneg)
+    if [ "$scenario" = hsmpinneg ]; then
+      # The relay forges its server pointers to SPM RAM before every pin, so the
+      # markers below prove the re-pin; guard against the probe compiled out.
+      # A symbol file, not a pipe: grep -q under pipefail can fail nm on SIGPIPE.
+      "${TOOLPREFIX}nm" "$spm_elf" > "$build/hsmpinneg-syms.txt"
+      if grep -q ' wt_platform_hsm_pin_probe$' "$build/hsmpinneg-syms.txt"; then
+        check_pass "HSM server pointer pin probe linked into the SPMC image"
+      else
+        check_fail "HSM server pointer pin probe presence" \
+          "wt_platform_hsm_pin_probe not in $spm_elf"
+      fi
+    fi
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     refute_re "the guest did not fail a PSA connect" '\[NS\] psa connect FAIL'

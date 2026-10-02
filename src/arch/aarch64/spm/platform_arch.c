@@ -30,6 +30,7 @@
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/platform.h"
+#include "memory_map.h"
 
 #include <stddef.h>
 #include <stdint.h>
@@ -124,6 +125,29 @@ void wt_arch_zero_guest_memory(uintptr_t base, size_t size)
     }
 }
 
+/* Partition bands carry no .data load image here, so zeroing is the reset. */
+void wt_arch_sp_band_reset(uintptr_t base, size_t size)
+{
+    wt_arch_zero_guest_memory(base, size);
+}
+
+int wt_arch_range_is_mmio(uintptr_t base, size_t size)
+{
+    static const uint64_t windows[][2] = WT_PORT_MMIO_WINDOWS;
+    uint64_t end = (uint64_t)base + (uint64_t)size;
+    size_t i;
+
+    if (size == 0u || end < (uint64_t)base) {
+        return 1;
+    }
+    for (i = 0u; i < sizeof(windows) / sizeof(windows[0]); i++) {
+        if ((uint64_t)base < windows[i][1] && windows[i][0] < end) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 void wt_arch_restore_guest_bank(const wt_guest_context_t* context)
 {
     (void)context;
@@ -174,6 +198,17 @@ void wt_arch_secure_irq_enable(uint32_t irq)
 void wt_arch_secure_irq_disable(uint32_t irq)
 {
     wt_gic->disable(irq);
+}
+
+/* SPIs only: SGIs and PPIs are banked per PE and never a partition's line. */
+int wt_arch_secure_irq_claim(uint32_t irq)
+{
+    if (irq < 32u || irq >= 1020u) {
+        return -1;
+    }
+    wt_gic->disable(irq);
+    wt_gic->set_group0(irq);
+    return 0;
 }
 
 void wt_arch_route_irq_to_guest(uint32_t irq)

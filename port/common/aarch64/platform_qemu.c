@@ -30,6 +30,7 @@
 #include "wolftrust/arch/aarch64/tables.h"
 #include "wolftrust/ffm_gateway.h"
 #include "wolftrust/platform.h"
+#include "wolftrust/priv_stack.h"
 #include "memory_map.h"
 
 #include <stddef.h>
@@ -161,6 +162,52 @@ size_t wt_platform_sp_shared_regions(wt_memory_region_t* regions, size_t max)
     regions[1].attributes = WT_MEM_ATTR_READ;
     return 2u;
 }
+
+/* No peripheral is a partition's to own yet: every DEVICE resource is refused. */
+const struct wt_periph* wt_platform_sp_peripherals(size_t* count)
+{
+    if (count != NULL) {
+        *count = 0U;
+    }
+    return NULL;
+}
+
+/* SPM RAM (the SPMC's data, bss and stacks) stays EL1-only. */
+size_t wt_platform_spm_private_regions(wt_memory_region_t* regions,
+                                       size_t max)
+{
+    if (regions == NULL || max < 1u) {
+        return 0u;
+    }
+    regions[0].base = (uintptr_t)WT_SPM_RAM_PA;
+    regions[0].size = WT_SPM_RAM_SIZE;
+    regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    return 1u;
+}
+
+int wt_platform_priv_stack_ok(const void *stack, size_t size)
+{
+    if (stack == NULL) {
+        return 0;
+    }
+    return wt_priv_stack_ok((uintptr_t)stack, size, (uintptr_t)WT_SPM_RAM_PA,
+                            (uintptr_t)WT_SPM_RAM_PA + WT_SPM_RAM_SIZE,
+                            NULL, 0u);
+}
+
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+size_t wt_platform_conf_shared_regions(wt_memory_region_t* regions,
+                                       size_t max)
+{
+    if (regions == NULL || max < 1u) {
+        return 0u;
+    }
+    regions[0].base = (uintptr_t)WT_SPM_CONFDATA_PA;
+    regions[0].size = WT_SPM_CONFDATA_SIZE;
+    regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
+    return 1u;
+}
+#endif
 
 #if (defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)) || \
     (defined(WT_KEYSTORE_NEG_PROBE) && (WT_KEYSTORE_NEG_PROBE == 1))

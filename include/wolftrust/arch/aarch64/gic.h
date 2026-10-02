@@ -46,6 +46,12 @@ struct wt_gic_ops {
     void (*raise_ns_sgi)(uint32_t intid);
     /* Set the CPU interface priority mask, returning the previous one. */
     uint32_t (*swap_pmr)(uint32_t pmr);
+    void (*clear_pending)(uint32_t intid);
+    /* Readback of one 32-line word: enabled lines, and lines not in Group 0. */
+    uint32_t (*enabled_word)(uint32_t word);
+    uint32_t (*not_group0_word)(uint32_t word);
+    /* Lines the distributor implements (GICD_TYPER.ITLinesNumber). */
+    uint32_t (*line_count)(void);
     unsigned int version;
 };
 

@@ -44,9 +44,9 @@ their text is in the specification.
 ### Evidence
 
 - The Arm psa-arch-tests FF-M IPC suite, pinned in
-  [`tests/upstream/psa-arch-tests.rev`](../tests/upstream/psa-arch-tests.rev),
+  [`tests/upstream/psa-arch-tests.rev`](https://github.com/wolfSSL/wolfTrust/blob/main/tests/upstream/psa-arch-tests.rev),
   passes 85 tests with 4 heap tests skipped, recorded test by test in
-  [`tests/target/ffm_ipc_results.txt`](../tests/target/ffm_ipc_results.txt).
+  [`tests/target/ffm_ipc_results.txt`](https://github.com/wolfSSL/wolfTrust/blob/main/tests/target/ffm_ipc_results.txt).
 - The isolation negatives in [Testing](Testing.md#isolation-scenarios) run on
   both engines under M33MU. The STM32H563 hardware suite runs the positive and
   conformance scenarios and the negatives the emulator cannot show.
@@ -184,7 +184,7 @@ That is an IPC contract between two partitions, not shared memory.
 
 Mechanical checks:
 
-- [`tools/secure_owners.txt`](../tools/secure_owners.txt) gives every linked
+- [`tools/secure_owners.txt`](https://github.com/wolfSSL/wolfTrust/blob/main/tools/secure_owners.txt) gives every linked
   object one owner. The post-link check fails the build if writable state
   lands outside its owner's region, an object has no owner, a shared object
   holds writable state, or a production image carries conformance code.

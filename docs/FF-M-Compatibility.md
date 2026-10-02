@@ -14,10 +14,10 @@ page covers Crypto, Storage, Attestation, and Firmware Update APIs separately.
 
 | Contract | Normative section | wolfTrust scope |
 | --- | --- | --- |
-| Isolation and protection domains | [FF-M §§3.1.1–3.1.6](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=21) | STM32H563 TrustZone, Secure MPU, and Global TrustZone Controller (GTZC) enforcement, meeting isolation level 3; see [Security Model](Security-Model.md#ff-m-isolation-level-3) |
-| Secure Partition identity, manifest, and execution | [FF-M §§3.2.1–3.2.4](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=26) and [§4.1](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=49) | Generated wolfTrust manifest policy, scheduled Secure Partition entry, and lifecycle handling |
-| IPC, handles, and copied vectors | [FF-M §§3.3.1–3.3.5](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=31) | Connection-based services with fixed buffer and vector limits |
-| Client and Secure Partition APIs | [FF-M §4.4](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=64) and [§4.5](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=70) | Implemented functions and limitations are listed in the register below |
+| Isolation and protection domains | [FF-M sections 3.1.1 to 3.1.6](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=21) | STM32H563 TrustZone, Secure MPU, and Global TrustZone Controller (GTZC) enforcement, meeting isolation level 3; see [Security Model](Security-Model.md#ff-m-isolation-level-3) |
+| Secure Partition identity, manifest, and execution | [FF-M sections 3.2.1 to 3.2.4](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=26) and [section 4.1](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=49) | Generated wolfTrust manifest policy, scheduled Secure Partition entry, and lifecycle handling |
+| IPC, handles, and copied vectors | [FF-M sections 3.3.1 to 3.3.5](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=31) | Connection-based services with fixed buffer and vector limits |
+| Client and Secure Partition APIs | [FF-M section 4.4](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=64) and [section 4.5](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132#page=70) | Implemented functions and limitations are listed in the register below |
 
 ## Implemented framework interfaces
 

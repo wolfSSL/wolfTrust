@@ -412,9 +412,9 @@ smaller than the object. UID zero is invalid.
 
 The ITS path enforces `PSA_STORAGE_FLAG_WRITE_ONCE` when the caller sets it,
 including during `PSA_ROT_PROVISIONING`. Objects created without the flag can
-be updated or removed. PSA Secure Storage 1.0 §3.2 requires ITS not to enforce
+be updated or removed. PSA Secure Storage 1.0 section 3.2 requires ITS not to enforce
 the flag in the provisioning lifecycle, so this is a known lifecycle deviation.
-Protected Storage also enforces caller-selected `WRITE_ONCE`; §3.2's lifecycle
+Protected Storage also enforces caller-selected `WRITE_ONCE`; section 3.2's lifecycle
 exception applies to ITS.
 
 ## Protected Storage

@@ -102,9 +102,9 @@ storage, but ITS does not add the Protected Storage sealing flag.
 
 The ITS path enforces `PSA_STORAGE_FLAG_WRITE_ONCE` on objects created with
 that flag, including during `PSA_ROT_PROVISIONING`. Objects created without it
-can be updated or removed. This differs from PSA Secure Storage 1.0 §3.2,
+can be updated or removed. This differs from PSA Secure Storage 1.0 section 3.2,
 which requires ITS not to enforce the flag in that lifecycle state. Protected
-Storage also enforces caller-selected `WRITE_ONCE`; §3.2's lifecycle exception
+Storage also enforces caller-selected `WRITE_ONCE`; section 3.2's lifecycle exception
 applies to ITS.
 
 ## Protected Storage

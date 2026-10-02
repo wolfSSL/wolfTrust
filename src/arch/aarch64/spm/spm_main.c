@@ -64,6 +64,7 @@ extern uint8_t _e_secure_text[];
 extern uint8_t _e_secure_rodata[];
 extern uint8_t __image_end[];
 extern uint8_t __spm_ram_end[];
+extern uint8_t __spm_stack_guard[];
 
 void wt_spm_main(uint64_t boot_info_pa);
 int wt_spm_prove_tick(void);
@@ -384,13 +385,18 @@ static void enable_mmu(uint64_t boot_info_pa)
         n++;
     }
     fill[n].base = (uintptr_t)WT_SPM_RAM_PA;
-    fill[n].size = page_up((uintptr_t)__spm_ram_end) - (uintptr_t)WT_SPM_RAM_PA;
+    fill[n].size = (uintptr_t)__spm_stack_guard - (uintptr_t)WT_SPM_RAM_PA;
     fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
 #if defined(WT_TABLES_NEGATIVE) && (WT_TABLES_NEGATIVE == 1)
     /* A writable+executable region must be refused at build (W^X), panicking
      * through wt_domain_fail before any partition initializes. */
     fill[n].attributes |= WT_MEM_ATTR_EXEC;
 #endif
+    n++;
+    /* The stack guard page is skipped: SPM RAM resumes past it. */
+    fill[n].base = (uintptr_t)__spm_stack_guard + WT_TABLES_PAGE_SIZE;
+    fill[n].size = page_up((uintptr_t)__spm_ram_end) - fill[n].base;
+    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
     n++;
     /* The FF-A RX/TX buffer band (7.2): the SPMC writes partition information
      * into it at S-EL1, and the discovering partition maps and reads it at
@@ -1212,6 +1218,10 @@ void wt_spm_main(uint64_t boot_info_pa)
     /* The neutral core takes over: partitions, services, then the FF-A
      * idle through wt_spm_idle when no Normal world is runnable. */
     g_wt_spm_partitions_live = 1u;
+#if defined(WT_MSP_OVF_PROBE) && (WT_MSP_OVF_PROBE == 1)
+    /* mspovfneg: push on the SPM stack until it reaches the guard page. */
+    __asm__ volatile("1: stp xzr, xzr, [sp, #-16]!\n b 1b" ::: "memory");
+#endif
     wt_boot_run();
 
     ffa_call(&r, WT_FFA_MSG_WAIT, 0u);

@@ -53,6 +53,8 @@ int wt_spm_sched_set_restore(int32_t partition_id,
  * reach, or any access to SPM-private RAM. WT_FFM_ERROR_ISOLATION refuses the
  * boot. */
 int wt_spm_sched_validate(void);
+/* Nonzero while the running coroutine is a scheduled Secure Partition. */
+int wt_spm_sched_current_is_partition(void);
 
 #if (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
     (defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0))

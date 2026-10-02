@@ -1215,6 +1215,11 @@ int wt_spm_partition_memory_ok(int32_t partition_id, const void* address,
     return 0;
 }
 
+int wt_spm_sched_current_is_partition(void)
+{
+    return (wt_spm_slot_for_current() != NULL) ? 1 : 0;
+}
+
 int wt_spm_sched_validate(void)
 {
     wt_memory_region_t spm_ram[2];

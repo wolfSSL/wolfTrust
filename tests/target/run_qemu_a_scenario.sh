@@ -42,8 +42,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -121,7 +121,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|keystoreneg:virt|bandneg[1-6]:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|keystoreneg:virt|bandneg[1-6]:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   # The Normal world probes PSCI with a real parked secondary beside it.
   psci:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
@@ -170,6 +170,10 @@ else
     bandneg[1-6]) probe=("WT_BAND_NEG_PROBE=${scenario#bandneg}") ;;
     spbudgetneg) probe=(WT_SP_FAULT_ALWAYS_PROBE=1) ;;
     panicneg)    probe=(WT_PANIC_NEG_PROBE=1) ;;
+    svcneg)      probe=(WT_SVC_NEG_PROBE=1) ;;
+    fpneg)       probe=(WT_SP_FAULT_PROBE=1 WT_FP_NEG_PROBE=1) ;;
+    mspovfneg)   probe=(WT_MSP_OVF_PROBE=1) ;;
+    xnneg)       probe=(WT_XN_NEG_PROBE=1) ;;
     rdistneg)    probe=(WT_EL3_BOOT_NEG_PROBE=1) ;;
     tickneg)     probe=(WT_EL3_BOOT_NEG_PROBE=2) ;;
     confboot|devstorage) probe=(WT_CONFORMANCE=1 WT_EL3_NS_SMOKE=1) ;;
@@ -598,6 +602,33 @@ case "$scenario" in
     expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
+  fpneg)
+    # A partition's FP instruction traps at S-EL0 (CPACR_EL1), is contained,
+    # and the partition restarts; the brk behind it marks an FP escape.
+    refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "the FP instruction did not run" '\[SYNC EL=0 EC=0x3c'
+    expect "the partition's FP access trapped at S-EL0" "[SYNC EL=0 EC=0x07"
+    expect "the faulted partition was restarted under its manifest policy" "[SP] restarted id=0x"
+    expect "every partition still reached initialization" "[SPM] partitions ready n=6"
+    expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  mspovfneg)
+    # The SPMC pushes on its own stack until it reaches the unmapped guard
+    # page; the abort at S-EL1 must panic fail-closed before any partition.
+    expect "the SPM stack overflow aborted at S-EL1 and panicked" "[EL3] panic code=0x000000e4"
+    refute_re "no partition ran after the overflow" '\[SP\] init id='
+    refute_re "the run did not exit cleanly" '\[EXPECT EXIT\] Success'
+    ;;
+  xnneg)
+    # The SPMC calls a `ret` it wrote into SPM RAM from a partition's SVC; the
+    # fetch must abort at S-EL1 (execute-never) and panic fail-closed.
+    expect "the SPMC branched into SPM RAM" "[SPM] xn probe"
+    refute_re "execution from SPM RAM never returned" '\[SPM\] xn escape'
+    expect "the instruction fetch aborted at S-EL1 and panicked" "[EL3] panic code=0x000000e4"
+    refute_re "the run did not exit cleanly" '\[EXPECT EXIT\] Success'
+    ;;
   tablesneg)
     refute_re "the SPMC never turned its MMU on" '\[SPM\] mmu on'
     refute_re "no partition initialized" '\[SPM\] partitions ready'
@@ -669,6 +700,18 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the ITS partition was panicked for a programmer-error handle close at S-EL0" "[SYNC EL=0 EC=0x00"
+    expect "the panicked ITS partition was restarted under its manifest policy" "[SP] restarted id=0x8004"
+    expect "every partition still reached initialization after the one-shot recovery" "[SPM] partitions ready n=6"
+    expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  svcneg)
+    # The ITS partition issues the SPMC's own yield SVC on its first entry: a
+    # programmer error that panics only it, not a block that hangs its clients.
+    refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "the partition never ran past the SVC to its escape probe" '\[SYNC EL=0 EC=0x3c'
+    expect "the ITS partition was panicked for the yield SVC at S-EL0" "[SYNC EL=0 EC=0x00"
     expect "the panicked ITS partition was restarted under its manifest policy" "[SP] restarted id=0x8004"
     expect "every partition still reached initialization after the one-shot recovery" "[SPM] partitions ready n=6"
     expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
@@ -1046,7 +1089,7 @@ esac
 # the emulator build's reset limit; every other scenario exits cleanly.
 end_want=exit
 case "$scenario" in
-  parkneg|rdistneg|tickneg|crossdomain|tablesneg|proofneg|manifestneg|keystoreneg|spbudgetneg) end_want=panic ;;
+  parkneg|rdistneg|tickneg|crossdomain|tablesneg|proofneg|manifestneg|keystoreneg|spbudgetneg|mspovfneg|xnneg) end_want=panic ;;
   resetneg) end_want=reset-limit ;;
 esac
 expect_end "the emulator ended the run by $end_want" "$end_want" "$emu_status"

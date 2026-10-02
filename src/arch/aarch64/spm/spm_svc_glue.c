@@ -43,6 +43,7 @@
 #include "wolftrust/sched/coroutine.h"
 #include "wolftrust/sched/coroutine_internal.h"
 #include "wolftrust/spm_gate.h"
+#include "wolftrust/spm_sched.h"
 #include "wolftrust/spm_transport.h"
 
 #include <stddef.h>
@@ -144,6 +145,29 @@ static void ffa_direct_success(wt_trap_frame_t* frame, const struct wt_co* co)
     g_wt_ffa_sp_exit = WT_FFA_SP_EXIT_RESP;
     wt_co_block();
 }
+
+#if defined(WT_XN_NEG_PROBE) && (WT_XN_NEG_PROBE == 1)
+static uint32_t g_xn_probe_thunk[1] __attribute__((aligned(4)));
+static uint8_t g_xn_probe_fired;
+
+/* xnneg: from a partition's SVC, under its table, the SPMC calls a `ret`
+ * written into SPM bss; the fetch must abort at S-EL1 before it returns. */
+static void xn_probe(void)
+{
+    void (*thunk)(void);
+
+    if (g_xn_probe_fired != 0u) {
+        return;
+    }
+    g_xn_probe_fired = 1u;
+    g_xn_probe_thunk[0] = 0xd65f03c0u;
+    __asm__ volatile("dsb ish\n\tic iallu\n\tdsb ish\n\tisb" ::: "memory");
+    wt_el3_puts("[SPM] xn probe\r\n");
+    thunk = (void (*)(void))(uintptr_t)g_xn_probe_thunk;
+    thunk();
+    wt_el3_puts("[SPM] xn escape\r\n");
+}
+#endif
 
 static void report_partition_fault(const wt_trap_frame_t* frame)
 {
@@ -1098,9 +1122,18 @@ void wt_spm_lower_sync(wt_trap_frame_t* frame)
          * captured, so the resumed partition returns from its svc with this
          * value: SUCCESS makes the SVC transport re-issue around the block. */
         frame->x[0] = (uint64_t)WT_FFM_SUCCESS;
+#if defined(WT_XN_NEG_PROBE) && (WT_XN_NEG_PROBE == 1)
+        xn_probe();
+#endif
         wt_spm_sp_in_gate((const struct wt_co*)co, 1u);
         frame->x[0] = (uint64_t)(int64_t)wt_spm_dispatch_call(call, frame);
         wt_spm_sp_in_gate((const struct wt_co*)co, 0u);
+    }
+    else if ((fid == WT_SPM_SVC_FID_YIELD) &&
+             (wt_spm_sched_current_is_partition() != 0)) {
+        /* The SPMC's own yield is no service partition's to issue: a
+         * programmer error that panics only the caller (FF-M). */
+        wt_arch_sp_redirect_to_panic_trap(frame);
     }
     else if (fid == WT_SPM_SVC_FID_YIELD) {
         g_yield_token = frame->x[1];

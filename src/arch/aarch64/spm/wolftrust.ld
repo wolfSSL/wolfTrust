@@ -172,8 +172,12 @@ SECTIONS
         . = ALIGN(16);
         __bss_end = .;
     } > RAM
+    /* The page below the SPM stack stays unmapped, so an overflow aborts at
+     * S-EL1 and panics through the vector table instead of overwriting bss. */
     .stack (NOLOAD) : {
-        . = ALIGN(16);
+        . = ALIGN(4096);
+        __spm_stack_guard = .;
+        . += 4096;
         . += 0x4000;
         __spm_stack_top = .;
     } > RAM

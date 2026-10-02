@@ -14,9 +14,9 @@ certification is claimed.
 | [PSA Initial Attestation API 1.0](https://arm-software.github.io/psa-api/attestation/1.0/) and [RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html) | [PSA Compatibility](PSA-Compatibility.md) records the token API subset and token-profile deviations, including the currently advertised `tag:psacertified.org,2023:psa#tfm` profile. |
 | [PSA Firmware Update API 1.0](https://arm-software.github.io/psa-api/fwu/1.0/) | [PSA Compatibility](PSA-Compatibility.md) records the single-component update flow and unsupported trial-accept behavior. |
 
-The manifest's requested isolation profile is not a certificate of FF-M
-isolation-level-3 conformance. [Security Model](Security-Model.md) describes
-the enforced boundaries; [Threat Model](Threat-Model.md) describes assumptions
+On the STM32H563, wolfTrust meets FF-M isolation level 3;
+[Security Model](Security-Model.md#ff-m-isolation-level-3) maps each isolation
+rule and lists the deviations; [Threat Model](Threat-Model.md) describes assumptions
 and residual risks. [Testing](Testing.md) separates host, emulator, and
 physical-board evidence.
 
@@ -24,8 +24,8 @@ physical-board evidence.
 
 - [FF-M framework differences](FF-M-Compatibility.md#framework-differences)
   lists the IPC, manifest, lifecycle, and integration differences.
-- [FF-M isolation-profile interpretation](FF-M-Compatibility.md#isolation-profile-interpretation)
-  separates requested manifest policy from enforced isolation.
+- [FF-M isolation level](FF-M-Compatibility.md#isolation-level) states the
+  implemented level and points to the rule mapping.
 - [PSA service API differences](PSA-Compatibility.md#service-api-differences)
   lists storage, attestation, and firmware-update deviations.
 - [Validation and claim boundaries](FF-M-Compatibility.md#validation-and-claim-boundary)

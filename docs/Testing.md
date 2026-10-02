@@ -389,8 +389,9 @@ assert through `tests/target/lib/expect.sh`.
 | `positive-secure` | The neutral core boots at Secure EL1 and every Secure Partition initializes at Secure EL0 under its own translation table |
 | `positive` | The Normal-world guest discovers the partitions, reads framework and service versions, is refused an unknown service, and completes a data-carrying `psa_call` through the FF-M gateway: a wolfHSM echo under `hsm`, two random draws over the native wire under `native` |
 | `guest1` | SKIP: the AArch64 ports run a single Normal-world endpoint (`0x0000`), so the second-guest identity path has no AArch64 counterpart; M33MU covers it |
-| `crossdomain`, `keystoreneg` | A partition reading outside its domain, or a non-keystore partition reading the keystore band, takes a data abort at S-EL0, spends its restart budget, and escalates to fail-closed recovery |
+| `crossdomain`, `keystoreneg`, `periphspneg` | A partition reading outside its domain, a non-keystore partition reading the keystore band, or a partition reading the SPM's secure UART takes a data abort at S-EL0, spends its restart budget, and escalates to fail-closed recovery |
 | `bandneg1` to `bandneg6` | Each of the vault, attestation, and crypto partitions reads and then writes another one's private band at boot; both accesses take a data abort at S-EL0 on that band, and every partition still initializes |
+| `restartneg1` to `restartneg3` | The crypto, attestation, or vault partition plants state in its private band and faults once; the restarted instance finds the band back at its link-time image, and every partition still initializes |
 | `spfaultneg`, `panicneg` | A partition that faults once, or is panicked for a programmer error, is restarted by manifest policy and every partition still initializes |
 | `svcneg` | A service partition that issues the SPMC's own yield SVC is a programmer error: it is panicked and restarted, and every partition still initializes |
 | `fpneg` | A partition's FP instruction traps at S-EL0 (FP is disabled for partitions), the fault is contained, and the partition restarts |
@@ -399,7 +400,7 @@ assert through `tests/target/lib/expect.sh`.
 | `spbudgetneg` | A partition that faults on every entry exhausts its restart budget and escalates to fail-closed recovery |
 | `tablesneg` | The stage-1 table builder refuses a writable and executable region and the SPMC panics before its MMU is on |
 | `proofneg` | A boot self-test forced to fail stops the SPMC with its panic before any partition starts |
-| `manifestneg` | A corrupted manifest stops activation with the manifest-validation panic code |
+| `manifestneg`, `manifestneg2`, `manifestneg3` | A corrupted manifest, a manifest that declares isolation level 2, or a vault table granted part of the crypto partition's band stops the boot with the manifest-validation panic code |
 | `ffa-direct` | A direct request from the monitor's test driver reaches an S-EL0 echo partition and returns complemented |
 | `ffa-sint` | A Secure interrupt is signaled to its owning partition while it waits and queued while it runs |
 | `ns-smoke`, `ffa-discovery` | The Normal-world payload runs at NS-EL1, negotiates FF-A 1.2 with the SPMD, and discovers the partitions through the SPMC |
@@ -407,18 +408,33 @@ assert through `tests/target/lib/expect.sh`.
 | `psci` | The Normal world reads `ICC_SRE_EL1` with SRE set under a GICv3, checks the mandatory PSCI 1.1 calls as a boot-core-only system sees them (`CPU_ON`, `CPU_OFF`, `AFFINITY_INFO`, `CPU_SUSPEND`, `MIGRATE` and the migrate queries, `PSCI_FEATURES`; each SMC64 error compared across all of `x0`, so it must be sign-extended; on `virt` a second core parks beside it and is not a valid `CPU_ON`, `AFFINITY_INFO`, or `MIGRATE` target), `SMCCC_VERSION` 1.2 with `SMCCC_ARCH_FEATURES` and `x4`-`x7` preserved across a PSCI call, and powers off through the SPMD |
 | `ffa-preempt` | A core-standby `CPU_SUSPEND` wakes on the Secure tick, the tick preempts the Normal world at EL3, the SPMC services it, and the Normal world resumes |
 | `resetneg` | A Normal-world `SYSTEM_RESET` reboots the chain once and the second reset ends the run; both boots count every parked secondary (two cores on `virt`). The reset is a cold one on both machines: a UART register the first boot marked reads its reset value again. `virt` resets through its Secure GPIO and ends at the monitor's reset limit; `xlnx-versal-virt`, which models no reset controller, is powered off by the monitor and on again by the runner once, and ends at the runner's power-cycle limit |
-| `secramneg` | A Normal-world read of Secure RAM is refused (SKIP on `xlnx-versal-virt`, whose model has no XMPU or RISAF, so that port claims no isolation level) |
+| `secramneg`, `periphneg` | A Normal-world read of Secure RAM, or of the SPM's secure UART, is refused (SKIP on `xlnx-versal-virt`, whose model has no XMPU, RISAF, or XPPU, so that port claims no isolation level) |
 | `psci-el2` | The `psci` checks from a Normal world entered at NS-EL2, which then clears `HCR_EL2.RW` and runs an AArch32 EL1 caller: its SMC32 `PSCI_VERSION` and a count-only `FFA_PARTITION_INFO_GET` forwarded to the SPMC return to AArch32, and an SMC64 id answers `-1` |
 | `el2dirtyneg` | The `psci` checks on a monitor that starts on EL2 state an earlier stage left dirty (SMC trapped, a foreign virtual MPIDR, `ICC_SRE_EL2` clear), and under a GICv3 with every SPI's `GICD_IROUTER` naming a PE that does not exist: the Secure SPI the SPMC enables still reaches it; `virt` turns EL2 on for it |
 | `smcfuzz` | Every unimplemented SMC function id from the Normal world is refused cleanly (`-1` sign-extended through all of `x0` for an SMC64 id), and an SMC32 call with junk in its upper register halves is read as `w1`-`w7` |
 | `ffa-memneg` | Malformed memory transactions from the Normal world are refused, as is a share sent before an RX/TX pair is mapped or naming a dynamically allocated buffer; a reclaimed handle is dead, and a share sent in two fragments completes under the handle its first fragment reserved |
 | `hsmattackneg` | Under `hsm`, a forged wolfHSM client id cannot reach the attestation key and an NVM-group request never reaches the server; SKIP under `native`, which links no wolfHSM wire |
+| `hsmpinneg` | Under `hsm`, the relay forges its wolfHSM server pointers into SPM RAM before every pin and the `positive` flow still completes, so the relay re-pins them; SKIP under `native` |
 | `attestneg` | Oversized challenges, empty token buffers, misattributed lifecycles, and tampered tokens are rejected; an untampered token verifies in the guest |
 | `vaultrecover`, `vaultrecoversec` | A foreign vault self-heals under an unlocked lifecycle and is refused, failing closed, under a locked one, where the guest's attestation key query is refused as a reformatted vault would not refuse it |
 | `storage` | The Normal world round-trips Internal Trusted Storage through the vault partition |
 | `confboot` | The Arm FF-M IPC suite from the Normal world: 85 passed and 4 skipped on the `virt` cells; 78 and 4 on `xlnx-versal-virt`, where the seven Normal-world fence tests cannot fault without an XMPU model |
 | `devstorage`, `devattest`, `devcrypto` | The Arm dev_apis storage, attestation, and crypto suites from the Normal world over FF-A; the crypto suite (and `vaultrecover`) must total exactly 64 passed and 13 skipped, so a newly skipped test fails the run |
 | `ffaacs-discovery`, `ffaacs-direct`, `ffaacs-memory`, `ffaacs-notify`, `ffaacs-indirect`, `ffaacs-interrupts` | One Arm FF-A ACS test group each, asserted at a floor with no SIM ERROR; see [FF-A Compatibility](FF-A-Compatibility.md) for the counts and by-design deviations |
+
+Beyond the board-specific (`gtzcneg`, `revneg`, `ahbscneg`), VNET (`vnet`,
+`vnetneg`), and wolfBoot update (`bootupdate`, `fwustage`) scenarios, these
+M33MU scenarios have no AArch64 twin:
+
+- `restart`, `hsmfaultneg`, `authneg`, `remeasureneg`, `bothiso`, and
+  `bothpsa` need managed Normal-world guests; the AArch64 ports run one
+  unmanaged Normal-world endpoint, and its HSM tasklet lives in the SPMC.
+- `rollbackneg` needs a version floor that survives a reset; the QEMU ports
+  keep NVM in RAM.
+- `deputyneg` has no privileged flash deputy to test; the vault's NVM sits in
+  its own band.
+- `sealneg`, `sealbootneg`, `sealhaltneg`, and `sealpivotneg` test the
+  Armv8-M stack seals.
 
 ## STM32H563 hardware
 

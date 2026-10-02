@@ -154,14 +154,16 @@ QEMU_A_CELLS = (
 
 QEMU_A_SUITE = (
     "smoke", "boot", "boot-smp2", "positive-secure", "crossdomain",
-    "spfaultneg", "tablesneg", "proofneg", "manifestneg", "keystoreneg",
-    "bandneg1", "bandneg2", "bandneg3", "bandneg4", "bandneg5", "bandneg6",
-    "spbudgetneg", "panicneg", "svcneg", "fpneg", "mspovfneg", "xnneg", "ffa-direct", "ffa-sint", "ns-smoke",
+    "spfaultneg", "tablesneg", "proofneg", "manifestneg", "manifestneg2",
+    "keystoreneg", "bandneg1", "bandneg2", "bandneg3", "bandneg4",
+    "bandneg5", "bandneg6", "spbudgetneg", "panicneg", "svcneg", "fpneg",
+    "mspovfneg", "xnneg", "ffa-direct", "ffa-sint", "ns-smoke",
     "ffa-discovery", "ffa-guest-direct", "psci", "psci-el2", "parkneg",
-    "rdistneg", "tickneg", "el2dirtyneg", "ffa-preempt", "positive", "guest1",
-    "smcfuzz", "secramneg", "periphneg", "periphspneg", "resetneg", "ffa-memneg", "hsmattackneg",
-    "attestneg", "vaultrecover", "vaultrecoversec", "confboot", "storage",
-    "devstorage", "devattest", "devattestqcbor", "devcrypto",
+    "rdistneg", "tickneg", "el2dirtyneg", "ffa-preempt", "positive",
+    "guest1", "smcfuzz", "secramneg", "periphneg", "periphspneg",
+    "resetneg", "ffa-memneg", "hsmattackneg", "attestneg", "vaultrecover",
+    "vaultrecoversec", "confboot", "storage", "devstorage", "devattest",
+    "devattestqcbor", "devcrypto",
 )
 QEMU_A_ACS = (
     "ffaacs-discovery", "ffaacs-direct", "ffaacs-memory", "ffaacs-notify",

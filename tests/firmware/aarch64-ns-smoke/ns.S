@@ -25,6 +25,11 @@
     .section .text.entry, "ax"
     .globl _start
 _start:
+#if defined(WT_NS_ENABLE_FP) && (WT_NS_ENABLE_FP == 1)
+    mov     x0, #(3 << 20)              /* CPACR_EL1.FPEN: no FP trap at EL1/EL0 */
+    msr     CPACR_EL1, x0
+    isb
+#endif
     ldr     x0, =__stack_top
     mov     sp, x0
     ldr     x0, =__data_load

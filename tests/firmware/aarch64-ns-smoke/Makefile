@@ -194,6 +194,21 @@ CONF_SUITE_SRCS := $(CONF_SUITE_DIR)/common/test_crypto_common.c \
 CONF_SUITE_INCS := -I$(CONF_SUITE_DIR)/common -I$(CONF_PAL_DIR)
 CONF_PSA := 1
 else ifeq ($(WT_CONF_SUITE),attestation)
+# The token parses with the wolfCOSE shim by default; WT_ATTEST_CBOR=qcbor
+# swaps in the reference QCBOR library (test-only, fetch_qcbor.sh).
+WT_ATTEST_CBOR ?= shim
+ifeq ($(WT_ATTEST_CBOR),qcbor)
+WT_QCBOR_DIR ?= $(ROOT)/build/upstream/qcbor
+ATTEST_CBOR_SRCS := $(WT_QCBOR_DIR)/src/UsefulBuf.c \
+    $(WT_QCBOR_DIR)/src/qcbor_encode.c $(WT_QCBOR_DIR)/src/qcbor_decode.c \
+    $(WT_QCBOR_DIR)/src/ieee754.c
+# QCBOR carries double types, so its objects use FP and the payload enables it.
+ATTEST_CBOR_INCS := -I$(WT_QCBOR_DIR)/inc -I$(WT_QCBOR_DIR)/inc/qcbor \
+    -DWT_NS_ENABLE_FP=1
+else
+ATTEST_CBOR_SRCS := $(ROOT)/tests/conformance/qcbor-shim/qcbor_shim.c
+ATTEST_CBOR_INCS := -I$(ROOT)/tests/conformance/qcbor-shim
+endif
 CONF_LIST_DIR := $(WT_NS_MANIFEST_INC)/initial_attestation/ns
 CONF_SUITE_DIR := $(WT_NS_CONF_UPSTREAM)/dev_apis/initial_attestation
 CONF_PAL_DIR := $(WT_NS_CONF_UPSTREAM)/platform/targets/common/nspe/initial_attestation
@@ -202,8 +217,8 @@ CONF_SUITE_DEFS := -DINITIAL_ATTESTATION -DPSA_ATTESTATION_PROFILE_2 \
 CONF_SUITE_SRCS := $(CONF_PAL_DIR)/pal_attestation_intf.c \
     $(CONF_PAL_DIR)/pal_attestation_crypto.c \
     $(ROOT)/tests/firmware/zephyr-stm32h5/module/wolftrust-tee/src/wolftrust_attestation_client.c \
-    $(ROOT)/tests/conformance/qcbor-shim/qcbor_shim.c
-CONF_SUITE_INCS := -I$(CONF_PAL_DIR) -I$(ROOT)/tests/conformance/qcbor-shim \
+    $(ATTEST_CBOR_SRCS)
+CONF_SUITE_INCS := -I$(CONF_PAL_DIR) $(ATTEST_CBOR_INCS) \
     -I$(ROOT)/tests/firmware/zephyr-stm32h5/module/wolftrust-tee/include
 # attestneg runs a Normal-world negative probe instead of val, reusing this
 # build's attestation client and COSE stack plus the guest's own token verify.
@@ -289,6 +304,11 @@ $(BUILD_DIR) $(BUILD_DIR)/conf:
 
 $(BUILD_DIR)/conf/%.o: %.c | $(BUILD_DIR)/conf
 	$(CC) $(CONF_CFLAGS) -c -o $@ $<
+
+ifeq ($(WT_ATTEST_CBOR),qcbor)
+$(addprefix $(BUILD_DIR)/conf/,UsefulBuf.o qcbor_encode.o qcbor_decode.o ieee754.o): \
+    CONF_CFLAGS := $(filter-out -mgeneral-regs-only,$(CONF_CFLAGS))
+endif
 
 $(ELF): $(SRCS) $(CONF_OBJS) ns.ld | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRCS) $(CONF_OBJS) -lgcc

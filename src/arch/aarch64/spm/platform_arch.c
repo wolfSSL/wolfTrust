@@ -29,6 +29,7 @@
 #include "wolftrust/arch/aarch64/spm_mem.h"
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch.h"
+#include "wolftrust/irq_claim.h"
 #include "wolftrust/platform.h"
 #include "memory_map.h"
 
@@ -219,15 +220,58 @@ void wt_arch_secure_irq_disable(uint32_t irq)
     wt_gic->disable(irq);
 }
 
+/* wt_irq_claim hands over one line at a time as a word and a one-bit mask. */
+static uint32_t gic_claim_intid(uint32_t word, uint32_t mask)
+{
+    return word * 32u + (uint32_t)__builtin_ctz(mask);
+}
+
+static void gic_claim_disable(uint32_t word, uint32_t mask)
+{
+    wt_gic->disable(gic_claim_intid(word, mask));
+}
+
+static void gic_claim_clear_pending(uint32_t word, uint32_t mask)
+{
+    wt_gic->clear_pending(gic_claim_intid(word, mask));
+}
+
+static void gic_claim_route_secure(uint32_t word, uint32_t mask)
+{
+    wt_gic->set_group0(gic_claim_intid(word, mask));
+}
+
+static uint32_t gic_claim_enabled(uint32_t word)
+{
+    return wt_gic->enabled_word(word);
+}
+
+static uint32_t gic_claim_not_group0(uint32_t word)
+{
+    return wt_gic->not_group0_word(word);
+}
+
+static void gic_claim_barrier(void)
+{
+    __asm__ volatile("dsb sy\n\tisb" ::: "memory");
+}
+
+static const wt_nvic_ops_t g_wt_gic_claim_ops = {
+    gic_claim_disable,
+    gic_claim_clear_pending,
+    gic_claim_route_secure,
+    gic_claim_enabled,
+    gic_claim_not_group0,
+    gic_claim_barrier
+};
+
 /* SPIs only: SGIs and PPIs are banked per PE and never a partition's line. */
 int wt_arch_secure_irq_claim(uint32_t irq)
 {
-    if (irq < 32u || irq >= 1020u) {
+    if (irq < 32u || irq >= WT_GIC_INTID_LIMIT) {
         return -1;
     }
-    wt_gic->disable(irq);
-    wt_gic->set_group0(irq);
-    return 0;
+    return wt_irq_claim(&g_wt_gic_claim_ops, irq, wt_gic->line_count() / 32u);
 }
 
 void wt_arch_route_irq_to_guest(uint32_t irq)

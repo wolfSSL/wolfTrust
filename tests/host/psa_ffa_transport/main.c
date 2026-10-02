@@ -149,7 +149,8 @@ static uint32_t stub_swap_pmr(uint32_t pmr)
 }
 
 static const struct wt_gic_ops g_stub_gic = {
-    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, stub_swap_pmr, 3u
+    NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, stub_swap_pmr, NULL,
+    NULL, NULL, NULL, 3u
 };
 const struct wt_gic_ops* const wt_gic = &g_stub_gic;
 

@@ -31,6 +31,7 @@
 #define GICD_ISENABLER    0x0100u
 #define GICD_ISPENDR      0x0200u
 #define GICD_ICENABLER    0x0180u
+#define GICD_ICPENDR      0x0280u
 #define GICD_IPRIORITYR   0x0400u
 #define GICD_IGRPMODR     0x0D00u
 #define GICD_IROUTER      0x6000u
@@ -52,6 +53,7 @@
 #define GICR_ISENABLER0   (GICR_SGI_BASE + 0x0100u)
 #define GICR_ICENABLER0   (GICR_SGI_BASE + 0x0180u)
 #define GICR_ISPENDR0     (GICR_SGI_BASE + 0x0200u)
+#define GICR_ICPENDR0     (GICR_SGI_BASE + 0x0280u)
 #define GICR_IPRIORITYR   (GICR_SGI_BASE + 0x0400u)
 #define GICR_IGRPMODR0    (GICR_SGI_BASE + 0x0D00u)
 
@@ -140,6 +142,8 @@ static void gicv3_disable(uint32_t intid)
     }
     else if (intid < WT_GIC_INTID_LIMIT) {
         *gicd(GICD_ICENABLER + (intid / 32u) * 4u) = 1u << (intid % 32u);
+        /* RWP tracks ICENABLER: the line is off only once it clears. */
+        gicd_wait_rwp();
     }
 }
 
@@ -263,6 +267,38 @@ static uint32_t gicv3_swap_pmr(uint32_t pmr)
     return prev;
 }
 
+static void gicv3_clear_pending(uint32_t intid)
+{
+    if (intid < 32u) {
+        *gicr(GICR_ICPENDR0) = 1u << intid;
+    }
+    else if (intid < WT_GIC_INTID_LIMIT) {
+        *gicd(GICD_ICPENDR + (intid / 32u) * 4u) = 1u << (intid % 32u);
+    }
+}
+
+static uint32_t gicv3_enabled_word(uint32_t word)
+{
+    if (word == 0u) {
+        return *gicr(GICR_ISENABLER0);
+    }
+    return *gicd(GICD_ISENABLER + word * 4u);
+}
+
+/* Group 0 is IGROUPR 0 with IGRPMODR 0; any other pair is Group 1. */
+static uint32_t gicv3_not_group0_word(uint32_t word)
+{
+    if (word == 0u) {
+        return *gicr(GICR_IGROUPR0) | *gicr(GICR_IGRPMODR0);
+    }
+    return *gicd(GICD_IGROUPR + word * 4u) | *gicd(GICD_IGRPMODR + word * 4u);
+}
+
+static uint32_t gicv3_line_count(void)
+{
+    return ((*gicd(GICD_TYPER) & 0x1Fu) + 1u) * 32u;
+}
+
 static const struct wt_gic_ops gicv3_ops = {
     gicv3_init_secure,
     gicv3_set_group0,
@@ -274,6 +310,10 @@ static const struct wt_gic_ops gicv3_ops = {
     gicv3_set_pending,
     gicv3_raise_ns_sgi,
     gicv3_swap_pmr,
+    gicv3_clear_pending,
+    gicv3_enabled_word,
+    gicv3_not_group0_word,
+    gicv3_line_count,
     3u
 };
 

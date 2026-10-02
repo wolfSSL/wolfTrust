@@ -31,6 +31,7 @@
 #define GICD_ISPENDR     0x200u
 #define GICD_ITARGETSR   0x800u
 #define GICD_ICENABLER   0x180u
+#define GICD_ICPENDR     0x280u
 #define GICD_IPRIORITYR  0x400u
 #define GICD_SGIR        0xF00u
 #define GICD_CTLR_ENABLE_GRP0 (1u << 0)
@@ -145,6 +146,23 @@ static uint32_t gicv2_swap_pmr(uint32_t pmr)
     return prev;
 }
 
+static void gicv2_clear_pending(uint32_t intid)
+{
+    if (intid < WT_GIC_INTID_LIMIT) {
+        *gicd(GICD_ICPENDR + (intid / 32u) * 4u) = 1u << (intid % 32u);
+    }
+}
+
+static uint32_t gicv2_enabled_word(uint32_t word)
+{
+    return *gicd(GICD_ISENABLER + word * 4u);
+}
+
+static uint32_t gicv2_not_group0_word(uint32_t word)
+{
+    return *gicd(GICD_IGROUPR + word * 4u);
+}
+
 static const struct wt_gic_ops gicv2_ops = {
     gicv2_init_secure,
     gicv2_set_group0,
@@ -156,6 +174,10 @@ static const struct wt_gic_ops gicv2_ops = {
     gicv2_set_pending,
     gicv2_raise_ns_sgi,
     gicv2_swap_pmr,
+    gicv2_clear_pending,
+    gicv2_enabled_word,
+    gicv2_not_group0_word,
+    line_count,
     2u
 };
 

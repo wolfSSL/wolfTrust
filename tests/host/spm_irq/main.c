@@ -110,9 +110,20 @@ static void gic_pend(uint32_t intid)
     g_pended = intid;
 }
 
+static uint32_t gic_word(uint32_t word)
+{
+    (void)word;
+    return 0u;
+}
+
+static uint32_t gic_lines(void)
+{
+    return 0u;
+}
+
 static const struct wt_gic_ops g_host_gic = {
     gic_none, gic_id, gic_id, gic_id, gic_prio, gic_ack, gic_eoi, gic_pend,
-    gic_id, gic_pmr, 2u
+    gic_id, gic_pmr, gic_id, gic_word, gic_word, gic_lines, 2u
 };
 const struct wt_gic_ops* const wt_gic = &g_host_gic;
 

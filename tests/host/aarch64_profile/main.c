@@ -70,8 +70,8 @@ int main(void)
     if (EXPECT_NS_FENCE == 1) {
         check((platform->capabilities & WT_CAPABILITY_SECURITY_STATE) != 0U,
               "a fenced port claims security-state isolation");
-        check(manifest->isolation_profile == WT_ISOLATION_PROFILE_LEVEL_3,
-              "a fenced port's manifest declares isolation Level 3");
+        check(manifest->isolation_profile == WT_ISOLATION_PROFILE_SERVICE_ONLY,
+              "a fenced port declares no isolation level until its bands split");
     }
     else {
         check((platform->capabilities & WT_CAPABILITY_SECURITY_STATE) == 0U,

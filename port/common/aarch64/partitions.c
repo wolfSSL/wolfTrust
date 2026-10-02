@@ -157,7 +157,7 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
         if (domain == NULL ||
                 domain->domain_class != WT_DOMAIN_CLASS_NONSECURE_APPLICATION ||
                 domain->security_state != WT_SECURITY_STATE_NONSECURE ||
-                domain->privilege_state != WT_PRIVILEGE_STATE_UNPRIVILEGED ||
+                domain->privilege_state != WT_PRIVILEGE_STATE_PRIVILEGED ||
                 domain->restart_policy.action != WT_RESTART_ACTION_DOMAIN ||
                 domain->entry_point == 0U ||
                 domain->memory_resource_count > WT_MAX_MEMORY_REGIONS) {

@@ -151,10 +151,10 @@
           "share_id": 0
         },
         {
-          "base": 238026752,
-          "size": 262144,
-          "attributes": 35,
-          "share_id": 1
+          "base": 238174208,
+          "size": 4096,
+          "attributes": 19,
+          "share_id": 0
         }
       ],
       "interrupt_resources": [],
@@ -192,10 +192,10 @@
           "share_id": 0
         },
         {
-          "base": 238026752,
-          "size": 262144,
-          "attributes": 35,
-          "share_id": 1
+          "base": 238178304,
+          "size": 110592,
+          "attributes": 19,
+          "share_id": 0
         }
       ],
       "interrupt_resources": [],
@@ -234,9 +234,9 @@
         },
         {
           "base": 238026752,
-          "size": 262144,
-          "attributes": 35,
-          "share_id": 1
+          "size": 147456,
+          "attributes": 19,
+          "share_id": 0
         }
       ],
       "interrupt_resources": [],

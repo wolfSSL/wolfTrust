@@ -390,6 +390,7 @@ assert through `tests/target/lib/expect.sh`.
 | `positive` | The Normal-world guest discovers the partitions, reads framework and service versions, is refused an unknown service, and completes a data-carrying `psa_call` through the FF-M gateway: a wolfHSM echo under `hsm`, two random draws over the native wire under `native` |
 | `guest1` | SKIP: the AArch64 ports run a single Normal-world endpoint (`0x0000`), so the second-guest identity path has no AArch64 counterpart; M33MU covers it |
 | `crossdomain`, `keystoreneg` | A partition reading outside its domain, or a non-keystore partition reading the keystore band, takes a data abort at S-EL0, spends its restart budget, and escalates to fail-closed recovery |
+| `bandneg1` to `bandneg6` | Each of the vault, attestation, and crypto partitions reads and then writes another one's private band at boot; both accesses take a data abort at S-EL0 on that band, and every partition still initializes |
 | `spfaultneg`, `panicneg` | A partition that faults once, or is panicked for a programmer error, is restarted by manifest policy and every partition still initializes |
 | `spbudgetneg` | A partition that faults on every entry exhausts its restart budget and escalates to fail-closed recovery |
 | `tablesneg` | The stage-1 table builder refuses a writable and executable region and the SPMC panics before its MMU is on |

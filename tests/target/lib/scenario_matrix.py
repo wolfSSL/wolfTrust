@@ -155,6 +155,7 @@ QEMU_A_CELLS = (
 QEMU_A_SUITE = (
     "smoke", "boot", "boot-smp2", "positive-secure", "crossdomain",
     "spfaultneg", "tablesneg", "proofneg", "manifestneg", "keystoreneg",
+    "bandneg1", "bandneg2", "bandneg3", "bandneg4", "bandneg5", "bandneg6",
     "spbudgetneg", "panicneg", "ffa-direct", "ffa-sint", "ns-smoke",
     "ffa-discovery", "ffa-guest-direct", "psci", "psci-el2", "parkneg",
     "rdistneg", "tickneg", "el2dirtyneg", "ffa-preempt", "positive", "guest1",

@@ -125,10 +125,29 @@ void wt_arch_zero_guest_memory(uintptr_t base, size_t size)
     }
 }
 
-/* Partition bands carry no .data load image here, so zeroing is the reset. */
+extern uint8_t _si_vault[], _s_vault[], _e_vault_data[];
+extern uint8_t _si_attest[], _s_attest[], _e_attest_data[];
+extern uint8_t _si_hsm[], _s_hsm[], _e_hsm_data[];
+
+/* A keystore band returns to its link-time image: zeroed, then its .data
+ * reloaded; any other band has no load image and only zeroes. */
 void wt_arch_sp_band_reset(uintptr_t base, size_t size)
 {
+    static uint8_t* const bands[][3] = {
+        { _si_vault, _s_vault, _e_vault_data },
+        { _si_attest, _s_attest, _e_attest_data },
+        { _si_hsm, _s_hsm, _e_hsm_data },
+    };
+    size_t i;
+
     wt_arch_zero_guest_memory(base, size);
+    for (i = 0u; i < sizeof(bands) / sizeof(bands[0]); i++) {
+        if ((uintptr_t)bands[i][1] == base &&
+            (size_t)(bands[i][2] - bands[i][1]) <= size) {
+            (void)memcpy(bands[i][1], bands[i][0],
+                         (size_t)(bands[i][2] - bands[i][1]));
+        }
+    }
 }
 
 int wt_arch_range_is_mmio(uintptr_t base, size_t size)

@@ -42,8 +42,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -121,7 +121,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|keystoreneg:virt|bandneg[1-6]:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|keystoreneg:virt|bandneg[1-6]:virt|periphspneg:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|periphneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   # The Normal world probes PSCI with a real parked secondary beside it.
   psci:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
@@ -135,6 +135,9 @@ case "$scenario:$MACHINE" in
   resetneg:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
   boot-smp2:versal-virt)
     echo "SKIP: qemu-a/boot-smp2 (versal-virt): QEMU xlnx-versal-virt keeps APU core 1 powered off and models the CRF and APU control blocks as unimplemented, so firmware cannot release it"
+    exit 0 ;;
+  periphneg:versal-virt)
+    echo "SKIP: qemu-a/periphneg (versal-virt): QEMU xlnx-versal-virt does not model the XPPU, so the secure UART is not fenced from the Normal world in the model and the port claims no isolation level (#45)"
     exit 0 ;;
   secramneg:versal-virt)
     echo "SKIP: qemu-a/secramneg (versal-virt): QEMU xlnx-versal-virt does not model the XMPU/RISAF secure-memory controller, so the secure RAM is not fenced from the Normal world in the model and the port claims no isolation level; the fence is proven on the virt cells (VIRT_SECURE_MEM), and a silicon port claims isolation only once it locks the XMPU/RISAF"
@@ -168,6 +171,7 @@ else
     manifestneg) probe=(WT_MANIFEST_NEG_PROBE=1) ;;
     keystoreneg) probe=(WT_KEYSTORE_NEG_PROBE=1) ;;
     bandneg[1-6]) probe=("WT_BAND_NEG_PROBE=${scenario#bandneg}") ;;
+    periphspneg) probe=(WT_PERIPH_SP_NEG_PROBE=1) ;;
     spbudgetneg) probe=(WT_SP_FAULT_ALWAYS_PROBE=1) ;;
     panicneg)    probe=(WT_PANIC_NEG_PROBE=1) ;;
     svcneg)      probe=(WT_SVC_NEG_PROBE=1) ;;
@@ -187,7 +191,7 @@ else
     # EL2; the larger table pool covers the four 1 MB image bands.
     ffaacs-*) probe=(WT_EL3_NS_SMOKE=1 WT_FFA_ACS=1 WT_EL3_NS_EL2=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 "WT_SPM_TABLE_POOL_PA=$acs_pool_pa" WT_SPM_TABLE_POOL_PAGES=512) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
-    ns-smoke|ffa-discovery|psci|positive|smcfuzz|secramneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
+    ns-smoke|ffa-discovery|psci|positive|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
     # The test handoff's unlocked lifecycle leaves the forced SECURED
     # lifecycle as the only thing that refuses the reformat.
     vaultrecoversec) probe=(WT_EL3_NS_SMOKE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1 WT_EL3_TEST_HANDOFF=1) ;;
@@ -216,7 +220,8 @@ else
      [ "$scenario" = el2dirtyneg ] || [ "$scenario" = psci-el2 ] || \
      [ "$scenario" = ffa-preempt ] || [ "$scenario" = positive ] || \
      [ "$scenario" = smcfuzz ] || \
-     [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
+     [ "$scenario" = secramneg ] || [ "$scenario" = periphneg ] || \
+     [ "$scenario" = resetneg ] || \
      [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
      [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
      [ "$scenario" = vaultrecover ] || [ "$scenario" = attestneg ] || \
@@ -242,6 +247,7 @@ else
     [ "$scenario" = smcfuzz ] && ns_fuzz=1
     ns_secram=0
     [ "$scenario" = secramneg ] && ns_secram=1
+    [ "$scenario" = periphneg ] && ns_secram=1
     ns_reset=0
     [ "$scenario" = resetneg ] && ns_reset=1
     ns_memneg=0
@@ -271,6 +277,8 @@ else
     ns_secure_probe=0x0E300000
     ns_confdata=0x0E2C0000
     [ "$target" = versal ] && { ns_secure_probe=0x7F300000; ns_confdata=0x7F2C0000; }
+    # periphneg aims the same Normal-world read at the SPM's secure UART.
+    [ "$scenario" = periphneg ] && ns_secure_probe=0x09040000
     # Per-scenario NS build dir, wiped each run so a changed -D flag (probe
     # address, guest id) is always recompiled and never a stale binary.
     rm -rf "$nsfw/build/$tag-$scenario"
@@ -373,6 +381,7 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = secramneg ] || [ "$scenario" = resetneg ] || \
    [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
    [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
+   [ "$scenario" = periphneg ] || \
    [ "$scenario" = vaultrecover ] || [ "$scenario" = attestneg ] || \
    [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devattestqcbor ] || [ "$scenario" = devcrypto ]; then
@@ -654,6 +663,19 @@ case "$scenario" in
     expect "the SPMC panicked out of manifest validation" "[SPM] panic from 0x"
     expect "the panic reached the monitor with the manifest-validation code" "[EL3] panic code=0x000000f2"
     ;;
+  periphspneg)
+    refute_re "the fault never escalated to a Secure EL1 exception" '^\[SYNC EL=1'
+    expect "a partition read the SPM's secure UART and took a data abort at S-EL0" "[SYNC EL=0 EC=0x24"
+    if [ "$MACHINE" = versal-virt ]; then
+      expect "the faulting read targeted the secure UART" "FAR=0x00000000ff010000"
+    else
+      expect "the faulting read targeted the secure UART" "FAR=0x0000000009040000"
+    fi
+    expect "the offending partition was restarted under its manifest policy" "[SP] restarted id=0x"
+    expect "the persistently-faulting partition spent its restart budget" "[SPM] restart budget exhausted, failing closed"
+    expect "the exhausted budget escalated to fail-closed platform recovery" "[EL3] panic code=0x0000007d"
+    refute_re "the run did not exit cleanly" '\[EXPECT EXIT\] Success'
+    ;;
   keystoreneg)
     refute_re "the fault never escalated to a Secure EL1 exception" '^\[SYNC EL=1'
     expect "a non-keystore partition read the keystore band and took a data abort at S-EL0" "[SYNC EL=0 EC=0x24"
@@ -928,6 +950,16 @@ case "$scenario" in
       "[NS] secram refused ec=0x25 dfsc=0x10 far=0x$(printf '%x' "$ns_secure_probe") "
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
+  periphneg)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "the Normal world never read the secure UART" '\[NS\] secram LEAK'
+    refute_re "no other exception stood in for the bus refusal" '\[NS\] secram BAD'
+    expect "the Normal world attempted the secure UART read" "[NS] secram read 0x9040000"
+    expect "the secure UART read took an external data abort at its address" \
+      "[NS] secram refused ec=0x25 dfsc=0x10 far=0x9040000 "
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
   smcfuzz)
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
@@ -1094,7 +1126,7 @@ esac
 # the emulator build's reset limit; every other scenario exits cleanly.
 end_want=exit
 case "$scenario" in
-  parkneg|rdistneg|tickneg|crossdomain|tablesneg|proofneg|manifestneg|keystoreneg|spbudgetneg|mspovfneg|xnneg) end_want=panic ;;
+  parkneg|rdistneg|tickneg|crossdomain|tablesneg|proofneg|manifestneg|keystoreneg|periphspneg|spbudgetneg|mspovfneg|xnneg) end_want=panic ;;
   resetneg) end_want=reset-limit ;;
 esac
 expect_end "the emulator ended the run by $end_want" "$end_want" "$emu_status"

@@ -211,7 +211,8 @@ size_t wt_platform_conf_shared_regions(wt_memory_region_t* regions,
 
 #if (defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)) || \
     (defined(WT_KEYSTORE_NEG_PROBE) && (WT_KEYSTORE_NEG_PROBE == 1)) || \
-    (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0))
+    (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
+    (defined(WT_PERIPH_SP_NEG_PROBE) && (WT_PERIPH_SP_NEG_PROBE == 1))
 uintptr_t wt_platform_probe_address(unsigned int target)
 {
     /* The keystore window's vault, attestation and crypto bands (wolftrust.ld). */
@@ -222,6 +223,8 @@ uintptr_t wt_platform_probe_address(unsigned int target)
         return (uintptr_t)WT_SPM_KEYSTORE_PA + 0x24000u;
     case WT_PROBE_HSM_DATA_BAND:
         return (uintptr_t)WT_SPM_KEYSTORE_PA + 0x25000u;
+    case WT_PROBE_SPM_PERIPHERAL:
+        return (uintptr_t)WT_UART_S_BASE;
     default:
         return (uintptr_t)WT_SPM_RAM_PA;
     }

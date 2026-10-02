@@ -159,7 +159,7 @@ QEMU_A_SUITE = (
     "spbudgetneg", "panicneg", "svcneg", "fpneg", "mspovfneg", "xnneg", "ffa-direct", "ffa-sint", "ns-smoke",
     "ffa-discovery", "ffa-guest-direct", "psci", "psci-el2", "parkneg",
     "rdistneg", "tickneg", "el2dirtyneg", "ffa-preempt", "positive", "guest1",
-    "smcfuzz", "secramneg", "resetneg", "ffa-memneg", "hsmattackneg",
+    "smcfuzz", "secramneg", "periphneg", "periphspneg", "resetneg", "ffa-memneg", "hsmattackneg",
     "attestneg", "vaultrecover", "vaultrecoversec", "confboot", "storage",
     "devstorage", "devattest", "devattestqcbor", "devcrypto",
 )

@@ -73,7 +73,9 @@ wt_spm_entry:
     msr     CPACR_EL1, xzr
     isb
     WT_SPM_INIT_BAND __data_lma, __data_start, __data_end, __bss_start, __bss_end
-    WT_SPM_INIT_BAND _si_keystore, _s_keystore, _e_keystore_data, _s_keystore_bss, _e_keystore
+    WT_SPM_INIT_BAND _si_vault, _s_vault, _e_vault_data, _s_vault_bss, _e_vault
+    WT_SPM_INIT_BAND _si_attest, _s_attest, _e_attest_data, _s_attest_bss, _e_attest
+    WT_SPM_INIT_BAND _si_hsm, _s_hsm, _e_hsm_data, _s_hsm_bss, _e_hsm
     WT_SPM_INIT_BAND _si_conf_data, _s_conf_data, _e_conf_data_data, _s_conf_bss, _e_conf_bss
     mov     x0, x19
     bl      wt_spm_main

@@ -42,8 +42,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|spbudgetneg|panicneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|resetneg|ffa-memneg|hsmattackneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -121,7 +121,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|keystoreneg:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|keystoreneg:virt|bandneg[1-6]:virt|spbudgetneg:virt|panicneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|ffa-memneg:virt|hsmattackneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   # The Normal world probes PSCI with a real parked secondary beside it.
   psci:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
@@ -167,6 +167,7 @@ else
     proofneg)    probe=(WT_EL3_BOOT_NEG_PROBE=3) ;;
     manifestneg) probe=(WT_MANIFEST_NEG_PROBE=1) ;;
     keystoreneg) probe=(WT_KEYSTORE_NEG_PROBE=1) ;;
+    bandneg[1-6]) probe=("WT_BAND_NEG_PROBE=${scenario#bandneg}") ;;
     spbudgetneg) probe=(WT_SP_FAULT_ALWAYS_PROBE=1) ;;
     panicneg)    probe=(WT_PANIC_NEG_PROBE=1) ;;
     rdistneg)    probe=(WT_EL3_BOOT_NEG_PROBE=1) ;;
@@ -630,6 +631,32 @@ case "$scenario" in
     expect "the persistently-faulting partition spent its restart budget" "[SPM] restart budget exhausted, failing closed"
     expect "the exhausted budget escalated to fail-closed platform recovery" "[EL3] panic code=0x0000007d"
     refute_re "the run did not exit cleanly" '\[EXPECT EXIT\] Success'
+    ;;
+  bandneg[1-6])
+    # A keystore partition reads, then writes, another's private band at boot:
+    # both accesses must abort at S-EL0 on that band, and the prober recover.
+    case "${scenario#bandneg}" in
+      1) band_off=0x00000; band_what="the crypto partition denied the vault's band" ;;
+      2) band_off=0x24000; band_what="the crypto partition denied the attestation band" ;;
+      3) band_off=0x00000; band_what="the attestation partition denied the vault's band" ;;
+      4) band_off=0x25000; band_what="the attestation partition denied the crypto band" ;;
+      5) band_off=0x24000; band_what="the vault denied the attestation band" ;;
+      6) band_off=0x25000; band_what="the vault denied the crypto band" ;;
+    esac
+    band_base=0x0e300000
+    [ "$MACHINE" = versal-virt ] && band_base=0x7f300000
+    band_far=$(printf 'FAR=0x%016x' $((band_base + band_off)))
+    band_faults=$(grep -c "^\[SYNC EL=0 EC=0x24 .*$band_far" "$log" || true)
+    if [ "$band_faults" -eq 2 ]; then
+      check_pass "$band_what on read and on write"
+    else
+      check_fail "$band_what" "expected 2 S-EL0 data aborts at $band_far, saw $band_faults"
+    fi
+    refute_re "no fault escalated to a Secure EL1 exception" '^\[SYNC EL=1'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    expect "every partition, the recovered prober included, initialized" "[SPM] partitions ready n=6"
+    expect "SPMC idles on FFA_MSG_WAIT with no Normal world" "[EL3] spmc ready"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   spbudgetneg)
     refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'

@@ -64,7 +64,6 @@ extern uint8_t _e_secure_text[];
 extern uint8_t _e_secure_rodata[];
 extern uint8_t __image_end[];
 extern uint8_t __spm_ram_end[];
-extern uint8_t _e_keystore[];
 
 void wt_spm_main(uint64_t boot_info_pa);
 int wt_spm_prove_tick(void);
@@ -223,8 +222,8 @@ static uintptr_t page_up(uintptr_t v)
 }
 
 /* SPM-only table (ASID 0): image text, constant data, the SPM RAM band
- * (data, bss, stacks), the keystore band, the boot information page, the
- * table pool, the board devices. */
+ * (data, bss, stacks), every partition band, the boot information page,
+ * the table pool, the board devices. */
 void wt_domain_fail(int code)
 {
     spmc_fail("domain", (uint64_t)(uint32_t)code);
@@ -392,10 +391,6 @@ static void enable_mmu(uint64_t boot_info_pa)
      * through wt_domain_fail before any partition initializes. */
     fill[n].attributes |= WT_MEM_ATTR_EXEC;
 #endif
-    n++;
-    fill[n].base = (uintptr_t)WT_SPM_KEYSTORE_PA;
-    fill[n].size = page_up((uintptr_t)_e_keystore) - (uintptr_t)WT_SPM_KEYSTORE_PA;
-    fill[n].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_DOMAIN_FILL_SHARED;
     n++;
     /* The FF-A RX/TX buffer band (7.2): the SPMC writes partition information
      * into it at S-EL1, and the discovering partition maps and reads it at

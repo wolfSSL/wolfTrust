@@ -45,8 +45,23 @@ void wt_spm_sp_panic_trap(void)
     __asm__ volatile(".inst 0x00000000");
 }
 
+#if defined(WT_SVC_NEG_PROBE) && (WT_SVC_NEG_PROBE == 1)
+void wt_arch_sp_guest_return_probe(void)
+{
+    register uint64_t x0 __asm__("x0") = WT_SPM_SVC_FID_YIELD;
+
+    __asm__ volatile("svc #0" : "+r"(x0) : : "memory");
+}
+#endif
+
 void wt_arch_sp_fault_probe(unsigned int code)
 {
+#if defined(WT_FP_NEG_PROBE) && (WT_FP_NEG_PROBE == 1)
+    /* fpneg: CPACR_EL1 traps FP at S-EL0, so this fmov d0, x0 (raw, as
+     * -mgeneral-regs-only refuses it) must fault; the brk marks an escape. */
+    __asm__ volatile(".inst 0x9e670000");
+    __asm__ volatile("brk #0x4e");
+#endif
     switch (code) {
     case 1u:
         __asm__ volatile("brk #1");

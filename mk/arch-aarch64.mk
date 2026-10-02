@@ -19,6 +19,21 @@ ifeq ($(WT_EL3_NS_EL2),1)
 ARCH_CFLAGS += -DWT_EL3_NS_EL2=1
 endif
 # Test only: the monitor starts on EL2 state an earlier stage left dirty.
+WT_FP_NEG_PROBE ?= 0
+ifeq ($(WT_FP_NEG_PROBE),1)
+ARCH_CFLAGS += -DWT_FP_NEG_PROBE=1
+endif
+
+WT_MSP_OVF_PROBE ?= 0
+ifeq ($(WT_MSP_OVF_PROBE),1)
+ARCH_CFLAGS += -DWT_MSP_OVF_PROBE=1
+endif
+
+WT_XN_NEG_PROBE ?= 0
+ifeq ($(WT_XN_NEG_PROBE),1)
+ARCH_CFLAGS += -DWT_XN_NEG_PROBE=1
+endif
+
 WT_EL3_EL2_DIRTY_PROBE ?= 0
 ifeq ($(WT_EL3_EL2_DIRTY_PROBE),1)
 ARCH_CFLAGS += -DWT_EL3_EL2_DIRTY_PROBE=1

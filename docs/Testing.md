@@ -392,6 +392,10 @@ assert through `tests/target/lib/expect.sh`.
 | `crossdomain`, `keystoreneg` | A partition reading outside its domain, or a non-keystore partition reading the keystore band, takes a data abort at S-EL0, spends its restart budget, and escalates to fail-closed recovery |
 | `bandneg1` to `bandneg6` | Each of the vault, attestation, and crypto partitions reads and then writes another one's private band at boot; both accesses take a data abort at S-EL0 on that band, and every partition still initializes |
 | `spfaultneg`, `panicneg` | A partition that faults once, or is panicked for a programmer error, is restarted by manifest policy and every partition still initializes |
+| `svcneg` | A service partition that issues the SPMC's own yield SVC is a programmer error: it is panicked and restarted, and every partition still initializes |
+| `fpneg` | A partition's FP instruction traps at S-EL0 (FP is disabled for partitions), the fault is contained, and the partition restarts |
+| `mspovfneg` | The SPMC overflows its own stack into the unmapped guard page below it; the abort at S-EL1 panics fail-closed before any partition starts |
+| `xnneg` | From a partition's SVC the SPMC branches into code it wrote into SPM RAM; the execute-never fetch aborts at S-EL1 and panics fail-closed |
 | `spbudgetneg` | A partition that faults on every entry exhausts its restart budget and escalates to fail-closed recovery |
 | `tablesneg` | The stage-1 table builder refuses a writable and executable region and the SPMC panics before its MMU is on |
 | `proofneg` | A boot self-test forced to fail stops the SPMC with its panic before any partition starts |

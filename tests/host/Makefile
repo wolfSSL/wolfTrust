@@ -38,7 +38,8 @@ UNIT_SUITES := domain manifest lifecycle guest_verify rollback sp_recovery \
     keystore_isolation \
     attestation_service attestation attestation_token \
     attestation_golden attestation_negatives attestation_replay \
-    attestation_iak ffm_domain sp_layout port_binding boot_handoff ffa_abi \
+    attestation_iak ffm_domain sp_layout tasklet_priv port_binding silicon_rev \
+    boot_handoff ffa_abi \
     aarch64_esr aarch64_libc ffa_boot_info aarch64_tables aarch64_domain ffa_spmd \
     aarch64_profile \
     ffa_mem ffa_notif ffa_runtime spm_irq spm_gate \

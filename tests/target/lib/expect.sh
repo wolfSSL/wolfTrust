@@ -26,11 +26,12 @@ expect() {
   check_fail "$1" "missing: $2"
 }
 
-# expect_flat <label> <fixed-string>: guest1's console can interject mid-line
-# in a secure print, so drop its text and rejoin split lines before matching.
+# expect_flat <label> <fixed-string>: guest1's console or the emulator's UART
+# attach note can interject mid-line, so drop both and rejoin split lines.
 expect_flat() {
-  if sed 's/freertos_guest1:.*$//' "$WT_EXPECT_LOG" | tr -d '\r\n' | \
-      grep -Fq "$2"; then
+  if sed -e 's/freertos_guest1:.*$//' \
+         -e 's/\[UART\] [0-9a-f]* attached to [^ ]*//' "$WT_EXPECT_LOG" | \
+      tr -d '\r\n' | grep -Fq "$2"; then
     check_pass "$1"
   else
     check_fail "$1" "missing: $2"

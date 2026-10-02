@@ -67,6 +67,11 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return WT_FFM_SUCCESS;
 }
 
+int wt_spm_sched_validate(void)
+{
+    return WT_FFM_SUCCESS;
+}
+
 int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     (void)runtime; (void)partition_id;

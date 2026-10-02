@@ -1,16 +1,28 @@
 # wolfTrust CI
 
 Three lanes, modeled on wolfProvider's CI: a fast per-PR host lane, the M33MU
-emulator matrix, and the AArch64 QEMU matrix. Both emulator lanes are tiered: a
-smoke set on every pull request, and the full matrix on labels, main pushes,
-and nightly.
+emulator matrix, and the AArch64 QEMU matrix, plus static analysis. Both
+emulator lanes are tiered: a smoke set on every pull request, and the full
+matrix on labels, main pushes, and nightly.
+
+`codeql.yml` runs C security queries. `coverity.yml` runs on Sundays at
+00:00 UTC or by manual dispatch. Both build the host suites and secure images
+for STM32H563 and MIMXRT700 with both crypto engines.
+
+Coverity scans wolfTrust runtime, ports, tests, and generated policy code.
+`tools/ci-coverity-filter.py` removes dependency source units before upload
+and rejects an invalid capture. Keep submodules under `lib/` and enable
+**Ignore component in analysis** for the `Third party dependencies` component
+(`.*/lib/.*`) in Coverity Scan to exclude dependency headers too.
+
+An accepted upload queues analysis; results appear after Coverity processes it.
 
 ## At a glance
 
 | Tier | Trigger | Purpose |
 |------|---------|---------|
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
-| **M33MU smoke** | every PR | per port, on both crypto engines: STM32H563 `positive gtzcneg crossdomain bothpsa confboot devcrypto`; MIMXRT700 `positive ahbscneg crossdomain bothpsa` |
+| **M33MU smoke** | every PR | per port, on both crypto engines: STM32H563 `positive gtzcneg crossdomain bothpsa confboot devcrypto`; MIMXRT700 `positive ahbscneg crossdomain bothpsa confboot devcrypto` |
 | **M33MU full** | PR labels `ci:all`, `ci:stm32h563`, `ci:imxrt700`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
 | **AArch64 smoke** | every PR | a representative subset: `virt-gicv3-a72` `smoke boot positive crossdomain ffa-direct confboot devcrypto` on both crypto engines, and `versal-virt` the same on the native engine |
 | **AArch64 full** | PR labels `ci:all`, `ci:aarch64`, `ci:qemu-virt`, `ci:qemu-versal`; push to main; nightly; `workflow_dispatch` (cell input) | every AArch64 scenario and the Arm FF-A ACS groups on three QEMU cells under both crypto engines (see below) |

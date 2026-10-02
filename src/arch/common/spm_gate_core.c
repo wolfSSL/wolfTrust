@@ -27,7 +27,6 @@
 #include "wolftrust/spm_transport.h"
 
 #include "wolftrust/ffm.h"
-#include "wolftrust/ffm_boot.h"
 #include "wolftrust/ffm_domain.h"
 #include "wolftrust/monitor.h"
 #include "wolftrust/platform.h"
@@ -1218,14 +1217,12 @@ int wt_spm_partition_memory_ok(int32_t partition_id, const void* address,
 
 int wt_spm_sched_validate(void)
 {
-    const wt_ffm_runtime_t* runtime = wt_ffm_boot_runtime();
     wt_memory_region_t spm_ram[2];
     wt_memory_region_t shared[1];
     size_t spm_ram_count;
     size_t shared_count = 0u;
     size_t i;
     size_t j;
-    int pairwise;
 
     spm_ram_count = wt_platform_spm_private_regions(
         spm_ram, sizeof(spm_ram) / sizeof(spm_ram[0]));
@@ -1236,11 +1233,6 @@ int wt_spm_sched_validate(void)
     if (spm_ram_count == 0u) {
         return WT_FFM_ERROR_ISOLATION;
     }
-    /* Partition-to-partition separation is the level 3 rule; a manifest that
-     * declares no isolation level is held to the SPM-private check only. */
-    pairwise = (runtime == NULL || runtime->manifest == NULL ||
-                runtime->manifest->isolation_profile !=
-                    WT_ISOLATION_PROFILE_SERVICE_ONLY) ? 1 : 0;
     for (i = 0u; i < g_spm_sp_count; i++) {
         for (j = 0u; j < spm_ram_count; j++) {
             if (wt_secure_domain_excludes(&g_spm_sp[i].table,
@@ -1250,7 +1242,7 @@ int wt_spm_sched_validate(void)
                 return WT_FFM_ERROR_ISOLATION;
             }
         }
-        for (j = i + 1u; pairwise != 0 && j < g_spm_sp_count; j++) {
+        for (j = i + 1u; j < g_spm_sp_count; j++) {
             if (wt_secure_domains_isolated(&g_spm_sp[i].table,
                     &g_spm_sp[j].table, shared, shared_count) == 0) {
                 wt_spm_sched_note(7U, g_spm_sp[i].co,

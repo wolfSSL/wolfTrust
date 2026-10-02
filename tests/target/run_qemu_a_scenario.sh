@@ -284,10 +284,9 @@ else
   fi
   if [ -n "$acs_suite" ]; then
     acs_out="$build/acs"
-    # FF-A ids follow coroutine creation order; the hsm engine's guest-0
-    # wolfHSM server tasklet takes one slot ahead of the ACS partitions.
+    # FF-A ids number the partitions in creation order (a privileged tasklet
+    # takes none): the six PSA partitions, then the ACS ones, on both engines.
     acs_id_base=0x8008
-    [ "$WT_ENGINE" = hsm ] && acs_id_base=0x8009
     SUITE="$acs_suite" TOOLPREFIX="$TOOLPREFIX" \
       WT_ACS_SP_ID_BASE="${WT_ACS_SP_ID_BASE:-$acs_id_base}" \
       "$repo/tests/conformance/ffa-acs/build_acs.sh" "$MACHINE" "$acs_out" >/dev/null

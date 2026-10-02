@@ -25,8 +25,12 @@ SECTIONS
         . = ALIGN(4096);
         _e_secure_text = .;
     } > IMAGE
-    .rodata : {
+    .rodata (READONLY) : {
         KEEP(*(.wt_guest_meas))
+        /* wolfCrypt globals that are only ever read (the AES prefetch anchor,
+         * the DRBG selection flag): read-only, so every partition sees them. */
+        *(.data.always_prefetch* .bss.always_prefetch*)
+        *(.data.sha256DrbgDisabled* .bss.sha256DrbgDisabled*)
         *(.rodata .rodata.*)
         . = ALIGN(4096);
         _e_secure_rodata = .;

@@ -42,8 +42,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -126,7 +126,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|manifestneg2:virt|keystoreneg:virt|bandneg[1-6]:virt|periphspneg:virt|restartneg1:virt|restartneg2:virt|restartneg3:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|periphneg:virt|ffa-memneg:virt|hsmattackneg:virt|hsmpinneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|manifestneg2:virt|manifestneg3:virt|keystoreneg:virt|bandneg[1-6]:virt|periphspneg:virt|restartneg1:virt|restartneg2:virt|restartneg3:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|periphneg:virt|ffa-memneg:virt|hsmattackneg:virt|hsmpinneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   # The Normal world probes PSCI with a real parked secondary beside it.
   psci:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
@@ -175,6 +175,7 @@ else
     proofneg)    probe=(WT_EL3_BOOT_NEG_PROBE=3) ;;
     manifestneg) probe=(WT_MANIFEST_NEG_PROBE=1) ;;
     manifestneg2) probe=(WT_MANIFEST_NEG_PROBE=2) ;;
+    manifestneg3) probe=(WT_MANIFEST_NEG_PROBE=3) ;;
     keystoreneg) probe=(WT_KEYSTORE_NEG_PROBE=1) ;;
     bandneg[1-6]) probe=("WT_BAND_NEG_PROBE=${scenario#bandneg}") ;;
     periphspneg) probe=(WT_PERIPH_SP_NEG_PROBE=1) ;;
@@ -680,8 +681,11 @@ case "$scenario" in
     refute_re "the partitions never went live" '\[SPM\] partitions ready'
     refute_re "the run did not exit cleanly" '\[EXPECT EXIT\] Success'
     ;;
-  manifestneg|manifestneg2)
+  manifestneg|manifestneg2|manifestneg3)
     refute_re "no partition initialized off the corrupted manifest" '\[SPM\] partitions ready'
+    if [ "$scenario" = manifestneg3 ]; then
+      refute_re "the overlap was refused by the separation check, not the table builder" '\[SPM\] FAIL domain'
+    fi
     refute_re "the run did not exit cleanly" '\[EXPECT EXIT\] Success'
     expect "the SPMC panicked out of manifest validation" "[SPM] panic from 0x"
     expect "the panic reached the monitor with the manifest-validation code" "[EL3] panic code=0x000000f2"
@@ -1161,7 +1165,7 @@ esac
 # the emulator build's reset limit; every other scenario exits cleanly.
 end_want=exit
 case "$scenario" in
-  parkneg|rdistneg|tickneg|crossdomain|tablesneg|proofneg|manifestneg|manifestneg2|keystoreneg|periphspneg|spbudgetneg|mspovfneg|xnneg) end_want=panic ;;
+  parkneg|rdistneg|tickneg|crossdomain|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|periphspneg|spbudgetneg|mspovfneg|xnneg) end_want=panic ;;
   resetneg) end_want=reset-limit ;;
 esac
 expect_end "the emulator ended the run by $end_want" "$end_want" "$emu_status"

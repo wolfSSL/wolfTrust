@@ -2,7 +2,7 @@
   "format_version": 1,
   "generator_version": "WOLFTRUST_GEN_1",
   "features": 1,
-  "isolation_profile": 0,
+  "isolation_profile": 3,
   "profile_capabilities": {
     "capabilities": 127,
     "max_domains": 11,

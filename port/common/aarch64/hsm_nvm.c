@@ -24,6 +24,7 @@
 
 #include "wolftrust/port_nvm.h"
 #include "wolftrust/services/fwu_service.h"
+#include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_flash_ramsim.h"
 
 #include <stddef.h>
@@ -46,7 +47,94 @@ static const whFlashRamsimCfg g_nvm_cfg = {
     .initData = NULL,
 };
 
-const whFlashCb g_wt_hsm_flash_cb = WH_FLASH_RAMSIM_CB;
+/* The context sits in the vault's writable band and S-EL1 runs these for the
+ * keystore flash gate, so each call takes the geometry from constants. */
+static int wt_nvm_pin(void* context, uint32_t offset, uint32_t size,
+                      whFlashRamsimCtx* pin)
+{
+    if ((context != (void*)&g_nvm_ctx) || (offset > WT_NVM_SIZE) ||
+            (size > WT_NVM_SIZE - offset)) {
+        return WH_ERROR_BADARGS;
+    }
+    pin->memory = g_nvm_memory;
+    pin->size = WT_NVM_SIZE;
+    pin->sectorSize = WT_NVM_SECTOR_SIZE;
+    pin->pageSize = WT_NVM_PAGE_SIZE;
+    pin->writeLocked = g_nvm_ctx.writeLocked;
+    pin->erasedByte = 0xFFu;
+    return WH_ERROR_OK;
+}
+
+static int wt_nvm_read(void* context, uint32_t offset, uint32_t size,
+                       uint8_t* data)
+{
+    whFlashRamsimCtx pin;
+    int rc = wt_nvm_pin(context, offset, size, &pin);
+
+    if (rc == WH_ERROR_OK) {
+        rc = whFlashRamsim_Read(&pin, offset, size, data);
+    }
+    return rc;
+}
+
+static int wt_nvm_program(void* context, uint32_t offset, uint32_t size,
+                          const uint8_t* data)
+{
+    whFlashRamsimCtx pin;
+    int rc = wt_nvm_pin(context, offset, size, &pin);
+
+    if (rc == WH_ERROR_OK) {
+        rc = whFlashRamsim_Program(&pin, offset, size, data);
+    }
+    return rc;
+}
+
+static int wt_nvm_erase(void* context, uint32_t offset, uint32_t size)
+{
+    whFlashRamsimCtx pin;
+    int rc = wt_nvm_pin(context, offset, size, &pin);
+
+    if (rc == WH_ERROR_OK) {
+        rc = whFlashRamsim_Erase(&pin, offset, size);
+    }
+    return rc;
+}
+
+static int wt_nvm_verify(void* context, uint32_t offset, uint32_t size,
+                         const uint8_t* data)
+{
+    whFlashRamsimCtx pin;
+    int rc = wt_nvm_pin(context, offset, size, &pin);
+
+    if (rc == WH_ERROR_OK) {
+        rc = whFlashRamsim_Verify(&pin, offset, size, data);
+    }
+    return rc;
+}
+
+static int wt_nvm_blankcheck(void* context, uint32_t offset, uint32_t size)
+{
+    whFlashRamsimCtx pin;
+    int rc = wt_nvm_pin(context, offset, size, &pin);
+
+    if (rc == WH_ERROR_OK) {
+        rc = whFlashRamsim_BlankCheck(&pin, offset, size);
+    }
+    return rc;
+}
+
+const whFlashCb g_wt_hsm_flash_cb = {
+    .Init = whFlashRamsim_Init,
+    .Cleanup = whFlashRamsim_Cleanup,
+    .PartitionSize = whFlashRamsim_PartitionSize,
+    .WriteLock = whFlashRamsim_WriteLock,
+    .WriteUnlock = whFlashRamsim_WriteUnlock,
+    .Read = wt_nvm_read,
+    .Program = wt_nvm_program,
+    .Erase = wt_nvm_erase,
+    .Verify = wt_nvm_verify,
+    .BlankCheck = wt_nvm_blankcheck,
+};
 
 void *wt_hsm_flash_context(void)
 {

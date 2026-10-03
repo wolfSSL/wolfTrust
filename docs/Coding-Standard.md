@@ -1,8 +1,8 @@
 # C Coding Standard
 
 wolfTrust adheres to the wolfSSL coding standards and targets ISO C99, with
-project-specific no-`goto` and no-standalone-scope rules. The aim is to keep
-the code straightforward to assess in a future MISRA C:2023 or DO-178 process.
+project-specific no-`goto` and no-standalone-scope rules. These rules make the
+code easier to assess in a future MISRA C:2023 or DO-178 process.
 These checks improve readiness; they are not a claim of MISRA compliance or
 certification evidence.
 

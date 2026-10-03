@@ -1,0 +1,64 @@
+site_name: wolfTrust Manual
+site_description: Secure Partition Manager and services runtime for Cortex-M
+site_url: https://www.wolfssl.com/documentation/manuals/wolftrust/
+repo_url: https://github.com/wolfSSL/wolfTrust
+edit_uri: edit/main/docs/
+docs_dir: docs
+site_dir: build/docs-site
+copyright: Copyright © 2026 wolfSSL Inc.
+use_directory_urls: false
+
+nav:
+  - Overview:
+      - wolfTrust: index.md
+      - Architecture: Architecture.md
+      - Security Model: Security-Model.md
+      - Threat Model: Threat-Model.md
+  - Get started:
+      - Getting Started: Getting-Started.md
+      - Building: Building.md
+      - Testing: Testing.md
+  - Ports:
+      - Supported targets: Targets.md
+      - STM32H563 board guide: STM32H5-Guide.md
+      - MIMXRT700 board guide: MIMXRT700-Guide.md
+  - Use wolfTrust:
+      - Services: Services.md
+      - API Reference: API-Reference.md
+      - Crypto Engines: Crypto-Engines.md
+      - Build Options: Macros.md
+  - Specifications and deviations:
+      - Standards and Claims: Standards.md
+      - FF-M Compatibility: FF-M-Compatibility.md
+      - PSA Compatibility: PSA-Compatibility.md
+      - Footprint Comparison: Footprint-Comparison.md
+  - Porting and development:
+      - Porting: Porting.md
+      - Project Structure: Project-Structure.md
+      - C Coding Standard: Coding-Standard.md
+
+theme:
+  name: material
+  logo: assets/logo.png
+  favicon: assets/logo.png
+  features:
+    - navigation.sections
+    - navigation.top
+    - content.code.copy
+  palette:
+    primary: white
+    accent: deep orange
+
+extra_css:
+  - assets/skin.css
+
+markdown_extensions:
+  - tables
+  - admonition
+  - pymdownx.details
+  - pymdownx.superfences
+  - toc:
+      permalink: true
+
+plugins:
+  - search

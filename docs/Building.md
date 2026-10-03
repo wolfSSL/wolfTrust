@@ -13,8 +13,8 @@ cross-compiles a freestanding Cortex-M33 image.
 - GNU Arm Embedded tools with the `arm-none-eabi-` prefix
 - a native C compiler for host tests
 
-Some submodule URLs use GitHub SSH. Configure GitHub SSH access or an
-equivalent Git URL rewrite before initializing them.
+Submodules use public HTTPS URLs. An existing checkout with older URLs should
+run `git submodule sync --recursive` first.
 
 ```sh
 git submodule update --init --recursive

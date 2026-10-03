@@ -10,9 +10,8 @@ The engine choice does not change the actual Non-secure-to-Secure boundary.
 Both builds use the same five CMSE veneers, generated manifest, service IDs,
 SPM-owned caller identity, copied IOVEC rules, isolation bands, storage
 services, attestation service, firmware-update service, and Secure Partition
-recovery path. The STM32H563 manifest requests isolation profile 3 in both
-builds. That value is wolfTrust's validated policy profile, not proof of
-independent TF-M Level 3 code and data isolation.
+recovery path. Both engines meet FF-M isolation level 3; see
+[Security Model](Security-Model.md#ff-m-isolation-level-3).
 
 ## At a glance
 
@@ -226,10 +225,10 @@ The Secure image and both guest images must use the same engine. See
 
 ## Measured Secure-image cost
 
-These Secure-image measurements were reproduced on 2026-09-18 from the source
-tree containing this page. The pinned dependency revisions and versions are
-listed in
-[TF-M Compatibility](TF-M-Compatibility.md). The builds ran on
+These Secure-image measurements were reproduced on 2026-09-18. They are a
+dated snapshot, and later commits may produce different sizes. The dependency
+revisions and versions used for the measurements are listed in
+[Footprint Comparison](Footprint-Comparison.md). The builds ran on
 `wolf-prec5560` with `arm-none-eabi-gcc` 13.2.1, `-Os`, and the repository
 defaults other than the engine and output directory:
 
@@ -276,7 +275,7 @@ of allocation headroom over the tested peak. It is not a precise high-water
 measurement or a guarantee for different workloads. This is a fixed
 allocation, not a heap or a claim that every run consumes all 10 KiB.
 
-See [TF-M Compatibility](TF-M-Compatibility.md) for the complete local
+See [Footprint Comparison](Footprint-Comparison.md) for the complete local
 footprint comparison and methodology.
 
 ## Build invariants
@@ -286,10 +285,15 @@ Both engine builds enforce the following after linking:
 1. `mk/arch-armv8m.mk` runs `arm-none-eabi-nm` and writes the complete symbol
    list to `BUILD_DIR/nsc-syms.txt`.
 2. The link check rejects any `__acle_se_*` symbol outside this exact `nm`
-   set: `__acle_se_WolfTrust_FFM_FrameworkVersion`,
-   `__acle_se_WolfTrust_FFM_ServiceVersion`,
-   `__acle_se_WolfTrust_FFM_Connect`, `__acle_se_WolfTrust_FFM_Call`, and
-   `__acle_se_WolfTrust_FFM_Close`.
+   set:
+
+   ```text
+   __acle_se_WolfTrust_FFM_FrameworkVersion
+   __acle_se_WolfTrust_FFM_ServiceVersion
+   __acle_se_WolfTrust_FFM_Connect
+   __acle_se_WolfTrust_FFM_Call
+   __acle_se_WolfTrust_FFM_Close
+   ```
 3. A separate count check requires exactly five `__acle_se_*` symbols, so a
    missing veneer also fails the build.
 4. The same symbol list is searched for `malloc`, `free`, `calloc`,

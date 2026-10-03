@@ -78,6 +78,7 @@ images.
 | Caller-ID spoofing | The gateway derives identity from the monitor's active guest; service payloads cannot override it. |
 | Pointer substitution or overflow | The vector descriptor is copied once; counts, arithmetic, CMSE attributes, and active-guest windows are checked before copying bytes. |
 | Stale or stolen handles | Handle ownership, type, generation, and state transitions are checked by the SPM. |
+| Cross-partition or partition-to-SPM access | FF-M isolation level 3; see [Security Model](Security-Model.md#ff-m-isolation-level-3). |
 | Cross-guest RAM access | GTZC MPCBB attribution closes the full guest-RAM extent and reopens only the scheduled guest's writable SRAM blocks. Per-guest Non-secure MPU and interrupt state are restored scheduling policy, not adversarial boundaries against privileged guests. |
 | Inactive-guest flash modification | Signature-covered guest digests and runtime verification detect changes; hardened STM32H563 builds also require complete WRP coverage. |
 | Cross-guest key use | The SPM-stamped identity selects the native vault sub-owner; the hsm relay maps guest `N` to forced wolfHSM client ID `N + 1`. |
@@ -112,13 +113,6 @@ claim resistance to a physical adversary that can restore a mutually
 consistent historical snapshot of the entire NVM pool. A target requiring
 that property needs rollback-resistant monotonic storage in its port.
 
-### Secure code is shared
-
-Secure Partition writable state is narrowed by the Secure MPU to one private
-band per partition, but all service threads execute shared read/execute text
-from one linked image. A defect in trusted shared code can therefore affect
-more than one service.
-
 ### Privileged handlers remain security-critical
 
 Unprivileged service threads request flash, entropy, locking, and reset through
@@ -132,17 +126,15 @@ cause its own quarantine. Shared CPU, flash, and service queues still create
 availability coupling. Recovery limits stop infinite restart loops but may
 leave a guest or service unavailable.
 
-### Non-secure peripheral and interrupt attribution is inherited
+### Non-secure peripherals are shared between guests
 
-The STM32H563 reference port exposes the `0x40000000-0x4FFFFFFF` peripheral
-aperture as Non-secure and explicitly leaves USART2 and USART3 Non-secure. It
-does not program RCC security attribution. A privileged Non-secure guest can
-reprogram `MPU_NS`, alter Non-secure NVIC state, and access any peripheral left
-Non-secure by the boot chain. Manifest resource lists therefore do not enforce
-adversarial peripheral or interrupt ownership in the current port. Deployments
-must configure and validate device-specific peripheral security and privilege
-attribution before claiming those boundaries. In particular, access to shared
-clock controls can disrupt Secure execution or deny service to peer guests.
+The STM32H563 port makes HASH, RNG, and PKA Secure-only and leaves the rest of
+the `0x40000000-0x4FFFFFFF` aperture, including USART2, USART3, and RCC,
+Non-secure. A privileged guest can reach any of those peripherals and its own
+Non-secure NVIC state; the port does not assign peripherals or interrupts
+between guests. A deployment that needs that separation must attribute the
+device's peripherals itself. Shared clock controls in particular can deny
+service to the Secure side or to the other guest.
 
 ### Development lifecycle permits recovery
 

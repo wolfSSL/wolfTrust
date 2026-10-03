@@ -16,6 +16,11 @@ and rejects an invalid capture. Keep submodules under `lib/` and enable
 
 An accepted upload queues analysis; results appear after Coverity processes it.
 
+`docs-site.yml` builds the HTML and PDF manual with the shared
+`wolfSSL/documentation` tooling for documentation pull requests and merges to
+`main`. The website's existing documentation update picks up merged changes
+through the documentation repository. See [DOCS-BUILD.md](../../DOCS-BUILD.md).
+
 ## At a glance
 
 | Tier | Trigger | Purpose |

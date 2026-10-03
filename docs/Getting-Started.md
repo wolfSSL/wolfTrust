@@ -34,8 +34,12 @@ access.
 ```sh
 git clone --recurse-submodules https://github.com/wolfSSL/wolfTrust.git
 cd wolfTrust
-git submodule update --init --recursive
 ```
+
+The repository and its six pinned submodules are public and use HTTPS URLs.
+No GitHub account or SSH key is needed to clone them. If you already have a
+checkout with older submodule URLs, run `git submodule sync --recursive` before
+`git submodule update --init --recursive`.
 
 ## Build the Secure image
 

@@ -149,10 +149,9 @@ on), so the CPU's own attribution is the barrier: with the peer window Secure,
 a guest's store into it faults even after the guest disables its own
 Non-secure MPU, and the monitor contains the fault. `ahbscneg` shows exactly
 that on the EVK and under M33MU.
-As on the STM32H563 (see [TF-M Compatibility](TF-M-Compatibility.md)), the
-manifest declares the guests unprivileged but the runtime launches them with
-`CONTROL_NS.nPRIV` clear. A guest's Non-secure MPU is therefore scheduling
-policy, not a boundary; the SAU window is the boundary. Fencing other bus masters (the sense M33, the DSPs, the NPU, and DMA) per
+As on the STM32H563 (see [Security Model](Security-Model.md)), the guests run
+privileged, with `CONTROL_NS.nPRIV` clear, and the manifest declares them so. A
+guest's Non-secure MPU is therefore scheduling policy, not a boundary; the SAU window is the boundary. Fencing other bus masters (the sense M33, the DSPs, the NPU, and DMA) per
 master is not implemented.
 
 ## Silicon constraints for this port

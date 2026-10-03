@@ -67,7 +67,7 @@ WRP_GUEST=0x000FFFFF; WRP_OPEN=0xFFFFFFFF
 PS_OPEN=0xED; PS_PROVISIONING=0x17; PS_TZCLOSED=0xC6; PS_CLOSED=0x72; PS_LOCKED=0x5C
 
 # Flash layout (matches run_h5_hardware.sh).
-WOLFBOOT=0x0C000000; WOLFTRUST=0x0C060000; GUEST0=0x080A0000; GUEST1=0x080C0000
+WOLFBOOT=0x0C000000; WOLFTRUST=0x0C060000; GUEST0=0x080A0000; GUEST1=0x080E0000
 wb="$repo/wolfBoot/wolfboot.bin"
 wt="$repo/build/wolftrust_v1_signed.bin"
 g0="$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"

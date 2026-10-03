@@ -37,11 +37,8 @@ paths, context handling, GTZC attribution, guest and Secure MPU programming,
 interrupt routing, flash, entropy, timers, and boot handoff.
 
 Additional Cortex-M ports may reuse the existing interfaces when their
-execution and protection models match. Cortex-A support is an architectural
-goal, not a current capability. It will require a new adapter and changes to
-current internal execution and protection contracts; the design goal is to
-preserve the public manifest, service, IPC, and PSA API contracts. See
-[Porting](Porting.md) for the current boundary.
+execution and protection models match. See [Porting](Porting.md) for the
+current boundary.
 
 ## Boot flow
 
@@ -80,17 +77,14 @@ The reference port combines several mechanisms:
 - CMSE checks require every request pointer to be Non-secure and inside the
   active guest's declared readable or writable window.
 - The Secure MPU gives each Secure Partition thread shared read/execute image
-  text, read-only constants, its private stack and data, and only its declared
-  shared resources.
+  text, read-only constants, and its own stack and data band. Together these
+  meet FF-M isolation level 3; see
+  [Security Model](Security-Model.md#ff-m-isolation-level-3).
 
 All shipped service loops are scheduled as unprivileged Secure coroutines.
 Operations requiring wider Secure access, including flash programming, entropy,
 NVM locking, and platform reset, trap through privileged SVC handlers that
 verify the calling partition and operation.
-
-The single-image design shares executable text among Secure Partitions. The
-MPU isolates writable state, not code identity; this is an explicit difference
-from separately linked partition images.
 
 Both guest images share one Non-secure flash attribution window, so a privileged
 guest can read peer flash. WRP plus `WT_GUEST_FLASH_WRP=1` protects guest-flash

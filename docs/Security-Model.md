@@ -8,6 +8,49 @@ RAM isolation. Its security properties come from the authenticated boot chain,
 hardware attribution, SPM-owned identity, copied IPC, and service-specific
 policy.
 
+## FF-M isolation level 3
+
+On the STM32H563, wolfTrust implements isolation level 3 of the PSA Firmware
+Framework for M 1.0 (Arm DEN 0063) and meets every mandatory isolation rule at
+that level, with either crypto engine. The rules are cited by number below;
+their text is in the specification.
+
+| Requirement | wolfTrust |
+| --- | --- |
+| I1, only Code is executable (section 3.1.2) | Partition tables map data execute-never, the SPM maps all writable Secure RAM execute-never, and the domain validator refuses a writable and executable resource. |
+| I2, only Private data is writable (section 3.1.2) | Code and constant data are read-only in every partition table; a partition can write only its own stack and data band. |
+| I3, NSPE to SPE (sections 3.1.3 and 3.1.4) | SAU/IDAU and GTZC attribution, five CMSE veneers, and copied IPC. HASH, RNG, and PKA are Secure-only and read back at boot, and Non-secure DMA cannot reach Secure memory. |
+| I3, Secure Partition to Secure Partition and to the SPM (sections 3.1.3 and 3.1.4) | Each partition runs unprivileged with its own MPU table. The link check places every writable object in its owner's band or in SPM-private RAM, and boot refuses a composed table that can write another partition's memory or reach SPM-private RAM. |
+| I3, indirect access (section 3.1.4) | A partition maps a peripheral only if the port assigns it one that is not a bus master and reads back Secure. |
+| Private runtime state (section 4.2.1) | A partition's writable state is its own stack and, where it has one, its own data band, restored from the link image when the partition restarts. The image has no heap. |
+| Violation handling (section 3.1.6) | A partition access that breaks a rule faults and terminates that partition. A fault in the SPM halts the platform. |
+
+### Deviations
+
+- Only level 3 is implemented. A manifest that declares level 1 or 2 is
+  refused.
+- Manifest `mmio_regions` are not supported, and no port assigns a peripheral
+  to a partition. Partitions reach hardware through SPM operations pinned to
+  the calling partition.
+- The PSA Root of Trust domain is the SPM and its privileged handlers. The
+  crypto, storage, attestation, and update services run as Secure Partitions
+  and are isolated like any other partition.
+- A faulted partition is restarted under its manifest restart policy, with a
+  bounded budget, instead of staying terminated.
+- Non-secure guests run privileged. Isolation between guests is a wolfTrust
+  hypervisor property outside FF-M; see [Guest isolation](#guest-isolation).
+- The claim covers the STM32H563 port. The MIMXRT700 port does not make it yet.
+
+### Evidence
+
+- The Arm psa-arch-tests FF-M IPC suite, pinned in
+  [`tests/upstream/psa-arch-tests.rev`](https://github.com/wolfSSL/wolfTrust/blob/main/tests/upstream/psa-arch-tests.rev),
+  passes 85 tests with 4 heap tests skipped, recorded test by test in
+  [`tests/target/ffm_ipc_results.txt`](https://github.com/wolfSSL/wolfTrust/blob/main/tests/target/ffm_ipc_results.txt).
+- The isolation negatives in [Testing](Testing.md#isolation-scenarios) run on
+  both engines under M33MU. The STM32H563 hardware suite runs the positive and
+  conformance scenarios and the negatives the emulator cannot show.
+
 ## Trusted computing base
 
 The reference trusted computing base includes:
@@ -87,9 +130,9 @@ windows are non-overlapping and hardware-isolated by GTZC.
 
 Guest flash windows are non-overlapping but share one Non-secure attribution
 window and remain mutually readable. WRP plus `WT_GUEST_FLASH_WRP=1` protects
-their integrity, not confidentiality. A hostile guest can also reach peripherals
-left Non-secure by the boot chain; manifest resource lists do not independently
-enforce peripheral ownership in the current port.
+their integrity, not confidentiality. A guest can also reach any peripheral the
+boot chain leaves Non-secure; the port does not assign peripherals between
+guests.
 
 On a guest fault, wolfTrust captures the reason, masks its interrupts, and
 applies the bounded restart policy. If restart is allowed, it clears RAM marked
@@ -99,157 +142,61 @@ the guest quarantined.
 
 ## Secure Partition isolation
 
-Every shipped service loop runs as a scheduled unprivileged Secure coroutine.
-Its Secure MPU view contains:
+Each partition's MPU view holds the shared Secure text (read and execute), the
+Secure constants (read-only), its own stack, and its own data band. The vault
+owns the NVM store, the sealer, and its DRBG; the crypto partition
+(`SERVICE_HSM`) owns the engine state; the attestation partition owns the token
+state. Persistent keys cross between them only as FF-M IPC:
 
-- shared read/execute Secure image text;
-- read-only Secure image constants; and
-- its private stack and its own writable data band.
+- the crypto partition reads and writes key objects through the keystore door
+  on `SERVICE_VAULT`; and
+- the attestation partition obtains signatures and the IAK public key through
+  the attestation door on `SERVICE_HSM`.
 
-No two Secure Partitions share a writable byte (FF-M isolation level 3). The
-vault partition owns the NVM object store, its flash context, the sealer, and
-its DRBG; the crypto partition (`SERVICE_HSM`) owns the engine state and
-reaches persistent key objects only through `SERVICE_VAULT`'s keystore object
-door, an FF-M service that serves the registered crypto partition alone and
-only the ids and labels the keystore owns; the attestation partition owns the
-token state and holds no key material, obtaining every signature and the IAK
-public key from `SERVICE_HSM`'s attestation door. Each door client is
-confined to its door: the crypto partition's other vault requests and any
-Secure Partition's call on `SERVICE_HSM`'s ordinary crypto wire return
-`PSA_ERROR_NOT_PERMITTED`. The manifest generator and
-the runtime domain validator both refuse a level 3 manifest that shares a
-writable resource between partitions, so the split cannot regress silently.
-The keystore door hands the crypto partition the key objects it asks for.
-That is an IPC contract between two partitions, not shared memory.
+Each door serves one registered client partition and refuses every other
+caller.
 
-The tables the MPU is programmed from are checked again after they are
-composed. Before any partition runs, the SPM refuses to boot if a composed
-table grants write access to memory another partition can reach, or any access
-to SPM-private RAM. A request from a Secure Partition is checked against that
-partition's own composed table, and the SPM acts on one private copy of the
-request block, so the memory references it validated are the ones it uses.
+Mechanical checks:
+
+- [`tools/secure_owners.txt`](https://github.com/wolfSSL/wolfTrust/blob/main/tools/secure_owners.txt) gives every linked
+  object one owner. The post-link check fails the build if writable state
+  lands outside its owner's region, an object has no owner, a shared object
+  holds writable state, or a production image carries conformance code.
+  Objects that hold band state are built without LTO so the map names them.
+- The generator and the domain validator refuse writable memory shared between
+  partitions.
+- Before any partition runs, boot checks every composed MPU table against the
+  other partitions' bands and SPM-private RAM.
+- A request from a partition is copied once into SPM memory and checked against
+  that partition's own table.
+
+Privileged handlers keep the SPM view. Flash, entropy, the NVM lock, and reset
+are SVC operations that check the calling partition, and the state they use
+lives in SPM-private RAM.
 
 ### Partition restart
 
-A restarted partition keeps nothing its previous instance held. The SPM:
+A restarted partition keeps nothing from its previous instance. Requests it was
+serving fail, the connections and handles it held are released, its signals and
+interrupt lines are cleared and masked, its stack is cleared, and its band is
+restored from the link image. Only the NVM store persists.
 
-- fails every request the partition was serving and drops every connection to
-  it to the error state;
-- releases every connection and request the partition held as a client, so a
-  handle from the old instance is refused;
-- clears its asserted signals and masks its interrupt lines until the new
-  instance enables them;
-- clears its stack and returns its data band to its link-time image; and
-- rebuilds the band with the setup boot ran, from inputs the SPM holds: the
-  boot handoff, the attestation public key, and the contents of the store.
+### Processor state and the SPM
 
-Persistent state is the NVM store alone. Nothing in a partition's RAM survives
-its restart.
-
-Privileged handlers retain the SPM view. Flash, entropy, NVM lock, and reset
-operations are available only through narrow SVC operations that check the
-originating partition: flash and the NVM lock answer only the vault, entropy
-only the vault and crypto partitions. The state those handlers consume (the
-NVM lock, the flash driver's state, the lifecycle latch, the rollback floors,
-and the privileged tasklet stacks) lives in SPM-private RAM, outside every
-partition band.
-
-This is writable-state isolation inside one linked image. Shared executable
-text is not per-partition code isolation.
-
-### Processor state
-
-Secure floating point is unsupported. Every Armv8-M port retires any FP
-context the loader left active (`CONTROL.FPCA`, `SFPA`, `FPCCR.LSPACT`), then
-clears CP10/CP11 access in
-`CPACR_S`, `CPACR_NS`, and `NSACR`, clears automatic and lazy FP state
-preservation in `FPCCR_S`, sets `LSPENS`, `CLRONRET`, and `CLRONRETS`, and
-halts unless every one of those bits reads back as programmed. The post-link
-check rejects FP instructions and soft-float runtime helpers in the Secure
-image, so an FP instruction in a partition raises a UsageFault instead of
-creating FP state another context could read.
-
-The top of the Secure main stack and of every Secure coroutine stack carries
-two seal words (`0xFEF5EDA5`), written when the stack is created; boot
-refuses to continue unless the main-stack seal is in place with MSP below it.
-The SPM checks both words of a coroutine stack when the coroutine yields or is
-preempted, and again when it is dispatched. A partition that damaged its own
-seal, or whose exception frame was stacked over it, is resumed on a trap
-instruction below the seal, so it alone faults and restarts under
-its recovery policy with a rebuilt stack; a seal found damaged at dispatch,
-while its owner was suspended, halts the platform. The post-link check fails
-the build if an allocated section reaches the main-stack seal.
-
-The seal words mark the fixed top of each stack. Secure stack pointers are not
-moved onto a seal while another context runs, so this check does not replace
-the integrity signature the processor places in, and checks on, the Secure
-frames it stacks itself.
-
-### SPM stack limit and fault attribution
-
-The Secure main stack has a fixed size (`WT_SPM_STACK_SIZE`, 16 KiB), reserved
-by the linker below `_estack`; the link fails if `.bss` reaches it. Reset sets
-`MSPLIM_S` to its bottom right after MSP is placed under the seal words, and
-boot refuses to continue unless the limit reads back. An SPM stack overflow
-raises `UsageFault.STKOF` on the main stack; the handler halts the platform on
-the production panic without touching the stack, and a real `HardFault`
-handler does the same for any escalated fault, latching `CFSR`, `HFSR`,
-`MMFAR`, `BFAR`, the stacked PC and `EXC_RETURN` for a debugger instead of
-spinning silently.
-
-`BusFault` is enabled alongside `MemManage` and `UsageFault`. All three take one
-dispatcher, which attributes the fault by the frame it finds: a Secure Thread
-frame on the process stack with a scheduled partition or wolfHSM tasklet
-current is that partition's fault (precise bus errors carry `BFAR`; an
-imprecise one is drained by the barrier every context switch issues, so it is
-still pending against the partition that issued the write), and the partition
-restarts under its manifest policy. A frame from a privileged handler, the
-bootstrap thread, or no current coroutine is the SPM's own fault and halts the
-platform. A Non-secure bus error targets the Secure `BusFault` as well
-(`BFHFNMINS` is 0); it is routed to the guest fault path and restarts the
-guest. A partition that issues the scheduler's internal guest-return `SVC` is
-resumed on the PROGRAMMER ERROR trap and restarts alone.
-
-### Execute-never Secure RAM
-
-The SPM whitelist maps every writable Secure RAM region execute-never. The one
-executable Secure RAM window is the MIMXRT700's RAMFUNC band, which holds the
-NSC gateway and NOR routines and is mapped read-only. While an
-unprivileged partition thread runs, its MPU table keeps `PRIVDEFENA` so the
-privileged SVC gate and its deputies can reach SPM state, and the default map
-would let privileged code execute from SRAM; one extra region therefore covers
-the SPM's own RAM (the boot-handoff scratch, `.data`, `.bss`, the main stack)
-privileged-only and execute-never on every partition dispatch, and a domain
-region inside that window fails the dispatch closed. A production partition
-table must leave the region free; the Arm conformance client partition fills
-an 8-region MPU with its window grants, and the conformance image counts those
-dispatches in `g_wt_xn_denied` instead (the STM32H563 implements 12 regions,
-so it is covered there).
-
-### Link-time optimization
-
-The Secure image enables GCC link-time optimization by default. LTO can replace
-the original input-object names with generated objects, so every object that
-places state in a partition data band is compiled without LTO and claimed by
-name. CMSE veneers, exception handlers, hand-written assembly, and other
-assembly-referenced objects are compiled without LTO so their symbols and
-calling conventions stay stable. State from an optimized link unit can only
-land in SPM-private RAM.
-
-[`tools/secure_owners.txt`](../tools/secure_owners.txt) gives every linked
-object one owner: a partition, the SPM, or `shared` for code that runs in more
-than one domain. The post-link layout check reads the linker map and rejects:
-
-- a writable input section outside its owner's region;
-- an object with no owner;
-- a `shared` object that holds writable state;
-- a missing exception entry, a linked heap allocator, or a privileged tasklet
-  stack outside SPM-private RAM; and
-- in a production image, any conformance object, symbol, or data.
-
-The check runs at every link, with and without LTO, so the optimization cannot
-weaken the boundaries described above. `WT_LTO=0` disables the optimization
-without changing the memory policy.
+- Secure floating point is disabled and locked at boot (`CPACR`, `NSACR`, and
+  `FPCCR`, each read back), and the post-link check rejects FP instructions in
+  the Secure image.
+- Every Secure stack carries a two-word seal (`0xFEF5EDA5`) at its top. Boot
+  checks the main-stack seal, and the SPM checks each coroutine's seal at every
+  switch; a damaged seal faults that partition, or halts if found at dispatch.
+- `MSPLIM_S` bounds the 16 KiB SPM stack, and the link fails if `.bss` reaches
+  it.
+- MemManage, BusFault, and UsageFault share one dispatcher. A fault from a
+  partition thread restarts that partition, and a fault in the SPM halts the
+  platform after latching the fault registers. A partition that issues the
+  scheduler's guest-return SVC is panicked.
+- While a partition runs, one MPU region keeps the SPM's own RAM
+  privileged-only and execute-never.
 
 ## Per-guest cryptographic keys
 
@@ -360,15 +307,15 @@ engine images.
 
 ## Source anchors
 
-- [FF-M gateway](../src/arch/armv8m/ffm_nsc.c)
-- [Secure Partition scheduler and SVC gates](../src/arch/armv8m/spm_svc.c)
-- [Secure stack sealing and context switch](../src/arch/armv8m/coroutine_armv8m.c)
-- [Secure fault attribution and SPM halt](../src/arch/armv8m/sp_fault_armv8m.c)
-- [Secure MPU tables and the SPM RAM cover](../src/arch/armv8m/mpu_armv8m.c)
-- [Guest verification](../src/guest_verify.c)
-- [HSM relay binding](../src/services/wolfhsm/wt_hsm.c)
-- [Native crypto dispatch](../src/services/native/crypto_native.c)
-- [Native vault key backend](../src/services/native/keyvault.c)
-- [Vault storage](../src/services/wolfhsm/wt_hsm_vault.c)
+- FF-M gateway: [copied request handling](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/common/ffm_gateway.c) and [Armv8-M veneers](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/ffm_nsc.c)
+- Secure Partition scheduling and SVC gates: [common gate](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/common/spm_gate_core.c) and [Armv8-M SVC](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/spm_svc.c)
+- [Secure stack sealing and context switch](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/coroutine_armv8m.c)
+- [Secure fault attribution and SPM halt](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/sp_fault_armv8m.c)
+- [Secure MPU tables and the SPM RAM cover](https://github.com/wolfSSL/wolfTrust/blob/main/src/arch/armv8m/mpu_armv8m.c)
+- [Guest verification](https://github.com/wolfSSL/wolfTrust/blob/main/src/guest_verify.c)
+- [HSM relay binding](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/hsm_relay_service.c)
+- Native crypto dispatch: [service](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/native/crypto_native.c) and [wire protocol](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/native/native_wire.c)
+- [Native vault key backend](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/native/keyvault.c)
+- [Vault storage](https://github.com/wolfSSL/wolfTrust/blob/main/src/services/wolfhsm/wt_hsm_vault.c)
 
 See [Threat Model](Threat-Model.md) for assumptions and residual risks.

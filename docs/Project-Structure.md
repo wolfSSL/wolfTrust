@@ -3,7 +3,7 @@
 | Path | Contents |
 | --- | --- |
 | `README.md` | Repository overview and quick start |
-| `docs/` | Source pages published to the GitHub wiki |
+| `docs/` | Source pages for the HTML and PDF manual |
 | `include/psa/` | FF-M client/service, status, storage, update, and lifecycle headers implemented by wolfTrust |
 | `include/wolftrust/` | Domain, manifest, monitor, port, scheduler, IPC, service, and VNET contracts |
 | `src/` | Architecture-neutral boot sequence, monitor, FF-M runtime, domains, manifests, verification, rollback, recovery, and the Secure Partition entry bodies |
@@ -24,7 +24,7 @@
 | `tests/firmware/` | Bare-metal, Zephyr, FreeRTOS, conformance, and VNET guest images |
 | `tests/upstream/` | Fetch and integration helpers for pinned external validation suites |
 | `lib/` | Git submodules for wolfSSL, wolfPSA, wolfHSM, wolfCOSE, wolfHAL, and wolfIP |
-| `.github/workflows/` | Build, test, dependency, fuzz, and wiki synchronization workflows |
+| `.github/workflows/` | Build, test, dependency, fuzz, and manual publishing workflows |
 
 Generated files belong under `build/`, guest build directories,
 ignored workspaces, or `logs/`. Public APIs are declared in `include/`;

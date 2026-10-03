@@ -200,8 +200,9 @@ recoverable test. Regression performs a full mass-erase back to Open.
 
 After regression, rerun `set-perimeter`, rebuild and flash the complete chain
 with the current hardware runner, reapply WRP, and rerun the positive checks.
-Do not use `provisioning_ctrl.sh flash` or `restore` until its Guest 1 address is
-changed from the stale `0x080C0000` value to the current `0x080E0000` layout.
+The `provisioning_ctrl.sh flash` and `restore` commands use the same Guest 1
+address, `0x080E0000`, as the hardware runner. Prefer the runner for the full
+build, flash, and verification sequence described above.
 
 Every board-writing control command requires `WT_LOCK_CONFIRM=1`.
 Review the exact current command in

@@ -122,78 +122,34 @@ authenticated-boot failure, rollback, runtime remeasurement, Secure Partition
 recovery, key and vault isolation, storage recovery, attestation negatives,
 firmware update, manifest rejection, GTZC behavior, and VNET paths.
 
-Five scenarios cover processor-state isolation, and the emulator proves less
-than their names suggest:
+### Isolation scenarios
 
-- `fpneg` proves containment only. A floating-point instruction in the
-  SERVICE_HSM partition takes the NOCP UsageFault and does not escalate.
-  M33MU ends the run when it raises NOCP, so partition restart and guest
-  survival are not shown here; the STM32H563 `fpneg` run checks them.
-- `sealneg` and `sealhaltneg` prove only the SPM's software check. In
-  `sealneg` a partition overwrites its own stack-top seal, that partition alone
-  faults at its next resume, and the guests keep running. In `sealhaltneg` a
-  partition's seal is overwritten before its first dispatch (the same check
-  runs on every dispatch) and the platform halts before that partition runs.
-  No architectural unstack fault is exercised, on the emulator or by the
-  STM32H563 `sealneg` run; M33MU models neither the seal nor the function
-  return integrity check.
-- `sealbootneg` damages one main-stack seal word in the reset path; the boot
-  halts on the production panic before any partition or guest runs.
-- `sealpivotneg` issues a partition's blocking wait with the stack pointer
-  parked on its stack top, so the exception frame lands on the seal words;
-  that partition alone faults and restarts, and the guests keep running.
+These scenarios back the [level 3 claim](Security-Model.md#ff-m-isolation-level-3).
+Each runs on both engines unless marked.
 
-`bandneg1` through `bandneg6` prove the vault, attestation, and crypto
-partitions cannot reach each other's data band:
+| Scenario | Proves |
+| --- | --- |
+| `crossdomain` | A partition read of SPM-private RAM faults. |
+| `keystoreneg` | A partition without a keystore band cannot read the vault's band. |
+| `bandneg1`-`bandneg6` | Each pair of the vault, attestation, and crypto partitions can neither read nor write the other's band. |
+| `restartneg1`-`restartneg3` | A restarted partition starts from its band's link image. |
+| `deputyneg` | The privileged flash handler ignores a partition-rewritten flash context. |
+| `hsmpinneg` (hsm) | wolfHSM server pointers are pinned before the relay runs. |
+| `manifestneg`, `manifestneg2`, `manifestneg3` | Boot refuses a manifest with a missing feature, at level 2, or with a composed table that reaches another band. |
+| `periphneg` | Non-secure access to the SPM's RNG and Non-secure DMA out of Secure memory are blocked. |
+| `periphspneg` (M33MU) | A partition read of an SPM peripheral faults. |
+| `fpneg` | A partition FP instruction faults without escalating. |
+| `sealneg`, `sealpivotneg` | A damaged partition stack seal faults only that partition. |
+| `sealhaltneg`, `sealbootneg` | A seal damaged before dispatch, or the main-stack seal, halts the platform. |
+| `mspovfneg` | An SPM stack overflow hits `MSPLIM_S` and halts. |
+| `xnneg` | Privileged execution from SPM RAM is denied. |
+| `svcneg` | A partition that issues the guest-return SVC is panicked alone. |
+| `busfaultneg`, `nsbusfaultneg` (STM32H563 only) | A partition or guest bus error is contained to its owner. |
 
-| Scenario | Prober | Band touched |
-| --- | --- | --- |
-| `bandneg1` | crypto | vault |
-| `bandneg2` | crypto | attestation |
-| `bandneg3` | attestation | vault |
-| `bandneg4` | attestation | crypto |
-| `bandneg5` | vault | attestation |
-| `bandneg6` | vault | crypto |
-
-The prober reads the band, is restarted, writes the band, and is restarted
-again. Both accesses must fault on the prober's own stack, and the full
-positive lifecycle must still complete. The crypto and attestation probers
-also confirm the keystore services they do not own are refused.
-
-`restartneg1`, `restartneg2`, and `restartneg3` prove a restarted crypto,
-attestation, or vault partition starts from its band's link-time image. The
-partition changes initialized and zero-initialized state in its own band and
-faults; its restarted instance faults again if either value survived.
-
-`manifestneg` removes a required feature, `manifestneg2` declares isolation
-level 2, and `manifestneg3` composes a partition table that reaches another
-partition's band. Each must halt the boot before anything is scheduled.
-
-Each numbered probe variant is its own matrix row; CI packs each family
-into one job.
-
-Three more cover the SPM's own fault handling:
-
-- `mspovfneg` pushes on the Secure main stack in the reset path until
-  `MSPLIM_S` raises STKOF. M33MU escalates the entry-time STKOF to HardFault
-  and ends the run there without executing the handler, so the emulator
-  proves only the limit; the STM32H563 run reads the SPM fault latch and
-  checks that no guest ran.
-- `xnneg` makes the privileged SVC gate call a thunk copied into SPM `.bss`
-  while a partition thread domain is installed; the execute-never cover faults
-  the fetch. M33MU pends that synchronous fault instead of escalating it past
-  the active SVC, so the emulator proves only the denied fetch; the STM32H563
-  run checks the SPM fault latch and the halt.
-- `svcneg` has the ITS partition issue the scheduler's internal guest-return
-  SVC; the partition alone is panicked and restarted, and the lifecycle
-  completes.
-
-`busfaultneg` (the SERVICE_HSM partition reads an MPU-permitted window past
-the end of physical SRAM) and `nsbusfaultneg` (guest0 turns off its own MPU and
-reads an unmapped Non-secure peripheral hole; the monitor restarts it to its
-limit while guest1 runs) run only on the STM32H563: M33MU turns an unmapped
-data access into a MemManage fault and never vectors a data BusFault, so these
-scenarios have no emulator row until the pinned emulator models it.
+Under M33MU, `fpneg`, `mspovfneg`, and `xnneg` prove the fault only, because
+the emulator ends the run there; the STM32H563 runs also check the restart or
+halt. M33MU does not model the processor's own stack-seal check or data
+BusFaults.
 
 VNET has convenience targets:
 
@@ -228,17 +184,21 @@ that exact attack surface does not exist there. Native key and namespace
 behavior remains covered by the common positive, cross-domain, keystore,
 storage, attestation, and Crypto-validation rows.
 
-Validation of the engine split completed under both engines with:
+The engine split is exercised under both engines by:
 
 - the applicable M33MU scenario matrix;
 - the Arm FF-M IPC suite at 85 passed, 4 heap-dependent tests skipped, and
   0 failed, test for test as recorded in
-  [`tests/target/ffm_ipc_results.txt`](../tests/target/ffm_ipc_results.txt);
+  [`tests/target/ffm_ipc_results.txt`](https://github.com/wolfSSL/wolfTrust/blob/main/tests/target/ffm_ipc_results.txt);
 - the current dev_apis Crypto schedule at 64 passed, 13 skipped, and 0 failed
   (77 scheduled tests; c047 is configuration-skipped in addition to the
   upstream schedule); and
 - the STM32H563 positive, restart, cross-domain, and conformance hardware
   suite.
+
+Pass and skip counts depend on the build and test revisions. Use the logs from
+the selected CI run for exact results; the runner checks the scheduled test
+total and treats failures as failures.
 
 The engine dimension changes crypto dispatch, not what M33MU proves. Emulator
 results still do not establish STM32 attribution or physical flash behavior.
@@ -393,13 +353,6 @@ make test-hardware
 The optional `gtzcneg` scenario must be selected explicitly. It verifies the
 GTZC peer-RAM curtain after a Non-secure MPU bypass; it does not establish peer
 flash confidentiality or adversarial peripheral and Non-secure NVIC ownership.
-
-`periphneg` has a privileged Non-secure guest read and clear the SPM's RNG
-through its Non-secure alias and run Non-secure GPDMA copies out of the Secure
-image and Secure SRAM. Nothing may be read or changed, and Secure entropy must
-still work before the normal lifecycle completes. `periphspneg` (M33MU only) has
-the storage partition read the SPM's RNG registers; no partition domain maps a
-peripheral the port does not assign, so the read must MemManage-fault.
 
 For the hardened guest-flash configuration, explicitly forward the build flag
 into the container and repeat it for the host flash run:

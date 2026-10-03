@@ -98,10 +98,12 @@ output buffer is smaller than the object. The write-once flag is enforced by
 both the front end and checked NVM metadata. ITS data is held in Secure-only
 storage, but ITS does not add the Protected Storage sealing flag.
 
-The current storage path always enforces `PSA_STORAGE_FLAG_WRITE_ONCE`,
-including during `PSA_ROT_PROVISIONING`. This differs from PSA Secure Storage
-1.0, which requires the flag not to be enforced in that lifecycle state. The
-same deviation applies to Protected Storage objects created with the flag.
+The ITS path enforces `PSA_STORAGE_FLAG_WRITE_ONCE` on objects created with
+that flag, including during `PSA_ROT_PROVISIONING`. Objects created without it
+can be updated or removed. This differs from PSA Secure Storage 1.0 section 3.2,
+which requires ITS not to enforce the flag in that lifecycle state. Protected
+Storage also enforces caller-selected `WRITE_ONCE`; section 3.2's lifecycle exception
+applies to ITS.
 
 ## Protected Storage
 
@@ -139,7 +141,7 @@ across equivalent boots, its software-component measurement type and
 description values are reversed, its signer ID hashes the literal name
 `wolfBoot` rather than identifying the signing key, and its implementation ID
 hashes a software label rather than identifying the immutable PSA RoT hardware
-assembly. [TF-M Compatibility](TF-M-Compatibility.md) records these token-profile and API deviations.
+assembly. [PSA Compatibility](PSA-Compatibility.md) records these token-profile and API deviations.
 
 The EAT/PSA claim set binds:
 

@@ -10,11 +10,13 @@ additional Cortex-M ports is an intended extension point. Such ports may reuse
 common policy and service code and an existing architecture adapter when their
 execution and protection models match.
 
-Cortex-A support is an architectural goal, not a current capability. It will
-require a new adapter and changes to current internal execution and protection
-contracts. The design goal is to preserve the public manifest, service, IPC,
-and PSA API contracts. Every new port must report its actual capabilities and
-must not claim security properties until they are tested on that target.
+No AArch64 architecture adapter or target is implemented or validated in the
+current release. An AArch64 port needs a separate architecture layer and device
+port; the common contracts describe its intended boundary, not an available
+build.
+
+Every new port must report its actual capabilities and must not claim security
+properties until they are tested on that target.
 
 ## Port layers
 
@@ -59,8 +61,7 @@ operations together with the SoC's SAU and MPU region tables.
 
 A port declares what its hardware can do through the capability bits in
 `include/wolftrust/partition.h`; the core refuses a manifest that assumes a
-capability the port does not provide, so an A-profile port that has no
-Non-secure MPU says so instead of faking it.
+capability the port does not provide.
 
 ## MCU and board contract
 
@@ -195,20 +196,25 @@ worked examples above give a concrete map for each board.
    before signing wolfTrust.
 8. Add safe provisioning tooling for the target's security attribution,
    application-image write protection, debug policy, and product lifecycle.
+9. Add the target to [Ports and supported targets](Targets.md) with its actual
+   validation status. Keep board-specific setup in a separate guide, add that
+   guide to `mkdocs.yml`, and document which results came from an emulator
+   versus physical hardware. Do not label a port supported until its build,
+   deployment, and target security checks have been validated.
 
 ## Validation checklist
 
 - Run `make test` for common policy and service behavior.
 - Run `WT_SPLIT_STRICT=1 tools/check-core-port-split.sh` and resolve
   hard core-to-architecture leaks (arch or port headers, CMSE, inline
-  assembly, retired names, M-profile or A-profile register vocabulary in
+  assembly, retired names, architecture-specific register vocabulary in
   core code, and `wt_arch_*` definitions inside a port).
 - Run `tools/check-port-only-diff.sh <base> <arch> <soc>` on a port change
   and confirm it touches nothing outside `src/arch/common/`,
   `src/arch/<arch>/`, `include/wolftrust/arch/<arch>/`, `port/<soc>/`, the
   two build fragments, tests, docs, and workflows.
-- Run `tools/check-docs-no-internal-links.sh`; `docs/` is published to the
-  wiki and must not reference internal ledgers or developer paths.
+- Run `tools/check-docs-no-internal-links.sh`; `docs/` is published as the
+  manual and must not reference internal ledgers or developer paths.
 - Cross-build the Secure image with warnings enabled.
 - On the current Armv8-M port, inspect `nm` output and confirm only the five
   FF-M veneers are Non-secure-callable.

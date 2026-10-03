@@ -22,7 +22,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
+  group: aarch64-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:

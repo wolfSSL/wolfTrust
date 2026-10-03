@@ -28,6 +28,7 @@
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
 #include "wolftrust/arch/aarch64/ffa_msg.h"
+#include "wolftrust/arch/aarch64/psci.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -372,6 +373,82 @@ static void ns_version_rows(void)
           "refused one");
 }
 
+/* 18.2.4: the Table 18.6 request the SPMD sends for a PSCI power operation,
+ * the Table 18.8 answer, and what the SPMD makes of each SMC the SPMC issues
+ * while the request is outstanding. */
+static void pm_rows(void)
+{
+    uint64_t x[18];
+
+    memset(x, 0x5A, sizeof(x));
+    wt_ffa_fwk_pm_req(x, WT_PSCI_CPU_SUSPEND64, 0x1122334455667788ull,
+                      0x99ull, 0xAAull);
+    check((uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_REQ64 &&
+          x[1] == (((uint64_t)WT_FFA_ID_SPMD << 16) | WT_FFA_ID_SPMC) &&
+          x[2] == 0x80000000u && x[3] == WT_PSCI_CPU_SUSPEND64 &&
+          x[4] == 0x1122334455667788ull && x[5] == 0x99u && x[6] == 0xAAu &&
+          rest_zero(x, 7u, 17u) && wt_ffa_fwk_pm_is_req(x),
+          "an SMC64 power call is a REQ64 framework message (Table 18.6), "
+          "x4-x6 its x1-x3 and x7-x17 zero");
+    wt_ffa_fwk_pm_req(x, WT_PSCI_SYSTEM_OFF, 0xFFFFFFFF00000001ull, 0u, 0u);
+    check((uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32 &&
+          x[3] == WT_PSCI_SYSTEM_OFF && x[4] == 1u && wt_ffa_fwk_pm_is_req(x),
+          "an SMC32 power call is a REQ32 with 32-bit parameters");
+    check(!wt_ffa_fwk_version_is_req(x),
+          "a power message is not taken for the Table 13.7 version message");
+    x[2] = WT_FFA_FWK_VERSION_REQ;
+    check(!wt_ffa_fwk_pm_is_req(x),
+          "nor a version message for a power message");
+    wt_ffa_fwk_pm_req(x, WT_PSCI_SYSTEM_OFF, 0u, 0u, 0u);
+    x[1] = ((uint64_t)WT_FFA_ID_NS_PRIMARY << 16) | WT_FFA_ID_SPMC;
+    check(!wt_ffa_fwk_pm_is_req(x),
+          "only the SPMD sends a power message to the SPMC");
+
+    wt_ffa_fwk_pm_resp(x, 0);
+    check((uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_RESP32 &&
+          x[1] == (((uint64_t)WT_FFA_ID_SPMC << 16) | WT_FFA_ID_SPMD) &&
+          x[2] == 0x80000002u && x[3] == 0u && rest_zero(x, 4u, 7u) &&
+          wt_ffa_fwk_pm_granted(x),
+          "the SPMC's SUCCESS is a Table 18.8 response that grants the call");
+    check(wt_ffa_spmd_pm_answer(x) == WT_SPMD_PM_GRANTED,
+          "and the SPMD completes the operation on it");
+    wt_ffa_fwk_pm_resp(x, WT_FFA_DENIED);
+    check(!wt_ffa_fwk_pm_granted(x) &&
+          wt_ffa_spmd_pm_answer(x) == WT_SPMD_PM_DENIED,
+          "a Table 18.8 DENIED denies the operation");
+    wt_ffa_fwk_pm_resp(x, 0);
+    x[2] = WT_FFA_FWK_VERSION_RESP;
+    check(wt_ffa_spmd_pm_answer(x) == WT_SPMD_PM_DENIED,
+          "a SUCCESS in any other framework response is no grant");
+    wt_ffa_fwk_pm_resp(x, 0);
+    x[1] = ((uint64_t)0x8002u << 16) | WT_FFA_ID_SPMD;
+    check(wt_ffa_spmd_pm_answer(x) == WT_SPMD_PM_DENIED,
+          "nor is one naming a sender other than the SPMC");
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_ERROR;
+    x[2] = (uint64_t)(uint32_t)WT_FFA_NOT_SUPPORTED;
+    check(wt_ffa_spmd_pm_answer(x) == WT_SPMD_PM_DENIED,
+          "an FFA_ERROR answer denies the operation");
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_MSG_WAIT;
+    check(wt_ffa_spmd_pm_answer(x) == WT_SPMD_PM_REFUSED &&
+          is_error((const wt_ffa_regs_t*)x, WT_FFA_DENIED),
+          "the SPMC's FFA_MSG_WAIT cannot switch to the Normal world "
+          "mid-message: DENIED");
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_YIELD;
+    check(wt_ffa_spmd_pm_answer(x) == WT_SPMD_PM_REFUSED,
+          "nor can its FFA_YIELD");
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_NORMAL_WORLD_RESUME;
+    check(wt_ffa_spmd_pm_answer(x) == WT_SPMD_PM_REFUSED,
+          "nor its FFA_NORMAL_WORLD_RESUME");
+    memset(x, 0, sizeof(x));
+    x[0] = WT_FFA_CONSOLE_LOG32;
+    check(wt_ffa_spmd_pm_answer(x) == WT_SPMD_PM_NONE,
+          "a call that does not leave the Secure world is served as usual");
+}
+
 int main(void)
 {
     wt_ffa_regs_t r;
@@ -550,6 +627,7 @@ int main(void)
 
     ns_forward_rows();
     ns_version_rows();
+    pm_rows();
 
     check(ns_range_total(WT_FFA_FID32_FIRST, WT_FFA_FID32_LAST) &&
           ns_range_total(WT_FFA_FID64_FIRST, WT_FFA_FID64_LAST),

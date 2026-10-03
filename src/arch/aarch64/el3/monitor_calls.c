@@ -26,6 +26,7 @@
 #include "wolftrust/arch/aarch64/el3.h"
 #include "wolftrust/arch/aarch64/ffa.h"
 #include "wolftrust/arch/aarch64/ffa_abi.h"
+#include "wolftrust/arch/aarch64/ffa_msg.h"
 #include "wolftrust/arch/aarch64/gic.h"
 #include "wolftrust/arch/aarch64/monitor_abi.h"
 #include "wolftrust/arch/aarch64/psci.h"
@@ -216,6 +217,7 @@ static void lower32_smc(wt_el3_frame_t* frame)
 /* A Normal-world SMC: relayed to the SPMC, or PSCI/FF-A served here. */
 static void ns_smc(wt_el3_frame_t* frame)
 {
+    uint64_t msg[WT_FFA_MSG_REGS_EXT];
     wt_ffa_regs_t regs;
     uint32_t fid = (uint32_t)frame->x[0];
     unsigned int i;
@@ -229,12 +231,16 @@ static void ns_smc(wt_el3_frame_t* frame)
         }
         return;
     }
-    /* PSCI power management is served by the SPMD directly (WT-FFM-0067). */
+    /* PSCI is served by the SPMD (WT-FFM-0067); a power operation first goes
+     * to the SPMC as a framework message (FF-A 18.2.4). */
     if (wt_psci_fid_in_range(fid)) {
         for (i = 0u; i < 8u; i++) {
             regs.x[i] = frame->x[i];
         }
-        wt_psci_ns_call(&regs);
+        if (wt_psci_ns_call(&regs) == WT_PSCI_ACTION_MESSAGE) {
+            wt_ffa_fwk_pm_req(msg, fid, frame->x[1], frame->x[2], frame->x[3]);
+            wt_el3_world_pm_to_secure(frame, msg);
+        }
         for (i = 0u; i < 8u; i++) {
             frame->x[i] = regs.x[i];
         }
@@ -260,11 +266,25 @@ static void secure_smc(wt_el3_frame_t* frame)
     uint32_t fid = (uint32_t)frame->x[0];
     unsigned int pending;
     unsigned int i;
+    int answer;
 
     wt_ffa_spmd_secure_note(fid);
     /* The SPMC's answer to a paused Normal world: its reply to a forwarded call
      * (deliver x0-x7) or its yield after handling a preemption (resume as-is). */
     pending = wt_el3_world_ns_pending();
+    if (pending == WT_NS_PENDING_PM) {
+        answer = wt_ffa_spmd_pm_answer(frame->x);
+        if (answer == WT_SPMD_PM_REFUSED) {
+            for (i = 8u; i < WT_FFA_MSG_REGS_EXT; i++) {
+                frame->x[i] = 0u;
+            }
+            return;
+        }
+        if (answer != WT_SPMD_PM_NONE) {
+            wt_el3_world_pm_return_to_ns(frame, wt_psci_pm_complete(
+                (answer == WT_SPMD_PM_GRANTED) ? 1 : 0));
+        }
+    }
     if ((pending == WT_NS_PENDING_REPLY) && (wt_ffa_spmd_is_ns_reply(fid) != 0)) {
         wt_ffa_spmd_ns_reply(frame->x);
         wt_el3_world_return_to_ns(frame);

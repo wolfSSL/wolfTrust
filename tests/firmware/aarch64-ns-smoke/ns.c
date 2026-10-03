@@ -1798,18 +1798,20 @@ static int psci_expect64(const char* what, uint64_t got, int32_t want)
     return 0;
 }
 
-/* SMCCC 1.1 and later: a call that returns only x0, here AFFINITY_INFO64 on
- * the boot core, hands x4-x7 back unchanged. */
-static int psci_preserves_x4_x7(uint64_t self)
+/* SMCCC 1.1 and later: a call that returns only x0 hands x4-x7 back
+ * unchanged, whether the SPMD answers it alone or after a power message.
+ * An SMC32 call carries only w4-w7 (SMCCC 3.1), so its markers are 32-bit. */
+static int psci_preserves_x4_x7(uint32_t fid, uint64_t a1, int32_t want)
 {
-    register uint64_t r0 __asm__("x0") = WT_PSCI_AFFINITY_INFO64;
-    register uint64_t r1 __asm__("x1") = self;
+    uint64_t m = ((fid & 0x40000000u) != 0u) ? ~0ull : 0xFFFFFFFFull;
+    register uint64_t r0 __asm__("x0") = fid;
+    register uint64_t r1 __asm__("x1") = a1;
     register uint64_t r2 __asm__("x2") = 0;
     register uint64_t r3 __asm__("x3") = 0;
-    register uint64_t r4 __asm__("x4") = 0x4444444444444444ull;
-    register uint64_t r5 __asm__("x5") = 0x5555555555555555ull;
-    register uint64_t r6 __asm__("x6") = 0x6666666666666666ull;
-    register uint64_t r7 __asm__("x7") = 0x7777777777777777ull;
+    register uint64_t r4 __asm__("x4") = 0x4444444444444444ull & m;
+    register uint64_t r5 __asm__("x5") = 0x5555555555555555ull & m;
+    register uint64_t r6 __asm__("x6") = 0x6666666666666666ull & m;
+    register uint64_t r7 __asm__("x7") = 0x7777777777777777ull & m;
 
     __asm__ volatile("smc #0"
                      : "+r"(r0), "+r"(r1), "+r"(r2), "+r"(r3), "+r"(r4),
@@ -1817,9 +1819,11 @@ static int psci_preserves_x4_x7(uint64_t self)
                      :
                      : "x8", "x9", "x10", "x11", "x12", "x13", "x14",
                        "x15", "x16", "x17", "memory");
-    if (((int32_t)(uint32_t)r0 == WT_PSCI_AFFINITY_ON) &&
-        (r4 == 0x4444444444444444ull) && (r5 == 0x5555555555555555ull) &&
-        (r6 == 0x6666666666666666ull) && (r7 == 0x7777777777777777ull)) {
+    if (((int32_t)(uint32_t)r0 == want) &&
+        (r4 == (0x4444444444444444ull & m)) &&
+        (r5 == (0x5555555555555555ull & m)) &&
+        (r6 == (0x6666666666666666ull & m)) &&
+        (r7 == (0x7777777777777777ull & m))) {
         return 1;
     }
     put_str("[NS] psci BAD x4-x7 not preserved\r\n");
@@ -1846,7 +1850,9 @@ static int smccc_walk(uint64_t self)
     ok &= psci_expect("arch_features workaround_1",
                       psci_call(WT_SMCCC_ARCH_FEATURES, 0x80008000u, 0u),
                       WT_SMCCC_NOT_SUPPORTED);
-    ok &= psci_preserves_x4_x7(self);
+    ok &= psci_preserves_x4_x7(WT_PSCI_AFFINITY_INFO64, self,
+                               WT_PSCI_AFFINITY_ON);
+    ok &= psci_preserves_x4_x7(WT_PSCI_CPU_OFF, 0u, WT_PSCI_DENIED);
     if (ok != 0) {
         put_str("[NS] smccc version 1.2\r\n");
     }

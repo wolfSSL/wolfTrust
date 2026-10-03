@@ -369,6 +369,22 @@ int wt_ffa_spmd_is_ns_resume(uint32_t fid)
     return (fid == WT_FFA_NORMAL_WORLD_RESUME) ? 1 : 0;
 }
 
+int wt_ffa_spmd_pm_answer(uint64_t* x)
+{
+    uint32_t fid = (uint32_t)x[0];
+
+    if ((fid == WT_FFA_MSG_WAIT) || (fid == WT_FFA_YIELD) ||
+        (wt_ffa_spmd_is_ns_resume(fid) != 0)) {
+        reply_error((wt_ffa_regs_t*)x, WT_FFA_DENIED);
+        return WT_SPMD_PM_REFUSED;
+    }
+    if (wt_ffa_spmd_is_ns_reply(fid) == 0) {
+        return WT_SPMD_PM_NONE;
+    }
+    return (wt_ffa_fwk_pm_granted(x) != 0) ? WT_SPMD_PM_GRANTED
+                                           : WT_SPMD_PM_DENIED;
+}
+
 /* NS physical instance (13.x): FF-A calls arriving from the Normal world once
  * the SPMD has launched it. B3.2 serves version negotiation and discovery
  * (FEATURES, ID_GET, SPM_ID_GET); direct messaging and the interrupt loop

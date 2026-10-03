@@ -156,14 +156,36 @@ static int64_t psci_affinity_info(uint64_t target, uint64_t level, uint32_t fid)
     return WT_PSCI_INVALID_PARAMS;
 }
 
-/* Core standby is the only state offered; to the core it is a WFI (5.4.9). */
-static int64_t psci_cpu_suspend(uint64_t power_state)
+/* The power operation whose message is outstanding. */
+static uint32_t g_pm_fid;
+
+uint64_t wt_psci_pm_complete(int granted)
 {
-    if ((uint32_t)power_state != WT_PSCI_STATE_CORE_STANDBY) {
-        return WT_PSCI_INVALID_PARAMS;
+    uint32_t fid = g_pm_fid;
+
+    g_pm_fid = 0u;
+    if (granted == 0) {
+        return psci_status(fid, WT_PSCI_DENIED);
     }
-    __asm__ volatile("dsb sy\n\twfi" ::: "memory");
-    return WT_PSCI_SUCCESS;
+    switch (fid) {
+        case WT_PSCI_CPU_SUSPEND32:
+        case WT_PSCI_CPU_SUSPEND64:
+            /* Core standby is the only state offered: a WFI (5.4.9). */
+            __asm__ volatile("dsb sy\n\twfi" ::: "memory");
+            return psci_status(fid, WT_PSCI_SUCCESS);
+        case WT_PSCI_SYSTEM_OFF:
+            wt_el3_puts("[EL3] psci system_off\r\n");
+            wt_platform_console_flush();
+            (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);
+            break;
+        case WT_PSCI_SYSTEM_RESET:
+            wt_el3_system_reset("psci");
+            break;
+        default:
+            /* CPU_OFF: the uniprocessor SPMC is resident on the only core. */
+            break;
+    }
+    return psci_status(fid, WT_PSCI_DENIED);
 }
 
 static int psci_implements(uint32_t fid)
@@ -192,7 +214,7 @@ static int psci_implements(uint32_t fid)
     }
 }
 
-void wt_psci_ns_call(wt_ffa_regs_t* r)
+int wt_psci_ns_call(wt_ffa_regs_t* r)
 {
     uint32_t fid = (uint32_t)r->x[0];
 
@@ -209,12 +231,17 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
             break;
         case WT_PSCI_CPU_SUSPEND32:
         case WT_PSCI_CPU_SUSPEND64:
-            psci_return(r, psci_status(fid, psci_cpu_suspend(r->x[1])));
-            break;
+            if ((uint32_t)r->x[1] != WT_PSCI_STATE_CORE_STANDBY) {
+                psci_return(r, psci_status(fid, WT_PSCI_INVALID_PARAMS));
+                break;
+            }
+            g_pm_fid = fid;
+            return WT_PSCI_ACTION_MESSAGE;
         case WT_PSCI_CPU_OFF:
-            /* The uniprocessor SPMC is resident on the only running core. */
-            psci_return(r, (uint64_t)(uint32_t)WT_PSCI_DENIED);
-            break;
+        case WT_PSCI_SYSTEM_OFF:
+        case WT_PSCI_SYSTEM_RESET:
+            g_pm_fid = fid;
+            return WT_PSCI_ACTION_MESSAGE;
         case WT_PSCI_CPU_ON32:
         case WT_PSCI_CPU_ON64:
             psci_return(r, psci_status(fid, psci_cpu_on(r->x[1], fid)));
@@ -237,17 +264,10 @@ void wt_psci_ns_call(wt_ffa_regs_t* r)
                                (psci_is_smc64(fid) ? WT_PSCI_AFF_MASK64 :
                                                      WT_PSCI_AFF_MASK32));
             break;
-        case WT_PSCI_SYSTEM_OFF:
-            wt_el3_puts("[EL3] psci system_off\r\n");
-            wt_platform_console_flush();
-            (void)wt_el3_monitor_call(WT_MON_FID_EXIT, WT_MON_EXIT_SUCCESS);
-            break;
-        case WT_PSCI_SYSTEM_RESET:
-            wt_el3_system_reset("psci");
-            break;
         default:
             /* SMCCC 5.2: the unknown-function result is -1 sign-extended. */
             psci_return(r, (uint64_t)(int64_t)WT_PSCI_NOT_SUPPORTED);
             break;
     }
+    return WT_PSCI_ACTION_REPLY;
 }

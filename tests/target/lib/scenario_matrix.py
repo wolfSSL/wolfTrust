@@ -149,8 +149,23 @@ QEMU_A_CELLS = (
      "family": "qemu-virt"},
     {"name": "versal-virt", "slug": "versal_virt", "machine": "versal-virt",
      "target": "versal", "gic": 3, "cpu": "cortex-a72", "smp": 4,
-     "family": "qemu-versal"},
+     "family": "qemu-versal",
+     "l3_exempt": {
+         "secramneg": "xlnx-versal-virt models no XMPU to fence Secure RAM "
+                      "from the Normal world (#45)",
+         "periphneg": "xlnx-versal-virt models no XPPU to fence the SPM's "
+                      "devices from the Normal world (#45)"}},
 )
+
+# Isolation level 3 scenarios every AArch64 port runs in its full tier; a cell
+# that cannot names it in its "l3_exempt" map with the reason (an open issue).
+QEMU_A_L3_REQUIRED = frozenset((
+    "crossdomain", "spfaultneg", "manifestneg", "manifestneg2",
+    "manifestneg3", "keystoreneg", "bandneg1", "bandneg2", "bandneg3",
+    "bandneg4", "bandneg5", "bandneg6", "periphspneg", "restartneg1",
+    "restartneg2", "restartneg3", "spbudgetneg", "panicneg", "svcneg",
+    "fpneg", "mspovfneg", "xnneg", "secramneg", "periphneg", "hsmpinneg",
+))
 
 QEMU_A_SUITE = (
     "smoke", "boot", "boot-smp2", "positive-secure", "crossdomain",
@@ -189,10 +204,16 @@ def qemu_a_entry(cell, engine, kind, tier, scenarios):
             "scenarios": " ".join(scenarios), "job": job}
 
 
+def qemu_a_cell_suite(cell):
+    exempt = cell.get("l3_exempt", {})
+    return tuple(s for s in QEMU_A_SUITE if s not in exempt)
+
+
 def qemu_a_full(cell):
     out = []
     for engine in ENGINES:
-        out.append(qemu_a_entry(cell, engine, "suite", "full", QEMU_A_SUITE))
+        out.append(qemu_a_entry(cell, engine, "suite", "full",
+                                qemu_a_cell_suite(cell)))
         out.append(qemu_a_entry(cell, engine, "acs", "full", QEMU_A_ACS))
     return out
 
@@ -320,8 +341,32 @@ QEMU_A_SELFTEST = (
 )
 
 
+def qemu_a_l3_gaps():
+    """A level 3 scenario the AArch64 suite does not run, or a cell exemption
+    that names no level 3 scenario or gives no reason."""
+    gaps = ["the QEMU AArch64 suite does not run level 3 scenario %s" % s
+            for s in sorted(QEMU_A_L3_REQUIRED - set(QEMU_A_SUITE))]
+    for cell in QEMU_A_CELLS:
+        planned = set(qemu_a_full(cell)[0]["scenarios"].split())
+        for scenario in sorted(QEMU_A_L3_REQUIRED - planned):
+            if not cell.get("l3_exempt", {}).get(scenario, "").strip():
+                gaps.append("%s does not plan level 3 scenario %s" %
+                            (cell["name"], scenario))
+        for scenario, reason in sorted(cell.get("l3_exempt", {}).items()):
+            if scenario not in QEMU_A_L3_REQUIRED:
+                gaps.append("%s exempts %s, which is not a level 3 scenario" %
+                            (cell["name"], scenario))
+            elif not reason.strip():
+                gaps.append("%s exempts %s without a reason" %
+                            (cell["name"], scenario))
+    return gaps
+
+
 def selftest():
     """The routing table above and the engine rule, run by the select job."""
+    gaps = qemu_a_l3_gaps()
+    if gaps:
+        return gaps[0]
     for event, labels, port_input, expect in SELFTEST:
         got = " ".join(sorted(set(e["port"] + ":" + e["tier"] for e in
                                   ci_plan(event, labels.split(), port_input))))

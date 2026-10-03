@@ -18,28 +18,6 @@ endif
 WT_EL3_TEXT_BASE ?= 0x00000000
 WT_EL3_RAM_BASE ?= 0x0E000000
 WT_EL3_RAM_SIZE ?= 0x00040000
-# First page of the SPM band carries the FF-A boot information blob, the
-# translation-table pool follows it.
-WT_SPM_BOOT_INFO_PA ?= 0x0E040000
-WT_SPM_TABLE_POOL_PA ?= 0x0E041000
-WT_SPM_TABLE_POOL_PAGES ?= 128
-# S-EL1 SPMC image band (code + constant data, copied from flash by EL3),
-# its RAM band, and the wolfHSM keystore band; the flash offset is where the
-# runner places wolftrust.bin inside the pflash image behind the monitor.
-WT_SPM_IMAGE_PA ?= 0x0E100000
-WT_SPM_IMAGE_SIZE ?= 0x00100000
-WT_SPM_RAM_PA ?= 0x0E200000
-WT_SPM_RAM_SIZE ?= 0x00040000
-WT_SPM_KEYSTORE_PA ?= 0x0E300000
-WT_SPM_KEYSTORE_SIZE ?= 0x00040000
-WT_SPM_RXTX_PA ?= 0x0E340000
-WT_SPM_RXTX_SIZE ?= 0x00002000
-WT_SPM_SHARE_PA ?= 0x0E342000
-WT_SPM_SHARE_SIZE ?= 0x00001000
-# Shared data band for the Arm conformance partitions; unused (empty) in the
-# non-conformance image.
-WT_SPM_CONFDATA_PA ?= 0x0E2C0000
-WT_SPM_CONFDATA_SIZE ?= 0x00020000
 WT_NS_IMAGE_PA ?= 0x44000000
 WT_PSA_NS_WINDOW_SIZE ?= 0x00100000
 WT_SPM_FLASH_OFFSET ?= 0x00100000
@@ -59,24 +37,9 @@ TARGET_CFLAGS := \
     -DWT_EL3_TEXT_BASE=$(WT_EL3_TEXT_BASE)u \
     -DWT_EL3_RAM_BASE=$(WT_EL3_RAM_BASE)u \
     -DWT_EL3_RAM_SIZE=$(WT_EL3_RAM_SIZE)u \
-    -DWT_SPM_BOOT_INFO_PA=$(WT_SPM_BOOT_INFO_PA)u \
-    -DWT_SPM_TABLE_POOL_PA=$(WT_SPM_TABLE_POOL_PA)u \
-    -DWT_SPM_TABLE_POOL_PAGES=$(WT_SPM_TABLE_POOL_PAGES)u \
     -DWT_PORT_BOOT_CPUS=$(WT_PORT_BOOT_CPUS)u \
     -DWT_UART_SKIP_INIT=$(WT_UART_SKIP_INIT) \
     -DWT_PORT_CNTFRQ_KEEP=$(WT_PORT_CNTFRQ_KEEP) \
-    -DWT_SPM_IMAGE_PA=$(WT_SPM_IMAGE_PA)u \
-    -DWT_SPM_IMAGE_SIZE=$(WT_SPM_IMAGE_SIZE)u \
-    -DWT_SPM_RAM_PA=$(WT_SPM_RAM_PA)u \
-    -DWT_SPM_RAM_SIZE=$(WT_SPM_RAM_SIZE)u \
-    -DWT_SPM_KEYSTORE_PA=$(WT_SPM_KEYSTORE_PA)u \
-    -DWT_SPM_KEYSTORE_SIZE=$(WT_SPM_KEYSTORE_SIZE)u \
-    -DWT_SPM_RXTX_PA=$(WT_SPM_RXTX_PA)u \
-    -DWT_SPM_RXTX_SIZE=$(WT_SPM_RXTX_SIZE)u \
-    -DWT_SPM_SHARE_PA=$(WT_SPM_SHARE_PA)u \
-    -DWT_SPM_SHARE_SIZE=$(WT_SPM_SHARE_SIZE)u \
-    -DWT_SPM_CONFDATA_PA=$(WT_SPM_CONFDATA_PA)u \
-    -DWT_SPM_CONFDATA_SIZE=$(WT_SPM_CONFDATA_SIZE)u \
     -DWT_NS_IMAGE_PA=$(WT_NS_IMAGE_PA)u \
     -DWT_PSA_NS_WINDOW_SIZE=$(WT_PSA_NS_WINDOW_SIZE)u \
     -DWT_SPM_FLASH_OFFSET=$(WT_SPM_FLASH_OFFSET)u \
@@ -86,14 +49,11 @@ TARGET_CFLAGS := \
 # No boot loader runs ahead of the monitor under QEMU: synthesize the boot
 # handoff record it would leave (emulator tests only, never production).
 WT_EL3_TEST_HANDOFF ?= 0
-WT_PORT_HANDOFF_PA ?= 0x0E240000
 ifeq ($(WT_EL3_TEST_HANDOFF),1)
-TARGET_CFLAGS += -DWT_EL3_TEST_HANDOFF=1 \
-    -DWT_PORT_HANDOFF_PA=$(WT_PORT_HANDOFF_PA)u -DWT_PORT_HANDOFF_SIZE=64u
+TARGET_CFLAGS += -DWT_EL3_TEST_HANDOFF=1 -DWT_PORT_HANDOFF_SIZE=64u
 endif
-# Arm FF-A ACS conformance image: SP1..SP4 load into 1 MB bands from here.
+# Arm FF-A ACS conformance image (its band base comes from the shared layout).
 WT_FFA_ACS ?= 0
-WT_FFA_ACS_BASE ?= 0x0E400000
 # The runner places the partition images and the test NVM here in the pflash
 # image; the monitor copies them into Secure RAM.
 WT_FFA_ACS_FLASH_OFFSET ?= 0x00200000
@@ -102,7 +62,7 @@ WT_FFA_ACS_FLASH_SIZE ?= 0x00410000
 # SP images; it must survive a reset (the suite records progress in it).
 WT_FFA_ACS_NVM_OFFSET ?= 0x00400000
 ifeq ($(WT_FFA_ACS),1)
-TARGET_CFLAGS += -DWT_FFA_ACS=1 -DWT_FFA_ACS_BASE=$(WT_FFA_ACS_BASE)u \
+TARGET_CFLAGS += -DWT_FFA_ACS=1 \
     -DWT_FFA_ACS_FLASH_OFFSET=$(WT_FFA_ACS_FLASH_OFFSET)u \
     -DWT_FFA_ACS_FLASH_SIZE=$(WT_FFA_ACS_FLASH_SIZE)u \
     -DWT_FFA_ACS_NVM_OFFSET=$(WT_FFA_ACS_NVM_OFFSET)u
@@ -113,15 +73,7 @@ TARGET_LDFLAGS := \
     -Wl,--defsym=WT_EL3_LOAD_LIMIT=$(WT_EL3_TEXT_BASE)+$(WT_SPM_FLASH_OFFSET) \
     -Wl,--defsym=WT_EL3_TEXT_BASE=$(WT_EL3_TEXT_BASE) \
     -Wl,--defsym=WT_EL3_RAM_BASE=$(WT_EL3_RAM_BASE) \
-    -Wl,--defsym=WT_EL3_RAM_SIZE=$(WT_EL3_RAM_SIZE) \
-    -Wl,--defsym=WT_SPM_IMAGE_PA=$(WT_SPM_IMAGE_PA) \
-    -Wl,--defsym=WT_SPM_IMAGE_SIZE=$(WT_SPM_IMAGE_SIZE) \
-    -Wl,--defsym=WT_SPM_RAM_PA=$(WT_SPM_RAM_PA) \
-    -Wl,--defsym=WT_SPM_RAM_SIZE=$(WT_SPM_RAM_SIZE) \
-    -Wl,--defsym=WT_SPM_KEYSTORE_PA=$(WT_SPM_KEYSTORE_PA) \
-    -Wl,--defsym=WT_SPM_KEYSTORE_SIZE=$(WT_SPM_KEYSTORE_SIZE) \
-    -Wl,--defsym=WT_SPM_CONFDATA_PA=$(WT_SPM_CONFDATA_PA) \
-    -Wl,--defsym=WT_SPM_CONFDATA_SIZE=$(WT_SPM_CONFDATA_SIZE)
+    -Wl,--defsym=WT_EL3_RAM_SIZE=$(WT_EL3_RAM_SIZE)
 SECURE_LD := $(ROOT)/src/arch/aarch64/spm/wolftrust.ld
 
 PORT_COMMON_DIR := $(ROOT)/port/common/aarch64

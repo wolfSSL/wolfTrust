@@ -97,7 +97,7 @@ time) linked whole into `build/wolftrust_el3.elf` and `build/wolftrust_el3.bin`.
 [crypto engine](Crypto-Engines.md),
 the AArch64 Secure EL1 layer, and the port, linked by
 `src/arch/aarch64/spm/wolftrust.ld` into the SPM image, RAM, and keystore
-bands that `mk/target-<soc>.mk` defines. On QEMU virt the runner places the
+bands the shared layout `port/common/aarch64/l3_layout.h` places. On QEMU virt the runner places the
 SPMC image behind the monitor in the pflash image (`WT_SPM_FLASH_OFFSET`)
 and the monitor copies it to its band; on versal-virt the QEMU loader places
 the ELF. The QEMU ports share `port/common/aarch64/` (platform operations,

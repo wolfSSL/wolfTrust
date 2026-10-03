@@ -37,38 +37,8 @@
 #define WT_RAM_S_SIZE         0x00FC0000u
 /* The secure SRAM and flash0 are Secure-only on the bus (secramneg). */
 #define WT_PORT_NS_MEMORY_FENCE 1
-#define WT_SPM_BOOT_INFO_PA   0x0E040000u
-#ifndef WT_SPM_IMAGE_PA
-#define WT_SPM_IMAGE_PA       0x0E100000u
-#endif
-#ifndef WT_SPM_IMAGE_SIZE
-#define WT_SPM_IMAGE_SIZE     0x00100000u
-#endif
-#ifndef WT_SPM_RAM_PA
-#define WT_SPM_RAM_PA         0x0E200000u
-#endif
-#ifndef WT_SPM_RAM_SIZE
-#define WT_SPM_RAM_SIZE       0x00040000u
-#endif
-#ifndef WT_SPM_KEYSTORE_PA
-#define WT_SPM_KEYSTORE_PA    0x0E300000u
-#endif
-#ifndef WT_SPM_KEYSTORE_SIZE
-#define WT_SPM_KEYSTORE_SIZE  0x00040000u
-#endif
-#ifndef WT_SPM_RXTX_PA
-#define WT_SPM_RXTX_PA        0x0E340000u
-#endif
-#ifndef WT_SPM_RXTX_SIZE
-#define WT_SPM_RXTX_SIZE      0x00002000u
-#endif
-/* One page the SPMC shares to a partition through FFA_MEM_SHARE at boot. */
-#ifndef WT_SPM_SHARE_PA
-#define WT_SPM_SHARE_PA       0x0E342000u
-#endif
-#ifndef WT_SPM_SHARE_SIZE
-#define WT_SPM_SHARE_SIZE     0x00001000u
-#endif
+/* The Secure bands, laid out from here by port/common/aarch64/l3_layout.h. */
+#define WT_L3_BAND_BASE       0x0E000000u
 /* Normal-world payload load/run address: NS DRAM, well clear of the secure
  * SRAM window (virt DRAM starts at 0x40000000). */
 #ifndef WT_NS_IMAGE_PA
@@ -87,5 +57,7 @@
 /* Device space: the virt peripherals below Secure RAM, then PCIe. */
 #define WT_PORT_MMIO_WINDOWS  { { 0x08000000u, 0x0E000000u }, \
                                 { 0x10000000u, 0x40000000u } }
+
+#include "../common/aarch64/l3_layout.h"
 
 #endif /* WOLFTRUST_QEMUVIRT_MEMORY_MAP_H */

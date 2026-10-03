@@ -39,38 +39,8 @@
 /* xlnx-versal-virt models no XMPU/RISAF, so the Normal world can reach this
  * band; silicon sets 1 only once it programs and locks the XMPU over it. */
 #define WT_PORT_NS_MEMORY_FENCE 0
-#define WT_SPM_BOOT_INFO_PA   0x7F000000u
-#ifndef WT_SPM_IMAGE_PA
-#define WT_SPM_IMAGE_PA       0x7F100000u
-#endif
-#ifndef WT_SPM_IMAGE_SIZE
-#define WT_SPM_IMAGE_SIZE     0x00100000u
-#endif
-#ifndef WT_SPM_RAM_PA
-#define WT_SPM_RAM_PA         0x7F200000u
-#endif
-#ifndef WT_SPM_RAM_SIZE
-#define WT_SPM_RAM_SIZE       0x00040000u
-#endif
-#ifndef WT_SPM_KEYSTORE_PA
-#define WT_SPM_KEYSTORE_PA    0x7F300000u
-#endif
-#ifndef WT_SPM_KEYSTORE_SIZE
-#define WT_SPM_KEYSTORE_SIZE  0x00040000u
-#endif
-#ifndef WT_SPM_RXTX_PA
-#define WT_SPM_RXTX_PA        0x7F340000u
-#endif
-#ifndef WT_SPM_RXTX_SIZE
-#define WT_SPM_RXTX_SIZE      0x00002000u
-#endif
-/* One page the SPMC shares to a partition through FFA_MEM_SHARE at boot. */
-#ifndef WT_SPM_SHARE_PA
-#define WT_SPM_SHARE_PA       0x7F342000u
-#endif
-#ifndef WT_SPM_SHARE_SIZE
-#define WT_SPM_SHARE_SIZE     0x00001000u
-#endif
+/* The Secure bands, laid out from here by port/common/aarch64/l3_layout.h. */
+#define WT_L3_BAND_BASE       0x7F000000u
 /* Normal-world payload load/run address in low DDR, below the secure window. */
 #ifndef WT_NS_IMAGE_PA
 #define WT_NS_IMAGE_PA        0x44000000u
@@ -86,5 +56,7 @@
 
 /* Everything above the low DDR window is device space or OCM. */
 #define WT_PORT_MMIO_WINDOWS  { { 0x80000000u, 0x100000000u } }
+
+#include "../common/aarch64/l3_layout.h"
 
 #endif /* WOLFTRUST_VERSAL_MEMORY_MAP_H */

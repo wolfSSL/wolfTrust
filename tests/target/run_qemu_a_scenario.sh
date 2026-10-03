@@ -163,11 +163,15 @@ if [ "$scenario" = smoke ]; then
 else
   build="$repo/build-aarch64-$tag-$scenario"
   probe=()
+  # The Secure bands come from the port's shared level 3 layout, the same
+  # values the build links against.
+  l3_layout=$(python3 "$repo/tools/aarch64_l3_layout.py" --cc "${TOOLPREFIX}gcc" \
+    -I "$repo/port/common/aarch64" -D WT_ISOLATION_LEVEL=3 --shell \
+    "$repo/port/$target/memory_map.h") || { echo "FAIL: no level 3 layout for $target" >&2; exit 1; }
+  eval "$l3_layout"
   # Secure RAM behind the SPMC's own bands holds the FF-A ACS images, the
   # suite's test NVM, and the enlarged table pool.
-  acs_secure_base=0x0E000000
-  [ "$target" = versal ] && acs_secure_base=0x7F000000
-  acs_pool_pa=$(printf '0x%X' $((acs_secure_base + 0x900000)))
+  acs_pool_pa=$(printf '0x%X' $((WT_L3_BAND_BASE + 0x900000)))
   case "$scenario" in
     crossdomain) probe=(WT_FFM_NEGATIVE_PROBE=1) ;;
     spfaultneg)  probe=(WT_SP_FAULT_PROBE=1) ;;
@@ -284,12 +288,11 @@ else
     ns_attest_neg=0
     [ "$scenario" = attestneg ] && { ns_conf=1; ns_suite=attestation; ns_attest_neg=1; }
     # The secure keystore address to probe from NS and the conformance data
-    # band the val PAL config names differ per target.
-    ns_secure_probe=0x0E300000
-    ns_confdata=0x0E2C0000
-    [ "$target" = versal ] && { ns_secure_probe=0x7F300000; ns_confdata=0x7F2C0000; }
+    # band the val PAL config names.
+    ns_secure_probe=$(printf '0x%08X' "$WT_SPM_KEYSTORE_PA")
+    ns_confdata=$(printf '0x%08X' "$WT_SPM_CONFDATA_PA")
     # periphneg aims the same Normal-world read at the SPM's secure UART.
-    [ "$scenario" = periphneg ] && ns_secure_probe=0x09040000
+    [ "$scenario" = periphneg ] && ns_secure_probe=$(printf '0x%08X' "$WT_L3_SPM_PERIPHERAL_BASE")
     # Per-scenario NS build dir, wiped each run so a changed -D flag (probe
     # address, guest id) is always recompiled and never a stale binary.
     rm -rf "$nsfw/build/$tag-$scenario"
@@ -403,7 +406,7 @@ if [ -n "$acs_suite" ]; then
   # virt reaches Secure RAM only through the monitor's copy out of pflash;
   # versal-virt's loader places the same blob directly.
   if [ "$MACHINE" != virt ]; then
-    args+=(-device "loader,file=$acs_blob,addr=$(printf '0x%X' $((acs_secure_base + 0x400000)))")
+    args+=(-device "loader,file=$acs_blob,addr=$(printf '0x%X' "$WT_L3_FFA_ACS_PA")")
   fi
 fi
 args+=(-nographic -monitor none
@@ -720,16 +723,14 @@ case "$scenario" in
     # A keystore partition reads, then writes, another's private band at boot:
     # both accesses must abort at S-EL0 on that band, and the prober recover.
     case "${scenario#bandneg}" in
-      1) band_off=0x00000; band_what="the crypto partition denied the vault's band" ;;
-      2) band_off=0x24000; band_what="the crypto partition denied the attestation band" ;;
-      3) band_off=0x00000; band_what="the attestation partition denied the vault's band" ;;
-      4) band_off=0x25000; band_what="the attestation partition denied the crypto band" ;;
-      5) band_off=0x24000; band_what="the vault denied the attestation band" ;;
-      6) band_off=0x25000; band_what="the vault denied the crypto band" ;;
+      1) band_pa=$WT_SPM_VAULT_PA; band_what="the crypto partition denied the vault's band" ;;
+      2) band_pa=$WT_SPM_ATTEST_PA; band_what="the crypto partition denied the attestation band" ;;
+      3) band_pa=$WT_SPM_VAULT_PA; band_what="the attestation partition denied the vault's band" ;;
+      4) band_pa=$WT_SPM_HSMDATA_PA; band_what="the attestation partition denied the crypto band" ;;
+      5) band_pa=$WT_SPM_ATTEST_PA; band_what="the vault denied the attestation band" ;;
+      6) band_pa=$WT_SPM_HSMDATA_PA; band_what="the vault denied the crypto band" ;;
     esac
-    band_base=0x0e300000
-    [ "$MACHINE" = versal-virt ] && band_base=0x7f300000
-    band_far=$(printf 'FAR=0x%016x' $((band_base + band_off)))
+    band_far=$(printf 'FAR=0x%016x' $((band_pa)))
     band_faults=$(grep -c "^\[SYNC EL=0 EC=0x24 .*$band_far" "$log" || true)
     if [ "$band_faults" -eq 2 ]; then
       check_pass "$band_what on read and on write"

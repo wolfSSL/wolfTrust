@@ -120,6 +120,71 @@ int wt_guest_flash_wrp_covers(uint32_t wrp_bitmap,
     return ret;
 }
 
+static int wt_frad_region_denies_write(const wt_frad_region_t* region)
+{
+    return (region->valid != 0u && region->locked != 0u &&
+            region->write_acp == 0u) ? 1 : 0;
+}
+
+int wt_guest_flash_frad_covers(const wt_frad_region_t* regions, size_t count,
+                               uintptr_t window_base, size_t window_size)
+{
+    uintptr_t last;
+    uintptr_t cursor;
+    size_t i;
+    size_t step;
+    int covered = 0;
+    int found;
+    int ret = WT_GUEST_VERIFY_OK;
+
+    if (regions == NULL || count == 0u || window_size == 0u) {
+        return WT_GUEST_VERIFY_ERROR_ARGUMENT;
+    }
+    last = window_base + (uintptr_t)window_size - 1u;
+    if (last < window_base) {
+        return WT_GUEST_VERIFY_ERROR_ARGUMENT;
+    }
+
+    /* Overlapping descriptors resolve in hardware-defined order, so every
+     * valid descriptor that touches the window must itself deny writes. */
+    for (i = 0u; i < count && ret == WT_GUEST_VERIFY_OK; ++i) {
+        if (regions[i].valid != 0u &&
+                (uintptr_t)regions[i].start <= last &&
+                (uintptr_t)regions[i].end >= window_base &&
+                wt_frad_region_denies_write(&regions[i]) == 0) {
+            ret = WT_GUEST_VERIFY_ERROR_WRP;
+        }
+    }
+
+    cursor = window_base;
+    for (step = 0u; step < count && ret == WT_GUEST_VERIFY_OK && covered == 0;
+         ++step) {
+        found = 0;
+        for (i = 0u; i < count && found == 0; ++i) {
+            if (wt_frad_region_denies_write(&regions[i]) != 0 &&
+                    (uintptr_t)regions[i].start <= cursor &&
+                    (uintptr_t)regions[i].end >= cursor) {
+                found = 1;
+                if ((uintptr_t)regions[i].end >= last) {
+                    covered = 1;
+                }
+                else {
+                    cursor = (uintptr_t)regions[i].end + 1u;
+                }
+            }
+        }
+        if (found == 0) {
+            ret = WT_GUEST_VERIFY_ERROR_WRP;
+        }
+    }
+
+    if (ret == WT_GUEST_VERIFY_OK && covered == 0) {
+        ret = WT_GUEST_VERIFY_ERROR_WRP;
+    }
+
+    return ret;
+}
+
 int wt_runtime_verify_decide(const void* window_base, size_t window_size,
                              const wt_guest_measurement_t* record,
                              uint32_t min_version, int launch_required)

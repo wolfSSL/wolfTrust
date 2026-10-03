@@ -28,6 +28,11 @@
 # with no operating system. hsmattackneg drives the raw wolfHSM client wire,
 # so it exists only under WT_ENGINE=hsm.
 #
+# wrpfence and wrpoff build wolfTrust to refuse any guest the XSPI guest fence
+# does not cover: behind a fenced wolfBoot both guests launch; behind an
+# unfenced one neither may enter its domain. wrpneg adds wolfBoot's
+# flash-protect selftest, which must see an erase in the fence refused.
+#
 # confboot, devstorage, devcrypto, devattest, devattestqcbor, vaultrecover, and
 # vaultrecoversec host Arm's unmodified psa-arch-tests val NSPE in the PSA guest
 # (guest0) against the conformance Secure image, the same drop-in proof the
@@ -38,14 +43,19 @@
 #   M33MU               prebuilt emulator at M33MU_REF or later; otherwise
 #                       M33MU_REF is built under /tmp
 #   RT700_WOLFBOOT_DIR  wolfBoot tree holding wolfboot.bin, tools/keytools/sign
-#                       and wolfboot_signing_private_key.der, built with
-#                       tests/target/wolfboot-imxrt700-lifecycle.patch applied;
-#                       otherwise WOLFBOOT_REF is built from
+#                       and wolfboot_signing_private_key.der, built by
+#                       lib/rt700_wolfboot.sh with the same overrides;
+#                       otherwise RT700_WOLFBOOT_REF plus both carried
+#                       wolfboot-imxrt700-*.patch files is built from
 #                       config/examples/imx-rt700-tz.config (the MCUXpresso
 #                       SDK/DFP must be reachable exactly as for any RT700
 #                       wolfBoot build)
 #   RT700_M33MU_TIMEOUT emulator wall-clock budget in seconds (default 60,
 #                       180 for the PSA guest scenarios)
+#   WT_GUEST_FLASH_WRP  1 builds wolfTrust to refuse a guest the XSPI guest
+#                       fence does not cover, and wolfBoot to arm that fence
+#   WT_XSPI_GUEST_FENCE overrides the wolfBoot fence alone (default follows
+#                       WT_GUEST_FLASH_WRP); 0 with WRP=1 proves the refusal
 set -eu
 # make test-target hands TARGET and MAKEFLAGS to every child make; wolfBoot's
 # own TARGET must come from its config, so drop both before any build.
@@ -82,10 +92,29 @@ case "$scenario" in
 esac
 guest_build="$repo/$guest_dir/build"
 guest1_build="$repo/$guest1_dir/build"
-wolfboot_dir="${RT700_WOLFBOOT_DIR:-/tmp/wolfboot_rt700}"
+
+# shellcheck source=lib/rt700_fence.sh disable=SC1091
+. "$here/lib/rt700_fence.sh"
+# shellcheck source=lib/rt700_wolfboot.sh disable=SC1091
+. "$here/lib/rt700_wolfboot.sh"
+case "$scenario" in
+  wrpfence|wrpneg) WT_XSPI_GUEST_FENCE=1 ;;
+  wrpoff)          WT_XSPI_GUEST_FENCE=0 ;;
+esac
+guest_fence="${WT_XSPI_GUEST_FENCE:-${WT_GUEST_FLASH_WRP:-0}}"
+fence_cflags=""
+if [ "$guest_fence" = "1" ]; then
+  fence_cflags=$(rt700_fence_cflags) || exit 2
+  wolfboot_dir="${RT700_WOLFBOOT_DIR:-/tmp/wolfboot_rt700_fence}"
+  if [ "$scenario" = "wrpneg" ]; then
+    fence_cflags="$fence_cflags -DXSPI_FLASH_PROTECT_SELFTEST"
+    wolfboot_dir="${RT700_WOLFBOOT_DIR:-/tmp/wolfboot_rt700_fence_selftest}"
+  fi
+else
+  wolfboot_dir="${RT700_WOLFBOOT_DIR:-/tmp/wolfboot_rt700}"
+fi
 log="$repo/build/rt700_m33mu_$scenario.log"
 
-WOLFBOOT_REF=e6d169c7218d82e33bd04e2c086146ed37ec0cca
 M33MU_REF=f3c03675260264cdec815adebe4b020bb6fe57b8
 
 # The guests' manifest restart budget (port/mimxrt700/partitions.c): ahbscneg
@@ -106,10 +135,13 @@ GUEST_STARTED_RE='wolfTrust RT700 guest[01]: start'
 # shellcheck disable=SC2034
 GUEST_DONE_RE='wolfTrust RT700 guest[01]: FF-M connect ok, done'
 
-# --- The pinned upstream M33MU. ---
+# --- The pinned upstream M33MU, plus the carried RT700 fuse seed (the
+#     Develop life cycle) until M33MU seeds it itself. ---
+m33mu_stamp="$M33MU_REF $(cksum "$here/m33mu-imxrt700.patch" | cut -d' ' -f1)"
 if [ -n "${M33MU:-}" ] && [ -x "$M33MU" ]; then
   log "Using prebuilt M33MU: $M33MU"
-elif [ -x /tmp/m33mu_rt700_src/build/m33mu ]; then
+elif [ -x /tmp/m33mu_rt700_src/build/m33mu ] &&
+     [ "$(cat /tmp/m33mu_rt700_src/.wt_m33mu 2>/dev/null)" = "$m33mu_stamp" ]; then
   M33MU=/tmp/m33mu_rt700_src/build/m33mu
   log "Reusing M33MU from a prior scenario: $M33MU"
 else
@@ -118,10 +150,12 @@ else
   git clone --no-checkout https://github.com/danielinux/m33mu.git /tmp/m33mu_rt700_src
   git -C /tmp/m33mu_rt700_src fetch --depth 1 origin "$M33MU_REF"
   git -C /tmp/m33mu_rt700_src checkout --detach "$M33MU_REF"
+  git -C /tmp/m33mu_rt700_src apply "$here/m33mu-imxrt700.patch"
   cmake -S /tmp/m33mu_rt700_src -B /tmp/m33mu_rt700_src/build \
         -DM33MU_ENABLE_WOLFSSL=OFF -DM33MU_BUILD_TESTS=OFF \
         -DM33MU_ENABLE_RUST_PLUGINS=OFF
   cmake --build /tmp/m33mu_rt700_src/build --target m33mu -j"$(nproc)"
+  printf '%s\n' "$m33mu_stamp" > /tmp/m33mu_rt700_src/.wt_m33mu
   M33MU=/tmp/m33mu_rt700_src/build/m33mu
 fi
 
@@ -129,39 +163,15 @@ fi
 #     M33MU has no RT700 boot ROM or FCB and takes the reset vector from the
 #     start of the NOR, so wolfBoot links at the NOR base instead of
 #     0x28004000, the same override the wolfBoot emulator tests apply. ---
-# The cache is keyed on the wolfBoot ref and the lifecycle patch, so a first
-# stage left by an earlier checkout is rebuilt rather than reused.
-wolfboot_stamp="$WOLFBOOT_REF $(cksum "$here/wolfboot-imxrt700-lifecycle.patch" | cut -d' ' -f1)"
-if [ ! -s "$wolfboot_dir/wolfboot.bin" ] || \
-   [ "$(cat "$wolfboot_dir/.wt_first_stage" 2>/dev/null)" != "$wolfboot_stamp" ]; then
-  if [ -n "${RT700_WOLFBOOT_DIR:-}" ]; then
-    fail "wolfboot.bin in RT700_WOLFBOOT_DIR=$wolfboot_dir is missing or was built from another wolfBoot ref or lifecycle patch; rebuild it there or unset it"
-  fi
-  stage "build wolfBoot $WOLFBOOT_REF (imx-rt700-tz, emulator link offset)"
-  rm -rf "$wolfboot_dir"
-  git clone --no-checkout https://github.com/wolfSSL/wolfBoot.git "$wolfboot_dir"
-  git -C "$wolfboot_dir" fetch --depth 1 origin "$WOLFBOOT_REF"
-  git -C "$wolfboot_dir" checkout --detach "$WOLFBOOT_REF"
-  # The RT700 HAL reports no PSA lifecycle at WOLFBOOT_REF, which leaves the
-  # attestation service degraded; drop the patch once wolfBoot carries it.
-  git -C "$wolfboot_dir" apply "$here/wolfboot-imxrt700-lifecycle.patch"
-  git -C "$wolfboot_dir" submodule update --init --single-branch --depth 1
-  cp "$wolfboot_dir/config/examples/imx-rt700-tz.config" "$wolfboot_dir/.config"
-  # wolfBoot locates its key tools from the shell's working directory, so
-  # build from inside the tree. keygen writes src/keystore.c, which the loader
-  # links, so the key comes first: wolfboot.elf lists its objects before it.
-  (
-    cd "$wolfboot_dir"
-    make keytools
-    make -j1 wolfboot_signing_private_key.der
-    make -j1 ARCH_FLASH_OFFSET=0x28000000 BOOTLOADER_PARTITION_SIZE=0x40000 \
-         wolfboot.bin
-  )
-  printf '%s\n' "$wolfboot_stamp" > "$wolfboot_dir/.wt_first_stage"
+set -- ARCH_FLASH_OFFSET=0x28000000 BOOTLOADER_PARTITION_SIZE=0x40000 \
+    "CFLAGS_EXTRA=$fence_cflags"
+if [ -n "${RT700_WOLFBOOT_DIR:-}" ]; then
+  rt700_wolfboot_current "$wolfboot_dir" "$(rt700_wolfboot_stamp "$@")" || \
+    fail "wolfboot.bin in RT700_WOLFBOOT_DIR=$wolfboot_dir was not built from $RT700_WOLFBOOT_REF with this link offset, carried patches, and guest fence; rebuild it there or unset it"
+else
+  stage "wolfBoot $RT700_WOLFBOOT_REF (imx-rt700-tz, emulator link offset)"
+  rt700_wolfboot_build "$wolfboot_dir" "$@" || fail "wolfBoot build failed"
 fi
-[ -x "$wolfboot_dir/tools/keytools/sign" ] || fail "keytools missing in $wolfboot_dir"
-[ -s "$wolfboot_dir/wolfboot_signing_private_key.der" ] || \
-    fail "signing key missing in $wolfboot_dir"
 
 # --- wolfTrust and both guests, measurements pinned, signed for the boot
 #     partition: the same recipe run_rt700_hardware.sh flashes. ---
@@ -384,6 +394,24 @@ case "$scenario" in
     sau_refusals="$(grep -A1 -E -- "$refused" "$log" | grep -c "src=SAU" || true)"
     check "$([ "$sau_refusals" -eq 1 ]; echo $?)" \
         "the refusal came from the SAU"
+    ;;
+  wrpfence|wrpneg)
+    if [ "$scenario" = "wrpneg" ]; then
+        expect "the boot-root erase was refused" "xspi protect selftest PASS"
+        expect "an erase inside the guest fence was refused, block unchanged" \
+            "xspi guest fence selftest PASS"
+    fi
+    for guest in guest0 guest1; do
+        expect_n "$guest launched behind the armed guest fence" 1 \
+            "wolfTrust RT700 $guest: start"
+        expect_n "$guest reached the SPM and finished" 1 \
+            "wolfTrust RT700 $guest: FF-M connect ok, done"
+    done
+    expect_n "both guests reached the storage service" 2 ": storage connect ok"
+    ;;
+  wrpoff)
+    refute_re "no guest entered its domain without the guest fence" \
+        "wolfTrust RT700 guest[01]: start"
     ;;
   authneg)
     refute_re "the tampered guest0 never entered its domain" \

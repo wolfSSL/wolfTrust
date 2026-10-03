@@ -134,13 +134,51 @@ extern uint32_t _siramfunc[];
 extern uint32_t _sramfunc[];
 extern uint32_t _eramfunc[];
 
-/* The XSPI0 NOR has no hardware write-protect claim wired yet, so a guest
- * window is never reported as protected. */
+/* wolfBoot arms the XSPI SFP fence each boot and locks it until the next hard
+ * reset; this only trusts what the registers read back, never programs them. */
 int wt_platform_guest_flash_wrp_ok(uintptr_t window_base, size_t window_size)
 {
-    (void)window_base;
-    (void)window_size;
-    return WT_GUEST_VERIFY_ERROR_WRP;
+    wt_frad_region_t regions[WT_XSPI_FRAD_COUNT];
+    uint32_t mgc;
+    uint32_t mdad;
+    uint32_t word3;
+    uint32_t lock;
+    uint32_t i;
+    int ret = WT_GUEST_VERIFY_OK;
+
+    mgc = WT_XSPI0_MGC;
+    mdad = WT_XSPI0_TG0MDAD;
+    if ((mgc & (WT_XSPI_MGC_GVLD | WT_XSPI_MGC_GVLDFRAD |
+                WT_XSPI_MGC_GVLDMDAD)) !=
+            (WT_XSPI_MGC_GVLD | WT_XSPI_MGC_GVLDFRAD | WT_XSPI_MGC_GVLDMDAD) ||
+            (mgc & WT_XSPI_MGC_GCLCK) == 0u ||
+            (mdad & (WT_XSPI_TG0MDAD_VLD | WT_XSPI_TG0MDAD_LCK)) !=
+            (WT_XSPI_TG0MDAD_VLD | WT_XSPI_TG0MDAD_LCK)) {
+        ret = WT_GUEST_VERIFY_ERROR_WRP;
+    }
+
+    if (ret == WT_GUEST_VERIFY_OK) {
+        for (i = 0u; i < WT_XSPI_FRAD_COUNT; i++) {
+            word3 = WT_XSPI0_FRAD_WORD(i, 3u);
+            lock = word3 & WT_XSPI_FRAD_WORD3_LOCK;
+            regions[i].start = WT_XSPI0_FRAD_WORD(i, 0u) &
+                               WT_XSPI_FRAD_ADDR_MASK;
+            regions[i].end = (WT_XSPI0_FRAD_WORD(i, 1u) &
+                              WT_XSPI_FRAD_ADDR_MASK) |
+                             ~WT_XSPI_FRAD_ADDR_MASK;
+            regions[i].write_acp = WT_XSPI0_FRAD_WORD(i, 2u) &
+                                   WT_XSPI_FRAD_WORD2_ACP;
+            regions[i].valid = word3 & WT_XSPI_FRAD_WORD3_VLD;
+            regions[i].locked = ((lock == WT_XSPI_FRAD_LOCK_HARD ||
+                                  lock == WT_XSPI_FRAD_LOCK_FULL) &&
+                                 (word3 & WT_XSPI_FRAD_WORD3_EAL) == 0u) ?
+                                1u : 0u;
+        }
+        ret = wt_guest_flash_frad_covers(regions, WT_XSPI_FRAD_COUNT,
+                                         window_base, window_size);
+    }
+
+    return ret;
 }
 
 int wt_platform_priv_stack_ok(const void *stack, size_t size)

@@ -79,7 +79,7 @@ images.
 | Pointer substitution or overflow | The vector descriptor is copied once; counts, arithmetic, CMSE attributes, and active-guest windows are checked before copying bytes. |
 | Stale or stolen handles | Handle ownership, type, generation, and state transitions are checked by the SPM. |
 | Cross-guest RAM access | GTZC MPCBB attribution closes the full guest-RAM extent and reopens only the scheduled guest's writable SRAM blocks. Per-guest Non-secure MPU and interrupt state are restored scheduling policy, not adversarial boundaries against privileged guests. |
-| Inactive-guest flash modification | Signature-covered guest digests and runtime verification detect changes; hardened STM32H563 builds also require complete WRP coverage. |
+| Inactive-guest flash modification | Signature-covered guest digests and runtime verification detect changes; hardened builds also require complete hardware write protection (STM32H563 WRP, MIMXRT700 XSPI guest fence). |
 | Cross-guest key use | The SPM-stamped identity selects the native vault sub-owner; the hsm relay maps guest `N` to forced wolfHSM client ID `N + 1`. |
 | Direct NVM access through a crypto protocol | The native format exposes no general NVM operation; the hsm relay rejects wolfHSM NVM message groups. |
 | Storage object confusion | The vault namespaces objects by front-end partition, stamped client, and UID, and storage requests cannot use its reserved key-object type. |
@@ -95,8 +95,9 @@ images.
 ### WRP protects guest-flash integrity, not confidentiality
 
 `WT_GUEST_FLASH_WRP` defaults to `0` because the emulator
-does not implement STM32 flash option bytes. A production STM32H563 image must
-set it to `1` and must program WRP after guest flashing. Otherwise,
+does not implement STM32 flash option bytes. A production image must set it
+to `1`, and must program WRP after guest flashing on the STM32H563 or boot the
+fenced wolfBoot on the MIMXRT700. Otherwise,
 digest checks detect changes only when verification runs and do not themselves
 prevent a privileged Non-secure guest from rewriting flash between checks.
 Because both guest images share one Non-secure flash attribution window, a

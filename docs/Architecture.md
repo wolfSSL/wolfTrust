@@ -93,7 +93,8 @@ MPU isolates writable state, not code identity; this is an explicit difference
 from separately linked partition images.
 
 Both guest images share one Non-secure flash attribution window, so a privileged
-guest can read peer flash. WRP plus `WT_GUEST_FLASH_WRP=1` protects guest-flash
+guest can read peer flash. Hardware write protection (STM32 WRP or the
+MIMXRT700 guest fence) plus `WT_GUEST_FLASH_WRP=1` protects guest-flash
 integrity but not confidentiality. Peripheral and Non-secure NVIC attribution
 are deployment responsibilities; see [Threat Model](Threat-Model.md).
 

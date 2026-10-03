@@ -30,7 +30,7 @@ selected values into C preprocessor defines. Defaults below come from
 
 | Define | Description | Requirement |
 | --- | --- | --- |
-| `WT_GUEST_FLASH_WRP` | When `1`, verify full STM32 guest-window WRP coverage before launch; default `0`. | Set to `1` for the hardened STM32H563 image and provision WRP after flashing. M33MU does not model WRP. |
+| `WT_GUEST_FLASH_WRP` | When `1`, verify full hardware write protection of each guest window before launch (STM32 WRP groups, or MIMXRT700 locked XSPI flash region descriptors); default `0`. | Set to `1` for hardened images: provision STM32H563 WRP after flashing, or boot the MIMXRT700 fenced wolfBoot. M33MU models the MIMXRT700 descriptors but not STM32 WRP. |
 | `WT_ENGINE_HSM` | Legacy engine selector; unset by default. `0` maps to `WT_ENGINE=native` and `1` maps to `WT_ENGINE=hsm` when the public selector is not supplied. The build also derives this internal value from `WT_ENGINE`. | Prefer `WT_ENGINE` for new builds and do not supply conflicting selectors. The guest and Secure image must select the same engine. |
 | `WT_ATTEST_COSE` | Must remain `1` in the current STM32H563 reference build; default `1`. The `0` configuration does not compile because the reset path still references attestation-gated handoff variables. | Requires the wolfCOSE submodule and the configured attestation key backend. |
 | `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `1`. | Requires compatible Armv8-M assembly sources and toolchain. |

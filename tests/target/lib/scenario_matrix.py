@@ -117,6 +117,8 @@ PORTS = {
             ("spfaultneg panicneg", "RT700 SP fault and panic recovery"),
             ("fpneg", "RT700 FP isolation (partition FP faults, contained)"),
             ("sealbootneg", "RT700 damaged main-stack seal refuses to boot"),
+            ("wrpfence wrpoff wrpneg",
+             "RT700 XSPI guest fence: launches, refuses unfenced, blocks erase"),
             ("bothpsa bothiso", "RT700 both-guest PSA lifecycle and isolation"),
             ("attestneg fwustage",
              "RT700 attestation negatives and FWU staging"),

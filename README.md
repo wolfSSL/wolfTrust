@@ -169,8 +169,10 @@ documentation source:
 - [Porting](docs/Porting.md)
 - [Building](docs/Building.md)
 - [Testing](docs/Testing.md)
+- [Provisioning](docs/Provisioning.md)
 - [Project Structure](docs/Project-Structure.md)
 - [STM32H5 Guide](docs/STM32H5-Guide.md)
+- [MIMXRT700 Guide](docs/MIMXRT700-Guide.md)
 
 The source tree is authoritative:
 

@@ -21,7 +21,7 @@ include mk/common.mk
 
 .DEFAULT_GOAL := all
 
-.PHONY: all secure-image size-report test c99-check test-conformance test-target test-hardware fetch-psa-ff-tests \
+.PHONY: all secure-image size-report test test-provisioning c99-check test-conformance test-target test-hardware fetch-psa-ff-tests \
 		clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
@@ -41,6 +41,14 @@ all: $(ARCH_DEFAULT_GOALS)
 
 test:
 	@$(MAKE) --no-print-directory -C tests/host test
+	@$(MAKE) --no-print-directory test-provisioning
+
+# Production lock gates of both provisioning backends, against stub tools.
+test-provisioning:
+	@mkdir -p $(BUILD_DIR)
+	@tests/target/provisioning/test_provisioning_gates.sh > $(BUILD_DIR)/provisioning-gates.log 2>&1 \
+		|| { cat $(BUILD_DIR)/provisioning-gates.log; exit 1; }
+	@tail -1 $(BUILD_DIR)/provisioning-gates.log
 
 C99_CFLAGS := -std=c99 -pedantic-errors -Werror=vla \
 	-D_POSIX_C_SOURCE=200809L
@@ -83,13 +91,16 @@ else
 	fi
 endif
 
-# Real STM32H563 hardware equivalence suite: positive lifecycle + restart
-# recovery + cross-domain isolation on a Nucleo-H563ZI, the on-silicon
-# counterpart of test-target. Needs the ST-Link + board (detect_h5.sh) and a
-# container toolchain for the build (WT_H5_DOCKER_IMAGE); skips otherwise so it
-# never silently passes. HARDWARE evidence — recorded separately from emulator.
+# Real hardware suite, the on-silicon counterpart of test-target: STM32H563 on a
+# Nucleo-H563ZI (detect_h5.sh; container toolchain via WT_H5_DOCKER_IMAGE), or
+# TARGET=mimxrt700 on the EVK from its probe host (detect_rt700.sh). Skips
+# without a board so it never silently passes.
 test-hardware:
+ifeq ($(TARGET),mimxrt700)
+	@tests/target/run_rt700_suite.sh
+else
 	@tests/target/run_h5_suite.sh
+endif
 
 test-compilers:
 	@$(MAKE) --no-print-directory -C tests/host test-compilers

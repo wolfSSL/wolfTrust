@@ -124,6 +124,8 @@ void WolfTrust_FFM_Close(int32_t handle)
 }
 
 static uint32_t g_veneer_in_len_seen;
+static uint32_t g_veneer_in_count_seen;
+static uint32_t g_veneer_out_count_seen;
 
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
                            wt_ffm_veneer_iovec_t* iv)
@@ -133,6 +135,8 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
     psa_status_t st;
     uint32_t i;
 
+    g_veneer_in_count_seen = iv->in_count;
+    g_veneer_out_count_seen = iv->out_count;
     if (iv->in_count > WT_FFM_VENEER_IOVEC_MAX ||
             iv->out_count > WT_FFM_VENEER_IOVEC_MAX) {
         wt_ffm_call_refuse(wt_ffm_boot_runtime_mut(), TEST_NS_CLIENT, handle);
@@ -364,11 +368,13 @@ int main(void)
     g_veneer_in_len_seen = 0u;
     status = psa_call(handle, PSA_IPC_CALL, &in_vec,
                       (size_t)1u << 32 | 1u, &out_vec, 1U);
-    check(status == PSA_ERROR_PROGRAMMER_ERROR,
+    check(status == PSA_ERROR_PROGRAMMER_ERROR &&
+          g_veneer_in_count_seen == UINT32_MAX,
           "P7-S1 psa_call keeps a 2^32+1 invec count a PROGRAMMER_ERROR on LP64");
     status = psa_call(handle, PSA_IPC_CALL, &in_vec, 1U, &out_vec,
                       (size_t)1u << 32 | 1u);
-    check(status == PSA_ERROR_PROGRAMMER_ERROR,
+    check(status == PSA_ERROR_PROGRAMMER_ERROR &&
+          g_veneer_out_count_seen == UINT32_MAX,
           "P7-S1 psa_call keeps a 2^32+1 outvec count a PROGRAMMER_ERROR on LP64");
     check(g_veneer_in_len_seen == 0u,
           "P7-S1 an over-count never marshals a vector");

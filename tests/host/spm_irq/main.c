@@ -285,7 +285,7 @@ static void timer_owner_rows(void)
     check(wt_spm_twdog_arm(OWNER, OWNED_SPI, 5u) == 0, "the owner re-arms it");
     g_owned_by = NULL;
     g_partition_running = 1;
-    g_host_cntpct = 1001u;
+    g_host_cntpct = 2000u;
     g_pended = 0u;
     wt_spm_twdog_tick();
     check(g_pended == 0u,

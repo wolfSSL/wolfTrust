@@ -43,6 +43,9 @@ WT_L3_TOOL := python3 $(ROOT)/tools/aarch64_l3_layout.py \
     -DWT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL) \
     $(foreach v,$(WT_L3_OVERRIDABLE),$(if $(filter command \
     line,$(origin $(v))),-D$(v)=$($(v))u))
+# Every target fragment names its port; only the EL3 audit self-test loads
+# this fragment alone, with no port and no Secure image to place.
+ifneq ($(PORT_DIR),)
 WT_L3_LAYOUT := $(shell $(WT_L3_TOOL) --shell $(PORT_DIR)/memory_map.h)
 ifeq ($(strip $(WT_L3_LAYOUT)),)
 $(error cannot read the level 3 layout from $(PORT_DIR)/memory_map.h)
@@ -69,6 +72,7 @@ WT_L3_LDFLAGS := $(foreach v,WT_SPM_IMAGE_PA WT_SPM_IMAGE_SIZE \
 TARGET_CFLAGS += $(WT_L3_CFLAGS)
 TARGET_LDFLAGS += $(WT_L3_LDFLAGS)
 TARGET_EXTRA_SRCS += $(PORT_COMMON_DIR)/platform_l3.c
+endif
 
 WT_FP_NEG_PROBE ?= 0
 ifeq ($(WT_FP_NEG_PROBE),1)

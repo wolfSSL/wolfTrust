@@ -10,6 +10,7 @@ as a result from another.
 | --- | --- | --- |
 | Native host | State machines, manifests, IPC ownership, copied transfers, services, storage, crypto integration, recovery decisions, and negative inputs | Cortex-M exception return, CMSE, SAU, MPU, GTZC, or physical flash behavior |
 | M33MU | Cortex-M33 instruction flow, TrustZone transitions, CMSE gateway calls, MPU faults, guest scheduling, authenticated boot, and target service interactions | STM32H563 peripherals, real option bytes, WRP, ST-Link, or silicon timing |
+| QEMU AArch64 | EL3 monitor, Secure EL1 SPMC, S-EL0 partition isolation under stage-1 tables, GICv2 and GICv3 interrupt routing, FF-A calls from both worlds, and the Arm FF-M, dev_apis, and FF-A ACS suites | Cortex-A silicon, TZASC, XMPU or RISAF fencing, cache and TLB behavior that QEMU does not model, or wolfBoot on AArch64 |
 | STM32H563 | The actual NUCLEO-H563ZI boot chain, Secure/Non-secure attribution, faults, flash, UART, and selected end-to-end behavior | Other devices, other provisioning states, peer-flash confidentiality, or adversarial peripheral and Non-secure NVIC ownership |
 
 ## Host tests
@@ -31,7 +32,13 @@ verification, rollback decisions, IPC and FF-M behavior, SPM policy, gateway
 vectors, Secure Partition layout and recovery, crypto-engine relay and key
 isolation, vault and storage services, attestation and COSE integration,
 firmware update, runtime remeasurement, linked Secure layout, VNET, public PSA
-headers, boot-handoff record consumption, and negative paths.
+headers, boot-handoff record consumption, and negative paths. The AArch64
+suites cover the exception-syndrome decoder, the stage-1 table builder and
+domain switches, the FF-A function-id and version rules, the boot-information
+blob, the partition runtime state machine, memory transaction descriptors and
+fragments, notifications, the SPMD's Secure physical instance, the PSA FF-A
+transport, and each AArch64 port's isolation claim against its own manifests
+(an unfenced port claims no isolation level and refuses one).
 The attestation IAK suite runs wolfHSM NVM with both the default 8-byte and
 STM32H5 16-byte flash programming units.
 
@@ -69,7 +76,7 @@ are deleted instead of being reused by the next Make invocation.
 
 The per-PR core/port split workflow builds the `CONFIG_VNET=y` Secure image.
 The M33MU smoke tier builds and runs the `WT_CONFORMANCE=1` `confboot` layout
-on every PR; the VNET layout runs with the full matrix (`ci:h5` label, push
+on every PR; the VNET layout runs with the full matrix (`ci:stm32h563` label, push
 to main, nightly), so both optional isolation-band configurations stay under
 the linked-image check in CI.
 
@@ -348,6 +355,86 @@ the run.
 These are emulator results. They prove the SAU attribution and the monitor's
 containment on a faithful core model; the silicon `ahbscneg` run on the EVK is
 recorded separately.
+## QEMU AArch64 scenarios
+
+The AArch64 twin of the M33MU runner boots the EL3 monitor, the Secure EL1
+SPMC, and a Normal-world payload under `qemu-system-aarch64` on three cells:
+`virt` (`secure=on`) with GICv3 and a Cortex-A72, `virt` with GICv2 and a
+Cortex-A35, and `xlnx-versal-virt`:
+
+```sh
+make test-target-a                     # MACHINE=virt GIC=3 CPU=cortex-a72
+make test-target-a MACHINE=versal-virt
+tests/target/run_suite.sh qemu-a positive ffa-memneg
+WT_ENGINE=hsm tests/target/run_qemu_a_scenario.sh hsmattackneg
+```
+
+`make test-target-a` runs a quick subset (`WT_QEMU_A_SCENARIOS`); CI runs
+every scenario below on the three cells under both engines.
+
+The runner auto-detects `qemu-system-aarch64` and the `aarch64-none-elf`
+toolchain and skips explicitly otherwise; CI runs it inside
+`ghcr.io/wolfssl/wolfboot-ci-aarch64`. `WT_ENGINE` (default `native`)
+selects the crypto engine of the SPMC image and the Normal-world client, as
+on M33MU. Both emulator runners share `tests/target/run_suite.sh` (the
+per-scenario report, `SKIP` lines, and `logs/target-<scenario>.log`) and
+assert through `tests/target/lib/expect.sh`.
+
+| Scenario | What it proves |
+| --- | --- |
+| `smoke` | A standalone EL3 image runs wolfTrust-built code at EL3, prints on the secure console, and parks the secondary cores |
+| `boot` | The monitor initializes the GIC, takes the secure tick as a Group 0 FIQ, builds the FF-A boot-information blob, and enters the SPMC, which reads `SMCCC_VERSION` and `SMCCC_ARCH_FEATURES` from the monitor, turns on its stage-1 MMU, runs S-EL0 partitions through the SVC gate, and completes initialization with `FFA_MSG_WAIT` |
+| `boot-smp2` | The same image on two `virt` cores: the secondary parks at EL3 and exactly one core runs the monitor |
+| `parkneg`, `rdistneg`, `tickneg` | The monitor stops the boot with a panic, before it enters Secure EL1, when a declared secondary never parks, the GICv3 redistributor reads asleep (SKIP on GICv2), or the secure tick never reaches EL3 |
+| `positive-secure` | The neutral core boots at Secure EL1 and every Secure Partition initializes at Secure EL0 under its own translation table |
+| `positive` | The Normal-world guest discovers the partitions, reads framework and service versions, is refused an unknown service, and completes a data-carrying `psa_call` through the FF-M gateway: a wolfHSM echo under `hsm`, two random draws over the native wire under `native` |
+| `guest1` | SKIP: the AArch64 ports run a single Normal-world endpoint (`0x0000`), so the second-guest identity path has no AArch64 counterpart; M33MU covers it |
+| `crossdomain`, `keystoreneg`, `periphspneg` | A partition reading outside its domain, a non-keystore partition reading the keystore band, or a partition reading the SPM's secure UART takes a data abort at S-EL0, spends its restart budget, and escalates to fail-closed recovery |
+| `bandneg1` to `bandneg6` | Each of the vault, attestation, and crypto partitions reads and then writes another one's private band at boot; both accesses take a data abort at S-EL0 on that band, and every partition still initializes |
+| `restartneg1` to `restartneg3` | The crypto, attestation, or vault partition plants state in its private band and faults once; the restarted instance finds the band back at its link-time image, and every partition still initializes |
+| `spfaultneg`, `panicneg` | A partition that faults once, or is panicked for a programmer error, is restarted by manifest policy and every partition still initializes |
+| `svcneg` | A service partition that issues the SPMC's own yield SVC is a programmer error: it is panicked and restarted, and every partition still initializes |
+| `fpneg` | A partition's FP instruction traps at S-EL0 (FP is disabled for partitions), the fault is contained, and the partition restarts |
+| `mspovfneg` | The SPMC overflows its own stack into the unmapped guard page below it; the abort at S-EL1 panics fail-closed before any partition starts |
+| `xnneg` | From a partition's SVC the SPMC branches into code it wrote into SPM RAM; the execute-never fetch aborts at S-EL1 and panics fail-closed |
+| `spbudgetneg` | A partition that faults on every entry exhausts its restart budget and escalates to fail-closed recovery |
+| `tablesneg` | The stage-1 table builder refuses a writable and executable region and the SPMC panics before its MMU is on |
+| `proofneg` | A boot self-test forced to fail stops the SPMC with its panic before any partition starts |
+| `manifestneg`, `manifestneg2`, `manifestneg3` | A corrupted manifest, a manifest that declares isolation level 2, or a vault table granted part of the crypto partition's band stops the boot with the manifest-validation panic code |
+| `ffa-direct` | A direct request from the monitor's test driver reaches an S-EL0 echo partition and returns complemented |
+| `ffa-sint` | A Secure interrupt is signaled to its owning partition while it waits and queued while it runs |
+| `ns-smoke`, `ffa-discovery` | The Normal-world payload runs at NS-EL1, negotiates FF-A 1.2 with the SPMD, and discovers the partitions through the SPMC |
+| `ffa-guest-direct` | A Normal-world direct request reaches a Secure partition and echoes back, a refused `FFA_MSG_SEND_DIRECT_REQ2` returns `x8`-`x17` zero, and a request a Normal-world interrupt preempts is resumed by `FFA_RUN` with the id `FFA_INTERRUPT` named |
+| `psci` | The Normal world reads `ICC_SRE_EL1` with SRE set under a GICv3, checks the mandatory PSCI 1.1 calls as a boot-core-only system sees them (`CPU_ON`, `CPU_OFF`, `AFFINITY_INFO`, `CPU_SUSPEND`, `MIGRATE` and the migrate queries, `PSCI_FEATURES`; each SMC64 error compared across all of `x0`, so it must be sign-extended; on `virt` a second core parks beside it and is not a valid `CPU_ON`, `AFFINITY_INFO`, or `MIGRATE` target), `SMCCC_VERSION` 1.2 with `SMCCC_ARCH_FEATURES` and `x4`-`x7` preserved across a PSCI call answered alone and one sent to the SPMC, and powers off through the SPMD; the SPMC is told of `CPU_OFF` (it denies) and `SYSTEM_OFF` (it grants), and never of the invalid `CPU_SUSPEND` |
+| `ffa-preempt` | A core-standby `CPU_SUSPEND`, granted by the SPMC's answer to its power message, wakes on the Secure tick, the tick preempts the Normal world at EL3, the SPMC services it, and the Normal world resumes |
+| `resetneg` | A Normal-world `SYSTEM_RESET`, granted by the SPMC's answer to its power message, reboots the chain once and the second reset ends the run; both boots count every parked secondary (two cores on `virt`). The reset is a cold one on both machines: a UART register the first boot marked reads its reset value again. `virt` resets through its Secure GPIO and ends at the monitor's reset limit; `xlnx-versal-virt`, which models no reset controller, is powered off by the monitor and on again by the runner once, and ends at the runner's power-cycle limit |
+| `secramneg`, `periphneg` | A Normal-world read of Secure RAM, or of the SPM's secure UART, is refused (SKIP on `xlnx-versal-virt`, whose model has no XMPU, RISAF, or XPPU, so that port claims no isolation level) |
+| `psci-el2` | The `psci` checks from a Normal world entered at NS-EL2, which then clears `HCR_EL2.RW` and runs an AArch32 EL1 caller: its SMC32 `PSCI_VERSION` and a count-only `FFA_PARTITION_INFO_GET` forwarded to the SPMC return to AArch32, and an SMC64 id answers `-1` |
+| `el2dirtyneg` | The `psci` checks on a monitor that starts on EL2 state an earlier stage left dirty (SMC trapped, a foreign virtual MPIDR, `ICC_SRE_EL2` clear), and under a GICv3 with every SPI's `GICD_IROUTER` naming a PE that does not exist: the Secure SPI the SPMC enables still reaches it; `virt` turns EL2 on for it |
+| `smcfuzz` | Every unimplemented SMC function id from the Normal world is refused cleanly (`-1` sign-extended through all of `x0` for an SMC64 id), and an SMC32 call with junk in its upper register halves is read as `w1`-`w7` |
+| `ffa-memneg` | Malformed memory transactions from the Normal world are refused, as is a share sent before an RX/TX pair is mapped or naming a dynamically allocated buffer; a reclaimed handle is dead, and a share sent in two fragments completes under the handle its first fragment reserved |
+| `hsmattackneg` | Under `hsm`, a forged wolfHSM client id cannot reach the attestation key and an NVM-group request never reaches the server; SKIP under `native`, which links no wolfHSM wire |
+| `hsmpinneg` | Under `hsm`, the relay forges its wolfHSM server pointers into SPM RAM before every pin and the `positive` flow still completes, so the relay re-pins them; SKIP under `native` |
+| `attestneg` | Oversized challenges, empty token buffers, misattributed lifecycles, and tampered tokens are rejected; an untampered token verifies in the guest |
+| `vaultrecover`, `vaultrecoversec` | A foreign vault self-heals under an unlocked lifecycle and is refused, failing closed, under a locked one, where the guest's attestation key query is refused as a reformatted vault would not refuse it |
+| `storage` | The Normal world round-trips Internal Trusted Storage through the vault partition |
+| `confboot` | The Arm FF-M IPC suite from the Normal world: 85 passed and 4 skipped on the `virt` cells; 78 and 4 on `xlnx-versal-virt`, where the seven Normal-world fence tests cannot fault without an XMPU model |
+| `devstorage`, `devattest`, `devcrypto` | The Arm dev_apis storage, attestation, and crypto suites from the Normal world over FF-A; the crypto suite (and `vaultrecover`) must total exactly 64 passed and 13 skipped, so a newly skipped test fails the run |
+| `ffaacs-discovery`, `ffaacs-direct`, `ffaacs-memory`, `ffaacs-notify`, `ffaacs-indirect`, `ffaacs-interrupts` | One Arm FF-A ACS test group each, asserted at a floor with no SIM ERROR; see [FF-A Compatibility](FF-A-Compatibility.md) for the counts and by-design deviations |
+
+Beyond the board-specific (`gtzcneg`, `revneg`, `ahbscneg`), VNET (`vnet`,
+`vnetneg`), and wolfBoot update (`bootupdate`, `fwustage`) scenarios, these
+M33MU scenarios have no AArch64 twin:
+
+- `restart`, `hsmfaultneg`, `authneg`, `remeasureneg`, `bothiso`, and
+  `bothpsa` need managed Normal-world guests; the AArch64 ports run one
+  unmanaged Normal-world endpoint, and its HSM tasklet lives in the SPMC.
+- `rollbackneg` needs a version floor that survives a reset; the QEMU ports
+  keep NVM in RAM.
+- `deputyneg` has no privileged flash deputy to test; the vault's NVM sits in
+  its own band.
+- `sealneg`, `sealbootneg`, `sealhaltneg`, and `sealpivotneg` test the
+  Armv8-M stack seals.
 
 ## STM32H563 hardware
 
@@ -441,6 +528,9 @@ The workflows under `.github/workflows/` separately run:
 - host unit tests;
 - compiler variants, sanitizers, and Valgrind;
 - Cortex-M33 cross-compilation of both crypto engines;
+- AArch64 cross-compilation with the EL3 symbol guard at link, every QEMU
+  AArch64 scenario, and the FF-A ACS groups on the three QEMU cells (`virt`
+  GICv2 and GICv3, `xlnx-versal-virt`);
 - dependency integration;
 - the core/port split guard and the docs guard (no internal-ledger or
   home-directory references in the published docs);
@@ -450,8 +540,9 @@ The workflows under `.github/workflows/` separately run:
 
 ### Trigger routing
 
-The host, compiler, sanitizer, Valgrind, cross-compilation, integration, and
-core/port split checks run on every pull request, including drafts. The fuzz
+The host, compiler, sanitizer, Valgrind, cross-compilation (Cortex-M33 and
+AArch64), integration, and core/port split checks run on every pull request,
+including drafts. The fuzz
 target also runs on pull requests as a 60-second libFuzzer smoke pass; the
 nightly schedule and manual dispatch run the 600-second soak instead.
 
@@ -464,7 +555,7 @@ each port's smoke tier on both crypto engines (STM32H563: `positive`,
 The full matrix runs on a
 push to `main`, on the nightly schedule, on
 manual dispatch (with a `port` input), and on a pull request that carries the
-`ci:h5`, `ci:rt700`, or `ci:all` label. The scenario groups per port and tier
+`ci:stm32h563`, `ci:imxrt700`, or `ci:all` label. The scenario groups per port and tier
 are in `tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>`
 runs the same smoke tier locally and `WT_TIER=full` every scenario.
 

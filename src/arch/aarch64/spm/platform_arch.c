@@ -1,0 +1,340 @@
+/* platform_arch.c
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* The wt_arch_* contract at S-EL1 minus the domain ops (domain.c): the
+ * Secure-side operations are real, the Non-secure ones fail closed until
+ * the NS gateway lands. */
+
+#include "wolftrust/arch/aarch64/context.h"
+#include "wolftrust/arch/aarch64/el3.h"
+#include "wolftrust/arch/aarch64/gic.h"
+#include "wolftrust/arch/aarch64/psa_ffa.h"
+#include "wolftrust/arch/aarch64/spm_mem.h"
+#include "wolftrust/arch/aarch64/spm_svc.h"
+#include "wolftrust/arch.h"
+#include "wolftrust/irq_claim.h"
+#include "wolftrust/platform.h"
+#include "memory_map.h"
+
+#include <stddef.h>
+#include <stdint.h>
+#include <string.h>
+
+volatile uint32_t g_wt_spm_handler_depth;
+volatile uint64_t g_wt_spm_trap_spsr;
+
+void wt_arch_init(void)
+{
+}
+
+void wt_arch_start_secure_timer(uint32_t timeslice_ms)
+{
+    wt_el3_timer_arm_ms(timeslice_ms);
+}
+
+void wt_arch_mask_all_guest_irqs(void)
+{
+}
+
+void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask)
+{
+    (void)mask;
+}
+
+void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* allowed_mask)
+{
+    (void)allowed_mask;
+}
+
+void wt_arch_program_guest_domain(const wt_memory_region_t* regions,
+                                  size_t count)
+{
+    (void)regions;
+    (void)count;
+}
+
+void wt_arch_guest_context_prepare(wt_guest_id_t guest_id,
+                                   const wt_guest_context_t* context)
+{
+    (void)guest_id;
+    (void)context;
+}
+
+void wt_arch_guest_context_capture(wt_guest_context_t* context,
+                                   const wt_trap_frame_t* frame)
+{
+    unsigned int i;
+
+    if (context == NULL || frame == NULL) {
+        return;
+    }
+    for (i = 0u; i < 31u; i++) {
+        context->x[i] = frame->x[i];
+    }
+    context->sp_el0 = frame->sp_el0;
+    context->elr = frame->elr;
+    context->spsr = frame->spsr;
+    context->pc = (uintptr_t)frame->elr;
+    context->frame_stacked = true;
+}
+
+/* No Normal world yet: dispatching a guest means handing the CPU back to
+ * the SPMD and waiting for FF-A events. */
+void wt_arch_guest_context_restore(wt_guest_context_t* context)
+{
+    (void)context;
+    wt_spm_init_partitions();
+    wt_spm_idle();
+}
+
+bool wt_arch_guest_context_ready(const wt_guest_context_t* context)
+{
+    return (context != NULL) && (context->pc != 0u);
+}
+
+uintptr_t wt_arch_trap_pc(const wt_trap_frame_t* frame)
+{
+    return (frame != NULL) ? (uintptr_t)frame->elr : 0u;
+}
+
+uint32_t wt_arch_active_guest_id(void)
+{
+    return 0u;
+}
+
+void wt_arch_zero_guest_memory(uintptr_t base, size_t size)
+{
+    if (base != 0u && size != 0u) {
+        (void)memset((void*)base, 0, size);
+    }
+}
+
+extern uint8_t _si_vault[], _s_vault[], _e_vault_data[];
+extern uint8_t _si_attest[], _s_attest[], _e_attest_data[];
+extern uint8_t _si_hsm[], _s_hsm[], _e_hsm_data[];
+
+/* A keystore band returns to its link-time image: zeroed, then its .data
+ * reloaded; any other band has no load image and only zeroes. */
+void wt_arch_sp_band_reset(uintptr_t base, size_t size)
+{
+    static uint8_t* const bands[][3] = {
+        { _si_vault, _s_vault, _e_vault_data },
+        { _si_attest, _s_attest, _e_attest_data },
+        { _si_hsm, _s_hsm, _e_hsm_data },
+    };
+    size_t i;
+
+    wt_arch_zero_guest_memory(base, size);
+    for (i = 0u; i < sizeof(bands) / sizeof(bands[0]); i++) {
+        if ((uintptr_t)bands[i][1] == base &&
+            (size_t)(bands[i][2] - bands[i][1]) <= size) {
+            (void)memcpy(bands[i][1], bands[i][0],
+                         (size_t)(bands[i][2] - bands[i][1]));
+        }
+    }
+}
+
+int wt_arch_range_is_mmio(uintptr_t base, size_t size)
+{
+    static const uint64_t windows[][2] = WT_PORT_MMIO_WINDOWS;
+    uint64_t end = (uint64_t)base + (uint64_t)size;
+    size_t i;
+
+    if (size == 0u || end < (uint64_t)base) {
+        return 1;
+    }
+    for (i = 0u; i < sizeof(windows) / sizeof(windows[0]); i++) {
+        if ((uint64_t)base < windows[i][1] && windows[i][0] < end) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void wt_arch_restore_guest_bank(const wt_guest_context_t* context)
+{
+    (void)context;
+}
+
+bool wt_arch_in_handler_mode(void)
+{
+    return g_wt_spm_handler_depth != 0u;
+}
+
+bool wt_arch_trap_from_guest_thread(void)
+{
+    return false;
+}
+
+bool wt_arch_trap_from_secure_thread(void)
+{
+    return (g_wt_spm_handler_depth != 0u) &&
+           ((g_wt_spm_trap_spsr & 0xFu) == 0u);
+}
+
+void wt_arch_return_to_secure_thread(void (*entry)(void)
+                                     __attribute__((noreturn)))
+{
+    (void)entry;
+    wt_platform_panic();
+}
+
+uintptr_t wt_arch_read_fault_address(void)
+{
+    uint64_t far;
+
+    __asm__ volatile("mrs %0, FAR_EL1" : "=r"(far));
+    return (uintptr_t)far;
+}
+
+/* A partition's manifest interrupt is a Secure (Group 0) source: the GIC
+ * leaves SPIs Non-secure by default, and a Group 1 line would sit pending
+ * behind the partition's masked IRQ instead of arriving as the FIQ that
+ * asserts its signal. */
+void wt_arch_secure_irq_enable(uint32_t irq)
+{
+    wt_gic->set_group0(irq);
+    wt_gic->set_priority(irq, 0x00u);
+    wt_gic->enable(irq);
+}
+
+void wt_arch_secure_irq_disable(uint32_t irq)
+{
+    wt_gic->disable(irq);
+}
+
+/* wt_irq_claim hands over one line at a time as a word and a one-bit mask. */
+static uint32_t gic_claim_intid(uint32_t word, uint32_t mask)
+{
+    return word * 32u + (uint32_t)__builtin_ctz(mask);
+}
+
+static void gic_claim_disable(uint32_t word, uint32_t mask)
+{
+    wt_gic->disable(gic_claim_intid(word, mask));
+}
+
+static void gic_claim_clear_pending(uint32_t word, uint32_t mask)
+{
+    wt_gic->clear_pending(gic_claim_intid(word, mask));
+}
+
+static void gic_claim_route_secure(uint32_t word, uint32_t mask)
+{
+    wt_gic->set_group0(gic_claim_intid(word, mask));
+}
+
+static uint32_t gic_claim_enabled(uint32_t word)
+{
+    return wt_gic->enabled_word(word);
+}
+
+static uint32_t gic_claim_not_group0(uint32_t word)
+{
+    return wt_gic->not_group0_word(word);
+}
+
+static void gic_claim_barrier(void)
+{
+    __asm__ volatile("dsb sy\n\tisb" ::: "memory");
+}
+
+static const wt_nvic_ops_t g_wt_gic_claim_ops = {
+    gic_claim_disable,
+    gic_claim_clear_pending,
+    gic_claim_route_secure,
+    gic_claim_enabled,
+    gic_claim_not_group0,
+    gic_claim_barrier
+};
+
+/* SPIs only: SGIs and PPIs are banked per PE and never a partition's line. */
+int wt_arch_secure_irq_claim(uint32_t irq)
+{
+    if (irq < 32u || irq >= WT_GIC_INTID_LIMIT) {
+        return -1;
+    }
+    return wt_irq_claim(&g_wt_gic_claim_ops, irq, wt_gic->line_count() / 32u);
+}
+
+void wt_arch_route_irq_to_guest(uint32_t irq)
+{
+    (void)irq;
+}
+
+void wt_arch_set_guest_irq_pending(uint32_t irq, bool asserted)
+{
+    (void)irq;
+    (void)asserted;
+}
+
+void wt_arch_dmb(void)
+{
+    __asm__ volatile("dmb sy" ::: "memory");
+}
+
+void wt_arch_dsb(void)
+{
+    __asm__ volatile("dsb sy" ::: "memory");
+}
+
+uintptr_t wt_arch_sp_stack_pointer(void)
+{
+    uint64_t sp;
+
+    __asm__ volatile("mrs %0, SP_EL0" : "=r"(sp));
+    return (uintptr_t)sp;
+}
+
+void wt_arch_sp_redirect_to_panic_trap(wt_trap_frame_t* frame)
+{
+    if (frame != NULL) {
+        frame->elr = (uint64_t)(uintptr_t)&wt_spm_sp_panic_trap;
+    }
+}
+
+void wt_arch_assert_privileged_thread(void)
+{
+}
+
+/* The Normal-world client's memory is reachable only through the Non-secure
+ * window the SPMC maps EL1-only (wt_spm_psa_init); every vector a guest hands
+ * the FF-M gateway must lie inside it, in memory the guest has not since lent
+ * or donated away, and only the primary guest exists. */
+int wt_arch_ns_check_read(wt_guest_id_t guest_id, const void* address,
+                          size_t size)
+{
+    return (guest_id == (wt_guest_id_t)0) &&
+           wt_spm_ns_window_ok((uintptr_t)address, size) &&
+           wt_spm_mem_ns_access((uint64_t)(uintptr_t)address, (uint64_t)size, 0);
+}
+
+int wt_arch_ns_check_write(wt_guest_id_t guest_id, void* address, size_t size)
+{
+    return (guest_id == (wt_guest_id_t)0) &&
+           wt_spm_ns_window_ok((uintptr_t)address, size) &&
+           wt_spm_mem_ns_access((uint64_t)(uintptr_t)address, (uint64_t)size, 1);
+}
+
+int wt_arch_ns_check_writable(const void* address, size_t size)
+{
+    return wt_spm_ns_window_ok((uintptr_t)address, size) &&
+           wt_spm_mem_ns_access((uint64_t)(uintptr_t)address, (uint64_t)size, 1);
+}

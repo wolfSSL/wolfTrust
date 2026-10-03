@@ -1,0 +1,14 @@
+diff --git a/platform/driver/src/gic/pal_arm_gic_v2v3.c b/platform/driver/src/gic/pal_arm_gic_v2v3.c
+index 78b45d3..2353cb4 100644
+--- a/platform/driver/src/gic/pal_arm_gic_v2v3.c
++++ b/platform/driver/src/gic/pal_arm_gic_v2v3.c
+@@ -194,6 +194,9 @@ void arm_gic_init(uintptr_t gicc_base,
+     } else {
+         gicv2_init(gicc_base, gicd_base);
+         PAL_LOG(INFO, "GICv2 mode detected");
++        arm_gic_setup_global();
++        arm_gic_setup_local();
++        PAL_LOG(INFO, "GICv2 local and global initialisation done");
+     }
+ 
+ }

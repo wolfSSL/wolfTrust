@@ -1,0 +1,13 @@
+diff --git a/test/v1.1/interrupts/sp_el0_blocked/sp_el0_blocked_server.c b/test/v1.1/interrupts/sp_el0_blocked/sp_el0_blocked_server.c
+index cce88d3..e567188 100644
+--- a/test/v1.1/interrupts/sp_el0_blocked/sp_el0_blocked_server.c
++++ b/test/v1.1/interrupts/sp_el0_blocked/sp_el0_blocked_server.c
+@@ -33,7 +33,7 @@ static uint32_t sp_el0_server_interrupt(ffa_args_t args)
+     uint32_t test_run_data = (uint32_t)args.arg3;
+ 
+     test_run_data = TEST_RUN_DATA(GET_TEST_NUM((uint32_t)test_run_data),
+-     (uint32_t)sender, (uint32_t)receiver_1, GET_TEST_TYPE((uint32_t)test_run_data));
++     SP1, SP2, GET_TEST_TYPE((uint32_t)test_run_data));
+ 
+     mb_buf_t mb;
+     uint64_t size = 0x1000;

@@ -1,0 +1,113 @@
+name: AArch64 cross compilation
+
+on:
+  # Pull requests run the AArch64 smoke tier; the ci:all, ci:aarch64,
+  # ci:qemu-virt, and ci:qemu-versal labels, pushes to main, the nightly
+  # schedule (workflow_call from nightly.yml), and manual dispatch run the full
+  # cell matrix and the FF-A ACS.
+  pull_request:
+    types: [opened, synchronize, reopened, labeled]
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      cell:
+        description: AArch64 cell or family whose full matrix to run
+        type: choice
+        options: [all, qemu-virt, qemu-versal, virt-gicv2-a35, virt-gicv3-a72, versal-virt]
+        default: all
+  workflow_call:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Label-selected the same way m33mu.yml is: one select job reads the ci:*
+  # labels (ci:qemu-virt or ci:qemu-versal for a family's full matrix, ci:all
+  # or ci:aarch64 for every cell, no label for the smoke tier), the event, and
+  # the dispatch input, then one matrix job runs exactly those cells.
+  select:
+    name: qemu_a_select
+    runs-on: ubuntu-latest
+    outputs:
+      matrix: ${{ steps.p.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: p
+        env:
+          PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
+          CELL_INPUT: ${{ inputs.cell }}
+        run: |
+          python3 tests/target/lib/scenario_matrix.py --selftest
+          matrix=$(python3 tests/target/lib/scenario_matrix.py --aarch64-plan)
+          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          printf '%s' "$matrix" | python3 -c 'import json, sys
+          for e in json.load(sys.stdin):
+              print(e["job"], "(" + e["engine"] + ")")'
+
+  qemu-a:
+    name: ${{ matrix.job }}
+    needs: select
+    runs-on: ubuntu-latest
+    # The serial suite takes 15-18 min per cell on the reference box; the
+    # per-scenario QEMU budgets are hang detectors, not expected runtimes.
+    timeout-minutes: 75
+    container:
+      image: ${{ matrix.image }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.select.outputs.matrix) }}
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
+      MACHINE: ${{ matrix.machine }}
+      GIC: ${{ matrix.gic }}
+      CPU: ${{ matrix.cpu }}
+      SMP: ${{ matrix.smp }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Initialize wolfTrust dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE lib/wolfPSA
+
+      - name: Toolchain and emulator versions
+        run: |
+          aarch64-none-elf-gcc --version | head -1
+          qemu-system-aarch64 --version | head -1
+
+      - name: Self-test the EL3 symbol guard and the expect library
+        if: matrix.kind == 'suite'
+        run: |
+          tools/check-el3-symbols.sh --selftest
+          tests/target/lib/expect.sh --selftest
+
+      - name: Cross-build the EL3 monitor image (the symbol guard runs at link)
+        if: matrix.kind == 'suite'
+        run: make ARCH=aarch64 TARGET=${{ matrix.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" BUILD_DIR=build-aarch64-guard el3-image
+
+      - name: Fetch the pinned Arm FF-A ACS once for the six groups
+        if: matrix.kind == 'acs'
+        run: |
+          tests/upstream/fetch_ffa_acs.sh "$GITHUB_WORKSPACE/.acs-cache"
+          echo "WT_FFA_ACS_CACHE=$GITHUB_WORKSPACE/.acs-cache" >> "$GITHUB_ENV"
+
+      - name: Run the AArch64 scenarios
+        run: tests/target/run_suite.sh qemu-a ${{ matrix.scenarios }}
+
+      - name: Show the boot logs
+        if: always()
+        run: |
+          for f in logs/target-*.log; do
+            echo "== $f"
+            cat "$f" || true
+          done

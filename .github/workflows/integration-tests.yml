@@ -22,7 +22,7 @@ jobs:
   wolfcose:
     name: wolfcose_integration_${{ matrix.name }}
     needs: resolve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container:
       image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd
     timeout-minutes: 30
@@ -69,7 +69,7 @@ jobs:
   wolfpsa:
     name: wolfpsa_integration_${{ matrix.name }}
     needs: resolve
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container:
       image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd
     timeout-minutes: 30

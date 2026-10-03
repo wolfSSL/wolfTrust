@@ -406,13 +406,14 @@ void wt_spm_set_hsm_partition(int32_t partition_id)
  * asserted suspends the coroutine; the SP-side transport re-issues the trap
  * on wake. Returns the gate-level status the decoder hands back to the SP. */
 static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
-                                wt_trap_frame_t* frame);
+                                wt_trap_frame_t* frame, int* block);
 
 int wt_spm_dispatch_call(wt_spm_call_t* call, wt_trap_frame_t* frame)
 {
     wt_spm_call_t held;
     wt_spm_sp_t* slot;
     int status;
+    int block = 0;
 
     slot = wt_spm_slot_for_current();
     if (g_spm_svc_runtime == NULL || slot == NULL ||
@@ -433,13 +434,18 @@ int wt_spm_dispatch_call(wt_spm_call_t* call, wt_trap_frame_t* frame)
     /* The block lives in the partition's memory: read it once, so every
      * privileged check and use below sees the same request. */
     (void)memcpy(&held, call, sizeof(held));
-    status = wt_spm_dispatch_held(slot, &held, frame);
+    status = wt_spm_dispatch_held(slot, &held, frame, &block);
     (void)memcpy(call, &held, sizeof(held));
+    /* Block only once the reply is in the partition's block: an AArch64
+     * switch is immediate and never returns to finish the copy-back. */
+    if (block != 0) {
+        wt_co_block();
+    }
     return status;
 }
 
 static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
-                                wt_trap_frame_t* frame)
+                                wt_trap_frame_t* frame, int* block)
 {
     const wt_scheduler_state_t* sched;
     int status;
@@ -451,6 +457,11 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
     call->ret_tick = (sched != NULL) ? sched->monotonic_ticks : 0u;
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    if ((call->op == WT_SPM_OP_CONF_NVM_SYNC ||
+            call->op == WT_SPM_OP_CONF_IRQ_SET) &&
+            slot->partition_id != DRIVER_PARTITION_ID) {
+        return WT_FFM_ERROR_ARGUMENT;
+    }
     /* Platform NVM service (P5 K2): the unprivileged DRIVER partition cannot
      * touch the flash controller, so it traps its shadow buffer here for the
      * privileged sync. Validate the buffer inside the caller's domain (written
@@ -637,7 +648,7 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
                      * and report retry; the release hands the mutex over
                      * before waking, so the re-issue observes ownership. */
                     slot->wait_kind = WT_SPM_WAIT_LOCK;
-                    wt_co_block();
+                    *block = 1;
                 }
                 else if (ks_ret == 0) {
                     slot->wait_kind = WT_SPM_WAIT_NONE;
@@ -769,7 +780,7 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
             slot->wait_kind = WT_SPM_WAIT_MSG;
             slot->wait_msg = call->pending_msg;
         }
-        wt_co_block();
+        *block = 1;
     }
     return status;
 }
@@ -1202,6 +1213,11 @@ int wt_spm_partition_memory_ok(int32_t partition_id, const void* address,
         }
     }
     return 0;
+}
+
+int wt_spm_sched_current_is_partition(void)
+{
+    return (wt_spm_slot_for_current() != NULL) ? 1 : 0;
 }
 
 int wt_spm_sched_validate(void)

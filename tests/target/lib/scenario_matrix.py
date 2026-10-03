@@ -25,7 +25,7 @@ reads the whole run with --ci-plan (the event, the PR labels, and the dispatch
 input pick each port's tier), and `make test-target` reads one port's
 scenario list with --flat, so a scenario is registered in exactly one place.
 
-    GITHUB_EVENT_NAME=pull_request PR_LABELS="ci:rt700" scenario_matrix.py --ci-plan
+    GITHUB_EVENT_NAME=pull_request PR_LABELS="ci:imxrt700" scenario_matrix.py --ci-plan
     scenario_matrix.py --port mimxrt700 --tier smoke --json
     scenario_matrix.py --port stm32h563 --tier full --engine native --flat
 """
@@ -46,7 +46,7 @@ HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
 # tier, packed so each job builds the emulator and wolfBoot once.
 PORTS = {
     "stm32h563": {
-        "label": "ci:h5",
+        "label": "ci:stm32h563",
         "arm": "m33mu",
         "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15",
         "smoke": ("positive", "gtzcneg", "crossdomain", "bothpsa", "confboot",
@@ -102,7 +102,7 @@ PORTS = {
         ),
     },
     "mimxrt700": {
-        "label": "ci:rt700",
+        "label": "ci:imxrt700",
         "arm": "rt700-m33mu",
         "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25",
         "smoke": ("positive", "ahbscneg", "crossdomain", "bothpsa", "confboot",
@@ -130,6 +130,122 @@ PORTS = {
         ),
     },
 }
+
+# The AArch64 QEMU lane. Each cell is one qemu-system-aarch64 job; a job runs
+# the suite scenarios or the FF-A ACS groups on one crypto engine. family gates
+# the ci:qemu-virt and ci:qemu-versal labels; ci:aarch64 and ci:all run every
+# cell. The runner self-skips a scenario a cell or engine does not support, so
+# one list serves every cell.
+QEMU_A_IMAGE = "ghcr.io/wolfssl/wolfboot-ci-aarch64:v1.15"
+
+QEMU_A_FAMILIES = {"qemu-virt": "ci:qemu-virt", "qemu-versal": "ci:qemu-versal"}
+
+QEMU_A_CELLS = (
+    {"name": "virt-gicv2-a35", "slug": "virt_gicv2_a35", "machine": "virt",
+     "target": "qemuvirt", "gic": 2, "cpu": "cortex-a35", "smp": 2,
+     "family": "qemu-virt"},
+    {"name": "virt-gicv3-a72", "slug": "virt_gicv3_a72", "machine": "virt",
+     "target": "qemuvirt", "gic": 3, "cpu": "cortex-a72", "smp": 2,
+     "family": "qemu-virt"},
+    {"name": "versal-virt", "slug": "versal_virt", "machine": "versal-virt",
+     "target": "versal", "gic": 3, "cpu": "cortex-a72", "smp": 4,
+     "family": "qemu-versal",
+     "l3_exempt": {
+         "secramneg": "xlnx-versal-virt models no XMPU to fence Secure RAM "
+                      "from the Normal world (#45)",
+         "periphneg": "xlnx-versal-virt models no XPPU to fence the SPM's "
+                      "devices from the Normal world (#45)"}},
+)
+
+# Isolation level 3 scenarios every AArch64 port runs in its full tier; a cell
+# that cannot names it in its "l3_exempt" map with the reason (an open issue).
+QEMU_A_L3_REQUIRED = frozenset((
+    "crossdomain", "spfaultneg", "manifestneg", "manifestneg2",
+    "manifestneg3", "keystoreneg", "bandneg1", "bandneg2", "bandneg3",
+    "bandneg4", "bandneg5", "bandneg6", "periphspneg", "restartneg1",
+    "restartneg2", "restartneg3", "spbudgetneg", "panicneg", "svcneg",
+    "fpneg", "mspovfneg", "xnneg", "secramneg", "periphneg", "hsmpinneg",
+))
+
+QEMU_A_SUITE = (
+    "smoke", "boot", "boot-smp2", "positive-secure", "crossdomain",
+    "spfaultneg", "tablesneg", "proofneg", "manifestneg", "manifestneg2",
+    "manifestneg3", "keystoreneg", "bandneg1", "bandneg2", "bandneg3",
+    "bandneg4", "bandneg5", "bandneg6", "restartneg1", "restartneg2",
+    "restartneg3", "spbudgetneg", "panicneg", "svcneg", "fpneg",
+    "mspovfneg", "xnneg", "ffa-direct", "ffa-sint", "ns-smoke",
+    "ffa-discovery", "ffa-guest-direct", "psci", "psci-el2", "parkneg",
+    "rdistneg", "tickneg", "el2dirtyneg", "ffa-preempt", "positive",
+    "guest1", "smcfuzz", "secramneg", "periphneg", "periphspneg",
+    "resetneg", "ffa-memneg", "hsmattackneg", "hsmpinneg", "attestneg",
+    "vaultrecover", "vaultrecoversec", "confboot", "storage", "devstorage",
+    "devattest", "devattestqcbor", "devcrypto",
+)
+QEMU_A_ACS = (
+    "ffaacs-discovery", "ffaacs-direct", "ffaacs-memory", "ffaacs-notify",
+    "ffaacs-indirect", "ffaacs-interrupts",
+)
+
+# smoke: the catch-most subset, mirroring the M33MU smoke sets, on the
+# representative GICv3 virt cell (both engines) and the versal cell (native).
+# boot-smp2 and the ACS stay in the full tier.
+QEMU_A_SMOKE = ("smoke", "boot", "positive", "crossdomain", "ffa-direct",
+                "confboot", "devcrypto")
+QEMU_A_SMOKE_CELLS = {"virt-gicv3-a72": ENGINES, "versal-virt": ("native",)}
+
+
+def qemu_a_entry(cell, engine, kind, tier, scenarios):
+    job = "%s_%s_%s" % ("el3" if kind == "suite" else "ffa_acs",
+                        cell["slug"], engine)
+    return {"kind": kind, "tier": tier, "cell": cell["name"],
+            "slug": cell["slug"], "machine": cell["machine"],
+            "target": cell["target"], "gic": cell["gic"], "cpu": cell["cpu"],
+            "smp": cell["smp"], "engine": engine, "image": QEMU_A_IMAGE,
+            "scenarios": " ".join(scenarios), "job": job}
+
+
+def qemu_a_cell_suite(cell):
+    exempt = cell.get("l3_exempt", {})
+    return tuple(s for s in QEMU_A_SUITE if s not in exempt)
+
+
+def qemu_a_full(cell):
+    out = []
+    for engine in ENGINES:
+        out.append(qemu_a_entry(cell, engine, "suite", "full",
+                                qemu_a_cell_suite(cell)))
+        out.append(qemu_a_entry(cell, engine, "acs", "full", QEMU_A_ACS))
+    return out
+
+
+def qemu_a_smoke(cell):
+    return [qemu_a_entry(cell, engine, "suite", "smoke", QEMU_A_SMOKE)
+            for engine in QEMU_A_SMOKE_CELLS.get(cell["name"], ())]
+
+
+def qemu_a_plan(event, labels, cell_input):
+    """Every AArch64 job of one workflow run: a pull request gets the smoke
+    subset unless ci:all, ci:aarch64, or the cell's family label asks for the
+    full suite and ACS; a push, the schedule, or a dispatch gets the full tier
+    of the selected cells."""
+    out = []
+    for cell in QEMU_A_CELLS:
+        fam = QEMU_A_FAMILIES[cell["family"]]
+        if event == "pull_request":
+            full = ("ci:all" in labels or "ci:aarch64" in labels or
+                    fam in labels)
+        elif event == "workflow_dispatch":
+            full = cell_input in ("", "all", cell["name"], cell["family"])
+            if not full:
+                continue
+        else:
+            full = True
+        out.extend(qemu_a_full(cell) if full else qemu_a_smoke(cell))
+    return out
+
+
+def qemu_a_flat(tier):
+    return list(QEMU_A_SUITE if tier == "full" else QEMU_A_SMOKE)
 
 
 def group_name(port, scenario):
@@ -190,11 +306,11 @@ def ci_plan(event, labels, port_input):
 
 SELFTEST = (
     ("pull_request", "", "", "mimxrt700:smoke stm32h563:smoke"),
-    ("pull_request", "ci:rt700", "", "mimxrt700:full stm32h563:smoke"),
-    ("pull_request", "ci:h5", "", "mimxrt700:smoke stm32h563:full"),
+    ("pull_request", "ci:imxrt700", "", "mimxrt700:full stm32h563:smoke"),
+    ("pull_request", "ci:stm32h563", "", "mimxrt700:smoke stm32h563:full"),
     ("pull_request", "ci:all", "", "mimxrt700:full stm32h563:full"),
     ("pull_request", "ci:m33mu", "", "mimxrt700:full stm32h563:full"),
-    ("pull_request", "ci:h5 ci:rt700", "", "mimxrt700:full stm32h563:full"),
+    ("pull_request", "ci:stm32h563 ci:imxrt700", "", "mimxrt700:full stm32h563:full"),
     ("push", "", "", "mimxrt700:full stm32h563:full"),
     ("schedule", "", "", "mimxrt700:full stm32h563:full"),
     ("workflow_dispatch", "", "", "mimxrt700:full stm32h563:full"),
@@ -203,15 +319,67 @@ SELFTEST = (
     ("workflow_dispatch", "", "stm32h563", "stm32h563:full"),
 )
 
+QEMU_A_SELFTEST = (
+    ("pull_request", "", "", "versal-virt:smoke virt-gicv3-a72:smoke"),
+    ("pull_request", "ci:qemu-virt", "",
+     "versal-virt:smoke virt-gicv2-a35:full virt-gicv3-a72:full"),
+    ("pull_request", "ci:qemu-versal", "",
+     "versal-virt:full virt-gicv3-a72:smoke"),
+    ("pull_request", "ci:aarch64", "",
+     "versal-virt:full virt-gicv2-a35:full virt-gicv3-a72:full"),
+    ("pull_request", "ci:all", "",
+     "versal-virt:full virt-gicv2-a35:full virt-gicv3-a72:full"),
+    ("push", "", "",
+     "versal-virt:full virt-gicv2-a35:full virt-gicv3-a72:full"),
+    ("schedule", "", "",
+     "versal-virt:full virt-gicv2-a35:full virt-gicv3-a72:full"),
+    ("workflow_dispatch", "", "",
+     "versal-virt:full virt-gicv2-a35:full virt-gicv3-a72:full"),
+    ("workflow_dispatch", "", "versal-virt", "versal-virt:full"),
+    ("workflow_dispatch", "", "qemu-virt",
+     "virt-gicv2-a35:full virt-gicv3-a72:full"),
+)
+
+
+def qemu_a_l3_gaps():
+    """A level 3 scenario the AArch64 suite does not run, or a cell exemption
+    that names no level 3 scenario or gives no reason."""
+    gaps = ["the QEMU AArch64 suite does not run level 3 scenario %s" % s
+            for s in sorted(QEMU_A_L3_REQUIRED - set(QEMU_A_SUITE))]
+    for cell in QEMU_A_CELLS:
+        planned = set(qemu_a_full(cell)[0]["scenarios"].split())
+        for scenario in sorted(QEMU_A_L3_REQUIRED - planned):
+            if not cell.get("l3_exempt", {}).get(scenario, "").strip():
+                gaps.append("%s does not plan level 3 scenario %s" %
+                            (cell["name"], scenario))
+        for scenario, reason in sorted(cell.get("l3_exempt", {}).items()):
+            if scenario not in QEMU_A_L3_REQUIRED:
+                gaps.append("%s exempts %s, which is not a level 3 scenario" %
+                            (cell["name"], scenario))
+            elif not reason.strip():
+                gaps.append("%s exempts %s without a reason" %
+                            (cell["name"], scenario))
+    return gaps
+
 
 def selftest():
     """The routing table above and the engine rule, run by the select job."""
+    gaps = qemu_a_l3_gaps()
+    if gaps:
+        return gaps[0]
     for event, labels, port_input, expect in SELFTEST:
         got = " ".join(sorted(set(e["port"] + ":" + e["tier"] for e in
                                   ci_plan(event, labels.split(), port_input))))
         if got != expect:
             return "ci_plan(%s, %r, %r) = %s, expected %s" % (
                 event, labels, port_input, got, expect)
+    for event, labels, cell_input, expect in QEMU_A_SELFTEST:
+        got = " ".join(sorted(set(e["cell"] + ":" + e["tier"] for e in
+                                  qemu_a_plan(event, labels.split(),
+                                              cell_input))))
+        if got != expect:
+            return "qemu_a_plan(%s, %r, %r) = %s, expected %s" % (
+                event, labels, cell_input, got, expect)
     for port in sorted(PORTS):
         for tier in ("smoke", "full"):
             for e in entries(port, tier, None):
@@ -252,6 +420,12 @@ def main():
     mode.add_argument("--ci-plan", action="store_true",
                       help="the whole run's include list from GITHUB_EVENT_NAME, "
                            "PR_LABELS, and PORT_INPUT")
+    mode.add_argument("--aarch64-plan", action="store_true",
+                      help="the AArch64 run's include list from "
+                           "GITHUB_EVENT_NAME, PR_LABELS, and CELL_INPUT")
+    mode.add_argument("--aarch64-flat", action="store_true",
+                      help="space-separated AArch64 scenario list for "
+                           "run_suite.sh qemu-a (with --tier)")
     mode.add_argument("--selftest", action="store_true",
                       help="check the event/label routing table")
     args = parser.parse_args()
@@ -270,6 +444,14 @@ def main():
         print(json.dumps(ci_plan(os.environ.get("GITHUB_EVENT_NAME", ""),
                                  os.environ.get("PR_LABELS", "").split(),
                                  os.environ.get("PORT_INPUT", ""))))
+        return 0
+    if args.aarch64_plan:
+        print(json.dumps(qemu_a_plan(os.environ.get("GITHUB_EVENT_NAME", ""),
+                                     os.environ.get("PR_LABELS", "").split(),
+                                     os.environ.get("CELL_INPUT", ""))))
+        return 0
+    if args.aarch64_flat:
+        print(" ".join(qemu_a_flat(args.tier)))
         return 0
     if args.port is None:
         parser.error("--port is required")

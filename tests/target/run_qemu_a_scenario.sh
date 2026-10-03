@@ -861,6 +861,9 @@ case "$scenario" in
       expect "the Normal-world payload ran at NS-EL2" "[NS] hello el=2"
       expect "an AArch32 EL1 caller's SMC32 calls were served, one forwarded to the SPMC, and its SMC64 id refused" "[NS] a32 smc ok partinfo n="
     fi
+    expect "the SPMD told the SPMC of CPU_OFF and the SPMC denied it" "[SPM] pm msg psci=0x84000002 resp=0xfffffffa"
+    refute_re "an invalid CPU_SUSPEND was refused before any power message" 'pm msg psci=0xc4000001'
+    expect "the SPMD told the SPMC of SYSTEM_OFF and the SPMC granted it" "[SPM] pm msg psci=0x84000008 resp=0x00000000"
     expect "the Normal world powered off through PSCI" "[EL3] psci system_off"
     expect "the PSCI power-off ended the run cleanly" "[EXPECT BKPT] Success"
     ;;
@@ -868,6 +871,7 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the Normal world was running" "[NS] spinning"
+    expect "the SPMD told the SPMC of CPU_SUSPEND and the SPMC granted it" "[SPM] pm msg psci=0xc4000001 resp=0x00000000"
     expect "a core-standby CPU_SUSPEND returned SUCCESS on the Secure tick" "[NS] psci standby woke"
     expect "a Secure tick preempted the Normal world at EL3" "[EL3] ns preempted"
     refute_re "the SPMD left the interrupt to the SPMC unacknowledged" '\[EL3\] ns preempted intid'
@@ -948,6 +952,7 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC'
     refute_re "no EL3 panic" '\[EL3\] panic'
     expect "the Normal world asked for a system reset" "[NS] psci system_reset"
+    expect "the SPMD told the SPMC of SYSTEM_RESET and the SPMC granted it" "[SPM] pm msg psci=0x84000009 resp=0x00000000"
     expect "the first reset rebooted the machine" "[EL3] psci system_reset reboot"
     expect "the monitor booted the chain a second time" "[EL3] wolfTrust monitor cntfrq="
     boots=$(grep -Fao "[NS] uart ifls=0x" "$log" | wc -l | tr -d ' ')

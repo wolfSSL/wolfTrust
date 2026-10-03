@@ -99,6 +99,16 @@ void wt_ffa_spmd_ns_reply(uint64_t* x);
 int wt_ffa_spmd_is_ns_reply(uint32_t fid);
 /* Non-zero when an SMC from the SPMC yields the CPU back to the Normal world. */
 int wt_ffa_spmd_is_ns_resume(uint32_t fid);
+/* 18.2.4: what an SMC from the SPMC is while a power management request is
+ * outstanding. Its answer is GRANTED only for a Table 18.8 SUCCESS and DENIED
+ * for any other reply; a bare switch to the Normal world (FFA_MSG_WAIT,
+ * FFA_YIELD, FFA_NORMAL_WORLD_RESUME) is REFUSED, x then holding the
+ * FFA_ERROR(DENIED) the SPMC gets back. Any other call is NONE. */
+#define WT_SPMD_PM_NONE    0
+#define WT_SPMD_PM_GRANTED 1
+#define WT_SPMD_PM_DENIED  2
+#define WT_SPMD_PM_REFUSED 3
+int wt_ffa_spmd_pm_answer(uint64_t* x);
 unsigned int wt_ffa_spmd_spmc_ready(void);
 /* FFA_CONSOLE_LOG over x[0..7] (SMC32) or x[0..17] (SMC64); the reply lands
  * in x[0..7]. The caller hands the saved register frame directly. */

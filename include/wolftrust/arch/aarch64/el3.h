@@ -101,6 +101,7 @@ void wt_el3_enter_ns(void (*entry)(void), uintptr_t sp,
 #define WT_NS_PENDING_NONE   0u
 #define WT_NS_PENDING_REPLY  1u  /* an SMC it made is being served; deliver x0-x7 */
 #define WT_NS_PENDING_RESUME 2u  /* a Secure interrupt preempted it; resume as-is */
+#define WT_NS_PENDING_PM     3u  /* its PSCI call awaits the SPMC's power answer */
 
 /* The SPMC signalled initialization complete with FFA_MSG_WAIT: launch the
  * Normal world (saving the SPMC so it can be resumed), or exit when there is no
@@ -109,6 +110,14 @@ void wt_el3_world_launch_ns(wt_el3_frame_t* frame) __attribute__((noreturn));
 /* Forward the NS call in `frame` to the SPMC as the return of its blocked
  * FFA_MSG_WAIT, and switch to the Secure world to run it. Never returns. */
 void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
+    __attribute__((noreturn));
+/* Hand the SPMC the power management request msg (x0-x17) for the NS PSCI
+ * call in `frame`, which stays as it is. Never returns. */
+void wt_el3_world_pm_to_secure(wt_el3_frame_t* frame, const uint64_t* msg)
+    __attribute__((noreturn));
+/* End that PSCI call with x0, x1-x3 zero and x4-x17 as the caller left them
+ * (SMCCC 1.1 and later), and switch to the Normal world. Never returns. */
+void wt_el3_world_pm_return_to_ns(wt_el3_frame_t* frame, uint64_t x0)
     __attribute__((noreturn));
 /* A Secure interrupt preempted the Normal world: deliver FFA_INTERRUPT to the
  * SPMC, which takes the interrupt from the GIC itself, and switch to it,

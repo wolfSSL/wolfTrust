@@ -103,6 +103,23 @@ void wt_ffa_fwk_version_resp(uint64_t* x, int32_t result);
  * message. */
 int32_t wt_ffa_fwk_version_result(const uint64_t* x);
 
+/* 18.2.4: the SPMD tells the SPMC of a PSCI power operation with a framework
+ * direct request (Table 18.6: w3 the PSCI function id, x4-x6 its x1-x3) and
+ * the SPMC answers with a framework direct response (Table 18.8: w3 SUCCESS or
+ * DENIED). */
+#define WT_FFA_FWK_PM_PSCI_REQ (WT_FFA_DIRECT_FRAMEWORK_BIT | 0x00u)
+#define WT_FFA_FWK_PM_RESP     (WT_FFA_DIRECT_FRAMEWORK_BIT | 0x02u)
+
+/* An SMC64 PSCI id travels in FFA_MSG_SEND_DIRECT_REQ64, an SMC32 one in
+ * REQ32 with its parameters cut to 32 bits; x7-x17 are zero. */
+void wt_ffa_fwk_pm_req(uint64_t* x, uint32_t psci_fid, uint64_t a1,
+                       uint64_t a2, uint64_t a3);
+int wt_ffa_fwk_pm_is_req(const uint64_t* x);
+void wt_ffa_fwk_pm_resp(uint64_t* x, int32_t status);
+/* 1 only for a Table 18.8 response carrying SUCCESS with w4-w7 zero; any
+ * other message, or a response carrying anything else, is 0. */
+int wt_ffa_fwk_pm_granted(const uint64_t* x);
+
 /* FFA_MSG_SEND2 (15.1): the partition message header at the start of the
  * sender's TX buffer. Table 7.2 lays out flags, a reserved word, the payload
  * offset, sender and receiver ids (sender bits 31:16), and the payload size;

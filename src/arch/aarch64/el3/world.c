@@ -160,22 +160,47 @@ unsigned int wt_el3_world_ns_pending(void)
     return g_ns_pending;
 }
 
-void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
+static void world_to_secure(wt_el3_frame_t* frame, const uint64_t* msg,
+                            unsigned int pending) __attribute__((noreturn));
+static void world_to_secure(wt_el3_frame_t* frame, const uint64_t* msg,
+                            unsigned int pending)
 {
-    unsigned int count = wt_ffa_msg_reg_count(frame->x[0]);
+    unsigned int count = wt_ffa_msg_reg_count(msg[0]);
     unsigned int i;
 
     /* 11.2: over ERET every unused parameter register is MBZ, so nothing the
      * SPMC left in x8-x17 at its last SMC survives into an 8-register call. */
     for (i = 0u; i < count; i++) {
-        g_world[WT_WORLD_SECURE].frame.x[i] = frame->x[i];
+        g_world[WT_WORLD_SECURE].frame.x[i] = msg[i];
     }
     for (i = count; i < WT_FFA_MSG_REGS_EXT; i++) {
         g_world[WT_WORLD_SECURE].frame.x[i] = 0u;
     }
-    g_ns_forwarded_fid = (uint32_t)frame->x[0];
-    g_ns_pending = WT_NS_PENDING_REPLY;
+    g_ns_forwarded_fid = (uint32_t)msg[0];
+    g_ns_pending = pending;
     world_switch(frame, WT_WORLD_SECURE);
+}
+
+void wt_el3_world_forward_to_secure(wt_el3_frame_t* frame)
+{
+    world_to_secure(frame, frame->x, WT_NS_PENDING_REPLY);
+}
+
+void wt_el3_world_pm_to_secure(wt_el3_frame_t* frame, const uint64_t* msg)
+{
+    world_to_secure(frame, msg, WT_NS_PENDING_PM);
+}
+
+void wt_el3_world_pm_return_to_ns(wt_el3_frame_t* frame, uint64_t x0)
+{
+    unsigned int i;
+
+    g_world[WT_WORLD_NS].frame.x[0] = x0;
+    for (i = 1u; i < 4u; i++) {
+        g_world[WT_WORLD_NS].frame.x[i] = 0u;
+    }
+    g_ns_pending = WT_NS_PENDING_NONE;
+    world_switch(frame, WT_WORLD_NS);
 }
 
 void wt_el3_world_preempt_to_secure(wt_el3_frame_t* frame)

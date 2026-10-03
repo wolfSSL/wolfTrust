@@ -85,9 +85,16 @@ static inline int wt_psci_fid_in_range(uint32_t fid)
 }
 
 struct wt_ffa_regs;
-/* EL3 handling of a PSCI call taken at the NS physical instance; fills r with
- * the reply, or ends the run for SYSTEM_OFF/SYSTEM_RESET. */
-void wt_psci_ns_call(struct wt_ffa_regs* r);
+/* wt_psci_ns_call outcomes: r holds the reply, or a valid power operation
+ * waits on the SPMC's answer to its power management message (FF-A 18.2.4). */
+#define WT_PSCI_ACTION_REPLY   0
+#define WT_PSCI_ACTION_MESSAGE 1
+
+/* EL3 handling of a PSCI call taken at the NS physical instance. */
+int wt_psci_ns_call(struct wt_ffa_regs* r);
+/* Finish the operation the message announced: granted runs it (SYSTEM_OFF and
+ * SYSTEM_RESET do not return), otherwise DENIED. Returns the caller's x0. */
+uint64_t wt_psci_pm_complete(int granted);
 
 /* EL3 system reset shared by the NS PSCI SYSTEM_RESET and the Secure world's
  * WT_MON_FID_SYSTEM_RESET: the port resets the machine, and a port hook that

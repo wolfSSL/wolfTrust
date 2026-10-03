@@ -1345,6 +1345,32 @@ static void ns_version(wt_ffa_regs_t* r)
         &g_ns_version, (uint32_t)r->x[3], WT_FFA_VERSION_1_2));
 }
 
+/* 18.2.4: no partition registers for power management messages (manifest
+ * partitions take no FF-A messages), so the SPMC answers alone. It denies
+ * CPU_OFF, being resident on the only core, and any id 18.2.4 does not list. */
+static void ns_power(wt_ffa_regs_t* r)
+{
+    uint32_t psci = (uint32_t)r->x[3];
+    int32_t status = WT_FFA_DENIED;
+
+    switch (psci) {
+        case WT_PSCI_CPU_SUSPEND32:
+        case WT_PSCI_CPU_SUSPEND64:
+        case WT_PSCI_SYSTEM_OFF:
+        case WT_PSCI_SYSTEM_RESET:
+            status = 0;
+            break;
+        default:
+            break;
+    }
+    wt_el3_puts("[SPM] pm msg psci=0x");
+    wt_el3_puthex(psci, 8u);
+    wt_el3_puts(" resp=0x");
+    wt_el3_puthex((uint32_t)status, 8u);
+    wt_el3_puts("\r\n");
+    wt_ffa_fwk_pm_resp(r->x, status);
+}
+
 uint32_t wt_spm_ns_ffa_version(void)
 {
     return wt_ffa_version_of(&g_ns_version, WT_FFA_VERSION_1_2);
@@ -1818,6 +1844,9 @@ static void idle_dispatch(wt_ffa_regs_ext_t* e)
         case WT_FFA_MSG_SEND_DIRECT_REQ2:
             if (wt_ffa_fwk_version_is_req(r->x) != 0) {
                 ns_version(r);
+            }
+            else if (wt_ffa_fwk_pm_is_req(r->x) != 0) {
+                ns_power(r);
             }
             else {
                 direct_request(e);

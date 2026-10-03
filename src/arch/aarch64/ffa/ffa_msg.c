@@ -311,3 +311,47 @@ void wt_ffa_msg2_copy(uint8_t* rx, uint32_t rx_size, uint32_t version,
         }
     }
 }
+
+void wt_ffa_fwk_pm_req(uint64_t* x, uint32_t psci_fid, uint64_t a1,
+                       uint64_t a2, uint64_t a3)
+{
+    int is64 = (psci_fid & 0x40000000u) != 0u;
+    uint64_t mask = is64 ? ~(uint64_t)0u : 0xFFFFFFFFull;
+    unsigned int i;
+
+    for (i = 0u; i < WT_FFA_MSG_REGS_EXT; i++) {
+        x[i] = 0u;
+    }
+    x[0] = is64 ? WT_FFA_MSG_SEND_DIRECT_REQ64 : WT_FFA_MSG_SEND_DIRECT_REQ32;
+    x[1] = WT_FFA_FWK_SPMD_TO_SPMC;
+    x[2] = WT_FFA_FWK_PM_PSCI_REQ;
+    x[3] = psci_fid;
+    x[4] = a1 & mask;
+    x[5] = a2 & mask;
+    x[6] = a3 & mask;
+}
+
+int wt_ffa_fwk_pm_is_req(const uint64_t* x)
+{
+    return (((uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_REQ32) ||
+            ((uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_REQ64)) &&
+           ((uint32_t)x[1] == WT_FFA_FWK_SPMD_TO_SPMC) &&
+           ((uint32_t)x[2] == WT_FFA_FWK_PM_PSCI_REQ);
+}
+
+void wt_ffa_fwk_pm_resp(uint64_t* x, int32_t status)
+{
+    wt_ffa_direct_build(x, WT_FFA_MSG_SEND_DIRECT_RESP32, WT_FFA_ID_SPMC,
+                        WT_FFA_ID_SPMD, NULL);
+    x[2] = WT_FFA_FWK_PM_RESP;
+    x[3] = (uint64_t)(uint32_t)status;
+}
+
+int wt_ffa_fwk_pm_granted(const uint64_t* x)
+{
+    return ((uint32_t)x[0] == WT_FFA_MSG_SEND_DIRECT_RESP32) &&
+           ((uint32_t)x[1] == WT_FFA_FWK_SPMC_TO_SPMD) &&
+           ((uint32_t)x[2] == WT_FFA_FWK_PM_RESP) &&
+           ((uint32_t)x[3] == 0u) && (x[4] == 0u) && (x[5] == 0u) &&
+           (x[6] == 0u) && (x[7] == 0u);
+}

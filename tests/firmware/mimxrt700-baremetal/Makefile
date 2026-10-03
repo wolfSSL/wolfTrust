@@ -41,6 +41,12 @@ ifeq ($(WT_AHBSC_PROBE),1)
 GUEST0_CFLAGS += -DWT_AHBSC_PROBE -DGUEST_PROBE_ADDR=0x20170000u \
     -DGUEST_PROBE_VALUE=0xDEADBEEFu
 endif
+# WT_PERIPH_NEG_PROBE=1 makes guest0, its MPU off, read the SPM's TRNG through
+# the Non-secure alias; the SAU must refuse it on every launch (periphneg).
+WT_PERIPH_NEG_PROBE ?= 0
+ifeq ($(WT_PERIPH_NEG_PROBE),1)
+GUEST0_CFLAGS += -DWT_PERIPH_NEG_PROBE -DGUEST_PERIPH_ADDR=0x40187000u
+endif
 # WT_GUEST_FAULT_PROBE=1 makes guest0 read Secure RAM on every launch, so the
 # monitor spends its restart budget and quarantines it (restart).
 WT_GUEST_FAULT_PROBE ?= 0

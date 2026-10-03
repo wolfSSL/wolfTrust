@@ -42,6 +42,17 @@ ENGINES = ("native", "hsm")
 # not exist there.
 HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
 
+# The isolation level 3 bar: every port's full tier runs each of these, or
+# names it in its "l3_exempt" map with the reason (an open issue) it cannot.
+L3_REQUIRED = frozenset((
+    "crossdomain", "keystoreneg", "deputyneg", "hsmpinneg", "hsmfaultneg",
+    "bandneg1", "bandneg2", "bandneg3", "bandneg4", "bandneg5", "bandneg6",
+    "restartneg1", "restartneg2", "restartneg3",
+    "manifestneg2", "manifestneg3", "periphspneg",
+    "fpneg", "sealneg", "sealhaltneg", "sealbootneg", "sealpivotneg",
+    "mspovfneg", "xnneg", "svcneg",
+))
+
 # smoke: the per-PR set (one job per scenario and engine). groups: the full
 # tier, packed so each job builds the emulator and wolfBoot once.
 PORTS = {
@@ -100,6 +111,7 @@ PORTS = {
             ("xnneg", "Privileged execution from SPM RAM denied"),
             ("svcneg", "Partition guest-return SVC panics only that partition"),
         ),
+        "l3_exempt": {},
     },
     "mimxrt700": {
         "label": "ci:rt700",
@@ -127,7 +139,22 @@ PORTS = {
              "RT700 dev_apis storage and attestation conformance"),
             ("devcrypto vaultrecover vaultrecoversec",
              "RT700 dev_apis crypto conformance and vault recovery"),
+            ("periphneg", "RT700 NS read of the SPM's TRNG refused by the SAU"),
+            ("deputyneg", "RT700 keystore-flash privileged deputy refused (L3)"),
+            ("hsmpinneg hsmfaultneg",
+             "RT700 wolfHSM pointer pin and tasklet fault containment (L3)"),
+            ("bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6",
+             "RT700 partition band-to-band isolation negatives (L3)"),
+            ("restartneg1 restartneg2 restartneg3",
+             "RT700 partitions restart on a reset band (L3)"),
+            ("periphspneg manifestneg2 manifestneg3",
+             "RT700 SPM peripheral and manifest level negatives (L3)"),
+            ("sealneg sealhaltneg sealpivotneg",
+             "RT700 stack seal containment and halt (L3)"),
+            ("mspovfneg xnneg svcneg",
+             "RT700 SPM stack, execute-never and SVC misuse (L3)"),
         ),
+        "l3_exempt": {},
     },
 }
 
@@ -204,8 +231,29 @@ SELFTEST = (
 )
 
 
+def l3_gaps(port):
+    """Problems with a port's level 3 bar: a required scenario neither run
+    nor exempted, an exemption with no reason, or a stale exemption."""
+    port_def = PORTS[port]
+    exempt = port_def.get("l3_exempt", {})
+    run = set(flat(port, "full", None))
+    gaps = []
+    for scenario in sorted(L3_REQUIRED):
+        if scenario not in run and not exempt.get(scenario, "").strip():
+            gaps.append("%s does not run level 3 scenario %s" %
+                        (port, scenario))
+    for scenario in sorted(exempt):
+        if scenario not in L3_REQUIRED:
+            gaps.append("%s exempts %s, which is not a level 3 scenario" %
+                        (port, scenario))
+        elif scenario in run:
+            gaps.append("%s runs %s but still exempts it" % (port, scenario))
+    return gaps
+
+
 def selftest():
-    """The routing table above and the engine rule, run by the select job."""
+    """The routing table above, the engine rule and the level 3 bar, run by
+    the select job."""
     for event, labels, port_input, expect in SELFTEST:
         got = " ".join(sorted(set(e["port"] + ":" + e["tier"] for e in
                                   ci_plan(event, labels.split(), port_input))))
@@ -220,6 +268,9 @@ def selftest():
                     return "native job for the hsm-only %s" % e["key"]
                 if e["engine"] not in ENGINES or e["image"] == "":
                     return "bad entry %r" % e
+        gaps = l3_gaps(port)
+        if gaps:
+            return "; ".join(gaps)
     return None
 
 

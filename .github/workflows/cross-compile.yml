@@ -47,6 +47,29 @@ jobs:
           fi
           test "$lto_flash" -lt "$no_lto_flash"
           echo "LTO flash: $no_lto_flash -> $lto_flash bytes"
+      - name: Verify an unimplemented isolation level stops the build
+        run: |
+          for target in stm32h563 mimxrt700; do
+            for level in 1 2; do
+              if make TARGET=$target WT_ISOLATION_LEVEL=$level \
+                  BUILD_DIR=build-level-$level secure-image \
+                  TOOLPREFIX=arm-none-eabi- 2> level.err; then
+                echo "FAIL: $target built at isolation level $level" >&2
+                exit 1
+              fi
+              grep -q 'only isolation level 3 is implemented' level.err
+              test ! -e build-level-$level/wolftrust.elf
+            done
+          done
+      - name: Verify an unreadable level 3 layout stops the link
+        run: |
+          if make BUILD_DIR=build-no-layout WT_L3_BAND_ARGS= secure-image \
+              TOOLPREFIX=arm-none-eabi- 2> no-layout.err; then
+            echo 'FAIL: the link ran without the level 3 band layout' >&2
+            exit 1
+          fi
+          grep -q 'cannot read the level 3 bands' no-layout.err
+          test ! -e build-no-layout/wolftrust.elf
       - name: Verify a rejected secure image cannot be reused
         run: |
           reject_flag='-Wl,--defsym=malloc=0x0C060800'

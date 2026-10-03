@@ -311,6 +311,23 @@ READY. `hsmattackneg` (hsm engine only, it drives the raw wolfHSM client
 wire) proves a forged client id cannot reach the IAK and an NVM-group packet
 never reaches the server.
 
+The isolation level 3 negatives run as they do on the STM32H563, through the
+same checks in `tests/target/lib/scenario.sh`; the band, partition stack and
+SPM peripheral addresses they match come from `port/mimxrt700/memory_map.h`
+through `tools/l3_layout_args.py`. `deputyneg`, `hsmpinneg`, `hsmfaultneg`,
+`bandneg1` to `bandneg6`, `restartneg1` to `restartneg3`, `periphspneg`,
+`sealneg`, `sealpivotneg`, and `svcneg` run the PSA guest in both windows,
+and guest 0 ends the run on its breakpoint once its lifecycle is done.
+`manifestneg2`, `manifestneg3`, and `sealhaltneg` end on their Secure verdict
+breakpoint, and `mspovfneg` and `xnneg` at the SPM fault. The MIMXRT700 flash
+context holds no geometry a partition can write, so `deputyneg` forges
+out-of-range offsets and misaligned lengths instead, and each must be refused
+against the const flash configuration. `periphneg` is the CPU leg of the
+STM32H563 scenario: guest 0 switches off its own MPU and reads the SPM's TRNG
+through the Non-secure alias, the SAU refuses the read on every launch, and
+guest 0 is quarantined while guest 1 runs on. The M33MU RT700 model has no
+DMA, so the Non-secure eDMA copies out of Secure memory are left to the EVK.
+
 The conformance scenarios are the same drop-in proof the STM32H563 gives:
 `confboot` hosts Arm's unmodified psa-arch-tests FF-M IPC suite in the PSA
 guest against the conformance Secure image (`WT_CONFORMANCE=1`, the manifest

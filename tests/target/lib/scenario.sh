@@ -96,6 +96,14 @@ scenario_assert_verdict() {
             refute_re "no guest scheduled off the corrupted manifest" \
                 "$GUEST_STARTED_RE"
             ;;
+        sealhaltneg)
+            expect "damaged seal halted the platform at dispatch" \
+                "[BKPT] imm=0x6e"
+            refute_re "partition with the damaged seal was never resumed" \
+                '\[USGFLT\]'
+            refute_re "run did not reach a clean success exit" \
+                '\[BKPT\] imm=0x7f'
+            ;;
         sealbootneg)
             expect "boot halted on the damaged main-stack seal" \
                 "[BKPT] imm=0x7e"
@@ -133,4 +141,130 @@ scenario_assert_verdict() {
             fail "scenario_assert_verdict: no verdict table for '$1'"
             ;;
     esac
+}
+
+# Isolation level 3 addresses of port/$2 (band, partition stack and SPM
+# peripheral), read from its memory_map.h so no runner copies them.
+l3_layout_load() {
+    local vars
+    vars="$(python3 "$1/tools/l3_layout_args.py" --shell \
+        --cc "${L3_CPP:-arm-none-eabi-gcc}" -I "$1/include" \
+        -I "$1/lib/wolfhal" "$1/port/$2/memory_map.h")" ||
+        fail "could not read the level 3 layout of port/$2"
+    eval "$vars"
+}
+
+# The band a bandneg probe touches and the stack its prober runs on.
+l3_bandneg_target() {
+    case "$1" in
+        1) L3_BAND=$L3_VAULT_BAND;  L3_SP_LO=$L3_CRYPTO_STACK_LO
+           L3_SP_HI=$L3_CRYPTO_STACK_HI
+           L3_WHAT="crypto partition denied the vault's band" ;;
+        2) L3_BAND=$L3_ATTEST_BAND; L3_SP_LO=$L3_CRYPTO_STACK_LO
+           L3_SP_HI=$L3_CRYPTO_STACK_HI
+           L3_WHAT="crypto partition denied the attestation band" ;;
+        3) L3_BAND=$L3_VAULT_BAND;  L3_SP_LO=$L3_ATTEST_STACK_LO
+           L3_SP_HI=$L3_ATTEST_STACK_HI
+           L3_WHAT="attestation partition denied the vault's band" ;;
+        4) L3_BAND=$L3_HSM_BAND;    L3_SP_LO=$L3_ATTEST_STACK_LO
+           L3_SP_HI=$L3_ATTEST_STACK_HI
+           L3_WHAT="attestation partition denied the crypto band" ;;
+        5) L3_BAND=$L3_ATTEST_BAND; L3_SP_LO=$L3_VAULT_STACK_LO
+           L3_SP_HI=$L3_VAULT_STACK_HI
+           L3_WHAT="vault denied the attestation band" ;;
+        6) L3_BAND=$L3_HSM_BAND;    L3_SP_LO=$L3_VAULT_STACK_LO
+           L3_SP_HI=$L3_VAULT_STACK_HI
+           L3_WHAT="vault denied the crypto band" ;;
+        *) fail "l3_bandneg_target: no bandneg probe $1" ;;
+    esac
+}
+
+# MemManage faults at exactly address $1 in $log; with $2/$3, only those whose
+# stacked SP (the dump's next line) lies in [$2, $3).
+l3_faults_at() {
+    awk -v want="$(printf '%s' "$1" | tr 'A-F' 'a-f')" -v lo="${2:-}" \
+        -v hi="${3:-}" '
+        function h(s,  i, n) {
+            s = tolower(s); sub(/^0x/, "", s); n = 0
+            for (i = 1; i <= length(s); i++)
+                n = n * 16 + index("0123456789abcdef", substr(s, i, 1)) - 1
+            return n
+        }
+        pending && /^\[MEMFAULT\] sp=/ {
+            split($2, f, "="); sp = h(f[2])
+            if (sp >= h(lo) && sp < h(hi)) n++
+            pending = 0; next
+        }
+        { pending = 0 }
+        /^\[MEMFAULT\] pc=/ {
+            for (i = 2; i <= NF; i++) if ($i == "addr=" want) {
+                if (lo == "") n++; else pending = 1
+            }
+        }
+        END { print n + 0 }' "$log"
+}
+
+# Port-independent fault checks for the level 3 negatives. The runner sets
+# $log and loads the layout first; lifecycle markers stay with the runner.
+scenario_assert_l3() {
+    local n
+    case "$1" in
+        crossdomain)
+            n="$(l3_faults_at "$L3_SPM_RAM")"
+            check "$([ "$n" -ge 1 ]; echo $?)" \
+                "cross-domain read of SPM RAM $L3_SPM_RAM denied (MEMFAULT)" ;;
+        keystoreneg)
+            n="$(l3_faults_at "$L3_VAULT_BAND")"
+            check "$([ "$n" -ge 1 ]; echo $?)" \
+                "vault band read $L3_VAULT_BAND denied to a non-keystore SP (MEMFAULT)" ;;
+        periphspneg)
+            n="$(l3_faults_at "$L3_SPM_PERIPHERAL")"
+            check "$([ "$n" -ge 1 ]; echo $?)" \
+                "SP read of the SPM's peripheral at $L3_SPM_PERIPHERAL denied (MEMFAULT)" ;;
+        bandneg[1-6])
+            l3_bandneg_target "${1#bandneg}"
+            n="$(l3_faults_at "$L3_BAND")"
+            check "$(( n == 2 ? 0 : 1 ))" \
+                "$L3_WHAT, read then write (2 MEMFAULTs at $L3_BAND, saw $n)"
+            n="$(l3_faults_at "$L3_BAND" "$L3_SP_LO" "$L3_SP_HI")"
+            check "$([ "$n" -eq 2 ]; echo $?)" \
+                "both faults taken on the prober's own stack (saw $n)"
+            refute_re "no access ran past its fault, no keystore pin was open" \
+                '^\[USGFLT\]'
+            refute_re "faults were contained, not escalated" \
+                '^(\[HARDFLT\]|HardFault|SecureFault)' ;;
+        restartneg[1-3])
+            # The partition faults once (udf #0) after planting band state;
+            # a restart on an unreset band traps again on udf #2.
+            n="$(count_re '^\[USGFLT\] CFSR=0x00010000')"
+            check "$([ "$n" -eq 1 ]; echo $?)" \
+                "partition faulted once and restarted on a reset band (saw $n)"
+            refute_re "the fault was the planted one" \
+                '^\[USGFLT\] mem16\[[^]]*\]=0xde02'
+            refute_re "fault was contained, not escalated" \
+                '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' ;;
+        sealneg|sealpivotneg|svcneg)
+            # The offending partition is resumed on the panic trap (udf #0x50).
+            n="$(count_re '^\[USGFLT\] mem16\[0x[0-9a-f]+\]=0xde50')"
+            check "$([ "$n" -ge 1 ] && [ "$(count_re '\[USGFLT\].*CFSR=0x00010000')" -ge 1 ]; echo $?)" \
+                "the partition was panicked on the panic trap (Secure-Thread UNDEFINSTR)"
+            refute_re "partition fault was contained, not escalated" \
+                '(\[HARDFLT\]|HardFault|SecureFault)'
+            refute_re "platform did not halt on the partition's fault" \
+                '\[BKPT\] imm=0x(6e|7e|7d)' ;;
+        hsmfaultneg)
+            expect "the guest's HSM tasklet faulted" "[USGFLT]"
+            refute_re "HSM fault stayed contained" \
+                '(\[HARDFLT\]|HardFault|SecureFault|\[BKPT\] imm=0x7e)' ;;
+        *)
+            fail "scenario_assert_l3: no level 3 checks for '$1'" ;;
+    esac
+}
+
+# A probe the scenario relies on must be linked in, or its pass is vacuous.
+l3_assert_probe_linked() {
+    local syms="$1.syms"
+    "${CROSS_COMPILE:-arm-none-eabi-}nm" "$1" > "$syms" ||
+        fail "nm on $1 failed"
+    check "$(grep -q " $2\$" "$syms"; echo $?)" "$2 linked into the secure image"
 }

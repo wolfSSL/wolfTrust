@@ -1508,6 +1508,12 @@ $(BUILD_DIR)/wt_sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE
 $(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
+ifneq ($(PORT_COMMON_DIR),)
+$(BUILD_DIR)/wt_sec_%.o: $(PORT_COMMON_DIR)/%.c $(PORT_HEADERS) $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+endif
+
 $(BUILD_DIR)/wt_sec_%.o: $(WOLFHAL_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 

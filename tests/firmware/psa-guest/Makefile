@@ -55,8 +55,10 @@ WT_EXPECTED_LIFECYCLE ?= 0x3000u
 WT_RUN_CONFORMANCE ?= 0
 WT_CONF_SUITE ?= ipc
 WT_ATTEST_CBOR ?= wolfcose
-# WT_M33MU_EXPECT_BKPT=1 ends the run on bkpt #0x7f once the lifecycle is done.
+# WT_M33MU_EXPECT_BKPT=1 ends the run on bkpt #0x7f once guest0's lifecycle
+# is done (guest1's with WT_M33MU_BKPT_GUEST=1); the other keeps running.
 WT_M33MU_EXPECT_BKPT ?= 0
+WT_M33MU_BKPT_GUEST ?= 0
 
 WOLFCRYPT_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/aes.c \
@@ -253,15 +255,19 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
     $(ENGINE_DEFS) \
     -include user_settings.h
 
-ifeq ($(WT_M33MU_EXPECT_BKPT),1)
-CFLAGS += -DWT_M33MU_EXPECT_BKPT
-endif
-
 ifneq ($(WT_EXPECTED_MEASUREMENT_HEX),)
 CFLAGS += -DWT_EXPECTED_MEASUREMENT_HEX=\"$(WT_EXPECTED_MEASUREMENT_HEX)\"
 endif
 
 PROBE_CFLAGS :=
+GUEST1_BKPT_CFLAGS :=
+ifeq ($(WT_M33MU_EXPECT_BKPT),1)
+ifeq ($(WT_M33MU_BKPT_GUEST),1)
+GUEST1_BKPT_CFLAGS += -DWT_M33MU_EXPECT_BKPT
+else
+PROBE_CFLAGS += -DWT_M33MU_EXPECT_BKPT
+endif
+endif
 ifeq ($(WT_GUEST_FAULT_PROBE),1)
 PROBE_CFLAGS += -DWT_GUEST_FAULT_PROBE
 endif
@@ -285,7 +291,8 @@ endif
 GUEST0_CFLAGS := -DGUEST_NAME=\"guest0\" -DWT_WOLFHSM_CLIENT_ID=1u \
     -DGUEST_PEER_RAM=$(GUEST1_RAM_ORIGIN)u $(PROBE_CFLAGS) $(CONF_DEFS)
 GUEST1_CFLAGS := -DGUEST_NAME=\"guest1\" -DWT_WOLFHSM_CLIENT_ID=2u \
-    -DGUEST_PEER_RAM=$(GUEST0_RAM_ORIGIN)u -DWT_ATTEST_EXPECTED_CLIENT_ID=-2
+    -DGUEST_PEER_RAM=$(GUEST0_RAM_ORIGIN)u -DWT_ATTEST_EXPECTED_CLIENT_ID=-2 \
+    $(GUEST1_BKPT_CFLAGS)
 
 SHARED_OBJS := $(patsubst %.c,$(BUILD)/shared_%.o,$(notdir $(SHARED_SRCS)))
 GUEST0_OBJS := $(patsubst %.c,$(BUILD)/g0_%.o,$(notdir $(GUEST0_SRCS)))

@@ -59,6 +59,38 @@ ARCH_SRCS := \
     $(ROOT)/src/arch/armv8m/sau_armv8m.c \
     $(ROOT)/src/arch/armv8m/start_armv8m.c
 
+# Isolation level the secure image implements. Only level 3 exists, so any
+# other value stops the build; the shared level 3 layer is gated on it.
+WT_ISOLATION_LEVEL ?= 3
+ifneq ($(WT_ISOLATION_LEVEL),3)
+$(error only isolation level 3 is implemented (WT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL)))
+endif
+ARCH_CFLAGS += -DWT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL)
+
+ifeq ($(WT_ISOLATION_LEVEL),3)
+# Isolation level 3 layer shared by every Armv8-M port: the band layout, its
+# linker fragments and the platform hooks. A port's memory_map.h supplies
+# WT_RAM_S_BASE, from which every band is placed.
+PORT_COMMON_DIR := $(ROOT)/port/common/armv8m
+PORT_HEADERS += $(wildcard $(PORT_COMMON_DIR)/*.h)
+TARGET_EXTRA_SRCS += $(PORT_COMMON_DIR)/platform_l3.c
+WT_RAM_S_ORIGIN := $(shell sed -n \
+    's/^\#define WT_RAM_S_BASE[[:space:]]*\(0x[0-9A-Fa-f]*\)u.*/\1/p' \
+    $(PORT_DIR)/memory_map.h)
+ifeq ($(WT_RAM_S_ORIGIN),)
+$(error $(PORT_DIR)/memory_map.h has no literal WT_RAM_S_BASE)
+endif
+TARGET_LDFLAGS += -Wl,-L$(PORT_COMMON_DIR) \
+    -Wl,--defsym=WT_RAM_S_ORIGIN=$(WT_RAM_S_ORIGIN)
+# Post-link band check inputs, read from the port's memory_map.h at link time;
+# an unreadable layout stops the link rather than checking the default bands.
+WT_L3_BAND_ARGS = $(shell python3 $(ROOT)/tools/l3_layout_args.py \
+    --cc $(TOOLPREFIX)gcc $(PORT_DIR)/memory_map.h)
+WT_SECURE_LAYOUT_ARGS = $(or $(strip $(WT_L3_BAND_ARGS)),$(error \
+    cannot read the level 3 bands from $(PORT_DIR)/memory_map.h)) \
+    $(WT_SECURE_LAYOUT_EXTRA_ARGS)
+endif
+
 # CMSE import library for the Non-secure guests, produced by the secure link.
 SECURE_CMSE_IMPLIB := $(BUILD_DIR)/secure_cmse_implib.o
 ARCH_LINK_OUTPUTS := $(SECURE_CMSE_IMPLIB)
@@ -66,7 +98,8 @@ ARCH_LDFLAGS := -Wl,--cmse-implib -Wl,--out-implib=$(SECURE_CMSE_IMPLIB)
 
 # A changed post-link checker must relink so the image is checked again.
 $(BUILD_DIR)/wolftrust.elf $(ARCH_LINK_OUTPUTS): \
-    $(ROOT)/tools/check_no_fp_insn.py $(ROOT)/tools/check_stack_seal.py
+    $(ROOT)/tools/check_no_fp_insn.py $(ROOT)/tools/check_stack_seal.py \
+    $(ROOT)/tools/l3_layout_args.py $(wildcard $(PORT_COMMON_DIR)/*.ld)
 
 # Whitelist of non-secure-callable veneers the linked secure image may
 # export: exactly the five mediated FF-M gateway entries, pinned by full

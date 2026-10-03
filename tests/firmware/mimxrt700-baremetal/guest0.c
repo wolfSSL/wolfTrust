@@ -71,6 +71,23 @@ typedef struct wt_guest0_mailbox {
 __attribute__((section(".shared"), used))
 volatile wt_guest0_mailbox_t g_guest0_mailbox;
 
+#if defined(WT_PERIPH_NEG_PROBE)
+static void guest0_uart_puts(const char* s);
+
+/* A privileged guest switches off its own MPU and reads the SPM's TRNG through
+ * the Non-secure alias. The SAU must fault the read; returning at all leaks. */
+static void guest0_periph_probe(volatile wt_guest0_mailbox_t* mb)
+{
+    *(volatile uint32_t*)0xE000ED94u = 0u;
+    __asm volatile("dsb\n isb" ::: "memory");
+    mb->probe = 1u;
+    __asm volatile("dsb" ::: "memory");
+    mb->probe_read = *(volatile const uint32_t*)GUEST_PERIPH_ADDR;
+    mb->probe = 3u;
+    guest0_uart_puts("wolfTrust RT700 " GUEST_NAME ": periph probe LEAKED\r\n");
+}
+#endif
+
 #if defined(WT_AHBSC_PROBE)
 /* Isolation probe: GUEST_PROBE_ADDR is the peer guest's RAM, Secure to the SAU
  * while this guest runs. A privileged guest can switch off the Non-secure MPU
@@ -250,6 +267,9 @@ void Reset_Handler(void)
 
 #if defined(WT_AHBSC_PROBE)
     guest0_fabric_probe(mb);
+#endif
+#if defined(WT_PERIPH_NEG_PROBE)
+    guest0_periph_probe(mb);
 #endif
 
     for (;;) {

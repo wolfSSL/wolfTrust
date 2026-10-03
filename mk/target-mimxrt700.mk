@@ -56,11 +56,8 @@ TARGET_LDFLAGS := \
     -Wl,--defsym=WT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE) \
     -Wl,--defsym=WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE)
 SECURE_LD := $(PORT_DIR)/secure.ld
-# Post-link placement check: the per-partition keystore bands and the
-# conformance band from memory_map.h; this port uses no wolfHAL.
-WT_SECURE_LAYOUT_ARGS := --band vault=0x301D5000:0x301D7000 \
-    --band attest=0x301D7000:0x301D7800 --band hsm=0x301D7800:0x301E9000 \
-    --confdata 0x301F3000:0x301F5C00 --no-wolfhal
+# This port links no wolfHAL, so the post-link check expects no wolfHAL state.
+WT_SECURE_LAYOUT_EXTRA_ARGS := --no-wolfhal
 
 TARGET_PLATFORM_SRC := $(PORT_DIR)/platform_mimxrt700.c
 TARGET_PARTITIONS_SRC := $(PORT_DIR)/partitions.c

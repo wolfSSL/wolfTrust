@@ -580,3 +580,81 @@ int wt_conf_nvm_flash_sync(uint8_t *buf, uint32_t len, int store)
     return (ret == WH_ERROR_OK) ? 0 : -1;
 }
 #endif
+
+#if defined(WT_DEPUTY_NEG_PROBE) && (WT_DEPUTY_NEG_PROBE == 1)
+/* A primitive fed a forged offset must reject it with exactly
+ * WH_ERROR_BADARGS through a delivered gate call. */
+static int wt_deputy_expect_badargs(int32_t sub_op, uint32_t offset,
+                                    uint32_t size, void *buf)
+{
+    wt_spm_call_t call;
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_KEYSTORE_FLASH;
+    call.call_type = sub_op;
+    call.vec_idx = offset;
+    call.num_bytes = size;
+    call.buffer = buf;
+    if (wt_arch_sp_trap(&call) != WT_FFM_SUCCESS) {
+        return 0;
+    }
+    return (call.ret_int == WH_ERROR_BADARGS) ? 1 : 0;
+}
+
+static int wt_deputy_read_ok(int32_t sub_op, uint8_t *buf, uint32_t size)
+{
+    wt_spm_call_t call;
+
+    (void)memset(&call, 0, sizeof(call));
+    call.op = WT_SPM_OP_KEYSTORE_FLASH;
+    call.call_type = sub_op;
+    call.vec_idx = 0u;
+    call.num_bytes = size;
+    call.buffer = buf;
+    return (wt_arch_sp_trap(&call) == WT_FFM_SUCCESS &&
+            call.ret_int == WH_ERROR_OK) ? 1 : 0;
+}
+
+/* The vault's writable context holds no geometry here, so a deputy can only
+ * forge offsets and lengths: each must be refused against the const config,
+ * and the store must still read back unchanged. */
+__attribute__((used, noinline))
+int wt_platform_deputy_flash_probe(void)
+{
+    uint8_t ref[16];
+    uint8_t leak[16];
+    uint32_t oor;
+    int ok = 1;
+
+    /* Wraps modulo 2^32 so base + offset addresses SPM-private RAM. */
+    oor = (uint32_t)((uintptr_t)WT_RAM_S_BASE - g_hsm_flash_cfg.base);
+
+    (void)memset(ref, 0, sizeof(ref));
+    if (wt_deputy_read_ok(WT_SPM_KS_FLASH_READ, ref, sizeof(ref)) == 0) {
+        return 0;
+    }
+    ok &= wt_deputy_expect_badargs(WT_SPM_KS_FLASH_READ, oor, 16u, leak);
+    ok &= wt_deputy_expect_badargs(WT_SPM_KS_FLASH_PROGRAM, oor, 16u, leak);
+    ok &= wt_deputy_expect_badargs(WT_SPM_KS_FLASH_ERASE, oor,
+                                   g_hsm_flash_cfg.sector_size, NULL);
+    ok &= wt_deputy_expect_badargs(WT_SPM_KS_FLASH_VERIFY, oor, 16u, leak);
+    ok &= wt_deputy_expect_badargs(WT_SPM_KS_FLASH_BLANKCHECK, oor, 16u,
+                                   NULL);
+    /* A length running past the store from an in-range offset. */
+    ok &= wt_deputy_expect_badargs(WT_SPM_KS_FLASH_READ,
+                                   g_hsm_flash_cfg.size - 8u, 16u, leak);
+    /* Misaligned program and sub-sector erase, checked on the const units. */
+    ok &= wt_deputy_expect_badargs(WT_SPM_KS_FLASH_PROGRAM, 4u, 16u, leak);
+    ok &= wt_deputy_expect_badargs(WT_SPM_KS_FLASH_ERASE, 0u, 16u, NULL);
+
+    (void)memset(leak, 0, sizeof(leak));
+    if (wt_deputy_read_ok(WT_SPM_KS_FLASH_READ, leak, sizeof(leak)) == 0 ||
+            memcmp(leak, ref, sizeof(ref)) != 0) {
+        ok = 0;
+    }
+    if (wt_deputy_read_ok(WT_SPM_KS_FLASH_VERIFY, ref, sizeof(ref)) == 0) {
+        ok = 0;
+    }
+    return ok;
+}
+#endif

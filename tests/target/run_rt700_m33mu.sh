@@ -59,15 +59,18 @@ case " $known " in
   *" $scenario "*) ;;
   *) echo "usage: $0 $(echo "$known" | tr ' ' '|')" >&2; exit 2 ;;
 esac
-if [ "$scenario" = "hsmattackneg" ] && [ "${WT_ENGINE:-native}" != "hsm" ]; then
-  echo "hsmattackneg drives the raw wolfHSM client wire; run it with WT_ENGINE=hsm" >&2
-  exit 2
-fi
+case "$scenario" in
+  hsmattackneg|hsmpinneg|hsmfaultneg)
+    if [ "${WT_ENGINE:-native}" != "hsm" ]; then
+      echo "$scenario probes the wolfHSM engine; run it with WT_ENGINE=hsm" >&2
+      exit 2
+    fi ;;
+esac
 
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
 case "$scenario" in
-  bothpsa|bothiso|attestneg|hsmattackneg|fwustage)
+  bothpsa|bothiso|attestneg|hsmattackneg|fwustage|deputyneg|hsmpinneg|hsmfaultneg|bandneg[1-6]|restartneg[1-3]|periphspneg|sealneg|sealpivotneg|svcneg)
     guest_dir="tests/firmware/psa-guest"
     guest1_dir="$guest_dir"
     timeout_s="${RT700_M33MU_TIMEOUT:-180}" ;;
@@ -99,6 +102,7 @@ fault_addr=0x30188000
 
 # shellcheck source=lib/scenario.sh disable=SC1091
 . "$here/lib/scenario.sh"
+l3_layout_load "$repo" mimxrt700
 
 # Port markers the shared verdict assertions match against.
 # shellcheck disable=SC2034  # matched inside lib/scenario.sh
@@ -187,6 +191,15 @@ make -s TARGET=mimxrt700 secure-image TOOLPREFIX=arm-none-eabi-
 guest_flags=""
 case "$scenario" in
   ahbscneg)     guest_flags="WT_AHBSC_PROBE=1" ;;
+  periphneg)    guest_flags="WT_PERIPH_NEG_PROBE=1" ;;
+  # The secure probe fires inside a partition; guest0 ends the run on its
+  # breakpoint once its lifecycle is done, as the H5 level 3 runs do.
+  deputyneg|hsmpinneg|hsmfaultneg|bandneg[1-6]|restartneg[1-3]|periphspneg|sealneg|sealpivotneg|svcneg)
+                guest_flags="WT_M33MU_EXPECT_BKPT=1"
+                # guest0's own tasklet faults, so the peer ends the run.
+                if [ "$scenario" = "hsmfaultneg" ]; then
+                    guest_flags="$guest_flags WT_M33MU_BKPT_GUEST=1"
+                fi ;;
   restart)      guest_flags="WT_GUEST_FAULT_PROBE=1" ;;
   attestneg)    guest_flags="WT_ATTEST_NEG_PROBE=1" ;;
   hsmattackneg) guest_flags="WT_HSM_ATTACK_PROBE=1" ;;
@@ -262,9 +275,11 @@ case "$scenario" in
     # The val guest ends on its own breakpoint; the suite's panic tests reset
     # the whole chain mid-run and val resumes off its flash boot flag.
     end="bkpt:0x7f" ;;
-  fpneg)
-    # Containment only: M33MU ends the run when it raises NOCP.
+  fpneg|xnneg|mspovfneg)
+    # M33MU ends these runs at the fault (NOCP, the fetch denial, STKOF).
     end="fault" ;;
+  deputyneg|hsmpinneg|hsmfaultneg|bandneg[1-6]|restartneg[1-3]|periphspneg|sealneg|sealpivotneg|svcneg)
+    end="bkpt:0x7f" ;;
 esac
 stage "boot the chain under M33MU (--cpu imxrt700, ${timeout_s}s budget)"
 case "$end" in
@@ -353,6 +368,61 @@ case "$scenario" in
         expect_re "the fault was the SP's out-of-domain read at the band address" \
             "\[MEMFAULT_CAUSE\] sec=S type=READ addr=$neg_addr reason=mpu-ap"
     fi
+    ;;
+  deputyneg|hsmpinneg|hsmfaultneg|bandneg[1-6]|restartneg[1-3]|periphspneg|sealneg|sealpivotneg|svcneg)
+    expect_n "guest0 launched exactly once" 1 "guest0: alive"
+    if [ "$scenario" = "hsmfaultneg" ]; then
+        expect "guest1 ran its whole PSA lifecycle to the end breakpoint" \
+            "guest1: done"
+    else
+        expect "guest0 ran its whole PSA lifecycle to the end breakpoint" \
+            "guest0: done"
+        expect "guest1 ran beside the partition under test" "guest1: alive"
+    fi
+    case "$scenario" in
+      deputyneg)
+        l3_assert_probe_linked build/wolftrust.elf \
+            wt_platform_deputy_flash_probe ;;
+      hsmpinneg)
+        l3_assert_probe_linked build/wolftrust.elf wt_platform_hsm_pin_probe ;;
+      *)
+        scenario_assert_l3 "$scenario" ;;
+    esac
+    case "$scenario" in
+      deputyneg|hsmpinneg|bandneg[1-6]|restartneg[1-3])
+        # The probed partition is restarted (or never faults) and serves on.
+        if [ "$scenario" = "deputyneg" ] || [ "$scenario" = "hsmpinneg" ]; then
+            refute_re "no fault markers in the boot log" \
+                '^(\[MEMFAULT\]|\[USGFLT\]|\[HARDFLT\]|HardFault|SecureFault)'
+        fi
+        expect "mediated crypto dispatch verified" \
+            "guest0: wolfTrust FF-M mediated crypto dispatch verified"
+        expect "ITS set/get verified" "guest0: wolfTrust ITS set/get verified"
+        expect "PS sealed set/get verified" \
+            "guest0: wolfTrust PS sealed set/get verified"
+        expect "key-ops sign/verify verified" \
+            "guest0: wolfTrust key-ops sign/verify verified"
+        expect "attestation COSE_Sign1 verified" \
+            "guest0: wolfTrust attestation: COSE_Sign1 verified"
+        ;;
+      hsmfaultneg)
+        expect "the other guest kept being served" \
+            "guest1: psa_hash_compute(SHA-256) KAT verified" ;;
+      svcneg)
+        # The stateless ITS client reports the unblocked call as an error.
+        expect_re "the pinned ITS client was unblocked with an error" \
+            'guest[01]: psa_its_set failed st=-1(32|45)'
+        expect "the restarted ITS partition served the other guest" \
+            "wolfTrust ITS set/get verified"
+        expect "sealed storage path unaffected" \
+            "guest0: wolfTrust PS sealed set/get verified" ;;
+      periphspneg)
+        refute_re "the probed storage SP never served ITS" \
+            'guest[01]: wolfTrust ITS set/get verified' ;;
+    esac
+    ;;
+  xnneg|mspovfneg)
+    scenario_assert_verdict "$scenario"
     ;;
   fpneg)
     # The relay's FP instruction must hit a disabled coprocessor: NOCP, not the
@@ -513,6 +583,28 @@ case "$scenario" in
     refute_re "no fault (fail closed, not a brick)" '\[HARDFLT\]|HardFault|SecureFault'
     expect "guest starts under fail-closed attestation" \
         "guest0: wolfTrust FF-M conformance: val_entry start"
+    ;;
+  periphneg)
+    # The CPU leg of the H5 periphneg; the M33MU RT700 model has no DMA, so
+    # the NS eDMA copies out of Secure memory are the EVK run's to show.
+    faults=$((restart_limit + 1))
+    expect_n "guest0 relaunched through its restart budget" \
+        "$faults" "wolfTrust RT700 guest0: start"
+    refute_re "no NS read of the SPM's TRNG ever returned" "periph probe LEAKED"
+    expect_n "guest1 launched once, untouched by guest0's faults" 1 \
+        "wolfTrust RT700 guest1: start"
+    expect_n "guest1 completed the FF-M handshake" 1 \
+        "wolfTrust RT700 guest1: FF-M connect ok, done"
+    stage "boot again with the protection-unit trace, stopping at the first fault"
+    log="$repo/build/rt700_m33mu_${scenario}_trace.log"
+    M33MU_PROT_TRACE=1 boot_chain 0 "$log" --quit-on-faults
+    expect "the traced run stopped at a delivered fault" "Execution stopped"
+    periph_ns="$(printf '0x%08x' $((L3_SPM_PERIPHERAL - 0x10000000)))"
+    refused="\[MEMFAULT_CAUSE\] sec=NS type=READ addr=$periph_ns reason=secure-attr"
+    expect_n_re "the fault was guest0's NS read of the SPM's TRNG, refused as Secure" \
+        1 "$refused"
+    sau_refusals="$(grep -A1 -E -- "$refused" "$log" | grep -c "src=SAU" || true)"
+    check "$([ "$sau_refusals" -eq 1 ]; echo $?)" "the refusal came from the SAU"
     ;;
   ahbscneg)
     faults=$((restart_limit + 1))

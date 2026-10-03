@@ -65,19 +65,21 @@ with the firmware-update backend.
 
 ### Secure runtime (wolfTrust)
 
-The port reuses `src/arch/armv8m/` and `src/arch/common/` unchanged and adds
+The port reuses `src/arch/armv8m/`, `src/arch/common/`, and the shared
+Armv8-M isolation level 3 layer in `port/common/armv8m/` unchanged, and adds
 only `port/mimxrt700/` and one build fragment:
 
 | File | Responsibility |
 | --- | --- |
-| `memory_map.h` | The bit-28 Secure-alias map: XSPI0 NOR windows, Secure and guest RAM, the boot-handoff address, and the per-partition RAM bands. |
+| `memory_map.h` | The bit-28 Secure-alias map: XSPI0 NOR windows, Secure and guest RAM, the boot-handoff address, and the RAM code band; the per-partition bands are offsets from `WT_RAM_S_BASE` in `port/common/armv8m/l3_layout.h`. |
+| `l3_port.h` | The level 3 layer's one board input: the TRNG as the Secure peripheral only the SPM drives. |
 | `mimxrt798_regs.h` | Register bases for CLKCTL, SYSCON, IOPCTL, LPUART0, XSPI0, TRNG, the AHBSC fabric controllers, and their GLIKEY unlock state machines. |
 | `platform_mimxrt700.c` | Every `wt_platform_*` operation: clocks, the SAU table, the Secure MPU whitelist, enabling AHBSC secure checking behind its GLIKEY unlock, staging of the RAM code band, the boot-handoff region, fault logging, panic, and reset. |
 | `partitions.c` | The guest and capability tables, the profile capability bitmap (the fabric filter is claimed on the per-dispatch SAU window, not on the AHBSC SRAM rules), and the pinned guest-measurement slot. |
 | `xspi_nor.c/.h` | The XSPI0 octal-DTR NOR program and erase driver: bounded target-group IP commands on its own LUT sequences, run from the RAM code band with interrupts masked, flushing the XSPI read cache afterwards. |
 | `hsm_flash.c/.h` | The `port_nvm.h` backend for the wolfHSM store: reads through the Secure XIP alias, program and erase through `xspi_nor.c`. |
 | `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the on-die TRNG, preserving the unprivileged-to-privileged trap. |
-| `secure.ld` | The port's own Secure linker script, including the RAM code band: the SG veneers, the `cmse_nonsecure_entry` bodies, and the NOR driver, loaded from flash and executed from SRAM. |
+| `secure.ld` | The port's own Secure linker script, which INCLUDEs the shared level 3 regions, band sections, and layout ASSERTs and adds the RAM code band: the SG veneers, the `cmse_nonsecure_entry` bodies, and the NOR driver, loaded from flash and executed from SRAM. |
 | `manifest.json` | The service partitions (attestation, HSM, vault, ITS, PS, FWU) and their resources. |
 | `mk/target-mimxrt700.mk` | `WT_CPU`, the flash and RAM defaults, the linker `--defsym` set, and the source lists. |
 
@@ -205,8 +207,8 @@ under M33MU. The `romsmoke` scenario proves the BootROM XIP path; the
 `positive` scenario is the wolfTrust chain; `ahbscneg` adds the guest
 isolation negative. The emulator runner then carries the STM32H563 scenario
 matrix (restart and launch refusal, SP fault recovery, the Secure-verdict
-negatives, the PSA guest's lifecycle and negatives, and Arm's conformance
-suites), listed in [Testing](Testing.md).
+negatives, every isolation level 3 negative, the PSA guest's lifecycle and
+negatives, and Arm's conformance suites), listed in [Testing](Testing.md).
 
 The full chain build and flash performs:
 

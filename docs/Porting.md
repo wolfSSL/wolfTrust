@@ -24,6 +24,7 @@ must not claim security properties until they are tested on that target.
 | Public and internal contracts | `include/psa/` and `include/wolftrust/` | PSA APIs, SPM types, the two port contracts (`arch.h`, `platform.h`), manifests, and service interfaces |
 | Architecture-neutral gate | `src/arch/common/` | Secure Partition gate dispatch, fault recovery, scheduler, the SP-side PSA API, and the NS FF-M gateway bodies, written once over the `wolftrust/arch.h` primitives and linked by every architecture |
 | Architecture | `src/arch/<arch>/` and `include/wolftrust/arch/<arch>/` | Every `wt_arch_*` operation: reset entry, guest context save/restore, exception entry and return, the secure tick, interrupt masking and routing, memory-protection programming, the SP trap and its decoder, NS range checks, and the NS entry mechanism (Armv8-M: CMSE veneers) |
+| Shared port layer | `port/common/<arch>/` | The isolation level 3 secure RAM layout, its linker fragments and the level 3 `wt_platform_*` hooks, written once per architecture and linked by every port of it |
 | SoC and board | `port/<soc>/` | Every `wt_platform_*` operation plus the SoC facts: clocks, fabric-level TrustZone filter windows, the memory-protection region tables, UART, flash, entropy, reset, the memory map, guest tables, and the manifest |
 | Build | `mk/common.mk`, `mk/arch-<arch>.mk`, `mk/target-<soc>.mk` | Shared rules; toolchain and architecture sources; SoC sources, placement, and image checks |
 | Guest integration | `tests/firmware/` or an application repository | Application-domain linker layout, PSA client shim, architecture-specific client boundary, and OS wiring; Armv8-M uses a CMSE import library |
@@ -54,8 +55,10 @@ handlers, the virtual SysTick, NVIC routing, table-driven SAU and MPU
 programming, the SVC trap decoder, the CMSE checks, and the five NS veneers),
 `src/arch/common/` supplies the architecture-neutral gate, scheduler, SP-side
 PSA API and NS gateway bodies on top of them, and
-`port/stm32h563/platform_stm32h563.c` implements the `wt_platform_*`
-operations together with the SoC's SAU and MPU region tables.
+`port/common/armv8m/` supplies the isolation level 3 layout and hooks every
+Armv8-M port shares, and `port/stm32h563/platform_stm32h563.c` implements the
+remaining `wt_platform_*` operations together with the SoC's SAU and MPU
+region tables.
 
 A port declares what its hardware can do through the capability bits in
 `include/wolftrust/partition.h`; the core refuses a manifest that assumes a
@@ -79,6 +82,51 @@ guard rejects that.
 
 Do not return unconditional success for a missing security mechanism. Report
 the capability accurately and reject a manifest that requires more.
+
+### Isolation level 3
+
+A new port must implement isolation level 3 unless it specifically targets
+level 1 or 2. `WT_ISOLATION_LEVEL` (default 3) selects the level the secure
+image implements and gates the shared level 3 layer; only level 3 exists
+today, so any other value stops the build.
+
+Every port of an architecture gets level 3 from `port/common/<arch>/`
+instead of writing it again. For Armv8-M that layer provides:
+
+- `l3_layout.h`: the per-partition keystore bands, partition stacks, the
+  conformance data window and the VNET band, all placed at fixed offsets
+  from `WT_RAM_S_BASE`;
+- `secure_l3_memory.ld`, `secure_l3_symbols.ld`, `secure_l3_bands.ld` and
+  `secure_l3_tail.ld`: the matching linker regions, stack symbols, band
+  output sections and layout ASSERTs; and
+- `platform_l3.c`: the boot-handoff region, the shared image windows, the
+  SPM-private RAM, the privileged-stack check, the peripheral table, the
+  conformance grants and the test-build probe addresses.
+
+A port supplies:
+
+- in `memory_map.h`, a literal `WT_RAM_S_BASE` and `WT_RAM_S_SIZE` (at
+  least the 480 KiB the layout uses), then `#include
+  "../common/armv8m/l3_layout.h"`; define `WT_RAMFUNC_BASE` and
+  `WT_RAMFUNC_SIZE` if the SPM runs code from RAM;
+- `l3_port.h`, naming a Secure peripheral only the SPM drives as
+  `WT_L3_SPM_PERIPHERAL_BASE`;
+- a `secure.ld` that INCLUDEs the four fragments and keeps only its board
+  sections (vectors, NSC veneers, any RAM code band, text, read-only data,
+  the conformance sections, .data and .bss);
+- attribution read-back for every Secure peripheral the SPM uses, panicking
+  at boot on a mismatch; and
+- owner lines in `tools/secure_owners.txt` for every object it adds.
+
+The build reads `WT_RAM_S_BASE` for the linker and derives the post-link band
+check from `memory_map.h`, so no band address is written twice.
+
+Level 3 is claimed for a port only when its full M33MU tier runs every
+scenario in `L3_REQUIRED` (`tests/target/lib/scenario_matrix.py`). A scenario
+a port cannot run yet goes in that port's `l3_exempt` map with the open issue
+that tracks it; `scenario_matrix.py --selftest`, run in CI, fails on a
+missing scenario, an exemption without a reason, or an exemption for a
+scenario the port already runs.
 
 ### Guest and capability tables
 
@@ -180,7 +228,8 @@ worked examples above give a concrete map for each board.
    the architecture cannot reuse an existing implementation; implement every
    `wt_arch_*` operation there and leave `src/arch/common/` untouched.
 2. Create `port/<soc>/` with the platform, flash, entropy, board,
-   memory-map, protection-region-table, partition-table, and manifest files.
+   memory-map, protection-region-table, partition-table, and manifest files,
+   building on `port/common/<arch>/` for isolation level 3.
 3. Add `mk/arch-<arch>.mk` (if new) and `mk/target-<soc>.mk`; the root
    Makefile selects them from `ARCH` and `TARGET`, and `mk/common.mk` needs
    no change.
@@ -205,7 +254,8 @@ worked examples above give a concrete map for each board.
   core code, and `wt_arch_*` definitions inside a port).
 - Run `tools/check-port-only-diff.sh <base> <arch> <soc>` on a port change
   and confirm it touches nothing outside `src/arch/common/`,
-  `src/arch/<arch>/`, `include/wolftrust/arch/<arch>/`, `port/<soc>/`, the
+  `src/arch/<arch>/`, `include/wolftrust/arch/<arch>/`,
+  `port/common/<arch>/`, `port/<soc>/`, the
   two build fragments, tests, docs, and workflows.
 - Run `tools/check-docs-no-internal-links.sh`; `docs/` is published to the
   wiki and must not reference internal ledgers or developer paths.
@@ -226,6 +276,8 @@ worked examples above give a concrete map for each board.
   guest disables its own Non-secure MPU and stores into another guest's RAM,
   and the store must not land. Programming the fabric rules is not evidence
   that they govern those addresses.
+- Run `python3 tests/target/lib/scenario_matrix.py --selftest` and run every
+  `L3_REQUIRED` scenario the port does not exempt.
 - Test invalid manifests, memory overlap, pointer ranges, stale handles,
   cross-owner access, and unsupported capabilities.
 - Run authenticated boot, guest tamper, rollback, restart, Secure Partition

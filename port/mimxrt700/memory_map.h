@@ -78,72 +78,16 @@
 #define WT_GUEST_RAM_SIZE        0x00040000u
 
 /* Secure runtime RAM: the cpu0 application SRAM (sram0) through its Secure
- * alias. The band layout below mirrors the H5 port shifted to this base so
- * secure.ld and manifest.json stay in lockstep by one constant. */
+ * alias; the isolation level 3 bands are offsets from this base. */
 #define WT_RAM_S_BASE            0x30188000u
 #define WT_RAM_S_SIZE            0x00078000u
 #define WT_BOOT_HANDOFF_ADDRESS  0x30180000u
 
-#define WT_SP_SECURE_STACK_SIZE  0x00002000u
-#define WT_SP_SECURE_STACK_COUNT 5u
-#define WT_SP_SECURE_RAM_SIZE \
-    (WT_SP_SECURE_STACK_SIZE * WT_SP_SECURE_STACK_COUNT)
-#define WT_SP_SECURE_RAM_BASE    (WT_RAM_S_BASE + 0x0006E000u)  /* 0x301F6000 */
-#define WT_SP_SECURE_RAM_END \
-    (WT_SP_SECURE_RAM_BASE + WT_SP_SECURE_RAM_SIZE)             /* 0x30200000 */
-#define WT_SP_CRYPTO_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 0u * WT_SP_SECURE_STACK_SIZE)
-#define WT_SP_ATTEST_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 1u * WT_SP_SECURE_STACK_SIZE)
-#define WT_SP_FF_SERVER_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 2u * WT_SP_SECURE_STACK_SIZE)
-#define WT_SP_FF_DRIVER_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 3u * WT_SP_SECURE_STACK_SIZE)
-#define WT_SP_FF_CLIENT_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 4u * WT_SP_SECURE_STACK_SIZE)
-
-#define WT_CONF_SP_DATA_BASE     (WT_RAM_S_BASE + 0x0006B000u)  /* 0x301F3000 */
-#define WT_CONF_SP_DATA_SIZE     0x00003000u
-
-#define WT_SP_VAULT_STACK_BASE   (WT_RAM_S_BASE + 0x00067000u)  /* 0x301EF000 */
-#define WT_SP_VAULT_STACK_SIZE   0x00004000u
-
-#define WT_SP_ITS_STACK_BASE     (WT_RAM_S_BASE + 0x00065000u)  /* 0x301ED000 */
-#define WT_SP_ITS_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
-
-#define WT_SP_PS_STACK_BASE      (WT_RAM_S_BASE + 0x00063000u)  /* 0x301EB000 */
-#define WT_SP_PS_STACK_SIZE      WT_SP_SECURE_STACK_SIZE
-
-#define WT_SP_FWU_STACK_BASE     (WT_RAM_S_BASE + 0x00061000u)  /* 0x301E9000 */
-#define WT_SP_FWU_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
-
-/* Keystore data bands: the vault, attestation, and crypto partitions each own
- * one private writable band inside the KEYSTORE envelope (isolation level 3). */
-#define WT_KEYSTORE_BASE         (WT_RAM_S_BASE + 0x0004D000u)  /* 0x301D5000 */
-#define WT_KEYSTORE_SIZE         0x00014000u
-#define WT_SP_VAULT_DATA_BASE    WT_KEYSTORE_BASE               /* 0x301D5000 */
-#define WT_SP_VAULT_DATA_SIZE    0x00002000u                    /* 8 KiB */
-#define WT_SP_ATTEST_DATA_BASE \
-    (WT_SP_VAULT_DATA_BASE + WT_SP_VAULT_DATA_SIZE)             /* 0x301D7000 */
-#define WT_SP_ATTEST_DATA_SIZE   0x00000800u                    /* 2 KiB */
-#define WT_SP_HSM_DATA_BASE \
-    (WT_SP_ATTEST_DATA_BASE + WT_SP_ATTEST_DATA_SIZE)           /* 0x301D7800 */
-#define WT_SP_HSM_DATA_SIZE      0x00011800u                    /* 70 KiB */
-
-#define WT_SP_VNET_STACK_BASE    (WT_RAM_S_BASE + 0x0006B000u)  /* 0x301F3000 */
-#define WT_SP_VNET_STACK_SIZE    WT_SP_SECURE_STACK_SIZE
-
-#define WT_VNET_DATA_BASE        (WT_RAM_S_BASE + 0x00048000u)  /* 0x301D0000 */
-#define WT_VNET_DATA_SIZE        0x00005000u
+#include "../common/armv8m/l3_layout.h"
 
 /* wolfBoot update partition on XSPI0 (Secure alias). */
 #define WT_FWU_UPDATE_FLASH_BASE_S 0x38180000u
 #define WT_FWU_UPDATE_FLASH_SIZE   0x00040000u
-
-#define WT_CONF_SERVER_MMIO_BASE (WT_CONF_SP_DATA_BASE + 0x00002C00u)
-#define WT_CONF_SERVER_MMIO_SIZE 0x00000100u
-#define WT_CONF_DRV_MMIO_BASE    (WT_CONF_SP_DATA_BASE + 0x00002E00u)
-#define WT_CONF_DRV_MMIO_SIZE    0x00000100u
 
 #define WT_SHARED_STATUS_ADDR    0x20100000u
 

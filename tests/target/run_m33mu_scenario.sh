@@ -66,7 +66,7 @@ esac
 # Variant scenarios carry their probe number in the name (bandneg3 = probe 3).
 family="$scenario"
 case "$scenario" in
-  bandneg[1-6]) family=bandneg; band_probe="${scenario#bandneg}" ;;
+  bandneg[1-6]) family=bandneg ;;
   restartneg[1-3]) family=restartneg ;;
 esac
 
@@ -156,6 +156,7 @@ cd "$repo"
 #     is what gets signed and flashed. ---
 # shellcheck source=lib/scenario.sh disable=SC1091
 . "$repo/tests/target/lib/scenario.sh"
+l3_layout_load "$repo" stm32h563
 secure_flags="$(scenario_secure_flags "$scenario")"
 # shellcheck disable=SC2086
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
@@ -414,119 +415,47 @@ case "$scenario" in
       expect "NS RNG poke and NS DMA copies blocked" \
         "wolfTrust periph probe blocked"
     fi
-    if [ "$family" = "restartneg" ]; then
-      # The partition plants state in its own band and faults once (udf #0).
-      # Its restarted instance traps again (udf #2) if the band did not
-      # return to its link-time image, so exactly one fault must be seen.
-      restart_faults=$(grep -cE '^\[USGFLT\] CFSR=0x00010000' "$log" || true)
-      if [ "$restart_faults" -eq 1 ]; then
-        check_pass "partition faulted once and restarted on a reset band"
-      else
-        check_fail "band reset on restart" \
-          "expected 1 UNDEFINSTR UsageFault, saw $restart_faults"
-      fi
-      refute_re "the fault was the planted one" \
-        '^\[USGFLT\] mem16\[[^]]*\]=0xde02'
-      refute_re "fault was contained, not escalated" \
-        '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    if [ "$family" = "restartneg" ] || [ "$family" = "bandneg" ]; then
+      scenario_assert_l3 "$scenario"
     fi
-    if [ "$family" = "bandneg" ]; then
-      # The prober reads the other partition's band, is restarted, writes it,
-      # and is restarted again: both accesses must MemManage-fault on the
-      # prober's own stack, and neither may run on to the trap behind it.
-      case "$band_probe" in
-        1) band_addr=0x30075000; band_sp='0x3009[67]'
-           band_what="crypto partition denied the vault's band" ;;
-        2) band_addr=0x30077000; band_sp='0x3009[67]'
-           band_what="crypto partition denied the attestation band" ;;
-        3) band_addr=0x30075000; band_sp='0x3009[89]'
-           band_what="attestation partition denied the vault's band" ;;
-        4) band_addr=0x30077800; band_sp='0x3009[89]'
-           band_what="attestation partition denied the crypto band" ;;
-        5) band_addr=0x30077000; band_sp='0x300(8f|9[0-2])'
-           band_what="vault denied the attestation band" ;;
-        6) band_addr=0x30077800; band_sp='0x300(8f|9[0-2])'
-           band_what="vault denied the crypto band" ;;
-      esac
-      band_faults=$(grep -cE "^\[MEMFAULT\].*addr=$band_addr" "$log" || true)
-      if [ "$band_faults" -eq 2 ]; then
-        check_pass "$band_what, read then write (2 MEMFAULTs at $band_addr)"
-      else
-        check_fail "$band_what" \
-          "expected 2 MEMFAULTs at $band_addr, saw $band_faults"
-      fi
-      band_stacks=$(grep -cE "^\[MEMFAULT\] sp=$band_sp" "$log" || true)
-      if [ "$band_stacks" -eq 2 ]; then
-        check_pass "both faults taken on the prober's own stack"
-      else
-        check_fail "fault attribution" \
-          "expected 2 faults on a stack matching $band_sp, saw $band_stacks"
-      fi
-      refute_re "no access ran past its fault, no keystore pin was open" \
-        '^\[USGFLT\]'
-      refute_re "faults were contained, not escalated" \
-        '^(\[HARDFLT\]|HardFault|SecureFault)'
-    fi
+    # A clean lifecycle proves these fixes only if their probe was linked in.
     if [ "$scenario" = "deputyneg" ]; then
-      # The probe is called unconditionally at vault entry and faults the
-      # partition on any leak, so a clean positive lifecycle only proves the
-      # fix if the probe was actually linked in. Guard against a vacuous pass
-      # from the probe being compiled out (WT_DEPUTY_NEG_PROBE not threaded).
-      # Dump symbols to a file and grep the file: piping nm into `grep -q`
-      # would trip pipefail when grep closes the pipe early and nm gets SIGPIPE.
-      deputy_syms="$repo/build/deputy-syms.txt"
-      "${CROSS_COMPILE}nm" "$repo/build/wolftrust-signed.elf" > "$deputy_syms"
-      if grep -q ' wt_platform_deputy_flash_probe$' "$deputy_syms"; then
-        check_pass "deputy probe linked into the secure image"
-      else
-        check_fail "deputy probe presence" \
-          "wt_platform_deputy_flash_probe not in the secure image"
-      fi
+      l3_assert_probe_linked "$repo/build/wolftrust-signed.elf" \
+        wt_platform_deputy_flash_probe
     fi
     if [ "$scenario" = "hsmpinneg" ]; then
-      # Every relay pump forges the server pointers to an SPM-private address
-      # right before the pin, so the guest crypto/attestation markers below can
-      # only appear if the unprivileged relay re-pinned them before dereference;
-      # a neutered pin faults instead. Guard against a vacuous pass with the
-      # probe compiled out; grep a symbol file, not a pipe, to stay pipefail-safe.
-      tasklet_syms="$repo/build/hsmpinneg-syms.txt"
-      "${CROSS_COMPILE}nm" "$repo/build/wolftrust-signed.elf" > "$tasklet_syms"
-      if grep -q ' wt_platform_hsm_pin_probe$' "$tasklet_syms"; then
-        check_pass "HSM server pointer pin probe linked into the secure image"
-      else
-        check_fail "HSM server pointer pin probe presence" \
-          "wt_platform_hsm_pin_probe not in the secure image"
-      fi
+      l3_assert_probe_linked "$repo/build/wolftrust-signed.elf" \
+        wt_platform_hsm_pin_probe
     fi
     if [ "$family" != "bandneg" ] && [ "$family" != "restartneg" ]; then
       refute_re "no fault markers in boot log" \
         '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
     fi
-    expect "TEE client initialized" "wolfTrust TEE client initialized"
-    expect "FF-M psa_framework_version=0x0100" \
+    expect_flat "TEE client initialized" "wolfTrust TEE client initialized"
+    expect_flat "FF-M psa_framework_version=0x0100" \
       "wolfTrust FF-M psa_framework_version=0x0100"
-    expect "mediated crypto dispatch verified" \
+    expect_flat "mediated crypto dispatch verified" \
       "wolfTrust FF-M mediated crypto dispatch verified"
-    expect "ITS set/get verified" \
+    expect_flat "ITS set/get verified" \
       "wolfTrust ITS set/get verified"
-    expect "PS sealed set/get verified" \
+    expect_flat "PS sealed set/get verified" \
       "wolfTrust PS sealed set/get verified"
-    expect "key-ops sign/verify verified" \
+    expect_flat "key-ops sign/verify verified" \
       "wolfTrust key-ops sign/verify verified"
-    expect "key negatives verified" \
+    expect_flat "key negatives verified" \
       "wolfTrust key negatives verified"
     expect_flat "forged-handle call rejected" \
       "wolfTrust FF-M forged-handle call rejected"
     expect_flat "oversized-vector call rejected" \
       "wolfTrust FF-M oversized-vector call rejected"
-    expect "psa_hash_compute(SHA-256) KAT verified" \
+    expect_flat "psa_hash_compute(SHA-256) KAT verified" \
       "psa_hash_compute(SHA-256) KAT verified"
-    expect "psa_initial_attestation st=0" "psa_initial_attestation st=0"
-    expect "attestation COSE_Sign1 verified" \
+    expect_flat "psa_initial_attestation st=0" "psa_initial_attestation st=0"
+    expect_flat "attestation COSE_Sign1 verified" \
       "wolfTrust attestation: COSE_Sign1 verified"
-    expect "token measurement equals wolfBoot measurement of the signed image" \
+    expect_flat "token measurement equals wolfBoot measurement of the signed image" \
       "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
-    expect "attestation fields verify=0 lifecycle=0x1000 measurement=ok cose=ES256" \
+    expect_flat "attestation fields verify=0 lifecycle=0x1000 measurement=ok cose=ES256" \
       "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256"
     expect "guest1 FF-M SHA-256 KAT through SERVICE_CRYPTO (P7-S3)" \
       "freertos_guest1: ffm sha256 ok"
@@ -810,35 +739,9 @@ case "$scenario" in
     fi
     check_fail "guest restart count" "saw $banners banners, expected $expected"
     ;;
-  crossdomain)
-    if grep -Eq '\[MEMFAULT\].*addr=0x30028000' "$log"; then
-      check_pass "cross-domain read of 0x30028000 denied by SP domain (MEMFAULT)"
-      echo "PASS: target/crossdomain"
-      exit 0
-    fi
-    check_fail "cross-domain isolation" "expected MEMFAULT at 0x30028000, none seen"
-    ;;
-  periphspneg)
-    # WT-FFM-0068: the storage SP reads the SPM's RNG registers at their Secure
-    # address; no partition domain maps an unassigned peripheral, so the read
-    # must MemManage-fault at exactly that address.
-    if grep -Eqi '\[MEMFAULT\].*addr=0x520c0800' "$log"; then
-      check_pass "SP read of the SPM's RNG at 0x520C0800 denied (MEMFAULT)"
-      echo "PASS: target/periphspneg"
-      exit 0
-    fi
-    check_fail "SP peripheral isolation" "expected MEMFAULT at 0x520C0800, none seen"
-    ;;
-  keystoreneg)
-    # A non-keystore partition (ITS) reads the vault's data band; its manifest
-    # domain grants none of the keystore data bands, so the read must
-    # MemManage-fault inside the ITS domain (WT-FFM-0062).
-    if grep -Eq '\[MEMFAULT\].*addr=0x30075000' "$log"; then
-      check_pass "keystore data band read of 0x30075000 denied to a non-keystore SP (MEMFAULT)"
-      echo "PASS: target/keystoreneg"
-      exit 0
-    fi
-    check_fail "keystore-band isolation" "expected MEMFAULT at 0x30075000, none seen"
+  crossdomain|periphspneg|keystoreneg)
+    scenario_assert_l3 "$scenario"
+    echo "PASS: target/$scenario"
     ;;
   spfaultneg)
     # The SERVICE_HSM relay SP faults once on its first entry (udf #0, an
@@ -872,8 +775,7 @@ case "$scenario" in
   hsmfaultneg)
     # A guest0 HSM tasklet fault must not turn its post-fault stack-canary
     # check into a platform panic. Guest1 must keep running.
-    expect "guest0 HSM tasklet faulted" "[USGFLT]"
-    refute_re "HSM fault stayed contained" '(\[HARDFLT\]|HardFault|SecureFault|\[BKPT\] imm=0x7e)'
+    scenario_assert_l3 "$scenario"
     expect "other guest remains functional" "freertos_guest1: ffm sha256 ok"
     expect "full chain exits cleanly" "[EXPECT BKPT] Success"
     echo "PASS: target/hsmfaultneg"
@@ -1081,16 +983,7 @@ case "$scenario" in
     # Software check only: the partition that overwrote its own seal is
     # resumed on the panic trap, so it alone takes a contained UsageFault and
     # restarts; the platform must not halt (no BKPT 0x6e or 0x7e).
-    if grep -Eq '\[USGFLT\].*CFSR=0x00010000' "$log" &&
-       grep -Eq '\[USGFLT\] mem16\[0x[0-9a-f]+\]=0xde50' "$log"; then
-      check_pass "seal violation faulted the offending partition on the panic trap"
-    else
-      check_fail "seal violation" "expected the panic-trap UsageFault, none seen"
-    fi
-    refute_re "partition fault was contained, not escalated" \
-      '(\[HARDFLT\]|HardFault|SecureFault)'
-    refute_re "platform did not halt on the partition's seal" \
-      '\[BKPT\] imm=0x(6e|7e|7d)'
+    scenario_assert_l3 "$scenario"
     expect "unrelated guest kept running" "freertos_guest1: alive"
     expect "run reached the clean scenario end" "[EXPECT BKPT] Success"
     echo "PASS: target/sealneg"
@@ -1099,16 +992,7 @@ case "$scenario" in
   sealpivotneg)
     # The partition's blocking wait is stacked on its stack top, over the seal
     # words; the SPM must still contain the fault to that partition.
-    if grep -Eq '\[USGFLT\].*CFSR=0x00010000' "$log" &&
-       grep -Eq '\[USGFLT\] mem16\[0x[0-9a-f]+\]=0xde50' "$log"; then
-      check_pass "seal violation faulted the offending partition on the panic trap"
-    else
-      check_fail "seal violation" "expected the panic-trap UsageFault, none seen"
-    fi
-    refute_re "partition fault was contained, not escalated" \
-      '(\[HARDFLT\]|HardFault|SecureFault)'
-    refute_re "platform did not halt on the partition's seal" \
-      '\[BKPT\] imm=0x(6e|7e|7d)'
+    scenario_assert_l3 "$scenario"
     expect "unrelated guest kept running" "freertos_guest1: alive"
     expect "run reached the clean scenario end" "[EXPECT BKPT] Success"
     echo "PASS: target/sealpivotneg"
@@ -1146,16 +1030,7 @@ case "$scenario" in
     # UNDEFINSTR UsageFault), the pinned client is unblocked with
     # COMMUNICATION_FAILURE, and the platform keeps running. A missed reject
     # would halt the platform (BKPT 0x7E) or run the probe's udf #3.
-    if grep -Eq '\[USGFLT\].*CFSR=0x00010000' "$log" &&
-       grep -Eq '\[USGFLT\] mem16\[0x[0-9a-f]+\]=0xde50' "$log"; then
-      check_pass "ITS SP panicked once on the panic trap (Secure-Thread UNDEFINSTR)"
-    else
-      check_fail "SP panic" "expected the panic-trap UsageFault, none seen"
-    fi
-    refute_re "panic was contained, not escalated" \
-      '(\[HARDFLT\]|HardFault|SecureFault)'
-    refute_re "platform did not halt on the partition's SVC" \
-      '\[BKPT\] imm=0x(6e|7e|7d)'
+    scenario_assert_l3 "$scenario"
     expect "pinned client unblocked with COMMUNICATION_FAILURE" \
       "psa_connect(SERVICE_ITS) failed rc=0 handle=-145"
     expect "sealed storage path unaffected" \

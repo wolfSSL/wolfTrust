@@ -1,8 +1,8 @@
 #!/usr/bin/env bash
 # Port-only diff audit. A new architecture or SoC port must be a diff that
 # touches no architecture-neutral core file: only src/arch/common/,
-# src/arch/<arch>/, include/wolftrust/arch/<arch>/, port/<soc>/, the build
-# fragments (never mk/common.mk), tests, docs, and workflows.
+# src/arch/<arch>/, include/wolftrust/arch/<arch>/, port/common/<arch>/,
+# port/<soc>/, the build fragments (never mk/common.mk), tests, docs, and workflows.
 #
 #   tools/check-port-only-diff.sh <base-ref> [arch] [soc]
 #   tools/check-port-only-diff.sh --selftest
@@ -13,8 +13,8 @@ set -uo pipefail
 
 allow_re() { # arch soc
   local arch="$1" soc="$2"
-  printf '^(src/arch/(common|%s)/|include/wolftrust/arch/%s/|port/%s/|mk/(arch-%s|target-%s)\\.mk$|tests/|docs/|\\.github/)' \
-    "$arch" "$arch" "$soc" "$arch" "$soc"
+  printf '^(src/arch/(common|%s)/|include/wolftrust/arch/%s/|port/(common/%s|%s)/|mk/(arch-%s|target-%s)\\.mk$|tests/|docs/|\\.github/)' \
+    "$arch" "$arch" "$arch" "$soc" "$arch" "$soc"
 }
 
 audit() { # allow-regex, paths on stdin -> prints offenders, returns count
@@ -34,6 +34,7 @@ selftest() {
   re="$(allow_re 'aarch64' 'qemuvirt')"
   if printf '%s\n' 'src/arch/aarch64/el3/start.S' 'src/arch/common/x.c' \
       'include/wolftrust/arch/aarch64/context.h' 'port/qemuvirt/board.h' \
+      'port/common/aarch64/platform_l3.c' \
       'mk/arch-aarch64.mk' 'mk/target-qemuvirt.mk' 'tests/host/x/main.c' \
       'docs/Porting.md' '.github/workflows/x.yml' | audit "$re" > /dev/null; then :; else
     echo "SELFTEST FAIL: allowed paths rejected"; fails=$((fails + 1))
@@ -46,6 +47,8 @@ selftest() {
     echo "SELFTEST FAIL: include/wolftrust/arch.h accepted"; fails=$((fails + 1)); fi
   if printf '%s\n' 'src/arch/armv8m/spm_svc.c' | audit "$re" > /dev/null; then
     echo "SELFTEST FAIL: another arch accepted"; fails=$((fails + 1)); fi
+  if printf '%s\n' 'port/common/armv8m/platform_l3.c' | audit "$re" > /dev/null; then
+    echo "SELFTEST FAIL: another arch's shared port layer accepted"; fails=$((fails + 1)); fi
   if "$0" refs/heads/__cpodiff_missing_ref__ > /dev/null 2>&1; then
     echo "SELFTEST FAIL: invalid base ref approved"; fails=$((fails + 1)); fi
   if [ "$fails" -ne 0 ]; then echo "SELFTEST: $fails failure(s)"; exit 1; fi

@@ -19,7 +19,6 @@
  */
 
 #include "wolftrust/platform.h"
-#include "wolftrust/priv_stack.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/guest_verify.h"
 #include "wolftrust/monitor.h"
@@ -259,12 +258,6 @@ static int wt_gtzc_init(void)
     return (wt_gtzc_attribution_ok(nsWords) == 1) ? 0 : -1;
 }
 
-volatile void* wt_platform_boot_handoff_region(size_t* size)
-{
-    *size = WT_RAM_S_BASE - WT_BOOT_HANDOFF_ADDRESS;
-    return (volatile void*)WT_BOOT_HANDOFF_ADDRESS;
-}
-
 #if defined(WT_BUSFAULT_NEG_PROBE) && (WT_BUSFAULT_NEG_PROBE == 1)
 /* The 32 KiB past the end of physical SRAM3 (0x300A0000) is unmapped on the
  * H563, so an MPU-permitted read there is a precise BusFault on silicon. */
@@ -486,181 +479,6 @@ void wt_platform_program_memory_windows(const wt_memory_window_t* windows,
     };
 
     wt_fabric_apply_windows(&fabric, windows, count);
-}
-
-/* End of executable image code (secure.ld): the SP thread tables grant RX up
- * to here (the manifest's 4K code window lies inside it and Armv8-M regions
- * must not overlap — task #26 tracks per-partition narrowing) and the rest of
- * the image window (constant data and the signed tail) read-only XN
- * (WT-FFM-0010). */
-extern char _e_secure_text[];
-
-/* No peripheral is assignable to a Secure Partition yet: the SPM drives every
- * Secure peripheral itself, so every partition DEVICE resource is refused. */
-const struct wt_periph* wt_platform_sp_peripherals(size_t* count)
-{
-    if (count != NULL) {
-        *count = 0U;
-    }
-    return NULL;
-}
-
-size_t wt_platform_sp_shared_regions(wt_memory_region_t* regions, size_t max)
-{
-    if (max < 2u) {
-        return 0u;
-    }
-    regions[0].base = WT_FLASH_S_BASE;
-    regions[0].size = (uintptr_t)_e_secure_text - WT_FLASH_S_BASE;
-    regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC;
-    regions[1].base = (uintptr_t)_e_secure_text;
-    regions[1].size = WT_FLASH_S_BASE + WT_FLASH_S_SIZE -
-                      (uintptr_t)_e_secure_text;
-    regions[1].attributes = WT_MEM_ATTR_READ;
-    return 2u;
-}
-
-size_t wt_platform_spm_private_regions(wt_memory_region_t* regions,
-                                       size_t max)
-{
-    uintptr_t first_band = WT_SP_VAULT_DATA_BASE;
-
-    if (max < 1u) {
-        return 0u;
-    }
-#if defined(CONFIG_VNET)
-    first_band = WT_VNET_DATA_BASE;
-#endif
-    regions[0].base = WT_RAM_S_BASE;
-    regions[0].size = first_band - WT_RAM_S_BASE;
-    regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
-    return 1u;
-}
-
-#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
-/* Per-partition private data bands (secure.ld), each denied to other SPs. */
-extern char _s_conf_server_data[];
-extern char _e_conf_server_data[];
-extern char _s_conf_driver_data[];
-extern char _e_conf_driver_data[];
-
-/* Append one RW grant segment to an SP's thread table (skips empty segments,
- * fails closed by granting nothing when the table is full). */
-static size_t wt_conf_grant(wt_memory_region_t* regions, size_t count,
-                            size_t max, uintptr_t base, uintptr_t end)
-{
-    if (base < end && count < max) {
-        regions[count].base = base;
-        regions[count].size = (uint32_t)(end - base);
-        regions[count].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
-        count++;
-    }
-    return count;
-}
-
-/* Hosted Arm partitions read their val_api/psa_api tables from .data, which
- * the linker places in the shared CONFDATA window; grant it so the SP
- * reaches its own data while SPM RAM stays denied. The per-partition
- * pseudo-MMIO holes at the top of the window (memory_map.h) each belong to
- * exactly one partition — every other SP gets the window with that hole
- * carved out, so the L3 MMIO-isolation panic tests (i047/i055/i057) hit a
- * genuine out-of-domain access and the must-panic reset path fires. Also
- * carve the per-partition data bands (i080/i084): a cross-partition read of
- * another SP's .data/.bss must fault. Bands are adjacent, so a non-owner's
- * empty middle segment is skipped by wt_conf_grant. */
-size_t wt_platform_conf_sp_grants(int32_t partition_id,
-                                  wt_memory_region_t* regions,
-                                  size_t count, size_t max)
-{
-    uintptr_t conf_seg = WT_CONF_SP_DATA_BASE;
-
-    /* The wolfTrust partitions in the image hold none of the suite's data. */
-    if (partition_id != SERVER_PARTITION_ID &&
-            partition_id != CLIENT_PARTITION_ID &&
-            partition_id != DRIVER_PARTITION_ID) {
-        return count;
-    }
-    if (partition_id != SERVER_PARTITION_ID) {
-        count = wt_conf_grant(regions, count, max, conf_seg,
-                              (uintptr_t)_s_conf_server_data);
-        conf_seg = (uintptr_t)_e_conf_server_data;
-    }
-    if (partition_id != DRIVER_PARTITION_ID) {
-        count = wt_conf_grant(regions, count, max, conf_seg,
-                              (uintptr_t)_s_conf_driver_data);
-        conf_seg = (uintptr_t)_e_conf_driver_data;
-    }
-    if (partition_id != SERVER_PARTITION_ID) {
-        count = wt_conf_grant(regions, count, max, conf_seg,
-                              WT_CONF_SERVER_MMIO_BASE);
-        conf_seg = WT_CONF_SERVER_MMIO_BASE + WT_CONF_SERVER_MMIO_SIZE;
-    }
-    if (partition_id != DRIVER_PARTITION_ID) {
-        count = wt_conf_grant(regions, count, max, conf_seg,
-                              WT_CONF_DRV_MMIO_BASE);
-        conf_seg = WT_CONF_DRV_MMIO_BASE + WT_CONF_DRV_MMIO_SIZE;
-    }
-    count = wt_conf_grant(regions, count, max, conf_seg,
-                          WT_CONF_SP_DATA_BASE + WT_CONF_SP_DATA_SIZE);
-    return count;
-}
-
-size_t wt_platform_conf_shared_regions(wt_memory_region_t* regions,
-                                       size_t max)
-{
-    if (max < 1u) {
-        return 0u;
-    }
-    regions[0].base = WT_CONF_SP_DATA_BASE;
-    regions[0].size = WT_CONF_SP_DATA_SIZE;
-    regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
-    return 1u;
-}
-#endif
-
-#if (defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)) || \
-    (defined(WT_VNET_NEG_PROBE) && (WT_VNET_NEG_PROBE == 1)) || \
-    (defined(WT_KEYSTORE_NEG_PROBE) && (WT_KEYSTORE_NEG_PROBE == 1)) || \
-    (defined(WT_PERIPH_SP_NEG_PROBE) && (WT_PERIPH_SP_NEG_PROBE == 1)) || \
-    (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
-    (defined(WT_MANIFEST_NEG_PROBE) && (WT_MANIFEST_NEG_PROBE == 3))
-uintptr_t wt_platform_probe_address(unsigned int target)
-{
-    switch (target) {
-    case WT_PROBE_VAULT_DATA_BAND:
-        return (uintptr_t)WT_SP_VAULT_DATA_BASE;
-    case WT_PROBE_ATTEST_DATA_BAND:
-        return (uintptr_t)WT_SP_ATTEST_DATA_BASE;
-    case WT_PROBE_HSM_DATA_BAND:
-        return (uintptr_t)WT_SP_HSM_DATA_BASE;
-    case WT_PROBE_SPM_PERIPHERAL:
-        return (uintptr_t)WT_RNG_BASE_S;
-#if defined(CONFIG_VNET)
-    case WT_PROBE_VNET_DATA_BAND:
-        return (uintptr_t)WT_VNET_DATA_BASE;
-#endif
-    default:
-        return (uintptr_t)WT_RAM_S_BASE;
-    }
-}
-#endif
-
-int wt_platform_priv_stack_ok(const void *stack, size_t size)
-{
-    /* Only a coroutine that stays privileged reaches here, so require the stack
-     * wholly inside SPM-private RAM: the secure SRAM below the lowest
-     * partition-writable band (WT-FFM-0011). */
-#if defined(CONFIG_VNET)
-    uintptr_t priv_end = WT_VNET_DATA_BASE;
-#else
-    uintptr_t priv_end = WT_KEYSTORE_BASE;
-#endif
-
-    if (stack == NULL) {
-        return 0;
-    }
-    return wt_priv_stack_ok((uintptr_t)stack, size, WT_RAM_S_BASE, priv_end,
-                            NULL, 0u);
 }
 
 void wt_platform_log_fault(wt_guest_id_t guest_id,

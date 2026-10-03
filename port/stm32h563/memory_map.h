@@ -90,120 +90,13 @@
  * WT_RAM_S_BASE is cleared once the record is consumed. */
 #define WT_BOOT_HANDOFF_ADDRESS  0x30020000u
 
-/* Secure per-partition stacks (WT-FFM-0011 Level 3 isolation). Each Secure
- * Partition runs on its own secure stack so the secure MPU can confine it to
- * its own domain. Carved from the top of the secure RAM window that the linker
- * uses (0x30028000 + 440 KiB .. 0x300A0000, the end of physical SRAM); the
- * main stack (_estack) drops to 0x30096000 to make room. Slots 2-4 host the
- * PSA-FF conformance partitions (SERVER/DRIVER/CLIENT) in the conformance
- * build. These MUST match the SPSTACKS region in
- * src/services/wolfhsm/runner/secure.ld. */
-#define WT_SP_SECURE_STACK_SIZE  0x00002000u   /* 8 KiB per partition */
-#define WT_SP_SECURE_STACK_COUNT 5u
-#define WT_SP_SECURE_RAM_SIZE \
-    (WT_SP_SECURE_STACK_SIZE * WT_SP_SECURE_STACK_COUNT)
-#define WT_SP_SECURE_RAM_BASE    (WT_RAM_S_BASE + 0x0006E000u)  /* 0x30096000 */
-#define WT_SP_SECURE_RAM_END \
-    (WT_SP_SECURE_RAM_BASE + WT_SP_SECURE_RAM_SIZE)             /* 0x300A0000 */
-#define WT_SP_CRYPTO_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 0u * WT_SP_SECURE_STACK_SIZE)      /* 0x30096000 */
-#define WT_SP_ATTEST_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 1u * WT_SP_SECURE_STACK_SIZE)      /* 0x30098000 */
-#define WT_SP_FF_SERVER_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 2u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009A000 */
-#define WT_SP_FF_DRIVER_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 3u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009C000 */
-#define WT_SP_FF_CLIENT_STACK_BASE \
-    (WT_SP_SECURE_RAM_BASE + 4u * WT_SP_SECURE_STACK_SIZE)      /* 0x3009E000 */
-
-/* Conformance Secure-Partition .data/.bss window (P3a). Arm's partition sources
- * keep val_api/psa_api in .data; a hosted SP reaches its own data here while
- * SPM RAM at 0x30028000 stays outside its MPU domain. Sits just below the SP
- * stacks (the linker's RAM window is shortened to make room); MUST match the
- * CONFDATA region in src/services/wolfhsm/runner/secure.ld. */
-#define WT_CONF_SP_DATA_BASE     (WT_RAM_S_BASE + 0x0006B000u)  /* 0x30093000 */
-#define WT_CONF_SP_DATA_SIZE     0x00003000u                    /* 12 KiB */
-
-/* Vault partition stack (WT-FFM-0047). The vault runs as a scheduled
- * UNPRIVILEGED SP, so this band is both its execution stack and its
- * MPU-domain RW resource. Sits just below the conformance data window; the
- * linker RAM window is shortened to 420 KiB to make room. MUST match the
- * VAULTSTACK region in src/services/wolfhsm/runner/secure.ld. */
-/* 16 KiB: ECC verify's arbitrary-point multiply (sp_256_ecc_mulmod_fast_8)
- * stacks a point table that overflows an 8 KiB coroutine stack (M33MU
- * PSPLIM STKOF proof). */
-#define WT_SP_VAULT_STACK_BASE   (WT_RAM_S_BASE + 0x00067000u)  /* 0x3008F000 */
-#define WT_SP_VAULT_STACK_SIZE   0x00004000u
-
-/* ITS partition stack: a normal unprivileged scheduled SP; this band is both
- * its execution stack and its MPU-domain RW resource. Sits just below the
- * vault stack; the linker RAM window is shortened to 412 KiB to make room.
- * MUST match the ITSSTACK region in src/services/wolfhsm/runner/secure.ld. */
-#define WT_SP_ITS_STACK_BASE     (WT_RAM_S_BASE + 0x00065000u)  /* 0x3008D000 */
-#define WT_SP_ITS_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
-
-#define WT_SP_PS_STACK_BASE      (WT_RAM_S_BASE + 0x00063000u)  /* 0x3008B000 */
-#define WT_SP_PS_STACK_SIZE      WT_SP_SECURE_STACK_SIZE
-
-/* FWU partition stack: the PSA Firmware Update SP runs as a scheduled
- * UNPRIVILEGED SP (flash programming traps to the SVC gate), so this band is
- * both its execution stack and its MPU-domain RW resource. Sits just below
- * the PS stack; the linker RAM window is shortened to 388 KiB to make room.
- * MUST match the FWUSTACK region in src/services/wolfhsm/runner/secure.ld. */
-#define WT_SP_FWU_STACK_BASE     (WT_RAM_S_BASE + 0x00061000u)  /* 0x30089000 */
-#define WT_SP_FWU_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
-
-/* Keystore data bands: the vault, attestation, and crypto (SERVICE_HSM)
- * partitions each own one private writable band; no two partitions share a
- * writable byte (isolation level 3). The envelope mirrors the KEYSTORE
- * region in secure.ld; the sub-bands mirror its VAULTDATA, ATTESTDATA, and
- * HSMDATA regions. */
-#define WT_KEYSTORE_BASE         (WT_RAM_S_BASE + 0x0004D000u)  /* 0x30075000 */
-#define WT_KEYSTORE_SIZE         0x00014000u                    /* 80 KiB */
-#define WT_SP_VAULT_DATA_BASE    WT_KEYSTORE_BASE               /* 0x30075000 */
-#define WT_SP_VAULT_DATA_SIZE    0x00002000u                    /* 8 KiB */
-#define WT_SP_ATTEST_DATA_BASE \
-    (WT_SP_VAULT_DATA_BASE + WT_SP_VAULT_DATA_SIZE)             /* 0x30077000 */
-#define WT_SP_ATTEST_DATA_SIZE   0x00000800u                    /* 2 KiB */
-#define WT_SP_HSM_DATA_BASE \
-    (WT_SP_ATTEST_DATA_BASE + WT_SP_ATTEST_DATA_SIZE)           /* 0x30077800 */
-#define WT_SP_HSM_DATA_SIZE      0x00011800u                    /* 70 KiB */
-
-/* VNET partition stack (CONFIG_VNET builds): SERVICE_VNET's scheduled
- * coroutine stack aliases the conformance data window - VNET and
- * WT_CONFORMANCE builds are mutually exclusive, and the window is empty
- * outside conformance builds, so the secure RAM chain needs no growth.
- * MUST match the CONFDATA origin in src/services/wolfhsm/runner/secure.ld
- * and the manifest-vnet.json domain stack. */
-#define WT_SP_VNET_STACK_BASE    (WT_RAM_S_BASE + 0x0006B000u)  /* 0x30093000 */
-#define WT_SP_VNET_STACK_SIZE    WT_SP_SECURE_STACK_SIZE
-
-/* VNET data band (CONFIG_VNET builds): every RAM object the confined
- * SERVICE_VNET partition touches in-thread — the switch, its pools/rings/FDB,
- * and the relay's staging scratch — carved from the tail of general secure RAM
- * so the unprivileged coroutine reaches only its own state. MUST match the
- * VNETDATA region in src/services/wolfhsm/runner/secure.ld and the
- * manifest-vnet.json domain resource. */
-#define WT_VNET_DATA_BASE        (WT_RAM_S_BASE + 0x00048000u)  /* 0x30070000 */
-#define WT_VNET_DATA_SIZE        0x00005000u                    /* 20 KiB */
+#include "../common/armv8m/l3_layout.h"
 
 /* wolfBoot update partition (WOLFBOOT_PARTITION_UPDATE_ADDRESS): the secure
  * flash window SERVICE_FWU stages a candidate image into (WT-FWU-0002). Secure
  * alias, inside the writable secure-alias MPU region. */
 #define WT_FWU_UPDATE_FLASH_BASE_S 0x0C100000u
 #define WT_FWU_UPDATE_FLASH_SIZE   0x00040000u
-
-/* Per-partition pseudo-MMIO holes at the top of the CONFDATA window (P4/K4).
- * Each belongs to exactly one Arm conformance partition; the scheduler grants
- * every other SP the window WITHOUT its hole, so the L3 MMIO-isolation panic
- * tests (i047/i055/i057) see a genuine out-of-domain access. MUST match
- * SERVER/DRIVER_PARTITION_MMIO_0_* in conformance/pal_config.h (guarded by an
- * #error cross-check in conformance/conf_nvm_sync.c) and stay above _econfbss
- * (link-time assert in runner/secure.ld). */
-#define WT_CONF_SERVER_MMIO_BASE (WT_CONF_SP_DATA_BASE + 0x00002C00u) /* 0x30095C00 */
-#define WT_CONF_SERVER_MMIO_SIZE 0x00000100u
-#define WT_CONF_DRV_MMIO_BASE    (WT_CONF_SP_DATA_BASE + 0x00002E00u) /* 0x30095E00 */
-#define WT_CONF_DRV_MMIO_SIZE    0x00000100u
 
 #define WT_SHARED_STATUS_ADDR    0x20000000u
 

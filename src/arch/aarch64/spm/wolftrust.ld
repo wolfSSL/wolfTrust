@@ -2,18 +2,19 @@
  * the monitor on QEMU virt, by the loader on Versal), data, bss, and the
  * bootstrap stack in the SPM RAM band, the vault, attestation and crypto
  * state each in its own band so each partition is granted only its own.
- * Band addresses arrive as --defsym values from mk/target-<soc>.mk. */
+ * Band addresses arrive as --defsym values read from the shared layout,
+ * port/common/aarch64/l3_layout.h, by mk/arch-aarch64.mk. */
 ENTRY(wt_spm_entry)
 
 MEMORY
 {
     IMAGE (rx) : ORIGIN = WT_SPM_IMAGE_PA, LENGTH = WT_SPM_IMAGE_SIZE
     RAM (rw) : ORIGIN = WT_SPM_RAM_PA, LENGTH = WT_SPM_RAM_SIZE
-    /* One private band per keystore partition; the port manifests grant
-     * domains 5, 3 and 4 exactly these bases and sizes. */
-    VAULTDATA (rw) : ORIGIN = WT_SPM_KEYSTORE_PA, LENGTH = 0x24000
-    ATTESTDATA (rw) : ORIGIN = WT_SPM_KEYSTORE_PA + 0x24000, LENGTH = 0x1000
-    HSMDATA (rw) : ORIGIN = WT_SPM_KEYSTORE_PA + 0x25000, LENGTH = 0x1B000
+    /* One private band per keystore partition, from the shared layout; the
+     * build checks the port manifests grant exactly these. */
+    VAULTDATA (rw) : ORIGIN = WT_SPM_VAULT_PA, LENGTH = WT_SPM_VAULT_SIZE
+    ATTESTDATA (rw) : ORIGIN = WT_SPM_ATTEST_PA, LENGTH = WT_SPM_ATTEST_SIZE
+    HSMDATA (rw) : ORIGIN = WT_SPM_HSMDATA_PA, LENGTH = WT_SPM_HSMDATA_SIZE
     CONFDATA (rw) : ORIGIN = WT_SPM_CONFDATA_PA, LENGTH = WT_SPM_CONFDATA_SIZE
 }
 
@@ -201,7 +202,7 @@ SECTIONS
 ASSERT((wt_spm_vectors & 0x7FF) == 0, "S-EL1 vector table must be 2 KiB aligned")
 ASSERT(__image_end <= WT_SPM_IMAGE_PA + WT_SPM_IMAGE_SIZE, "SPM image band overflow")
 ASSERT(_e_keystore <= WT_SPM_KEYSTORE_PA + WT_SPM_KEYSTORE_SIZE, "keystore band overflow")
-ASSERT(WT_SPM_KEYSTORE_SIZE == 0x40000, "the keystore bands assume a 256 KiB keystore window")
+ASSERT(WT_SPM_HSMDATA_PA + WT_SPM_HSMDATA_SIZE == WT_SPM_KEYSTORE_PA + WT_SPM_KEYSTORE_SIZE, "the keystore bands must tile the keystore window")
 ASSERT(_e_conf_data <= WT_SPM_CONFDATA_PA + WT_SPM_CONFDATA_SIZE, "conformance data band overflow")
 ASSERT(_e_conf_bss <= WT_SPM_CONFDATA_PA + 0x1C000, "conformance data reaches the pseudo-MMIO pages")
 ASSERT((_s_conf_data & 0xFFF) == 0, "conformance partition segments must be page aligned")

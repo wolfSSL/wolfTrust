@@ -19,6 +19,57 @@ ifeq ($(WT_EL3_NS_EL2),1)
 ARCH_CFLAGS += -DWT_EL3_NS_EL2=1
 endif
 # Test only: the monitor starts on EL2 state an earlier stage left dirty.
+# Isolation level gate: only level 3 is implemented, so any other level stops
+# the build rather than linking an image without the level 3 layer.
+WT_ISOLATION_LEVEL ?= 3
+ifneq ($(WT_ISOLATION_LEVEL),3)
+$(error only isolation level 3 is implemented (WT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL)))
+endif
+ARCH_CFLAGS += -DWT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL)
+
+# Level 3 layer shared by every AArch64 port: the board's memory_map.h names
+# WT_L3_BAND_BASE and port/common/aarch64/l3_layout.h places every Secure band
+# from it; the build reads them back, and an unreadable layout stops it.
+PORT_COMMON_DIR := $(ROOT)/port/common/aarch64
+PORT_HEADERS += $(wildcard $(PORT_COMMON_DIR)/*.h)
+# A band overridden on the command line reaches the tool too, so the compiler,
+# the linker and the manifest check all see the same layout.
+WT_L3_OVERRIDABLE := WT_SPM_BOOT_INFO_PA WT_SPM_TABLE_POOL_PA WT_SPM_IMAGE_PA \
+    WT_SPM_IMAGE_SIZE WT_SPM_RAM_PA WT_SPM_RAM_SIZE WT_SPM_CONFDATA_PA \
+    WT_SPM_CONFDATA_SIZE WT_SPM_KEYSTORE_PA WT_SPM_KEYSTORE_SIZE \
+    WT_SPM_RXTX_PA WT_SPM_RXTX_SIZE WT_SPM_SHARE_PA WT_SPM_SHARE_SIZE
+WT_L3_TOOL := python3 $(ROOT)/tools/aarch64_l3_layout.py \
+    --cc $(TOOLPREFIX)gcc -I$(PORT_COMMON_DIR) \
+    -DWT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL) \
+    $(foreach v,$(WT_L3_OVERRIDABLE),$(if $(filter command \
+    line,$(origin $(v))),-D$(v)=$($(v))u))
+WT_L3_LAYOUT := $(shell $(WT_L3_TOOL) --shell $(PORT_DIR)/memory_map.h)
+ifeq ($(strip $(WT_L3_LAYOUT)),)
+$(error cannot read the level 3 layout from $(PORT_DIR)/memory_map.h)
+endif
+$(foreach kv,$(WT_L3_LAYOUT),$(eval $(kv)))
+WT_SPM_TABLE_POOL_PAGES ?= 128
+ifeq ($(WT_EL3_TEST_HANDOFF),1)
+TARGET_CFLAGS += -DWT_PORT_HANDOFF_PA=$(WT_L3_HANDOFF_PA)u
+endif
+ifeq ($(WT_FFA_ACS),1)
+TARGET_CFLAGS += -DWT_FFA_ACS_BASE=$(WT_L3_FFA_ACS_PA)u
+endif
+WT_L3_CFLAGS := $(foreach v,WT_SPM_BOOT_INFO_PA WT_SPM_TABLE_POOL_PA \
+    WT_SPM_IMAGE_PA WT_SPM_IMAGE_SIZE WT_SPM_RAM_PA WT_SPM_RAM_SIZE \
+    WT_SPM_KEYSTORE_PA WT_SPM_KEYSTORE_SIZE WT_SPM_RXTX_PA WT_SPM_RXTX_SIZE \
+    WT_SPM_SHARE_PA WT_SPM_SHARE_SIZE WT_SPM_CONFDATA_PA \
+    WT_SPM_CONFDATA_SIZE,-D$(v)=$($(v))u) \
+    -DWT_SPM_TABLE_POOL_PAGES=$(WT_SPM_TABLE_POOL_PAGES)u -I$(PORT_COMMON_DIR)
+WT_L3_LDFLAGS := $(foreach v,WT_SPM_IMAGE_PA WT_SPM_IMAGE_SIZE \
+    WT_SPM_RAM_PA WT_SPM_RAM_SIZE WT_SPM_KEYSTORE_PA WT_SPM_KEYSTORE_SIZE \
+    WT_SPM_VAULT_PA WT_SPM_VAULT_SIZE WT_SPM_ATTEST_PA WT_SPM_ATTEST_SIZE \
+    WT_SPM_HSMDATA_PA WT_SPM_HSMDATA_SIZE WT_SPM_CONFDATA_PA \
+    WT_SPM_CONFDATA_SIZE,-Wl,--defsym=$(v)=$($(v)))
+TARGET_CFLAGS += $(WT_L3_CFLAGS)
+TARGET_LDFLAGS += $(WT_L3_LDFLAGS)
+TARGET_EXTRA_SRCS += $(PORT_COMMON_DIR)/platform_l3.c
+
 WT_FP_NEG_PROBE ?= 0
 ifeq ($(WT_FP_NEG_PROBE),1)
 ARCH_CFLAGS += -DWT_FP_NEG_PROBE=1
@@ -126,8 +177,13 @@ SECURE_CMSE_IMPLIB :=
 ARCH_LINK_OUTPUTS :=
 # The core is not entered yet; keep it linked so the closure is proven.
 ARCH_LDFLAGS := -Wl,--undefined=wt_boot_run
+# The manifest must grant exactly the keystore bands the shared layout places.
 define arch_image_checks
+	$(WT_L3_TOOL) --check-manifest $(MANIFEST_INPUT) $(PORT_DIR)/memory_map.h \
+		|| { rm -f $(SECURE_ELF); exit 1; }
 endef
+$(BUILD_DIR)/wolftrust.elf: $(ROOT)/tools/aarch64_l3_layout.py \
+    $(PORT_COMMON_DIR)/l3_layout.h $(MANIFEST_INPUT)
 ARCH_DEFAULT_GOALS := el3-image secure-image
 
 .PHONY: el3-image

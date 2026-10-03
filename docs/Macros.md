@@ -43,15 +43,17 @@ says otherwise; the AArch64 variables are under
 ## AArch64 build options
 
 Defaults come from `mk/arch-aarch64.mk` and `mk/target-qemuvirt.mk` or
-`mk/target-versal.mk`.
+`mk/target-versal.mk`; the Secure band placement comes from the shared layout
+in `port/common/aarch64/l3_layout.h`.
 
 | Define | Description | Requirement |
 | --- | --- | --- |
 | `WT_CPU` | `-mcpu` for the EL3 and Secure EL1 images; default `cortex-a72`. | The QEMU cells use `cortex-a72` and, on `virt` with GICv2, `cortex-a35`. |
 | `WT_GIC_VERSION` | GIC driver, `2` or `3`; default `3`. | Must match the interrupt controller; `versal` is GICv3. |
 | `WT_PORT_BOOT_CPUS` | Cores the monitor expects at reset; default `2` on `qemuvirt`, `1` on `versal` (the model keeps APU core 1 powered off). The boot core runs the monitor and the rest park at EL3; a declared core that does not park stops the boot. | Must match the cores the loader starts. |
+| `WT_ISOLATION_LEVEL` | The isolation level the build implements; default `3`. It gates the shared level 3 layer in `port/common/aarch64/`. | Must be `3`: no other level is implemented, so any other value stops the build. |
 | `WT_VERSAL_VIRT` | Selects the QEMU `xlnx-versal-virt` model of the `versal` target; default `1`. | Versal silicon needs `0` and a silicon port. |
-| `WT_SPM_IMAGE_PA`, `WT_SPM_RAM_PA`, `WT_SPM_KEYSTORE_PA`, `WT_SPM_RXTX_PA`, `WT_SPM_SHARE_PA` and their `_SIZE` values; `WT_SPM_BOOT_INFO_PA`, `WT_SPM_TABLE_POOL_PA`, `WT_SPM_TABLE_POOL_PAGES` | Secure EL1 band placement: the SPMC image, its RAM, the keystore band, the partition RX/TX pages, the shared page, the boot-information page, and the stage-1 table pool. | Must lie in Secure memory that the platform fences from the Normal world, must not overlap, and must hold the linked sections; the linker and the table builder refuse overflow. |
+| `WT_SPM_IMAGE_PA`, `WT_SPM_RAM_PA`, `WT_SPM_KEYSTORE_PA`, `WT_SPM_RXTX_PA`, `WT_SPM_SHARE_PA` and their `_SIZE` values; `WT_SPM_BOOT_INFO_PA`, `WT_SPM_TABLE_POOL_PA`, `WT_SPM_TABLE_POOL_PAGES` | Secure EL1 band placement: the SPMC image, its RAM, the keystore band, the partition RX/TX pages, the shared page, the boot-information page, and the stage-1 table pool. Placed by `port/common/aarch64/l3_layout.h` from the port's `WT_L3_BAND_BASE` and `WT_RAM_S_BASE`; `WT_SPM_TABLE_POOL_PA` and `WT_SPM_TABLE_POOL_PAGES` may be overridden on the command line. | Must lie in Secure memory that the platform fences from the Normal world, must not overlap, and must hold the linked sections; the linker and the table builder refuse overflow. |
 | `WT_EL3_RESET_LIMIT` | System resets a `virt` run may make before it ends: `1` by default, `256` for conformance images. `xlnx-versal-virt` does not use it: its reset powers the model off, and the runner bounds the power cycles the same way. | Test only. Production builds leave it unset: every reset goes through the port's `wt_platform_board_system_reset`, and a hook that returns panics the monitor. A build that sets it without `WT_PORT_EMULATED=1` fails, since a real machine's `SYSTEM_RESET` is always a cold reset (DEN0022 5.11). |
 | `WT_PORT_EMULATED` | Marks an emulated machine, whose runner stands in for its power cycles; `1` on `qemuvirt`. | A silicon port never sets it. |
 | `WT_QEMU_TEST_ENTROPY` | Seeds the DRBG from a test source; default `1` on the QEMU targets. | Test only. A silicon port must provide a real entropy source and build with `0`. |

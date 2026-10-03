@@ -358,6 +358,50 @@ contexts, and cryptographic scratch space use fixed storage. Oversized requests
 fail instead of allocating. The link also rejects allocator symbols in both
 engine images.
 
+## Cortex-A isolation level 3
+
+On QEMU `virt`, the AArch64 port implements isolation level 3 of the PSA
+Firmware Framework for M 1.0 (FF-M, Arm DEN 0063) with either crypto engine,
+`native` or `hsm`. The Secure Partition Manager Core (SPMC) of the Firmware
+Framework for Arm A-profile (FF-A) runs at Secure EL1, and every Secure
+Partition runs at Secure EL0 under its own stage 1 translation table. The rules are cited by number; their text
+is in the specification.
+
+| Requirement | wolfTrust on AArch64 |
+| --- | --- |
+| I1, only Code is executable (section 3.1.2) | Partition tables map data execute-never, the SPM maps its writable Secure RAM execute-never, and the table builder refuses a writable and executable region. |
+| I2, only Private data is writable (section 3.1.2) | Code and constant data are read-only in every partition table; a partition can write only its own stack and data band, plus memory another endpoint shares, lends, or donates to it through FF-A. |
+| I3, NSPE to SPE (sections 3.1.3 and 3.1.4) | The Secure bands and the SPM's devices sit where the `virt` bus refuses Normal-world access. The Normal world reaches services only through FF-A calls; for a PSA call the SPMC validates and copies the vectors it names, and a Secure interrupt is claimed as Group 0, disabled, cleared, and read back before its partition runs. |
+| I3, Secure Partition to Secure Partition and to the SPM (sections 3.1.3 and 3.1.4) | Each partition has its own data band, and every boot refuses a composed table that can write another partition's band or reach SPM-private RAM. |
+| I3, indirect access (section 3.1.4) | No partition is assigned a device, and the SPM's devices are never mapped into a partition table. |
+| Private runtime state (section 4.2.1) | A partition's writable state is its own stack and, where it has one, its own data band. On restart the SPMC zeroes the stack and resets the band to its link image. The image has no heap. |
+| Violation handling (section 3.1.6) | A partition access that breaks a rule takes an abort at Secure EL0 and ends that run of the partition, which its manifest restart policy restarts within a bounded budget or escalates to a fail-closed platform halt. A fault in the SPMC halts the platform through the EL3 monitor. |
+
+### Deviations
+
+- Level 3 is the only isolation level implemented. A manifest that declares
+  level 1 or 2 is refused; level 0 makes no isolation claim.
+- A faulted partition is restarted under its manifest restart policy, with a
+  bounded budget, instead of staying terminated.
+- The Normal world is one FF-A endpoint, not a set of managed guests.
+- The claim covers QEMU `virt`. The `xlnx-versal-virt` manifests declare no
+  isolation level, because that model has no XMPU or XPPU to fence the
+  Secure bands and the SPM's devices from the Normal world.
+- The evidence is emulator evidence; no Cortex-A silicon run is recorded yet.
+
+### Evidence
+
+- The Arm psa-arch-tests FF-M IPC suite passes 85 tests with 4 heap tests
+  skipped on `virt` with both engines.
+- The six Arm FF-A ACS groups meet their recorded floors on `virt` with both
+  engines, with the by-design deviations listed in
+  [ACS conformance results](FF-A-Compatibility.md#acs-conformance-results).
+- The isolation negatives in
+  [QEMU AArch64 scenarios](Testing.md#qemu-aarch64-scenarios) run on both
+  engines.
+- All of the above passed at commit `b3587f01` in the
+  [AArch64 CI run](https://github.com/wolfSSL/wolfTrust/actions/runs/37090043983).
+
 ## Source anchors
 
 - [FF-M gateway](../src/arch/armv8m/ffm_nsc.c)

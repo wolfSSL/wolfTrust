@@ -213,8 +213,9 @@ static inline int32_t wt_ffa_version_negotiate(wt_ffa_version_state_t* st,
 }
 
 /* The Framework version an ABI first appeared in (DEN0077A revision
- * history: notifications, indirect messaging, RX_ACQUIRE, and SPM_ID_GET in
- * v1.1; CONSOLE_LOG, PARTITION_INFO_GET_REGS, and DIRECT_REQ2/RESP2 in v1.2). */
+ * history: notifications, indirect messaging, RX_ACQUIRE, SPM_ID_GET, and
+ * MEM_PERM_GET/SET in v1.1; CONSOLE_LOG, PARTITION_INFO_GET_REGS, and
+ * DIRECT_REQ2/RESP2 in v1.2). */
 static inline uint32_t wt_ffa_fid_min_version(uint32_t fid)
 {
     uint32_t version;
@@ -231,6 +232,10 @@ static inline uint32_t wt_ffa_fid_min_version(uint32_t fid)
         case WT_FFA_RX_ACQUIRE:
         case WT_FFA_SPM_ID_GET:
         case WT_FFA_MSG_SEND2:
+        case WT_FFA_MEM_PERM_GET32:
+        case WT_FFA_MEM_PERM_GET64:
+        case WT_FFA_MEM_PERM_SET32:
+        case WT_FFA_MEM_PERM_SET64:
             version = WT_FFA_VERSION_MAKE(1u, 1u);
             break;
         case WT_FFA_CONSOLE_LOG32:

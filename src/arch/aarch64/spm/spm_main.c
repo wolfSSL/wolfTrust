@@ -1485,6 +1485,9 @@ static void ns_interrupt(wt_ffa_regs_t* r)
             }
         }
         else {
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+            wt_spm_ns_conf_irq(intid);
+#endif
             wt_el3_puts("[SPM] ns preempt intid=0x");
             wt_el3_puthex(intid, 3u);
             wt_el3_puts("\r\n");

@@ -41,6 +41,7 @@
 #include "wolftrust/arch/aarch64/spm_svc.h"
 #include "wolftrust/arch/aarch64/sysreg.h"
 #include "wolftrust/arch/aarch64/tables.h"
+#include "wolftrust/arch.h"
 #include "wolftrust/boot.h"
 #include "wolftrust/ffm_domain.h"
 #include "wolftrust/manifest.h"
@@ -1122,6 +1123,30 @@ static int prove_mem_share(uint64_t* out_handle)
 
 uint32_t wt_spm_prove_sint(void);
 
+/* No partition inherits residue from before this boot: its stack and private
+ * bands are reset once, as a restart resets them. */
+static void scrub_partition_bands(void)
+{
+    const wt_system_manifest_t* manifest = wt_generated_manifest_get();
+    const wt_domain_descriptor_t* d;
+    wt_memory_region_t band;
+    size_t i;
+    size_t j;
+
+    for (i = 0u; i < manifest->domain_count; i++) {
+        d = &manifest->domains[i];
+        if (d->domain_class != WT_DOMAIN_CLASS_SECURE_PARTITION) {
+            continue;
+        }
+        for (j = 0u; j < d->memory_resource_count; j++) {
+            if (wt_domain_spm_band(d, j, &band) == 0) {
+                wt_arch_sp_band_reset(band.base, band.size);
+            }
+        }
+    }
+}
+
+
 void wt_spm_main(uint64_t boot_info_pa)
 {
     wt_ffa_regs_t r;
@@ -1217,6 +1242,7 @@ void wt_spm_main(uint64_t boot_info_pa)
 
     /* The neutral core takes over: partitions, services, then the FF-A
      * idle through wt_spm_idle when no Normal world is runnable. */
+    scrub_partition_bands();
     g_wt_spm_partitions_live = 1u;
 #if defined(WT_MSP_OVF_PROBE) && (WT_MSP_OVF_PROBE == 1)
     /* mspovfneg: push on the SPM stack until it reaches the guard page. */

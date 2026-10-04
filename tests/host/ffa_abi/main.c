@@ -450,7 +450,7 @@ static void manifest_record_rows(void)
             0x9eu, 0xadu, 0x37u, 0x6bu, 0xd7u, 0x22u, 0xc3u, 0x37u } }
     };
     static const wt_ffa_partition_manifest_t part = {
-        uuids, 4u, 1u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_NONE,
+        uuids, 4u, 1u, 1u, WT_FFA_RUNTIME_EL_SEL0, WT_FFA_MESSAGING_DIRECT,
         WT_FFA_NS_INTERRUPT_QUEUED, WT_FFA_BOOT_INFO_NONE,
         WT_FFA_VERSION_1_2
     };

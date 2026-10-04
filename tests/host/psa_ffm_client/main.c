@@ -137,6 +137,7 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
 
     g_veneer_in_count_seen = iv->in_count;
     g_veneer_out_count_seen = iv->out_count;
+    g_veneer_in_len_seen = iv->in[0].len;
     if (iv->in_count > WT_FFM_VENEER_IOVEC_MAX ||
             iv->out_count > WT_FFM_VENEER_IOVEC_MAX) {
         wt_ffm_call_refuse(wt_ffm_boot_runtime_mut(), TEST_NS_CLIENT, handle);
@@ -144,9 +145,6 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
     }
     memset(in, 0, sizeof(in));
     memset(out, 0, sizeof(out));
-    if (iv->in_count != 0u) {
-        g_veneer_in_len_seen = iv->in[0].len;
-    }
     for (i = 0u; i < iv->in_count; i++) {
         in[i].base = iv->in[i].base;
         in[i].len = iv->in[i].len;
@@ -314,14 +312,16 @@ int main(void)
         0xf7, 0x1f, 0xae, 0xc6, 0x24, 0x6c, 0x7e, 0x72,
         0x8e, 0x27, 0xa4, 0xb5, 0x0a, 0x49, 0x84, 0x66
     };
-    uint8_t digest[32];
+    uint8_t digest[48];
     uint32_t fwu_manifest = 5U;
     uint8_t fwu_block[32];
     static uint8_t fwu_max_block[PSA_FWU_MAX_WRITE_SIZE];
     psa_fwu_component_info_t fwu_info;
     psa_handle_t handle;
     psa_invec in_vec;
+#if SIZE_MAX > UINT32_MAX
     psa_invec big_vec;
+#endif
     psa_outvec out_vec;
     psa_status_t status;
 
@@ -371,13 +371,13 @@ int main(void)
     check(status == PSA_ERROR_PROGRAMMER_ERROR &&
           g_veneer_in_count_seen == UINT32_MAX,
           "P7-S1 psa_call keeps a 2^32+1 invec count a PROGRAMMER_ERROR on LP64");
+    check(g_veneer_in_len_seen == 0u,
+          "P7-S1 an over-count never marshals a vector");
     status = psa_call(handle, PSA_IPC_CALL, &in_vec, 1U, &out_vec,
                       (size_t)1u << 32 | 1u);
     check(status == PSA_ERROR_PROGRAMMER_ERROR &&
           g_veneer_out_count_seen == UINT32_MAX,
           "P7-S1 psa_call keeps a 2^32+1 outvec count a PROGRAMMER_ERROR on LP64");
-    check(g_veneer_in_len_seen == 0u,
-          "P7-S1 an over-count never marshals a vector");
     big_vec.base = in_vec.base;
     big_vec.len = (size_t)1u << 32 | 16u;
     g_veneer_in_len_seen = 0u;

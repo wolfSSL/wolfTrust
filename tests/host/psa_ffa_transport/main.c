@@ -260,6 +260,9 @@ static psa_status_t crafted_call(uint64_t block, psa_handle_t handle)
 
     crafted(&r, WT_FFA_MSG_SEND_DIRECT_REQ64, WT_PSA_FFA_OP_CALL, block,
             ((uint64_t)(uint32_t)PSA_IPC_CALL << 32) | (uint64_t)(uint32_t)handle);
+    if ((uint32_t)r.x[0] != WT_FFA_MSG_SEND_DIRECT_RESP64) {
+        return PSA_ERROR_COMMUNICATION_FAILURE;
+    }
     return (psa_status_t)(int32_t)(uint32_t)r.x[3];
 }
 
@@ -281,7 +284,7 @@ int main(void)
     psa_handle_t handle;
     psa_handle_t refused;
     psa_handle_t again;
-    uint8_t digest[32];
+    uint8_t digest[48];
     psa_invec in_vec;
     psa_outvec out_vec;
     psa_status_t st;
@@ -330,7 +333,7 @@ int main(void)
     st = psa_call(handle, PSA_IPC_CALL, &in_vec, 1u, &out_vec, 1u);
     check(st == PSA_SUCCESS && memcmp(digest, expected, sizeof(expected)) == 0,
           "psa_call round-trips client -> FF-A -> front-end -> gateway -> core -> relay: SHA-256 KAT matches");
-    check(out_vec.len == sizeof(digest),
+    check(out_vec.len == sizeof(expected),
           "the out-vec length is written back through the guest's vector block");
     check(g_pmr_in_service == WT_GIC_PMR_MASK_NS && g_pmr == 0xFFu,
           "the service ran with Normal-world interrupts queued behind the "

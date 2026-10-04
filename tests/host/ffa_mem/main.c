@@ -933,9 +933,6 @@ static void frag_rows(void)
           "the length is known before the last constituent has arrived");
     check(wt_ffa_mem_frag_expected(buf, WT_FFA_MEM_TXN_HDR_SIZE, 0, &size) == 0,
           "a fragment that stops before the composite header cannot tell");
-    check((wt_ffa_mem_frag_expected(buf, (uint32_t)len, 0, &size) == 1) &&
-          (size != (uint64_t)len + 0x10u),
-          "a total longer than the descriptor it heads is caught");
     rlen = 0u;
     check((wt_ffa_mem_retrieve_req_build(rbuf, sizeof(rbuf), 0x1234u, 0u,
                                          0x8002u, 0x06u, &rlen) == 0) &&
@@ -3079,6 +3076,10 @@ static void relay_teardown_rows(void)
           "teardown: the owner lends two pages, the borrower retrieves one");
     (void)relay_build(desc, sizeof(desc), WT_FFA_MEM_OP_LEND, c, 1u,
                       WT_FFA_MEM_PERM_DATA_RW, 0u, &len);
+    check(wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_A, desc,
+                                (uint32_t)len, (uint32_t)len + 0x10u, &fh) ==
+              WT_FFA_INVALID_PARAMETERS,
+          "a total longer than the descriptor it heads is caught");
     check(wt_spm_mem_frag_begin((uint8_t)WT_FFA_MEM_OP_LEND, RELAY_ID_A, desc,
                                 40u, (uint32_t)len, &fh) == 0,
           "teardown: the owner starts a descriptor in fragments");

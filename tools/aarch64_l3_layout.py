@@ -37,9 +37,12 @@ LDFLAGS_MACROS = (
     "WT_SPM_ATTEST_SIZE", "WT_SPM_HSMDATA_PA", "WT_SPM_HSMDATA_SIZE",
     "WT_SPM_CONFDATA_PA", "WT_SPM_CONFDATA_SIZE",
 )
-KEYSTORE_BANDS = (("WT_SPM_VAULT_PA", "WT_SPM_VAULT_SIZE"),
-                  ("WT_SPM_ATTEST_PA", "WT_SPM_ATTEST_SIZE"),
-                  ("WT_SPM_HSMDATA_PA", "WT_SPM_HSMDATA_SIZE"))
+# Each band and the partition whose data wolftrust.ld links into it.
+KEYSTORE_BANDS = (("WT_SPM_VAULT_PA", "WT_SPM_VAULT_SIZE", "PARTITION_VAULT"),
+                  ("WT_SPM_ATTEST_PA", "WT_SPM_ATTEST_SIZE",
+                   "PARTITION_ATTEST"),
+                  ("WT_SPM_HSMDATA_PA", "WT_SPM_HSMDATA_SIZE",
+                   "PARTITION_HSM"))
 INTEGER = re.compile(r"\b(0[xX][0-9a-fA-F]+|[0-9]+)[uUlL]*\b")
 EXPRESSION = re.compile(r"^[0-9a-fA-FxX+\-*() ]+$")
 
@@ -77,27 +80,32 @@ def evaluate(cc, header, defines, includes):
 
 
 def check_manifest(path, values):
-    """Each keystore band is granted exactly once, and nothing else is
-    granted inside the keystore window."""
+    """Each keystore band is granted exactly once, to the domain of the
+    partition linked into it, and nothing else is granted inside the
+    keystore window."""
     with open(path, encoding="utf-8") as handle:
         manifest = json.load(handle)
     window = (values["WT_SPM_KEYSTORE_PA"],
               values["WT_SPM_KEYSTORE_PA"] + values["WT_SPM_KEYSTORE_SIZE"])
-    bands = [(values[base], values[size]) for base, size in KEYSTORE_BANDS]
+    owners = {partition["name"]: partition["domain_id"]
+              for partition in manifest.get("partitions", ())}
+    bands = [(values[base], values[size], owners.get(name))
+             for base, size, name in KEYSTORE_BANDS]
     granted = []
     for domain in manifest.get("domains", ()):
         for resource in domain.get("memory_resources", ()):
             base, size = resource["base"], resource["size"]
             if base < window[1] and base + size > window[0]:
-                granted.append((base, size))
+                granted.append((base, size, domain["id"]))
     errors = []
     for band in bands:
         if granted.count(band) != 1:
-            errors.append("band 0x%X+0x%X is granted %d times" %
-                          (band[0], band[1], granted.count(band)))
+            errors.append("band 0x%X+0x%X is granted %d times to domain %s" %
+                          (band[0], band[1], granted.count(band), band[2]))
     for grant in granted:
         if grant not in bands:
-            errors.append("grant 0x%X+0x%X is not a keystore band" % grant)
+            errors.append("grant 0x%X+0x%X to domain %s is not its keystore "
+                          "band" % grant)
     if errors:
         raise SystemExit("FAIL: %s: %s" % (path, "; ".join(errors)))
 

@@ -228,6 +228,11 @@ int wt_spm_sint_signal_needed(struct wt_co* owner);
 void wt_spm_preempt_from_irq(wt_trap_frame_t* frame);
 /* Acknowledge the Secure interrupt that preempted the Normal world. */
 uint32_t wt_spm_ns_sint_take(void);
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+/* A manifest-declared interrupt taken while the Normal world ran: masked and
+ * signalled to its partition exactly as on the Secure path. */
+void wt_spm_ns_conf_irq(uint32_t intid);
+#endif
 
 /* The test-timer service: arm makes the interrupt pending at its deadline
  * (see spm_irq.c for when a Normal-world one lands); stop clears the timers

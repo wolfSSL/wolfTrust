@@ -313,6 +313,8 @@ int main(void)
     psa_close(handle);
 
     wt_spm_psa_init(0u, ~(uint64_t)0);
+    g_req_fid = 0u;
+    g_resp_fid = 0u;
     check(psa_framework_version() == PSA_FRAMEWORK_VERSION,
           "psa_framework_version comes from the core over the transport");
     check((g_req_fid == WT_FFA_MSG_SEND_DIRECT_REQ64) &&
@@ -364,13 +366,16 @@ int main(void)
     block->out_count = 1u;
     check(crafted_call((uint64_t)(uintptr_t)block, handle) == PSA_ERROR_PROGRAMMER_ERROR,
           "an in-vec outside the Non-secure window is refused by the core's memcheck");
+    psa_close(handle);
     handle = psa_connect(TEST_HSM_SID, 1u);
     memset(&local, 0, sizeof(local));
     local.in[0].base = &area[256];
     local.in[0].len = 8u;
     local.in_count = 1u;
-    check(crafted_call((uint64_t)(uintptr_t)&local, handle) == PSA_ERROR_PROGRAMMER_ERROR,
+    check(PSA_HANDLE_IS_VALID(handle) &&
+              crafted_call((uint64_t)(uintptr_t)&local, handle) == PSA_ERROR_PROGRAMMER_ERROR,
           "a vector block outside the Non-secure window is refused before it is read");
+    psa_close(handle);
     wt_spm_psa_init(0u, ~(uint64_t)0);
 
     /* 7.2.1 / 11 rule 3: an SMC32 message is w0-w7, so the upper halves of
@@ -413,7 +418,8 @@ int main(void)
     g_gone_lo = (uint64_t)(uintptr_t)&area[512];
     g_gone_hi = g_gone_lo + 32u;
     handle = psa_connect(TEST_HSM_SID, 1u);
-    check(crafted_call((uint64_t)(uintptr_t)block, handle) ==
+    check(PSA_HANDLE_IS_VALID(handle) &&
+              crafted_call((uint64_t)(uintptr_t)block, handle) ==
               PSA_ERROR_PROGRAMMER_ERROR &&
               area[512] == 0xA5u && area[543] == 0xA5u,
           "an out-vec in memory the guest lent away is refused and never written");
@@ -421,14 +427,16 @@ int main(void)
     g_gone_lo = (uint64_t)(uintptr_t)input;
     g_gone_hi = g_gone_lo + 1u;
     handle = psa_connect(TEST_HSM_SID, 1u);
-    check(crafted_call((uint64_t)(uintptr_t)block, handle) ==
+    check(PSA_HANDLE_IS_VALID(handle) &&
+              crafted_call((uint64_t)(uintptr_t)block, handle) ==
               PSA_ERROR_PROGRAMMER_ERROR,
           "an in-vec reaching into memory the guest lent away is refused");
     psa_close(handle);
     g_gone_lo = (uint64_t)(uintptr_t)&block->out[0];
     g_gone_hi = g_gone_lo + 1u;
     handle = psa_connect(TEST_HSM_SID, 1u);
-    check(crafted_call((uint64_t)(uintptr_t)block, handle) ==
+    check(PSA_HANDLE_IS_VALID(handle) &&
+              crafted_call((uint64_t)(uintptr_t)block, handle) ==
               PSA_ERROR_PROGRAMMER_ERROR &&
               block->out[0].len == 32u,
           "a vector block in memory the guest lent away is refused before it is read");

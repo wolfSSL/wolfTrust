@@ -16,8 +16,8 @@ independent TF-M Level 3 code and data isolation.
 
 On AArch64 the same selector builds the Secure EL1 SPMC and the Normal-world
 payload, and the boundary is FF-A rather than CMSE veneers. Both engines run
-the QEMU AArch64 scenarios except `hsmattackneg`, which drives the wolfHSM
-wire and is skipped under the native engine.
+the QEMU AArch64 scenarios except `hsmattackneg` and `hsmpinneg`, which drive
+wolfHSM-only paths and are skipped under the native engine.
 
 ## At a glance
 

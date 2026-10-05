@@ -212,12 +212,15 @@ void wt_arch_secure_irq_enable(uint32_t irq)
 {
     wt_gic->set_group0(irq);
     wt_gic->set_priority(irq, 0x00u);
+    wt_gic->clear_pending(irq);
     wt_gic->enable(irq);
 }
 
+/* Pending state never outlives a disable, as on the Armv8-M port. */
 void wt_arch_secure_irq_disable(uint32_t irq)
 {
     wt_gic->disable(irq);
+    wt_gic->clear_pending(irq);
 }
 
 /* wt_irq_claim hands over one line at a time as a word and a one-bit mask. */

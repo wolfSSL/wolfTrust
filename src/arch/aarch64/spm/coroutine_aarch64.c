@@ -423,6 +423,8 @@ void wt_spm_init_partitions(void)
             break;
         }
     }
+    /* A fault on the last pass still reaches its restart budget now. */
+    wt_spm_recover_faulted();
     while (wt_co_tick(8u) != 0u) {
     }
 }

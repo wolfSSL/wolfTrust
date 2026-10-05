@@ -991,12 +991,12 @@ int wt_spm_ffa_run(struct wt_co* co, uint16_t caller, uint64_t* out)
     }
     m = &g_sp_msg[co->id - 1u];
     if (wt_co_state((wt_co_t*)co) != WT_CO_BLOCKED) {
-        /* A partition an NS interrupt preempted mid-request resumes at the
-         * interrupted instruction and finishes its response, for its
-         * requester only. */
+        /* A partition an NS interrupt preempted resumes at the interrupted
+         * instruction: mid-request for its requester only, otherwise for
+         * whoever gave it cycles; an initializing one stays denied. */
         if ((wt_co_state((wt_co_t*)co) == WT_CO_RUNNABLE) &&
-            (m->busy != 0u)) {
-            if ((m->orphaned == 0u) &&
+            (wt_spm_sp_initializing(co) == 0)) {
+            if ((m->busy != 0u) && (m->orphaned == 0u) &&
                 (wt_ffa_run_busy_check(m->requester, caller, 0u, 1u) != 0)) {
                 return WT_FFA_DENIED;
             }

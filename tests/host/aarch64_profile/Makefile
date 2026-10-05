@@ -59,6 +59,7 @@ $(BUILD_DIR)/test_$(call field,$(1),1): $(SRCS) \
 	$(CC) $(CFLAGS) -I$(ROOT)/port/$(call field,$(1),2) \
 		-I$(BUILD_DIR)/$(call field,$(1),1) \
 		-DEXPECT_NS_FENCE=$(call field,$(1),4) \
+		$(if $(findstring conformance,$(call field,$(1),3)),-DWT_CONFORMANCE=1) \
 		-DVARIANT_NAME='"$(call field,$(1),1)"' $(EXTRA_LDFLAGS) -o $$@ \
 		$(SRCS) $(BUILD_DIR)/$(call field,$(1),1)/wolftrust_manifest_generated.c
 endef

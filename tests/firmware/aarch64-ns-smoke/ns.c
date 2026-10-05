@@ -1034,6 +1034,7 @@ static uint32_t memneg_build_op(const uint8_t* page, wt_ffa_mem_op_t op)
                          ? (uint8_t)WT_FFA_MEM_PERM_DATA_RW : 0u;
     in.access_desc_size = 0u;
     in.impdef = NULL;
+    in.version = 0u;
     if (wt_ffa_mem_txn_build(g_memneg_desc, sizeof(g_memneg_desc), &in,
                              &len) != 0) {
         return 0u;

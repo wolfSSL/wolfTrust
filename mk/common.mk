@@ -1583,8 +1583,8 @@ $(BUILD_DIR)/wt_sec_%.o: $(WOLFCOSE_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_S
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 define wt_arch_tree_rule
-$(BUILD_DIR)/wt_sec_$(notdir $(basename $(1))).o: $(1) $(MANIFEST_GEN_H) \
-		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_$(notdir $(basename $(1))).o: $(1) $(PORT_HEADERS) \
+		$(MANIFEST_GEN_H) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$$(CC) $$(SECURE_CFLAGS) -c -o $$@ $$<
 endef
 $(foreach s,$(ARCH_TREE_SRCS) $(ARCH_ASM_SRCS),$(eval $(call wt_arch_tree_rule,$(s))))

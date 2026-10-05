@@ -103,7 +103,8 @@
 
 /* A band moved on the command line must stay in Secure RAM. */
 #define WT_L3_IN_RAM_S(pa, size) (((pa) >= WT_RAM_S_BASE) && \
-    (((pa) + (size)) <= (WT_RAM_S_BASE + WT_RAM_S_SIZE)))
+    ((size) <= WT_RAM_S_SIZE) && \
+    (((pa) - WT_RAM_S_BASE) <= (WT_RAM_S_SIZE - (size))))
 #if !WT_L3_IN_RAM_S(WT_SPM_BOOT_INFO_PA, 0x1000u) || \
     !WT_L3_IN_RAM_S(WT_SPM_TABLE_POOL_PA, 0x1000u) || \
     !WT_L3_IN_RAM_S(WT_SPM_IMAGE_PA, WT_SPM_IMAGE_SIZE) || \
@@ -115,7 +116,8 @@
 #error "a level 3 band lies outside the port's Secure RAM"
 #endif
 #if defined(WT_SPM_TABLE_POOL_PAGES) && \
-    !WT_L3_IN_RAM_S(WT_SPM_TABLE_POOL_PA, WT_SPM_TABLE_POOL_PAGES * 0x1000u)
+    ((WT_SPM_TABLE_POOL_PAGES > (WT_RAM_S_SIZE / 0x1000u)) || \
+     !WT_L3_IN_RAM_S(WT_SPM_TABLE_POOL_PA, WT_SPM_TABLE_POOL_PAGES * 0x1000u))
 #error "the table pool lies outside the port's Secure RAM"
 #endif
 

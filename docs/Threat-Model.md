@@ -125,6 +125,16 @@ Unprivileged service threads request flash, entropy, locking, and reset through
 SVC gates. The handler validates the originating partition, but a defect in
 that privileged dispatcher is within the trusted computing base.
 
+### Normal-world memory lent to an AArch64 partition stays Normal-world memory
+
+On the AArch64 ports the Normal-world kernel removes its own mapping when it
+lends or donates memory to a Secure Partition (FF-A memory management, DEN0140
+1.4.1); there is no Hypervisor stage-2 or memory firewall to enforce that. A
+privileged Normal world can therefore keep reading and writing memory it lent,
+donated, or shared while a partition holds it. Partitions must copy such memory
+into their own memory before validating it and must keep no secret in it. See
+[FF-A Compatibility](FF-A-Compatibility.md).
+
 ### Availability is bounded, not guaranteed
 
 A hostile guest can spend its own execution time on rejected requests and can

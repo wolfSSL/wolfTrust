@@ -9,6 +9,7 @@
 - [[API Reference]]
 - [[Services]]
 - [[TF-M Compatibility]]
+- [[FF-A Compatibility]]
 - [[Macros]]
 - [[Porting]]
 - [[Building]]

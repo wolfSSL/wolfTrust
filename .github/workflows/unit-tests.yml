@@ -31,7 +31,7 @@ jobs:
   host-unit-tests:
     name: ${{ matrix.suite }}
     needs: discover
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     container:
       image: ghcr.io/wolfssl/wolftrust-ci:latest-beb806af7628e02acee729632a74a7a3630f21fd
     timeout-minutes: 20
@@ -52,7 +52,7 @@ jobs:
     name: arm_psa_ff_conformance
     # Bare runner, not the CI image: the image inherits m33mu, and
     # make test-conformance takes the emulator path when m33mu is on PATH.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4

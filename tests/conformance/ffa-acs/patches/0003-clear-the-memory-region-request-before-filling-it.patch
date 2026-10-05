@@ -1,0 +1,574 @@
+diff --git a/test/v1.0/memory_manage/donate_input_error_checks/donate_input_error_checks_client.c b/test/v1.0/memory_manage/donate_input_error_checks/donate_input_error_checks_client.c
+index be467db..40edd93 100644
+--- a/test/v1.0/memory_manage/donate_input_error_checks/donate_input_error_checks_client.c
++++ b/test/v1.0/memory_manage/donate_input_error_checks/donate_input_error_checks_client.c
+@@ -36,6 +36,7 @@ static uint32_t mem_donate_invalid_epid_check(void *tx_buf,
+     /* Relayer must ensure that the Endpoint ID field in each Memory access permissions descriptor
+      * specifies a valid endpoint. The Relayer must return INVALID_PARAMETERS in case of an error.
+      */
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+     mem_region_init.memory_region = tx_buf;
+@@ -101,6 +102,7 @@ static uint32_t mem_donate_data_access_perm_check(void *tx_buf, ffa_endpoint_id_
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -170,6 +172,7 @@ static uint32_t mem_donate_mem_attribute_check(void *tx_buf, ffa_endpoint_id_t s
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -237,6 +240,7 @@ static uint32_t mem_donate_mmio_check(void *tx_buf, ffa_endpoint_id_t sender, ui
+ 
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -298,6 +302,7 @@ static uint32_t mem_donate_instruction_access_perm_check(void *tx_buf, ffa_endpo
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -370,6 +375,7 @@ static uint32_t mem_donate_invalid_ep_count_check(void *tx_buf, ffa_endpoint_id_
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -444,6 +450,7 @@ static uint32_t mem_donate_invalid_ep_desc_offset_check(void *tx_buf, ffa_endpoi
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+diff --git a/test/v1.0/memory_manage/donate_invalid_handle_tag/donate_invalid_handle_tag_server.c b/test/v1.0/memory_manage/donate_invalid_handle_tag/donate_invalid_handle_tag_server.c
+index e4f3c28..94b898d 100644
+--- a/test/v1.0/memory_manage/donate_invalid_handle_tag/donate_invalid_handle_tag_server.c
++++ b/test/v1.0/memory_manage/donate_invalid_handle_tag/donate_invalid_handle_tag_server.c
+@@ -134,6 +134,7 @@ static uint32_t mem_donate_invalid_handle_tag_check(ffa_memory_handle_t handle,
+     /* MEM_DONATE: The Relayer must ensure the Tag value specified by the Receiver
+      * is equal to the value that was specified by the Sender.
+      */
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/donate_retrieve_with_address_range/donate_retrieve_with_address_range_server.c b/test/v1.0/memory_manage/donate_retrieve_with_address_range/donate_retrieve_with_address_range_server.c
+index 3eca657..d1c700a 100644
+--- a/test/v1.0/memory_manage/donate_retrieve_with_address_range/donate_retrieve_with_address_range_server.c
++++ b/test/v1.0/memory_manage/donate_retrieve_with_address_range/donate_retrieve_with_address_range_server.c
+@@ -190,8 +190,8 @@ uint32_t donate_retrieve_with_address_range_server(ffa_args_t args)
+      *            INVALID_PARAMETERS.
+      */
+     flags = VAL_SET_BITS(flags, 5, 5, 0x11);
+-    mem_region_init.flags = flags;
+     val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
++    mem_region_init.flags = flags;
+     mem_region_init.memory_region = mb.send;
+     mem_region_init.sender = receiver;
+     mem_region_init.receiver = sender;
+diff --git a/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_client.c b/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_client.c
+index 96f7044..93f99d6 100644
+--- a/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_client.c
++++ b/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_client.c
+@@ -45,6 +45,7 @@ static uint32_t mem_lend_device_attr_check(uint32_t test_run_data, uint32_t fid,
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_server.c b/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_server.c
+index 84aa586..887e2d6 100644
+--- a/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_server.c
++++ b/test/v1.0/memory_manage/lend_device_attr/lend_device_attr1_server.c
+@@ -16,6 +16,7 @@ static uint32_t mem_lend_device_attr_check(ffa_memory_handle_t handle, uint32_t
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/lend_device_attr/lend_device_attr_client.c b/test/v1.0/memory_manage/lend_device_attr/lend_device_attr_client.c
+index cacafb5..3c531f4 100644
+--- a/test/v1.0/memory_manage/lend_device_attr/lend_device_attr_client.c
++++ b/test/v1.0/memory_manage/lend_device_attr/lend_device_attr_client.c
+@@ -45,6 +45,7 @@ static uint32_t mem_lend_device_attr_check(uint32_t test_run_data, uint32_t fid,
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/lend_device_attr/lend_device_attr_server.c b/test/v1.0/memory_manage/lend_device_attr/lend_device_attr_server.c
+index 8fee2ef..1e2738c 100644
+--- a/test/v1.0/memory_manage/lend_device_attr/lend_device_attr_server.c
++++ b/test/v1.0/memory_manage/lend_device_attr/lend_device_attr_server.c
+@@ -16,6 +16,7 @@ static uint32_t mem_lend_device_attr_check(ffa_memory_handle_t handle, uint32_t
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/lend_input_error_checks/lend_input_error_checks1_client.c b/test/v1.0/memory_manage/lend_input_error_checks/lend_input_error_checks1_client.c
+index 7167a82..7a5f560 100644
+--- a/test/v1.0/memory_manage/lend_input_error_checks/lend_input_error_checks1_client.c
++++ b/test/v1.0/memory_manage/lend_input_error_checks/lend_input_error_checks1_client.c
+@@ -38,6 +38,7 @@ static uint32_t mem_lend_invalid_sender_id_check(void *tx_buf, ffa_endpoint_id_t
+      * that the Lender is the Owner of the memory region and a PE endpoint.
+      * Must return DENIED in case of an error.
+      */
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+     mem_region_init.memory_region = tx_buf;
+@@ -100,6 +101,7 @@ static uint32_t mem_lend_sp_to_ns_check(void *tx_buf, ffa_endpoint_id_t sender,
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+     mem_region_init.memory_region = tx_buf;
+@@ -167,6 +169,7 @@ static uint32_t mem_lend_invalid_total_length_check(void *tx_buf, ffa_endpoint_i
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -235,6 +238,7 @@ static uint32_t mem_lend_mem_attribute_check(void *tx_buf, ffa_endpoint_id_t sen
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -307,6 +311,7 @@ static uint32_t mem_lend_instruction_access_check(void *tx_buf, ffa_endpoint_id_
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -374,6 +379,7 @@ static uint32_t mem_lend_invalid_ep_count_check(void *tx_buf, ffa_endpoint_id_t
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -447,6 +453,7 @@ static uint32_t mem_lend_invalid_ep_desc_offset_check(void *tx_buf, ffa_endpoint
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+diff --git a/test/v1.0/memory_manage/lend_input_error_checks/lend_input_error_checks_client.c b/test/v1.0/memory_manage/lend_input_error_checks/lend_input_error_checks_client.c
+index 18f70e0..07e3fa7 100644
+--- a/test/v1.0/memory_manage/lend_input_error_checks/lend_input_error_checks_client.c
++++ b/test/v1.0/memory_manage/lend_input_error_checks/lend_input_error_checks_client.c
+@@ -36,6 +36,7 @@ static uint32_t mem_lend_invalid_epid_check(void *tx_buf,
+     /* Relayer must ensure that the Endpoint ID field in each Memory access permissions descriptor
+      * specifies a valid endpoint. The Relayer must return INVALID_PARAMETERS in case of an error.
+      */
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+     mem_region_init.memory_region = tx_buf;
+@@ -108,6 +109,7 @@ static uint32_t mem_lend_address_ranges_overlap_check(void *tx_buf,
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 2;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+     mem_region_init.memory_region = tx_buf;
+@@ -222,6 +224,7 @@ static uint32_t mem_lend_mmio_check(void *tx_buf, ffa_endpoint_id_t sender, uint
+ 
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+diff --git a/test/v1.0/memory_manage/lend_invalid_handle_tag/lend_invalid_handle_tag_server.c b/test/v1.0/memory_manage/lend_invalid_handle_tag/lend_invalid_handle_tag_server.c
+index 1418d75..10ab5a4 100644
+--- a/test/v1.0/memory_manage/lend_invalid_handle_tag/lend_invalid_handle_tag_server.c
++++ b/test/v1.0/memory_manage/lend_invalid_handle_tag/lend_invalid_handle_tag_server.c
+@@ -39,6 +39,7 @@ static uint32_t mem_lend_invalid_handle_tag_check(ffa_memory_handle_t handle, ui
+     /* MEM_LEND: The Relayer must ensure the Tag value specified by the Receiver
+      * is equal to the value that was specified by the Sender.
+      */
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/lend_retrieve_alignment_hint/lend_retrieve_align_hint_check_server.c b/test/v1.0/memory_manage/lend_retrieve_alignment_hint/lend_retrieve_align_hint_check_server.c
+index ae1a3ad..43a89f8 100644
+--- a/test/v1.0/memory_manage/lend_retrieve_alignment_hint/lend_retrieve_align_hint_check_server.c
++++ b/test/v1.0/memory_manage/lend_retrieve_alignment_hint/lend_retrieve_align_hint_check_server.c
+@@ -34,6 +34,7 @@ static uint32_t retrieve_align_hint_err_check(ffa_memory_handle_t handle, uint32
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks2_server.c b/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks2_server.c
+index c013fd7..833c80f 100644
+--- a/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks2_server.c
++++ b/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks2_server.c
+@@ -34,6 +34,7 @@ static uint32_t retrieve_zero_flag_check(ffa_memory_handle_t handle, uint32_t fi
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+@@ -91,6 +92,7 @@ static uint32_t retrieve_with_invalid_mem_transaction_type_check(ffa_memory_hand
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks_server.c b/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks_server.c
+index c894478..e427f30 100644
+--- a/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks_server.c
++++ b/test/v1.0/memory_manage/lend_retrieve_input_checks/lend_retrieve_input_checks_server.c
+@@ -34,6 +34,7 @@ static uint32_t retrieve_zero_flag_check_for_ro_mem(ffa_memory_handle_t handle,
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/lend_retrieve_with_address_range/lend_retrieve_with_address_range_server.c b/test/v1.0/memory_manage/lend_retrieve_with_address_range/lend_retrieve_with_address_range_server.c
+index ae1f831..fb462e2 100644
+--- a/test/v1.0/memory_manage/lend_retrieve_with_address_range/lend_retrieve_with_address_range_server.c
++++ b/test/v1.0/memory_manage/lend_retrieve_with_address_range/lend_retrieve_with_address_range_server.c
+@@ -101,8 +101,8 @@ uint32_t lend_retrieve_with_address_range_server(ffa_args_t args)
+      *            INVALID_PARAMETERS.
+      */
+     flags = VAL_SET_BITS(flags, 5, 5, 0x11);
+-    mem_region_init.flags = flags;
+     val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
++    mem_region_init.flags = flags;
+     mem_region_init.memory_region = mb.send;
+     mem_region_init.sender = receiver;
+     mem_region_init.receiver = sender;
+diff --git a/test/v1.0/memory_manage/lend_shareability_attr/lend_shareability_attr_server.c b/test/v1.0/memory_manage/lend_shareability_attr/lend_shareability_attr_server.c
+index 5c14ba9..14fec41 100644
+--- a/test/v1.0/memory_manage/lend_shareability_attr/lend_shareability_attr_server.c
++++ b/test/v1.0/memory_manage/lend_shareability_attr/lend_shareability_attr_server.c
+@@ -16,6 +16,7 @@ static uint32_t mem_lend_shareability_attr_check(ffa_memory_handle_t handle, uin
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/share_device_attr/share_device_attr1_client.c b/test/v1.0/memory_manage/share_device_attr/share_device_attr1_client.c
+index 4c57f86..8091b3d 100644
+--- a/test/v1.0/memory_manage/share_device_attr/share_device_attr1_client.c
++++ b/test/v1.0/memory_manage/share_device_attr/share_device_attr1_client.c
+@@ -34,6 +34,7 @@ static uint32_t mem_share_device_attr_check(uint32_t test_run_data, uint32_t fid
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/share_device_attr/share_device_attr1_server.c b/test/v1.0/memory_manage/share_device_attr/share_device_attr1_server.c
+index 4f11235..b2496a1 100644
+--- a/test/v1.0/memory_manage/share_device_attr/share_device_attr1_server.c
++++ b/test/v1.0/memory_manage/share_device_attr/share_device_attr1_server.c
+@@ -16,6 +16,7 @@ static uint32_t mem_share_device_attr_check(ffa_memory_handle_t handle, uint32_t
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/share_device_attr/share_device_attr_client.c b/test/v1.0/memory_manage/share_device_attr/share_device_attr_client.c
+index c834eaf..c4228cc 100644
+--- a/test/v1.0/memory_manage/share_device_attr/share_device_attr_client.c
++++ b/test/v1.0/memory_manage/share_device_attr/share_device_attr_client.c
+@@ -34,6 +34,7 @@ static uint32_t mem_share_device_attr_check(uint32_t test_run_data, uint32_t fid
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/share_device_attr/share_device_attr_server.c b/test/v1.0/memory_manage/share_device_attr/share_device_attr_server.c
+index cd746f6..610c71e 100644
+--- a/test/v1.0/memory_manage/share_device_attr/share_device_attr_server.c
++++ b/test/v1.0/memory_manage/share_device_attr/share_device_attr_server.c
+@@ -16,6 +16,7 @@ static uint32_t mem_share_device_attr_check(ffa_memory_handle_t handle, uint32_t
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/share_input_error_checks/share_input_error_checks1_client.c b/test/v1.0/memory_manage/share_input_error_checks/share_input_error_checks1_client.c
+index b5c4fba..794f334 100644
+--- a/test/v1.0/memory_manage/share_input_error_checks/share_input_error_checks1_client.c
++++ b/test/v1.0/memory_manage/share_input_error_checks/share_input_error_checks1_client.c
+@@ -37,6 +37,7 @@ static uint32_t mem_share_invalid_total_page_count_check(void *tx_buf, ffa_endpo
+     constituents[1].address = val_mem_virt_to_phys((void *)pages + PAGE_SIZE_4K * 1);
+     constituents[1].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+     mem_region_init.memory_region = tx_buf;
+@@ -126,6 +127,7 @@ static uint32_t mem_share_address_ranges_overlap_check(void *tx_buf, ffa_endpoin
+     constituents[1].address = val_mem_virt_to_phys((void *)pages + PAGE_SIZE_4K * 1);
+     constituents[1].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+     mem_region_init.memory_region = tx_buf;
+@@ -211,6 +213,7 @@ static uint32_t mem_share_invalid_sender_id_check(void *tx_buf, ffa_endpoint_id_
+      * that the Lender is the Owner of the memory region and a PE endpoint.
+      * Must return DENIED in case of an error.
+      */
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+     mem_region_init.memory_region = tx_buf;
+@@ -279,6 +282,7 @@ static uint32_t mem_share_sp_to_ns_check(void *tx_buf, ffa_endpoint_id_t sender,
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+     mem_region_init.memory_region = tx_buf;
+@@ -348,6 +352,7 @@ static uint32_t mem_share_invalid_total_length_check(void *tx_buf, ffa_endpoint_
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -419,6 +424,7 @@ static uint32_t mem_share_invalid_ep_count_check(void *tx_buf, ffa_endpoint_id_t
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+@@ -494,6 +500,7 @@ static uint32_t mem_share_invalid_ep_desc_offset_check(void *tx_buf, ffa_endpoin
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+diff --git a/test/v1.0/memory_manage/share_input_error_checks/share_input_error_checks_client.c b/test/v1.0/memory_manage/share_input_error_checks/share_input_error_checks_client.c
+index d692b72..8dd1801 100644
+--- a/test/v1.0/memory_manage/share_input_error_checks/share_input_error_checks_client.c
++++ b/test/v1.0/memory_manage/share_input_error_checks/share_input_error_checks_client.c
+@@ -36,6 +36,7 @@ static uint32_t mem_share_invalid_epid_check(void *tx_buf,
+     /* Relayer must ensure that the Endpoint ID field in each Memory access permissions descriptor
+      * specifies a valid endpoint. The Relayer must return INVALID_PARAMETERS in case of an error.
+      */
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+     mem_region_init.memory_region = tx_buf;
+@@ -101,6 +102,7 @@ static uint32_t mem_share_zero_flag_check(void *tx_buf, ffa_endpoint_id_t sender
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+     mem_region_init.memory_region = tx_buf;
+@@ -172,6 +174,7 @@ static uint32_t mem_share_inst_perm_check(void *tx_buf, ffa_endpoint_id_t sender
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+     mem_region_init.memory_region = tx_buf;
+@@ -240,6 +243,7 @@ static uint32_t mem_share_mmio_check(void *tx_buf, ffa_endpoint_id_t sender, uin
+ 
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = recipient;
+diff --git a/test/v1.0/memory_manage/share_invalid_handle_tag/share_invalid_handle_tag_server.c b/test/v1.0/memory_manage/share_invalid_handle_tag/share_invalid_handle_tag_server.c
+index 74fd2e9..c182961 100644
+--- a/test/v1.0/memory_manage/share_invalid_handle_tag/share_invalid_handle_tag_server.c
++++ b/test/v1.0/memory_manage/share_invalid_handle_tag/share_invalid_handle_tag_server.c
+@@ -36,6 +36,7 @@ static uint32_t mem_share_invalid_handle_tag_check(ffa_memory_handle_t handle, u
+     /* MEM_SHARE: Relayer must ensure that the handle was allocated to the owner
+      * specified in the sender endpoint ID field of the transaction descriptor
+      */
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/share_retrieve_alignment_hint/share_retrieve_align_hint_check_server.c b/test/v1.0/memory_manage/share_retrieve_alignment_hint/share_retrieve_align_hint_check_server.c
+index 37cc7e5..c613015 100644
+--- a/test/v1.0/memory_manage/share_retrieve_alignment_hint/share_retrieve_align_hint_check_server.c
++++ b/test/v1.0/memory_manage/share_retrieve_alignment_hint/share_retrieve_align_hint_check_server.c
+@@ -34,6 +34,7 @@ static uint32_t retrieve_align_hint_err_check(ffa_memory_handle_t handle, uint32
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/share_retrieve_input_checks/share_retrieve_input_checks_server.c b/test/v1.0/memory_manage/share_retrieve_input_checks/share_retrieve_input_checks_server.c
+index 72c86ab..409ba3b 100644
+--- a/test/v1.0/memory_manage/share_retrieve_input_checks/share_retrieve_input_checks_server.c
++++ b/test/v1.0/memory_manage/share_retrieve_input_checks/share_retrieve_input_checks_server.c
+@@ -34,6 +34,7 @@ static uint32_t retrieve_zero_flag_check(ffa_memory_handle_t handle, uint32_t fi
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+@@ -100,6 +101,7 @@ static uint32_t retrieve_with_invalid_cache_attr_check(ffa_memory_handle_t handl
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+@@ -153,6 +155,7 @@ static uint32_t retrieve_with_invalid_total_length_check(ffa_memory_handle_t han
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+@@ -209,6 +212,7 @@ static uint32_t retrieve_with_invalid_mem_transaction_type_check(ffa_memory_hand
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.multi_share = false;
+@@ -264,6 +268,7 @@ static uint32_t retrieve_with_invalid_sender_id(ffa_memory_handle_t handle, uint
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+@@ -320,6 +325,7 @@ static uint32_t retrieve_with_invalid_inst_perm(ffa_memory_handle_t handle, uint
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/share_retrieve_with_address_range/share_retrieve_with_address_range_server.c b/test/v1.0/memory_manage/share_retrieve_with_address_range/share_retrieve_with_address_range_server.c
+index 412f0bd..3fb9186 100644
+--- a/test/v1.0/memory_manage/share_retrieve_with_address_range/share_retrieve_with_address_range_server.c
++++ b/test/v1.0/memory_manage/share_retrieve_with_address_range/share_retrieve_with_address_range_server.c
+@@ -101,8 +101,8 @@ uint32_t share_retrieve_with_address_range_server(ffa_args_t args)
+      *            INVALID_PARAMETERS.
+      */
+     flags = VAL_SET_BITS(flags, 5, 5, 0x11);
+-    mem_region_init.flags = flags;
+     val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
++    mem_region_init.flags = flags;
+     mem_region_init.memory_region = mb.send;
+     mem_region_init.sender = receiver;
+     mem_region_init.receiver = sender;
+diff --git a/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_client.c b/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_client.c
+index e54636f..ffb18a4 100644
+--- a/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_client.c
++++ b/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_client.c
+@@ -34,6 +34,7 @@ static uint32_t mem_share_shareability_attr_check(uint32_t test_run_data, uint32
+     constituents[0].address = val_mem_virt_to_phys((void *)pages);
+     constituents[0].page_count = 1;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_server.c b/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_server.c
+index 21c3365..ae2ca7e 100644
+--- a/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_server.c
++++ b/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr1_server.c
+@@ -16,6 +16,7 @@ static uint32_t mem_share_shareability_attr_check(ffa_memory_handle_t handle, ui
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;
+diff --git a/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr_server.c b/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr_server.c
+index 7b10e03..48960fa 100644
+--- a/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr_server.c
++++ b/test/v1.0/memory_manage/share_shareability_attr/share_shareability_attr_server.c
+@@ -16,6 +16,7 @@ static uint32_t mem_share_shareability_attr_check(ffa_memory_handle_t handle, ui
+     ffa_args_t payload;
+     uint32_t status = VAL_SUCCESS;
+ 
++    val_memset(&mem_region_init, 0x0, sizeof(mem_region_init));
+     mem_region_init.memory_region = tx_buf;
+     mem_region_init.sender = sender;
+     mem_region_init.receiver = receiver;

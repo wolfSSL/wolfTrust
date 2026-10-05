@@ -123,6 +123,10 @@ void WolfTrust_FFM_Close(int32_t handle)
     (void)wt_ffm_close(wt_ffm_boot_runtime_mut(), TEST_NS_CLIENT, handle);
 }
 
+static uint32_t g_veneer_in_len_seen;
+static uint32_t g_veneer_in_count_seen;
+static uint32_t g_veneer_out_count_seen;
+
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
                            wt_ffm_veneer_iovec_t* iv)
 {
@@ -131,6 +135,9 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
     psa_status_t st;
     uint32_t i;
 
+    g_veneer_in_count_seen = iv->in_count;
+    g_veneer_out_count_seen = iv->out_count;
+    g_veneer_in_len_seen = iv->in[0].len;
     if (iv->in_count > WT_FFM_VENEER_IOVEC_MAX ||
             iv->out_count > WT_FFM_VENEER_IOVEC_MAX) {
         wt_ffm_call_refuse(wt_ffm_boot_runtime_mut(), TEST_NS_CLIENT, handle);
@@ -305,13 +312,16 @@ int main(void)
         0xf7, 0x1f, 0xae, 0xc6, 0x24, 0x6c, 0x7e, 0x72,
         0x8e, 0x27, 0xa4, 0xb5, 0x0a, 0x49, 0x84, 0x66
     };
-    uint8_t digest[32];
+    uint8_t digest[48];
     uint32_t fwu_manifest = 5U;
     uint8_t fwu_block[32];
     static uint8_t fwu_max_block[PSA_FWU_MAX_WRITE_SIZE];
     psa_fwu_component_info_t fwu_info;
     psa_handle_t handle;
     psa_invec in_vec;
+#if SIZE_MAX > UINT32_MAX
+    psa_invec big_vec;
+#endif
     psa_outvec out_vec;
     psa_status_t status;
 
@@ -352,6 +362,30 @@ int main(void)
     status = psa_call(handle, PSA_IPC_CALL, &in_vec, 5U, &out_vec, 1U);
     check(status == PSA_ERROR_PROGRAMMER_ERROR,
           "P7-S1 psa_call rejects an over-count invec (PROGRAMMER_ERROR)");
+#if SIZE_MAX > UINT32_MAX
+    /* LP64: a count that would wrap to a valid 32-bit one must stay an
+     * over-count at the veneer, and a length above 32 bits must not wrap. */
+    g_veneer_in_len_seen = 0u;
+    status = psa_call(handle, PSA_IPC_CALL, &in_vec,
+                      (size_t)1u << 32 | 1u, &out_vec, 1U);
+    check(status == PSA_ERROR_PROGRAMMER_ERROR &&
+          g_veneer_in_count_seen == UINT32_MAX,
+          "P7-S1 psa_call keeps a 2^32+1 invec count a PROGRAMMER_ERROR on LP64");
+    check(g_veneer_in_len_seen == 0u,
+          "P7-S1 an over-count never marshals a vector");
+    status = psa_call(handle, PSA_IPC_CALL, &in_vec, 1U, &out_vec,
+                      (size_t)1u << 32 | 1u);
+    check(status == PSA_ERROR_PROGRAMMER_ERROR &&
+          g_veneer_out_count_seen == UINT32_MAX,
+          "P7-S1 psa_call keeps a 2^32+1 outvec count a PROGRAMMER_ERROR on LP64");
+    big_vec.base = in_vec.base;
+    big_vec.len = (size_t)1u << 32 | 16u;
+    g_veneer_in_len_seen = 0u;
+    (void)psa_call(handle, PSA_IPC_CALL, &big_vec, 1U, &out_vec, 1U);
+    check(g_veneer_in_len_seen == UINT32_MAX,
+          "P7-S1 a 2^32+16 invec length saturates at the veneer instead of "
+          "wrapping to 16");
+#endif
 
     /* ---- PSA FWU 1.0 through the public client (SRC-PSA-FWU) ---- */
     (void)memset(&g_fwu_ctx, 0, sizeof(g_fwu_ctx));

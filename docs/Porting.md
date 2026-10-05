@@ -5,16 +5,15 @@ and board-specific execution. The fully silicon-validated build tuple is
 `armv8m-stm32h563`. A second Armv8-M tuple, `armv8m-mimxrt700` (external
 octal-NOR execute-in-place), is in hardware bring-up and reuses the
 architecture adapter unchanged; see the [STM32H5 Guide](STM32H5-Guide.md) and
-[MIMXRT700 Guide](MIMXRT700-Guide.md) for the two worked examples. Support for
-additional Cortex-M ports is an intended extension point. Such ports may reuse
-common policy and service code and an existing architecture adapter when their
+[MIMXRT700 Guide](MIMXRT700-Guide.md) for the two worked examples. A third
+tuple, `aarch64` with the `qemuvirt` and `versal` targets, is validated under
+QEMU (`versal` builds the `xlnx-versal-virt` model today). Support for
+additional ports is an intended extension point. Such ports may reuse common
+policy and service code and an existing architecture adapter when their
 execution and protection models match.
 
-Cortex-A support is an architectural goal, not a current capability. It will
-require a new adapter and changes to current internal execution and protection
-contracts. The design goal is to preserve the public manifest, service, IPC,
-and PSA API contracts. Every new port must report its actual capabilities and
-must not claim security properties until they are tested on that target.
+Every new port must report its actual capabilities and must not claim
+security properties until they are tested on that target.
 
 ## Port layers
 
@@ -184,17 +183,107 @@ worked examples above give a concrete map for each board.
 3. Add `mk/arch-<arch>.mk` (if new) and `mk/target-<soc>.mk`; the root
    Makefile selects them from `ARCH` and `TARGET`, and `mk/common.mk` needs
    no change.
-4. Supply startup/vector and linker handling appropriate to the target, and
-   give every object the port links an owner in `tools/secure_owners.txt`.
-5. Generate the manifest at build time and include its digest in the signed
-   Secure image.
+4. Supply startup/vector and linker handling appropriate to the target. On
+   Armv8-M, give every object the port links an owner in
+   `tools/secure_owners.txt`, which the post-link layout check reads.
+5. Generate the manifest at build time; the generated source embeds its
+   digest in the Secure image, which a target with an authenticated first
+   stage signs.
 6. Integrate application domains with the architecture's client boundary and
    matching generated service IDs. Armv8-M targets link Non-secure guests
    against the CMSE import library.
-7. Add image assembly that patches guest ID, version, size, and digest records
-   before signing wolfTrust.
+7. On a target with separately built Normal-world guest images (the
+   Armv8-M ports today), add image assembly that patches guest ID, version,
+   size, and digest records before signing wolfTrust.
 8. Add safe provisioning tooling for the target's security attribution,
    application-image write protection, debug policy, and product lifecycle.
+9. Implement isolation level 3. Level 3 is required for a new port unless
+   the port specifically targets level 1 or 2, which would first need those
+   levels implemented. On AArch64, reuse the shared
+   layer in `port/common/aarch64/` (below): `mk/arch-aarch64.mk` gates it with
+   `WT_ISOLATION_LEVEL` (default `3`), and since only level 3 exists today any
+   other value stops the build. The manifest's `isolation_profile` states the
+   claim separately: `3`, or `0` (no claim) on a target that cannot yet fence
+   the Secure bands.
+
+## AArch64 targets
+
+An AArch64 SoC port adds:
+
+- `mk/target-<soc>.mk`: the EL3 text and RAM bands, the boot CPU count, and
+  whether the loader already configured the UART and the counter frequency;
+- `port/<soc>/memory_map.h`, `el3_board.c`, and `uart.c` for the monitor;
+- `port/<soc>/l3_port.h` for the level 3 layer (below);
+- `port/<soc>/manifest.json`, whose optional `ffa` section gives each Secure
+  Partition's FF-A properties (see [Building](Building.md)).
+
+The QEMU targets share their Secure EL1 platform code in
+`port/common/aarch64/`: the `wolftrust/platform.h` operations, the partition
+entry table, a RAM-backed NVM, and a test entropy source that a silicon port
+must replace. The EL3 monitor archive `libwt_el3.a` may reference only the
+port hooks listed in `tools/el3-symbols.allow` (`wt_platform_board_init`,
+`wt_platform_board_system_reset`, the console pair), may define globally only
+the monitor symbols `tools/el3-defines.allow` names, and must define no SPM,
+service, or crypto code; the link rule runs `tools/check-el3-symbols.sh` on
+every build and again whenever either list changes. `wt_platform_board_system_reset`
+performs the machine cold reset of PSCI `SYSTEM_RESET` and does not return:
+`virt` drives the restart line of its Secure PL061, and `xlnx-versal-virt`,
+whose model leaves its reset blocks unimplemented, powers the model off with
+the reset exit code for the runner to power it on again. A hook that returns
+panics the monitor. A silicon port must also
+fence the Secure bands from the Normal world in hardware (a TZASC, XMPU, or
+RISAF): QEMU `virt` models the fence with its secure memory, and
+`xlnx-versal-virt` does not model one. The port's `memory_map.h` states which
+through `WT_PORT_NS_MEMORY_FENCE`, and only a port that sets it to `1` claims
+security-state isolation. Every isolation level needs that capability, so the
+core refuses a Level 1, 2, or 3 manifest on an unfenced port. The `qemuvirt`
+manifests declare Level 3; the `xlnx-versal-virt` manifests declare
+`isolation_profile` 0 (service only) and claim no isolation level. A Versal
+silicon port sets the flag only once it programs
+and locks the XMPU over the Secure bands before the Normal world runs.
+
+### Isolation level 3 on AArch64
+
+Every AArch64 port reuses the level 3 layer in `port/common/aarch64/`
+instead of writing it again; whether the port claims level 3 is its
+manifests' choice (below):
+
+- `l3_layout.h` places the Secure EL1 bands at default offsets from the
+  port's 1 MiB aligned `WT_L3_BAND_BASE`: the SPMC image, its RAM, the
+  conformance data window, the keystore window, the RX/TX and shared pages,
+  and the FF-A ACS window. The vault, attestation and crypto bands tile the
+  keystore window exactly. The boot-information page and the default stage-1
+  table pool open `WT_RAM_S_BASE`; a band macro defined before the include
+  (the runner moves the table pool for the ACS) takes precedence.
+- `platform_l3.c` holds the level 3 platform operations: the code every
+  partition maps, the empty partition peripheral table, the SPM-private RAM,
+  the privileged-stack check, the conformance data window and the test-build
+  probe addresses. `conf_backend.c`, built only with `WT_CONFORMANCE=1`, holds
+  the per-partition conformance grants.
+- `tools/aarch64_l3_layout.py` reads the layout from the port's
+  `memory_map.h` for the compiler, the linker and the target runner, and
+  after the link checks that the port's manifest grants exactly the keystore
+  bands those same values place. An unreadable layout stops the build.
+
+A port using the shared layer supplies:
+
+- in `memory_map.h`, a literal `WT_L3_BAND_BASE` and `WT_RAM_S_BASE`, then
+  `#include "../common/aarch64/l3_layout.h"`; a port that claims level 3
+  places them in Secure memory the board fences from the Normal world;
+- `l3_port.h`, naming a Secure peripheral only the SPM drives as
+  `WT_L3_SPM_PERIPHERAL_BASE`;
+- manifests whose vault, attestation and crypto partitions are granted the
+  three keystore bands.
+
+No band address is written twice. A port's manifests state its claim: the
+`qemuvirt` manifests declare `isolation_profile` 3, and the `versal`
+manifests declare profile 0 because the model cannot fence the Secure bands.
+A port claiming level 3 runs every scenario in `QEMU_A_L3_REQUIRED`
+(`tests/target/lib/scenario_matrix.py`) in its full QEMU tier.
+`scenario_matrix.py --selftest`, run in CI, fails when the suite drops a
+required scenario or a cell's `l3_exempt` entry names no required scenario or
+gives no reason; `versal-virt` lists `secramneg` and `periphneg` there, citing
+#45.
 
 ## Validation checklist
 
@@ -209,6 +298,11 @@ worked examples above give a concrete map for each board.
   two build fragments, tests, docs, and workflows.
 - Run `tools/check-docs-no-internal-links.sh`; `docs/` is published to the
   wiki and must not reference internal ledgers or developer paths.
+- On an AArch64 port, run `tools/check-el3-symbols.sh <libwt_el3.a>`: the
+  EL3 monitor archive may leave unresolved only the hooks listed in
+  `tools/el3-symbols.allow`, may define globally only the symbols
+  `tools/el3-defines.allow` names, and must define no SPM, service, or crypto
+  code.
 - Cross-build the Secure image with warnings enabled.
 - On the current Armv8-M port, inspect `nm` output and confirm only the five
   FF-M veneers are Non-secure-callable.

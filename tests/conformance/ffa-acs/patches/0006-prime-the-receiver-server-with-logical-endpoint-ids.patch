@@ -1,0 +1,13 @@
+diff --git a/test/v1.1/indirect_messaging/ffa_msg_send2/ffa_msg_send2_sp_client.c b/test/v1.1/indirect_messaging/ffa_msg_send2/ffa_msg_send2_sp_client.c
+index b278226..7da4538 100644
+--- a/test/v1.1/indirect_messaging/ffa_msg_send2/ffa_msg_send2_sp_client.c
++++ b/test/v1.1/indirect_messaging/ffa_msg_send2/ffa_msg_send2_sp_client.c
+@@ -34,7 +34,7 @@ uint32_t ffa_msg_send2_sp_client(uint32_t test_run_data)
+ #endif
+ 
+     test_run_data_rx = TEST_RUN_DATA(GET_TEST_NUM((uint32_t)test_run_data),
+-      (uint32_t)sender, (uint32_t)receiver_rx, GET_TEST_TYPE((uint32_t)test_run_data));
++      client_logical_id, SP1, GET_TEST_TYPE((uint32_t)test_run_data));
+ 
+     if (val_is_ffa_feature_supported(FFA_MSG_SEND2_32))
+     {

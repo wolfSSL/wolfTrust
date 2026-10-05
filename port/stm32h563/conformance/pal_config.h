@@ -26,6 +26,8 @@
 #ifndef _PAL_CONFIG_H_
 #define _PAL_CONFIG_H_
 
+#include "conf_nvm.h"
+
 #define PLATFORM_PSA_ISOLATION_LEVEL 3
 
 #define UART_NUM                               1
@@ -47,7 +49,7 @@
 
 #define NVMEM_NUM                              1
 #define NVMEM_0_START                          0x0C07FC00
-#define NVMEM_0_END                            0x0C07FFFF
+#define NVMEM_0_END                            (NVMEM_0_START + WT_CONF_NVM_SIZE - 1u)
 #define NVMEM_0_PERMISSION                     TYPE_READ_WRITE
 
 #define NSPE_MMIO_NUM                          1

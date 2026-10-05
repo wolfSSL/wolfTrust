@@ -65,7 +65,12 @@ static const wt_profile_capabilities_t g_profile_capabilities = {
                     WT_CAPABILITY_RESTART,
     .max_domains = 11U,
     .max_memory_resources_per_domain = 3U,
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     .max_interrupts_per_domain = 1U,
+#else
+    /* Manifest IRQs reach their FF-M owner only in conformance builds. */
+    .max_interrupts_per_domain = 0U,
+#endif
 };
 
 const wt_guest_measurement_t* wt_platform_guest_measurements(size_t* count)

@@ -34,13 +34,39 @@ import argparse
 import json
 import os
 import sys
+from pathlib import Path
 
 ENGINES = ("native", "hsm")
 
 # Scenarios whose Secure-image probe or client wire lives only in the wolfHSM
 # engine: the native engine does not link it, so the behaviour under test does
 # not exist there.
-HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
+PKCS11_SCENARIOS = frozenset((
+    "pkcs11", "pkcs11core", "pkcs11objects", "pkcs11crypto",
+    "pkcs11negative", "pkcs11neg",
+))
+HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg")) | \
+    PKCS11_SCENARIOS
+TPM_SCENARIOS = frozenset(("tpm", "tpmneg"))
+INTERFACE_SCENARIOS = TPM_SCENARIOS | PKCS11_SCENARIOS
+
+INTERFACE_JOBS = {
+    "stm32h563_psa_zephyr_native": "positive",
+    "stm32h563_psa_zephyr_hsm": "positive",
+    "stm32h563_psa_freertos_native": "positive",
+    "stm32h563_psa_freertos_hsm": "positive",
+    "stm32h563_pkcs11_zephyr_hsm": "pkcs11",
+    "stm32h563_pkcs11_freertos_hsm": "pkcs11",
+    "stm32h563_tpm_zephyr_native": "tpm",
+    "stm32h563_tpm_freertos_native": "tpm",
+    "stm32h563_pkcs11_isolation_hsm": "pkcs11neg",
+    "stm32h563_tpm2_isolation_native": "tpmneg",
+}
+
+# Scenarios whose application and Secure image are built only against the
+# native crypto engine. A wolfHSM-engine job would build the same TPM image
+# under a wrong label.
+NATIVE_ONLY = TPM_SCENARIOS
 
 # The isolation level 3 bar: every port's full tier runs each of these, or
 # names it in its "l3_exempt" map with the reason (an open issue) it cannot.
@@ -61,7 +87,7 @@ PORTS = {
         "arm": "m33mu",
         "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15",
         "smoke": ("positive", "gtzcneg", "crossdomain", "bothpsa", "confboot",
-                  "devcrypto"),
+                  "devcrypto", "tpm", "tpmneg", "pkcs11", "pkcs11neg"),
         "groups": (
             ("positive", "Positive lifecycle"),
             ("bothpsa", "Both-OS PSA parity (Zephyr + FreeRTOS)"),
@@ -94,6 +120,11 @@ PORTS = {
             ("bootupdate", "Full boot-and-update swap gate"),
             ("vnet", "wolfIP virtual network (mediated ping)"),
             ("vnetneg", "Confined VNET isolation negatives"),
+            ("tpm", "Zephyr and FreeRTOS TPM 2.0 through the isolated fwTPM"),
+            ("tpmneg", "Confined TPM relay and fwTPM isolation negatives"),
+            ("pkcs11",
+             "Zephyr and FreeRTOS PKCS11 API through an isolated provider"),
+            ("pkcs11neg", "Confined PKCS11 relay and provider isolation negatives"),
             ("manifestneg", "Corrupted-manifest activation refused"),
             ("manifestneg2", "Level 2 manifest refused at boot"),
             ("manifestneg3", "Overlapping partition tables refused at boot"),
@@ -208,7 +239,8 @@ QEMU_A_SUITE = (
     "guest1", "smcfuzz", "secramneg", "periphneg", "periphspneg",
     "resetneg", "ffa-memneg", "hsmattackneg", "hsmpinneg", "attestneg",
     "vaultrecover", "vaultrecoversec", "confboot", "storage", "devstorage",
-    "devattest", "devattestqcbor", "devcrypto",
+    "devattest", "devattestqcbor", "devcrypto", "tpm", "tpmneg",
+    "pkcs11", "pkcs11neg",
 )
 QEMU_A_ACS = (
     "ffaacs-discovery", "ffaacs-direct", "ffaacs-memory", "ffaacs-notify",
@@ -219,8 +251,18 @@ QEMU_A_ACS = (
 # representative GICv3 virt cell (both engines) and the versal cell (native).
 # boot-smp2 and the ACS stay in the full tier.
 QEMU_A_SMOKE = ("smoke", "boot", "positive", "crossdomain", "ffa-direct",
-                "confboot", "devcrypto")
+                "confboot", "devcrypto", "tpm", "tpmneg", "pkcs11",
+                "pkcs11neg")
 QEMU_A_SMOKE_CELLS = {"virt-gicv3-a72": ENGINES, "versal-virt": ("native",)}
+QEMU_A_TPM = frozenset(("tpm", "tpmneg"))
+QEMU_A_PKCS11 = frozenset(("pkcs11", "pkcs11neg"))
+QEMU_A_INTERFACES = QEMU_A_TPM | QEMU_A_PKCS11
+QEMU_A_INTERFACE_JOBS = {
+    "qemuvirt_fwtpm_native": "tpm",
+    "qemuvirt_fwtpm_isolation_native": "tpmneg",
+    "qemuvirt_pkcs11_hsm": "pkcs11",
+    "qemuvirt_pkcs11_isolation_hsm": "pkcs11neg",
+}
 
 
 def qemu_a_entry(cell, engine, kind, tier, scenarios):
@@ -238,17 +280,24 @@ def qemu_a_cell_suite(cell):
     return tuple(s for s in QEMU_A_SUITE if s not in exempt)
 
 
+def qemu_a_scenarios(cell, engine, scenarios):
+    """The direct interfaces run in their own visible QEMU PR matrix."""
+    return tuple(s for s in scenarios if s not in QEMU_A_INTERFACES)
+
+
 def qemu_a_full(cell):
     out = []
     for engine in ENGINES:
         out.append(qemu_a_entry(cell, engine, "suite", "full",
-                                qemu_a_cell_suite(cell)))
+                                qemu_a_scenarios(cell, engine,
+                                                 qemu_a_cell_suite(cell))))
         out.append(qemu_a_entry(cell, engine, "acs", "full", QEMU_A_ACS))
     return out
 
 
 def qemu_a_smoke(cell):
-    return [qemu_a_entry(cell, engine, "suite", "smoke", QEMU_A_SMOKE)
+    return [qemu_a_entry(cell, engine, "suite", "smoke",
+                         qemu_a_scenarios(cell, engine, QEMU_A_SMOKE))
             for engine in QEMU_A_SMOKE_CELLS.get(cell["name"], ())]
 
 
@@ -285,7 +334,12 @@ def group_name(port, scenario):
 
 
 def engines_for(scenarios, engine):
-    engines = ("hsm",) if all(s in HSM_ONLY for s in scenarios) else ENGINES
+    if all(s in HSM_ONLY for s in scenarios):
+        engines = ("hsm",)
+    elif all(s in NATIVE_ONLY for s in scenarios):
+        engines = ("native",)
+    else:
+        engines = ENGINES
     return [e for e in engines if engine is None or e == engine]
 
 
@@ -329,7 +383,11 @@ def ci_plan(event, labels, port_input):
                 continue
         else:
             full = True
-        out.extend(entries(port, "full" if full else "smoke", None))
+        planned = entries(port, "full" if full else "smoke", None)
+        if port == "stm32h563":
+            planned = [e for e in planned if not any(
+                s in INTERFACE_SCENARIOS for s in e["key"].split())]
+        out.extend(planned)
     return out
 
 
@@ -415,8 +473,25 @@ def selftest():
     """The routing table above, the engine rule and the level 3 bars, run by
     the select job."""
     gaps = qemu_a_l3_gaps()
+    workflow = (Path(__file__).parents[3] / ".github" / "workflows" /
+                "m33mu.yml").read_text(encoding="utf-8")
+    aarch_workflow = (Path(__file__).parents[3] / ".github" / "workflows" /
+                      "aarch64-cross-compile.yml").read_text(encoding="utf-8")
     if gaps:
         return gaps[0]
+    pr_jobs = {e["job"] for e in ci_plan("pull_request", [], "")}
+    for scenario in sorted(INTERFACE_SCENARIOS):
+        expected_engine = "hsm" if scenario in PKCS11_SCENARIOS else "native"
+        if engines_for((scenario,), None) != [expected_engine]:
+            return "%s is not restricted to the %s engine" % (
+                scenario, expected_engine)
+        required_job = "stm32h563_%s_%s" % (scenario, expected_engine)
+        if required_job in pr_jobs:
+            return "generated matrix duplicates explicit job %s" % required_job
+    for job, scenario in sorted(INTERFACE_JOBS.items()):
+        if ("job: %s" % job not in workflow or
+                "scenario: %s" % scenario not in workflow):
+            return "explicit workflow matrix is missing %s" % job
     for event, labels, port_input, expect in SELFTEST:
         got = " ".join(sorted(set(e["port"] + ":" + e["tier"] for e in
                                   ci_plan(event, labels.split(), port_input))))
@@ -430,12 +505,26 @@ def selftest():
         if got != expect:
             return "qemu_a_plan(%s, %r, %r) = %s, expected %s" % (
                 event, labels, cell_input, got, expect)
+    pr_aarch = qemu_a_plan("pull_request", [], "")
+    for entry_ in pr_aarch:
+        scenarios = set(entry_["scenarios"].split())
+        if scenarios & set(QEMU_A_INTERFACES):
+            return "bad AArch64 interface plan for %s" % entry_["job"]
+    for job, scenario in sorted(QEMU_A_INTERFACE_JOBS.items()):
+        if ("job: %s" % job not in aarch_workflow or
+                "scenario: %s" % scenario not in aarch_workflow):
+            return "explicit AArch64 workflow matrix is missing %s" % job
+    if "inputs.cell == ''" not in aarch_workflow:
+        return "AArch64 interface matrix skips an input-less nightly dispatch"
     for port in sorted(PORTS):
         for tier in ("smoke", "full"):
             for e in entries(port, tier, None):
                 if e["engine"] == "native" and all(
                         s in HSM_ONLY for s in e["key"].split()):
                     return "native job for the hsm-only %s" % e["key"]
+                if e["engine"] == "hsm" and all(
+                        s in NATIVE_ONLY for s in e["key"].split()):
+                    return "hsm job for the native-only %s" % e["key"]
                 if e["engine"] not in ENGINES or e["image"] == "":
                     return "bad entry %r" % e
         gaps = l3_gaps(port)

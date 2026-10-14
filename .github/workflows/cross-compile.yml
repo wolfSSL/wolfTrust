@@ -25,7 +25,9 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init --depth 1 --jobs 4 \
             lib/wolfCOSE lib/wolfHSM lib/wolfPSA lib/wolfSSL \
-            lib/wolfhal
+            lib/wolfTPM lib/wolfPKCS11 lib/wolfhal
+          test -f lib/wolfTPM/src/fwtpm/fwtpm.c
+          test -f lib/wolfPKCS11/src/wolfpkcs11.c
       - name: Build STM32H563 secure firmware
         run: make -C tests/firmware/stm32h563 all TOOLPREFIX=arm-none-eabi-
       - name: Validate the LTO gate, rebuild, and size reduction
@@ -119,3 +121,16 @@ jobs:
               WT_CONFORMANCE=1 secure-image TOOLPREFIX=arm-none-eabi- \
               BUILD_DIR=build_rt700_conf_$engine
           done
+      - name: Build the CONFIG_TPM secure image on both ports (native engine)
+        run: |
+          make TARGET=stm32h563 CONFIG_TPM=y secure-image \
+            TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_tpm_stm32h563
+          make TARGET=mimxrt700 CONFIG_TPM=y WT_ATTEST_COSE=0 secure-image \
+            TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_tpm_rt700
+      - name: Build the CONFIG_PKCS11 secure image on both ports (HSM engine)
+        run: |
+          make TARGET=stm32h563 CONFIG_PKCS11=y WT_ENGINE=hsm secure-image \
+            TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_pkcs11_stm32h563
+          make TARGET=mimxrt700 CONFIG_PKCS11=y WT_ENGINE=hsm \
+            WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi- \
+            BUILD_DIR=build_pkcs11_rt700

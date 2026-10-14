@@ -24,6 +24,13 @@ Both ports keep the public manifest, service, IPC, and PSA API contracts;
 AArch64 manifests add an optional FF-A section. Additional Cortex-M and
 Cortex-A ports are an intended extension point.
 
+Non-secure applications can use PSA Crypto, PKCS#11, or TPM 2.0 as independent
+interfaces through the SPM. `CONFIG_PKCS11=y` routes standard PKCS#11 `C_*`
+calls to an isolated wolfPKCS11 provider. `CONFIG_TPM=y` routes wolfTPM command
+traffic to an isolated firmware TPM. Both use FF-M IPC through the port's
+normal client boundary: CMSE veneers on Armv8-M or FF-A through the EL3 SPMD
+on AArch64. Neither uses the PSA Crypto API or depends on the other interface.
+
 ## Architecture
 
 ```mermaid
@@ -126,6 +133,8 @@ the services that depend on it fail closed.
 | [Threat Model](Threat-Model.md) | Protected assets, attacker capabilities, controls, and residual risks |
 | [API Reference](API-Reference.md) | PSA client, service, storage, update, lifecycle, attestation, and gateway APIs |
 | [Services](Services.md) | Behavior and access policy for each Secure service |
+| [TPM 2.0 Interface](TPM.md) | Direct wolfTPM client, mediated service, firmware TPM, and isolation |
+| [PKCS#11 Interface](PKCS11.md) | Zephyr, FreeRTOS, and Cortex-A clients with isolated HSM-backed providers |
 | [TF-M Compatibility](TF-M-Compatibility.md) | Supported interfaces, intentional differences, and migration guidance |
 | [FF-A Compatibility](FF-A-Compatibility.md) | The AArch64 FF-A interface register, intentional differences, and Arm FF-A ACS results |
 | [Macros](Macros.md) | Supported build and manifest configuration |

@@ -31,6 +31,8 @@
          "vault data band must sit directly above the vnet data band")
   ASSERT(_e_vnet <= (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
          "vnet data band overflow")
+  ASSERT(_e_pkcs11 <= (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
+         "pkcs11 data band overflow")
   ASSERT(ORIGIN(ATTESTDATA) == (ORIGIN(VAULTDATA) + LENGTH(VAULTDATA)),
          "attestation data band must sit directly above the vault data band")
   ASSERT(ORIGIN(HSMDATA) == (ORIGIN(ATTESTDATA) + LENGTH(ATTESTDATA)),
@@ -47,6 +49,10 @@
   _wt_band_hsm_limit = ORIGIN(HSMDATA) + LENGTH(HSMDATA);
   _wt_band_vnet_base = ORIGIN(VNETDATA);
   _wt_band_vnet_limit = ORIGIN(VNETDATA) + LENGTH(VNETDATA);
+  _wt_band_pkcs11_base = ORIGIN(VNETDATA);
+  _wt_band_pkcs11_limit = ORIGIN(VNETDATA) + LENGTH(VNETDATA);
+  _wt_band_tpm_base = ORIGIN(TPMDATA);
+  _wt_band_tpm_limit = ORIGIN(TPMDATA) + LENGTH(TPMDATA);
 
   ASSERT(_e_vault <= (ORIGIN(VAULTDATA) + LENGTH(VAULTDATA)),
          "vault data band overflow")

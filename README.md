@@ -24,6 +24,21 @@ Both ports keep the public manifest, service, IPC, and PSA API contracts;
 AArch64 manifests add an optional FF-A section. Additional Cortex-M and
 Cortex-A ports are an intended extension point.
 
+Non-secure applications can use PSA Crypto, PKCS#11, or TPM 2.0 as independent
+interfaces through the SPM. `CONFIG_PKCS11=y` routes standard PKCS#11 `C_*`
+calls to an isolated wolfPKCS11 provider. `CONFIG_TPM=y` routes wolfTPM command
+traffic to an isolated firmware TPM. Both use FF-M IPC through the port's
+normal client boundary: the same five CMSE gateway veneers as PSA clients on
+Armv8-M, or FF-A through the EL3 SPMD on AArch64. Neither uses the PSA Crypto
+API or depends on the other interface. See the [PKCS#11 Interface](docs/PKCS11.md)
+and [TPM 2.0 Interface](docs/TPM.md).
+
+Runtime qualification for these optional interfaces is currently scoped to
+STM32H563 under M33MU and `qemuvirt` under QEMU. MIMXRT700 and Versal have
+compile and absolute-layout gates for both configurations, but this release
+does not claim TPM or PKCS#11 application/provider runtime coverage on those
+two targets.
+
 ## Architecture
 
 ```mermaid
@@ -51,12 +66,16 @@ flowchart TB
             AT[Initial Attestation]
             FW[Firmware Update]
             VN[Optional virtual networking]
+            P11[Optional PKCS#11 relay]
+            TPM[Optional TPM 2.0 relay]
         end
         SPM --> CR
         SPM --> ST
         SPM --> AT
         SPM --> FW
         SPM --> VN
+        SPM --> P11
+        SPM --> TPM
     end
 
     subgraph LIBS[wolfSSL ecosystem components]
@@ -65,6 +84,8 @@ flowchart TB
         COSE[wolfCOSE]
         HAL[wolfHAL]
         IP[wolfIP<br/>optional bare-metal reference networking]
+        P11P[wolfPKCS11<br/>isolated provider]
+        FTPM[wolfTPM<br/>isolated firmware TPM]
     end
 
     BOOT -->|authenticated measurement, lifecycle, and version handoff| SPM
@@ -76,6 +97,8 @@ flowchart TB
     GA -->|optional networking| IP
     GB -->|optional networking| IP
     IP -->|VNet service over FF-M| GW
+    GA -->|PKCS#11 C_* proxy over FF-M| GW
+    GB -->|wolfTPM commands over FF-M| GW
     GW -->|validated requests| SPM
     SPM -->|Secure execution operations| ARCH
     SPM -->|platform callbacks| TARGET
@@ -83,6 +106,9 @@ flowchart TB
     ST --> WC
     AT --> COSE
     AT --> WC
+    P11 --> P11P
+    P11P -->|SERVICE_HSM| CR
+    TPM --> FTPM
     TARGET -->|STM32H563 register and RNG access| HAL
 ```
 
@@ -121,7 +147,7 @@ the services that depend on it fail closed.
 
 For the initial Secure build and host tests, install GNU Make, Python 3, Git, a
 native C compiler, and an `arm-none-eabi-` toolchain. Configure GitHub SSH
-access before cloning because three configured submodule URLs use SSH. Guest
+access before cloning because five configured submodule URLs use SSH. Guest
 setup, conformance tests, emulator runs, and fresh hardware builds require
 network access. See [Getting Started](docs/Getting-Started.md) for additional
 emulator and hardware prerequisites.
@@ -198,6 +224,8 @@ documentation source:
 - [Threat Model](docs/Threat-Model.md)
 - [API Reference](docs/API-Reference.md)
 - [Services](docs/Services.md)
+- [TPM 2.0 Interface](docs/TPM.md)
+- [PKCS#11 Interface](docs/PKCS11.md)
 - [TF-M Compatibility](docs/TF-M-Compatibility.md)
 - [FF-A Compatibility](docs/FF-A-Compatibility.md)
 - [Macros](docs/Macros.md)

@@ -105,6 +105,19 @@
 #define WT_VNET_DATA_SIZE        0x00005000u
 #define WT_VNET_DATA_BASE        (WT_KEYSTORE_BASE - WT_VNET_DATA_SIZE)
 
+/* CONFIG_PKCS11 is exclusive with CONFIG_VNET, so its relay owns the VNET band. */
+#define WT_PKCS11_DATA_BASE      WT_VNET_DATA_BASE
+#define WT_PKCS11_DATA_SIZE      WT_VNET_DATA_SIZE
+#define WT_SP_PKCS11_STACK_BASE  WT_CONF_SP_DATA_BASE
+#define WT_SP_PKCS11_STACK_SIZE  WT_SP_SECURE_STACK_SIZE
+
+/* CONFIG_TPM is exclusive with CONFIG_VNET and WT_CONFORMANCE: the TPM relay
+ * stack and mailbox are carved from the conformance window. */
+#define WT_SP_TPM_STACK_BASE     WT_CONF_SP_DATA_BASE
+#define WT_SP_TPM_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
+#define WT_TPM_DATA_BASE         (WT_CONF_SP_DATA_BASE + 0x00002000u)
+#define WT_TPM_DATA_SIZE         0x00000800u
+
 /* Per-partition pseudo-MMIO holes at the top of the conformance window; must
  * match SERVER/DRIVER_PARTITION_MMIO_0_* in the port's pal_config.h. */
 #define WT_CONF_SERVER_MMIO_BASE (WT_CONF_SP_DATA_BASE + 0x00002C00u)

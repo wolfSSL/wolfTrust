@@ -124,6 +124,11 @@ typedef struct wt_hsm_guest {
 } wt_hsm_guest_t;
 
 static wt_hsm_guest_t g_guests[WT_MAX_GUESTS];
+#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+static int32_t g_secure_client_id;
+static wt_guest_id_t g_secure_namespace_id;
+static bool g_secure_client_bound;
+#endif
 
 /* The store every server binds to: the direct vault store during the
  * privileged bootstrap (IAK provisioning, rollback floors), then the crypto
@@ -534,6 +539,21 @@ int wt_hsm_guest_init_relay(wt_guest_id_t guest_id)
     return wt_hsm_guest_init(guest_id);
 }
 
+#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+int wt_hsm_relay_set_secure_client(int32_t partition_id,
+                                   wt_guest_id_t namespace_id)
+{
+    if (partition_id <= 0 || namespace_id >= WT_MAX_GUESTS) {
+        return WH_ERROR_BADARGS;
+    }
+    wt_hsm_relay_set_secure_client_policy(partition_id);
+    g_secure_client_id = partition_id;
+    g_secure_namespace_id = namespace_id;
+    g_secure_client_bound = true;
+    return WH_ERROR_OK;
+}
+#endif
+
 #if defined(WT_HSM_PIN_NEG_PROBE) && (WT_HSM_PIN_NEG_PROBE == 1)
 /* Forge every pointer the server pump follows to an SPM-private address the
  * unprivileged relay cannot read, so wt_hsm_server_pin must restore them before
@@ -566,12 +586,22 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
     int rc = WH_ERROR_OK;
 
     (void)submit_ctx;
-    if (req == NULL || resp == NULL || resp_len == NULL || client_id >= 0) {
+    if (req == NULL || resp == NULL || resp_len == NULL) {
         return WH_ERROR_BADARGS;
     }
-    /* The SPM stamps NS callers as -(guest + 1); the mapping mirrors
-     * wt_ffm_boot_caller_guest. */
-    gid = (wt_guest_id_t)(-client_id - 1);
+    if (client_id < 0) {
+        /* The SPM stamps NS callers as -(guest + 1); the mapping mirrors
+         * wt_ffm_boot_caller_guest. */
+        gid = (wt_guest_id_t)(-client_id - 1);
+    }
+#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+    else if (g_secure_client_bound && client_id == g_secure_client_id) {
+        gid = g_secure_namespace_id;
+    }
+#endif
+    else {
+        return WH_ERROR_ACCESS;
+    }
     if (gid >= WT_MAX_GUESTS) {
         return WH_ERROR_BADARGS;
     }

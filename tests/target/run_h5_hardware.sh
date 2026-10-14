@@ -42,7 +42,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|gtzcneg|fpneg|sealneg|sealpivotneg|periphneg|mspovfneg|busfaultneg|nsbusfaultneg|xnneg|svcneg) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|gtzcneg|fpneg|sealneg|sealpivotneg|periphneg|mspovfneg|busfaultneg|nsbusfaultneg|xnneg|svcneg" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|tpm|tpmneg|gtzcneg|fpneg|sealneg|sealpivotneg|periphneg|mspovfneg|busfaultneg|nsbusfaultneg|xnneg|svcneg) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|tpm|tpmneg|gtzcneg|fpneg|sealneg|sealpivotneg|periphneg|mspovfneg|busfaultneg|nsbusfaultneg|xnneg|svcneg" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -61,7 +61,7 @@ SERIAL="${H5_SERIAL:-/dev/ttyACM0}"
 # confboot reboots the whole chain once per panic test (real SYSRESETREQ, each
 # re-running wolfBoot), so it needs a long ceiling; the capture stops early on
 # the suite report.
-case "$scenario" in restart|nsbusfaultneg) cap_default=32 ;; confboot) cap_default=900 ;; devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec) cap_default=600 ;; bootupdate) cap_default=45 ;; authneg) cap_default=30 ;; writeonce) cap_default=40 ;; *) cap_default=25 ;; esac
+case "$scenario" in restart|nsbusfaultneg) cap_default=32 ;; confboot) cap_default=900 ;; devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec) cap_default=600 ;; bootupdate) cap_default=45 ;; authneg) cap_default=30 ;; writeonce) cap_default=40 ;; tpm|tpmneg) cap_default=90 ;; *) cap_default=25 ;; esac
 CAP_S="${H5_CAPTURE_SECONDS:-$cap_default}"
 LOGFILE="${WT_SCENARIO_LOG:-ci-h5-hardware-$scenario.log}"
 case "$LOGFILE" in /*) ;; *) LOGFILE="$repo/$LOGFILE" ;; esac
@@ -94,6 +94,9 @@ guest1="$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest
 if [ "$scenario" = "vnet" ] || [ "$scenario" = "vnetneg" ]; then
   guest0="$repo/tests/firmware/stm32h563-vnet/build/guest0.bin"
   guest1="$repo/tests/firmware/stm32h563-vnet/build/guest1.bin"
+elif [ "$scenario" = "tpm" ] || [ "$scenario" = "tpmneg" ]; then
+  guest0="$repo/tests/firmware/stm32h563-tpm/build/tpm/guest0.bin"
+  guest1="$repo/tests/firmware/stm32h563-tpm/build/tpm/guest1.bin"
 fi
 
 if [ "$mode" != "flash" ]; then
@@ -170,6 +173,9 @@ if [ "$mode" != "flash" ]; then
   [ "$scenario" = "svcneg" ] && secure_flags="WT_SVC_NEG_PROBE=1"
   [ "$scenario" = "vnet" ] && secure_flags="CONFIG_VNET=y"
   [ "$scenario" = "vnetneg" ] && secure_flags="CONFIG_VNET=y WT_VNET_NEG_PROBE=1"
+  { [ "$scenario" = "tpm" ] || [ "$scenario" = "tpmneg" ]; } && \
+    secure_flags="CONFIG_TPM=y"
+  [ "$scenario" = "tpmneg" ] && secure_flags="CONFIG_TPM=y WT_TPM_NEG_PROBE=1"
   # WT_CONF_DIAG_TRAP=0: the emulator-only hang-probe fault would become a
   # conformance-monitor reset on silicon and can eat the suite's report window.
   [ "$scenario" = "confboot" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0"; guest_flags="WT_RUN_CONFORMANCE=1"; }
@@ -200,6 +206,15 @@ if [ "$mode" != "flash" ]; then
     {
       rm -rf tests/firmware/stm32h563-vnet/build
       make -C tests/firmware/stm32h563-vnet build/guest0.bin build/guest1.bin \
+        WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
+        WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
+        WT_GUEST_RAM_SIZE=0x00010000
+    } >> "$LOGFILE" 2>&1
+  elif [ "$scenario" = "tpm" ] || [ "$scenario" = "tpmneg" ]; then
+    {
+      rm -rf tests/firmware/stm32h563-tpm/build
+      make -C tests/firmware/stm32h563-tpm \
+        build/tpm/guest0.bin build/tpm/guest1.bin BUILD_DIR=build/tpm \
         WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
         WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
         WT_GUEST_RAM_SIZE=0x00010000
@@ -834,6 +849,53 @@ if [ "$mode" != "build" ]; then
       expect "guest0 sends the first mediated ping" "ping seq=1 to 10.0.0.2"
       expect "guest0 receives guest1's mediated echo reply" \
         "ping reply from 10.0.0.2 seq=1"
+      ;;
+    tpm)
+      # Mediated firmware TPM on silicon: the stock wolfTPM application in
+      # guest0 completes a TPM 2.0 session (Startup, GetRandom, CreatePrimary,
+      # Sign, Verify, PCR) through SERVICE_TPM psa_call to wolfTPM's fwTPM in
+      # isolated guest1. No emulator BKPT on hardware; the capture window plus
+      # the needles are the gate.
+      refute_re "no fault markers on silicon" \
+        '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+      expect "guest0 alive" "tpm-guest0: alive"
+      expect "fwTPM ready in guest1" "ftpm-guest1: ready"
+      expect "TPM startup crosses SERVICE_TPM" "tpm-guest0: tpm init ok"
+      expect "fwTPM capabilities match the relay frame limit" \
+        "tpm-guest0: tpm frame caps ok"
+      expect "valid TPM command reaches the advertised frame limit" \
+        "tpm-guest0: tpm max frame ok"
+      expect "ECDSA sign inside the fwTPM" "tpm-guest0: tpm sign ok"
+      expect "full mediated TPM round trip" "tpm-guest0: tpm round trip ok"
+      ;;
+    tpmneg)
+      # Four contained Secure-Thread faults prove the TPMDATA and peer-guest
+      # boundaries. The live transaction afterward proves restart recovery.
+      refute_re "isolation faults did not escalate to HardFault" \
+        '^(\[HARDFLT\]|HardFault|SecureFault)'
+      zeroed=$(read_secure_u32 g_wt_boot_zeroed_bytes)
+      if [ -n "$zeroed" ] && [ $((0x$zeroed)) -ge $((0x2A800)) ]; then
+        check_pass "cold boot scrubbed the TPM stack and band (0x$zeroed bytes total)"
+      else
+        check_fail "TPM stack/band cold-boot scrub" \
+          "zeroed-bytes latch 0x${zeroed:-none}, want at least 0x2A800"
+      fi
+      fault_cnt=$(read_secure_u32 g_tasklet_fault_count)
+      if [ -n "$fault_cnt" ] && [ $((0x$fault_cnt)) -ge 4 ]; then
+        check_pass "TPM isolation probes faulted and were contained (count=0x$fault_cnt)"
+      else
+        check_fail "TPM isolation faults" \
+          "SP fault count 0x${fault_cnt:-none}, want >= 4"
+      fi
+      expect "application guest alive after the quarantines" \
+        "tpm-guest0: alive"
+      expect "fwTPM ready after the quarantines" "ftpm-guest1: ready"
+      expect "fwTPM capabilities match the relay frame limit" \
+        "tpm-guest0: tpm frame caps ok"
+      expect "valid TPM command reaches the advertised frame limit" \
+        "tpm-guest0: tpm max frame ok"
+      expect "mediated TPM completes after every restart" \
+        "tpm-guest0: tpm round trip ok"
       ;;
     vnetneg)
       # Confined SERVICE_VNET isolation on silicon (WT-FFM-0011/0056): the

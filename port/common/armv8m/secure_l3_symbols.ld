@@ -27,3 +27,7 @@ _wt_part_stacks_base = ORIGIN(FWUSTACK);
 _wt_part_stacks_limit = ORIGIN(VAULTSTACK) + LENGTH(VAULTSTACK);
 _wt_sp_stacks_base = ORIGIN(SPSTACKS);
 _wt_sp_stacks_limit = ORIGIN(SPSTACKS) + LENGTH(SPSTACKS);
+_wt_tpm_stack_base = ORIGIN(CONFDATA);
+_wt_tpm_stack_limit = ORIGIN(TPMDATA);
+_wt_pkcs11_stack_base = ORIGIN(CONFDATA);
+_wt_pkcs11_stack_limit = ORIGIN(TPMDATA);

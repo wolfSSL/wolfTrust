@@ -24,8 +24,13 @@ An accepted upload queues analysis; results appear after Coverity processes it.
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
 | **M33MU smoke** | every PR | per port, on both crypto engines: STM32H563 `positive gtzcneg crossdomain bothpsa confboot devcrypto`; MIMXRT700 `positive ahbscneg crossdomain bothpsa confboot devcrypto` |
 | **M33MU full** | PR labels `ci:all`, `ci:stm32h563`, `ci:imxrt700`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
-| **AArch64 smoke** | every PR | a representative subset: `virt-gicv3-a72` `smoke boot positive crossdomain ffa-direct confboot devcrypto` on both crypto engines, and `versal-virt` the same on the native engine |
+| **AArch64 smoke** | every PR | a representative subset: `virt-gicv3-a72` `smoke boot positive crossdomain ffa-direct confboot devcrypto` on both crypto engines, `versal-virt` the same on the native engine, plus dedicated QEMU fwTPM and PKCS#11 interface and isolation jobs |
 | **AArch64 full** | PR labels `ci:all`, `ci:aarch64`, `ci:qemu-virt`, `ci:qemu-versal`; push to main; nightly; `workflow_dispatch` (cell input) | every AArch64 scenario and the Arm FF-A ACS groups on three QEMU cells under both crypto engines (see below) |
+
+The TPM and PKCS#11 runtime scenarios run as four dedicated PR checks on
+`virt`: fwTPM, fwTPM isolation, PKCS#11, and PKCS#11 isolation. Versal
+cross-builds both configurations but its QEMU model cannot provide the
+XMPU/RISAF isolation those scenarios require.
 
 The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
 `pr-osp-select.yml` is: a `select` job checks the routing table
@@ -63,6 +68,10 @@ test-target` also reads. The table below is a representative slice:
 | `stm32h563_confboot_<engine>` | `confboot` | full Arm FF-M IPC suite |
 | `stm32h563_devstorage_<engine>` | `devstorage` | PSA ITS/PS conformance |
 | `stm32h563_devcrypto_<engine>` | `devcrypto` | PSA Crypto conformance |
+| `stm32h563_pkcs11_<zephyr\|freertos>_hsm` | `pkcs11` | each RTOS application runs all 38 PKCS#11 cases through `SERVICE_PKCS11` and the isolated provider |
+| `stm32h563_tpm_<zephyr\|freertos>_native` | `tpm` | each RTOS application sends real TPM 2.0 commands through `SERVICE_TPM` to the isolated fwTPM guest |
+| `stm32h563_pkcs11_isolation_hsm` | `pkcs11neg` | PKCS#11 partition-band isolation and provider recovery |
+| `stm32h563_tpm2_isolation_native` | `tpmneg` | TPM relay and fwTPM partition-band isolation |
 | `stm32h563_vaultrecover_<engine>` | `vaultrecover` | #95 foreign pool reformatted |
 | `stm32h563_vaultrecoversec_<engine>` | `vaultrecoversec` | #95 SECURED never wipes |
 | `mimxrt700_positive_<engine>` | `positive` | MIMXRT700 chain under the RT700 model, both guests finish |
@@ -114,6 +123,10 @@ full matrix. The cells and the smoke subset live in
 
 | Check name | What it proves |
 |------------|----------------|
+| `qemuvirt_fwtpm_native` | the Normal-world application sends real TPM 2.0 GetRandom, CreatePrimary, Sign, PCR Extend, and PCR Read commands through FF-A and `SERVICE_TPM` to the isolated fwTPM |
+| `qemuvirt_fwtpm_isolation_native` | the fwTPM round trip plus TPM state-band, provider-RAM, and execute-never isolation negatives |
+| `qemuvirt_pkcs11_hsm` | the Normal-world application runs all 38 PKCS#11 cases through FF-A and the isolated provider |
+| `qemuvirt_pkcs11_isolation_hsm` | the PKCS#11 suite plus state-band, provider-RAM, execute-never, and HSM restart/recovery negatives |
 | `el3_<cell>_<engine>` | the EL3 image links under the symbol guard, then the tier's QEMU AArch64 scenarios run through `tests/target/run_suite.sh qemu-a` |
 | `ffa_acs_<cell>_<engine>` | the Arm FF-A ACS groups (discovery, direct and indirect messaging, memory, notifications, interrupts) at their asserted floors (full tier only) |
 

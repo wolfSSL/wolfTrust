@@ -26,6 +26,10 @@ ifneq ($(WT_ISOLATION_LEVEL),3)
 $(error only isolation level 3 is implemented (WT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL)))
 endif
 ARCH_CFLAGS += -DWT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL)
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+WT_INTERFACE_LOCAL_PROVIDER := 1
+ARCH_CFLAGS += -DWT_INTERFACE_LOCAL_PROVIDER=$(WT_INTERFACE_LOCAL_PROVIDER)
+endif
 
 # Level 3 layer shared by every AArch64 port: the board's memory_map.h names
 # WT_L3_BAND_BASE and port/common/aarch64/l3_layout.h places every Secure band
@@ -37,7 +41,8 @@ PORT_HEADERS += $(wildcard $(PORT_COMMON_DIR)/*.h)
 WT_L3_OVERRIDABLE := WT_SPM_BOOT_INFO_PA WT_SPM_TABLE_POOL_PA WT_SPM_IMAGE_PA \
     WT_SPM_IMAGE_SIZE WT_SPM_RAM_PA WT_SPM_RAM_SIZE WT_SPM_CONFDATA_PA \
     WT_SPM_CONFDATA_SIZE WT_SPM_KEYSTORE_PA WT_SPM_KEYSTORE_SIZE \
-    WT_SPM_RXTX_PA WT_SPM_RXTX_SIZE WT_SPM_SHARE_PA WT_SPM_SHARE_SIZE
+    WT_SPM_RXTX_PA WT_SPM_RXTX_SIZE WT_SPM_SHARE_PA WT_SPM_SHARE_SIZE \
+    WT_SPM_INTERFACE_PA WT_SPM_INTERFACE_SIZE
 WT_L3_TOOL := python3 $(ROOT)/tools/aarch64_l3_layout.py \
     --cc $(TOOLPREFIX)gcc -I$(PORT_COMMON_DIR) \
     -DWT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL) \
@@ -62,13 +67,15 @@ WT_L3_CFLAGS := $(foreach v,WT_SPM_BOOT_INFO_PA WT_SPM_TABLE_POOL_PA \
     WT_SPM_IMAGE_PA WT_SPM_IMAGE_SIZE WT_SPM_RAM_PA WT_SPM_RAM_SIZE \
     WT_SPM_KEYSTORE_PA WT_SPM_KEYSTORE_SIZE WT_SPM_RXTX_PA WT_SPM_RXTX_SIZE \
     WT_SPM_SHARE_PA WT_SPM_SHARE_SIZE WT_SPM_CONFDATA_PA \
-    WT_SPM_CONFDATA_SIZE,-D$(v)=$($(v))u) \
+    WT_SPM_CONFDATA_SIZE WT_SPM_INTERFACE_PA \
+    WT_SPM_INTERFACE_SIZE,-D$(v)=$($(v))u) \
     -DWT_SPM_TABLE_POOL_PAGES=$(WT_SPM_TABLE_POOL_PAGES)u -I$(PORT_COMMON_DIR)
 WT_L3_LDFLAGS := $(foreach v,WT_SPM_IMAGE_PA WT_SPM_IMAGE_SIZE \
     WT_SPM_RAM_PA WT_SPM_RAM_SIZE WT_SPM_KEYSTORE_PA WT_SPM_KEYSTORE_SIZE \
     WT_SPM_VAULT_PA WT_SPM_VAULT_SIZE WT_SPM_ATTEST_PA WT_SPM_ATTEST_SIZE \
     WT_SPM_HSMDATA_PA WT_SPM_HSMDATA_SIZE WT_SPM_CONFDATA_PA \
-    WT_SPM_CONFDATA_SIZE,-Wl,--defsym=$(v)=$($(v)))
+    WT_SPM_CONFDATA_SIZE WT_SPM_INTERFACE_PA \
+    WT_SPM_INTERFACE_SIZE,-Wl,--defsym=$(v)=$($(v)))
 TARGET_CFLAGS += $(WT_L3_CFLAGS)
 TARGET_LDFLAGS += $(WT_L3_LDFLAGS)
 TARGET_EXTRA_SRCS += $(PORT_COMMON_DIR)/platform_l3.c
@@ -181,10 +188,18 @@ SECURE_CMSE_IMPLIB :=
 ARCH_LINK_OUTPUTS :=
 # The core is not entered yet; keep it linked so the closure is proven.
 ARCH_LDFLAGS := -Wl,--undefined=wt_boot_run
-# The manifest must grant exactly the keystore bands the shared layout places.
+# The manifest must grant exactly the bands the shared layout places, and the
+# linked map must keep every object's writable state in its declared owner
+# band. In particular, direct TPM and PKCS#11 provider state may only land in
+# the optional interface band granted to that provider partition.
 define arch_image_checks
 	$(WT_L3_TOOL) --check-manifest $(MANIFEST_INPUT) $(PORT_DIR)/memory_map.h \
 		|| { rm -f $(SECURE_ELF); exit 1; }
+	@python3 $(ROOT)/tools/check_secure_layout.py --ownership-only \
+		--owner-profile aarch64 --nm $(TOOLPREFIX)nm $(SECURE_ELF) \
+		--map $(SECURE_MAP) --owners $(ROOT)/tools/secure_owners.txt \
+		$(if $(filter 1,$(WT_CONFORMANCE)),,--production) \
+		--objects-nm $(TOOLPREFIX)nm --objects $(ALL_SECURE_OBJS)
 endef
 $(BUILD_DIR)/wolftrust.elf: $(ROOT)/tools/aarch64_l3_layout.py \
     $(PORT_COMMON_DIR)/l3_layout.h $(MANIFEST_INPUT)

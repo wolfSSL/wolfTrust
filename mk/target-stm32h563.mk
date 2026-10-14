@@ -7,11 +7,28 @@ TARGET_CONF_DIR := $(PORT_DIR)/conformance
 
 # WT_CONFORMANCE=1 swaps in the manifest that also hosts Arm's test partitions;
 # CONFIG_VNET=y swaps in the variant that adds the SERVICE_VNET partition so
-# the default image carries no virtual network service at all
+# the default image carries no virtual network service at all. These manifest
+# variants are mutually exclusive, so reject a combination that would silently
+# discard a requested service rather than build it.
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+ifeq ($(WT_CONFORMANCE),1)
+$(error CONFIG_TPM/CONFIG_PKCS11 conflicts with WT_CONFORMANCE=1; the manifests are mutually exclusive)
+endif
+ifeq ($(CONFIG_VNET),y)
+$(error CONFIG_TPM/CONFIG_PKCS11 conflicts with CONFIG_VNET=y; the manifests are mutually exclusive)
+endif
+endif
+ifeq ($(CONFIG_TPM)$(CONFIG_PKCS11),yy)
+$(error CONFIG_TPM=y conflicts with CONFIG_PKCS11=y; select one application API)
+endif
 ifeq ($(WT_CONFORMANCE),1)
 MANIFEST_INPUT := $(PORT_DIR)/manifest-conformance.json
 else ifeq ($(CONFIG_VNET),y)
 MANIFEST_INPUT := $(PORT_DIR)/manifest-vnet.json
+else ifeq ($(CONFIG_TPM),y)
+MANIFEST_INPUT := $(PORT_DIR)/manifest-tpm.json
+else ifeq ($(CONFIG_PKCS11),y)
+MANIFEST_INPUT := $(PORT_DIR)/manifest-pkcs11.json
 else
 MANIFEST_INPUT := $(PORT_DIR)/manifest.json
 endif
@@ -37,10 +54,20 @@ endif
 WT_SECURE_FLASH_BASE ?= 0x0C000000
 WT_SECURE_FLASH_SIZE ?= 0x00020000
 WT_SECURE_IMAGE_HEADER_SIZE ?= 0
-WT_GUEST0_FLASH_BASE ?= 0x08020000
-WT_GUEST1_FLASH_BASE ?= 0x08040000
+ifeq ($(CONFIG_PKCS11),y)
+WT_GUEST0_FLASH_BASE ?= 0x080A0000
+WT_GUEST1_FLASH_BASE ?= 0x080C0000
 WT_GUEST0_FLASH_SIZE ?= 0x00020000
+WT_GUEST1_FLASH_SIZE ?= 0x00040000
+else
+WT_GUEST0_FLASH_BASE ?= 0x080A0000
+WT_GUEST1_FLASH_BASE ?= 0x080E0000
+WT_GUEST0_FLASH_SIZE ?= 0x00040000
 WT_GUEST1_FLASH_SIZE ?= 0x00020000
+endif
+MANIFEST_GUEST_LAYOUT_ARGS := \
+    --guest 1=$(WT_GUEST0_FLASH_BASE):$(WT_GUEST0_FLASH_SIZE) \
+    --guest 2=$(WT_GUEST1_FLASH_BASE):$(WT_GUEST1_FLASH_SIZE)
 
 TARGET_CFLAGS := \
     -DWT_SHARED_UART=$(WT_SHARED_UART) \

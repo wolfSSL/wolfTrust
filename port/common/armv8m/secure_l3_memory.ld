@@ -40,4 +40,6 @@
   VAULTSTACK (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 24K, LENGTH = 16K
   /* Conformance partition data; CONFIG_VNET builds use it as the VNET stack. */
   CONFDATA (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 40K, LENGTH = 12K
+  /* SERVICE_TPM mailbox, inside CONFDATA: CONFIG_TPM builds have no conformance data. */
+  TPMDATA (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 48K, LENGTH = 2K
   SPSTACKS (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 52K, LENGTH = 40K

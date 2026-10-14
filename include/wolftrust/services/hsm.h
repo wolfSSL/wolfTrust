@@ -77,11 +77,19 @@ int wt_hsm_vault_was_reformatted(void);
  * made to follow, so there is no custom-transport path (WT-FFM-0011). */
 int wt_hsm_guest_init_relay(wt_guest_id_t guest_id);
 
+/* Bind one positive Secure-partition identity to a distinct wolfHSM key
+ * namespace. The FF-M core has already enforced the caller's manifest
+ * dependency before SERVICE_HSM sees the SPM-stamped partition identity. */
+#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+int wt_hsm_relay_set_secure_client(int32_t partition_id,
+                                   wt_guest_id_t namespace_id);
+#endif
+
 /* SERVICE_HSM's platform submit hook (matches wt_hsm_relay_submit_fn): map
- * the SPM-stamped caller to its guest server, pump one relayed wolfHSM
- * packet through wh_Server_HandleRequestMessage in monitor RAM, and return
- * the response packet. May block on the shared NVM mutex, so it must run
- * from a scheduled coroutine, never the bootstrap context. */
+ * the SPM-stamped caller to its configured server namespace, pump one relayed
+ * wolfHSM packet through wh_Server_HandleRequestMessage in monitor RAM, and
+ * return the response packet. May block on the shared NVM mutex, so it must
+ * run from a scheduled coroutine, never the bootstrap context. */
 int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
                         const uint8_t* req, size_t req_len,
                         uint8_t* resp, size_t resp_cap, size_t* resp_len);

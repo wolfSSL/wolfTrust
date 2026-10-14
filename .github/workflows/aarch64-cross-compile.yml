@@ -50,6 +50,70 @@ jobs:
           for e in json.load(sys.stdin):
               print(e["job"], "(" + e["engine"] + ")")'
 
+  interfaces-qemu-a:
+    name: ${{ matrix.job }}
+    if: >-
+      github.event_name != 'workflow_dispatch' || inputs.cell == '' ||
+      inputs.cell == 'all' || inputs.cell == 'qemu-virt' ||
+      inputs.cell == 'virt-gicv3-a72'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-aarch64:v1.15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - job: qemuvirt_fwtpm_native
+            scenario: tpm
+            engine: native
+          - job: qemuvirt_fwtpm_isolation_native
+            scenario: tpmneg
+            engine: native
+          - job: qemuvirt_pkcs11_hsm
+            scenario: pkcs11
+            engine: hsm
+          - job: qemuvirt_pkcs11_isolation_hsm
+            scenario: pkcs11neg
+            engine: hsm
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
+      MACHINE: virt
+      GIC: 3
+      CPU: cortex-a72
+      SMP: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      - name: Initialize wolfTrust dependencies
+        run: |
+          git config --global url."https://github.com/".insteadOf "git@github.com:"
+          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE lib/wolfPSA lib/wolfTPM lib/wolfPKCS11
+
+      - name: Toolchain and emulator versions
+        run: |
+          aarch64-none-elf-gcc --version | head -1
+          qemu-system-aarch64 --version | head -1
+
+      - name: Self-test the EL3 symbol guard and the expect library
+        run: |
+          tools/check-el3-symbols.sh --selftest
+          tests/target/lib/expect.sh --selftest
+
+      - name: Run the direct SPM interface scenario
+        run: tests/target/run_suite.sh qemu-a ${{ matrix.scenario }}
+
+      - name: Show the boot logs
+        if: always()
+        run: |
+          for f in logs/target-*.log; do
+            echo "== $f"
+            cat "$f" || true
+          done
+
   qemu-a:
     name: ${{ matrix.job }}
     needs: select
@@ -78,7 +142,7 @@ jobs:
       - name: Initialize wolfTrust dependencies
         run: |
           git config --global url."https://github.com/".insteadOf "git@github.com:"
-          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE lib/wolfPSA
+          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE lib/wolfPSA lib/wolfTPM lib/wolfPKCS11
 
       - name: Toolchain and emulator versions
         run: |
@@ -94,6 +158,17 @@ jobs:
       - name: Cross-build the EL3 monitor image (the symbol guard runs at link)
         if: matrix.kind == 'suite'
         run: make ARCH=aarch64 TARGET=${{ matrix.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" BUILD_DIR=build-aarch64-guard el3-image
+
+      - name: Cross-build the Versal TPM and PKCS11 interfaces
+        if: matrix.kind == 'suite' && matrix.target == 'versal' && matrix.engine == 'native'
+        run: |
+          make ARCH=aarch64 TARGET=versal WT_GIC_VERSION="$GIC" \
+            WT_CPU="$CPU" WT_PORT_BOOT_CPUS=1 CONFIG_TPM=y \
+            WT_ATTEST_COSE=0 BUILD_DIR=build-versal-tpm secure-image
+          make ARCH=aarch64 TARGET=versal WT_GIC_VERSION="$GIC" \
+            WT_CPU="$CPU" WT_PORT_BOOT_CPUS=1 CONFIG_PKCS11=y \
+            WT_ENGINE=hsm WT_ATTEST_COSE=0 \
+            BUILD_DIR=build-versal-pkcs11 secure-image
 
       - name: Fetch the pinned Arm FF-A ACS once for the six groups
         if: matrix.kind == 'acs'

@@ -57,6 +57,17 @@
 #include "wolftrust/services/vnet_relay.h"
 #include "wolftrust/services/vnet_service.h"
 #endif
+#if defined(CONFIG_TPM)
+#include "wolftrust/services/tpm_relay.h"
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+#include "wolftrust/services/tpm_local_provider.h"
+#endif
+#endif
+#if defined(CONFIG_PKCS11)
+#include "wolftrust/pkcs11_provider.h"
+#include "wolftrust/pkcs11_secure_client.h"
+#include "wolftrust/services/pkcs11_relay.h"
+#endif
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
 
@@ -116,6 +127,108 @@ static void wt_spm_band_probe(void* arg, unsigned int target)
 #define WT_BAND_PROBE_ID(arg) \
     ((int32_t)((intptr_t)(arg) & ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED & \
                ~(intptr_t)WT_SP_FAULT_PROBE_SECOND))
+#endif
+
+#if defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)
+#define WT_TPM_PROBE_ID(arg) \
+    ((int32_t)((intptr_t)(arg) & ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED & \
+               ~(intptr_t)WT_SP_FAULT_PROBE_SECOND))
+
+/* Prove that an unrelated partition cannot read or write TPMDATA. */
+static void wt_spm_tpm_band_probe(void* arg)
+{
+    volatile uint32_t* band = (volatile uint32_t*)
+        wt_platform_probe_address(WT_PROBE_TPM_DATA_BAND);
+    volatile uint32_t seen;
+
+    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
+        seen = *band;
+        (void)seen;
+        wt_arch_sp_fault_probe(3u);
+    }
+    else if (((intptr_t)arg & WT_SP_FAULT_PROBE_SECOND) == 0) {
+        *band = 0xA5A5A5A5u;
+        wt_arch_sp_fault_probe(4u);
+    }
+}
+
+/* Prove that the relay cannot bypass IPC or execute from its data band. */
+static void wt_spm_tpm_partition_probe(void* arg)
+{
+    volatile uint32_t seen;
+    void (*xn_probe)(void);
+
+    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
+        if (wt_tpm_relay_restart_probe(1) == 0) {
+            wt_arch_sp_fault_probe(2u);
+        }
+        (void)wt_tpm_relay_restart_probe(0);
+        seen = *(const volatile uint32_t*)
+            wt_platform_probe_address(WT_PROBE_TPM_FTPM_RAM);
+        (void)seen;
+        wt_arch_sp_fault_probe(3u);
+    }
+    else if (((intptr_t)arg & WT_SP_FAULT_PROBE_SECOND) == 0) {
+        if (wt_tpm_relay_restart_probe(1) == 0) {
+            wt_arch_sp_fault_probe(2u);
+        }
+        xn_probe = (void (*)(void))
+            (wt_platform_probe_address(WT_PROBE_TPM_DATA_BAND) | 1u);
+        xn_probe();
+        wt_arch_sp_fault_probe(4u);
+    }
+}
+#endif
+
+#if defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1)
+#define WT_PKCS11_PROBE_ID(arg) \
+    ((int32_t)((intptr_t)(arg) & ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED & \
+               ~(intptr_t)WT_SP_FAULT_PROBE_SECOND))
+
+/* Prove that an unrelated partition cannot read or write PKCS11DATA. */
+static void wt_spm_pkcs11_band_probe(void* arg)
+{
+    volatile uint32_t* band = (volatile uint32_t*)
+        wt_platform_probe_address(WT_PROBE_PKCS11_DATA_BAND);
+    volatile uint32_t seen;
+
+    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
+        seen = *band;
+        (void)seen;
+        wt_arch_sp_fault_probe(3u);
+    }
+    else if (((intptr_t)arg & WT_SP_FAULT_PROBE_SECOND) == 0) {
+        *band = 0xA5A5A5A5u;
+        wt_arch_sp_fault_probe(4u);
+    }
+}
+
+/* Prove that the relay cannot bypass IPC or execute from its data band. */
+static void wt_spm_pkcs11_partition_probe(void* arg)
+{
+    volatile uint32_t seen;
+    void (*xn_probe)(void);
+
+    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
+        if (wt_pkcs11_relay_restart_probe(1) == 0) {
+            wt_arch_sp_fault_probe(2u);
+        }
+        (void)wt_pkcs11_relay_restart_probe(0);
+        seen = *(const volatile uint32_t*)
+            wt_platform_probe_address(WT_PROBE_PKCS11_PROVIDER_RAM);
+        (void)seen;
+        wt_arch_sp_fault_probe(3u);
+    }
+    else if (((intptr_t)arg & WT_SP_FAULT_PROBE_SECOND) == 0) {
+        if (wt_pkcs11_relay_restart_probe(1) == 0) {
+            wt_arch_sp_fault_probe(2u);
+        }
+        xn_probe = (void (*)(void))
+            (wt_platform_probe_address(WT_PROBE_PKCS11_DATA_BAND) | 1u);
+        xn_probe();
+        wt_arch_sp_fault_probe(4u);
+    }
+}
 #endif
 
 #if defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)
@@ -180,6 +293,14 @@ static void wt_spm_hsm_entry(void* arg)
     wt_spm_band_probe(arg, WT_PROBE_ATTEST_DATA_BAND);
 #endif
 #endif
+#if defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)
+    partition_id = WT_TPM_PROBE_ID(arg);
+    wt_spm_tpm_band_probe(arg);
+#endif
+#if defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1)
+    partition_id = WT_PKCS11_PROBE_ID(arg);
+    wt_spm_pkcs11_band_probe(arg);
+#endif
 #if defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)
     partition_id = WT_RESTART_PROBE_ID(arg);
 #if (WT_RESTART_NEG_PROBE == 1)
@@ -206,6 +327,19 @@ static uint8_t g_spm_iak_public[WT_HSM_ATTEST_PUBLIC_KEY_LEN];
 static size_t g_spm_iak_public_len;
 #endif
 
+#if defined(WT_ENGINE_HSM) && defined(CONFIG_PKCS11) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+static int wt_spm_hsm_init_pkcs11_namespace(void)
+{
+    if (!wt_hsm_guest_ready((wt_guest_id_t)WT_PKCS11_HSM_NAMESPACE) &&
+            wt_hsm_guest_init_relay(
+                (wt_guest_id_t)WT_PKCS11_HSM_NAMESPACE) != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
+}
+#endif
+
 /* Wire the crypto partition's band to the relay seams and to the vault's
  * door; boot and every restart run the same steps. */
 static int wt_spm_hsm_bind(int32_t partition_id)
@@ -222,6 +356,12 @@ static int wt_spm_hsm_bind(int32_t partition_id)
     if (wt_hsm_bind_nvm(wt_nvm_client_partition_nvm()) != 0) {
         return WT_FFM_ERROR_STATE;
     }
+#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (wt_hsm_relay_set_secure_client(PARTITION_PKCS11_ID,
+            (wt_guest_id_t)WT_PKCS11_HSM_NAMESPACE) != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+#endif
     wt_hsm_relay_set_submit(wt_hsm_relay_submit, NULL);
 #else
     /* Native engine: SERVICE_HSM stays the single mediated door; its packets
@@ -252,6 +392,11 @@ static int wt_spm_hsm_restore(int32_t partition_id)
             return WT_FFM_ERROR_STATE;
         }
     }
+#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (wt_spm_hsm_init_pkcs11_namespace() != WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+#endif
 #endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     if (wt_hsm_attest_restore((g_spm_iak_public_len != 0u) ?
@@ -267,6 +412,13 @@ int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     int ret;
 
+#if defined(WT_ENGINE_HSM) && defined(CONFIG_PKCS11) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+    ret = wt_spm_hsm_init_pkcs11_namespace();
+    if (ret != WT_FFM_SUCCESS) {
+        return ret;
+    }
+#endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     /* Taken before the store is rebound to the door view, which the boot
      * context cannot call through. */
@@ -761,3 +913,106 @@ int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
                             (void*)(intptr_t)partition_id);
 }
 #endif /* CONFIG_VNET */
+
+#if defined(CONFIG_TPM)
+#ifndef WT_TPM_APP_GUEST
+#define WT_TPM_APP_GUEST 0
+#endif
+#ifndef WT_TPM_FTPM_GUEST
+#define WT_TPM_FTPM_GUEST 1
+#endif
+/* SERVICE_TPM: the single mediated door between the application guest and
+ * the isolated fwTPM guest. An unprivileged scheduled coroutine confined to
+ * its own domain; the one in-flight command/response slot lives in its own
+ * data band. Roles bind to the SPM-stamped guest identities (-(N+1)), and a
+ * restart re-binds them because the fault scrub zeroes the band. */
+static void wt_spm_tpm_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+    void* provider_context = NULL;
+#endif
+
+#if defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)
+    partition_id = WT_TPM_PROBE_ID(arg);
+    wt_spm_tpm_partition_probe(arg);
+#endif
+    wt_tpm_relay_set_transport(wt_spm_svc_transport);
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (wt_tpm_local_provider_init(&provider_context) != 0) {
+        psa_panic();
+    }
+    wt_tpm_relay_set_local_provider(wt_tpm_local_provider_process,
+                                    provider_context);
+    wt_tpm_relay_set_roles(-1, 0);
+#else
+    wt_tpm_relay_set_roles(-(WT_TPM_APP_GUEST + 1),
+                           -(WT_TPM_FTPM_GUEST + 1));
+#endif
+    for (;;) {
+        (void)wt_tpm_relay_dispatch(NULL, NULL, partition_id);
+    }
+}
+
+int wt_spm_tpm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_tpm_entry,
+                            (void*)(intptr_t)partition_id);
+}
+#endif /* CONFIG_TPM */
+
+#if defined(CONFIG_PKCS11)
+#ifndef WT_PKCS11_APP_GUEST
+#define WT_PKCS11_APP_GUEST 0
+#endif
+#ifndef WT_PKCS11_PROVIDER_GUEST
+#define WT_PKCS11_PROVIDER_GUEST 1
+#endif
+
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+static int wt_spm_pkcs11_local_dispatch(uint8_t* request,
+                                        size_t request_len,
+                                        uint8_t* response,
+                                        size_t response_cap,
+                                        size_t* response_len,
+                                        void* context)
+{
+    if (wt_pkcs11_secure_client_prepare() != 0) {
+        *response_len = 0U;
+        return -1;
+    }
+    return wt_pkcs11_provider_dispatch(request, request_len, response,
+                                       response_cap, response_len, context);
+}
+#endif
+
+static void wt_spm_pkcs11_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+
+#if defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1)
+    partition_id = WT_PKCS11_PROBE_ID(arg);
+    wt_spm_pkcs11_partition_probe(arg);
+#endif
+    wt_pkcs11_relay_set_transport(wt_spm_svc_transport);
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (wt_pkcs11_secure_client_init() != 0) {
+        psa_panic();
+    }
+    wt_pkcs11_relay_set_local_provider(wt_spm_pkcs11_local_dispatch, NULL);
+    wt_pkcs11_relay_set_roles(-1, 0);
+#else
+    wt_pkcs11_relay_set_roles(-(WT_PKCS11_APP_GUEST + 1),
+                              -(WT_PKCS11_PROVIDER_GUEST + 1));
+#endif
+    for (;;) {
+        (void)wt_pkcs11_relay_dispatch(NULL, NULL, partition_id);
+    }
+}
+
+int wt_spm_pkcs11_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_pkcs11_entry,
+                            (void*)(intptr_t)partition_id);
+}
+#endif /* CONFIG_PKCS11 */

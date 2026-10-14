@@ -38,6 +38,9 @@
 #include "wolftrust/arch.h"
 #include "wolftrust/platform.h"
 #include "wolftrust/services/hsm.h"
+#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#include "wolftrust/pkcs11_secure_client.h"
+#endif
 #include "wolftrust/spm_transport.h"
 
 #include <stddef.h>
@@ -391,6 +394,13 @@ void wt_spm_init_partitions(void)
     if (wt_hsm_guest_init_relay((wt_guest_id_t)0) != 0) {
         wt_platform_panic();
     }
+#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (!wt_hsm_guest_ready((wt_guest_id_t)WT_PKCS11_HSM_NAMESPACE) &&
+            wt_hsm_guest_init_relay(
+                (wt_guest_id_t)WT_PKCS11_HSM_NAMESPACE) != 0) {
+        wt_platform_panic();
+    }
+#endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     /* The core's boot-time attestation bootstrap found no seated guest; run
      * it now. A failure leaves attestation failing closed, as at boot. */

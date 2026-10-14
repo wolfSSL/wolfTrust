@@ -128,3 +128,39 @@
     . = ALIGN(32);
     _e_vnet = .;
   } > VNETDATA
+
+  /* SERVICE_PKCS11 request and response slot. CONFIG_PKCS11 and CONFIG_VNET
+   * are mutually exclusive, so the selected relay owns the whole band. */
+  .pkcs11_data : {
+    . = ALIGN(32);
+    _s_pkcs11 = .;
+    *wt_sec_pkcs11_relay_service.o(.data .data.*)
+    . = ALIGN(4);
+    _e_pkcs11_data = .;
+  } > VNETDATA AT > FLASH
+  _si_pkcs11 = LOADADDR(.pkcs11_data);
+
+  .pkcs11_bss (NOLOAD) : {
+    _s_pkcs11_bss = .;
+    *wt_sec_pkcs11_relay_service.o(.bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_pkcs11 = .;
+  } > VNETDATA
+
+  /* SERVICE_TPM relay state, claimed out of SPM .data/.bss so its MPU grant
+   * covers exactly its own state. Empty outside CONFIG_TPM builds. */
+  .tpm_data : {
+    . = ALIGN(32);
+    _s_tpm = .;
+    *wt_sec_tpm_relay_service.o(.data .data.*)
+    . = ALIGN(4);
+    _e_tpm_data = .;
+  } > TPMDATA AT > FLASH
+  _si_tpm = LOADADDR(.tpm_data);
+
+  .tpm_bss (NOLOAD) : {
+    _s_tpm_bss = .;
+    *wt_sec_tpm_relay_service.o(.bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_tpm = .;
+  } > TPMDATA

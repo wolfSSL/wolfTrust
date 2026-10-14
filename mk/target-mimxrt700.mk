@@ -10,8 +10,20 @@ TARGET_CONF_DIR := $(PORT_DIR)/conformance
 ifeq ($(CONFIG_VNET),y)
 $(error TARGET=mimxrt700 has no SERVICE_VNET manifest; build with CONFIG_VNET=n)
 endif
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+ifeq ($(WT_CONFORMANCE),1)
+$(error CONFIG_TPM/CONFIG_PKCS11 conflicts with WT_CONFORMANCE=1; the manifests are mutually exclusive)
+endif
+endif
+ifeq ($(CONFIG_TPM)$(CONFIG_PKCS11),yy)
+$(error CONFIG_TPM=y conflicts with CONFIG_PKCS11=y; select one application API)
+endif
 ifeq ($(WT_CONFORMANCE),1)
 MANIFEST_INPUT := $(PORT_DIR)/manifest-conformance.json
+else ifeq ($(CONFIG_TPM),y)
+MANIFEST_INPUT := $(PORT_DIR)/manifest-tpm.json
+else ifeq ($(CONFIG_PKCS11),y)
+MANIFEST_INPUT := $(PORT_DIR)/manifest-pkcs11.json
 else
 MANIFEST_INPUT := $(PORT_DIR)/manifest.json
 endif
@@ -37,6 +49,9 @@ WT_GUEST0_FLASH_BASE ?= 0x28080000
 WT_GUEST1_FLASH_BASE ?= 0x28100000
 WT_GUEST0_FLASH_SIZE ?= 0x00080000
 WT_GUEST1_FLASH_SIZE ?= 0x00040000
+MANIFEST_GUEST_LAYOUT_ARGS := \
+    --guest 1=$(WT_GUEST0_FLASH_BASE):$(WT_GUEST0_FLASH_SIZE) \
+    --guest 2=$(WT_GUEST1_FLASH_BASE):$(WT_GUEST1_FLASH_SIZE)
 
 TARGET_CFLAGS := \
     -DWT_SHARED_UART=$(WT_SHARED_UART) \

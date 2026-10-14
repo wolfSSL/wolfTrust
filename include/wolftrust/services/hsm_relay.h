@@ -31,7 +31,8 @@
  * written back as outvec[0]. The relay never parses packet contents — the
  * wolfHSM comm layer owns the protocol; the SPM owns caller identity and the
  * copied-transfer bounds (WT-FFM-0041/0047). A Secure Partition caller's
- * PSA_IPC_CALL is refused with PSA_ERROR_NOT_PERMITTED. */
+ * PSA_IPC_CALL is refused with PSA_ERROR_NOT_PERMITTED unless the platform
+ * explicitly binds that one caller as the local interface provider. */
 
 /* One wolfHSM wire packet: whCommHeader (8) + WOLFHSM_CFG_COMM_DATA_LEN (368)
  * = 376 bytes on this platform; bound with headroom, under the FF-M copied
@@ -50,6 +51,13 @@ typedef int (*wt_hsm_relay_submit_fn)(void* submit_ctx, int32_t client_id,
  * refuses every packet with PSA_ERROR_NOT_SUPPORTED. */
 void wt_hsm_relay_set_submit(wt_hsm_relay_submit_fn fn, void* submit_ctx);
 
+/* Allow one positive Secure-partition identity onto the ordinary HSM wire.
+ * Zero clears the binding. The default refuses every Secure caller, and
+ * Non-secure callers remain governed by their SPM-stamped negative identity. */
+#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+void wt_hsm_relay_set_secure_client_policy(int32_t partition_id);
+#endif
+
 /* Attestation signing door (isolation level 3): the attestation partition
  * holds no key material and reaches the Initial Attestation Key only through
  * these psa_call types on SERVICE_HSM, served for the one partition
@@ -60,6 +68,10 @@ void wt_hsm_relay_set_submit(wt_hsm_relay_submit_fn fn, void* submit_ctx);
  * platform start hook; NULL (the default) refuses both. */
 #define WT_HSM_OP_ATTEST_SIGN       1
 #define WT_HSM_OP_ATTEST_PUBLIC_KEY 2
+#if defined(WT_PKCS11_HSM_RESTART_PROBE) && \
+    (WT_PKCS11_HSM_RESTART_PROBE == 1)
+#define WT_HSM_OP_TEST_RESTART      0x7f01
+#endif
 
 /* Signer result for "no Initial Attestation Key yet"; equals the engines'
  * WH_ERROR_NOTREADY (asserted where they are linked) so the relay stays free

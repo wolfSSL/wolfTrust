@@ -42,8 +42,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|tpm|tpmneg|pkcs11|pkcs11neg|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|tpm|tpmneg|pkcs11|pkcs11neg|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -119,6 +119,18 @@ if [ "$scenario" = hsmattackneg ] && [ "$WT_ENGINE" = native ]; then
   exit 0
 fi
 
+if { [ "$scenario" = tpm ] || [ "$scenario" = tpmneg ]; } && \
+   [ "$WT_ENGINE" != native ]; then
+  echo "SKIP: qemu-a/$scenario: the TPM interface runs in the native-engine cell"
+  exit 0
+fi
+
+if { [ "$scenario" = pkcs11 ] || [ "$scenario" = pkcs11neg ]; } && \
+   [ "$WT_ENGINE" != hsm ]; then
+  echo "SKIP: qemu-a/$scenario: the PKCS11 provider uses the wolfHSM engine"
+  exit 0
+fi
+
 # cpus = cores the image expects to see (boot core + parked secondaries).
 # versal-virt models 2 A72 + 2 R5 and QEMU refuses fewer than 4 CPUs there;
 # its APU core 1 is created powered off and the CRF/APU control blocks that
@@ -126,7 +138,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|manifestneg2:virt|manifestneg3:virt|keystoreneg:virt|bandneg[1-6]:virt|periphspneg:virt|restartneg1:virt|restartneg2:virt|restartneg3:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|periphneg:virt|ffa-memneg:virt|hsmattackneg:virt|hsmpinneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|manifestneg2:virt|manifestneg3:virt|keystoreneg:virt|bandneg[1-6]:virt|periphspneg:virt|restartneg1:virt|restartneg2:virt|restartneg3:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|periphneg:virt|ffa-memneg:virt|hsmattackneg:virt|hsmpinneg:virt|vaultrecoversec:virt|tpm:virt|tpmneg:virt|pkcs11:virt|pkcs11neg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   # The Normal world probes PSCI with a real parked secondary beside it.
   psci:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
@@ -204,6 +216,13 @@ else
     ffaacs-*) probe=(WT_EL3_NS_SMOKE=1 WT_FFA_ACS=1 WT_EL3_NS_EL2=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 "WT_SPM_TABLE_POOL_PA=$acs_pool_pa" WT_SPM_TABLE_POOL_PAGES=512) ;;
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
+    tpm) probe=(WT_EL3_NS_SMOKE=1 CONFIG_TPM=y WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000) ;;
+    tpmneg) probe=(WT_EL3_NS_SMOKE=1 CONFIG_TPM=y WT_TPM_NEG_PROBE=1 WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000) ;;
+    # The production PIN KDF remains at 600,000 rounds. Emulator coverage uses
+    # the same PBKDF2 path with a short work factor, as the M33MU PKCS11 test
+    # does, so the complete API suite remains practical in the CI matrix.
+    pkcs11) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EXTRA_CFLAGS=-DPBKDF2_ITERATIONS=25) ;;
+    pkcs11neg) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_PKCS11_NEG_PROBE=1 WT_PKCS11_HSM_RESTART_PROBE=1 WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EXTRA_CFLAGS=-DPBKDF2_ITERATIONS=25) ;;
     hsmpinneg) probe=(WT_EL3_NS_SMOKE=1 WT_HSM_PIN_NEG_PROBE=1) ;;
     # The test handoff's unlocked lifecycle leaves the forced SECURED
     # lifecycle as the only thing that refuses the reformat.
@@ -238,6 +257,8 @@ else
      [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
      [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
      [ "$scenario" = hsmpinneg ] || \
+     [ "$scenario" = tpm ] || [ "$scenario" = tpmneg ] || \
+     [ "$scenario" = pkcs11 ] || [ "$scenario" = pkcs11neg ] || \
      [ "$scenario" = vaultrecover ] || [ "$scenario" = attestneg ] || \
      [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devattestqcbor ] || [ "$scenario" = devcrypto ]; then
@@ -269,6 +290,14 @@ else
     [ "$scenario" = ffa-memneg ] && ns_memneg=1
     ns_storage=0
     [ "$scenario" = storage ] && ns_storage=1
+    ns_tpm=0
+    [ "$scenario" = tpm ] && ns_tpm=1
+    [ "$scenario" = tpmneg ] && ns_tpm=1
+    ns_pkcs11=0
+    [ "$scenario" = pkcs11 ] && ns_pkcs11=1
+    [ "$scenario" = pkcs11neg ] && ns_pkcs11=1
+    ns_pkcs11_restart=0
+    [ "$scenario" = pkcs11neg ] && ns_pkcs11_restart=1
     # confboot runs Arm's val NSPE from the payload against the conformance
     # image built above (its fetched upstream tree + generated test list).
     ns_conf=0
@@ -306,6 +335,8 @@ else
       WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
       WT_NS_GUEST_RESET="$ns_reset" WT_NS_GUEST_MEMNEG="$ns_memneg" \
       WT_NS_GUEST_STORAGE="$ns_storage" WT_RUN_CONFORMANCE="$ns_conf" \
+      WT_NS_GUEST_TPM="$ns_tpm" WT_NS_GUEST_PKCS11="$ns_pkcs11" \
+      WT_NS_PKCS11_HSM_RESTART_PROBE="$ns_pkcs11_restart" \
       WT_ATTEST_CBOR="$ns_cbor" \
       WT_CONF_SUITE="$ns_suite" WT_NS_ATTEST_NEG="$ns_attest_neg" \
       WT_NS_CONF_UPSTREAM="$build/upstream/psa-arch-tests/api-tests" \
@@ -396,6 +427,8 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
    [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
    [ "$scenario" = hsmpinneg ] || [ "$scenario" = periphneg ] || \
+   [ "$scenario" = tpm ] || [ "$scenario" = tpmneg ] || \
+   [ "$scenario" = pkcs11 ] || [ "$scenario" = pkcs11neg ] || \
    [ "$scenario" = vaultrecover ] || [ "$scenario" = attestneg ] || \
    [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devattestqcbor ] || [ "$scenario" = devcrypto ]; then
@@ -1149,6 +1182,84 @@ case "$scenario" in
         "passed=$passed skipped=$skipped failed=$failed (want $want_p passed, $want_s skipped, 0 failed)"
     fi
     expect "val returned to the payload" "[NS] conformance val_entry returned"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  tpm|tpmneg)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no SPMC panic" '\[SPM\] panic'
+    expect "the isolated TPM service initialized" "tpm-aarch64: tpm init ok"
+    expect "the application queried the TPM frame limits" "tpm-aarch64: tpm frame caps ok"
+    expect "the application completed TPM2 GetRandom" "tpm-aarch64: tpm random ok"
+    expect "the application completed TPM2 CreatePrimary" "tpm-aarch64: tpm primary ok"
+    expect "the application completed TPM2 Sign" "tpm-aarch64: tpm sign ok"
+    expect "the application verified the TPM signature" "tpm-aarch64: tpm verify ok"
+    expect "the application extended and read a PCR" "tpm-aarch64: tpm pcr ok"
+    expect "the direct TPM 2.0 application suite passed" "tpm-aarch64: tpm round trip ok"
+    expect "the Normal-world application completed" "[NS] tpm suite complete"
+    expect "TPM requests crossed the FF-A SPM endpoint" "[SPM] direct req from=0x0000 to=0x80fd"
+    if [ "$scenario" = tpmneg ]; then
+      interface_far=$(printf 'FAR=0x%016x' $((WT_SPM_INTERFACE_PA)))
+      provider_far=$(printf 'FAR=0x%016x' $((WT_SPM_HSMDATA_PA)))
+      interface_xn_far=$(printf 'FAR=0x%016x' $((WT_SPM_INTERFACE_PA + 1)))
+      interface_data_faults=$(grep -c "^\[SYNC EL=0 EC=0x24 .*$interface_far" "$log" || true)
+      if [ "$interface_data_faults" -eq 2 ]; then
+        check_pass "an unrelated partition was denied TPM state on read and write"
+      else
+        check_fail "TPM state-band isolation" \
+          "expected 2 S-EL0 data aborts at $interface_far, saw $interface_data_faults"
+      fi
+      expect "the TPM relay was denied the provider's private RAM" \
+        "[SYNC EL=0 EC=0x24 ISS=0x000000f $provider_far]"
+      expect "the TPM state band was execute-never" \
+        "[SYNC EL=0 EC=0x22 ISS=0x0000000 $interface_xn_far]"
+    else
+      refute_re "no partition fault" '^\[SYNC EL=0'
+    fi
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  pkcs11|pkcs11neg)
+    refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no SPMC panic" '\[SPM\] panic'
+    expect "the application exercised token and user login" "pkcs11-aarch64: PASS token and user login"
+    expect "the application exercised object storage" "pkcs11-aarch64: PASS object create and size"
+    expect "the application exercised random generation" "pkcs11-aarch64: PASS random"
+    expect "the application exercised symmetric crypto" "pkcs11-aarch64: PASS AES CTR"
+    expect "the application exercised HSM-backed signing" "pkcs11-aarch64: PASS HSM-backed ECDSA"
+    expect "the application exercised HSM-backed key agreement" "pkcs11-aarch64: PASS HSM-backed ECDH"
+    expect "all PKCS11 cases passed" "pkcs11-aarch64: TOTAL PASSED: 38"
+    expect "the PKCS11 suite reported zero failures" "pkcs11-aarch64: TOTAL FAILED: 0"
+    refute_re "the application did not report a PKCS11 case failure" 'pkcs11-aarch64: FAIL'
+    expect "the Normal-world application completed" "[NS] pkcs11 suite complete"
+    expect "PKCS11 requests crossed the FF-A SPM endpoint" "[SPM] direct req from=0x0000 to=0x80fd"
+    if [ "$scenario" = pkcs11neg ]; then
+      interface_far=$(printf 'FAR=0x%016x' $((WT_SPM_INTERFACE_PA)))
+      provider_far=$(printf 'FAR=0x%016x' $((WT_SPM_HSMDATA_PA)))
+      interface_xn_far=$(printf 'FAR=0x%016x' $((WT_SPM_INTERFACE_PA + 1)))
+      interface_data_faults=$(grep -c "^\[SYNC EL=0 EC=0x24 .*$interface_far" "$log" || true)
+      if [ "$interface_data_faults" -eq 2 ]; then
+        check_pass "an unrelated partition was denied PKCS11 state on read and write"
+      else
+        check_fail "PKCS11 state-band isolation" \
+          "expected 2 S-EL0 data aborts at $interface_far, saw $interface_data_faults"
+      fi
+      expect "the PKCS11 relay was denied the provider's private RAM" \
+        "[SYNC EL=0 EC=0x24 ISS=0x000000f $provider_far]"
+      expect "the PKCS11 state band was execute-never" \
+        "[SYNC EL=0 EC=0x22 ISS=0x0000000 $interface_xn_far]"
+      partition_faults=$(grep -c '^\[SYNC EL=0' "$log" || true)
+      if [ "$partition_faults" -eq 5 ]; then
+        check_pass "the four isolation faults and one HSM restart occurred"
+      else
+        check_fail "PKCS11 isolation fault count" \
+          "expected 5 deliberate S-EL0 faults, saw $partition_faults"
+      fi
+      expect "the live PKCS11 client recovered after the HSM restart" \
+        "[NS] pkcs11 recovered after HSM restart"
+    else
+      refute_re "no partition fault" '^\[SYNC EL=0'
+    fi
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   storage)

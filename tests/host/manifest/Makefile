@@ -29,6 +29,7 @@ MANIFEST_TEST := $(BUILD_DIR)/test_manifest
 MANIFEST_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c main.c
 GENERATOR := $(ROOT)/tools/manifest/generate.py
 GENERATOR_TEST := test_generator.py
+GUEST_LAYOUT_TEST := test_guest_layout.py
 GENERATOR_FIXTURE := fixtures/level3.json
 GENERATED_DIR := $(BUILD_DIR)/generated
 GENERATED_STAMP := $(GENERATED_DIR)/.stamp
@@ -64,8 +65,12 @@ run: $(MANIFEST_TEST) $(GENERATED_TEST)
 	$(MANIFEST_TEST)
 	$(GENERATED_TEST)
 	python3 $(GENERATOR_TEST)
+	python3 $(GUEST_LAYOUT_TEST)
 	sh test_variant_stamp.sh $(BUILD_DIR)/variant
 	sh test_probe_stamp.sh $(BUILD_DIR)/probe-stamp
+	sh test_tpm_target_guard.sh
+	sh test_interface_runner_guard.sh
+	sh test_guest_runner_layout.sh
 
 compiler-gcc:
 	$(MAKE) run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

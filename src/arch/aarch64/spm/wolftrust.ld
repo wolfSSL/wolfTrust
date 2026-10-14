@@ -16,6 +16,7 @@ MEMORY
     ATTESTDATA (rw) : ORIGIN = WT_SPM_ATTEST_PA, LENGTH = WT_SPM_ATTEST_SIZE
     HSMDATA (rw) : ORIGIN = WT_SPM_HSMDATA_PA, LENGTH = WT_SPM_HSMDATA_SIZE
     CONFDATA (rw) : ORIGIN = WT_SPM_CONFDATA_PA, LENGTH = WT_SPM_CONFDATA_SIZE
+    INTERFACEDATA (rw) : ORIGIN = WT_SPM_INTERFACE_PA, LENGTH = WT_SPM_INTERFACE_SIZE
 }
 
 SECTIONS
@@ -88,6 +89,39 @@ SECTIONS
         . = ALIGN(16);
         _e_attest = .;
     } > ATTESTDATA
+    .interface_data : {
+        _s_interface = .;
+        *tpm_sec_*.o(.data .data.*)
+        *tpm_wc_*.o(.data .data.*)
+        *p11_sec_*.o(.data .data.*)
+        *p11_wc_*.o(.data .data.*)
+        *p11_wh_*.o(.data .data.*)
+        *wt_sec_tpm_local_provider.o(.data .data.*)
+        *wt_sec_pkcs11_secure_*.o(.data .data.*)
+        *wt_sec_pkcs11_provider.o(.data .data.*)
+        *wt_sec_pkcs11_wire.o(.data .data.*)
+        *wt_sec_tpm_relay_service.o(.data .data.*)
+        *wt_sec_pkcs11_relay_service.o(.data .data.*)
+        . = ALIGN(16);
+        _e_interface_data = .;
+    } > INTERFACEDATA AT > IMAGE
+    _si_interface = LOADADDR(.interface_data);
+    .interface_bss (NOLOAD) : {
+        _s_interface_bss = .;
+        *tpm_sec_*.o(.bss .bss.* COMMON)
+        *tpm_wc_*.o(.bss .bss.* COMMON)
+        *p11_sec_*.o(.bss .bss.* COMMON)
+        *p11_wc_*.o(.bss .bss.* COMMON)
+        *p11_wh_*.o(.bss .bss.* COMMON)
+        *wt_sec_tpm_local_provider.o(.bss .bss.* COMMON)
+        *wt_sec_pkcs11_secure_*.o(.bss .bss.* COMMON)
+        *wt_sec_pkcs11_provider.o(.bss .bss.* COMMON)
+        *wt_sec_pkcs11_wire.o(.bss .bss.* COMMON)
+        *wt_sec_tpm_relay_service.o(.bss .bss.* COMMON)
+        *wt_sec_pkcs11_relay_service.o(.bss .bss.* COMMON)
+        . = ALIGN(16);
+        _e_interface = .;
+    } > INTERFACEDATA
     .hsm_data : {
         _s_hsm = .;
         *wt_hsm.o(.data .data.*)
@@ -179,7 +213,7 @@ SECTIONS
         . = ALIGN(4096);
         __spm_stack_guard = .;
         . += 4096;
-        . += 0x4000;
+        . += WT_SPM_STACK_SIZE;
         __spm_stack_top = .;
     } > RAM
     /* Outside the bss-clear range and NOLOAD, so the conformance NVM shadow
@@ -204,6 +238,7 @@ ASSERT(__image_end <= WT_SPM_IMAGE_PA + WT_SPM_IMAGE_SIZE, "SPM image band overf
 ASSERT(_e_keystore <= WT_SPM_KEYSTORE_PA + WT_SPM_KEYSTORE_SIZE, "keystore band overflow")
 ASSERT(WT_SPM_HSMDATA_PA + WT_SPM_HSMDATA_SIZE == WT_SPM_KEYSTORE_PA + WT_SPM_KEYSTORE_SIZE, "the keystore bands must tile the keystore window")
 ASSERT(_e_conf_data <= WT_SPM_CONFDATA_PA + WT_SPM_CONFDATA_SIZE, "conformance data band overflow")
+ASSERT(_e_interface <= WT_SPM_INTERFACE_PA + WT_SPM_INTERFACE_SIZE, "interface data band overflow")
 ASSERT(_e_conf_bss <= WT_SPM_CONFDATA_PA + 0x1C000, "conformance data reaches the pseudo-MMIO pages")
 ASSERT((_s_conf_data & 0xFFF) == 0, "conformance partition segments must be page aligned")
 ASSERT((_e_conf_unowned == _s_conf_unowned) && (_e_conf_bss == _s_conf_bss),

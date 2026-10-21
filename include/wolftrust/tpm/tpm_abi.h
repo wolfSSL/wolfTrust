@@ -46,10 +46,7 @@
  * response is scrubbed and replaced. A command the fwTPM has already taken
  * into service is never discarded; SUBMIT returns WT_TPM_E_BUSY until that
  * command completes. The application therefore runs one SUBMIT then POLL at a
- * time and must not treat a duplicate SUBMIT as harmless. If the fwTPM loses
- * a command it has taken (it restarts and fetches again), the relay never
- * replays it: the next POLL returns WT_TPM_E_ABORTED, the command ran at most
- * once, and its outcome is unknown. */
+ * time and must not treat a duplicate SUBMIT as harmless. */
 #define WT_TPM_OP_SUBMIT        1
 #define WT_TPM_OP_POLL          2
 /* fwTPM partition ops: FETCH outvec[0]=command; RESPOND invec[0]=response. */
@@ -59,6 +56,5 @@
 /* Relay statuses carried as the psa_call result, outside the PSA ranges. */
 #define WT_TPM_E_EMPTY          (-2100) /* nothing pending for this role */
 #define WT_TPM_E_BUSY           (-2101) /* the in-service command is not done */
-#define WT_TPM_E_ABORTED        (-2102) /* fwTPM lost it; outcome unknown */
 
 #endif /* WOLFTRUST_TPM_TPM_ABI_H */

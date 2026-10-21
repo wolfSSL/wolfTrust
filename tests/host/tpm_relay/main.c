@@ -247,6 +247,9 @@ int main(void)
     check(ftpm_fetch(buf, sizeof(buf), &n) == PSA_SUCCESS && n == sizeof(cmd) &&
               memcmp(buf, cmd, sizeof(cmd)) == 0,
           "fwTPM FETCH receives the exact command frame");
+    check(ftpm_fetch(buf, sizeof(buf), &n) == PSA_SUCCESS && n == sizeof(cmd) &&
+              memcmp(buf, cmd, sizeof(cmd)) == 0,
+          "fwTPM re-FETCH while serving re-delivers the command (restart safe)");
     check(app_poll(buf, sizeof(buf), &n) == (psa_status_t)WT_TPM_E_BUSY,
           "app POLL while the fwTPM is serving reports BUSY");
     check(ftpm_respond(cmd, 8U) == PSA_SUCCESS,
@@ -330,28 +333,12 @@ int main(void)
 
     check(app_submit(cmd, sizeof(cmd)) == PSA_SUCCESS &&
               ftpm_fetch(buf, sizeof(buf), &n) == PSA_SUCCESS &&
-              ftpm_fetch(buf, sizeof(buf), &n) ==
-                  (psa_status_t)WT_TPM_E_EMPTY &&
-              ftpm_fetch(buf, sizeof(buf), &n) ==
-                  (psa_status_t)WT_TPM_E_EMPTY,
-          "fwTPM re-FETCH after a responder restart never replays the command");
-    check(ftpm_respond(cmd, 8U) == PSA_ERROR_BAD_STATE &&
-              app_poll(buf, sizeof(buf), &n) ==
-                  (psa_status_t)WT_TPM_E_ABORTED &&
-              app_poll(buf, sizeof(buf), &n) == (psa_status_t)WT_TPM_E_EMPTY,
-          "the lost command fails to the application once, then idles");
-    check(round_trip(cmd2, sizeof(cmd2), buf, sizeof(buf)) == 0,
-          "the relay serves a fresh exchange after an aborted one");
-    check(app_submit(cmd, sizeof(cmd)) == PSA_SUCCESS &&
               ftpm_fetch(buf, sizeof(buf), &n) == PSA_SUCCESS &&
-              ftpm_fetch(buf, sizeof(buf), &n) ==
-                  (psa_status_t)WT_TPM_E_EMPTY &&
-              app_submit(cmd2, sizeof(cmd2)) == PSA_SUCCESS &&
-              ftpm_fetch(buf, sizeof(buf), &n) == PSA_SUCCESS &&
-              n == sizeof(cmd2) && memcmp(buf, cmd2, sizeof(cmd2)) == 0 &&
-              ftpm_respond(cmd2, sizeof(cmd2)) == PSA_SUCCESS &&
-              app_poll(buf, sizeof(buf), &n) == PSA_SUCCESS,
-          "a new SUBMIT reclaims an aborted slot");
+              n == sizeof(cmd) && memcmp(buf, cmd, sizeof(cmd)) == 0,
+          "fwTPM re-FETCH after a responder restart re-delivers the command");
+    check(ftpm_respond(cmd, 8U) == PSA_SUCCESS &&
+              app_poll(buf, sizeof(buf), &n) == PSA_SUCCESS && n == 8U,
+          "the re-fetched transaction then completes and idles");
 
     check(app_submit(cmd, sizeof(cmd)) == PSA_SUCCESS &&
               ftpm_fetch(buf, sizeof(buf), &n) == PSA_SUCCESS &&

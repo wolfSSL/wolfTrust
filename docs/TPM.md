@@ -108,13 +108,6 @@ owns fetch and respond. A Secure caller or a caller from the wrong domain is
 refused. On Cortex-A, the Normal-world application owns submit and poll, and
 the local provider is reachable only from inside the TPM partition.
 
-The relay hands each command to the fwTPM at most once. If the fwTPM fetches
-again while a command is still in service, for example after the provider
-restarts, the relay does not hand that command out again because it may
-already have run. The exchange fails instead: the application's next poll
-returns `WT_TPM_E_ABORTED`, the wolfTPM client reports `TPM_RC_FAILURE`, and
-the application decides whether to retry.
-
 ## Provider placement
 
 wolfTrust keeps its Secure image heap-free. On Cortex-M, the responder stays in

@@ -27,7 +27,6 @@
 #define WT_TPM_SLOT_PENDING     1U
 #define WT_TPM_SLOT_IN_SERVICE  2U
 #define WT_TPM_SLOT_DONE        3U
-#define WT_TPM_SLOT_ABORTED     4U
 
 static int32_t g_relay_app_client = 0;
 static int32_t g_relay_ftpm_client = 0;
@@ -167,7 +166,8 @@ static psa_status_t wt_tpm_relay_app_op(wt_ffm_runtime_t* runtime,
     if (msg->type == WT_TPM_OP_SUBMIT) {
         /* A command the responder has taken IN_SERVICE is left alone so a
          * stray submit cannot erase it mid-process; the responder finishes it
-         * (slot -> DONE) or loses it to a restart (slot -> ABORTED). */
+         * (slot -> DONE, reclaimed below) or re-fetches it after its own
+         * restart. */
         if (g_relay_slot.state == WT_TPM_SLOT_IN_SERVICE) {
             return (psa_status_t)WT_TPM_E_BUSY;
         }
@@ -207,10 +207,6 @@ static psa_status_t wt_tpm_relay_app_op(wt_ffm_runtime_t* runtime,
     if (g_relay_slot.state == WT_TPM_SLOT_IDLE) {
         return (psa_status_t)WT_TPM_E_EMPTY;
     }
-    if (g_relay_slot.state == WT_TPM_SLOT_ABORTED) {
-        wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
-        return (psa_status_t)WT_TPM_E_ABORTED;
-    }
     if (g_relay_slot.state != WT_TPM_SLOT_DONE) {
         return (psa_status_t)WT_TPM_E_BUSY;
     }
@@ -231,15 +227,12 @@ static psa_status_t wt_tpm_relay_ftpm_op(wt_ffm_runtime_t* runtime,
     psa_status_t status;
 
     if (msg->type == WT_TPM_OP_FETCH) {
-        /* A FETCH while IN_SERVICE means the responder lost a command it may
-         * already have run. Never replay it: fail the exchange so a
-         * state-changing command executes at most once. */
-        if (g_relay_slot.state == WT_TPM_SLOT_IN_SERVICE) {
-            wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
-            g_relay_slot.state = WT_TPM_SLOT_ABORTED;
-            return (psa_status_t)WT_TPM_E_EMPTY;
-        }
-        if (g_relay_slot.state != WT_TPM_SLOT_PENDING) {
+        /* Deliver the pending command. A responder that restarted after a
+         * prior fetch (slot still IN_SERVICE, no response posted) re-fetches
+         * the same command instead of seeing the slot as empty, so a fwTPM
+         * restart cannot wedge the exchange. */
+        if (g_relay_slot.state != WT_TPM_SLOT_PENDING &&
+                g_relay_slot.state != WT_TPM_SLOT_IN_SERVICE) {
             return (psa_status_t)WT_TPM_E_EMPTY;
         }
         status = wt_tpm_relay_give_frame(runtime, partition_id, msg,

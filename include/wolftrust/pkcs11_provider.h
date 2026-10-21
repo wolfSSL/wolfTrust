@@ -16,6 +16,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#ifndef WT_PKCS11_PIN_MAX_FAILURES
+#define WT_PKCS11_PIN_MAX_FAILURES 3U
+#endif
+
 int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                                 uint8_t* response, size_t response_cap,
                                 size_t* response_len, void* context);

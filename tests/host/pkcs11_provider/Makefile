@@ -13,7 +13,7 @@ CFLAGS := \
 	-I. \
 	-I$(ROOT)/include \
 	-I$(ROOT)/lib/wolfPKCS11 \
-	-DWOLFPKCS11_USER_SETTINGS \
+	-DWOLFPKCS11_USER_SETTINGS -DWOLFPKCS11_NO_STORE \
 	-std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
 	-Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)

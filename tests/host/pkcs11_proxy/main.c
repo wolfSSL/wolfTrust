@@ -30,7 +30,9 @@ enum reply_kind {
     REPLY_ATTRIBUTE_BUFFER_TOO_SMALL,
     REPLY_ATTRIBUTE_TYPE_INVALID,
     REPLY_ATTRIBUTE_SENSITIVE,
-    REPLY_ATTRIBUTE_OBJECT_INVALID
+    REPLY_ATTRIBUTE_OBJECT_INVALID,
+    REPLY_SESSION_PARALLEL,
+    REPLY_ARGUMENTS_BAD
 };
 
 static int g_failures;
@@ -80,9 +82,19 @@ int wt_pkcs11_psa_call(const uint8_t* request, size_t request_len,
     else if (g_reply == REPLY_ATTRIBUTE_OBJECT_INVALID) {
         rv = CKR_OBJECT_HANDLE_INVALID;
     }
+    else if (g_reply == REPLY_SESSION_PARALLEL) {
+        rv = CKR_SESSION_PARALLEL_NOT_SUPPORTED;
+    }
+    else if (g_reply == REPLY_ARGUMENTS_BAD) {
+        rv = CKR_ARGUMENTS_BAD;
+    }
     wt_pkcs11_put_u32(&writer, rv);
     if (g_reply == REPLY_OBJECT) {
         wt_pkcs11_put_u32(&writer, 77U);
+    }
+    else if (g_reply == REPLY_SESSION_PARALLEL ||
+            g_reply == REPLY_ARGUMENTS_BAD) {
+        wt_pkcs11_put_u32(&writer, 0U);
     }
     else if (g_reply == REPLY_SLOT_VALID) {
         wt_pkcs11_put_u32(&writer, 1U);
@@ -197,6 +209,42 @@ static void test_lists(CK_FUNCTION_LIST_PTR fn)
           "provider object count above the protocol maximum fails closed");
 }
 
+static CK_RV test_notify(CK_SESSION_HANDLE session, CK_NOTIFICATION event,
+                         CK_VOID_PTR application)
+{
+    (void)session;
+    (void)event;
+    (void)application;
+    return CKR_OK;
+}
+
+static void test_open_session(CK_FUNCTION_LIST_PTR fn)
+{
+    static int application_data;
+    CK_SESSION_HANDLE session = 0U;
+    wt_pkcs11_reader_t reader;
+
+    g_reply = REPLY_OBJECT;
+    check(fn->C_OpenSession(3U, CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                            &application_data, test_notify, &session) ==
+              CKR_OK && session == 77U &&
+              request_begin(&reader, WT_P11_OPEN_SESSION) &&
+              wt_pkcs11_get_u32(&reader) == 3U &&
+              wt_pkcs11_get_u32(&reader) ==
+                  (CKF_SERIAL_SESSION | CKF_RW_SESSION) &&
+              wt_pkcs11_get_u32(&reader) == 1U && request_done(&reader),
+          "open session accepts and does not forward callback arguments");
+
+    g_reply = REPLY_SESSION_PARALLEL;
+    check(fn->C_OpenSession(3U, 0U, NULL, NULL, NULL) ==
+              CKR_SESSION_PARALLEL_NOT_SUPPORTED &&
+              request_begin(&reader, WT_P11_OPEN_SESSION) &&
+              wt_pkcs11_get_u32(&reader) == 3U &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
+              wt_pkcs11_get_u32(&reader) == 0U && request_done(&reader),
+          "NULL session output is left to wolfPKCS11's check order");
+}
+
 static void test_template(CK_FUNCTION_LIST_PTR fn)
 {
     static const uint8_t label[] = { 'k', 'e', 'y' };
@@ -212,6 +260,7 @@ static void test_template(CK_FUNCTION_LIST_PTR fn)
               object == 77U &&
               request_begin(&reader, WT_P11_CREATE_OBJECT) &&
               wt_pkcs11_get_u32(&reader) == 9U &&
+              wt_pkcs11_get_u32(&reader) == 1U &&
               wt_pkcs11_get_u32(&reader) == 1U &&
               wt_pkcs11_get_u32(&reader) == CKA_LABEL &&
               wt_pkcs11_get_u32(&reader) == sizeof(label) &&
@@ -337,6 +386,7 @@ static void test_mechanisms(CK_FUNCTION_LIST_PTR fn)
     g_reply = REPLY_OK;
     check(fn->C_DigestInit(9U, &mechanism) == CKR_OK &&
               mechanism_prefix(&reader, WT_P11_DIGEST_INIT, CKM_SHA256, 0U) &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
               get_blob(&reader, NULL, 0U) && request_done(&reader),
           "raw mechanism serializes byte-exactly");
 
@@ -367,8 +417,10 @@ static void test_mechanisms(CK_FUNCTION_LIST_PTR fn)
     check(fn->C_EncryptInit(9U, &mechanism, 12U) == CKR_OK &&
               mechanism_prefix(&reader, WT_P11_ENCRYPT_INIT, CKM_AES_GCM,
                                2U) &&
+              wt_pkcs11_get_u32(&reader) == 1U &&
               get_blob(&reader, iv, sizeof(iv)) &&
               wt_pkcs11_get_u32(&reader) == 96U &&
+              wt_pkcs11_get_u32(&reader) == 1U &&
               get_blob(&reader, aad, sizeof(aad)) &&
               wt_pkcs11_get_u32(&reader) == 128U &&
               wt_pkcs11_get_u32(&reader) == 12U && request_done(&reader),
@@ -388,7 +440,9 @@ static void test_mechanisms(CK_FUNCTION_LIST_PTR fn)
               mechanism_prefix(&reader, WT_P11_ENCRYPT_INIT, CKM_AES_CCM,
                                3U) &&
               wt_pkcs11_get_u32(&reader) == 41U &&
+              wt_pkcs11_get_u32(&reader) == 1U &&
               get_blob(&reader, iv, sizeof(iv)) &&
+              wt_pkcs11_get_u32(&reader) == 1U &&
               get_blob(&reader, aad, sizeof(aad)) &&
               wt_pkcs11_get_u32(&reader) == 16U &&
               wt_pkcs11_get_u32(&reader) == 12U && request_done(&reader),
@@ -409,11 +463,96 @@ static void test_mechanisms(CK_FUNCTION_LIST_PTR fn)
               mechanism_prefix(&reader, WT_P11_DERIVE_KEY,
                                CKM_ECDH1_DERIVE, 4U) &&
               wt_pkcs11_get_u32(&reader) == CKD_NULL &&
+              wt_pkcs11_get_u32(&reader) == 1U &&
               get_blob(&reader, shared, sizeof(shared)) &&
+              wt_pkcs11_get_u32(&reader) == 1U &&
               get_blob(&reader, public_data, sizeof(public_data)) &&
               wt_pkcs11_get_u32(&reader) == 12U &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
               wt_pkcs11_get_u32(&reader) == 0U && request_done(&reader),
-          "ECDH mechanism and empty template serialize byte-exactly");
+          "ECDH mechanism and NULL template serialize byte-exactly");
+
+    ecdh.pSharedData = NULL;
+    ecdh.ulSharedDataLen = 0U;
+    check(fn->C_DeriveKey(9U, &mechanism, 12U, NULL, 0U, &key) == CKR_OK &&
+              mechanism_prefix(&reader, WT_P11_DERIVE_KEY,
+                               CKM_ECDH1_DERIVE, 4U) &&
+              wt_pkcs11_get_u32(&reader) == CKD_NULL &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
+              get_blob(&reader, NULL, 0U),
+          "NULL empty ECDH shared data is forwarded as NULL");
+    ecdh.pSharedData = shared;
+    check(fn->C_DeriveKey(9U, &mechanism, 12U, NULL, 0U, &key) == CKR_OK &&
+              mechanism_prefix(&reader, WT_P11_DERIVE_KEY,
+                               CKM_ECDH1_DERIVE, 4U) &&
+              wt_pkcs11_get_u32(&reader) == CKD_NULL &&
+              wt_pkcs11_get_u32(&reader) == 1U &&
+              get_blob(&reader, NULL, 0U),
+          "non-NULL empty ECDH shared data is forwarded as non-NULL");
+}
+
+static void test_null_pointers(CK_FUNCTION_LIST_PTR fn)
+{
+    static CK_BYTE empty[1];
+    CK_OBJECT_HANDLE object = 0U;
+    CK_ULONG count = 1U;
+    CK_MECHANISM mechanism;
+    wt_pkcs11_reader_t reader;
+
+    g_reply = REPLY_ARGUMENTS_BAD;
+    check(fn->C_GenerateRandom(9U, NULL, 0U) == CKR_ARGUMENTS_BAD &&
+              request_begin(&reader, WT_P11_GENERATE_RANDOM) &&
+              wt_pkcs11_get_u32(&reader) == 9U &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
+              wt_pkcs11_get_u32(&reader) == 0U && request_done(&reader),
+          "a NULL random output is forwarded as NULL");
+    check(fn->C_FindObjects(9U, NULL, 0U, &count) == CKR_ARGUMENTS_BAD &&
+              request_begin(&reader, WT_P11_FIND_OBJECTS) &&
+              wt_pkcs11_get_u32(&reader) == 9U &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
+              wt_pkcs11_get_u32(&reader) == 0U && request_done(&reader),
+          "a NULL object list is forwarded as NULL");
+
+    g_reply = REPLY_OK;
+    check(fn->C_SeedRandom(9U, NULL, 0U) == CKR_OK &&
+              request_begin(&reader, WT_P11_SEED_RANDOM) &&
+              wt_pkcs11_get_u32(&reader) == 9U &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
+              get_blob(&reader, NULL, 0U) && request_done(&reader),
+          "a NULL empty buffer is forwarded as NULL");
+    check(fn->C_SeedRandom(9U, empty, 0U) == CKR_OK &&
+              request_begin(&reader, WT_P11_SEED_RANDOM) &&
+              wt_pkcs11_get_u32(&reader) == 9U &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
+              wt_pkcs11_get_u32(&reader) == 1U &&
+              get_blob(&reader, NULL, 0U) && request_done(&reader),
+          "a non-NULL empty buffer is forwarded as non-NULL");
+    check(fn->C_Login(9U, CKU_USER, NULL, 0U) == CKR_OK &&
+              request_begin(&reader, WT_P11_LOGIN) &&
+              wt_pkcs11_get_u32(&reader) == 9U &&
+              wt_pkcs11_get_u32(&reader) == CKU_USER &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
+              get_blob(&reader, NULL, 0U) && request_done(&reader),
+          "a NULL PIN is forwarded as NULL");
+
+    mechanism.mechanism = CKM_SHA256;
+    mechanism.pParameter = empty;
+    mechanism.ulParameterLen = 0U;
+    check(fn->C_DigestInit(9U, &mechanism) == CKR_OK &&
+              mechanism_prefix(&reader, WT_P11_DIGEST_INIT, CKM_SHA256, 0U) &&
+              wt_pkcs11_get_u32(&reader) == 1U &&
+              get_blob(&reader, NULL, 0U) && request_done(&reader),
+          "an empty non-NULL mechanism parameter is forwarded as non-NULL");
+
+    g_reply = REPLY_OBJECT;
+    check(fn->C_CreateObject(9U, NULL, 0U, &object) == CKR_OK &&
+              request_begin(&reader, WT_P11_CREATE_OBJECT) &&
+              wt_pkcs11_get_u32(&reader) == 9U &&
+              wt_pkcs11_get_u32(&reader) == 0U &&
+              wt_pkcs11_get_u32(&reader) == 0U && request_done(&reader),
+          "a NULL template is forwarded as NULL");
 }
 
 int main(void)
@@ -424,10 +563,12 @@ int main(void)
           "proxy exports its PKCS11 function list");
     if (functions != NULL) {
         test_lists(functions);
+        test_open_session(functions);
         test_template(functions);
         test_unavailable_length(functions);
         test_partial_attribute_statuses(functions);
         test_mechanisms(functions);
+        test_null_pointers(functions);
     }
     if (g_failures != 0) {
         return 1;

@@ -191,6 +191,18 @@ endif
 SECURE_CFLAGS += -DCONFIG_PKCS11=1
 ifeq ($(WT_INTERFACE_LOCAL_PROVIDER),1)
 SECURE_CFLAGS += $(WOLFPKCS11_COMMON_DEFS)
+ifneq ($(WT_PKCS11_PIN_MAX_FAILURES),)
+ifneq ($(shell printf '%s' '$(WT_PKCS11_PIN_MAX_FAILURES)' | grep -Ex '[1-9][0-9]*'),$(WT_PKCS11_PIN_MAX_FAILURES))
+$(error WT_PKCS11_PIN_MAX_FAILURES must be > 0)
+endif
+SECURE_CFLAGS += -DWT_PKCS11_PIN_MAX_FAILURES=$(WT_PKCS11_PIN_MAX_FAILURES)U
+endif
+# Production keeps wolfPKCS11's 600,000-round PIN PBKDF2; only the QEMU
+# emulator gate lowers it, explicitly, because emulated SHA-256 is too slow.
+ifneq ($(WT_PKCS11_TEST_PBKDF2_ITERATIONS),)
+$(info NOTE: emulator-only PIN PBKDF2 iterations=$(WT_PKCS11_TEST_PBKDF2_ITERATIONS))
+SECURE_CFLAGS += -DPBKDF2_ITERATIONS=$(WT_PKCS11_TEST_PBKDF2_ITERATIONS)
+endif
 endif
 # The PKCS#11 relay owns the same mutually exclusive 20 KiB auxiliary band
 # used by SERVICE_VNET. The linker gives it distinct section bounds.
@@ -1675,6 +1687,8 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)' \
 		'WT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)' \
 		'WT_EXTRA_CFLAGS=$(WT_EXTRA_CFLAGS)' \
+		'WT_PKCS11_PIN_MAX_FAILURES=$(WT_PKCS11_PIN_MAX_FAILURES)' \
+		'WT_PKCS11_TEST_PBKDF2_ITERATIONS=$(WT_PKCS11_TEST_PBKDF2_ITERATIONS)' \
 		'WT_EXTRA_LDFLAGS=$(WT_EXTRA_LDFLAGS)' > "$$tmp"; \
 	if test -f "$@" && cmp -s "$$tmp" "$@"; then \
 		rm -f "$$tmp"; \

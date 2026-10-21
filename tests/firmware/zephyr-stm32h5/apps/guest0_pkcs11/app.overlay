@@ -6,3 +6,8 @@
 		status = "okay";
 	};
 };
+
+/* The PKCS#11 manifest grants guest 0 128 KiB; the provider starts at 0x080C0000. */
+&slot0_ns_partition {
+	reg = <0x000a0000 DT_SIZE_K(128)>;
+};

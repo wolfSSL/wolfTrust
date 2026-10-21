@@ -69,6 +69,7 @@ run: $(MANIFEST_TEST) $(GENERATED_TEST)
 	sh test_variant_stamp.sh $(BUILD_DIR)/variant
 	sh test_probe_stamp.sh $(BUILD_DIR)/probe-stamp
 	sh test_tpm_target_guard.sh
+	sh test_pkcs11_pin_limit_guard.sh
 	sh test_interface_runner_guard.sh
 	sh test_guest_runner_layout.sh
 

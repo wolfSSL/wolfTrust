@@ -22,6 +22,14 @@
 #define WT_P11_TEMPLATE_MAX 32U
 #define WT_P11_BLOB_OVERHEAD 4U
 #define WT_P11_OUTPUT_OVERHEAD 8U
+#define WT_P11_PIN_SLOTS 4U
+#define WT_P11_PIN_FLAGS (CKF_USER_PIN_COUNT_LOW | CKF_USER_PIN_FINAL_TRY | \
+    CKF_USER_PIN_LOCKED | CKF_SO_PIN_COUNT_LOW | CKF_SO_PIN_FINAL_TRY | \
+    CKF_SO_PIN_LOCKED)
+
+#if WT_PKCS11_PIN_MAX_FAILURES < 1
+#error "WT_PKCS11_PIN_MAX_FAILURES must allow at least one PIN attempt"
+#endif
 
 typedef union wt_provider_data {
     CK_ULONG alignment;
@@ -30,6 +38,15 @@ typedef union wt_provider_data {
 
 static wt_provider_data_t g_provider_storage;
 #define g_provider_data g_provider_storage.bytes
+
+typedef struct wt_provider_pin_state {
+    unsigned int user_failures;
+    unsigned int so_failures;
+} wt_provider_pin_state_t;
+
+/* WOLFPKCS11_NO_TIME compiles out wolfPKCS11's clock-based lockout, so the
+ * provider keeps its own count. It lives in RAM like the NO_STORE token. */
+static wt_provider_pin_state_t g_provider_pin[WT_P11_PIN_SLOTS];
 
 typedef struct wt_provider_mechanism {
     CK_MECHANISM mechanism;
@@ -46,11 +63,26 @@ static CK_ULONG provider_ulong(wt_pkcs11_reader_t* reader)
     return (CK_ULONG)wt_pkcs11_get_u32(reader);
 }
 
+/* A presence flag, then the bytes: NULL and non-NULL empty buffers differ. */
+static uint8_t* provider_buffer(wt_pkcs11_reader_t* reader, size_t* length)
+{
+    uint32_t present = wt_pkcs11_get_u32(reader);
+    uint8_t* data = wt_pkcs11_get_bytes(reader, length);
+
+    if (reader->error != 0 || present > 1U ||
+            (present == 0U && *length != 0U)) {
+        reader->error = 1;
+        *length = 0U;
+        return NULL;
+    }
+    return present != 0U ? data : NULL;
+}
+
 static uint8_t* provider_blob(wt_pkcs11_reader_t* reader, CK_ULONG* length)
 {
     uint32_t declared = wt_pkcs11_get_u32(reader);
     size_t actual = 0U;
-    uint8_t* data = wt_pkcs11_get_bytes(reader, &actual);
+    uint8_t* data = provider_buffer(reader, &actual);
 
     if (reader->error != 0 || actual != declared) {
         reader->error = 1;
@@ -85,16 +117,23 @@ static int provider_template(wt_pkcs11_reader_t* reader,
                              CK_ATTRIBUTE* attributes, CK_ULONG* count,
                              int output_values, CK_ULONG* capacities,
                              uint8_t* value_requested,
-                             size_t* scratch_used)
+                             size_t* scratch_used, CK_ATTRIBUTE_PTR* pointer)
 {
     CK_ULONG i;
+    uint32_t present;
 
-    if (scratch_used == NULL) {
+    if (scratch_used == NULL || pointer == NULL) {
         return -1;
     }
+    *pointer = NULL;
+    present = wt_pkcs11_get_u32(reader);
     *count = provider_ulong(reader);
-    if (reader->error != 0 || *count > WT_P11_TEMPLATE_MAX) {
+    if (reader->error != 0 || *count > WT_P11_TEMPLATE_MAX ||
+            present > 1U || (present == 0U && *count != 0U)) {
         return -1;
+    }
+    if (present != 0U) {
+        *pointer = attributes;
     }
     for (i = 0U; i < *count; i++) {
         uint32_t has_value;
@@ -246,6 +285,40 @@ static int provider_raw_mechanism_supported(CK_MECHANISM_TYPE mechanism)
     }
 }
 
+/* Mechanisms whose required parameters hold nested pointers, which the wire
+ * cannot carry; they are hidden so no caller is offered one it cannot use. */
+static int provider_mechanism_transportable(CK_MECHANISM_TYPE mechanism)
+{
+    switch (mechanism) {
+        case CKM_RSA_PKCS_OAEP:
+        case CKM_HKDF_DERIVE:
+        case CKM_HKDF_DATA:
+        case CKM_AES_CBC_ENCRYPT_DATA:
+        case CKM_TLS12_MASTER_KEY_DERIVE:
+        case CKM_TLS12_KEY_AND_MAC_DERIVE:
+        case CKM_TLS12_MASTER_KEY_DERIVE_DH:
+        case CKM_PKCS5_PBKD2:
+            return 0;
+        default:
+            return 1;
+    }
+}
+
+static CK_ULONG provider_filter_mechanisms(CK_MECHANISM_TYPE* mechanisms,
+                                           CK_ULONG count)
+{
+    CK_ULONG kept = 0U;
+    CK_ULONG i;
+
+    for (i = 0U; i < count; i++) {
+        if (provider_mechanism_transportable(mechanisms[i]) != 0) {
+            mechanisms[kept] = mechanisms[i];
+            kept++;
+        }
+    }
+    return kept;
+}
+
 static int provider_mechanism(wt_pkcs11_reader_t* reader,
                               wt_provider_mechanism_t* decoded,
                               CK_MECHANISM_PTR* mechanism,
@@ -283,11 +356,11 @@ static int provider_mechanism(wt_pkcs11_reader_t* reader,
         decoded->mechanism.ulParameterLen = sizeof(decoded->params.ctr);
     }
     else if (kind == WT_P11_MECH_GCM) {
-        data = wt_pkcs11_get_bytes(reader, &length);
+        data = provider_buffer(reader, &length);
         decoded->params.gcm.pIv = data;
         decoded->params.gcm.ulIvLen = (CK_ULONG)length;
         decoded->params.gcm.ulIvBits = provider_ulong(reader);
-        data = wt_pkcs11_get_bytes(reader, &length);
+        data = provider_buffer(reader, &length);
         decoded->params.gcm.pAAD = data;
         decoded->params.gcm.ulAADLen = (CK_ULONG)length;
         decoded->params.gcm.ulTagBits = provider_ulong(reader);
@@ -296,10 +369,10 @@ static int provider_mechanism(wt_pkcs11_reader_t* reader,
     }
     else if (kind == WT_P11_MECH_CCM) {
         decoded->params.ccm.ulDataLen = provider_ulong(reader);
-        data = wt_pkcs11_get_bytes(reader, &length);
+        data = provider_buffer(reader, &length);
         decoded->params.ccm.pIv = data;
         decoded->params.ccm.ulIvLen = (CK_ULONG)length;
-        data = wt_pkcs11_get_bytes(reader, &length);
+        data = provider_buffer(reader, &length);
         decoded->params.ccm.pAAD = data;
         decoded->params.ccm.ulAADLen = (CK_ULONG)length;
         decoded->params.ccm.ulMacLen = provider_ulong(reader);
@@ -308,10 +381,10 @@ static int provider_mechanism(wt_pkcs11_reader_t* reader,
     }
     else if (kind == WT_P11_MECH_ECDH) {
         decoded->params.ecdh.kdf = provider_ulong(reader);
-        data = wt_pkcs11_get_bytes(reader, &length);
-        decoded->params.ecdh.pSharedData = length != 0U ? data : NULL;
+        data = provider_buffer(reader, &length);
+        decoded->params.ecdh.pSharedData = data;
         decoded->params.ecdh.ulSharedDataLen = (CK_ULONG)length;
-        data = wt_pkcs11_get_bytes(reader, &length);
+        data = provider_buffer(reader, &length);
         decoded->params.ecdh.pPublicData = data;
         decoded->params.ecdh.ulPublicDataLen = (CK_ULONG)length;
         decoded->mechanism.pParameter = &decoded->params.ecdh;
@@ -320,18 +393,23 @@ static int provider_mechanism(wt_pkcs11_reader_t* reader,
     else if (kind == WT_P11_MECH_RAW) {
         uint8_t* aligned_data;
 
-        data = wt_pkcs11_get_bytes(reader, &length);
+        data = provider_buffer(reader, &length);
+        if (reader->error != 0) {
+            return -1;
+        }
         if (length != 0U &&
                 provider_raw_mechanism_supported(
                     decoded->mechanism.mechanism) == 0) {
             return -1;
         }
-        if (length != 0U) {
+        if (data != NULL) {
             if (provider_scratch_reserve(length, scratch_used,
                                          &aligned_data) != 0) {
                 return -1;
             }
-            (void)memcpy(aligned_data, data, length);
+            if (length != 0U) {
+                (void)memcpy(aligned_data, data, length);
+            }
             decoded->mechanism.pParameter = aligned_data;
         }
         else {
@@ -415,6 +493,246 @@ static int provider_request_valid(const wt_pkcs11_reader_t* reader)
     return reader->error == 0 && reader->used == reader->length;
 }
 
+static unsigned int* provider_pin_failures(CK_SLOT_ID slot, int so)
+{
+    if (slot == 0U || slot > WT_P11_PIN_SLOTS) {
+        return NULL;
+    }
+    return so != 0 ? &g_provider_pin[slot - 1U].so_failures :
+                     &g_provider_pin[slot - 1U].user_failures;
+}
+
+/* Every wrong PIN surfaces as CKR_PIN_INCORRECT; any other failure, such as a
+ * backend error after a correct PIN, neither consumes nor clears an attempt. */
+static void provider_pin_record(unsigned int* failures, CK_RV rv)
+{
+    if (failures == NULL) {
+        return;
+    }
+    if (rv == CKR_OK) {
+        *failures = 0U;
+    }
+    else if (rv == CKR_PIN_INCORRECT &&
+             *failures < WT_PKCS11_PIN_MAX_FAILURES) {
+        (*failures)++;
+    }
+}
+
+static CK_RV provider_pin_counter(CK_SESSION_HANDLE session, int set_pin,
+                                  CK_USER_TYPE user, CK_SESSION_INFO* info,
+                                  unsigned int** failures)
+{
+    CK_RV rv;
+    int so;
+
+    *failures = NULL;
+    (void)memset(info, 0, sizeof(*info));
+    rv = C_GetSessionInfo(session, info);
+    if (rv == CKR_OK) {
+        so = (set_pin != 0) ? (info->state == CKS_RW_SO_FUNCTIONS) :
+                              (user == CKU_SO);
+        *failures = provider_pin_failures(info->slotID, so);
+        if (*failures == NULL) {
+            rv = CKR_FUNCTION_FAILED;
+        }
+    }
+    return rv;
+}
+
+static int provider_pin_len_valid(const CK_TOKEN_INFO* token,
+                                  CK_UTF8CHAR_PTR pin, CK_ULONG pin_len)
+{
+    return pin != NULL && pin_len >= token->ulMinPinLen &&
+           pin_len <= token->ulMaxPinLen;
+}
+
+/* The checks C_Login makes before it hashes the PIN: a locked PIN refuses
+ * only a call that would really test it, so other errors keep their code. */
+static int provider_login_tests_pin(const CK_SESSION_INFO* session,
+                                    const CK_TOKEN_INFO* token,
+                                    CK_USER_TYPE user, CK_UTF8CHAR_PTR pin,
+                                    CK_ULONG pin_len)
+{
+    int tests = provider_pin_len_valid(token, pin, pin_len) &&
+                (session->state == CKS_RO_PUBLIC_SESSION ||
+                 session->state == CKS_RW_PUBLIC_SESSION);
+
+    if (tests != 0 && user == CKU_SO) {
+        tests = (token->flags & CKF_TOKEN_INITIALIZED) != 0U &&
+                (session->flags & CKF_RW_SESSION) != 0U;
+    }
+    else if (tests != 0 && user == CKU_USER) {
+        tests = (token->flags & CKF_USER_PIN_INITIALIZED) != 0U;
+    }
+    else {
+        tests = 0;
+    }
+    return tests;
+}
+
+/* The checks C_SetPIN makes before it hashes the old PIN. */
+static int provider_set_pin_tests_pin(const CK_SESSION_INFO* session,
+                                      const CK_TOKEN_INFO* token,
+                                      CK_UTF8CHAR_PTR old_pin,
+                                      CK_ULONG old_len,
+                                      CK_UTF8CHAR_PTR new_pin,
+                                      CK_ULONG new_len)
+{
+    if (provider_pin_len_valid(token, old_pin, old_len) == 0 ||
+            provider_pin_len_valid(token, new_pin, new_len) == 0) {
+        return 0;
+    }
+    if (session->state == CKS_RW_SO_FUNCTIONS) {
+        return 1;
+    }
+    return (session->state == CKS_RW_USER_FUNCTIONS ||
+            session->state == CKS_RW_PUBLIC_SESSION) &&
+           (token->flags & CKF_USER_PIN_INITIALIZED) != 0U;
+}
+
+static CK_RV provider_login(CK_SESSION_HANDLE session, CK_USER_TYPE user,
+                            CK_UTF8CHAR_PTR pin, CK_ULONG pin_len)
+{
+    CK_SESSION_INFO info;
+    CK_TOKEN_INFO token;
+    unsigned int* failures = NULL;
+    CK_RV rv = provider_pin_counter(session, 0, user, &info, &failures);
+
+    if (rv == CKR_OK && *failures >= WT_PKCS11_PIN_MAX_FAILURES) {
+        (void)memset(&token, 0, sizeof(token));
+        rv = C_GetTokenInfo(info.slotID, &token);
+        if (rv != CKR_OK || provider_login_tests_pin(&info, &token, user,
+                                                     pin, pin_len) != 0) {
+            rv = CKR_PIN_LOCKED;
+        }
+    }
+    if (rv == CKR_OK) {
+        rv = C_Login(session, user, pin, pin_len);
+        provider_pin_record(failures, rv);
+    }
+    return rv;
+}
+
+static CK_RV provider_set_pin(CK_SESSION_HANDLE session,
+                              CK_UTF8CHAR_PTR old_pin, CK_ULONG old_len,
+                              CK_UTF8CHAR_PTR new_pin, CK_ULONG new_len)
+{
+    CK_SESSION_INFO info;
+    CK_TOKEN_INFO token;
+    unsigned int* failures = NULL;
+    CK_RV rv = provider_pin_counter(session, 1, CKU_USER, &info, &failures);
+
+    if (rv == CKR_OK && *failures >= WT_PKCS11_PIN_MAX_FAILURES) {
+        (void)memset(&token, 0, sizeof(token));
+        rv = C_GetTokenInfo(info.slotID, &token);
+        if (rv != CKR_OK || provider_set_pin_tests_pin(&info, &token,
+                old_pin, old_len, new_pin, new_len) != 0) {
+            rv = CKR_PIN_LOCKED;
+        }
+    }
+    if (rv == CKR_OK) {
+        rv = C_SetPIN(session, old_pin, old_len, new_pin, new_len);
+        provider_pin_record(failures, rv);
+    }
+    return rv;
+}
+
+static CK_RV provider_init_pin(CK_SESSION_HANDLE session, CK_UTF8CHAR_PTR pin,
+                               CK_ULONG pin_len)
+{
+    CK_SESSION_INFO info;
+    unsigned int* failures = NULL;
+    CK_RV rv = C_InitPIN(session, pin, pin_len);
+
+    if (rv == CKR_OK) {
+        (void)memset(&info, 0, sizeof(info));
+        if (C_GetSessionInfo(session, &info) == CKR_OK) {
+            failures = provider_pin_failures(info.slotID, 0);
+        }
+        if (failures != NULL) {
+            *failures = 0U;
+        }
+    }
+    return rv;
+}
+
+static CK_RV provider_init_token(CK_SLOT_ID slot, CK_UTF8CHAR_PTR pin,
+                                 CK_ULONG pin_len, CK_UTF8CHAR_PTR label)
+{
+    CK_TOKEN_INFO info;
+    unsigned int* failures = provider_pin_failures(slot, 1);
+    CK_RV rv = CKR_OK;
+
+    if (failures == NULL || *failures >= WT_PKCS11_PIN_MAX_FAILURES) {
+        (void)memset(&info, 0, sizeof(info));
+        rv = C_GetTokenInfo(slot, &info);
+        if (rv == CKR_OK && failures == NULL) {
+            rv = CKR_FUNCTION_FAILED;
+        }
+        /* A blank token has no SO PIN to guess, so it can always be set. */
+        else if (rv == CKR_OK && (info.flags & CKF_TOKEN_INITIALIZED) != 0U &&
+                 label != NULL &&
+                 provider_pin_len_valid(&info, pin, pin_len) != 0) {
+            rv = CKR_PIN_LOCKED;
+        }
+    }
+    if (rv == CKR_OK) {
+        rv = C_InitToken(slot, pin, pin_len, label);
+        if (rv == CKR_OK) {
+            g_provider_pin[slot - 1U].so_failures = 0U;
+            g_provider_pin[slot - 1U].user_failures = 0U;
+        }
+        else {
+            provider_pin_record(failures, rv);
+        }
+    }
+    return rv;
+}
+
+/* Clear the counts only once C_Finalize really tore the token down: an extra
+ * C_Initialize keeps the library, and the token, alive across one finalize. */
+static void provider_pin_finalized(void)
+{
+#ifdef WOLFPKCS11_NO_STORE
+    CK_INFO info;
+
+    if (C_GetInfo(&info) == CKR_CRYPTOKI_NOT_INITIALIZED) {
+        wt_forceZero(g_provider_pin, sizeof(g_provider_pin));
+    }
+#endif
+}
+
+static CK_FLAGS provider_pin_flags(unsigned int failures, CK_FLAGS low,
+                                   CK_FLAGS final_try, CK_FLAGS locked)
+{
+    CK_FLAGS flags = 0U;
+
+    if (failures > 0U) {
+        flags |= low;
+    }
+    if (failures >= WT_PKCS11_PIN_MAX_FAILURES) {
+        flags |= locked;
+    }
+    else if (failures + 1U == WT_PKCS11_PIN_MAX_FAILURES) {
+        flags |= final_try;
+    }
+    return flags;
+}
+
+static void provider_token_pin_flags(CK_SLOT_ID slot, CK_TOKEN_INFO* info)
+{
+    const unsigned int* user = provider_pin_failures(slot, 0);
+    const unsigned int* so = provider_pin_failures(slot, 1);
+
+    info->flags &= ~(CK_FLAGS)WT_P11_PIN_FLAGS;
+    if (user != NULL && so != NULL) {
+        info->flags |= provider_pin_flags(*user, CKF_USER_PIN_COUNT_LOW,
+            CKF_USER_PIN_FINAL_TRY, CKF_USER_PIN_LOCKED);
+        info->flags |= provider_pin_flags(*so, CKF_SO_PIN_COUNT_LOW,
+            CKF_SO_PIN_FINAL_TRY, CKF_SO_PIN_LOCKED);
+    }
+}
+
 int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                                 uint8_t* response, size_t response_cap,
                                 size_t* response_len, void* context)
@@ -425,6 +743,8 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
     CK_MECHANISM_PTR mechanism = NULL;
     CK_ATTRIBUTE attributes[WT_P11_TEMPLATE_MAX];
     CK_ATTRIBUTE private_attributes[WT_P11_TEMPLATE_MAX];
+    CK_ATTRIBUTE_PTR template_ptr = NULL;
+    CK_ATTRIBUTE_PTR private_template_ptr = NULL;
     CK_ULONG attribute_capacities[WT_P11_TEMPLATE_MAX];
     CK_ULONG attribute_output_lengths[WT_P11_TEMPLATE_MAX];
     uint8_t attribute_value_requested[WT_P11_TEMPLATE_MAX];
@@ -490,8 +810,10 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             break;
         }
         case WT_P11_FINALIZE:
-            rv = provider_request_valid(&reader) ? C_Finalize(NULL) :
-                                                   CKR_ARGUMENTS_BAD;
+            if (provider_request_valid(&reader)) {
+                rv = C_Finalize(NULL);
+                provider_pin_finalized();
+            }
             break;
         case WT_P11_GET_INFO:
         {
@@ -541,6 +863,9 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             value = provider_ulong(&reader);
             rv = provider_request_valid(&reader) ?
                 C_GetTokenInfo((CK_SLOT_ID)value, &info) : CKR_ARGUMENTS_BAD;
+            if (rv == CKR_OK) {
+                provider_token_pin_flags((CK_SLOT_ID)value, &info);
+            }
             wt_pkcs11_put_bytes(&writer, rv == CKR_OK ? &info : NULL,
                                 rv == CKR_OK ? sizeof(info) : 0U);
             break;
@@ -554,10 +879,21 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                 count = 0U;
             }
             else {
-                count = capacity < WT_PKCS11_LIST_MAX ? capacity :
-                                                       WT_PKCS11_LIST_MAX;
-                rv = C_GetMechanismList((CK_SLOT_ID)value,
-                    has_output != 0U ? mechanisms : NULL, &count);
+                count = WT_PKCS11_LIST_MAX;
+                rv = C_GetMechanismList((CK_SLOT_ID)value, mechanisms,
+                                        &count);
+                if (rv == CKR_BUFFER_TOO_SMALL) {
+                    rv = CKR_DEVICE_MEMORY;
+                }
+                if (rv == CKR_OK) {
+                    count = provider_filter_mechanisms(mechanisms, count);
+                    if (has_output != 0U && capacity < count) {
+                        rv = CKR_BUFFER_TOO_SMALL;
+                    }
+                }
+                else {
+                    count = 0U;
+                }
             }
             wt_pkcs11_put_u32(&writer, (uint32_t)count);
             second_value = (has_output != 0U && rv == CKR_OK) ? count : 0U;
@@ -576,6 +912,11 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                 C_GetMechanismInfo((CK_SLOT_ID)value,
                     (CK_MECHANISM_TYPE)second_value, &info) :
                 CKR_ARGUMENTS_BAD;
+            if (rv == CKR_OK && provider_mechanism_transportable(
+                    (CK_MECHANISM_TYPE)second_value) == 0) {
+                (void)memset(&info, 0, sizeof(info));
+                rv = CKR_MECHANISM_INVALID;
+            }
             wt_pkcs11_put_u32(&writer, (uint32_t)info.ulMinKeySize);
             wt_pkcs11_put_u32(&writer, (uint32_t)info.ulMaxKeySize);
             wt_pkcs11_put_u32(&writer, (uint32_t)info.flags);
@@ -589,21 +930,23 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                 reader.error = 1;
             }
             rv = provider_request_valid(&reader) ?
-                C_InitToken((CK_SLOT_ID)value, data, length, second_data) :
+                provider_init_token((CK_SLOT_ID)value, data, length,
+                                    second_data) :
                 CKR_ARGUMENTS_BAD;
             break;
         case WT_P11_INIT_PIN:
             session = provider_ulong(&reader);
             data = provider_blob(&reader, &length);
             rv = provider_request_valid(&reader) ?
-                C_InitPIN(session, data, length) : CKR_ARGUMENTS_BAD;
+                provider_init_pin(session, data, length) : CKR_ARGUMENTS_BAD;
             break;
         case WT_P11_SET_PIN:
             session = provider_ulong(&reader);
             data = provider_blob(&reader, &length);
             second_data = provider_blob(&reader, &second_length);
             rv = provider_request_valid(&reader) ?
-                C_SetPIN(session, data, length, second_data, second_length) :
+                provider_set_pin(session, data, length, second_data,
+                                 second_length) :
                 CKR_ARGUMENTS_BAD;
             break;
         case WT_P11_OPEN_SESSION:
@@ -611,9 +954,11 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             CK_SESSION_HANDLE opened = CK_INVALID_HANDLE;
             value = provider_ulong(&reader);
             second_value = provider_ulong(&reader);
-            rv = provider_request_valid(&reader) ?
+            has_output = wt_pkcs11_get_u32(&reader);
+            rv = (provider_request_valid(&reader) && has_output <= 1U) ?
                 C_OpenSession((CK_SLOT_ID)value, (CK_FLAGS)second_value,
-                    NULL, NULL, &opened) : CKR_ARGUMENTS_BAD;
+                    NULL, NULL, has_output != 0U ? &opened : NULL) :
+                CKR_ARGUMENTS_BAD;
             wt_pkcs11_put_u32(&writer, (uint32_t)opened);
             break;
         }
@@ -642,7 +987,7 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             value = provider_ulong(&reader);
             data = provider_blob(&reader, &length);
             rv = provider_request_valid(&reader) ?
-                C_Login(session, (CK_USER_TYPE)value, data, length) :
+                provider_login(session, (CK_USER_TYPE)value, data, length) :
                 CKR_ARGUMENTS_BAD;
             break;
         case WT_P11_LOGOUT:
@@ -655,9 +1000,9 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             CK_OBJECT_HANDLE object = CK_INVALID_HANDLE;
             session = provider_ulong(&reader);
             if (provider_template(&reader, attributes, &count, 0, NULL, NULL,
-                                  &provider_data_used) == 0 &&
+                                  &provider_data_used, &template_ptr) == 0 &&
                     provider_request_valid(&reader)) {
-                rv = C_CreateObject(session, attributes, count, &object);
+                rv = C_CreateObject(session, template_ptr, count, &object);
             }
             provider_put_object(&writer, object);
             break;
@@ -668,10 +1013,10 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             session = provider_ulong(&reader);
             value = provider_ulong(&reader);
             if (provider_template(&reader, attributes, &count, 0, NULL, NULL,
-                                  &provider_data_used) == 0 &&
+                                  &provider_data_used, &template_ptr) == 0 &&
                     provider_request_valid(&reader)) {
                 rv = C_CopyObject(session, (CK_OBJECT_HANDLE)value,
-                                  attributes, count, &object);
+                                  template_ptr, count, &object);
             }
             provider_put_object(&writer, object);
             break;
@@ -698,10 +1043,10 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             if (provider_template(&reader, attributes, &count, 1,
                                   attribute_capacities,
                                   attribute_value_requested,
-                                  &provider_data_used) == 0 &&
+                                  &provider_data_used, &template_ptr) == 0 &&
                     provider_request_valid(&reader)) {
                 rv = C_GetAttributeValue(session, (CK_OBJECT_HANDLE)value,
-                                         attributes, count);
+                                         template_ptr, count);
                 if (rv == CKR_OK || rv == CKR_ATTRIBUTE_SENSITIVE ||
                         rv == CKR_ATTRIBUTE_TYPE_INVALID ||
                         rv == CKR_BUFFER_TOO_SMALL) {
@@ -724,7 +1069,7 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                     if (attribute_output_status >= 0 &&
                             has_attribute_output != 0) {
                         rv = C_GetAttributeValue(session,
-                            (CK_OBJECT_HANDLE)value, attributes, count);
+                            (CK_OBJECT_HANDLE)value, template_ptr, count);
                     }
                     if (attribute_output_status < 0) {
                         rv = CKR_DEVICE_MEMORY;
@@ -757,28 +1102,33 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             session = provider_ulong(&reader);
             value = provider_ulong(&reader);
             if (provider_template(&reader, attributes, &count, 0, NULL, NULL,
-                                  &provider_data_used) == 0 &&
+                                  &provider_data_used, &template_ptr) == 0 &&
                     provider_request_valid(&reader)) {
                 rv = C_SetAttributeValue(session, (CK_OBJECT_HANDLE)value,
-                                         attributes, count);
+                                         template_ptr, count);
             }
             break;
         case WT_P11_FIND_OBJECTS_INIT:
             session = provider_ulong(&reader);
             if (provider_template(&reader, attributes, &count, 0, NULL, NULL,
-                                  &provider_data_used) == 0 &&
+                                  &provider_data_used, &template_ptr) == 0 &&
                     provider_request_valid(&reader)) {
-                rv = C_FindObjectsInit(session, attributes, count);
+                rv = C_FindObjectsInit(session, template_ptr, count);
             }
             break;
         case WT_P11_FIND_OBJECTS:
             session = provider_ulong(&reader);
+            has_output = wt_pkcs11_get_u32(&reader);
             capacity = provider_ulong(&reader);
             capacity = capacity < WT_PKCS11_LIST_MAX ? capacity :
                                                         WT_PKCS11_LIST_MAX;
-            rv = provider_request_valid(&reader) ?
-                C_FindObjects(session, objects, capacity, &count) :
+            rv = (provider_request_valid(&reader) && has_output <= 1U) ?
+                C_FindObjects(session, has_output != 0U ? objects : NULL,
+                              capacity, &count) :
                 CKR_ARGUMENTS_BAD;
+            if (rv != CKR_OK) {
+                count = 0U;
+            }
             wt_pkcs11_put_u32(&writer, (uint32_t)count);
             for (i = 0U; i < count; i++) {
                 provider_put_object(&writer, objects[i]);
@@ -981,9 +1331,10 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             if (provider_mechanism(&reader, &decoded_mechanism,
                                    &mechanism, &provider_data_used) == 0 &&
                     provider_template(&reader, attributes, &count, 0,
-                                      NULL, NULL, &provider_data_used) == 0 &&
+                                      NULL, NULL, &provider_data_used,
+                                      &template_ptr) == 0 &&
                     provider_request_valid(&reader)) {
-                rv = C_GenerateKey(session, mechanism, attributes, count,
+                rv = C_GenerateKey(session, mechanism, template_ptr, count,
                                    &key);
             }
             provider_put_object(&writer, key);
@@ -997,13 +1348,15 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             if (provider_mechanism(&reader, &decoded_mechanism,
                                    &mechanism, &provider_data_used) == 0 &&
                     provider_template(&reader, attributes, &count, 0,
-                                      NULL, NULL, &provider_data_used) == 0 &&
+                                      NULL, NULL, &provider_data_used,
+                                      &template_ptr) == 0 &&
                     provider_template(&reader, private_attributes,
                                       &private_count, 0, NULL, NULL,
-                                      &provider_data_used) == 0 &&
+                                      &provider_data_used,
+                                      &private_template_ptr) == 0 &&
                     provider_request_valid(&reader)) {
-                rv = C_GenerateKeyPair(session, mechanism, attributes, count,
-                    private_attributes, private_count, &public_key,
+                rv = C_GenerateKeyPair(session, mechanism, template_ptr,
+                    count, private_template_ptr, private_count, &public_key,
                     &private_key);
             }
             provider_put_object(&writer, public_key);
@@ -1018,10 +1371,11 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                                    &mechanism, &provider_data_used) == 0) {
                 value = provider_ulong(&reader);
                 if (provider_template(&reader, attributes, &count, 0,
-                                      NULL, NULL, &provider_data_used) == 0 &&
+                                      NULL, NULL, &provider_data_used,
+                                      &template_ptr) == 0 &&
                         provider_request_valid(&reader)) {
                     rv = C_DeriveKey(session, mechanism,
-                                     (CK_OBJECT_HANDLE)value, attributes,
+                                     (CK_OBJECT_HANDLE)value, template_ptr,
                                      count, &key);
                 }
             }
@@ -1030,14 +1384,18 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
         }
         case WT_P11_GENERATE_RANDOM:
             session = provider_ulong(&reader);
+            has_output = wt_pkcs11_get_u32(&reader);
             length = provider_ulong(&reader);
             wire_capacity = provider_output_capacity(&writer, length,
                                                      WT_P11_BLOB_OVERHEAD);
-            if (length > wire_capacity || !provider_request_valid(&reader)) {
+            if (length > wire_capacity || has_output > 1U ||
+                    (has_output == 0U && length != 0U) ||
+                    !provider_request_valid(&reader)) {
                 rv = CKR_ARGUMENTS_BAD;
             }
             else {
-                rv = C_GenerateRandom(session, g_provider_data, length);
+                rv = C_GenerateRandom(session,
+                    has_output != 0U ? g_provider_data : NULL, length);
             }
             wt_pkcs11_put_bytes(&writer, rv == CKR_OK ? g_provider_data : NULL,
                                 rv == CKR_OK ? length : 0U);

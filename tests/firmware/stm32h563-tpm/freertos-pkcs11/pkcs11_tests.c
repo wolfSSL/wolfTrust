@@ -273,7 +273,12 @@ static int test_mechanism_list(void)
             mechanism_present(list, count, CKM_ECDSA) == 0 ||
             mechanism_present(list, count, CKM_ECDH1_DERIVE) == 0 ||
             mechanism_present(list, count, CKM_AES_KEY_GEN) == 0 ||
-            mechanism_present(list, count, CKM_SHA256) == 0) {
+            mechanism_present(list, count, CKM_SHA256) == 0 ||
+            mechanism_present(list, count, CKM_PKCS5_PBKD2) != 0) {
+        return -1;
+    }
+    if (g_fn->C_GetMechanismInfo(WT_PKCS11_SLOT, CKM_PKCS5_PBKD2, &info) !=
+            CKR_MECHANISM_INVALID) {
         return -1;
     }
     return g_fn->C_GetMechanismInfo(WT_PKCS11_SLOT, CKM_ECDSA, &info) ==
@@ -309,6 +314,33 @@ static int test_read_only_session(void)
         return -1;
     }
     return 0;
+}
+
+static CK_RV session_notify(CK_SESSION_HANDLE session,
+                            CK_NOTIFICATION event, CK_VOID_PTR application)
+{
+    (void)session;
+    (void)event;
+    (void)application;
+    return CKR_OK;
+}
+
+static int test_session_callbacks(void)
+{
+    static int application_data;
+    CK_SESSION_HANDLE session = CK_INVALID_HANDLE;
+    CK_RV rv;
+
+    rv = g_fn->C_OpenSession(WT_PKCS11_SLOT, CKF_SERIAL_SESSION,
+                             &application_data, session_notify, &session);
+    if (rv == CKR_OK) {
+        rv = g_fn->C_CloseSession(session);
+    }
+    if (rv != CKR_OK) {
+        return -1;
+    }
+    return g_fn->C_OpenSession(WT_PKCS11_SLOT, CKF_SERIAL_SESSION, NULL,
+                               NULL, NULL) == CKR_ARGUMENTS_BAD ? 0 : -1;
 }
 
 static int test_pin_change(void)
@@ -349,6 +381,7 @@ static void run_core_suite(void)
     }
     run_case("session info", test_session_info);
     run_case("read-only session", test_read_only_session);
+    run_case("session callbacks accepted", test_session_callbacks);
     run_case("PIN change", test_pin_change);
     if (g_keep_session == 0) {
         suite_cleanup();
@@ -1115,6 +1148,63 @@ static int test_bad_signature(void)
     return rv == CKR_SIGNATURE_INVALID ? 0 : -1;
 }
 
+#define WT_PKCS11_LOCKOUT_BOUND 16u
+
+static int test_pin_lockout(void)
+{
+    static CK_UTF8CHAR wrong_pin[] = "wrong-pin";
+    CK_TOKEN_INFO info;
+    unsigned int attempt;
+    CK_RV rv = CKR_OK;
+    int result = 0;
+
+    if (g_fn->C_Logout(g_session) != CKR_OK) {
+        return -1;
+    }
+    /* The provider's limit is its own build option, so find it by trying. */
+    for (attempt = 0u; attempt <= WT_PKCS11_LOCKOUT_BOUND; attempt++) {
+        rv = g_fn->C_Login(g_session, CKU_USER, wrong_pin,
+                           (CK_ULONG)(sizeof(wrong_pin) - 1u));
+        if (rv != CKR_PIN_INCORRECT) {
+            break;
+        }
+    }
+    if (attempt == 0u || rv != CKR_PIN_LOCKED) {
+        result = -1;
+    }
+    if (g_fn->C_Login(g_session, CKU_USER, g_user_pin,
+                      (CK_ULONG)(sizeof(g_user_pin) - 1u)) != CKR_PIN_LOCKED) {
+        result = -1;
+    }
+    if (g_fn->C_CloseSession(g_session) != CKR_OK) {
+        result = -1;
+    }
+    g_session = CK_INVALID_HANDLE;
+    if (g_fn->C_OpenSession(WT_PKCS11_SLOT,
+                            CKF_SERIAL_SESSION | CKF_RW_SESSION,
+                            NULL, NULL, &g_session) != CKR_OK) {
+        return -1;
+    }
+    if (g_fn->C_Login(g_session, CKU_USER, g_user_pin,
+                      (CK_ULONG)(sizeof(g_user_pin) - 1u)) != CKR_PIN_LOCKED) {
+        result = -1;
+    }
+    if (g_fn->C_GetTokenInfo(WT_PKCS11_SLOT, &info) != CKR_OK ||
+            (info.flags & CKF_USER_PIN_LOCKED) == 0u) {
+        result = -1;
+    }
+    if (g_fn->C_Login(g_session, CKU_SO, g_so_pin,
+                      (CK_ULONG)(sizeof(g_so_pin) - 1u)) != CKR_OK ||
+            g_fn->C_InitPIN(g_session, g_user_pin,
+                            (CK_ULONG)(sizeof(g_user_pin) - 1u)) != CKR_OK ||
+            g_fn->C_Logout(g_session) != CKR_OK ||
+            g_fn->C_Login(g_session, CKU_USER, g_user_pin,
+                          (CK_ULONG)(sizeof(g_user_pin) - 1u)) != CKR_OK) {
+        return -1;
+    }
+    return result;
+}
+
 static void run_negative_suite(void)
 {
     report_case("suite setup", suite_ready() == 0);
@@ -1132,6 +1222,7 @@ static void run_negative_suite(void)
     run_case("short digest buffer reported", test_short_digest_buffer);
     run_case("sign without init rejected", test_sign_without_init);
     run_case("bad signature rejected", test_bad_signature);
+    run_case("PIN lockout and SO recovery", test_pin_lockout);
     if (g_keep_session == 0) {
         suite_cleanup();
     }

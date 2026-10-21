@@ -101,6 +101,27 @@ $ROOT/src/pkcs11/pkcs11_provider.c
 $WOLFHSM_GLUE
 $NS_DIR/libc_stubs_guest.c"
 
+# Production keeps wolfPKCS11's 600,000-round PIN PBKDF2; only the M33MU
+# emulator gate lowers it, explicitly, because emulated SHA-256 is too slow.
+PBKDF2_TEST_DEF=
+if [ -n "${WT_PKCS11_TEST_PBKDF2_ITERATIONS:-}" ]; then
+    echo "NOTE: emulator-only PIN PBKDF2 iterations=$WT_PKCS11_TEST_PBKDF2_ITERATIONS" >&2
+    PBKDF2_TEST_DEF="-DPBKDF2_ITERATIONS=$WT_PKCS11_TEST_PBKDF2_ITERATIONS"
+fi
+
+# No trusted clock here: WOLFPKCS11_NO_TIME drops wolfPKCS11's lockout and
+# pkcs11_provider.c enforces WT_PKCS11_PIN_MAX_FAILURES instead.
+PIN_LIMIT_DEF=
+if [ -n "${WT_PKCS11_PIN_MAX_FAILURES:-}" ]; then
+    case "$WT_PKCS11_PIN_MAX_FAILURES" in
+        *[!0-9]*|0*)
+            echo "FAIL: WT_PKCS11_PIN_MAX_FAILURES must be > 0" >&2
+            exit 1
+            ;;
+    esac
+    PIN_LIMIT_DEF="-DWT_PKCS11_PIN_MAX_FAILURES=${WT_PKCS11_PIN_MAX_FAILURES}U"
+fi
+
 CFLAGS="
 -std=c99
 -mcpu=cortex-m33 -mthumb -mgeneral-regs-only -mno-unaligned-access
@@ -128,7 +149,7 @@ CFLAGS="
 -DWOLFSSL_ARMASM_NO_HW_CRYPTO -DWOLFSSL_ARMASM_INLINE
 -DWOLFSSL_ARMASM_NO_NEON -DWOLFSSL_ARMASM_THUMB2
 -DNO_ERROR_STRINGS -DWOLFSSL_PUBLIC_MP -DWC_RSA_DIRECT
--DWC_RESEED_INTERVAL=1000000 -DPBKDF2_ITERATIONS=25
+-DWC_RESEED_INTERVAL=1000000 $PBKDF2_TEST_DEF $PIN_LIMIT_DEF
 -include time.h
 -include $APP_DIR/user_settings.h"
 

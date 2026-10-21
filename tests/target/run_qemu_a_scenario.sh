@@ -221,8 +221,8 @@ else
     # The production PIN KDF remains at 600,000 rounds. Emulator coverage uses
     # the same PBKDF2 path with a short work factor, as the M33MU PKCS11 test
     # does, so the complete API suite remains practical in the CI matrix.
-    pkcs11) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EXTRA_CFLAGS=-DPBKDF2_ITERATIONS=25) ;;
-    pkcs11neg) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_PKCS11_NEG_PROBE=1 WT_PKCS11_HSM_RESTART_PROBE=1 WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_EXTRA_CFLAGS=-DPBKDF2_ITERATIONS=25) ;;
+    pkcs11) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_PKCS11_TEST_PBKDF2_ITERATIONS=25) ;;
+    pkcs11neg) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_PKCS11_NEG_PROBE=1 WT_PKCS11_HSM_RESTART_PROBE=1 WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_PKCS11_TEST_PBKDF2_ITERATIONS=25) ;;
     hsmpinneg) probe=(WT_EL3_NS_SMOKE=1 WT_HSM_PIN_NEG_PROBE=1) ;;
     # The test handoff's unlocked lifecycle leaves the forced SECURED
     # lifecycle as the only thing that refuses the reformat.
@@ -1228,7 +1228,7 @@ case "$scenario" in
     expect "the application exercised symmetric crypto" "pkcs11-aarch64: PASS AES CTR"
     expect "the application exercised HSM-backed signing" "pkcs11-aarch64: PASS HSM-backed ECDSA"
     expect "the application exercised HSM-backed key agreement" "pkcs11-aarch64: PASS HSM-backed ECDH"
-    expect "all PKCS11 cases passed" "pkcs11-aarch64: TOTAL PASSED: 38"
+    expect "all PKCS11 cases passed" "pkcs11-aarch64: TOTAL PASSED: 40"
     expect "the PKCS11 suite reported zero failures" "pkcs11-aarch64: TOTAL FAILED: 0"
     refute_re "the application did not report a PKCS11 case failure" 'pkcs11-aarch64: FAIL'
     expect "the Normal-world application completed" "[NS] pkcs11 suite complete"

@@ -179,7 +179,9 @@ rm -rf build tests/firmware/zephyr-stm32h5/build
 
 # --- Secure-app wolfBoot first stage. ---
 if [ -d wolfBoot/.git ] &&
-        [ "$(git -C wolfBoot rev-parse HEAD 2>/dev/null)" = "$WOLFBOOT_REF" ]; then
+        [ "$(git -C wolfBoot rev-parse HEAD 2>/dev/null)" = "$WOLFBOOT_REF" ] &&
+        [ -z "$(git -C wolfBoot status --porcelain --untracked-files=no \
+                --ignore-submodules=none 2>/dev/null)" ]; then
   echo "Reusing wolfBoot at $WOLFBOOT_REF"
 else
   rm -rf wolfBoot
@@ -297,7 +299,8 @@ elif [ "$scenario" = "tpm" ]; then
   fi
 elif [ "$family" = "pkcs11" ]; then
   rm -rf tests/firmware/stm32h563-tpm/build
-  make -C tests/firmware/stm32h563-tpm pkcs11-provider \
+  WT_PKCS11_TEST_PBKDF2_ITERATIONS=25 \
+    make -C tests/firmware/stm32h563-tpm pkcs11-provider \
     PKCS11_BUILD_DIR="build/$scenario" \
     WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080C0000 \
     WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
@@ -1083,11 +1086,11 @@ case "$scenario" in
     expect "the PKCS11 suite reported zero failures" \
       "$pkcs11_app: TOTAL FAILED: 0"
     case "$pkcs11_suite" in
-      core)     expected_passed=9 ;;
+      core)     expected_passed=10 ;;
       objects)  expected_passed=8 ;;
       crypto)   expected_passed=10 ;;
-      negative) expected_passed=11 ;;
-      all)      expected_passed=38 ;;
+      negative) expected_passed=12 ;;
+      all)      expected_passed=40 ;;
     esac
     expect "the PKCS11 suite ran every planned case" \
       "$pkcs11_app: TOTAL PASSED: $expected_passed"

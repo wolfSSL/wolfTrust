@@ -107,15 +107,22 @@ static int proxy_put_ulong(wt_pkcs11_writer_t* writer, CK_ULONG value)
     return 0;
 }
 
+/* wolfPKCS11 rejects some NULL buffers even at length zero, so the provider
+ * must see the caller's NULL, not an empty wire buffer. */
+static void proxy_put_buffer(wt_pkcs11_writer_t* writer, const void* data,
+                             CK_ULONG length)
+{
+    wt_pkcs11_put_u32(writer, data != NULL ? 1U : 0U);
+    wt_pkcs11_put_bytes(writer, data, (size_t)length);
+}
+
 static int proxy_put_blob(wt_pkcs11_writer_t* writer, const void* data,
                           CK_ULONG length)
 {
     if (proxy_put_ulong(writer, length) != 0) {
         return -1;
     }
-    /* The declared PKCS#11 length precedes the wire blob length. Keeping both
-     * makes NULL/non-NULL buffer semantics explicit. */
-    wt_pkcs11_put_bytes(writer, data, (size_t)length);
+    proxy_put_buffer(writer, data, length);
     return writer->error != 0 ? -1 : 0;
 }
 
@@ -130,6 +137,7 @@ static int proxy_put_template(wt_pkcs11_writer_t* writer,
         writer->error = 1;
         return -1;
     }
+    wt_pkcs11_put_u32(writer, attributes != NULL ? 1U : 0U);
     (void)proxy_put_ulong(writer, count);
     for (i = 0U; i < count; i++) {
         CK_ULONG capacity = attributes[i].pValue != NULL ?
@@ -232,9 +240,9 @@ static int proxy_put_mechanism(wt_pkcs11_writer_t* writer,
             writer->error = 1;
         }
         else {
-            wt_pkcs11_put_bytes(writer, params->pIv, params->ulIvLen);
+            proxy_put_buffer(writer, params->pIv, params->ulIvLen);
             (void)proxy_put_ulong(writer, params->ulIvBits);
-            wt_pkcs11_put_bytes(writer, params->pAAD, params->ulAADLen);
+            proxy_put_buffer(writer, params->pAAD, params->ulAADLen);
             (void)proxy_put_ulong(writer, params->ulTagBits);
         }
     }
@@ -245,8 +253,8 @@ static int proxy_put_mechanism(wt_pkcs11_writer_t* writer,
         }
         else {
             (void)proxy_put_ulong(writer, params->ulDataLen);
-            wt_pkcs11_put_bytes(writer, params->pIv, params->ulIvLen);
-            wt_pkcs11_put_bytes(writer, params->pAAD, params->ulAADLen);
+            proxy_put_buffer(writer, params->pIv, params->ulIvLen);
+            proxy_put_buffer(writer, params->pAAD, params->ulAADLen);
             (void)proxy_put_ulong(writer, params->ulMacLen);
         }
     }
@@ -258,15 +266,15 @@ static int proxy_put_mechanism(wt_pkcs11_writer_t* writer,
         }
         else {
             (void)proxy_put_ulong(writer, params->kdf);
-            wt_pkcs11_put_bytes(writer, params->pSharedData,
-                                params->ulSharedDataLen);
-            wt_pkcs11_put_bytes(writer, params->pPublicData,
-                                params->ulPublicDataLen);
+            proxy_put_buffer(writer, params->pSharedData,
+                             params->ulSharedDataLen);
+            proxy_put_buffer(writer, params->pPublicData,
+                             params->ulPublicDataLen);
         }
     }
     else {
-        wt_pkcs11_put_bytes(writer, mechanism->pParameter,
-                            mechanism->ulParameterLen);
+        proxy_put_buffer(writer, mechanism->pParameter,
+                         mechanism->ulParameterLen);
     }
     return writer->error != 0 ? -1 : 0;
 }
@@ -609,21 +617,29 @@ static CK_RV proxy_C_OpenSession(CK_SLOT_ID slot, CK_FLAGS flags,
 {
     wt_pkcs11_writer_t writer;
     wt_pkcs11_reader_t reader;
+    uint32_t opened;
     CK_RV rv;
 
-    if (session == NULL || application != NULL || notify != NULL) {
-        return CKR_ARGUMENTS_BAD;
-    }
+    /* wolfPKCS11 ignores both, so neither pointer crosses into the provider;
+     * a NULL session is forwarded so wolfPKCS11 orders its own checks. */
+    (void)application;
+    (void)notify;
     proxy_begin(&writer, WT_P11_OPEN_SESSION);
     (void)proxy_put_ulong(&writer, slot);
     (void)proxy_put_ulong(&writer, flags);
+    wt_pkcs11_put_u32(&writer, session != NULL ? 1U : 0U);
     rv = proxy_invoke(&writer, &reader);
     if (reader.error != 0) {
         return proxy_finish(&reader, rv);
     }
-    *session = (CK_SESSION_HANDLE)wt_pkcs11_get_u32(&reader);
-    return proxy_finish(&reader,
-        reader.error != 0 ? CKR_DEVICE_ERROR : rv);
+    opened = wt_pkcs11_get_u32(&reader);
+    if (reader.error != 0) {
+        return proxy_finish(&reader, CKR_DEVICE_ERROR);
+    }
+    if (session != NULL) {
+        *session = (CK_SESSION_HANDLE)opened;
+    }
+    return proxy_finish(&reader, rv);
 }
 
 static CK_RV proxy_C_CloseSession(CK_SESSION_HANDLE session)
@@ -815,6 +831,7 @@ static CK_RV proxy_C_FindObjects(CK_SESSION_HANDLE session,
     }
     proxy_begin(&writer, WT_P11_FIND_OBJECTS);
     (void)proxy_put_ulong(&writer, session);
+    wt_pkcs11_put_u32(&writer, objects != NULL ? 1U : 0U);
     (void)proxy_put_ulong(&writer, maximum);
     rv = proxy_invoke(&writer, &reader);
     if (reader.error != 0) {
@@ -1111,6 +1128,7 @@ static CK_RV proxy_C_GenerateRandom(CK_SESSION_HANDLE session,
     }
     proxy_begin(&writer, WT_P11_GENERATE_RANDOM);
     (void)proxy_put_ulong(&writer, session);
+    wt_pkcs11_put_u32(&writer, output != NULL ? 1U : 0U);
     (void)proxy_put_ulong(&writer, length);
     rv = proxy_invoke(&writer, &reader);
     if (reader.error != 0) {

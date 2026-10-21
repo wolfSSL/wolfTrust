@@ -18,7 +18,7 @@ CFLAGS := \
     -I. \
     -I$(ROOT)/include \
     -DWT_PKCS11_TEST_HOOKS \
-    -std=c11 -O2 -g -Wall -Wextra -Werror -pedantic \
+    -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
 

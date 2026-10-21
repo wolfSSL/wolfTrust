@@ -14,9 +14,10 @@ unset WT_PKCS11_PIN_MAX_FAILURES 2>/dev/null || true
 
 mkdir -p "$work/freertos/FreeRTOS/Source" "$work/bin"
 : > "$work/implib.o"
+# Append: a build tracer such as CodeQL may run a new compiler again to probe it.
 cat > "$work/bin/cc" <<EOF
 #!/bin/sh
-printf '%s\n' "\$@" > "$work/cc.args"
+printf '%s\n' "\$@" >> "$work/cc.args"
 EOF
 cat > "$work/bin/nm" <<'EOF'
 #!/bin/sh

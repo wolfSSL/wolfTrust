@@ -93,7 +93,21 @@ esac
 EOF
 cat > "$T/venv/bin/pyocd" <<EOF
 #!/bin/sh
-if [ "\$1" = cmd ]; then cat "$T/sfp" 2>/dev/null; exit 0; fi
+if [ "\$1" = cmd ]; then
+  # With a register file (MCXN947), answer each read32 from it; else the
+  # RT700 SFP dump.
+  if [ -s "$T/mcxn_regs" ]; then
+    for a in "\$@"; do
+      case "\$a" in
+        "read32 "*) k=\$(printf '%08x' "\${a#read32 }" 2>/dev/null || echo 0)
+          v=\$(awk -v k="\$k" '\$1 == k { print \$2 }' "$T/mcxn_regs")
+          echo "\$k:  \${v:-00000000}" ;;
+      esac
+    done
+    exit 0
+  fi
+  cat "$T/sfp" 2>/dev/null; exit 0
+fi
 [ "\$1" = list ] || exit 0
 echo "  #   Probe/Board   Unique ID   Target"
 echo "-----------------------------------"
@@ -360,5 +374,47 @@ check "the next step after the burn" 2 "runs only from in-field (0x0F)" -- env "
 rec 0x0F 0x07 "$(edig)" armed "$(now)"
 check "In Field refused until ROM authentication" 2 "needs the BootROM to authenticate wolfBoot" -- env "${ISP[@]}" "${RT[@]}" lock in-field
 nowrite
+
+echo "== MCXN947"
+MX=(env TARGET=mcxn947 MCXN947_SPSDK_VENV="$T/venv" WT_PROVISION_STATE="$T/st" PATH="$T/venv/bin:$PATH" "$P")
+mkdir -p "$R/build/mcxn947" "$R/tests/firmware/mcxn947-baremetal/build"
+echo mwb > "$R/build/mcxn947/flash_wolfboot.bin"
+echo mg0 > "$R/tests/firmware/mcxn947-baremetal/build/guest0.bin"
+echo mg1 > "$R/tests/firmware/mcxn947-baremetal/build/guest1.bin"
+# regs <LC_STATE> <LC_STATE_DP> [DAUTHSTATUS]: the words the pyocd stub answers
+# (SYSCON life cycle, debug status, UUID, an intact handoff, the reset vector).
+regs() {
+  printf '50000980 %08x\n50000984 %08x\ne000efb8 %08x\n' $(($1)) $(($2)) $((${3:-0xAA})) > "$T/mcxn_regs"
+  printf '01100000 11111111\n01100004 22222222\n01100008 33333333\n0110000c 44444444\n' >> "$T/mcxn_regs"
+  printf '30030000 5742484f\n30030004 a8bdb7b0\n3003000c 00001000\n10040404 10040801\n' >> "$T/mcxn_regs"
+}
+regs 0x03 0x03
+check "help lists the port's states" 0 "oem-secure-world" -- "${MX[@]}" help
+check "the MCXN947 port file refuses to run alone" 2 "not this port file" -- bash "$R/tests/target/provisioning/provisioning_ctrl_mcxn947.sh" lock 0x07
+for m in 0 0x4 junk; do
+  check "MCXN947_GUEST_MASK=$m refused" 2 "MCXN947_GUEST_MASK must be" -- env MCXN947_GUEST_MASK="$m" WT_LOCK_CONFIRM=1 "${MX[@]}" advance 0x07
+done
+check "no guest flash fence is reported" 1 "no guest flash fence" -- "${MX[@]}" verify-wrp
+check "lock refused: oem-secure-world" 2 "oem-secure-world (0x07) is not a lock target" -- "${MX[@]}" lock 0x07
+check "lock refused: oem-closed by name" 2 "oem-closed (0x0F) is not a lock target" -- "${MX[@]}" lock oem-closed
+check "lock refused: oem-locked" 2 "is not a lock target" -- "${MX[@]}" lock 0xCF
+check "lock refused: oem-field-return" 2 "is not a lock target" -- "${MX[@]}" lock 0x1F
+check "lock refused with the production opt-in too" 2 "is not a lock target" -- env WT_FIXTURE_BOUND=1 WT_LOCK_CONFIRM=1 WT_PRODUCTION_LOCK=1 "${MX[@]}" lock 0x07
+check "advance needs discover" 2 "run 'discover' first" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" advance 0x07
+check "status reads the life cycle and the UUID" 0 "device UUID      11111111222222223333333344444444" -- "${MX[@]}" status
+regs 0x03 0x07
+check "discover: copies disagree" 1 "life cycle copies disagree" -- "${MX[@]}" discover
+regs 0x103 0x103
+check "discover: bits above the state byte" 1 "above the state byte" -- "${MX[@]}" discover
+regs 0xCF 0xCF
+check "discover: no further rehearsal step" 1 "has no further rehearsal step" -- "${MX[@]}" discover
+regs 0x03 0x03
+check "discover stamps the life cycle and UUID" 0 "discovery stamped" -- "${MX[@]}" discover
+check "advance past oem-secure-world needs a regress" 2 "prove 'regress' from oem-secure-world" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" advance 0x0F
+check "OTP writes refused" 2 "would program OTP" -- "${MX[@]}" burn
+check "perimeter commands refused" 2 "has no MCXN947 form" -- "${MX[@]}" set-wrp
+check "restore has no runner yet" 1 "no MCXN947 hardware runner" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" restore
+nowrite
+rm -f "$T/mcxn_regs"
 echo "provisioning gates: $pass passed, $failn failed"
 [ "$failn" = 0 ]

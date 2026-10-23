@@ -1,0 +1,175 @@
+diff -ruN a/hal/mcxn.c b/hal/mcxn.c
+--- a/hal/mcxn.c
++++ b/hal/mcxn.c
+@@ -25,6 +25,7 @@
+ #include "fsl_common.h"
+ #include "image.h"
+ #include "hal.h"
++#include "mcxn_lifecycle.h"
+ 
+ #include "clock_config.h"
+ #include "fsl_clock.h"
+@@ -605,11 +606,22 @@
+     return ret;
+ }
+ 
++/* The PSA security lifecycle the Secure application attests, from the OTP
++ * life cycle state the ROM reflects into SYSCON and the debug authentication
++ * state. */
+ int hal_attestation_get_lifecycle(uint32_t *lifecycle)
+ {
++    uint32_t lcState;
++    uint32_t lcStateDp;
++    uint32_t debugAuthStatus;
++
+     if (lifecycle == NULL)
+         return -1;
+-    *lifecycle = 0x3000u; /* PSA_LIFECYCLE_SECURED (default) */
++    lcState = *(volatile uint32_t *)MCXN_SYSCON_ELS_OTP_LC_STATE;
++    lcStateDp = *(volatile uint32_t *)MCXN_SYSCON_ELS_OTP_LC_STATE_DP;
++    debugAuthStatus = *(volatile uint32_t *)MCXN_DAUTHSTATUS_ADDRESS;
++    *lifecycle = mcxn_attestation_lifecycle(lcState, lcStateDp,
++        debugAuthStatus);
+     return 0;
+ }
+ 
+diff -ruN a/hal/mcxn_lifecycle.h b/hal/mcxn_lifecycle.h
+--- a/hal/mcxn_lifecycle.h
++++ b/hal/mcxn_lifecycle.h
+@@ -0,0 +1,136 @@
++/* mcxn_lifecycle.h
++ *
++ * Copyright (C) 2026 wolfSSL Inc.
++ *
++ * This file is part of wolfBoot.
++ *
++ * wolfBoot is free software; you can redistribute it and/or modify
++ * it under the terms of the GNU General Public License as published by
++ * the Free Software Foundation; either version 3 of the License, or
++ * (at your option) any later version.
++ *
++ * wolfBoot is distributed in the hope that it will be useful,
++ * but WITHOUT ANY WARRANTY; without even the implied warranty of
++ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
++ * GNU General Public License for more details.
++ *
++ * You should have received a copy of the GNU General Public License
++ * along with this program; if not, see <https://www.gnu.org/licenses/>.
++ */
++
++/* MCXN947 life cycle to PSA security lifecycle. The ROM reflects the OTP
++ * life cycle state into SYSCON (ELS_OTP_LC_STATE and its duplicate); the
++ * state codes are the low byte of the ROM API's nboot_lc_* values. */
++
++#ifndef MCXN_LIFECYCLE_H
++#define MCXN_LIFECYCLE_H
++
++#include <stdint.h>
++
++#define MCXN_SYSCON_ELS_OTP_LC_STATE     0x50000980u
++#define MCXN_SYSCON_ELS_OTP_LC_STATE_DP  0x50000984u
++#define MCXN_LC_STATE_MASK               0xFFu
++#define MCXN_LC_RESERVED_MASK            0xFFFFFF00u
++
++#define MCXN_LC_NXP_BLANK                0x00u
++#define MCXN_LC_NXP_FAB                  0x01u
++#define MCXN_LC_OEM_OPEN                 0x03u
++#define MCXN_LC_OEM_SECURE_WORLD_CLOSED  0x07u
++#define MCXN_LC_OEM_CLOSED               0x0Fu
++#define MCXN_LC_OEM_FIELD_RETURN         0x1Fu
++#define MCXN_LC_NXP_FIELD_RETURN         0x7Fu
++#define MCXN_LC_OEM_LOCKED               0xCFu
++#define MCXN_LC_NXP_DEV                  0xFCu
++#define MCXN_LC_SHREDDED                 0xFFu
++
++#define MCXN_DAUTHSTATUS_ADDRESS         0xE000EFB8u
++#define MCXN_DAUTHSTATUS_NSID_SHIFT      0u
++#define MCXN_DAUTHSTATUS_NSNID_SHIFT     2u
++#define MCXN_DAUTHSTATUS_SID_SHIFT       4u
++#define MCXN_DAUTHSTATUS_SNID_SHIFT      6u
++#define MCXN_DAUTHSTATUS_FIELD_MASK      0x3u
++#define MCXN_DAUTHSTATUS_ENABLED         0x3u
++#define MCXN_DAUTHSTATUS_DISABLED        0x2u
++
++static inline uint32_t mcxn_lc_to_psa_lifecycle(uint32_t lcState,
++    uint32_t lcStateDp)
++{
++    uint32_t lifecycle;
++
++    if ((lcState & MCXN_LC_RESERVED_MASK) != 0u ||
++            (lcStateDp & MCXN_LC_RESERVED_MASK) != 0u ||
++            lcState != lcStateDp) {
++        return 0x0000u; /* PSA_LIFECYCLE_UNKNOWN */
++    }
++    switch (lcState & MCXN_LC_STATE_MASK) {
++        case MCXN_LC_OEM_OPEN:
++            lifecycle = 0x1000u; /* PSA_LIFECYCLE_ASSEMBLY_AND_TEST */
++            break;
++        case MCXN_LC_OEM_SECURE_WORLD_CLOSED:
++            lifecycle = 0x2000u; /* PSA_LIFECYCLE_PSA_ROT_PROVISIONING */
++            break;
++        case MCXN_LC_OEM_CLOSED:
++        case MCXN_LC_OEM_LOCKED:
++            lifecycle = 0x3000u; /* PSA_LIFECYCLE_SECURED */
++            break;
++        case MCXN_LC_OEM_FIELD_RETURN:
++            lifecycle = 0x6000u; /* PSA_LIFECYCLE_DECOMMISSIONED */
++            break;
++        default:
++            lifecycle = 0x0000u; /* PSA_LIFECYCLE_UNKNOWN */
++            break;
++    }
++    return lifecycle;
++}
++
++static inline int mcxn_debug_status_field_is(uint32_t debugAuthStatus,
++    uint32_t shift, uint32_t value)
++{
++    return (((debugAuthStatus >> shift) & MCXN_DAUTHSTATUS_FIELD_MASK) ==
++        value);
++}
++
++/* Arm encodes each field 0b11 enabled, 0b10 disabled; anything else is
++ * malformed and the whole register is untrusted. */
++static inline int mcxn_debug_status_field_valid(uint32_t debugAuthStatus,
++    uint32_t shift)
++{
++    return mcxn_debug_status_field_is(debugAuthStatus, shift,
++            MCXN_DAUTHSTATUS_ENABLED) ||
++        mcxn_debug_status_field_is(debugAuthStatus, shift,
++            MCXN_DAUTHSTATUS_DISABLED);
++}
++
++static inline uint32_t mcxn_attestation_lifecycle(uint32_t lcState,
++    uint32_t lcStateDp, uint32_t debugAuthStatus)
++{
++    uint32_t lifecycle = mcxn_lc_to_psa_lifecycle(lcState, lcStateDp);
++
++    if (lifecycle == 0x3000u) {
++        if (!mcxn_debug_status_field_valid(debugAuthStatus,
++                MCXN_DAUTHSTATUS_NSID_SHIFT) ||
++                !mcxn_debug_status_field_valid(debugAuthStatus,
++                MCXN_DAUTHSTATUS_NSNID_SHIFT) ||
++                !mcxn_debug_status_field_valid(debugAuthStatus,
++                MCXN_DAUTHSTATUS_SID_SHIFT) ||
++                !mcxn_debug_status_field_valid(debugAuthStatus,
++                MCXN_DAUTHSTATUS_SNID_SHIFT)) {
++            lifecycle = 0x0000u; /* PSA_LIFECYCLE_UNKNOWN */
++        }
++        else if (mcxn_debug_status_field_is(debugAuthStatus,
++                MCXN_DAUTHSTATUS_SID_SHIFT, MCXN_DAUTHSTATUS_ENABLED) ||
++                mcxn_debug_status_field_is(debugAuthStatus,
++                MCXN_DAUTHSTATUS_SNID_SHIFT, MCXN_DAUTHSTATUS_ENABLED)) {
++            lifecycle = 0x5000u; /* PSA_LIFECYCLE_RECOVERABLE_PSA_ROT_DEBUG */
++        }
++        else if (mcxn_debug_status_field_is(debugAuthStatus,
++                MCXN_DAUTHSTATUS_NSID_SHIFT, MCXN_DAUTHSTATUS_ENABLED) ||
++                mcxn_debug_status_field_is(debugAuthStatus,
++                MCXN_DAUTHSTATUS_NSNID_SHIFT, MCXN_DAUTHSTATUS_ENABLED)) {
++            lifecycle = 0x4000u; /* PSA_LIFECYCLE_NON_PSA_ROT_DEBUG */
++        }
++    }
++    return lifecycle;
++}
++
++#endif /* MCXN_LIFECYCLE_H */

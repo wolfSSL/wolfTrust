@@ -1,0 +1,240 @@
+diff --git a/cpu/mcxn947/mcxn947_mmio.c b/cpu/mcxn947/mcxn947_mmio.c
+index 831de76..875d3cf 100644
+--- a/cpu/mcxn947/mcxn947_mmio.c
++++ b/cpu/mcxn947/mcxn947_mmio.c
+@@ -104,6 +104,8 @@
+ #define SYSCON_PRESETCTRL0 0x100u
+ #define SYSCON_AHBCLKCTRL0 0x200u
+ #define SYSCON_AHBCLKCTRL1 0x204u
++#define SYSCON_ELS_OTP_LC_STATE 0x980u
++#define SYSCON_ELS_OTP_LC_STATE_DP 0x984u
+ 
+ struct gpio_bank {
+     mm_u32 regs[GPIO_SIZE / 4];
+@@ -676,6 +678,10 @@ void mm_mcxn947_mmio_reset(void)
+     /* Initialize SYSCON reset states */
+     syscon.regs[SYSCON_AHBCLKCTRL0 / 4] = 0x021FFE603u; /* + ELS clock bit */
+     syscon.regs[SYSCON_PRESETCTRL0 / 4] = 0x021FFE000u; /* + ELS reset released */
++    /* ELS_OTP_LC_STATE and its duplicate: OEM_OPEN (0x03), the life cycle a
++     * FRDM board ships in, as the ROM reflects it from OTP. */
++    syscon.regs[SYSCON_ELS_OTP_LC_STATE / 4] = 0x03u;
++    syscon.regs[SYSCON_ELS_OTP_LC_STATE_DP / 4] = 0x03u;
+ 
+     scg.regs[SCG_VERID / 4u] = 0x00000000u;
+     scg.regs[SCG_PARAM / 4u] = 0x000001FEu;
+diff --git a/cpu/mcxn947/mcxn947_secure.c b/cpu/mcxn947/mcxn947_secure.c
+index 148ef22..3f1941c 100644
+--- a/cpu/mcxn947/mcxn947_secure.c
++++ b/cpu/mcxn947/mcxn947_secure.c
+@@ -26,6 +26,36 @@
+ #define MCXN947_SEC_ALIAS   0x10000000u
+ #define MCXN947_SEC_SIZE    0x1000u
+ 
++/* The EdgeLock (S50) command interface at its documented base: enough of the
++ * register map for a Secure caller to enable the block and run RND_REQ, which
++ * fills the DMA result buffer. The block refuses Non-secure accesses. */
++#define MCXN947_S50_BASE        0x40054000u
++#define S50_REG_STATUS          0x000u
++#define S50_REG_CTRL            0x004u
++#define S50_REG_CMDCFG0         0x008u
++#define S50_REG_CFG             0x00Cu
++#define S50_REG_DMA_RES0        0x038u
++#define S50_REG_DMA_RES0_LEN    0x03Cu
++#define S50_REG_INT_ENABLE      0x040u
++#define S50_REG_INT_STATUS_CLR  0x044u
++#define S50_REG_INT_STATUS_SET  0x048u
++#define S50_REG_ERR_STATUS      0x04Cu
++#define S50_REG_ERR_STATUS_CLR  0x050u
++#define S50_REG_VERSION         0x054u
++#define S50_REG_PRNG_DATOUT     0x05Cu
++#define S50_REG_WORDS           (0x80u / 4u)
++#define S50_STATUS_ERR          (1u << 2)
++#define S50_STATUS_DRBG_ENT_LVL (3u << 8)
++#define S50_CTRL_EN             (1u << 0)
++#define S50_CTRL_START          (1u << 1)
++#define S50_CTRL_RESET          (1u << 2)
++#define S50_CTRL_CMD_SHIFT      3u
++#define S50_CTRL_CMD_MASK       0x1Fu
++#define S50_CMD_RND_REQ         24u
++#define S50_ERR_OPN             (1u << 1)
++#define S50_ERR_ALG             (1u << 2)
++#define S50_RND_MAX             4096u
++
+ #define SEC_REG_CMD        0x000u
+ #define SEC_REG_STATUS     0x004u
+ #define SEC_REG_ARG0       0x008u
+@@ -96,13 +126,21 @@ struct mcxn947_secure_persist {
+     struct mcxn947_secure_slot slots[MCXN947_ELS_SLOTS];
+ };
+ 
++struct mcxn947_s50_state {
++    mm_u32 regs[S50_REG_WORDS];
++    mm_u32 err_status;
++    mm_bool enabled;
++};
++
+ struct mcxn947_secure_state {
+     struct mcxn947_secure_regs puf;
+     struct mcxn947_secure_regs els;
+     struct mcxn947_secure_regs pkc;
+     struct mcxn947_secure_regs otpc;
+     struct mcxn947_secure_regs prince;
++    struct mcxn947_s50_state s50;
+     struct mcxn947_secure_persist persist;
++    struct mm_memmap *map;
+     mm_u8 *flash;
+     mm_u32 flash_size;
+     mm_u32 lifecycle;
+@@ -686,6 +724,125 @@ static mm_bool secure_region_write(void *opaque, mm_u32 offset, mm_u32 size_byte
+     return MM_FALSE;
+ }
+ 
++/* RND_REQ: the DMA result buffer is filled a word at a time through the
++ * memory map, as the ELS DMA master would write it. */
++static void s50_rnd_req(struct mcxn947_s50_state *s)
++{
++    mm_u8 block[S50_RND_MAX];
++    mm_u32 addr = s->regs[S50_REG_DMA_RES0 / 4u];
++    mm_u32 len = s->regs[S50_REG_DMA_RES0_LEN / 4u];
++    mm_u32 i;
++    if (g_sec.map == 0 || len == 0u || len > S50_RND_MAX ||
++        (len % 4u) != 0u || (addr % 4u) != 0u) {
++        s->err_status |= S50_ERR_OPN;
++        return;
++    }
++    mm_mcxn947_secure_rng_fill(block, len);
++    for (i = 0u; i < len; i += 4u) {
++        if (!mm_memmap_write(g_sec.map, MM_SECURE, addr + i, 4u,
++                             read32le(block + i))) {
++            s->err_status |= S50_ERR_OPN;
++            return;
++        }
++    }
++}
++
++static void s50_ctrl_write(struct mcxn947_s50_state *s, mm_u32 value)
++{
++    mm_u32 cmd = (value >> S50_CTRL_CMD_SHIFT) & S50_CTRL_CMD_MASK;
++    if ((value & S50_CTRL_RESET) != 0u) {
++        s->err_status = 0u;
++        s->enabled = MM_FALSE;
++        return;
++    }
++    s->enabled = ((value & S50_CTRL_EN) != 0u) ? MM_TRUE : MM_FALSE;
++    if ((value & S50_CTRL_START) == 0u) {
++        return;
++    }
++    if (!s->enabled || !mm_mcxn947_secure_els_clock_ready()) {
++        s->err_status |= S50_ERR_OPN;
++        return;
++    }
++    if (cmd == S50_CMD_RND_REQ) {
++        s50_rnd_req(s);
++    } else {
++        s->err_status |= S50_ERR_ALG;
++    }
++}
++
++static mm_bool s50_read(void *opaque, mm_u32 offset, mm_u32 size_bytes,
++                        mm_u32 *value_out)
++{
++    struct mcxn947_s50_state *s = (struct mcxn947_s50_state *)opaque;
++    mm_u8 word[4];
++    if (!secure_access_ok()) return MM_FALSE;
++    if (s == 0 || value_out == 0 || size_bytes != 4u) return MM_FALSE;
++    if (offset >= S50_REG_WORDS * 4u) return MM_FALSE;
++    switch (offset) {
++    case S50_REG_STATUS:
++        *value_out = S50_STATUS_DRBG_ENT_LVL |
++                     ((s->err_status != 0u) ? S50_STATUS_ERR : 0u);
++        return MM_TRUE;
++    case S50_REG_ERR_STATUS:
++        *value_out = s->err_status;
++        return MM_TRUE;
++    case S50_REG_VERSION:
++        *value_out = 0x00050000u;
++        return MM_TRUE;
++    case S50_REG_PRNG_DATOUT:
++        mm_mcxn947_secure_rng_fill(word, sizeof(word));
++        *value_out = read32le(word);
++        return MM_TRUE;
++    default:
++        *value_out = s->regs[offset / 4u];
++        return MM_TRUE;
++    }
++}
++
++static mm_bool s50_write(void *opaque, mm_u32 offset, mm_u32 size_bytes,
++                         mm_u32 value)
++{
++    struct mcxn947_s50_state *s = (struct mcxn947_s50_state *)opaque;
++    if (!secure_access_ok()) return MM_FALSE;
++    if (s == 0 || size_bytes != 4u) return MM_FALSE;
++    if (offset >= S50_REG_WORDS * 4u) return MM_FALSE;
++    switch (offset) {
++    case S50_REG_STATUS:
++    case S50_REG_ERR_STATUS:
++    case S50_REG_VERSION:
++    case S50_REG_PRNG_DATOUT:
++        return MM_FALSE;
++    case S50_REG_CTRL:
++        s->regs[offset / 4u] = value & ~S50_CTRL_START;
++        s50_ctrl_write(s, value);
++        return MM_TRUE;
++    case S50_REG_ERR_STATUS_CLR:
++        if ((value & 1u) != 0u) s->err_status = 0u;
++        return MM_TRUE;
++    case S50_REG_INT_STATUS_CLR:
++    case S50_REG_INT_STATUS_SET:
++        return MM_TRUE;
++    default:
++        s->regs[offset / 4u] = value;
++        return MM_TRUE;
++    }
++}
++
++static mm_bool secure_register_s50(struct mmio_bus *bus)
++{
++    struct mmio_region reg;
++    memset(&reg, 0, sizeof(reg));
++    reg.base = MCXN947_S50_BASE;
++    reg.size = MCXN947_SEC_SIZE;
++    reg.opaque = &g_sec.s50;
++    reg.read = s50_read;
++    reg.write = s50_write;
++    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
++    reg.base = MCXN947_S50_BASE + MCXN947_SEC_ALIAS;
++    if (!mmio_bus_register_region(bus, &reg)) return MM_FALSE;
++    return MM_TRUE;
++}
++
+ static mm_bool secure_register_pair(struct mmio_bus *bus, mm_u32 base,
+                                     struct mcxn947_secure_regs *regs)
+ {
+@@ -710,6 +867,7 @@ void mm_mcxn947_secure_reset(void)
+     secure_reset_regs(&g_sec.els);
+     secure_reset_regs(&g_sec.pkc);
+     secure_reset_regs(&g_sec.prince);
++    memset(&g_sec.s50, 0, sizeof(g_sec.s50));
+     g_sec.puf.status |= SEC_STATUS_DONE;
+     g_sec.otpc.status |= SEC_STATUS_DONE;
+     g_sec.els.status |= SEC_STATUS_DONE;
+@@ -730,6 +888,7 @@ mm_bool mm_mcxn947_secure_register_mmio(struct mmio_bus *bus)
+     if (!secure_register_pair(bus, MCXN947_ELS_BASE, &g_sec.els)) return MM_FALSE;
+     if (!secure_register_pair(bus, MCXN947_PKC_BASE, &g_sec.pkc)) return MM_FALSE;
+     if (!secure_register_pair(bus, MCXN947_PRINCE_BASE, &g_sec.prince)) return MM_FALSE;
++    if (!secure_register_s50(bus)) return MM_FALSE;
+     return MM_TRUE;
+ }
+ 
+@@ -739,9 +898,9 @@ void mm_mcxn947_secure_flash_bind(struct mm_memmap *map,
+                                   const struct mm_flash_persist *persist,
+                                   mm_u32 flags)
+ {
+-    (void)map;
+     (void)persist;
+     (void)flags;
++    g_sec.map = map;
+     g_sec.flash = flash;
+     g_sec.flash_size = flash_size;
+     secure_refresh_identity(&g_sec);

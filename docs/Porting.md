@@ -118,7 +118,9 @@ A port supplies:
   the conformance sections, .data and .bss);
 - attribution read-back for every Secure peripheral the SPM uses, panicking
   at boot on a mismatch; and
-- owner lines in `tools/secure_owners.txt` for every object it adds.
+- owner lines for every object it adds, in `tools/secure_owners.txt` or in
+  the port's own `port/<soc>/secure_owners.txt`, which the secure link
+  appends to the shared map.
 
 The build reads `WT_RAM_S_BASE` and the band placement for the linker and
 derives the post-link band check from `memory_map.h`, so no band address is
@@ -237,7 +239,8 @@ worked examples above give a concrete map for each board.
    Makefile selects them from `ARCH` and `TARGET`, and `mk/common.mk` needs
    no change.
 4. Supply startup/vector and linker handling appropriate to the target, and
-   give every object the port links an owner in `tools/secure_owners.txt`.
+   give every object the port links an owner in `tools/secure_owners.txt`
+   or in `port/<soc>/secure_owners.txt`.
 5. Generate the manifest at build time and include its digest in the signed
    Secure image.
 6. Integrate application domains with the architecture's client boundary and

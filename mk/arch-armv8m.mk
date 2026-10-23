@@ -101,10 +101,19 @@ ARCH_LINK_OUTPUTS := $(SECURE_CMSE_IMPLIB)
 ARCH_LDFLAGS = -Wl,--cmse-implib -Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
     $(WT_L3_LINK_ARGS)
 
+# The owner map the post-link layout check reads: the shared map plus the
+# port's own objects (port/<soc>/secure_owners.txt), so a port adds its
+# owners without editing the shared file.
+WT_SECURE_OWNERS := $(BUILD_DIR)/secure_owners.txt
+$(WT_SECURE_OWNERS): $(ROOT)/tools/secure_owners.txt \
+    $(wildcard $(PORT_DIR)/secure_owners.txt) | $(BUILD_DIR)
+	cat $^ > $@
+
 # A changed post-link checker must relink so the image is checked again.
 $(BUILD_DIR)/wolftrust.elf $(ARCH_LINK_OUTPUTS): \
     $(ROOT)/tools/check_no_fp_insn.py $(ROOT)/tools/check_stack_seal.py \
-    $(ROOT)/tools/l3_layout_args.py $(wildcard $(PORT_COMMON_DIR)/*.ld)
+    $(ROOT)/tools/l3_layout_args.py $(wildcard $(PORT_COMMON_DIR)/*.ld) \
+    $(WT_SECURE_OWNERS)
 
 # Whitelist of non-secure-callable veneers the linked secure image may
 # export: exactly the five mediated FF-M gateway entries, pinned by full
@@ -129,7 +138,7 @@ define arch_image_checks
 	fi
 	@python3 $(ROOT)/tools/check_secure_layout.py \
 		--nm $(TOOLPREFIX)nm $(WT_SECURE_LAYOUT_ARGS) $(SECURE_ELF) \
-		--map $(SECURE_MAP) --owners $(ROOT)/tools/secure_owners.txt \
+		--map $(SECURE_MAP) --owners $(WT_SECURE_OWNERS) \
 		$(if $(filter 1,$(WT_CONFORMANCE)),,--production) \
 		--objects-nm $(TOOLPREFIX)gcc-nm --objects $(ALL_SECURE_OBJS)
 	@if grep -E ' (malloc|free|calloc|realloc|_sbrk|_malloc_r|_free_r)$$' \

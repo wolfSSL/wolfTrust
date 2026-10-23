@@ -72,8 +72,8 @@ c99-check:
 
 # FF-M target scenarios for one port under the M33MU emulator, separate from
 # `make test` (host-only). TARGET picks the port (stm32h563 by default,
-# mimxrt700 for the RT700 chain, whose runner builds its own pinned emulator
-# and wolfBoot first stage); WT_TIER=smoke (default) runs the per-PR set,
+# mimxrt700 or mcxn947 for the NXP chains, whose runners build their own
+# pinned emulator and wolfBoot first stage); WT_TIER=smoke (default) runs the per-PR set,
 # WT_TIER=full every scenario, both from tests/target/lib/scenario_matrix.py.
 # The STM32H563 path auto-detects an M33MU (or WT_TARGET_SCENARIOS=1) and skips
 # explicitly otherwise so it never silently passes. Runs inside the
@@ -84,6 +84,8 @@ WT_SCENARIOS = $(shell python3 tests/target/lib/scenario_matrix.py \
 test-target:
 ifeq ($(TARGET),mimxrt700)
 	@tests/target/run_suite.sh rt700-m33mu $(WT_SCENARIOS)
+else ifeq ($(TARGET),mcxn947)
+	@tests/target/run_suite.sh mcxn947-m33mu $(WT_SCENARIOS)
 else
 	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
 		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \

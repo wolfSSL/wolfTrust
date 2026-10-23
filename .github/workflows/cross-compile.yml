@@ -49,7 +49,7 @@ jobs:
           echo "LTO flash: $no_lto_flash -> $lto_flash bytes"
       - name: Verify an unimplemented isolation level stops the build
         run: |
-          for target in stm32h563 mimxrt700; do
+          for target in stm32h563 mimxrt700 mcxn947; do
             for level in 1 2; do
               if make TARGET=$target WT_ISOLATION_LEVEL=$level \
                   BUILD_DIR=build-level-$level secure-image \
@@ -118,4 +118,23 @@ jobs:
             make TARGET=mimxrt700 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
               WT_CONFORMANCE=1 secure-image TOOLPREFIX=arm-none-eabi- \
               BUILD_DIR=build_rt700_conf_$engine
+          done
+      - name: Build the MCXN947 secure image (both engines, default layout)
+        run: |
+          for engine in native hsm; do
+            make TARGET=mcxn947 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
+              secure-image TOOLPREFIX=arm-none-eabi- \
+              BUILD_DIR=build_mcxn947_$engine
+            # The default must leave wolfBoot's 0x400 header before the vectors.
+            vectors="$(arm-none-eabi-objdump -h build_mcxn947_$engine/wolftrust.elf \
+              | awk '$2 == ".vectors" { print $4 }')"
+            test "$vectors" = "10040400" || \
+              { echo "MCXN947 .vectors at 0x$vectors, want 0x10040400"; exit 1; }
+          done
+      - name: Build the MCXN947 conformance secure image (both engines)
+        run: |
+          for engine in native hsm; do
+            make TARGET=mcxn947 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
+              WT_CONFORMANCE=1 secure-image TOOLPREFIX=arm-none-eabi- \
+              BUILD_DIR=build_mcxn947_conf_$engine
           done

@@ -11,13 +11,15 @@ One script does this on every port, with the same commands:
 TARGET=<port> tests/target/provisioning/provisioning_ctrl.sh <command> [state]
 ```
 
-`TARGET` is `stm32h563` (the default) or `mimxrt700`. `help` lists the
-commands and the port's states. Only the state codes and a few device commands
-differ between ports. This page covers the shared flow; each port guide covers
-its states, quirks, and a walkthrough with real output:
+`TARGET` is `stm32h563` (the default), `mimxrt700`, or `mcxn947`. `help` lists
+the commands and the port's states. Only the state codes and a few device
+commands differ between ports. This page covers the shared flow; each port
+guide covers its states, quirks, and a walkthrough with real output:
 
 - [STM32H5 Guide: Provisioning and product state](STM32H5-Guide.md#provisioning-and-product-state)
 - [MIMXRT700 Guide: Provisioning and life cycle](MIMXRT700-Guide.md#provisioning-and-life-cycle)
+- [MCXN947 Guide: Provisioning and life cycle](MCXN947-Guide.md#provisioning-and-life-cycle)
+  (rehearsal only: this port locks nothing)
 
 > **Production locks are permanent.** `lock` is for a production station and a
 > part you intend to ship, never a development board. Every step before it is
@@ -177,21 +179,21 @@ with it can never be updated; a leaked one means they trust whoever holds it.
 
 ## PSA life cycle by port
 
-| PSA life cycle | STM32H5 product state | MIMXRT700 life cycle |
-| --- | --- | --- |
-| `0x1000` ASSEMBLY_AND_TEST | open `0xED` | develop `0x03` |
-| `0x2000` PSA_ROT_PROVISIONING | provisioning `0x17` | develop2 `0x07` |
-| `0x4000` NON_PSA_ROT_DEBUG | tz-closed `0xC6` | in-field, only Non-secure debug open |
-| `0x5000` RECOVERABLE_PSA_ROT_DEBUG | closed, Secure debug open | in-field, Secure debug open |
-| `0x3000` SECURED | closed `0x72`, locked `0x5C` | in-field `0x0F`, in-field-locked `0xCF` |
-| `0x6000` DECOMMISSIONED | none | in-field-return `0x1F` |
-| `0x0000` UNKNOWN | any other value | copies disagree, or an NXP-internal state |
+| PSA life cycle | STM32H5 product state | MIMXRT700 life cycle | MCXN947 life cycle |
+| --- | --- | --- | --- |
+| `0x1000` ASSEMBLY_AND_TEST | open `0xED` | develop `0x03` | oem-open `0x03` |
+| `0x2000` PSA_ROT_PROVISIONING | provisioning `0x17` | develop2 `0x07` | oem-secure-world `0x07` |
+| `0x4000` NON_PSA_ROT_DEBUG | tz-closed `0xC6` | in-field, only Non-secure debug open | oem-closed, only Non-secure debug open |
+| `0x5000` RECOVERABLE_PSA_ROT_DEBUG | closed, Secure debug open | in-field, Secure debug open | oem-closed, Secure debug open |
+| `0x3000` SECURED | closed `0x72`, locked `0x5C` | in-field `0x0F`, in-field-locked `0xCF` | oem-closed `0x0F`, oem-locked `0xCF` |
+| `0x6000` DECOMMISSIONED | none | in-field-return `0x1F` | oem-field-return `0x1F` |
+| `0x0000` UNKNOWN | any other value | copies disagree, or an NXP-internal state | copies disagree, or an NXP-internal state |
 
 ## Environment
 
 | Variable | Meaning |
 | --- | --- |
-| `TARGET` | the port: `stm32h563` (default) or `mimxrt700` |
+| `TARGET` | the port: `stm32h563` (default), `mimxrt700`, or `mcxn947` |
 | `WT_LOCK_CONFIRM=1` | allow a board write; without it `lock` only previews |
 | `WT_PRODUCTION_LOCK=1` | marks a production station; `lock` never writes without it |
 | `WT_FIXTURE_BOUND=1` | the fixture holds one part from rehearsal to lock; needed where the part's identity cannot be read |
@@ -200,6 +202,7 @@ with it can never be updated; a leaked one means they trust whoever holds it.
 | `WT_DA_OBK`, `WT_DA_KEY`, `WT_DA_CERT`, `WT_DA_PWD` | STM32H5 Debug Authentication inputs; a production lock requires all four, none of them ST's sample |
 | `STM32_CLI`, `H5_SERIAL` | STM32H5: STM32CubeProgrammer CLI and the board UART |
 | `RT700_ISP`, `RT700_SPSDK_VENV`, `RT700_GUEST_MASK` | MIMXRT700: blhost ISP connection, SPSDK environment, guests a rehearsal must launch |
+| `MCXN947_SPSDK_VENV`, `MCXN947_GUEST_MASK`, `MCXN947_TARGET` | MCXN947: the pyOCD environment, guests a rehearsal must launch, and the pyOCD target name |
 
 ## Adding a port
 
@@ -222,6 +225,7 @@ cannot weaken them.
 
 ## Testing
 
-`make test` runs `make test-provisioning`: every gate of both ports against
-stub vendor tools, from the generic refusals to the typed acceptance. Nothing
-touches a board; the typed-acceptance cases need `expect` and skip without it.
+`make test` runs `make test-provisioning`: every gate of the three ports
+against stub vendor tools, from the generic refusals to the typed acceptance.
+Nothing touches a board; the typed-acceptance cases need `expect` and skip
+without it.

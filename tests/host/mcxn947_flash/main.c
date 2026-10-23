@@ -18,14 +18,9 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Host suite for the MCXN947 ROM flash driver and the wolfHSM store on top
- * of it. The model is the part's ECC flash: 16-byte phrases that bits can
- * only be cleared in, and that a second program of (before an erase) leaves
- * with an invalid ECC, counted here as a double program. The real driver
- * (port/mcxn947/rom_flash.c) runs against a mock of the boot ROM's flash
- * API tree; the wolfHSM NVM lifecycle then runs over it with the port's
- * 16-byte unit, and, built with the 8-byte default, over a raw backend that
- * shows two units sharing a phrase being written at different times. */
+/* Host suite for the MCXN947 ROM flash driver and the wolfHSM store over a
+ * model of the part's ECC flash (a 16-byte phrase programmed twice between
+ * erases is counted as a double program); built per wolfHSM unit size. */
 
 #include <stdint.h>
 #include <stdio.h>

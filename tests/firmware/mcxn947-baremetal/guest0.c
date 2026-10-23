@@ -18,12 +18,9 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Bare-metal Non-secure bring-up guest for the MCXN947 CPU0. wolfBoot
- * authenticates the wolfTrust Secure image, which launches this guest in the
- * Non-secure state; the guest drives the WolfTrust_FFM_* veneers to prove the
- * Secure runtime booted and services a Non-secure PSA client. Progress lands
- * in a debugger-readable mailbox at the base of guest RAM and, best effort,
- * on LPUART4 (the FRDM board's MCU-Link console the first loader set up). */
+/* Bare-metal Non-secure bring-up guest for the MCXN947 CPU0: drives the
+ * WolfTrust_FFM_* veneers to prove the Secure runtime serves a Non-secure PSA
+ * client, reporting in a mailbox at the base of guest RAM and on LPUART4. */
 
 #include <stddef.h>
 #include <stdint.h>
@@ -92,10 +89,9 @@ static void guest0_periph_probe(volatile wt_guest0_mailbox_t* mb)
 #endif
 
 #if defined(WT_SAU_PROBE)
-/* Isolation probe: GUEST_PROBE_ADDR is the peer guest's RAM, Secure to the SAU
- * while this guest runs. A privileged guest can switch off the Non-secure MPU
- * wolfTrust programs for it, so attribution alone must stop the store. Latch:
- * 1 attempted (the store faulted), 2 blocked, 3 leaked. */
+/* Isolation probe: GUEST_PROBE_ADDR is the peer's RAM, Secure to the SAU
+ * while this guest runs; with the guest's own MPU off, attribution alone
+ * must stop the store. Latch: 1 attempted (faulted), 2 blocked, 3 leaked. */
 #define GUEST0_MPU_CTRL          (*(volatile uint32_t*)0xE000ED94u)
 #define GUEST0_PROBE_ATTEMPTED   1u
 #define GUEST0_PROBE_BLOCKED     2u

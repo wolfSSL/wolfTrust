@@ -26,17 +26,15 @@
 
 #include <string.h>
 
-/* Pinned guest-measurement slot. The image-assembly patcher locates it by
- * magic inside wolftrust.bin, stamps the guest digests, and only then is the
- * image signed for wolfBoot, so the pins share the image's root of trust.
- * An unpatched slot advertises zero records, which fails launch closed. */
+/* Pinned guest-measurement slot: the image patcher stamps the guest digests
+ * by magic before wolfBoot signs the image, so the pins share its root of
+ * trust; an unpatched slot advertises zero records and fails launch closed. */
 #define WT_GUEST_MEAS_SLOT_MAGIC_LEN 16u
 #define WT_GUEST_MEAS_SLOT_UNPATCHED 0xFFFFFFFFu
 
-/* Enforcement the MCXN947 port provides (WT-PORT-0008). The fabric filter is
- * the per-dispatch SAU window, as on the MIMXRT700: it isolates CPU0's guests
- * from each other and says nothing about CPU1, DMA or any other bus master,
- * which the TRDC and AHB secure controller are not yet programmed to fence. */
+/* Enforcement the port provides (WT-PORT-0008): the fabric filter is the
+ * per-dispatch SAU window, as on the MIMXRT700, isolating CPU0's guests only;
+ * CPU1, DMA and other bus masters are not fenced (no TRDC/AHBSC rules yet). */
 #define WT_MCXN947_PORT_CAPABILITIES \
     (WT_PORT_CAPABILITY_VECTOR_READ_ALIAS | \
      WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING | \

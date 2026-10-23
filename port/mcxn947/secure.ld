@@ -35,10 +35,9 @@ SECTIONS {
     KEEP(*(.vectors))
   } > FLASH
 
-  /* Linker-synthesized SG veneers land here (--cmse-implib) in the image's
-   * second 1 KiB, the SAU NSC window (WT_NSC_* in memory_map.h); the veneer
-   * bodies live in .text. The dot assignment keeps the section address
-   * assigned even when no input object carries .gnu.sgstubs content. */
+  /* Linker-synthesized SG veneers (--cmse-implib) in the image's second
+   * 1 KiB, the SAU NSC window (WT_NSC_* in memory_map.h); the explicit
+   * address keeps the section placed even with no .gnu.sgstubs input. */
   .gnu.sgstubs (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE + 0x400) : {
     *(.gnu.sgstubs)
     *(.gnu.sgstubs*)
@@ -80,12 +79,9 @@ SECTIONS {
          "secure image overflows secure flash region")
   ASSERT(SIZEOF(.gnu.sgstubs) + SIZEOF(.nsc) <= 0x400, "NSC window overflow")
 
-  /* Claim the conformance partitions' .data/.bss before the general rules so
-   * they land in CONFDATA, not shared SPM RAM. Loaded from flash and copied by
-   * Reset_Handler alongside .data; empty (zero size) in non-conformance builds.
-   * The server and driver partitions each get a 32-byte-aligned private band
-   * the SVC gate denies to every other partition; their .bss lands in the
-   * loaded section so each band stays one contiguous MPU carve. */
+  /* Conformance partition .data/.bss, claimed before the general rules so it
+   * lands in CONFDATA (empty outside conformance builds); the server and
+   * driver bands stay contiguous MPU carves the gate denies to other SPs. */
   .conf_data : {
     . = ALIGN(4);
     _sconfdata = .;

@@ -19,10 +19,8 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 # MCXN947 (FRDM-MCXN947) port for provisioning_ctrl.sh: the OTP life cycle
-# the ROM reflects into SYSCON, rehearsed by handing wolfTrust the target
-# state's PSA life cycle in the boot handoff record (a reset undoes it).
-# No permanent write is implemented: every lock is refused. Sourced, never
-# run. See docs/MCXN947-Guide.md.
+# the ROM reflects into SYSCON, rehearsed in the boot handoff record; no
+# permanent write is implemented. Sourced, never run. See docs/MCXN947-Guide.md.
 # shellcheck disable=SC2034,SC2154  # PORT_* are read, and $cur/$PENDING set, by the main script
 
 # A port file only works inside provisioning_ctrl.sh, which holds the gates.

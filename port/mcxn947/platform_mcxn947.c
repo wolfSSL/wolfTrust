@@ -51,11 +51,9 @@
 static volatile uint32_t g_secure_service_depth;
 static volatile uint32_t g_hsm_wait_skip_count;
 
-/* The IDAU already marks every bit-28-clear alias Non-secure; the SAU must
- * agree or the more secure attribute wins. The guest RAM extent is NOT a
- * static Non-secure region: each dispatch marks only the arriving guest's
- * window Non-secure through the dynamic regions below, so the peer's window
- * stays Secure by SAU default while it runs, as on the MIMXRT700. */
+/* The SAU must agree with the IDAU or the more secure attribute wins. Guest
+ * RAM is not a static region: each dispatch opens only the arriving guest's
+ * window (dynamic regions below), so the peer's stays Secure while it runs. */
 static const wt_armv8m_sau_region_t g_sau_regions[] = {
     { WT_GUEST0_FLASH_BASE,
       WT_GUEST1_FLASH_BASE + WT_GUEST1_FLASH_SIZE - 1u, false },
@@ -163,11 +161,9 @@ void wt_platform_launch_debug(int code, uint32_t guest)
 }
 #endif
 
-/* SAU guest-isolation back-end. close_all disables the dynamic regions so the
- * whole guest RAM extent falls to the SAU default (Secure); open_window marks
- * one guest window Non-secure in the next free dynamic region. A Non-secure
- * store into the peer's now-Secure window raises a SecureFault the monitor
- * contains. Mirrors the STM32H5 GTZC path through the shared window helper. */
+/* SAU guest-isolation back-end: close_all drops every dynamic region (guest
+ * RAM falls to the SAU default, Secure), open_window marks one window
+ * Non-secure, so a store into the peer's window faults and is contained. */
 static void wt_sau_close_all(void)
 {
     uint32_t rnr;

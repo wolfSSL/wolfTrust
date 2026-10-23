@@ -373,12 +373,9 @@ int wt_hsm_flash_format(void)
     return wt_hsm_flash_erase(&g_hsm_flash_ctx, 0u, g_hsm_flash_cfg.size);
 }
 
-/* SERVICE_FWU staging into the wolfBoot update partition: the FWU partition
- * erases each target sector lazily, programs the candidate through the ROM
- * API, and verifies every block against the Secure alias. Staging must be
- * contiguous from offset 0, so a finished candidate has no unwritten gap.
- * arm() programs wolfBoot's update trigger in the trailer so the next boot
- * swaps; the swapped image is still gated by authenticated launch. */
+/* SERVICE_FWU staging into the wolfBoot update partition, contiguous from
+ * offset 0 with each sector erased lazily; arm() programs wolfBoot's update
+ * trigger in the trailer, and the swapped image still faces launch verify. */
 
 /* Erased high-water mark: every sector below it is blank or holds staged
  * data and is never erased again, whatever the partition's sector count. */

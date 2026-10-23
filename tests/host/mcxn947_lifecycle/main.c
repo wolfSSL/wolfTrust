@@ -19,9 +19,8 @@
  */
 
 /* The MCXN947 life cycle mapping wolfBoot hands wolfTrust, tested from the
- * copy inside the carried wolfBoot patch: only an agreeing OEM life cycle
- * maps to a PSA state, no NXP-internal, blank or shredded state does, and no
- * fault or debug state reads as SECURED. */
+ * copy in the carried patch: only an agreeing OEM state maps to PSA, and no
+ * fault or open-debug state reads as SECURED. */
 
 #include "mcxn_lifecycle.h"
 

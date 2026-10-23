@@ -84,9 +84,8 @@
 #define WT_GUEST_RAM_SIZE        0x00018000u
 
 /* Secure runtime RAM: the top 220 KiB of RAMA-H through its Secure alias,
- * 4 KiB above the wolfBoot handoff record (a 56-byte record; the rest of
- * that page is scratch the core clears once the record is consumed). The
- * isolation level 3 bands are offsets from this base. */
+ * one 4 KiB page above the wolfBoot handoff record (56 bytes, the page is
+ * cleared once consumed); the level 3 bands are offsets from this base. */
 #define WT_RAM_S_BASE            0x30031000u
 #define WT_RAM_S_SIZE            0x00037000u
 #define WT_BOOT_HANDOFF_ADDRESS  0x30030000u

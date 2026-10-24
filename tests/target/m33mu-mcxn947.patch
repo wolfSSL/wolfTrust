@@ -1,20 +1,40 @@
 diff --git a/cpu/mcxn947/mcxn947_mmio.c b/cpu/mcxn947/mcxn947_mmio.c
-index 831de76..875d3cf 100644
+index 831de76..e279d77 100644
 --- a/cpu/mcxn947/mcxn947_mmio.c
 +++ b/cpu/mcxn947/mcxn947_mmio.c
-@@ -104,6 +104,8 @@
+@@ -4,6 +4,7 @@
+  */
+ #include <string.h>
+ #include <stdio.h>
++#include <stdlib.h>
+ #include "mcxn947/mcxn947_mmio.h"
+ #include "mcxn947/mcxn947_romapi.h"
+ #include "mcxn947/mcxn947_secure.h"
+@@ -102,8 +103,12 @@
+ 
+ /* SYSCON register offsets */
  #define SYSCON_PRESETCTRL0 0x100u
++#define SYSCON_PRESETCTRL2 0x108u
  #define SYSCON_AHBCLKCTRL0 0x200u
++#define SYSCON_AHBCLKCTRL2 0x208u
  #define SYSCON_AHBCLKCTRL1 0x204u
 +#define SYSCON_ELS_OTP_LC_STATE 0x980u
 +#define SYSCON_ELS_OTP_LC_STATE_DP 0x984u
  
  struct gpio_bank {
      mm_u32 regs[GPIO_SIZE / 4];
-@@ -676,6 +678,10 @@ void mm_mcxn947_mmio_reset(void)
+@@ -674,8 +679,16 @@ void mm_mcxn947_mmio_reset(void)
+     g_gpio_nvic = 0;
+ 
      /* Initialize SYSCON reset states */
-     syscon.regs[SYSCON_AHBCLKCTRL0 / 4] = 0x021FFE603u; /* + ELS clock bit */
-     syscon.regs[SYSCON_PRESETCTRL0 / 4] = 0x021FFE000u; /* + ELS reset released */
+-    syscon.regs[SYSCON_AHBCLKCTRL0 / 4] = 0x021FFE603u; /* + ELS clock bit */
+-    syscon.regs[SYSCON_PRESETCTRL0 / 4] = 0x021FFE000u; /* + ELS reset released */
++    syscon.regs[SYSCON_AHBCLKCTRL0 / 4] = 0x021FFE603u;
++    syscon.regs[SYSCON_PRESETCTRL0 / 4] = 0x021FFE000u;
++    /* The ROM leaves the ELS (CSS, AHBCLKCTRL2/PRESETCTRL2 bit 18) clocked
++     * and out of reset. */
++    syscon.regs[SYSCON_AHBCLKCTRL2 / 4] = (1u << 18);
++    syscon.regs[SYSCON_PRESETCTRL2 / 4] = (1u << 18);
 +    /* ELS_OTP_LC_STATE and its duplicate: OEM_OPEN (0x03), the life cycle a
 +     * FRDM board ships in, as the ROM reflects it from OTP. */
 +    syscon.regs[SYSCON_ELS_OTP_LC_STATE / 4] = 0x03u;
@@ -22,6 +42,17 @@ index 831de76..875d3cf 100644
  
      scg.regs[SCG_VERID / 4u] = 0x00000000u;
      scg.regs[SCG_PARAM / 4u] = 0x000001FEu;
+@@ -774,6 +787,10 @@ static mm_bool syscon_write(void *opaque, mm_u32 offset, mm_u32 size_bytes, mm_u
+     if (s == 0 || size_bytes == 0 || size_bytes > 4) return MM_FALSE;
+     if ((offset + size_bytes) > SYSCON_SIZE) return MM_FALSE;
+     if (size_bytes != 4) return MM_FALSE;
++    if (offset < 0x250u && getenv("M33MU_MCXN947_SYSCON_TRACE")) {
++        printf("[SYSCON] write offset=0x%03lx value=0x%08lx\n",
++               (unsigned long)offset, (unsigned long)value);
++    }
+     s->regs[offset / 4] = value;
+     return MM_TRUE;
+ }
 diff --git a/cpu/mcxn947/mcxn947_romapi.c b/cpu/mcxn947/mcxn947_romapi.c
 index e98f570..3ac8b98 100644
 --- a/cpu/mcxn947/mcxn947_romapi.c
@@ -79,7 +110,7 @@ index e98f570..3ac8b98 100644
      }
      romapi_persist_flush(flash_off, len);
 diff --git a/cpu/mcxn947/mcxn947_secure.c b/cpu/mcxn947/mcxn947_secure.c
-index 148ef22..3f1941c 100644
+index 148ef22..d15bd66 100644
 --- a/cpu/mcxn947/mcxn947_secure.c
 +++ b/cpu/mcxn947/mcxn947_secure.c
 @@ -26,6 +26,36 @@
@@ -141,7 +172,7 @@ index 148ef22..3f1941c 100644
      mm_u8 *flash;
      mm_u32 flash_size;
      mm_u32 lifecycle;
-@@ -686,6 +724,125 @@ static mm_bool secure_region_write(void *opaque, mm_u32 offset, mm_u32 size_byte
+@@ -686,6 +724,141 @@ static mm_bool secure_region_write(void *opaque, mm_u32 offset, mm_u32 size_byte
      return MM_FALSE;
  }
  
@@ -156,6 +187,10 @@ index 148ef22..3f1941c 100644
 +    if (g_sec.map == 0 || len == 0u || len > S50_RND_MAX ||
 +        (len % 4u) != 0u || (addr % 4u) != 0u) {
 +        s->err_status |= S50_ERR_OPN;
++        if (getenv("M33MU_S50_TRACE")) {
++            printf("[S50] RND_REQ refused addr=0x%08lx len=%lu\n",
++                   (unsigned long)addr, (unsigned long)len);
++        }
 +        return;
 +    }
 +    mm_mcxn947_secure_rng_fill(block, len);
@@ -163,8 +198,16 @@ index 148ef22..3f1941c 100644
 +        if (!mm_memmap_write(g_sec.map, MM_SECURE, addr + i, 4u,
 +                             read32le(block + i))) {
 +            s->err_status |= S50_ERR_OPN;
++            if (getenv("M33MU_S50_TRACE")) {
++                printf("[S50] RND_REQ DMA write failed addr=0x%08lx\n",
++                       (unsigned long)(addr + i));
++            }
 +            return;
 +        }
++    }
++    if (getenv("M33MU_S50_TRACE")) {
++        printf("[S50] RND_REQ addr=0x%08lx len=%lu ok\n",
++               (unsigned long)addr, (unsigned long)len);
 +    }
 +}
 +
@@ -182,6 +225,10 @@ index 148ef22..3f1941c 100644
 +    }
 +    if (!s->enabled || !mm_mcxn947_secure_els_clock_ready()) {
 +        s->err_status |= S50_ERR_OPN;
++        if (getenv("M33MU_S50_TRACE")) {
++            printf("[S50] START refused enabled=%d clock_ready=%d\n",
++                   (int)s->enabled, (int)mm_mcxn947_secure_els_clock_ready());
++        }
 +        return;
 +    }
 +    if (cmd == S50_CMD_RND_REQ) {
@@ -267,7 +314,7 @@ index 148ef22..3f1941c 100644
  static mm_bool secure_register_pair(struct mmio_bus *bus, mm_u32 base,
                                      struct mcxn947_secure_regs *regs)
  {
-@@ -710,6 +867,7 @@ void mm_mcxn947_secure_reset(void)
+@@ -710,6 +883,7 @@ void mm_mcxn947_secure_reset(void)
      secure_reset_regs(&g_sec.els);
      secure_reset_regs(&g_sec.pkc);
      secure_reset_regs(&g_sec.prince);
@@ -275,7 +322,7 @@ index 148ef22..3f1941c 100644
      g_sec.puf.status |= SEC_STATUS_DONE;
      g_sec.otpc.status |= SEC_STATUS_DONE;
      g_sec.els.status |= SEC_STATUS_DONE;
-@@ -730,6 +888,7 @@ mm_bool mm_mcxn947_secure_register_mmio(struct mmio_bus *bus)
+@@ -730,6 +904,7 @@ mm_bool mm_mcxn947_secure_register_mmio(struct mmio_bus *bus)
      if (!secure_register_pair(bus, MCXN947_ELS_BASE, &g_sec.els)) return MM_FALSE;
      if (!secure_register_pair(bus, MCXN947_PKC_BASE, &g_sec.pkc)) return MM_FALSE;
      if (!secure_register_pair(bus, MCXN947_PRINCE_BASE, &g_sec.prince)) return MM_FALSE;
@@ -283,7 +330,7 @@ index 148ef22..3f1941c 100644
      return MM_TRUE;
  }
  
-@@ -739,9 +898,9 @@ void mm_mcxn947_secure_flash_bind(struct mm_memmap *map,
+@@ -739,9 +914,9 @@ void mm_mcxn947_secure_flash_bind(struct mm_memmap *map,
                                    const struct mm_flash_persist *persist,
                                    mm_u32 flags)
  {
@@ -294,3 +341,35 @@ index 148ef22..3f1941c 100644
      g_sec.flash = flash;
      g_sec.flash_size = flash_size;
      secure_refresh_identity(&g_sec);
+@@ -778,10 +953,11 @@ void mm_mcxn947_secure_rng_fill(mm_u8 *out, mm_u32 len)
+     }
+ }
+ 
++/* The ELS (CSS) gate is AHBCLKCTRL2/PRESETCTRL2 bit 18 (SDK kCLOCK_Css). */
+ mm_bool mm_mcxn947_secure_els_clock_ready(void)
+ {
+-    return mm_mcxn947_syscon_clock_bit_on(0x200u, 25u) &&
+-           mm_mcxn947_syscon_reset_bit_released(0x100u, 25u);
++    return mm_mcxn947_syscon_clock_bit_on(0x208u, 18u) &&
++           mm_mcxn947_syscon_reset_bit_released(0x108u, 18u);
+ }
+ 
+ mm_bool mm_mcxn947_secure_rom_call_allowed(enum mm_sec_state sec)
+diff --git a/src/main.c b/src/main.c
+index aad0697..9457fa4 100644
+--- a/src/main.c
++++ b/src/main.c
+@@ -6382,8 +6382,11 @@ int main(int argc, char **argv)
+             mm_prot_add_region(&prot, cfg.flash_base_ns, cfg.flash_size_ns,
+                                MM_PROT_PERM_READ | MM_PROT_PERM_WRITE | MM_PROT_PERM_EXEC, MM_SECURE);
+             if (cpu_name != 0 && strcmp(cpu_name, "mcxn947") == 0) {
+-                mm_prot_add_region(&prot, 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_SECURE);
+-                mm_prot_add_region(&prot, 0x1303fc00u, 0x00000200u, MM_PROT_PERM_READ, MM_NONSECURE);
++                /* MCXN947 ROM at 0x03000000 (NS alias) / 0x13000000 (S alias):
++                 * the ROM API stubs are fetched from it, so without an
++                 * executable region every ROM call left IACCVIOL in CFSR. */
++                mm_prot_add_region(&prot, 0x03000000u, 0x00040000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_NONSECURE);
++                mm_prot_add_region(&prot, 0x13000000u, 0x00040000u, MM_PROT_PERM_READ | MM_PROT_PERM_EXEC, MM_SECURE);
+             }
+             if (cpu_name != 0 && strcmp(cpu_name, "lpc55s69") == 0) {
+                 /* LPC55S69 ROM is at 0x03000000 (NS alias) / 0x13000000 (S alias).

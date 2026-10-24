@@ -13,7 +13,11 @@ TARGET ?= mcxn947
 ARCH ?= armv8m
 
 BUILD ?= build
-TOP_BUILD_DIR := $(ROOT)/build
+# The Secure image's build directory, relative to the repository root; the
+# hardware runner points both at its own tree so an emulator run can share
+# the checkout.
+WT_BUILD_DIR ?= build
+TOP_BUILD_DIR := $(ROOT)/$(WT_BUILD_DIR)
 SECURE_CMSE_IMPLIB := $(TOP_BUILD_DIR)/secure_cmse_implib.o
 
 # The same guest links into both Non-secure windows (port/mcxn947/memory_map.h);
@@ -63,7 +67,7 @@ all: $(BUILD)/guest0.bin $(BUILD)/guest1.bin
 # relink the image in another mode and drop the wolftrust.bin the runners sign.
 $(SECURE_CMSE_IMPLIB): FORCE
 	$(MAKE) -C $(ROOT) ARCH=$(ARCH) TARGET=$(TARGET) TOOLPREFIX=$(TOOLPREFIX) \
-	    build/secure_cmse_implib.o
+	    BUILD_DIR=$(WT_BUILD_DIR) $(WT_BUILD_DIR)/secure_cmse_implib.o
 
 $(BUILD)/guest0.o: guest0.c | $(BUILD)
 	$(CC) $(CFLAGS) $(GUEST0_CFLAGS) -c -o $@ $<

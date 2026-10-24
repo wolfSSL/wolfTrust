@@ -7,6 +7,8 @@ application uses a PKCS#11 proxy, while the real wolfPKCS11 token runs in an
 isolated provider. PKCS#11 is a direct application interface to wolfTrust. It
 does not use the PSA Crypto API and it does not depend on TPM support.
 
+The HSM backend follows this path:
+
 ```text
 Application
   PKCS#11 C_* API

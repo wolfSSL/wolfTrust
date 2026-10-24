@@ -60,9 +60,11 @@
 #endif
 
 /* Flash geometry: 8 KiB erase sectors, 16-byte ECC phrases that are written
- * once per erase. Every store below the Secure image lives in bank 1, so the
- * image keeps executing from bank 0 while the ROM API programs them. */
+ * once per erase, 128-byte pages the ROM API programs from. Every store below
+ * the Secure image lives in bank 1, so the image keeps executing from bank 0
+ * while the ROM API programs them. */
 #define WT_FLASH_SECTOR_SIZE       0x00002000u
+#define WT_FLASH_PAGE_SIZE         0x00000080u
 #define WT_FLASH_PHRASE_SIZE       0x00000010u
 #define WT_FLASH_BANK_SIZE         0x00100000u
 #define WT_HSM_NVM_FLASH_BASE_NS   0x001E0000u

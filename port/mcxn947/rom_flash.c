@@ -197,9 +197,20 @@ int wt_rom_flash_blank(uint32_t offset, uint32_t size)
     return WT_ROM_FLASH_OK;
 }
 
+/* The ROM programs only from a page base (status 101 on silicon for any other
+ * start) and an all-ones phrase changes nothing, so a phrase is programmed
+ * from its page base behind all-ones padding, one page per ROM call. */
 int wt_rom_flash_program(uint32_t offset, const uint8_t *data, uint32_t size)
 {
+    uint8_t page[WT_FLASH_PAGE_SIZE]
+        __attribute__((aligned(WT_FLASH_PHRASE_SIZE)));
+    volatile uint8_t *wipe = page;
     uint32_t primask;
+    uint32_t done = 0u;
+    uint32_t base;
+    uint32_t head;
+    uint32_t chunk;
+    uint32_t i;
     int ret;
 
     if (data == NULL ||
@@ -210,12 +221,28 @@ int wt_rom_flash_program(uint32_t offset, const uint8_t *data, uint32_t size)
     if (ret == WT_ROM_FLASH_OK) {
         ret = wt_rom_flash_blank(offset, size);
     }
-    if (ret == WT_ROM_FLASH_OK) {
+    while (ret == WT_ROM_FLASH_OK && done < size) {
+        base = (offset + done) & ~(WT_FLASH_PAGE_SIZE - 1u);
+        head = (offset + done) - base;
+        chunk = WT_FLASH_PAGE_SIZE - head;
+        if (chunk > size - done) {
+            chunk = size - done;
+        }
+        for (i = 0u; i < head; i++) {
+            page[i] = 0xFFu;
+        }
+        for (i = 0u; i < chunk; i++) {
+            page[head + i] = data[done + i];
+        }
         primask = wt_rom_flash_irq_mask();
         ret = wt_rom_flash_status(wt_rom_flash_api()->program(
-                g_rom_flash_config, offset, (uint8_t *)(uintptr_t)data, size));
+                g_rom_flash_config, base, page, head + chunk));
         wt_rom_flash_cache_clear();
         wt_rom_flash_irq_restore(primask);
+        done += chunk;
+    }
+    for (i = 0u; i < WT_FLASH_PAGE_SIZE; i++) {
+        wipe[i] = 0u;
     }
     return ret;
 }

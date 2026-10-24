@@ -22,6 +22,62 @@ index 831de76..875d3cf 100644
  
      scg.regs[SCG_VERID / 4u] = 0x00000000u;
      scg.regs[SCG_PARAM / 4u] = 0x000001FEu;
+diff --git a/cpu/mcxn947/mcxn947_romapi.c b/cpu/mcxn947/mcxn947_romapi.c
+index e98f570..3ac8b98 100644
+--- a/cpu/mcxn947/mcxn947_romapi.c
++++ b/cpu/mcxn947/mcxn947_romapi.c
+@@ -112,8 +112,11 @@
+ 
+ #define ROMAPI_FLASH_ERASE_KEY 0x6b65666cu
+ 
++#define ROMAPI_FLASH_PAGE_SIZE 128u
++
+ #define ROMAPI_STATUS_FLASH_SUCCESS 0u
+ #define ROMAPI_STATUS_FLASH_INVALID_ARGUMENT 4u
++#define ROMAPI_STATUS_FLASH_ALIGNMENT_ERROR 101u
+ #define ROMAPI_STATUS_FLASH_ADDRESS_ERROR 102u
+ #define ROMAPI_STATUS_FLASH_ACCESS_ERROR 103u
+ #define ROMAPI_STATUS_FLASH_ERASE_KEY_ERROR 107u
+@@ -320,6 +323,23 @@ static mm_bool romapi_memcpy_from_map(const struct mm_memmap *map, enum mm_sec_s
+     return MM_TRUE;
+ }
+ 
++/* Programming only clears bits, so an all-ones phrase leaves the array as it
++ * is; that is how a phrase gets programmed from its page base on silicon. */
++static mm_bool romapi_flash_program_from_map(const struct mm_memmap *map, enum mm_sec_state sec,
++                                             mm_u32 dst, mm_u32 src, mm_u32 len, struct mm_memmap *wmap)
++{
++    mm_u32 i;
++    mm_u8 b;
++    mm_u8 old;
++    if (map == 0 || wmap == 0) return MM_FALSE;
++    for (i = 0; i < len; ++i) {
++        if (!romapi_read_mem8(map, sec, src + i, &b)) return MM_FALSE;
++        if (!romapi_read_mem8(map, sec, dst + i, &old)) return MM_FALSE;
++        if (!romapi_write_mem8(wmap, sec, dst + i, (mm_u8)(old & b))) return MM_FALSE;
++    }
++    return MM_TRUE;
++}
++
+ static mm_bool romapi_memset_map(struct mm_memmap *map, enum mm_sec_state sec, mm_u32 dst, mm_u8 value, mm_u32 len)
+ {
+     mm_u32 i;
+@@ -493,10 +513,14 @@ static mm_u32 romapi_flash_program(struct mm_cpu *cpu, struct mm_memmap *map)
+     src = cpu->r[2];
+     len = cpu->r[3];
+     if (len == 0u) return ROMAPI_STATUS_FLASH_SUCCESS;
++    /* The ROM takes a program only from a page base (status 101 on silicon). */
++    if ((start % ROMAPI_FLASH_PAGE_SIZE) != 0u || (len % 4u) != 0u) {
++        return ROMAPI_STATUS_FLASH_ALIGNMENT_ERROR;
++    }
+     if (!romapi_flash_offset(map, start, len, &flash_off)) {
+         return ROMAPI_STATUS_FLASH_ADDRESS_ERROR;
+     }
+-    if (!romapi_memcpy_from_map(map, cpu->sec_state, start, src, len, map)) {
++    if (!romapi_flash_program_from_map(map, cpu->sec_state, start, src, len, map)) {
+         return ROMAPI_STATUS_FLASH_ACCESS_ERROR;
+     }
+     romapi_persist_flush(flash_off, len);
 diff --git a/cpu/mcxn947/mcxn947_secure.c b/cpu/mcxn947/mcxn947_secure.c
 index 148ef22..3f1941c 100644
 --- a/cpu/mcxn947/mcxn947_secure.c

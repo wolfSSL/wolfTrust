@@ -100,10 +100,12 @@ static const wt_armv8m_mpu_region_t g_mpu_s_whitelist[] = {
       WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
       WT_MPU_RLAR_ATTRIDX_NORMAL },
 
-    /* Region 4: flash NS alias, read-only XN for guest image metadata. */
+    /* Region 4: flash NS alias, XN. Writable because the ROM flash driver
+     * programs a phrase by storing it through this alias for the FMU to
+     * capture; outside a ROM program sequence a store cannot alter flash. */
     { WT_FLASH_NS_BASE, WT_FLASH_NS_BASE + WT_FLASH_SIZE - 1u,
-      WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
-      WT_MPU_RLAR_ATTRIDX_NORMAL },
+      WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
+      WT_MPU_RLAR_ATTRIDX_NOCACHE },
 
     /* Region 5: peripheral aperture, both aliases (SYSCON, FMU, ELS,
      * LPUART, TRDC, AHBSC). */

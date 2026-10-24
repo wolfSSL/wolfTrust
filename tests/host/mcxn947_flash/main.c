@@ -19,8 +19,8 @@
  */
 
 /* Host suite for the MCXN947 ROM flash driver and the wolfHSM store over a
- * model of the part's ECC flash (a 16-byte phrase programmed twice between
- * erases is counted as a double program); built per wolfHSM unit size. */
+ * model of the ECC flash and its ROM (page-based programs, all-ones phrases
+ * untouched, a phrase programmed twice between erases counted); per unit. */
 
 #include <stdint.h>
 #include <stdio.h>
@@ -59,6 +59,7 @@ typedef struct mock_api_tree {
 } mock_api_tree_t;
 
 #define PHRASE          WT_FLASH_PHRASE_SIZE
+#define PAGE            WT_FLASH_PAGE_SIZE
 #define SECTOR          WT_FLASH_SECTOR_SIZE
 #define PHRASES         (WT_FLASH_SIZE / PHRASE)
 #define ERASE_KEY       0x6B65666Cu
@@ -76,6 +77,7 @@ static uint8_t g_programmed[PHRASES];
 static uint32_t g_double_programs;
 static uint32_t g_first_double_offset;
 static uint32_t g_program_calls;
+static uint32_t g_unaligned_programs;
 static uint32_t g_erase_calls;
 static uint32_t g_verify_erase_calls;
 static uint32_t g_init_calls;
@@ -99,16 +101,31 @@ static void check(int cond, const char *name)
     }
 }
 
-/* Program as the array does: bits clear, and a phrase written twice since
- * its erase no longer carries a valid ECC. */
+/* Program as the array does: bits clear, an all-ones phrase changes nothing,
+ * and a phrase written twice since its erase no longer carries a valid ECC. */
 static void model_program(uint32_t start, const uint8_t *src, uint32_t len)
 {
     uint32_t first = start / PHRASE;
     uint32_t last = (start + len - 1u) / PHRASE;
+    uint32_t lo;
+    uint32_t hi;
     uint32_t p;
     uint32_t i;
+    int touched;
 
     for (p = first; p <= last; p++) {
+        lo = (p * PHRASE > start) ? p * PHRASE : start;
+        hi = ((p + 1u) * PHRASE < start + len) ? (p + 1u) * PHRASE :
+                                                 start + len;
+        touched = 0;
+        for (i = lo; i < hi; i++) {
+            if (src[i - start] != 0xFFu) {
+                touched = 1;
+            }
+        }
+        if (touched == 0) {
+            continue;
+        }
         if (g_programmed[p] != 0u) {
             if (g_double_programs == 0u) {
                 g_first_double_offset = p * PHRASE;
@@ -177,8 +194,12 @@ static int32_t mock_program(void *config, uint32_t start, uint8_t *src,
 {
     (void)config;
     g_program_calls++;
-    if ((start % 4u) != 0u || (length % 4u) != 0u ||
-            start + length > WT_FLASH_SIZE) {
+    /* As on silicon: only a page base is accepted as the start. */
+    if ((start % PAGE) != 0u) {
+        g_unaligned_programs++;
+        return STATUS_ALIGN;
+    }
+    if ((length % 4u) != 0u || start + length > WT_FLASH_SIZE) {
         return STATUS_ALIGN;
     }
     if (g_program_status != STATUS_OK) {
@@ -316,6 +337,31 @@ static void test_driver(void)
           wt_rom_flash_last_status() == 105u,
           "a ROM erase failure is reported with its status");
     g_erase_status = STATUS_OK;
+
+    check(wt_rom_flash_erase(NVM_OFF, SECTOR) == WT_ROM_FLASH_OK,
+          "the sector erases before the page checks");
+    check(g_mock_api.program(NULL, NVM_OFF + PHRASE, phrase, PHRASE) ==
+          STATUS_ALIGN, "the model refuses a start off a page base");
+    g_program_calls = 0u;
+    g_unaligned_programs = 0u;
+    check(wt_rom_flash_program(NVM_OFF + 3u * PHRASE, phrase, PHRASE) ==
+          WT_ROM_FLASH_OK && g_program_calls == 1u &&
+          g_unaligned_programs == 0u,
+          "a lone phrase is programmed by one page-based ROM call");
+    check(wt_rom_flash_blank(NVM_OFF, 3u * PHRASE) == WT_ROM_FLASH_OK &&
+          memcmp(g_flash + NVM_OFF + 3u * PHRASE, phrase, PHRASE) == 0,
+          "the all-ones padding left the phrases before it blank");
+    check(wt_rom_flash_program(NVM_OFF + 4u * PHRASE, two, PHRASE) ==
+          WT_ROM_FLASH_OK && g_double_programs == 0u &&
+          memcmp(g_flash + NVM_OFF + 3u * PHRASE, phrase, PHRASE) == 0 &&
+          memcmp(g_flash + NVM_OFF + 4u * PHRASE, two, PHRASE) == 0,
+          "padding over a programmed phrase is not a program of it");
+    g_program_calls = 0u;
+    check(wt_rom_flash_program(NVM_OFF + PAGE - PHRASE, two, sizeof(two)) ==
+          WT_ROM_FLASH_OK && g_program_calls == 2u &&
+          g_unaligned_programs == 0u &&
+          memcmp(g_flash + NVM_OFF + PAGE - PHRASE, two, sizeof(two)) == 0,
+          "a program crossing a page boundary takes one ROM call per page");
 }
 
 /* The port backend's rules (port/mcxn947/hsm_flash.c) over the real driver:
@@ -618,6 +664,8 @@ static void test_store(void)
            (unsigned)g_double_programs);
     check(g_double_programs == 0u,
           "16-byte units: no phrase was programmed twice between erases");
+    check(g_unaligned_programs == 0u,
+          "16-byte units: every ROM program started on a page base");
     /* The unit, not the port's guard, is what keeps every program whole:
      * a backend with no phrase rule stays clean at 16 bytes. */
     model_reset();

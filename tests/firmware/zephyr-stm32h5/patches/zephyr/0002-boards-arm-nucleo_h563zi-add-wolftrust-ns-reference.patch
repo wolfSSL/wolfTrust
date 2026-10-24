@@ -4,8 +4,8 @@ Date: Tue, 26 May 2026 00:00:01 +0000
 Subject: [PATCH 2/3] boards: stm32: add nucleo_h563zi /ns variant for wolfTrust
 
 Adds a proper /ns board variant so Zephyr builds against the non-secure
-half of wolfTrust's TrustZone split. The NS payload sits at 0x08020000
-with 128 KiB of flash and 32 KiB of SRAM1 starting at 0x20000000, which
+half of wolfTrust's TrustZone split. The NS payload sits at 0x080A0000
+with 256 KiB of flash and 64 KiB of SRAM1 starting at 0x20000000, which
 matches wolfTrust's guest-a partition window (single-guest TEE mode).
 
 Also removes the default-y BUILD_WITH_TFM under TRUSTED_EXECUTION_NONSECURE
@@ -85,8 +85,8 @@ index 000000000000..a1a1a1a1a1a1
 +	reg = <0x20000400 DT_SIZE_K(63)>;
 +};
 +
-+/* wolfTrust occupies secure flash 0x08000000..0x0801FFFF (128 KiB).
-+ * NS payload sits at 0x08020000 with 128 KiB available. */
++/* The authenticated wolfTrust layout places guest 0 at 0x080A0000 with
++ * 256 KiB available. */
 +&flash0 {
 +	/delete-node/ partitions;
 +
@@ -95,9 +95,9 @@ index 000000000000..a1a1a1a1a1a1
 +		#address-cells = <1>;
 +		#size-cells = <1>;
 +
-+		slot0_ns_partition: partition@20000 {
++		slot0_ns_partition: partition@a0000 {
 +			label = "image-0-nonsecure";
-+			reg = <0x00020000 DT_SIZE_K(128)>;
++			reg = <0x000a0000 DT_SIZE_K(256)>;
 +		};
 +	};
 +};
@@ -119,8 +119,8 @@ index 000000000000..b2b2b2b2b2b2
 +arch: arm
 +toolchain:
 +  - zephyr
-+ram: 32
-+flash: 128
++ram: 64
++flash: 256
 +vendor: st
 diff --git a/boards/st/nucleo_h563zi/nucleo_h563zi_stm32h563xx_ns_defconfig b/boards/st/nucleo_h563zi/nucleo_h563zi_stm32h563xx_ns_defconfig
 new file mode 100644

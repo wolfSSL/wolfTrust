@@ -34,7 +34,10 @@ endif
 UNIT_SUITES := domain manifest lifecycle guest_verify rollback sp_recovery \
     fabric_windows periph irq_claim rt700_trng rt700_xspi \
     ipc ffm spm \
-    vnet wolfhsm_loopback wolfhsm_relay native_wire native_wire_client \
+    vnet wolfhsm_loopback wolfhsm_relay tpm_relay pkcs11_relay \
+    tpm_client pkcs11_client pkcs11_proxy pkcs11_provider \
+    pkcs11_secure_heap native_wire \
+    native_wire_client \
     keystore_isolation \
     attestation_service attestation attestation_token \
     attestation_golden attestation_negatives attestation_replay \

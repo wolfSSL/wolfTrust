@@ -68,6 +68,18 @@ family="$scenario"
 case "$scenario" in
   bandneg[1-6]) family=bandneg; band_probe="${scenario#bandneg}" ;;
   restartneg[1-3]) family=restartneg ;;
+  pkcs11)
+    family=pkcs11
+    pkcs11_suite=all
+    ;;
+  pkcs11core|pkcs11objects|pkcs11crypto|pkcs11negative)
+    family=pkcs11
+    pkcs11_suite="${scenario#pkcs11}"
+    ;;
+  pkcs11neg)
+    family=pkcs11
+    pkcs11_suite=core
+    ;;
 esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
@@ -86,6 +98,12 @@ git config --global --add safe.directory "$repo"
 # Crypto engine under test: hsm (wolfHSM server) or native (direct wolfCrypt).
 # Flows into the secure image build and both guest builds.
 . "$repo/tests/target/lib/engine.sh"
+WT_INTERFACE_OS="${WT_INTERFACE_OS:-freertos}"
+case "$WT_INTERFACE_OS" in
+  zephyr|freertos) ;;
+  *) echo "WT_INTERFACE_OS must be zephyr or freertos" >&2; exit 2 ;;
+esac
+export WT_INTERFACE_OS
 export CROSS_COMPILE=/usr/local/bin/arm-none-eabi-
 export ZEPHYR_TOOLCHAIN_VARIANT=cross-compile
 export WT_SECURE_FLASH_BASE=0x0C060000
@@ -99,11 +117,19 @@ export WT_GUEST0_FLASH_BASE=0x080A0000
 # the bank-1/bank-2 watermark boundary (0x08100000).
 export WT_GUEST1_FLASH_BASE=0x080E0000
 export WT_GUEST0_FLASH_SIZE=0x00040000
+export WT_GUEST1_FLASH_SIZE=0x00020000
 export WT_GUEST_RAM_SIZE=0x00010000
 export WT_GUEST1_RAM_BASE=0x20010000
 export WT_ZEPHYR_DTC_OVERLAY_FILE=boards/wolfboot-stm32h563.overlay
 export WT_MAX_GUESTS=2
 export ZEPHYR_BOARD=nucleo_h563zi/stm32h563xx/ns
+if [ "$family" = "pkcs11" ]; then
+  # The proxy application is small. Give the wolfPKCS11 plus wolfHSM provider
+  # the larger second flash window in this mutually exclusive image.
+  export WT_GUEST0_FLASH_SIZE=0x00020000
+  export WT_GUEST1_FLASH_BASE=0x080C0000
+  export WT_GUEST1_FLASH_SIZE=0x00040000
+fi
 WOLFBOOT_REF=d85fa9dbdf6c36f47b7e96eba5c9df750ad3c963
 M33MU_REF=f3c03675260264cdec815adebe4b020bb6fe57b8
 
@@ -127,23 +153,43 @@ else
   cd "$repo"
 fi
 
+# The production port reads DBGMCU_IDCODE before launching either guest.
+# M33MU supplies that register from this environment variable: ordinary
+# scenarios model supported revision X, while revneg overrides it below with
+# engineering-sample revision Z and must halt in the production guard.
+if ! grep -aq M33MU_STM32H5_IDCODE "$M33MU"; then
+  echo "FAIL: $M33MU lacks M33MU_STM32H5_IDCODE; rebuild M33MU at $M33MU_REF or later" >&2
+  exit 1
+fi
+export M33MU_STM32H5_IDCODE=0x10070484
+
 # --- wolfTrust dependencies + a clean secure build (drop any stale build/
 #     whose generated wolfhsm_cfg.h bakes in a host-absolute path). The guest
 #     CMake cache must go too: scenarios configure guest0_psa with different
 #     -D sets and CMake refuses to regenerate over a conflicting cache. ---
-git submodule update --init --single-branch
+git submodule update --init --single-branch --depth 1
 rm -rf build tests/firmware/zephyr-stm32h5/build
 
 # --- Secure-app wolfBoot first stage. ---
-rm -rf wolfBoot
-git clone --no-checkout https://github.com/aidangarske/wolfBoot.git wolfBoot
+if [ -d wolfBoot/.git ] &&
+        [ "$(git -C wolfBoot rev-parse HEAD 2>/dev/null)" = "$WOLFBOOT_REF" ] &&
+        [ -z "$(git -C wolfBoot status --porcelain --untracked-files=no \
+                --ignore-submodules=none 2>/dev/null)" ]; then
+  echo "Reusing wolfBoot at $WOLFBOOT_REF"
+else
+  rm -rf wolfBoot
+  git clone --no-checkout https://github.com/aidangarske/wolfBoot.git wolfBoot
+  git -C wolfBoot -c protocol.version=2 fetch --depth 1 origin "$WOLFBOOT_REF"
+  git -C wolfBoot checkout --detach "$WOLFBOOT_REF"
+fi
 cd wolfBoot
-git -c protocol.version=2 fetch --depth 1 origin "$WOLFBOOT_REF"
-git checkout --detach "$WOLFBOOT_REF"
-git submodule update --init --single-branch
+git submodule update --init --single-branch --depth 1
 cp "$repo/wolfBoot/config/examples/stm32h5-tz-wolftrust.config" .config
 # Build keytools serially first: a parallel keytools link races on the shared
-# sp_* objects and intermittently fails "undefined reference".
+# sp_* objects and intermittently fails "undefined reference". Clean first
+# because its dependency files contain absolute paths and the same checkout is
+# commonly mounted at different paths by local and CI containers.
+make -C tools/keytools clean
 make keytools
 # Force -j1 for wolfboot.bin: wolfBoot FORCE-regenerates include/target.h in
 # place and its objects don't depend on it, so any -j (including a jobserver
@@ -164,8 +210,8 @@ env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 # build/wolftrust.elf (poisoning post-mortem symbolization), and signing now
 # happens only after the guest digests are stamped into the measurement slot
 # (patch-then-sign, WT-FFM-0049), which needs the final guest binaries.
-cp "$repo/build/wolftrust.bin" "$repo/build/wolftrust-unsigned.bin"
-cp "$repo/build/wolftrust.elf" "$repo/build/wolftrust-signed.elf"
+cp -f "$repo/build/wolftrust.bin" "$repo/build/wolftrust-unsigned.bin"
+cp -f "$repo/build/wolftrust.elf" "$repo/build/wolftrust-signed.elf"
 
 # --- Guests. The restart scenario injects a Non-secure fault probe in the PSA
 #     guest; the others build it unmodified. ---
@@ -196,8 +242,9 @@ elif [ "$scenario" = "periphneg" ]; then
   guest_flags="WT_PERIPH_NEG_PROBE=1"
 fi
 
-# Guest images per scenario: the vnet scenario swaps the Zephyr/FreeRTOS pair
-# for the bare-metal wolfIP guests, relinked into the standard NS windows.
+# Guest images per scenario: TPM pairs a Zephyr or FreeRTOS wolfTPM
+# application with fwTPM. PKCS11 pairs the selected OS's C_* proxy with an
+# independent wolfPKCS11 provider.
 g0_img="$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
 g1_img="$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
 if [ "$scenario" = "vnet" ] || [ "$scenario" = "vnetneg" ]; then
@@ -209,6 +256,62 @@ if [ "$scenario" = "vnet" ] || [ "$scenario" = "vnetneg" ]; then
     GUEST_EXTRA_CFLAGS="-DWT_VNET_EXIT_BKPT=1"
   g0_img="$repo/tests/firmware/stm32h563-vnet/build/guest0.bin"
   g1_img="$repo/tests/firmware/stm32h563-vnet/build/guest1.bin"
+elif [ "$scenario" = "tpmneg" ]; then
+  rm -rf tests/firmware/stm32h563-tpm/build
+  make -C tests/firmware/stm32h563-tpm \
+    build/tpm/guest0.bin build/tpm/guest1.bin \
+    BUILD_DIR=build/tpm \
+    WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
+    WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
+    WT_GUEST_RAM_SIZE=0x00010000 \
+    GUEST_EXTRA_CFLAGS="-DWT_TPM_EXIT_BKPT=1 -DWT_TPM_TRACE_COMMANDS=1"
+  g0_img="$repo/tests/firmware/stm32h563-tpm/build/tpm/guest0.bin"
+  g1_img="$repo/tests/firmware/stm32h563-tpm/build/tpm/guest1.bin"
+elif [ "$scenario" = "tpm" ]; then
+  rm -rf tests/firmware/stm32h563-tpm/build
+  make -C tests/firmware/stm32h563-tpm tpm-provider \
+    BUILD_DIR=build/tpm-provider \
+    WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
+    WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
+    WT_GUEST_RAM_SIZE=0x00010000 \
+    GUEST_EXTRA_CFLAGS="-DWT_TPM_TRACE_COMMANDS=1"
+  g1_img="$repo/tests/firmware/stm32h563-tpm/build/tpm-provider/guest1.bin"
+  if [ "$WT_INTERFACE_OS" = "zephyr" ]; then
+    # shellcheck disable=SC2086
+    env $secure_flags WT_REUSE_SECURE_BUILD=1 WT_M33MU_EXPECT_BKPT=1 \
+      make -C tests/firmware/zephyr-stm32h5 build-guest0-tpm
+    g0_img="$repo/tests/firmware/zephyr-stm32h5/build/guest0_tpm/zephyr/zephyr.bin"
+  else
+    make -C tests/firmware/stm32h563-tpm tpm-freertos-app \
+      TPM_FREERTOS_BUILD_DIR=build/tpm-freertos \
+      WT_GUEST0_FLASH_ORIGIN=0x080A0000 \
+      WT_GUEST_FLASH_SIZE=0x00040000 \
+      WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST_RAM_SIZE=0x00010000
+    g0_img="$repo/tests/firmware/stm32h563-tpm/build/tpm-freertos/guest0.bin"
+  fi
+elif [ "$family" = "pkcs11" ]; then
+  rm -rf tests/firmware/stm32h563-tpm/build
+  WT_PKCS11_TEST_PBKDF2_ITERATIONS=25 \
+    make -C tests/firmware/stm32h563-tpm pkcs11-provider \
+    PKCS11_BUILD_DIR="build/$scenario" \
+    WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080C0000 \
+    WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
+    WT_GUEST_RAM_SIZE=0x00010000
+  g1_img="$repo/tests/firmware/stm32h563-tpm/build/$scenario/guest1.bin"
+  if [ "$WT_INTERFACE_OS" = "zephyr" ]; then
+    # shellcheck disable=SC2086
+    env $secure_flags WT_REUSE_SECURE_BUILD=1 WT_M33MU_EXPECT_BKPT=1 \
+      make -C tests/firmware/zephyr-stm32h5 \
+        WT_PKCS11_SUITE="$pkcs11_suite" build-guest0-pkcs11
+    g0_img="$repo/tests/firmware/zephyr-stm32h5/build/guest0_pkcs11/zephyr/zephyr.bin"
+  else
+    make -C tests/firmware/stm32h563-tpm pkcs11-freertos-app \
+      PKCS11_BUILD_DIR="build/$scenario" \
+      WT_PKCS11_SUITE="$pkcs11_suite" \
+      WT_GUEST0_FLASH_ORIGIN=0x080A0000 \
+      WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST_RAM_SIZE=0x00010000
+    g0_img="$repo/tests/firmware/stm32h563-tpm/build/$scenario/guest0.bin"
+  fi
 else
 make -C tests/firmware/zephyr-stm32h5 clone
 env $guest_flags $secure_flags WT_REUSE_SECURE_BUILD=1 WT_EXPECTED_LIFECYCLE=0x1000u \
@@ -224,7 +327,7 @@ od -An -tx4 -N8 "$g1_img"
 #     signature covers the pins, extending the chain of trust to the guests.
 #     The harness (not the guest) holds the expected wolfBoot measurement and
 #     asserts the token's reported value below. ---
-cp "$repo/build/wolftrust-unsigned.bin" "$repo/build/wolftrust.bin"
+cp -f "$repo/build/wolftrust-unsigned.bin" "$repo/build/wolftrust.bin"
 python3 tools/measure/patch_guest_digests.py "$repo/build/wolftrust.bin" \
   "0:${WT_GUEST0_VERSION:-1}:$g0_img" \
   "1:${WT_GUEST1_VERSION:-1}:$g1_img"
@@ -274,9 +377,21 @@ quit_flag="--quit-on-faults"
 expect_bkpt=0x7f
 timeout_s=60
 if [ "$scenario" = "vnet" ] || [ "$scenario" = "vnetneg" ]; then
-  # wolfIP's initial ARP delay uses guest time, which can take longer than
-  # 60 wall-clock seconds to advance on a shared CI runner.
+  # wolfIP's initial ARP delay uses guest time, which can outlast 60
+  # wall-clock seconds on a shared CI runner.
   timeout_s=180
+fi
+if [ "$scenario" = "tpm" ] || [ "$scenario" = "tpmneg" ] || \
+   [ "$family" = "pkcs11" ]; then
+  # The TPM and PKCS11 scenarios run ECC and symmetric operations through
+  # isolated provider guests, which is slow under M33MU.
+  timeout_s=360
+fi
+if [ "$scenario" = "pkcs11" ]; then
+  # The full suite includes real PBKDF2 and ECC work. FreeRTOS is slower than
+  # Zephyr under instruction emulation even though each focused suite fits the
+  # ordinary timeout.
+  timeout_s=1200
 fi
 if [ "$scenario" = "restart" ]; then
   quit_flag=""
@@ -323,7 +438,9 @@ elif [ "$scenario" = "xnneg" ]; then
   quit_flag=""
   timeout_s=40
 elif [ "$scenario" = "spfaultneg" ] || [ "$scenario" = "panicneg" ] ||
-     [ "$scenario" = "vnetneg" ] || [ "$scenario" = "sealneg" ] ||
+     [ "$scenario" = "vnetneg" ] || [ "$scenario" = "tpmneg" ] ||
+     [ "$scenario" = "pkcs11neg" ] ||
+     [ "$scenario" = "sealneg" ] ||
      [ "$scenario" = "sealpivotneg" ] || [ "$scenario" = "svcneg" ] ||
      [ "$scenario" = "busfaultneg" ] || [ "$family" = "bandneg" ] ||
      [ "$family" = "restartneg" ]; then
@@ -335,10 +452,6 @@ elif [ "$scenario" = "spfaultneg" ] || [ "$scenario" = "panicneg" ] ||
 elif [ "$scenario" = "revneg" ]; then
   # Production image on revision Z silicon (ES0565 2.2.9): the emulator
   # reports the refused IDCODE through the real DBGMCU read.
-  if ! grep -aq M33MU_STM32H5_IDCODE "$M33MU"; then
-    echo "FAIL: $M33MU lacks M33MU_STM32H5_IDCODE; rebuild M33MU at $M33MU_REF or later" >&2
-    exit 1
-  fi
   export M33MU_STM32H5_IDCODE=0x10016484
 elif [ "$scenario" = "authneg" ]; then
   # Guest0 is refused at launch so the BKPT scenario end never fires; the run
@@ -373,11 +486,15 @@ elif [ "$scenario" = "bootupdate" ]; then
 fi
 
 log="$repo/ci-m33mu-$scenario.log"
+g1_emu_offset=0xE0000
+if [ "$family" = "pkcs11" ]; then
+  g1_emu_offset=0xC0000
+fi
 set +e
 "$M33MU" "$repo/wolfBoot/wolfboot.bin" \
   "$repo/build/wolftrust_v1_signed.bin:0x60000" \
   "$g0_img:0xA0000" \
-  "$g1_img:0xE0000" \
+  "$g1_img:$g1_emu_offset" \
   ${update_img:+"$update_img"} \
   --uart-stdout --expect-bkpt $expect_bkpt $quit_flag --timeout "$timeout_s" | tee "$log"
 emu_status=${PIPESTATUS[0]}
@@ -948,6 +1065,111 @@ case "$scenario" in
       "token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
     expect "[EXPECT BKPT] Success clean exit after the swap" "[EXPECT BKPT] Success"
     echo "PASS: target/bootupdate"
+    ;;
+  tpm)
+    # Isolated firmware-TPM (wolfTPM fwTPM) in its own Non-secure partition
+    # (guest1), driven by a stock wolfTPM application (guest0) over the FF-M
+    # mediated door; the round trip ends before the BKPT.
+    refute_re "no fault markers in boot log" \
+      '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    tpm_app="tpm-$WT_INTERFACE_OS"
+    expect "$WT_INTERFACE_OS TPM application guest alive" "$tpm_app: alive"
+    expect "fwTPM heap scrubs a freed allocation before reuse" \
+      "ftpm-guest1: heap scrub ok"
+    expect "isolated fwTPM partition ready" "ftpm-guest1: ready"
+    expect "fwTPM capabilities match the relay frame limit" \
+      "$tpm_app: tpm frame caps ok"
+    expect "valid TPM command reaches the advertised frame limit" \
+      "$tpm_app: tpm max frame ok"
+    expect "fwTPM handled TPM2 GetRandom" "ftpm-guest1: command GetRandom"
+    expect "fwTPM handled TPM2 CreatePrimary" \
+      "ftpm-guest1: command CreatePrimary"
+    expect "fwTPM handled TPM2 Sign" "ftpm-guest1: command Sign"
+    expect "fwTPM handled TPM2 PCR_Extend" \
+      "ftpm-guest1: command PCR_Extend"
+    expect "fwTPM handled TPM2 PCR_Read" "ftpm-guest1: command PCR_Read"
+    expect_flat "wolfTPM round trip through the isolated fwTPM" \
+      "$tpm_app: tpm round trip ok"
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/tpm"
+    ;;
+  tpmneg)
+    # The HSM partition is denied read and write access to TPMDATA. The TPM
+    # relay is denied direct access to the fwTPM guest RAM and execution from
+    # its own data band. Both partitions restart before the mediated TPM flow.
+    expect_n_re "TPMDATA read and write faulted on the HSM partition stack" 2 \
+      '^\[MEMFAULT\] sp=0x3009[67]'
+    expect "TPM relay cannot read the fwTPM guest RAM" \
+      "addr=0x20010000"
+    expect_re "TPM relay cannot execute from its XN TPMDATA band" \
+      '^\[MEMFAULT\] pc=0x30095000 addr=0x30095000'
+    expect_n_re "both TPM relay faults used its own partition stack" 2 \
+      '^\[MEMFAULT\] sp=0x3009[34]'
+    refute_re "isolation faults did not escalate" \
+      '^(\[HARDFLT\]|HardFault|SecureFault)'
+    expect "application guest alive after the quarantines" \
+      "tpm-guest0: alive"
+    expect "fwTPM heap scrubs a freed allocation before reuse" \
+      "ftpm-guest1: heap scrub ok"
+    expect "isolated fwTPM partition ready after the quarantines" \
+      "ftpm-guest1: ready"
+    expect "fwTPM capabilities match the relay frame limit" \
+      "tpm-guest0: tpm frame caps ok"
+    expect "valid TPM command reaches the advertised frame limit" \
+      "tpm-guest0: tpm max frame ok"
+    expect "fwTPM handled TPM2 CreatePrimary after recovery" \
+      "ftpm-guest1: command CreatePrimary"
+    expect "fwTPM handled TPM2 Sign after recovery" \
+      "ftpm-guest1: command Sign"
+    expect_flat "mediated TPM still completes after every restart" \
+      "tpm-guest0: tpm round trip ok"
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/tpmneg"
+    ;;
+  pkcs11|pkcs11core|pkcs11objects|pkcs11crypto|pkcs11negative|pkcs11neg)
+    if [ "$scenario" = "pkcs11neg" ]; then
+      expect_n_re "PKCS11DATA read and write faulted on the HSM partition stack" 2 \
+        '^\[MEMFAULT\] sp=0x3009[67]'
+      expect "PKCS11 relay cannot read the provider guest RAM" \
+        "addr=0x20010000"
+      expect_re "PKCS11 relay cannot execute from its XN data band" \
+        '^\[MEMFAULT\] pc=0x30070000 addr=0x30070000'
+      expect_n_re "both PKCS11 relay faults used its own partition stack" 2 \
+        '^\[MEMFAULT\] sp=0x3009[34]'
+      refute_re "isolation faults did not escalate" \
+        '^(\[HARDFLT\]|HardFault|SecureFault)'
+    else
+      refute_re "no fault markers in boot log" \
+        '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
+    fi
+    pkcs11_app="pkcs11-$WT_INTERFACE_OS"
+    expect "$WT_INTERFACE_OS PKCS11 application guest alive" \
+      "$pkcs11_app: alive"
+    if [ "$WT_INTERFACE_OS" = "freertos" ]; then
+      expect "FreeRTOS scheduler ran the PKCS11 task" \
+        "$pkcs11_app: scheduler started"
+    fi
+    expect "isolated wolfPKCS11 provider guest alive" \
+      "pkcs11-provider: alive"
+    expect "the provider heap scrubs a freed allocation before reuse" \
+      "pkcs11-provider: heap scrub ok"
+    expect "wolfPKCS11 provider connected through SERVICE_PKCS11" \
+      "pkcs11-provider: ready"
+    expect "the selected PKCS11 suite completed" \
+      "$pkcs11_app: suite $pkcs11_suite complete"
+    expect "the PKCS11 suite reported zero failures" \
+      "$pkcs11_app: TOTAL FAILED: 0"
+    case "$pkcs11_suite" in
+      core)     expected_passed=10 ;;
+      objects)  expected_passed=8 ;;
+      crypto)   expected_passed=10 ;;
+      negative) expected_passed=12 ;;
+      all)      expected_passed=40 ;;
+    esac
+    expect "the PKCS11 suite ran every planned case" \
+      "$pkcs11_app: TOTAL PASSED: $expected_passed"
+    expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    echo "PASS: target/$scenario"
     ;;
   vnet)
     # Mediated inter-guest networking (WT-FFM-0058): both bare-metal wolfIP

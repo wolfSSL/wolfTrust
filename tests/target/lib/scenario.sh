@@ -43,6 +43,11 @@ scenario_secure_flags() {
         spbudgetneg)      echo "WT_SP_FAULT_ALWAYS_PROBE=1" ;;
         vnet)             echo "CONFIG_VNET=y" ;;
         vnetneg)          echo "CONFIG_VNET=y WT_VNET_NEG_PROBE=1" ;;
+        tpm)              echo "CONFIG_TPM=y" ;;
+        tpmneg)           echo "CONFIG_TPM=y WT_TPM_NEG_PROBE=1" ;;
+        pkcs11|pkcs11core|pkcs11objects|pkcs11crypto|pkcs11negative)
+                          echo "CONFIG_PKCS11=y" ;;
+        pkcs11neg)        echo "CONFIG_PKCS11=y WT_PKCS11_NEG_PROBE=1" ;;
         manifestneg)      echo "WT_MANIFEST_NEG_PROBE=1" ;;
         manifestneg2)     echo "WT_MANIFEST_NEG_PROBE=2" ;;
         fpneg)            echo "WT_SP_FAULT_PROBE=1 WT_FP_NEG_PROBE=1" ;;

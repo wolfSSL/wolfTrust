@@ -136,6 +136,19 @@
 #define WT_VNET_DATA_BASE        (WT_RAM_S_BASE + 0x00048000u)  /* 0x301D0000 */
 #define WT_VNET_DATA_SIZE        0x00005000u
 
+#define WT_PKCS11_DATA_BASE      WT_VNET_DATA_BASE
+#define WT_PKCS11_DATA_SIZE      WT_VNET_DATA_SIZE
+#define WT_SP_PKCS11_STACK_BASE  WT_CONF_SP_DATA_BASE
+#define WT_SP_PKCS11_STACK_SIZE  WT_SP_SECURE_STACK_SIZE
+
+/* SERVICE_TPM partition stack and the one in-flight mailbox slot, carved from
+ * the CONFDATA window tail only in CONFIG_TPM builds (mutually exclusive with
+ * conformance and vnet). Mirrors the stm32h563 TPM stack and mailbox macros. */
+#define WT_SP_TPM_STACK_BASE     WT_CONF_SP_DATA_BASE               /* 0x301F3000 */
+#define WT_SP_TPM_STACK_SIZE     WT_SP_SECURE_STACK_SIZE            /* 8 KiB */
+#define WT_TPM_DATA_BASE         (WT_CONF_SP_DATA_BASE + 0x2000u)   /* 0x301F5000 */
+#define WT_TPM_DATA_SIZE         0x00000800u                        /* 2 KiB */
+
 /* wolfBoot update partition on XSPI0 (Secure alias). */
 #define WT_FWU_UPDATE_FLASH_BASE_S 0x38180000u
 #define WT_FWU_UPDATE_FLASH_SIZE   0x00040000u

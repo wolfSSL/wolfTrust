@@ -26,6 +26,14 @@ TOOLPREFIX ?= aarch64-none-elf-
 MACHINE ?= virt
 WT_NS_BASE ?= 0x40000000
 WT_CONF_SUITE ?= ipc
+WT_NS_GUEST_TPM ?= 0
+WT_NS_GUEST_PKCS11 ?= 0
+WT_NS_PKCS11_HSM_RESTART_PROBE ?= 0
+ifneq ($(filter 1,$(WT_NS_GUEST_TPM) $(WT_NS_GUEST_PKCS11)),)
+WT_NS_IMG_SIZE ?= 0x100000
+WT_NS_RAM_SIZE ?= 0x100000
+WT_NS_STACK_SIZE ?= 0x40000
+endif
 # The crypto and attestation suites link wolfPSA, wolfCrypt, and a heap.
 ifneq ($(filter crypto attestation,$(WT_CONF_SUITE)),)
 WT_NS_IMG_SIZE ?= 0x100000
@@ -60,7 +68,8 @@ endif
 # Send a direct request to the Secure echo partition (ffa-guest-direct proof).
 WT_NS_GUEST_ECHO ?= 0
 CFLAGS := -mcpu=generic -mgeneral-regs-only -mstrict-align -ffreestanding \
-    -fno-builtin -fno-pic -fno-stack-protector -nostdlib -O2 -g \
+    -fno-builtin -fno-pic -fno-stack-protector -ffunction-sections \
+    -fdata-sections -nostdlib -O2 -g \
     -Wall -Wextra -Werror -I$(ROOT)/include -DWT_NS_UART=$(UART)u \
     -DWT_NS_GICR=$(GICR)u
 ifeq ($(WT_NS_GUEST_ECHO),1)
@@ -111,7 +120,7 @@ WT_NS_GUEST_MEMNEG ?= 0
 # it (the storage proof: the first SP-to-SP message driven from the Normal
 # world).
 WT_NS_GUEST_STORAGE ?= 0
-LDFLAGS := -nostartfiles -Wl,--build-id=none -T ns.ld \
+LDFLAGS := -nostartfiles -Wl,--build-id=none -Wl,--gc-sections -T ns.ld \
     -Wl,--defsym=WT_NS_BASE=$(WT_NS_BASE) \
     -Wl,--defsym=WT_NS_IMG_SIZE=$(WT_NS_IMG_SIZE) \
     -Wl,--defsym=WT_NS_RAM_SIZE=$(WT_NS_RAM_SIZE) \
@@ -124,13 +133,55 @@ SRCS := ns.S ns.c
 # matching secure build (WT_NS_MANIFEST_INC).
 WT_NS_MANIFEST_INC ?=
 WOLFHSM_DIR ?= $(ROOT)/lib/wolfHSM
-ifneq ($(filter 1,$(WT_NS_GUEST_PSA) $(WT_NS_GUEST_STORAGE) $(WT_NS_GUEST_MEMNEG) $(WT_RUN_CONFORMANCE)),)
+WOLFTPM_DIR ?= $(ROOT)/lib/wolfTPM
+WOLFPKCS11_DIR ?= $(ROOT)/lib/wolfPKCS11
+WOLFSSL_DIR ?= $(ROOT)/lib/wolfSSL
+ifneq ($(filter 1,$(WT_NS_GUEST_PSA) $(WT_NS_GUEST_STORAGE) $(WT_NS_GUEST_MEMNEG) $(WT_NS_GUEST_TPM) $(WT_NS_GUEST_PKCS11) $(WT_RUN_CONFORMANCE)),)
 ifneq ($(WT_NS_MANIFEST_INC),)
 CFLAGS += -I$(WT_NS_MANIFEST_INC)
 endif
 SRCS += $(ROOT)/src/client/psa_ffm_client.c \
     $(ROOT)/src/arch/aarch64/ffa/psa_ffa_transport_arch.c \
     $(ROOT)/src/arch/aarch64/common/libc_min.c
+endif
+ifneq ($(filter 1,$(WT_NS_GUEST_TPM) $(WT_NS_GUEST_PKCS11)),)
+SRCS += crypto/ns_crypto_port.c
+endif
+ifeq ($(WT_NS_GUEST_TPM),1)
+CFLAGS += -DWT_NS_GUEST_TPM=1 -DWOLFTPM_SWTPM \
+    -DWOLFTPM_USER_SETTINGS -DWOLFSSL_USER_SETTINGS \
+    -DWT_TPM_APP_NAME=\"tpm-aarch64\" \
+    -Iinterface -I$(WOLFTPM_DIR) -I$(WOLFSSL_DIR) \
+    -I$(ROOT)/tests/firmware/stm32h563-tpm/tpm-app \
+    -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter \
+    -Wno-type-limits
+SRCS += $(ROOT)/src/client/tpm_psa_transport.c \
+    $(ROOT)/tests/firmware/stm32h563-tpm/tpm-app/tpm_tests.c \
+    $(addprefix $(WOLFTPM_DIR)/src/,tpm2.c tpm2_util.c tpm2_packet.c \
+        tpm2_wrap.c tpm2_asn.c tpm2_crypto.c tpm2_param_enc.c \
+        tpm2_cryptocb.c) \
+    $(addprefix $(WOLFSSL_DIR)/wolfcrypt/src/,aes.c asn.c coding.c \
+        cryptocb.c ecc.c error.c hash.c hmac.c kdf.c memory.c \
+        pwdbased.c random.c sha.c sha256.c sha512.c sp_c64.c sp_int.c \
+        wc_port.c wolfmath.c)
+endif
+ifeq ($(WT_NS_GUEST_PKCS11),1)
+CFLAGS += -DWT_NS_GUEST_PKCS11=1 -DWT_PKCS11_SUITE_ALL \
+    -DWOLFPKCS11_USER_SETTINGS \
+    -DWT_PKCS11_APP_NAME=\"pkcs11-aarch64\" \
+    -I$(WOLFPKCS11_DIR) \
+    -I$(ROOT)/tests/firmware/stm32h563-tpm/freertos-pkcs11
+SRCS += $(ROOT)/src/client/pkcs11_proxy.c \
+    $(ROOT)/src/client/pkcs11_psa_transport.c \
+    $(ROOT)/src/pkcs11/pkcs11_wire.c \
+    $(ROOT)/tests/firmware/stm32h563-tpm/freertos-pkcs11/pkcs11_tests.c
+endif
+ifeq ($(WT_NS_PKCS11_HSM_RESTART_PROBE),1)
+ifneq ($(WT_NS_GUEST_PKCS11),1)
+$(error WT_NS_PKCS11_HSM_RESTART_PROBE=1 requires WT_NS_GUEST_PKCS11=1)
+endif
+CFLAGS += -DWT_NS_PKCS11_HSM_RESTART_PROBE=1 \
+    -DWT_PKCS11_HSM_RESTART_PROBE=1
 endif
 # The crypto engine of the matching secure build picks the guest's client.
 WT_ENGINE ?= native

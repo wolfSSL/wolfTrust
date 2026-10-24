@@ -1,0 +1,8 @@
+/ {
+	wolftrust_tee0: wolftrust-tee {
+		compatible = "wolfssl,wolftrust-tee";
+		label = "WOLFTRUST_TEE_0";
+		wolftrust-guest-slot = <0>;
+		status = "okay";
+	};
+};

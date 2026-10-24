@@ -15,6 +15,8 @@ manifest with a seventh service.
 | `SERVICE_FWU` | `0x1005` | Yes | PSA Firmware Update staging for wolfBoot |
 | `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door |
 | `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
+| `SERVICE_TPM` | `0x1008` | Yes, optional | Mediated mailbox to an isolated Non-secure firmware TPM for wolfTPM applications (`CONFIG_TPM=y`) |
+| `SERVICE_PKCS11` | `0x1009` | Yes, optional | Copied-transfer relay between a PKCS#11 application proxy and an isolated wolfPKCS11 provider (`CONFIG_PKCS11=y`) |
 
 All service versions are `1`. ITS and Protected Storage declare a
 dependency on the Secure-only vault. The default manifest is
@@ -197,6 +199,26 @@ receive interrupt through FF-M operations.
 Port selection comes from the stamped caller identity. Secure pool tokens and
 generation counters do not cross into a guest. The mediated PSA transport MTU
 is 1000 bytes so a frame and receive metadata fit the copied-transfer budget.
+
+## Optional TPM and PKCS#11 interfaces
+
+`CONFIG_TPM=y` adds `SERVICE_TPM` and runs a wolfTPM firmware TPM 2.0 responder
+in an isolated provider. On Cortex-M the responder is a separate Non-secure
+guest. On Cortex-A it runs inside the `SERVICE_TPM` S-EL0 partition. A
+Non-secure application reaches it directly through wolfTPM. The service is a
+mediated mailbox with one bounded command and response in flight at a time.
+The relay enforces the caller role without interpreting the TPM packet.
+
+`CONFIG_PKCS11=y` adds `SERVICE_PKCS11`. A standard PKCS#11 application calls
+a proxy over FF-M IPC. On Cortex-M, an isolated Non-secure wolfPKCS11 provider
+handles the request. On Cortex-A, the provider runs in the
+`SERVICE_PKCS11` S-EL0 partition. Both interfaces select native wolfCrypt or
+SPM-mediated wolfHSM operations with the same `WT_ENGINE` selector as PSA.
+
+The TPM and PKCS#11 builds are mutually exclusive, and neither interface uses
+the PSA Crypto API. Both options default to `n`, so neither provider nor relay
+is linked into the default PSA build. See the [TPM 2.0 Interface](TPM.md) and
+[PKCS#11 Interface](PKCS11.md) for their transports and isolation evidence.
 
 See [API Reference](API-Reference.md) for client signatures and [Macros](Macros.md) for service build
 controls.

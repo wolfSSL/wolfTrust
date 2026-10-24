@@ -7,6 +7,7 @@
 #   tests/target/run_suite.sh qemu-a      <scenario>...   -> run_qemu_a_scenario.sh
 #   tests/target/run_suite.sh rt700-m33mu <scenario>...   -> run_rt700_m33mu.sh
 #   WT_SUITE_LOG_DIR   where target-<scenario>.log lands (default logs)
+#   WT_REQUIRE_SCENARIO_PASS=1 requires a real terminal PASS, including API CI.
 set -u
 
 usage() { echo "usage: $0 m33mu|qemu-a|rt700-m33mu <scenario>..." >&2; exit 2; }
@@ -31,7 +32,12 @@ for s in "$@"; do
   echo "RUN: target/$s"
   if "tests/target/$runner" "$s" > "$logdir/target-$s.log" 2>&1; then
     grep -F '  [check] ' "$logdir/target-$s.log" || true
-    if grep -q '^SKIP:' "$logdir/target-$s.log"; then
+    if [ "${WT_REQUIRE_SCENARIO_PASS:-0}" = 1 ] &&
+        ! grep -Eq "^PASS: (target|qemu-a)/$s( |$)" "$logdir/target-$s.log"; then
+      echo "FAIL: target/$s (required scenario did not report a real pass)"
+      tail -5 "$logdir/target-$s.log"
+      rc=1
+    elif grep -q '^SKIP:' "$logdir/target-$s.log"; then
       echo "SKIP: target/$s ($(grep -m1 '^SKIP:' "$logdir/target-$s.log" | sed -E 's/^SKIP: [^:]*: //'))"
     else
       echo "PASS: target/$s"

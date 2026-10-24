@@ -62,6 +62,11 @@ MEMORY {
    * the first 8 KiB as the SERVICE_VNET partition stack (WT_SP_VNET_STACK_*,
    * manifest-vnet.json domain) - the two builds are mutually exclusive. */
   CONFDATA (rw): ORIGIN = 0x301F3000, LENGTH = 12K
+  /* SERVICE_TPM mailbox band (WT-FFM-0011 Level 3): the one in-flight TPM
+   * command and response slot the confined TPM relay owns, carved from the
+   * CONFDATA window tail only in CONFIG_TPM builds. Mirrors WT_TPM_DATA_ in
+   * memory_map.h. */
+  TPMDATA (rw): ORIGIN = 0x301F5000, LENGTH = 2K
   /* Secure per-partition stacks (WT-FFM-0011). The top 40 KiB of the secure
    * RAM window, reserved so each Secure Partition runs on its own secure
    * stack the MPU can confine. Mirrors WT_SP_SECURE_RAM_* in memory_map.h. */
@@ -81,6 +86,10 @@ _wt_part_stacks_base = ORIGIN(FWUSTACK);
 _wt_part_stacks_limit = ORIGIN(VAULTSTACK) + LENGTH(VAULTSTACK);
 _wt_sp_stacks_base = ORIGIN(SPSTACKS);
 _wt_sp_stacks_limit = ORIGIN(SPSTACKS) + LENGTH(SPSTACKS);
+_wt_tpm_stack_base = ORIGIN(CONFDATA);
+_wt_tpm_stack_limit = ORIGIN(TPMDATA);
+_wt_pkcs11_stack_base = ORIGIN(CONFDATA);
+_wt_pkcs11_stack_limit = ORIGIN(TPMDATA);
 _sidata = LOADADDR(.data);
 
 SECTIONS {
@@ -269,6 +278,41 @@ SECTIONS {
     _e_vnet = .;
   } > VNETDATA
 
+  .pkcs11_data : {
+    . = ALIGN(32);
+    _s_pkcs11 = .;
+    *wt_sec_pkcs11_relay_service.o(.data .data.*)
+    . = ALIGN(4);
+    _e_pkcs11_data = .;
+  } > VNETDATA AT > FLASH
+  _si_pkcs11 = LOADADDR(.pkcs11_data);
+
+  .pkcs11_bss (NOLOAD) : {
+    _s_pkcs11_bss = .;
+    *wt_sec_pkcs11_relay_service.o(.bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_pkcs11 = .;
+  } > VNETDATA
+
+  /* SERVICE_TPM relay data and bss pulled out of shared SPM .data/.bss so its
+   * MPU grant covers exactly its own state (isolation level 3). Empty outside
+   * CONFIG_TPM builds. */
+  .tpm_data : {
+    . = ALIGN(32);
+    _s_tpm = .;
+    *wt_sec_tpm_relay_service.o(.data .data.*)
+    . = ALIGN(4);
+    _e_tpm_data = .;
+  } > TPMDATA AT > FLASH
+  _si_tpm = LOADADDR(.tpm_data);
+
+  .tpm_bss (NOLOAD) : {
+    _s_tpm_bss = .;
+    *wt_sec_tpm_relay_service.o(.bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_tpm = .;
+  } > TPMDATA
+
   /* Linker-synthesized SG veneers (--cmse-implib) open the RAM code band: the
    * first 1 KiB is the SAU NSC window (WT_NSC_* in memory_map.h), padded so
    * nothing but veneers is Non-secure callable. The dot assignment keeps the
@@ -329,6 +373,8 @@ SECTIONS {
          "vault data band must sit directly above the vnet data band")
   ASSERT(_e_vnet <= (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
          "vnet data band overflow")
+  ASSERT(_e_pkcs11 <= (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
+         "pkcs11 data band overflow")
   ASSERT(ORIGIN(ATTESTDATA) == (ORIGIN(VAULTDATA) + LENGTH(VAULTDATA)),
          "attestation data band must sit directly above the vault data band")
   ASSERT(ORIGIN(HSMDATA) == (ORIGIN(ATTESTDATA) + LENGTH(ATTESTDATA)),
@@ -345,6 +391,10 @@ SECTIONS {
   _wt_band_hsm_limit = ORIGIN(HSMDATA) + LENGTH(HSMDATA);
   _wt_band_vnet_base = ORIGIN(VNETDATA);
   _wt_band_vnet_limit = ORIGIN(VNETDATA) + LENGTH(VNETDATA);
+  _wt_band_pkcs11_base = ORIGIN(VNETDATA);
+  _wt_band_pkcs11_limit = ORIGIN(VNETDATA) + LENGTH(VNETDATA);
+  _wt_band_tpm_base = ORIGIN(TPMDATA);
+  _wt_band_tpm_limit = ORIGIN(TPMDATA) + LENGTH(TPMDATA);
 
   ASSERT(_e_vault <= (ORIGIN(VAULTDATA) + LENGTH(VAULTDATA)),
          "vault data band overflow")

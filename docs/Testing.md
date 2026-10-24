@@ -31,8 +31,10 @@ Current suites cover domain and manifest validation, lifecycle, guest
 verification, rollback decisions, IPC and FF-M behavior, SPM policy, gateway
 vectors, Secure Partition layout and recovery, crypto-engine relay and key
 isolation, vault and storage services, attestation and COSE integration,
-firmware update, runtime remeasurement, linked Secure layout, VNET, public PSA
-headers, boot-handoff record consumption, and negative paths. The AArch64
+TPM and PKCS11 relay/client framing, PKCS11 proxy wire encoding and provider
+parser negative inputs, firmware update, runtime remeasurement, linked Secure
+layout, VNET, public PSA headers,
+boot-handoff record consumption, and negative paths. The AArch64
 suites cover the exception-syndrome decoder, the stage-1 table builder and
 domain switches, the FF-A function-id and version rules, the boot-information
 blob, the partition runtime state machine, memory transaction descriptors and
@@ -111,23 +113,42 @@ WT_ENGINE=native make test-target
 WT_ENGINE=hsm make test-target
 ```
 
-It runs the port's smoke tier (STM32H563: `positive`, `gtzcneg`,
-`crossdomain`, `bothpsa`, `confboot`, `devcrypto`; `WT_TIER=full` runs every
-scenario). Detection accepts `m33mu` on
-`PATH` or a path in `M33MU`. If the emulator is unavailable,
-the target reports a skip rather than a pass.
+It runs the port's smoke tier. STM32H563 includes `positive`, `gtzcneg`,
+`crossdomain`, `bothpsa`, `confboot`, `devcrypto`, `tpm`, `tpmneg`, and the
+combined `pkcs11` suite plus `pkcs11neg`. The four focused PKCS11 suites
+(`pkcs11core`, `pkcs11objects`, `pkcs11crypto`, `pkcs11negative`) are direct
+debugging entry points only; `WT_TIER=full` covers them through the combined
+`pkcs11` scenario.
+Detection accepts `m33mu` on `PATH` or a path in `M33MU`. If the emulator is
+unavailable, the target reports a skip rather than a pass.
 
 Additional focused runs use:
 
 ```sh
 WT_ENGINE=native tests/target/run_m33mu_scenario.sh positive
 WT_ENGINE=hsm tests/target/run_m33mu_scenario.sh positive
+make test-tpm-target
+make test-pkcs11-target
+make test-tpm-interfaces-target
 ```
+
+`make test-tpm-target` boots the selected Zephyr or FreeRTOS wolfTPM client
+with the isolated fwTPM provider. The PKCS#11 target boots the selected Zephyr
+or FreeRTOS client, runs the combined 40-case suite, and pairs it with the
+isolated wolfPKCS11/HSM provider. Pull-request CI exposes eight positive
+interface jobs: four PSA rows covering both OS and engine choices, two PKCS#11
+rows, and two TPM rows. Separate `pkcs11neg` and `tpmneg` jobs exercise the L3
+isolation paths.
 
 The runner's usage output is the authoritative scenario list. It includes
 authenticated-boot failure, rollback, runtime remeasurement, Secure Partition
 recovery, key and vault isolation, storage recovery, attestation negatives,
 firmware update, manifest rejection, GTZC behavior, and VNET paths.
+
+The runner sets M33MU's emulated `DBGMCU_IDCODE` to supported STM32H563
+revision X for ordinary scenarios, so they pass through the same production
+silicon guard as hardware. The `revneg` scenario replaces it with engineering
+sample revision Z and requires the guard to halt before either guest starts.
 
 Five scenarios cover processor-state isolation, and the emulator proves less
 than their names suggest:
@@ -354,7 +375,9 @@ the run.
 
 These are emulator results. They prove the SAU attribution and the monitor's
 containment on a faithful core model; the silicon `ahbscneg` run on the EVK is
-recorded separately.
+recorded separately. The MIMXRT700 matrix does not yet run the TPM or PKCS#11
+application/provider scenarios; those configurations are compile- and
+layout-gated for this target.
 ## QEMU AArch64 scenarios
 
 The AArch64 twin of the M33MU runner boots the EL3 monitor, the Secure EL1
@@ -367,10 +390,15 @@ make test-target-a                     # MACHINE=virt GIC=3 CPU=cortex-a72
 make test-target-a MACHINE=versal-virt
 tests/target/run_suite.sh qemu-a positive ffa-memneg
 WT_ENGINE=hsm tests/target/run_qemu_a_scenario.sh hsmattackneg
+WT_ENGINE=native tests/target/run_suite.sh qemu-a tpm tpmneg
+WT_ENGINE=hsm tests/target/run_suite.sh qemu-a pkcs11 pkcs11neg
 ```
 
-`make test-target-a` runs a quick subset (`WT_QEMU_A_SCENARIOS`); CI runs
-every scenario below on the three cells under both engines.
+`make test-target-a` runs a quick subset (`WT_QEMU_A_SCENARIOS`). CI runs the
+common scenarios below on all three cells under both engines. The `tpm`,
+`tpmneg`, `pkcs11`, and `pkcs11neg` runtime scenarios are deliberately limited
+to `virt`: Versal cross-builds both interface configurations, but its QEMU
+model has no XMPU/RISAF for the required Normal-world isolation proof.
 
 The runner auto-detects `qemu-system-aarch64` and the `aarch64-none-elf`
 toolchain and skips explicitly otherwise; CI runs it inside
@@ -388,6 +416,8 @@ assert through `tests/target/lib/expect.sh`.
 | `parkneg`, `rdistneg`, `tickneg` | The monitor stops the boot with a panic, before it enters Secure EL1, when a declared secondary never parks, the GICv3 redistributor reads asleep (SKIP on GICv2), or the secure tick never reaches EL3 |
 | `positive-secure` | The neutral core boots at Secure EL1 and every Secure Partition initializes at Secure EL0 under its own translation table |
 | `positive` | The Normal-world guest discovers the partitions, reads framework and service versions, is refused an unknown service, and completes a data-carrying `psa_call` through the FF-M gateway: a wolfHSM echo under `hsm`, two random draws over the native wire under `native` |
+| `tpm`, `tpmneg` | A Normal-world wolfTPM client sends real TPM 2.0 commands through FF-A and `SERVICE_TPM` to the fwTPM in its S-EL0 partition. GetRandom, CreatePrimary, Sign, signature verification, PCR extend, and PCR read must complete. The negative also proves state-band read/write isolation, foreign partition-RAM isolation, and execute-never state before the same operation sequence passes. These scenarios run under `native`. |
+| `pkcs11`, `pkcs11neg` | A Normal-world application runs the shared 40-case PKCS#11 suite through FF-A and `SERVICE_PKCS11`. The S-EL0 wolfPKCS11 provider calls the separate HSM partition through SP-to-SP FF-M IPC. The negative also proves state-band read/write isolation, HSM private-RAM isolation, and execute-never state before all 40 cases pass. These scenarios run under `hsm`. |
 | `guest1` | SKIP: the AArch64 ports run a single Normal-world endpoint (`0x0000`), so the second-guest identity path has no AArch64 counterpart; M33MU covers it |
 | `crossdomain`, `keystoreneg`, `periphspneg` | A partition reading outside its domain, a non-keystore partition reading the keystore band, or a partition reading the SPM's secure UART takes a data abort at S-EL0, spends its restart budget, and escalates to fail-closed recovery |
 | `bandneg1` to `bandneg6` | Each of the vault, attestation, and crypto partitions reads and then writes another one's private band at boot; both accesses take a data abort at S-EL0 on that band, and every partition still initializes |
@@ -550,8 +580,15 @@ The `M33MU` workflow (wolfBoot plus both guest lifecycles, then a `select` job
 that picks each port's tier and one matrix job that runs exactly those scenario
 groups) is tiered. Every pull request runs
 each port's smoke tier on both crypto engines (STM32H563: `positive`,
-`gtzcneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`; MIMXRT700:
+`gtzcneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`, `tpm`,
+`tpmneg`, `pkcs11`, and `pkcs11neg`; MIMXRT700:
 `positive`, `ahbscneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`).
+The separate STM32H563 interface matrix runs the full cross product
+`[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]`. All 12 application
+rows run on every PR. TPM and PKCS#11 also have isolation-negative rows under
+each engine. QEMU runs each interface and its isolation scenario under both
+engines. Dedicated API rows set `WT_REQUIRE_SCENARIO_PASS=1`: a skipped
+scenario or a missing terminal pass marker fails the job.
 The full matrix runs on a
 push to `main`, on the nightly schedule, on
 manual dispatch (with a `port` input), and on a pull request that carries the

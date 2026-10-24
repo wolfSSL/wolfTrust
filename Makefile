@@ -8,6 +8,8 @@ WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
 WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
 WOLFHAL_DIR := $(ROOT)/lib/wolfhal
 WOLFCOSE_DIR := $(ROOT)/lib/wolfCOSE
+WOLFTPM_DIR := $(ROOT)/lib/wolfTPM
+WOLFPKCS11_DIR := $(ROOT)/lib/wolfPKCS11
 
 ifeq ($(wildcard mk/target-$(TARGET).mk),)
 $(error unsupported secure build target TARGET=$(TARGET))
@@ -26,7 +28,8 @@ include mk/common.mk
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
 		test-manifest-sanitize test-manifest-valgrind test-vnet-host \
-		test-vnet test-vnet-target test-vnet-hardware \
+		test-vnet test-vnet-target test-vnet-hardware test-tpm-target \
+		test-pkcs11-target test-tpm-interfaces-target \
 		test-lifecycle-host test-lifecycle-compilers test-lifecycle-sanitize \
 		test-lifecycle-valgrind \
 		test-ipc-host test-ipc-compilers test-ipc-sanitize \
@@ -48,10 +51,12 @@ C99_CC_VERSION := $(shell $(CC) --version 2>/dev/null)
 ifneq ($(findstring clang,$(C99_CC_VERSION)),)
 C99_CFLAGS += -Wno-newline-eof \
 	--system-header-prefix=wolfssl/ \
-	--system-header-prefix=wolfhsm/
+	--system-header-prefix=wolfhsm/ \
+	--system-header-prefix=wolftpm/
 else
 C99_CFLAGS += -isystem $(abspath $(WOLFSSL_DIR)) \
-	-isystem $(abspath $(WOLFHSM_DIR))
+	-isystem $(abspath $(WOLFHSM_DIR)) \
+	-isystem $(abspath $(WOLFTPM_DIR))
 endif
 
 c99-check:
@@ -82,6 +87,27 @@ else
 		tests/target/run_suite.sh m33mu $(WT_SCENARIOS); \
 	fi
 endif
+
+# Focused STM32H563 M33MU entry points for the two application interfaces and
+# their complete PR gate. These run the same scenario runner and assertions as
+# the generated CI matrix.
+test-tpm-target:
+	@$(MAKE) --no-print-directory test-target TARGET=stm32h563 \
+		WT_INTERFACE_OS=$(WT_INTERFACE_OS) \
+		WT_SCENARIOS=tpm
+
+test-pkcs11-target:
+	@$(MAKE) --no-print-directory test-target TARGET=stm32h563 \
+		WT_INTERFACE_OS=$(WT_INTERFACE_OS) \
+		WT_SCENARIOS=pkcs11
+
+test-tpm-interfaces-target:
+	@set -e; for engine in native hsm; do \
+		for os in zephyr freertos; do \
+			WT_ENGINE=$$engine WT_INTERFACE_OS=$$os \
+				tests/target/run_suite.sh m33mu tpm tpmneg pkcs11 pkcs11neg; \
+		done; \
+	done
 
 # AArch64 twin of test-target on QEMU (virt GICv2/GICv3, xlnx-versal-virt);
 # auto-detect qemu-system-aarch64 + aarch64-none-elf (or WT_TARGET_SCENARIOS=1),

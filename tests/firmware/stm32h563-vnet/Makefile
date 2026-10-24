@@ -37,19 +37,21 @@ EMU_TIMEOUT ?= 60
 WT_TIMESLICE_MS ?= 2
 WT_MAX_GUESTS ?= 2
 
-# Guest flash/RAM map matches the existing baremetal test target.
-WT_GUEST0_FLASH_ORIGIN ?= 0x08020000
-WT_GUEST1_FLASH_ORIGIN ?= 0x08040000
-WT_GUEST_FLASH_SIZE    ?= 0x00020000
+# Guest flash/RAM map matches the STM32H563 manifest.
+WT_GUEST0_FLASH_ORIGIN ?= 0x080A0000
+WT_GUEST1_FLASH_ORIGIN ?= 0x080E0000
+WT_GUEST0_FLASH_SIZE   ?= 0x00040000
+WT_GUEST1_FLASH_SIZE   ?= 0x00020000
+WT_GUEST_FLASH_SIZE    ?= $(WT_GUEST1_FLASH_SIZE)
 WT_GUEST0_RAM_BASE     := 0x20000000
-WT_GUEST1_RAM_BASE     := 0x20008000
-WT_GUEST_RAM_SIZE      := 0x00008000
+WT_GUEST1_RAM_BASE     := 0x20010000
+WT_GUEST_RAM_SIZE      := 0x00010000
 
 # Emulator load offsets — m33mu lays out NS images at fixed offsets in its
 # own image array and the secure side knows the partitions from
 # memory_map.h. Match the values used by run-stm32h563-uarts.
-WT_GUEST0_EMU_OFFSET ?= 0x20000
-WT_GUEST1_EMU_OFFSET ?= 0x40000
+WT_GUEST0_EMU_OFFSET ?= 0xA0000
+WT_GUEST1_EMU_OFFSET ?= 0xE0000
 
 WT_GUEST_CORE_CLOCK_HZ ?= 240000000
 WT_GUEST_UART_CLOCK_HZ ?= 120000000
@@ -109,14 +111,18 @@ all: secure $(GUEST0_BIN) $(GUEST1_BIN)
 secure:
 	rm -rf $(TOP_BUILD_DIR)
 	CONFIG_VNET=$(CONFIG_VNET) WT_MAX_GUESTS=$(WT_MAX_GUESTS) \
+	    WT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_ORIGIN) \
+	    WT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_ORIGIN) \
+	    WT_GUEST0_FLASH_SIZE=$(WT_GUEST0_FLASH_SIZE) \
+	    WT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE) \
 	    $(MAKE) -C $(ROOT) build/wolftrust.bin build/secure_cmse_implib.o
 
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
 # Per-guest ELF rule. The two binaries are byte-different only at link
-# time: guest0 lives at FLASH/RAM 0x08020000 / 0x20000000, guest1 at
-# 0x08040000 / 0x20008000. _estack lands at top of RAM and guest.c
+# time: guest0 lives at FLASH/RAM 0x080A0000 / 0x20000000, guest1 at
+# 0x080E0000 / 0x20010000. _estack lands at top of RAM and guest.c
 # selects its role from that value.
 define GUEST_LINK
 $(BUILD_DIR)/$(1).elf: $(GUEST_SRCS) nonsecure/guest.ld | $(BUILD_DIR)

@@ -57,7 +57,9 @@ int wt_spm_sched_validate(void);
 int wt_spm_sched_current_is_partition(void);
 
 #if (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
-    (defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0))
+    (defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)) || \
+    (defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)) || \
+    (defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1))
 /* Test builds only: run a probing partition through its faults at boot. */
 void wt_spm_sched_prime(int32_t partition_id);
 #endif
@@ -98,5 +100,13 @@ int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
 int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
+
+/* SERVICE_TPM: the mediated door to the isolated fwTPM partition
+ * (CONFIG_TPM builds). */
+int wt_spm_tpm_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
+
+/* SERVICE_PKCS11: copied-transfer relay between the application and provider
+ * guests (CONFIG_PKCS11 builds). */
+int wt_spm_pkcs11_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
 #endif /* WOLFTRUST_SPM_SCHED_H */

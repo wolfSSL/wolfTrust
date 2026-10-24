@@ -156,6 +156,12 @@ $(TEST_BIN): $(ALL_OBJS) | $(BUILD_DIR)
 
 run: $(TEST_BIN)
 	$(TEST_BIN)
+	$(MAKE) run-device-find BUILD_DIR=$(BUILD_DIR)/device-find \
+		EXTRA_CFLAGS="$(EXTRA_CFLAGS) -DWOLF_CRYPTO_CB_FIND -DWT_TPM_ROLE_FTPM -DWT_TEST_TPM_DEVICE_FIND"
+
+.PHONY: run-device-find
+run-device-find: $(TEST_BIN)
+	$(TEST_BIN)
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

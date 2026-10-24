@@ -104,6 +104,8 @@ size_t wt_platform_conf_shared_regions(wt_memory_region_t* regions,
 #if (defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)) || \
     (defined(WT_KEYSTORE_NEG_PROBE) && (WT_KEYSTORE_NEG_PROBE == 1)) || \
     (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
+    (defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)) || \
+    (defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1)) || \
     (defined(WT_PERIPH_SP_NEG_PROBE) && (WT_PERIPH_SP_NEG_PROBE == 1)) || \
     (defined(WT_MANIFEST_NEG_PROBE) && (WT_MANIFEST_NEG_PROBE == 3))
 uintptr_t wt_platform_probe_address(unsigned int target)
@@ -114,6 +116,12 @@ uintptr_t wt_platform_probe_address(unsigned int target)
     case WT_PROBE_ATTEST_DATA_BAND:
         return (uintptr_t)WT_SPM_ATTEST_PA;
     case WT_PROBE_HSM_DATA_BAND:
+        return (uintptr_t)WT_SPM_HSMDATA_PA;
+    case WT_PROBE_TPM_DATA_BAND:
+    case WT_PROBE_PKCS11_DATA_BAND:
+        return (uintptr_t)WT_SPM_INTERFACE_PA;
+    case WT_PROBE_TPM_FTPM_RAM:
+    case WT_PROBE_PKCS11_PROVIDER_RAM:
         return (uintptr_t)WT_SPM_HSMDATA_PA;
     case WT_PROBE_SPM_PERIPHERAL:
         return (uintptr_t)WT_L3_SPM_PERIPHERAL_BASE;

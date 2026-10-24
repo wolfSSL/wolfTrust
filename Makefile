@@ -101,6 +101,8 @@ endif
 test-hardware:
 ifeq ($(TARGET),mimxrt700)
 	@tests/target/run_rt700_suite.sh
+else ifeq ($(TARGET),mcxn947)
+	@tests/target/run_mcxn947_suite.sh
 else
 	@tests/target/run_h5_suite.sh
 endif

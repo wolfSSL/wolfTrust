@@ -396,9 +396,10 @@ recorded separately.
 
 M33MU also models the MCXN947 (`--cpu mcxn947`: internal flash, the boot ROM
 flash API tree, and, with `tests/target/m33mu-mcxn947.patch`, the ELS
-`RND_REQ` register model and the OEM_OPEN life cycle in SYSCON), so the
-MCXN947 port has the same emulator gate as the MIMXRT700, with the same
-scenario names:
+`RND_REQ` register model behind its real clock gate, the ROM's page-based
+bit-clearing flash program, an executable ROM, and the OEM_OPEN life cycle
+in SYSCON), so the MCXN947 port has the same emulator gate as the MIMXRT700,
+with the same scenario names:
 
 ```sh
 make test-target TARGET=mcxn947
@@ -422,8 +423,25 @@ wolfBoot build does. `MCXN947_WOLFBOOT_DIR` reuses a tree the library built.
 The flash image offsets are physical: wolfBoot at 0, the signed Secure image
 at `0x40000`, the guests at `0x80000` and `0x100000`.
 
-These are emulator results; nothing of the wolfTrust chain has run on the
-FRDM-MCXN947 yet, and the port has no hardware runner.
+These are emulator results; the board's are in the next section, recorded
+separately.
+
+## MCXN947 hardware
+
+`make test-hardware TARGET=mcxn947` runs `tests/target/run_mcxn947_suite.sh`
+on the host that owns the FRDM-MCXN947's MCU-Link: `positive`, `sauneg`,
+`periphneg`, `restart`, and `psa` by default (`WT_MCXN947_SCENARIOS`
+overrides the list; `WT_ENGINE` selects the crypto engine), each built,
+flashed at its physical offset, erased to a fresh vault, read back, and
+asserted over the debug port (`tests/target/run_mcxn947_hardware.sh`; the
+MCXN947 Guide lists what each scenario asserts). The two guests share one
+LPUART, so their console lines interleave on silicon; the console is captured
+as evidence and the assertions are the mailboxes and the monitor's counters.
+Without the probe, console, pyOCD pack, or SPSDK, `tests/target/detect_mcxn947.sh`
+reports why and the suite skips. The device life cycle flow is driven
+separately through `TARGET=mcxn947 tests/target/provisioning/provisioning_ctrl.sh`
+and writes no fuse; see the MCXN947 Guide. Hardware test commands write flash
+and reset the board.
 
 ## MIMXRT700 hardware
 

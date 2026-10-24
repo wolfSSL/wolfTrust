@@ -12,7 +12,19 @@ the part; this port rehearses life cycles and writes none of them.
 - **Validated on silicon:** the wolfBoot first stage for this part
   (wolfSSL/wolfBoot#948: signed boot with ECC256/SHA-256, update swap and
   rollback over the write-once trailer, and the measured Secure-application
-  handoff to `0x30030000`).
+  handoff to `0x30030000`), and the wolfTrust chain behind it on the
+  FRDM-MCXN947 (`tests/target/run_mcxn947_hardware.sh`, see
+  [Build and verify on the board](#build-and-verify-on-the-frdm-mcxn947)):
+  wolfBoot verifies the Secure image, the SPM consumes the handoff, creates
+  the wolfHSM vault in the ROM-programmed NVM, and launches both guests on
+  both crypto engines (`positive`); the SAU refuses a guest's store into its
+  peer's RAM (`sauneg`) and its read of the SPM's ELS (`periphneg`), and a
+  guest faulting at launch spends its restart budget and is quarantined
+  (`restart`), the peer running on throughout; the portable PSA client runs
+  its crypto, ITS, sealed PS, key-ops, FF-M negative and SHA-256 KAT stages
+  from both windows with the ELS behind `psa_generate_random`, and verifies
+  the attestation token it is issued against the IAK the vault provisioned at
+  first boot (`psa`).
 - **Validated in cross-build:** the wolfTrust Secure image
   (`make TARGET=mcxn947 secure-image`) on both crypto engines and both
   manifests, with the port split, veneer, owner map, and layout checks green.
@@ -26,10 +38,9 @@ the part; this port rehearses life cycles and writes none of them.
   scenarios the matrix lists for this port
   (`tests/target/lib/scenario_matrix.py`) pass on the model. Scenarios the
   matrix exempts have not been run.
-- **Not validated:** nothing of the wolfTrust Secure image has run on the
-  FRDM board yet; there is no hardware runner, no guest flash fence, and no
-  life cycle write. The TRDC and the AHB secure controller are left as the
-  first loader leaves them. See [Open items](#open-items).
+- **Not validated:** any guest flash fence and any life cycle write. The
+  TRDC and the AHB secure controller are left as the first loader leaves
+  them. See [Open items](#open-items).
 
 Record emulator, cross-build, and physical-board evidence separately: M33MU's
 MCXN947 model gives emulator evidence, the FRDM board gives silicon evidence,
@@ -64,7 +75,7 @@ Armv8-M isolation level 3 layer in `port/common/armv8m/` unchanged, and adds
 | `mcxn947_regs.h` | Register bases for SYSCON, the FMU, the ELS, LPUART4, the TRDC and the AHBSC, the boot ROM and its API tree, and the ELS command interface. |
 | `platform_mcxn947.c` | Every `wt_platform_*` operation: the SAU table, the Secure MPU whitelist (eight regions, one of them the boot ROM for the flash API), the boot-handoff region, fault logging, panic, and reset. |
 | `partitions.c` | The guest and capability tables, the profile capability bitmap (the fabric filter is claimed on the per-dispatch SAU window, as on the MIMXRT700), and the pinned guest-measurement slot. |
-| `rom_flash.c/.h` | Internal flash program and erase through the boot ROM's API tree, called directly with a local definition of the driver interface layout (no vendor SDK): one 16-byte phrase is programmed at most once per erase, every erase is verified by the ROM, and the code-bus cache is cleared after each change. |
+| `rom_flash.c/.h` | Internal flash program and erase through the boot ROM's API tree, called directly with a local definition of the driver interface layout (no vendor SDK): one 16-byte phrase is programmed at most once per erase, each program is issued from its 128-byte page base behind all-ones padding as the ROM requires, every erase is verified by the ROM, and the code-bus cache is cleared after each change. |
 | `hsm_flash.c/.h`, `hsm_flash_ctx.c` | The `port_nvm.h` backend for the wolfHSM store and the FWU staging backend: reads through the Secure alias, program and erase through `rom_flash.c`. |
 | `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the ELS `RND_REQ` command, preserving the unprivileged-to-privileged trap. |
 | `secure.ld` | The port's Secure linker script, which INCLUDEs the shared level 3 regions, band sections, and layout ASSERTs; the SG veneers sit in the image's second 1 KiB, as on the STM32H5. |
@@ -148,20 +159,34 @@ is scheduling policy, not a boundary. The SAU window is the boundary, and
   `rom_flash.c` refuses to program a non-blank phrase and `hsm_flash.c`
   refuses any program that is not phrase-aligned. `tests/host/mcxn947_flash`
   runs the real driver and the wolfHSM store over a model of this flash and
-  proves it: 554 phrase programs across three partition compactions and a
-  reopen, zero double programs with 16-byte units (even through a backend
-  with no phrase guard), 281 double programs with wolfHSM's 8-byte default,
-  which the port backend refuses outright.
+  its ROM and proves it: 643 page-based ROM programs across three partition
+  compactions and a reopen, zero double programs with 16-byte units (even
+  through a backend with no phrase guard), 281 double programs with
+  wolfHSM's 8-byte default, which the port backend refuses outright.
+- **The ROM programs from a page base.** On silicon (ROM `K` 3.2.0) the
+  flash driver's `FLASH_Program` returns `kStatus_FLASH_AlignmentError` (101)
+  for any start that is not 128-byte page aligned, whatever the length, and
+  leaves an all-ones phrase exactly as it was (programming only clears bits,
+  and the erased phrase is a valid ECC word). `rom_flash.c` therefore
+  programs each phrase from its page base behind all-ones padding, one page
+  per ROM call; the padding never counts as a program of the phrases it
+  covers, which the host model checks. The ROM also stores each phrase
+  through the flash's Non-secure alias for the FMU to capture, so the SPM's
+  MPU keeps that alias writable (a store outside a ROM program sequence does
+  not alter flash).
 - **Flash is programmed through the ROM.** There is no SDK in the build; the
   port calls the ROM API tree at `0x1303FC00` through a local definition of
   its layout, checks the geometry the ROM reports (8 KiB sectors, 2 MiB)
   before the first program, masks interrupts around each call, and clears
   the LPCAC afterwards. Reads, verifies, and blank checks go through the
-  Secure alias, as wolfBoot's own flash path does on silicon.
+  Secure alias, as wolfBoot's own flash path does on silicon; an erased
+  phrase reads as `0xFF` without a fault.
 - **Entropy is the ELS.** `RND_REQ` (command 24) fills a buffer by DMA; the
   port requests whole pages, serves only what a request uses, wipes the rest,
-  and fails closed on `ELS_ERR` or a locked ELS. The ROM leaves the ELS
-  clocked; the port enables it and never resets it.
+  and fails closed on `ELS_ERR` or a locked ELS, counting every refusal in
+  `g_wt_els_errors` for the hardware runner. The ROM leaves the ELS clocked
+  (`AHBCLKCTRL2`/`PRESETCTRL2` bit 18); the port enables it and never resets
+  it.
 - **The first loader's image header sets the Secure link address.** wolfBoot
   on this part uses a 1024-byte image header, so wolfTrust links at the boot
   base plus `0x400` (`WT_SECURE_IMAGE_HEADER_SIZE=0x400`) and is signed with
@@ -176,9 +201,10 @@ is scheduling policy, not a boundary. The SAU window is the boundary, and
 - Python 3, CMake (for the emulator build)
 - wolfBoot's MCXN HAL builds against the MCUXpresso SDK (`MCUXPRESSO`,
   `MCUXPRESSO_CMSIS`, or `~/NXP` as wolfBoot's config expects)
-- for a board: the FRDM-MCXN947 with its MCU-Link, pyOCD with the MCXN947
-  pack, and SPSDK's `blhost` (`tests/target/detect_mcxn947.sh` reports what
-  is missing); no hardware runner exists yet
+- for a board: the FRDM-MCXN947 with its MCU-Link (CMSIS-DAP and VCOM),
+  pyOCD with the MCXN947 pack (`pyocd pack install MCXN947`), and SPSDK's
+  `blhost` for the life cycle rehearsal (`tests/target/detect_mcxn947.sh`
+  reports what is missing)
 
 ## Build and verify under M33MU
 
@@ -191,7 +217,10 @@ tests/target/run_mcxn947_m33mu.sh sauneg
 
 The runner builds its pinned emulator (upstream M33MU plus
 `tests/target/m33mu-mcxn947.patch`, which adds the ELS `RND_REQ` register
-model and reflects the OEM_OPEN life cycle into SYSCON) and its pinned
+model behind its `AHBCLKCTRL2` gate, programs flash from a page base by
+clearing bits as the ROM does, makes the ROM executable so an API call leaves
+no stale `IACCVIOL` in `CFSR`, and reflects the OEM_OPEN life cycle into
+SYSCON) and its pinned
 wolfBoot (`tests/target/lib/mcxn947_wolfboot.sh`: the wolfSSL/wolfBoot#948
 branch at its fork ref until it merges, built from
 `config/examples/mcxn-tz-wolftrust.config` with the carried life cycle
@@ -234,6 +263,44 @@ Non-secure PSA clients through the veneers. In `sauneg`, guest 0 disables its
 own Non-secure MPU and stores a sentinel into guest 1's RAM; the runner
 asserts from M33MU's protection-unit trace that the store faulted, refused by
 the SAU with the peer window Secure at dispatch.
+
+## Build and verify on the FRDM-MCXN947
+
+```sh
+make test-hardware TARGET=mcxn947            # positive sauneg periphneg restart psa
+tests/target/run_mcxn947_hardware.sh positive
+WT_ENGINE=hsm tests/target/run_mcxn947_hardware.sh positive
+```
+
+`tests/target/run_mcxn947_hardware.sh` runs on the host that owns the
+board's MCU-Link (`MCXN947_PROBE_UID` picks one of several probes; the
+console is the MCU-Link VCOM, `MCXN947_CONSOLE`). For each scenario it
+builds the Secure image and the guests, pins the guest measurements, signs
+the image with the pinned wolfBoot's key, flashes wolfBoot, the signed image
+and both guests at their physical offsets with pyOCD, erases the update,
+swap and NVM sectors so every run starts from a blank vault, clears the
+mailboxes and launch masks in SRAM, boots, reads every image back and
+compares it, and asserts the result over SWD:
+
+- the bare-metal mailboxes (signature, framework version, `0x600D600D`,
+  the LPUART4 `VERID` the guest read) and, for the negatives, the monitor's
+  `g_wt_restart_events` and `g_wt_quarantine_events` counters, the launch
+  masks, the peer's advancing idle beat, and that the sentinel never landed;
+- the Secure side of every run: `g_wt_rom_flash_last_status` 0 (the ROM
+  flash API answered from the SVC gate), the wolfHSM backend's last error,
+  the vault's first state phrase programmed, an erased phrase reading as
+  `0xFF`, the handoff record consumed, IPSR outside the fault handlers, and
+  wolfBoot's `Verifying signature...done` on the console;
+- for `psa`, each PSA guest's mailbox stage bits (TEE, crypto, ITS, PS,
+  key-ops, SHA-256 KAT, COSE attestation, done).
+
+Two board facts the runner encodes: the pack's `reset halt` leaves a DWT
+comparator and the debug fault status armed, so the core is released only
+after both are cleared; and the MCU-Link forwards early-boot UART only while
+the debug link stays active, so the console capture runs alongside spaced
+reads. The two guests share LPUART4, so their console lines interleave on
+silicon; the assertions are the mailboxes and counters, the console is
+evidence.
 
 ## Provisioning and life cycle
 
@@ -284,13 +351,12 @@ other ports' gates.
 
 ## Open items
 
-- **Silicon bring-up.** The Secure image, the ELS entropy path, the ROM
-  flash API calls from the privileged SVC gate, the LPCAC clear, and the
-  Secure MPU map (including executing the ROM through its Secure alias) are
-  emulator-validated only. The first board run should check the attribution
-  of every Secure peripheral the SPM uses and that reading an erased phrase
-  through the alias returns `0xFF` without a fault, which wolfBoot's flash
-  path on this part already relies on.
+- **Life cycle in the handoff.** wolfBoot's HAL at the pin reports no life
+  cycle (`hal_attestation_get_lifecycle` is the weak default), so the
+  carried patch supplies it; the hardware runner checks the handed value
+  against `ELS_OTP_LC_STATE` on every run because an `UNKNOWN` life cycle
+  silently fails attestation closed (the vault may not provision an IAK
+  under it).
 - **Guest flash fence.** No hardware write protection of the guest windows is
   claimed: `wt_platform_guest_flash_wrp_ok` reports every window unprotected,
   so a `WT_GUEST_FLASH_WRP=1` image refuses every guest. The TRDC MBC gates
@@ -301,11 +367,18 @@ other ports' gates.
 - **Other bus masters.** CPU1, DMA, and the ELS DMA are not fenced from
   Secure RAM; programming the TRDC and the AHB secure controller for them is
   silicon work that M33MU does not model.
-- **Hardware runner and lock.** `run_mcxn947_hardware.sh`, the hardware
-  suite, and a validated life cycle write do not exist yet.
+- **wolfBoot's own flash writes.** The MCXN HAL at the pin programs 4-byte
+  words at any word-aligned address, which this ROM refuses off a page base
+  (`kStatus_FLASH_AlignmentError`, checked on the board with a direct ROM
+  call); wolfTrust's own stores never go through it, the hardware runner
+  never asks wolfBoot to write, and an update swap on silicon is not claimed
+  until the HAL programs from page bases.
+- **Life cycle write.** A validated life cycle advance on the part does not
+  exist; the hardware runner rehearses only.
 - **Upstream pins.** The wolfBoot pin moves to wolfSSL/wolfBoot once
   wolfSSL/wolfBoot#948 merges; the emulator patch goes once M33MU models the
-  ELS command interface and seeds the life cycle itself.
+  ELS command interface, the ROM's page-based bit-clearing program, an
+  executable ROM, and seeds the life cycle itself.
 
 See [Porting](Porting.md) for the generic port contract, [Testing](Testing.md)
 for scenario selection, and [Security Model](Security-Model.md) for the policy

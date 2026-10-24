@@ -171,6 +171,7 @@ FTPM_SRCS := \
     $(WOLFTPM_DIR)/src/tpm2_crypto.c
 
 ifeq ($(WT_ENGINE),hsm)
+FTPM_CFLAGS += -DWOLF_CRYPTO_CB_FIND
 GUEST_CFLAGS += -DWT_ENGINE_HSM=1 -DWOLF_CRYPTO_CB -DWOLFHSM_CFG \
     -I$(ROOT)/lib/wolfHSM -I$(BUILD_DIR)
 COMMON_SRCS := $(filter-out %/crypto_native_client.c,$(COMMON_SRCS))

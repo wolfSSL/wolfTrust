@@ -54,7 +54,9 @@ The provider remains in its existing protection domain: a separate Non-secure
 guest on Cortex-M, or an S-EL0 Secure Partition on Cortex-A. Selecting native
 crypto does not move private keys between those domains. The PKCS#11 and TPM
 API relays, caller roles, and copied-transfer bounds are the same for both
-engines. Select one application interface with `CONFIG_PKCS11=y` or
+engines. In HSM mode, the fwTPM provider also maps keys initialized without
+a device ID to wolfHSM. Its private wolfCrypt instance enables
+`WOLF_CRYPTO_CB_FIND`; native providers retain direct software execution. Select one application interface with `CONFIG_PKCS11=y` or
 `CONFIG_TPM=y`, independently of the engine.
 
 CI covers `[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]` on

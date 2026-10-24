@@ -26,6 +26,7 @@
 #include "wolfhsm/wh_client_cryptocb.h"
 #include "wolfhsm/wh_comm.h"
 #include "wolfhsm/wh_error.h"
+#include "wolfssl/wolfcrypt/cryptocb.h"
 #include "wolftrust/hsm_psa_transport.h"
 
 #define WT_SERVICE_HSM_SID     4102U
@@ -42,10 +43,22 @@ static whCommClientConfig g_comm_config;
 static uint8_t g_client_initialized;
 static uint8_t g_hsm_restarted;
 
+#if defined(CONFIG_TPM) && defined(WOLF_CRYPTO_CB_FIND)
+/* fwTPM initializes keys without a device ID. */
+static int wt_provider_find_device(int devId, int algoType)
+{
+    (void)algoType;
+    return devId == INVALID_DEVID ? WH_DEV_ID : devId;
+}
+#endif
+
 int wt_provider_crypto_init(void)
 {
     int rc;
 
+#if defined(CONFIG_TPM) && defined(WOLF_CRYPTO_CB_FIND)
+    wc_CryptoCb_SetDeviceFindCb(wt_provider_find_device);
+#endif
     g_comm_config.transport_cb = &wt_hsm_psa_transport_cb;
     g_comm_config.transport_context = &g_transport;
     g_comm_config.transport_config = &g_transport_config;

@@ -428,6 +428,10 @@ int main(void)
     uint8_t rng_large[1000];
     int rc;
     int guest_init_rc;
+#ifdef WT_TEST_TPM_DEVICE_FIND
+    ecc_key device_find_key;
+    WC_RNG device_find_rng;
+#endif
 
     /* ECC state for the sign/verify round trip */
     whKeyId key_id = WH_KEYID_ERASED;
@@ -464,6 +468,22 @@ int main(void)
     guest_init_rc = wolfhsm_guest_init();
     check(guest_init_rc == 0,
           "FreeRTOS guest init installs retry after cold-start failure");
+
+#ifdef WT_TEST_TPM_DEVICE_FIND
+    /* An unavailable HSM must not silently turn fwTPM ECC into software. */
+    memset(&device_find_rng, 0, sizeof(device_find_rng));
+    rc = wc_ecc_init(&device_find_key);
+    check(rc == 0 && device_find_key.devId == INVALID_DEVID,
+          "WT-FFM-0054 fwTPM key starts without a device ID");
+    if (rc == 0) {
+        rc = wc_ecc_make_key_ex(&device_find_rng, 32, &device_find_key,
+                                ECC_SECP256R1);
+        check(rc == WC_HW_E,
+              "WT-FFM-0054 implicit fwTPM ECC reaches unavailable HSM");
+        wc_ecc_free(&device_find_key);
+    }
+    return g_failures == 0 ? 0 : 1;
+#endif
 
     /* === FF-M runtime up first: the client transport connects through it. */
     check(wt_ffm_init(&g_runtime, &g_manifest, &g_port_ops, NULL) ==

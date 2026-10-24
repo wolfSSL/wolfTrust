@@ -77,6 +77,10 @@ HSM provider task uses 8 KiB. Both allocate these stacks from the existing
 | pkcs11 | hsm | app | 16,860 | 49,884 | 16,860 |
 | pkcs11 | hsm | provider | 102,912 | 43,224 | 102,956 |
 
+The HSM fwTPM provider was remeasured after enabling implicit-device routing
+for ECC and AES. Its ELF contains the device finder and retains the same
+section totals shown above.
+
 The existing FreeRTOS PSA reference client is unchanged: 11,980 flash bytes
 and 17,200 static RAM bytes under native, or 32,388 flash bytes and 18,164
 static RAM bytes under HSM. Its raw binaries are 11,980 and 32,428 bytes.

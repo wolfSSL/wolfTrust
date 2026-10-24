@@ -1,0 +1,13 @@
+diff --git a/cpu/imxrt700/imxrt700_secure.c b/cpu/imxrt700/imxrt700_secure.c
+--- a/cpu/imxrt700/imxrt700_secure.c
++++ b/cpu/imxrt700/imxrt700_secure.c
+@@ -407,6 +407,9 @@ static void fuses_seed(void)
+     /* Unique ID words, stable across runs. */
+     fuses[0x10] = 0x52543730u; /* "RT70" */
+     fuses[0x11] = 0x00000798u;
++    /* LC_STATE_RED and LC_STATE: Develop (0x03), the state an EVK ships in. */
++    fuses[0x25] = 0x00000003u;
++    fuses[0x8F] = 0x00000003u;
+     fuses_init = MM_TRUE;
+ }
+ 

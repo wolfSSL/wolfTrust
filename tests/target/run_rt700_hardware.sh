@@ -20,6 +20,17 @@
 #             guest1's RAM, which the per-dispatch SAU window keeps Secure; the
 #             store must be blocked, guest1's RAM must not hold the sentinel,
 #             and guest1 must keep running.
+#   wrpfence  a WT_GUEST_FLASH_WRP=1 wolfTrust behind a wolfBoot that arms the
+#             XSPI guest fence: the fence reads back sealed over SWD and both
+#             guests launch.
+#   wrpoff    the same wolfTrust behind an unfenced wolfBoot: wolfTrust must
+#             refuse both guests (launch refused mask 0x3, no mailbox written).
+#   wrpneg    wrpfence with wolfBoot's flash-protect selftest: the silicon must
+#             refuse an erase inside the guest fence and leave the block as is.
+#
+# The wolfBoot first stage is RT700_WOLFBOOT_REF plus the carried patches
+# (lib/rt700_wolfboot.sh), cached under ~/.cache/wolftrust, unless
+# RT700_WOLFBOOT_DIR names a prebuilt tree.
 set -euo pipefail
 
 scenario="${1:-}"
@@ -28,7 +39,7 @@ repo="$(cd "$here/../.." && pwd)"
 work="${RT700_WORK:-$repo/build/rt700}"
 target="${RT700_TARGET:-mimxrt798sgfob}"
 fcb="${RT700_FCB:-$HOME/rt700-boot/fcb.bin}"
-wolfboot_dir="${RT700_WOLFBOOT_DIR:-$HOME/wolfBoot-rt700}"
+wolfboot_dir="${RT700_WOLFBOOT_DIR:-}"
 spsdk_venv="${RT700_SPSDK_VENV:-$HOME/spsdk-venv}"
 xspi0_base=0x28000000
 mbi_offset=0x4000
@@ -38,6 +49,16 @@ guest1_flash_addr=0x28100000
 hsm_nvm_addr=0x281E0000
 hsm_nvm_size=0x2000
 guest_build="$repo/tests/firmware/mimxrt700-baremetal/build"
+
+# shellcheck source=lib/rt700_fence.sh disable=SC1091
+. "$here/lib/rt700_fence.sh"
+# shellcheck source=lib/rt700_wolfboot.sh disable=SC1091
+. "$here/lib/rt700_wolfboot.sh"
+case "$scenario" in
+    wrpfence|wrpneg) guest_fence=1; export WT_GUEST_FLASH_WRP=1 ;;
+    wrpoff)   guest_fence=0; export WT_GUEST_FLASH_WRP=1 ;;
+    *)        guest_fence="${WT_XSPI_GUEST_FENCE:-${WT_GUEST_FLASH_WRP:-0}}" ;;
+esac
 
 log() { printf '%s\n' "$*"; }
 stage() { printf '  ... %s\n' "$*"; }
@@ -134,14 +155,20 @@ erase_range() {
         -s "$range" >/dev/null 2>&1 || fail "erase of $range failed"
 }
 
-# SRAM survives a warm reset, so the last run's mailboxes and sentinel would
-# otherwise read back as this run's result if the chain never reached a guest.
+# SRAM survives a warm reset, so the last run's mailboxes, sentinel, and launch
+# masks would otherwise read back as this run's result.
 clear_mailboxes() {
+    local verified refused
+    verified="$(elf_sym g_wt_launch_verified_mask)"
+    refused="$(elf_sym g_wt_launch_refused_mask)"
+    [ -n "$verified" ] && [ -n "$refused" ] || fail "launch masks not found in wolftrust.elf"
     park_core
     timeout 60 pyocd cmd -t "$target" -O resume_on_disconnect=false \
         -c "write32 0x20100000 0 0 0 0 0 0 0 0 0 0" \
         -c "write32 0x20140000 0 0 0 0 0 0 0 0 0 0" \
-        -c "write32 0x20170000 0" >/dev/null 2>&1 || \
+        -c "write32 0x20170000 0" \
+        -c "write32 0x20180080 0 0 0 0 0 0 0 0 0 0 0 0" \
+        -c "write32 $verified 0" -c "write32 $refused 0" >/dev/null 2>&1 || \
         fail "could not clear the guest mailboxes"
 }
 
@@ -154,14 +181,47 @@ reset_board() {
 }
 
 
+# The first stage to flash: a prebuilt RT700_WOLFBOOT_DIR as-is (a fence run
+# must still match the pin), otherwise the pinned build for this fence setting.
+ensure_wolfboot() {
+    local fence_cflags=""
+
+    if [ "$guest_fence" = "1" ]; then
+        fence_cflags="$(rt700_fence_cflags)" || fail "guest fence bounds"
+    fi
+    if [ "$scenario" = "wrpneg" ]; then
+        fence_cflags="$fence_cflags -DXSPI_FLASH_PROTECT_SELFTEST"
+    fi
+    if [ -n "$wolfboot_dir" ]; then
+        if [ -n "${WT_GUEST_FLASH_WRP:-}" ]; then
+            rt700_wolfboot_current "$wolfboot_dir" \
+                "$(rt700_wolfboot_stamp "CFLAGS_EXTRA=$fence_cflags")" || \
+                fail "RT700_WOLFBOOT_DIR=$wolfboot_dir was not built by lib/rt700_wolfboot.sh with this guest fence"
+        fi
+    else
+        wolfboot_dir="$HOME/.cache/wolftrust/wolfboot-rt700"
+        [ "$guest_fence" = "1" ] && wolfboot_dir="$wolfboot_dir-fence"
+        [ "$scenario" = "wrpneg" ] && wolfboot_dir="$wolfboot_dir-selftest"
+        mkdir -p "$(dirname "$wolfboot_dir")"
+        stage "wolfBoot $RT700_WOLFBOOT_REF (imx-rt700-tz${fence_cflags:+, guest fence})"
+        rt700_wolfboot_build "$wolfboot_dir" "CFLAGS_EXTRA=$fence_cflags" \
+            > "$work/wolfboot-build.log" 2>&1 || {
+            tail -20 "$work/wolfboot-build.log"
+            fail "wolfBoot build failed"
+        }
+    fi
+    [ -s "$wolfboot_dir/wolfboot.bin" ] || \
+        fail "wolfBoot TZ image missing at $wolfboot_dir/wolfboot.bin (RT700_WOLFBOOT_DIR)"
+}
+
 # Build wolfTrust and both guests, pin the guest measurements, sign, flash the
 # whole chain, boot it from a fresh vault, and verify every image by readback.
 run_chain() {
     local guest_flags="$1"
 
     ensure_spsdk
-    [ -s "$wolfboot_dir/wolfboot.bin" ] || \
-        fail "wolfBoot TZ image missing at $wolfboot_dir/wolfboot.bin (RT700_WOLFBOOT_DIR)"
+    mkdir -p "$work"
+    ensure_wolfboot
 
     # RT700 wolfBoot uses a 1024-byte image header, so wolfTrust links at the
     # boot base + 0x400 and is signed with a matching header. Exported so the
@@ -225,6 +285,59 @@ check_guest() {
         "guest$id done: FF-M connect verified, status 0x600D600D ($st)"
     check "$([ -n "$uart" ] && [ "$uart" != "00000000" ]; echo $?)" \
         "guest$id reaches its Non-secure console (LPUART0 VERID 0x$uart)"
+}
+
+# A wolfTrust global's address, from the image this run built and flashed.
+elf_sym() {
+    arm-none-eabi-nm "$repo/build/wolftrust.elf" |
+        awk -v s="$1" '$3 == s && !f { print "0x" $1; f = 1 }'
+}
+
+# All eight XSPI0 FRADs as "start end acp word3" lines, in one debugger
+# session; only words 0-3 of each 0x20 stride are readable.
+frad_dump() {
+    local -a cmds=()
+    local n
+    for n in 0 1 2 3 4 5 6 7; do
+        cmds+=(-c "read32 $(printf '0x%x' $((0x50184800 + n * 0x20))) 16")
+    done
+    dap "${cmds[@]}" | awk '/^50184[89]/ { print $2, $3, $4, $5 }'
+}
+
+# wolfBoot sealed the SFP configuration until the next reset.
+sfp_sealed() {
+    local mgc mdad
+    mgc=$((0x$(mailbox_word 0x50184920 0)))
+    mdad=$((0x$(mailbox_word 0x50184900 0)))
+    [ $((mgc & 0xA8000000)) -eq $((0xA8000000)) ] && [ $((mgc & 0xC00)) -ne 0 ] &&
+        [ $((mdad & 0xA0000000)) -eq $((0xA0000000)) ]
+}
+
+# One valid, hard-reset-locked (EAL clear), write-denying FRAD spans the guest
+# windows; the Secure-side predicate is the authority, this is the evidence.
+fence_armed() {
+    local w0 w1 w2 w3 lock
+    rt700_fence_bounds || fail "guest fence bounds"
+    while read -r w0 w1 w2 w3; do
+        lock=$((0x$w3 & 0x63000000))
+        if [ $((0x$w0 & 0xFFFF0000)) -le $((RT700_GUEST_FENCE_START)) ] &&
+           [ $(((0x$w1 & 0xFFFF0000) | 0xFFFF)) -ge $((RT700_GUEST_FENCE_END - 1)) ] &&
+           [ $((0x$w3 & 0x80000000)) -ne 0 ] && [ $((0x$w2 & 0x3F)) -eq 0 ] &&
+           { [ "$lock" -eq $((0x20000000)) ] || [ "$lock" -eq $((0x60000000)) ]; }; then
+            return 0
+        fi
+    done < <(frad_dump)
+    return 1
+}
+
+check_launch_masks() {
+    local want_verified="$1" want_refused="$2" verified refused
+    verified="$(mailbox_word "$(elf_sym g_wt_launch_verified_mask)" 0)"
+    refused="$(mailbox_word "$(elf_sym g_wt_launch_refused_mask)" 0)"
+    check "$([ "$verified" = "$want_verified" ]; echo $?)" \
+        "launch-verified guest mask 0x$verified (want 0x$want_verified)"
+    check "$([ "$refused" = "$want_refused" ]; echo $?)" \
+        "launch-refused guest mask 0x$refused (want 0x$want_refused)"
 }
 
 case "$scenario" in
@@ -293,8 +406,55 @@ positive|ahbscneg)
     fi
     log "PASS: hardware/$scenario"
     ;;
+wrpfence)
+    run_chain ""
+    rt700_fence_bounds || fail "guest fence bounds"
+    check "$(sfp_sealed; echo $?)" "XSPI SFP configuration valid and sealed until reset"
+    check "$(fence_armed; echo $?)" \
+        "a locked, write-denying FRAD spans the guest windows ($RT700_GUEST_FENCE_START-$RT700_GUEST_FENCE_END)"
+    check_launch_masks 00000003 00000000
+    for g in 0:0x20100000 1:0x20140000; do
+        check_guest "${g%%:*}" "${g##*:}"
+    done
+    log "PASS: hardware/$scenario"
+    ;;
+wrpoff)
+    run_chain ""
+    rt700_fence_bounds || fail "guest fence bounds"
+    check "$(sfp_sealed; echo $?)" "XSPI SFP configuration valid and sealed until reset"
+    check "$(fence_armed && echo 1 || echo 0)" \
+        "no FRAD fences the guest windows (unfenced wolfBoot)"
+    check_launch_masks 00000000 00000003
+    for g in 0:0x20100000 1:0x20140000; do
+        sig="$(mailbox_word "${g##*:}" 0)"
+        check "$([ "$sig" = "00000000" ]; echo $?)" \
+            "guest${g%%:*} never entered its domain (mailbox 0x$sig)"
+    done
+    log "PASS: hardware/$scenario"
+    ;;
+wrpneg)
+    run_chain ""
+    rt700_fence_bounds || fail "guest fence bounds"
+    check "$(fence_armed; echo $?)" \
+        "a locked, write-denying FRAD spans the guest windows ($RT700_GUEST_FENCE_START-$RT700_GUEST_FENCE_END)"
+    # wolfBoot's selftest verdicts (hal/imx_rt7xx.c PST mailbox).
+    pst() { mailbox_word 0x20180080 $((4 * $1)); }
+    check "$([ "$(pst 0)" = "50510002" ]; echo $?)" "wolfBoot's flash-protect selftest ran to completion"
+    # Only the refusal: the block's contents depend on what the board held.
+    check "$([ "$(pst 3)" = "$(pst 4)" ]; echo $?)" \
+        "the boot-root erase at 0x$(pst 1) returned the FRAD check error ($(pst 3))"
+    check "$([ "$(pst 9)" = "$(pst 4)" ]; echo $?)" \
+        "the erase at 0x$(pst 7) in the guest fence returned the FRAD check error ($(pst 9))"
+    check "$([ "$(pst 11)" = "505150aa" ]; echo $?)" \
+        "the guest-fence block is unchanged (0x$(pst 8) -> 0x$(pst 10))"
+    check_launch_masks 00000003 00000000
+    for g in 0:0x20100000 1:0x20140000; do
+        check_guest "${g%%:*}" "${g##*:}"
+    done
+    log "PASS: hardware/$scenario"
+    ;;
 *)
-    log "usage: $0 romsmoke|positive|ahbscneg"
+    log "usage: $0 romsmoke|positive|ahbscneg|wrpfence|wrpoff|wrpneg"
     exit 2
     ;;
 esac

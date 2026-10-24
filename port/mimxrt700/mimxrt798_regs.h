@@ -139,6 +139,12 @@
 #define WT_XSPI0_SFP_TG_IPCR  WT_REG32(WT_XSPI0_BASE_S + 0x958u)
 #define WT_XSPI0_SFP_TG_SFAR  WT_REG32(WT_XSPI0_BASE_S + 0x95Cu)
 
+/* SFP flash region access descriptors: 8 of 4 words each (start, end,
+ * per-domain access policy, lock control), armed by the first loader. */
+#define WT_XSPI0_FRAD_WORD(n, w) \
+    WT_REG32(WT_XSPI0_BASE_S + 0x800u + 0x20u * (n) + 4u * (w))
+#define WT_XSPI_FRAD_COUNT       8u
+
 #define WT_XSPI_MCR_SWRSTSD      0x00000001u
 #define WT_XSPI_MCR_SWRSTHD      0x00000002u
 #define WT_XSPI_MCR_IPS_TG_RST   0x00000200u
@@ -155,8 +161,21 @@
 #define WT_XSPI_TGSFARS_ERR      0x40000000u
 #define WT_XSPI_TGSFARS_VLD      0x80000000u
 #define WT_XSPI_TGIPCRS_CLR      0x10000000u
+#define WT_XSPI_MGC_GCLCK        0x00000C00u
+#define WT_XSPI_MGC_GVLDFRAD     0x08000000u
 #define WT_XSPI_MGC_GVLDMDAD     0x20000000u
+#define WT_XSPI_MGC_GVLD         0x80000000u
+#define WT_XSPI_TG0MDAD_LCK      0x20000000u
 #define WT_XSPI_TG0MDAD_VLD      0x80000000u
+#define WT_XSPI_FRAD_ADDR_MASK   0xFFFF0000u
+#define WT_XSPI_FRAD_WORD2_ACP   0x0000003Fu
+#define WT_XSPI_FRAD_WORD3_EAL   0x03000000u
+#define WT_XSPI_FRAD_WORD3_LOCK  0x60000000u
+#define WT_XSPI_FRAD_WORD3_VLD   0x80000000u
+/* LOCK field values: 1 = read-only till hard reset, 3 = read-only. Value 2
+ * still lets the access policy be reprogrammed, so it is not a lock here. */
+#define WT_XSPI_FRAD_LOCK_HARD   0x20000000u
+#define WT_XSPI_FRAD_LOCK_FULL   0x60000000u
 #define WT_XSPI_FSMSTAT_STATE    0x00000003u
 #define WT_XSPI_FSMSTAT_VLD      0x80000000u
 #define WT_XSPI_RBSR_RDBFL       0x000000FFu

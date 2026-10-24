@@ -41,6 +41,7 @@ scenario_secure_flags() {
         remeasureneg)     echo "WT_REMEASURE_PROBE=1" ;;
         bootupdate)       echo "WT_BOOTUPDATE_PROBE=1" ;;
         spbudgetneg)      echo "WT_SP_FAULT_ALWAYS_PROBE=1" ;;
+        wrpfence|wrpoff|wrpneg) echo "WT_GUEST_FLASH_WRP=1" ;;
         vnet)             echo "CONFIG_VNET=y" ;;
         vnetneg)          echo "CONFIG_VNET=y WT_VNET_NEG_PROBE=1" ;;
         manifestneg)      echo "WT_MANIFEST_NEG_PROBE=1" ;;

@@ -1,0 +1,117 @@
+diff --git a/hal/imx_rt7xx.c b/hal/imx_rt7xx.c
+index bf9227a6..c9a7fd18 100644
+--- a/hal/imx_rt7xx.c
++++ b/hal/imx_rt7xx.c
+@@ -861,10 +861,39 @@ static void RAMFUNCTION xspi_flash_protect_selftest(uint32_t end)
+               (PST(5) == 0xFFFFFFFFu)) ? 0x505150AAu : 0x505150EEu;
+     wolfBoot_printf("xspi protect selftest %s\n",
+         (PST(6) == 0x505150AAu) ? "PASS" : "FAIL");
++#if defined(XSPI_GUEST_FENCE_START) && defined(XSPI_GUEST_FENCE_END)
++    /* The guest fence must refuse the same erase in its last 64 KB block and
++     * leave the block as it was, whatever that block holds. */
++    PST(7) = (uint32_t)XSPI_GUEST_FENCE_END - FRAD_GRANULE;
++    PST(8) = *(volatile uint32_t *)PST(7);
++    PST(9) = (uint32_t)xspi_ip_command(PST(7), LUT_SEQ_IDX_ERASE_SECTOR);
++    (void)xspi_ahb_flush();
++    PST(10) = *(volatile uint32_t *)PST(7);
++    PST(11) = ((PST(9) == (uint32_t)kStatus_XSPI_FradCheckError) &&
++               (PST(10) == PST(8))) ? 0x505150AAu : 0x505150EEu;
++    wolfBoot_printf("xspi guest fence selftest %s\n",
++        (PST(11) == 0x505150AAu) ? "PASS" : "FAIL");
++#endif
+     PST(0) = 0x50510002u;
+ }
+ #endif
+ 
++#if defined(XSPI_GUEST_FENCE_START) && defined(XSPI_GUEST_FENCE_END)
++#if ((XSPI_GUEST_FENCE_START) & 0xFFFF) != 0 || ((XSPI_GUEST_FENCE_END) & 0xFFFF) != 0
++#error "XSPI guest fence bounds must be 64 KB aligned"
++#endif
++#define FRAD_GUEST_FENCE 1
++static int RAMFUNCTION frad_readback_ok(uint32_t n, uint32_t start,
++                                        uint32_t last, uint32_t acp)
++{
++    return (((FRAD_WORD(n, 0) & 0xFFFF0000u) == (start & 0xFFFF0000u)) &&
++            ((FRAD_WORD(n, 1) & 0xFFFF0000u) == (last & 0xFFFF0000u)) &&
++            ((FRAD_WORD(n, 2) & FRAD_WORD2_ACP_MASK) == acp) &&
++            ((FRAD_WORD(n, 3) & FRAD_WORD3_LOCK_VLD) ==
++             (FRAD_WORD3_LOCKED | XSPI_FRAD0_WORD3_VLD_MASK))) ? 1 : 0;
++}
++#endif
++
+ /* Bootloader write protection via the XSPI SFP flash region descriptors.
+  * FRAD0 covers the boot root from the start of the NOR (so the FCB the
+  * BootROM reads is fenced too) through the end of the requested region and
+@@ -890,6 +919,13 @@ int RAMFUNCTION hal_flash_protect(uint32_t address, int len)
+     if ((g_xspi_ready == 0) && (xspi_nor_init_guarded() != kStatus_Success)) {
+         return -1;
+     }
++#ifdef FRAD_GUEST_FENCE
++    if ((end >= (uint32_t)XSPI_GUEST_FENCE_START) ||
++        ((uint32_t)XSPI_GUEST_FENCE_START >= (uint32_t)XSPI_GUEST_FENCE_END) ||
++        ((uint32_t)XSPI_GUEST_FENCE_END >= NOR_BASE + NOR_SIZE)) {
++        return -1;
++    }
++#endif
+ 
+     for (i = 0u; i < XSPI_SFP_FRAD_COUNT; i++) {
+         frad.fradConfig[i].startAddress = 0u;
+@@ -909,6 +945,21 @@ int RAMFUNCTION hal_flash_protect(uint32_t address, int len)
+     frad.fradConfig[1].tg1MasterAccess = FRAD_ACCESS_NONE;
+     frad.fradConfig[1].assignIsValid = true;
+     frad.fradConfig[1].descriptorLock = kXSPI_DescriptorLockDisabled;
++#ifdef FRAD_GUEST_FENCE
++    /* FRAD2 fences the Secure application's Non-secure guest images against
++     * every initiator, the Secure application included; FRAD3 keeps the
++     * update, swap and storage partitions above it writable. */
++    frad.fradConfig[1].endAddress = (uint32_t)XSPI_GUEST_FENCE_START - 1u;
++    frad.fradConfig[2].startAddress = (uint32_t)XSPI_GUEST_FENCE_START;
++    frad.fradConfig[2].endAddress = (uint32_t)XSPI_GUEST_FENCE_END - 1u;
++    frad.fradConfig[2].assignIsValid = true;
++    frad.fradConfig[3].startAddress = (uint32_t)XSPI_GUEST_FENCE_END;
++    frad.fradConfig[3].endAddress = NOR_BASE + NOR_SIZE - 1u;
++    frad.fradConfig[3].tg0MasterAccess = FRAD_ACCESS_ALL;
++    frad.fradConfig[3].tg1MasterAccess = FRAD_ACCESS_NONE;
++    frad.fradConfig[3].assignIsValid = true;
++    frad.fradConfig[3].descriptorLock = kXSPI_DescriptorLockDisabled;
++#endif
+ 
+     /* Region policy is held per initiator domain, so the fence needs a
+      * domain to bind to: one locked domain that every initiator matches
+@@ -928,6 +979,10 @@ int RAMFUNCTION hal_flash_protect(uint32_t address, int len)
+     XSPI_UpdateSFPConfig(XSPI_NOR_S, &mdad, &frad);
+     FRAD_WORD(1, 2) = FRAD_WORD2_ACP_ALL;
+     FRAD_WORD(1, 3) |= FRAD_WORD3_LOCKED;
++#ifdef FRAD_GUEST_FENCE
++    FRAD_WORD(3, 2) = FRAD_WORD2_ACP_ALL;
++    FRAD_WORD(3, 3) |= FRAD_WORD3_LOCKED;
++#endif
+     XSPI_NOR_S->MGC |= XSPI_MGC_GCLCK(1u);
+ 
+     /* The driver cannot report a locked or ignored write, so trust only
+@@ -951,6 +1006,17 @@ int RAMFUNCTION hal_flash_protect(uint32_t address, int len)
+          (FRAD_WORD3_LOCKED | XSPI_FRAD0_WORD3_VLD_MASK))) {
+         return -1;
+     }
++#ifdef FRAD_GUEST_FENCE
++    if ((frad_readback_ok(1u, end, (uint32_t)XSPI_GUEST_FENCE_START - 1u,
++                          FRAD_WORD2_ACP_ALL) == 0) ||
++        (frad_readback_ok(2u, (uint32_t)XSPI_GUEST_FENCE_START,
++                          (uint32_t)XSPI_GUEST_FENCE_END - 1u, 0u) == 0) ||
++        (frad_readback_ok(3u, (uint32_t)XSPI_GUEST_FENCE_END,
++                          NOR_BASE + NOR_SIZE - 1u, FRAD_WORD2_ACP_ALL) == 0)) {
++        return -1;
++    }
++    for (i = 4u; i < XSPI_SFP_FRAD_COUNT; i++) {
++#else
+     if (((FRAD_WORD(1, 0) & 0xFFFF0000u) != (end & 0xFFFF0000u)) ||
+         ((FRAD_WORD(1, 1) & 0xFFFF0000u) !=
+          ((NOR_BASE + NOR_SIZE - 1u) & 0xFFFF0000u)) ||
+@@ -960,6 +1026,7 @@ int RAMFUNCTION hal_flash_protect(uint32_t address, int len)
+         return -1;
+     }
+     for (i = 2u; i < XSPI_SFP_FRAD_COUNT; i++) {
++#endif
+         if ((FRAD_WORD(i, 3) & FRAD_WORD3_LOCK_VLD) != FRAD_WORD3_LOCKED) {
+             return -1;
+         }

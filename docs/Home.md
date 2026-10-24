@@ -114,5 +114,7 @@ port's five CMSE gateway veneers.
 | [Porting](Porting.md) | Architecture and target port contracts |
 | [Building](Building.md) | Build targets, outputs, and cross-build options |
 | [Testing](Testing.md) | Host, M33MU, and STM32H563 validation |
+| [Provisioning](Provisioning.md) | Rehearse, validate, then lock: the production life cycle flow for every port |
 | [Project Structure](Project-Structure.md) | Repository layout |
 | [STM32H5 Guide](STM32H5-Guide.md) | STM32H563 provisioning, flashing, WRP, and recovery safety |
+| [MIMXRT700 Guide](MIMXRT700-Guide.md) | MIMXRT700 provisioning, flashing, XSPI guest fence, and recovery safety |

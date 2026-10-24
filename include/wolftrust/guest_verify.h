@@ -70,6 +70,25 @@ int wt_guest_flash_wrp_covers(uint32_t wrp_bitmap,
                               uint32_t sector_size,
                               uint32_t sectors_per_group);
 
+/* One flash-region access descriptor (XSPI FRAD) as the port read it back.
+ * start and end are inclusive addresses; write_acp is nonzero when any master
+ * domain may write through it; locked means locked until the next hard reset. */
+typedef struct wt_frad_region {
+    uint32_t start;
+    uint32_t end;
+    uint32_t write_acp;
+    uint32_t valid;
+    uint32_t locked;
+} wt_frad_region_t;
+
+/* Descriptor-fenced flash write-protection predicate for a guest image window.
+ * Returns WT_GUEST_VERIFY_OK only when [window_base, window_base + window_size)
+ * is covered end to end by valid, locked, write-denying descriptors and no
+ * valid write-granting or unlocked descriptor overlaps it. Neutral and
+ * host-tested; the port supplies the normalized descriptor read-back. */
+int wt_guest_flash_frad_covers(const wt_frad_region_t* regions, size_t count,
+                               uintptr_t window_base, size_t window_size);
+
 /* WT-FFM-0052 / WT-SYS-0013 runtime re-measurement decision. On demand after
  * boot, re-hash the domain's window against its pinned record. A guest with no
  * launch policy has nothing pinned and passes; a launch-required guest with no

@@ -314,7 +314,7 @@ check_launch_masks() {
 # 0xFF, wolfBoot's handoff was consumed, and the scheduler is not in a fault
 # handler.
 check_secure_side() {
-    local rom err els phrase blank handoff ipsr lc
+    local rom err els phrase blank handoff ipsr lc handed
     rom="$(sym_word g_wt_rom_flash_last_status)"
     err="$(sym_word g_wt_flash_last_error)"
     check "$([ "$rom" = "00000000" ]; echo $?)" \
@@ -338,6 +338,13 @@ check_secure_side() {
         "system still scheduling (IPSR $ipsr, not a fault handler)"
     lc="$(word_at "$syscon_lc_state" 0)"
     log "  [lifecycle] ELS_OTP_LC_STATE 0x$lc"
+    handed="$(word_at "$(elf_sym g_wt_boot_handoff)" 12)"
+    if [ "$lc" = "00000003" ]; then
+        check "$([ "$handed" = "00001000" ]; echo $?)" \
+            "wolfBoot handed OEM_OPEN as PSA ASSEMBLY_AND_TEST (lifecycle 0x$handed)"
+    else
+        log "  [lifecycle] handoff lifecycle 0x$handed"
+    fi
     check "$(grep -q "Verifying signature...done" "$work/console.log"; echo $?)" \
         "wolfBoot verified the wolfTrust image signature (console)"
 }
@@ -373,7 +380,8 @@ check_psa_guest() {
         "guest$id completed the TEE, crypto, ITS, PS, key-ops, SHA KAT and done stages (0x$lc)"
     check "$([ $((0x$lc & 0x40)) -ne 0 ]; echo $?)" \
         "guest$id completed the attestation COSE stage (0x$lc)"
-    check "$([ "$neg" = "00000000" ]; echo $?)" "guest$id FF-M negatives all rejected (0x$neg)"
+    check "$([ "$neg" = "0000000f" ]; echo $?)" \
+        "guest$id FF-M negatives all rejected: forged handle, oversized vector, cross-guest vector, unknown SID (0x$neg)"
 }
 
 case "$scenario" in

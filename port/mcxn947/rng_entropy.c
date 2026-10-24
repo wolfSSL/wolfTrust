@@ -37,6 +37,10 @@ int wolftrust_rng_generate_block_direct(unsigned char *output,
 #define WT_ELS_PAGE_WORDS 16u
 
 static bool s_rng_ready;
+/* Read over the debug port by the hardware runner. */
+volatile uint32_t g_wt_els_errors __attribute__((used));
+volatile uint32_t g_wt_els_last_status __attribute__((used));
+volatile uint32_t g_wt_els_last_err __attribute__((used));
 
 static int wt_els_wait_idle(void)
 {
@@ -49,6 +53,9 @@ static int wt_els_wait_idle(void)
     }
     if ((status & (WT_ELS_STATUS_BUSY | WT_ELS_STATUS_ERR |
                    WT_ELS_STATUS_LOCKED)) != 0u) {
+        g_wt_els_errors++;
+        g_wt_els_last_status = status;
+        g_wt_els_last_err = WT_ELS_ERR_STATUS;
         return -1;
     }
     return 0;

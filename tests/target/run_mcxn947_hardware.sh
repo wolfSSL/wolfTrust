@@ -314,12 +314,15 @@ check_launch_masks() {
 # 0xFF, wolfBoot's handoff was consumed, and the scheduler is not in a fault
 # handler.
 check_secure_side() {
-    local rom err phrase blank handoff ipsr lc
+    local rom err els phrase blank handoff ipsr lc
     rom="$(sym_word g_wt_rom_flash_last_status)"
     err="$(sym_word g_wt_flash_last_error)"
     check "$([ "$rom" = "00000000" ]; echo $?)" \
         "ROM flash API reached from the SVC gate, last status 0x$rom"
     check "$([ "$err" = "00000000" ]; echo $?)" "wolfHSM flash backend last error 0x$err"
+    els="$(sym_word g_wt_els_errors)"
+    check "$([ "$els" = "00000000" ]; echo $?)" \
+        "the ELS served every RND_REQ (refusals 0x$els, last status 0x$(sym_word g_wt_els_last_status), error 0x$(sym_word g_wt_els_last_err))"
     phrase="$(word_at "$hsm_nvm_addr" 4)"
     check "$([ -n "$phrase" ] && [ "$phrase" != "ffffffff" ]; echo $?)" \
         "the vault's first state phrase is programmed (0x$phrase)"

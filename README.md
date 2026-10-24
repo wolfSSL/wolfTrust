@@ -141,6 +141,7 @@ make test-target TARGET=mimxrt700
 make test-target TARGET=mcxn947
 make test-conformance
 WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 make test-hardware
+make test-hardware TARGET=mcxn947
 ```
 
 `make test-target` runs the port's smoke tier under M33MU (`WT_TIER=full` for

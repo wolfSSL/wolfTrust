@@ -1,4 +1,5 @@
-diff -ruN a/hal/mcxn.c b/hal/mcxn.c
+diff --git a/hal/mcxn.c b/hal/mcxn.c
+index 318eeed5..951955c3 100644
 --- a/hal/mcxn.c
 +++ b/hal/mcxn.c
 @@ -25,6 +25,7 @@
@@ -9,32 +10,51 @@ diff -ruN a/hal/mcxn.c b/hal/mcxn.c
  
  #include "clock_config.h"
  #include "fsl_clock.h"
-@@ -605,11 +606,22 @@
-     return ret;
+@@ -529,6 +530,25 @@ void uart_write(const char *buf, unsigned int sz)
+     }
  }
  
 +/* The PSA security lifecycle the Secure application attests, from the OTP
 + * life cycle state the ROM reflects into SYSCON and the debug authentication
 + * state. */
- int hal_attestation_get_lifecycle(uint32_t *lifecycle)
- {
++int hal_attestation_get_lifecycle(uint32_t *lifecycle)
++{
 +    uint32_t lcState;
 +    uint32_t lcStateDp;
 +    uint32_t debugAuthStatus;
 +
-     if (lifecycle == NULL)
-         return -1;
--    *lifecycle = 0x3000u; /* PSA_LIFECYCLE_SECURED (default) */
++    if (lifecycle == NULL)
++        return -1;
 +    lcState = *(volatile uint32_t *)MCXN_SYSCON_ELS_OTP_LC_STATE;
 +    lcStateDp = *(volatile uint32_t *)MCXN_SYSCON_ELS_OTP_LC_STATE_DP;
 +    debugAuthStatus = *(volatile uint32_t *)MCXN_DAUTHSTATUS_ADDRESS;
 +    *lifecycle = mcxn_attestation_lifecycle(lcState, lcStateDp,
 +        debugAuthStatus);
-     return 0;
++    return 0;
++}
++
+ #if defined(WOLFCRYPT_TZ_PSA) && defined(WOLFBOOT_DICE_HW) && defined(__WOLFBOOT)
+ 
+ /* Holds the raw 64-byte P-256 public key (X||Y) written by hal_dice_create_attest_key().
+@@ -605,14 +625,6 @@ int hal_attestation_get_ueid(uint8_t *buf, size_t *len)
+     return ret;
  }
  
-diff -ruN a/hal/mcxn_lifecycle.h b/hal/mcxn_lifecycle.h
---- a/hal/mcxn_lifecycle.h
+-int hal_attestation_get_lifecycle(uint32_t *lifecycle)
+-{
+-    if (lifecycle == NULL)
+-        return -1;
+-    *lifecycle = 0x3000u; /* PSA_LIFECYCLE_SECURED (default) */
+-    return 0;
+-}
+-
+ /* Counts actual hardware CDI derivations performed (wolfBoot is always skipped).
+  * Shared with hal_dice_create_attest_key so it can reset after each complete sequence. */
+ static int cdi_derivation_count = 0;
+diff --git a/hal/mcxn_lifecycle.h b/hal/mcxn_lifecycle.h
+new file mode 100644
+index 00000000..aada6089
+--- /dev/null
 +++ b/hal/mcxn_lifecycle.h
 @@ -0,0 +1,136 @@
 +/* mcxn_lifecycle.h

@@ -222,7 +222,7 @@ else
     # the same PBKDF2 path with a short work factor, as the M33MU PKCS11 test
     # does, so the complete API suite remains practical in the CI matrix.
     pkcs11) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_PKCS11_TEST_PBKDF2_ITERATIONS=25) ;;
-    pkcs11neg) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_PKCS11_NEG_PROBE=1 WT_PKCS11_HSM_RESTART_PROBE=1 WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_PKCS11_TEST_PBKDF2_ITERATIONS=25) ;;
+    pkcs11neg) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_PKCS11_NEG_PROBE=1 WT_ATTEST_COSE=0 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_PKCS11_TEST_PBKDF2_ITERATIONS=25) ;;
     hsmpinneg) probe=(WT_EL3_NS_SMOKE=1 WT_HSM_PIN_NEG_PROBE=1) ;;
     # The test handoff's unlocked lifecycle leaves the forced SECURED
     # lifecycle as the only thing that refuses the reformat.
@@ -238,6 +238,9 @@ else
     # The Normal world starts at NS-EL2 and runs an AArch32 EL1 beneath it.
     psci-el2) probe=(WT_EL3_NS_SMOKE=1 WT_EL3_NS_EL2=1) ;;
   esac
+  if [ "$scenario" = pkcs11neg ] && [ "$WT_ENGINE" = hsm ]; then
+    probe+=(WT_PKCS11_HSM_RESTART_PROBE=1)
+  fi
   make ARCH=aarch64 TARGET="$target" TOOLPREFIX="$TOOLPREFIX" WT_GIC_VERSION="$GIC" \
     WT_CPU="$CPU" WT_PORT_BOOT_CPUS="$cpus" BUILD_DIR="build-aarch64-$tag-$scenario" \
     "${probe[@]}"
@@ -297,7 +300,9 @@ else
     [ "$scenario" = pkcs11 ] && ns_pkcs11=1
     [ "$scenario" = pkcs11neg ] && ns_pkcs11=1
     ns_pkcs11_restart=0
-    [ "$scenario" = pkcs11neg ] && ns_pkcs11_restart=1
+    if [ "$scenario" = pkcs11neg ] && [ "$WT_ENGINE" = hsm ]; then
+      ns_pkcs11_restart=1
+    fi
     # confboot runs Arm's val NSPE from the payload against the conformance
     # image built above (its fetched upstream tree + generated test list).
     ns_conf=0
@@ -1226,8 +1231,8 @@ case "$scenario" in
     expect "the application exercised object storage" "pkcs11-aarch64: PASS object create and size"
     expect "the application exercised random generation" "pkcs11-aarch64: PASS random"
     expect "the application exercised symmetric crypto" "pkcs11-aarch64: PASS AES CTR"
-    expect "the application exercised HSM-backed signing" "pkcs11-aarch64: PASS HSM-backed ECDSA"
-    expect "the application exercised HSM-backed key agreement" "pkcs11-aarch64: PASS HSM-backed ECDH"
+    expect "the application exercised signing" "pkcs11-aarch64: PASS ECDSA"
+    expect "the application exercised key agreement" "pkcs11-aarch64: PASS ECDH"
     expect "all PKCS11 cases passed" "pkcs11-aarch64: TOTAL PASSED: 40"
     expect "the PKCS11 suite reported zero failures" "pkcs11-aarch64: TOTAL FAILED: 0"
     refute_re "the application did not report a PKCS11 case failure" 'pkcs11-aarch64: FAIL'
@@ -1249,14 +1254,18 @@ case "$scenario" in
       expect "the PKCS11 state band was execute-never" \
         "[SYNC EL=0 EC=0x22 ISS=0x0000000 $interface_xn_far]"
       partition_faults=$(grep -c '^\[SYNC EL=0' "$log" || true)
-      if [ "$partition_faults" -eq 5 ]; then
-        check_pass "the four isolation faults and one HSM restart occurred"
+      expected_faults=4
+      [ "$WT_ENGINE" = hsm ] && expected_faults=5
+      if [ "$partition_faults" -eq "$expected_faults" ]; then
+        check_pass "all expected partition faults occurred"
       else
         check_fail "PKCS11 isolation fault count" \
-          "expected 5 deliberate S-EL0 faults, saw $partition_faults"
+          "expected $expected_faults deliberate S-EL0 faults, saw $partition_faults"
       fi
-      expect "the live PKCS11 client recovered after the HSM restart" \
-        "[NS] pkcs11 recovered after HSM restart"
+      if [ "$WT_ENGINE" = hsm ]; then
+        expect "the live PKCS11 client recovered after the HSM restart" \
+          "[NS] pkcs11 recovered after HSM restart"
+      fi
     else
       refute_re "no partition fault" '^\[SYNC EL=0'
     fi

@@ -639,9 +639,11 @@ each port's smoke tier on both crypto engines (STM32H563: `positive`,
 `gtzcneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`, `tpm`,
 `tpmneg`, `pkcs11`, and `pkcs11neg`; MIMXRT700:
 `positive`, `ahbscneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`).
-The separate STM32H563 interface matrix always runs PSA on Zephyr and
-FreeRTOS with both engines, PKCS#11 on both operating systems with `hsm`, and
-TPM on both operating systems with `native`.
+The separate STM32H563 interface matrix runs the full cross product
+`[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]`. All 12 application
+rows run on every PR. TPM and PKCS#11 also have isolation-negative rows under
+each engine. QEMU runs each interface and its isolation scenario under both
+engines.
 The full matrix runs on a
 push to `main`, on the nightly schedule, on
 manual dispatch (with a `port` input), and on a pull request that carries the

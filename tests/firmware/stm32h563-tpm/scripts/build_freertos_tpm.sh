@@ -5,6 +5,8 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 TPM_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 ROOT=$(CDPATH= cd -- "$TPM_DIR/../../.." && pwd)
 
+. "$ROOT/tests/target/lib/engine.sh"
+
 APP_DIR="$TPM_DIR/freertos-tpm"
 TEST_DIR="$TPM_DIR/tpm-app"
 FREERTOS_DIR="${FREERTOS_DIR:-$ROOT/tests/firmware/zephyr-stm32h5/.workspace/freertos}"
@@ -79,9 +81,27 @@ $WOLFTPM_DIR/src/tpm2_crypto.c
 $WOLFTPM_DIR/src/tpm2_param_enc.c
 $WOLFTPM_DIR/src/tpm2_cryptocb.c"
 
+ENGINE_DEFS="-DWT_ENGINE_NATIVE=1"
+ENGINE_SRCS="$ROOT/src/client/crypto_native_client.c"
+if [ "$WT_ENGINE" = hsm ]; then
+    mkdir -p "$BUILD_DIR/wh_include"
+    printf '#include "%s"\n' "$ROOT/tests/firmware/stm32h563/nonsecure/wh_settings_guest.h" > "$BUILD_DIR/wh_include/wolfhsm_cfg.h"
+    ENGINE_DEFS="-DWT_ENGINE_HSM=1 -DWOLFHSM_CFG
+        -I$ROOT/lib/wolfHSM -I$BUILD_DIR/wh_include
+        -DWT_WOLFHSM_CLIENT_ID=1"
+    ENGINE_SRCS="$ROOT/src/client/hsm_psa_transport.c
+        $ROOT/tests/firmware/zephyr-stm32h5/module/wolfhsm-client/src/wolfhsm_client_glue.c"
+    for source in wh_client wh_client_crypto wh_client_cryptocb wh_comm \
+        wh_crypto wh_keyid wh_message_comm wh_message_crypto \
+        wh_message_keystore wh_message_nvm wh_message_customcb \
+        wh_message_counter wh_utils; do
+        ENGINE_SRCS="$ENGINE_SRCS $ROOT/lib/wolfHSM/src/$source.c"
+    done
+fi
+
 CLIENT_SRCS="
 $ROOT/src/client/psa_ffm_client.c
-$ROOT/src/client/crypto_native_client.c
+$ENGINE_SRCS
 $ROOT/src/client/tpm_psa_transport.c
 $ROOT/tests/firmware/stm32h563/nonsecure/libc_stubs_guest.c"
 
@@ -103,7 +123,7 @@ CFLAGS="
 -DWOLFSSL_USER_SETTINGS -DWOLFTPM_USER_SETTINGS
 -DWOLFTPM_SWTPM -DWOLFTPM_SMALL_STACK
 -DWOLF_CRYPTO_CB
--DWT_ENGINE_NATIVE=1 -DWT_TPM_APP_NAME=\"tpm-freertos\"
+$ENGINE_DEFS -DWT_TPM_APP_NAME=\"tpm-freertos\"
 -DWT_M33MU_EXPECT_BKPT=1
 -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8
 -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO -DWOLFSSL_ARMASM_INLINE

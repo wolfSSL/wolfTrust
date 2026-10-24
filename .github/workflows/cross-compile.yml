@@ -121,16 +121,13 @@ jobs:
               WT_CONFORMANCE=1 secure-image TOOLPREFIX=arm-none-eabi- \
               BUILD_DIR=build_rt700_conf_$engine
           done
-      - name: Build the CONFIG_TPM secure image on both ports (native engine)
+      - name: Build both interfaces with both crypto engines on both ports
         run: |
-          make TARGET=stm32h563 CONFIG_TPM=y secure-image \
-            TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_tpm_stm32h563
-          make TARGET=mimxrt700 CONFIG_TPM=y WT_ATTEST_COSE=0 secure-image \
-            TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_tpm_rt700
-      - name: Build the CONFIG_PKCS11 secure image on both ports (HSM engine)
-        run: |
-          make TARGET=stm32h563 CONFIG_PKCS11=y WT_ENGINE=hsm secure-image \
-            TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_pkcs11_stm32h563
-          make TARGET=mimxrt700 CONFIG_PKCS11=y WT_ENGINE=hsm \
-            WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi- \
-            BUILD_DIR=build_pkcs11_rt700
+          for engine in native hsm; do
+            for target in stm32h563 mimxrt700; do
+              make TARGET="$target" CONFIG_TPM=y WT_ENGINE="$engine" \
+                WT_ATTEST_COSE=0 BUILD_DIR="build-$target-tpm-$engine" secure-image
+              make TARGET="$target" CONFIG_PKCS11=y WT_ENGINE="$engine" \
+                WT_ATTEST_COSE=0 BUILD_DIR="build-$target-pkcs11-$engine" secure-image
+            done
+          done

@@ -70,7 +70,8 @@
  * (each guest links its own client subset on the non-secure side).
  *---------------------------------------------------------------------------*/
 #define WOLFHSM_CFG_ENABLE_SERVER
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
 #define WOLFHSM_CFG_ENABLE_CLIENT
 #endif
 

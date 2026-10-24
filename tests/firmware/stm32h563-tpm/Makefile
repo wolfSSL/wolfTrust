@@ -36,6 +36,18 @@ WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
 WOLFTPM_DIR := $(ROOT)/lib/wolfTPM
 
 CONFIG_TPM ?= y
+WT_ENGINE ?= $(if $(filter 1,$(WT_ENGINE_HSM)),hsm,native)
+ifneq ($(WT_ENGINE_HSM),)
+ifeq ($(filter 0 1,$(WT_ENGINE_HSM)),)
+$(error unsupported WT_ENGINE_HSM=$(WT_ENGINE_HSM))
+endif
+ifneq ($(WT_ENGINE),$(if $(filter 1,$(WT_ENGINE_HSM)),hsm,native))
+$(error conflicting WT_ENGINE and WT_ENGINE_HSM selectors)
+endif
+endif
+ifneq ($(filter $(WT_ENGINE),native hsm),$(WT_ENGINE))
+$(error unsupported WT_ENGINE=$(WT_ENGINE))
+endif
 EMU_TIMEOUT ?= 180
 WT_MAX_GUESTS ?= 2
 WT_PKCS11_SUITE ?= all
@@ -73,7 +85,7 @@ GUEST_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -DWOLFSSL_ARMASM_NO_NEON -DWOLFSSL_ARMASM_THUMB2 \
     -DNO_ERROR_STRINGS -DWOLFSSL_PUBLIC_MP -DWC_RSA_DIRECT \
     -DWC_RESEED_INTERVAL=1000000 \
-    -DWT_ENGINE_NATIVE=1 -DWOLFTPM_SMALL_STACK \
+    -DWOLFTPM_SMALL_STACK \
     -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ) \
     -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ) \
     -DWT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_ORIGIN)u \
@@ -82,14 +94,14 @@ GUEST_CFLAGS += $(GUEST_EXTRA_CFLAGS)
 
 # guest0: the bare-metal wolfTPM client routed through SERVICE_TPM by building
 # with WOLFTPM_SWTPM and supplying TPM2_SWTPM_SendCommand.
-APP_CFLAGS := -DWT_TPM_ROLE_APP -DWOLFTPM_SWTPM -DGUEST_HEAP_POOL_SZ=32768u \
+APP_CFLAGS := -DWT_WOLFHSM_CLIENT_ID=1 -DWT_TPM_ROLE_APP -DWOLFTPM_SWTPM -DGUEST_HEAP_POOL_SZ=32768u \
     -DWOLF_CRYPTO_CB -DWOLFTPM_CRYPTOCB \
     -DWT_TPM_APP_NAME=\"tpm-guest0\"
 
 # guest1: the fwTPM responder, volatile ECC core profile sized for the 64 KiB
 # guest RAM window (no in-memory NV, two persistent/session slots). PCR count
 # stays at the stock 24 so the unmodified client's PCR selection matches.
-FTPM_CFLAGS := -DWT_TPM_ROLE_FTPM -DWOLFTPM_FWTPM \
+FTPM_CFLAGS := -DWT_WOLFHSM_CLIENT_ID=2 -DWT_TPM_ROLE_FTPM -DWOLFTPM_FWTPM \
     -DFWTPM_NO_NV -include wolftrust/tpm/tpm_abi.h \
     -DFWTPM_MAX_COMMAND_SIZE=WT_TPM_FRAME_MAX \
     -DFWTPM_MAX_PERSISTENT=2 -DFWTPM_MAX_SESSIONS=2 \
@@ -158,6 +170,23 @@ FTPM_SRCS := \
     $(WOLFTPM_DIR)/src/tpm2_param_enc.c \
     $(WOLFTPM_DIR)/src/tpm2_crypto.c
 
+ifeq ($(WT_ENGINE),hsm)
+GUEST_CFLAGS += -DWT_ENGINE_HSM=1 -DWOLF_CRYPTO_CB -DWOLFHSM_CFG \
+    -I$(ROOT)/lib/wolfHSM -I$(BUILD_DIR)
+COMMON_SRCS := $(filter-out %/crypto_native_client.c,$(COMMON_SRCS))
+COMMON_SRCS += \
+    $(ROOT)/src/client/hsm_psa_transport.c \
+    $(ROOT)/tests/firmware/zephyr-stm32h5/module/wolfhsm-client/src/wolfhsm_client_glue.c
+COMMON_SRCS += $(addprefix $(ROOT)/lib/wolfHSM/src/, \
+    wh_client.c wh_client_crypto.c wh_client_cryptocb.c wh_comm.c \
+    wh_crypto.c wh_keyid.c wh_message_comm.c wh_message_crypto.c \
+    wh_message_keystore.c wh_message_nvm.c wh_message_customcb.c \
+    wh_message_counter.c wh_utils.c)
+GUEST_ENGINE_DEPS := $(BUILD_DIR)/wolfhsm_cfg.h
+else
+GUEST_CFLAGS += -DWT_ENGINE_NATIVE=1
+endif
+
 G0_OBJS := $(patsubst %.c,$(BUILD_DIR)/g0_%.o,$(notdir $(COMMON_SRCS) $(APP_SRCS)))
 G1_OBJS := $(patsubst %.c,$(BUILD_DIR)/g1_%.o,$(notdir $(COMMON_SRCS) $(FTPM_SRCS)))
 
@@ -177,7 +206,7 @@ tpm:
 
 pkcs11:
 	@$(MAKE) --no-print-directory secure CONFIG_TPM=n CONFIG_PKCS11=y \
-		WT_ENGINE=hsm WT_GUEST1_FLASH_BASE=0x080C0000 \
+		WT_ENGINE=$(WT_ENGINE) WT_GUEST1_FLASH_BASE=0x080C0000 \
 		WT_GUEST1_FLASH_SIZE=0x00040000
 	@$(MAKE) --no-print-directory pkcs11-guests
 
@@ -243,10 +272,13 @@ secure:
 $(BUILD_DIR):
 	mkdir -p $(BUILD_DIR)
 
-$(BUILD_DIR)/g0_%.o: %.c nonsecure/user_settings.h | $(BUILD_DIR)
+$(BUILD_DIR)/wolfhsm_cfg.h: | $(BUILD_DIR)
+	@printf '#include "%s"\n' '$(abspath $(ROOT)/tests/firmware/stm32h563/nonsecure/wh_settings_guest.h)' > $@
+
+$(BUILD_DIR)/g0_%.o: %.c nonsecure/user_settings.h $(GUEST_ENGINE_DEPS) | $(BUILD_DIR)
 	$(CC) $(GUEST_CFLAGS) $(APP_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/g1_%.o: %.c nonsecure/user_settings.h | $(BUILD_DIR)
+$(BUILD_DIR)/g1_%.o: %.c nonsecure/user_settings.h $(GUEST_ENGINE_DEPS) | $(BUILD_DIR)
 	$(CC) $(GUEST_CFLAGS) $(FTPM_CFLAGS) -c -o $@ $<
 
 define GUEST_LINK

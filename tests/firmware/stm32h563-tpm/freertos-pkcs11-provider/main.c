@@ -41,7 +41,16 @@ extern uint32_t _sbss;
 extern uint32_t _ebss;
 extern uint32_t _estack;
 
+#if defined(WT_ENGINE_HSM)
 int wolfhsm_guest_init(void);
+#endif
+
+/* Software ECC needs more stack than the HSM callback path. */
+#if defined(WT_ENGINE_NATIVE)
+#define WT_PROVIDER_STACK_WORDS 4096U
+#else
+#define WT_PROVIDER_STACK_WORDS 2048U
+#endif
 
 #define USART3_BASE           0x40004800u
 #define USART_CR1(b)          (*(volatile uint32_t *)((b) + 0x00u))
@@ -152,6 +161,7 @@ static void provider_task(void* arg)
         }
     }
     provider_puts("pkcs11-provider: heap scrub ok\r\n");
+#if defined(WT_ENGINE_HSM)
     rc = wolfhsm_guest_init();
     if (rc != 0) {
         provider_puts("pkcs11-provider: wolfHSM init failed\r\n");
@@ -159,6 +169,7 @@ static void provider_task(void* arg)
             vTaskDelay(pdMS_TO_TICKS(1000U));
         }
     }
+#endif
     provider_puts("pkcs11-provider: ready\r\n");
     for (;;) {
         rc = wt_pkcs11_psa_provider_step(g_request, sizeof(g_request),
@@ -188,7 +199,7 @@ void Reset_Handler(void)
     USART_BRR(USART3_BASE) = 120000000u / 115200u;
     USART_CR1(USART3_BASE) = USART_CR1_UE | USART_CR1_TE | USART_CR1_RE;
     provider_puts("pkcs11-provider: alive\r\n");
-    if (xTaskCreate(provider_task, "p11-provider", 2048U, NULL,
+    if (xTaskCreate(provider_task, "p11-provider", WT_PROVIDER_STACK_WORDS, NULL,
                     tskIDLE_PRIORITY + 1U, NULL) != pdPASS) {
         provider_puts("pkcs11-provider: task create failed\r\n");
         for (;;) {}

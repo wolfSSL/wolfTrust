@@ -36,6 +36,9 @@
 
 #include "memory_map.h"
 #include "wolftrust/crypto_native_client.h"
+#if defined(WT_ENGINE_HSM)
+int wolfhsm_guest_init(void);
+#endif
 #include "wolftrust/tpm_psa_transport.h"
 
 #if defined(WT_TPM_ROLE_APP)
@@ -349,6 +352,13 @@ static int run_ftpm(void)
         return -1;
     }
     guest_line("heap scrub ok");
+#if defined(WT_ENGINE_HSM)
+    rc = wolfhsm_guest_init();
+    if (rc != 0) {
+        guest_line_i32("HSM init FAILED rc=", rc);
+        return -1;
+    }
+#endif
     rc = FWTPM_Init(&g_ftpm);
     if (rc != 0) { guest_line_i32("ftpm init FAILED rc=", rc); return -1; }
     guest_line("ready");

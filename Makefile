@@ -102,23 +102,21 @@ endif
 # the generated CI matrix.
 test-tpm-target:
 	@$(MAKE) --no-print-directory test-target TARGET=stm32h563 \
-		WT_ENGINE=native WT_INTERFACE_OS=$(WT_INTERFACE_OS) \
+		WT_INTERFACE_OS=$(WT_INTERFACE_OS) \
 		WT_SCENARIOS=tpm
 
 test-pkcs11-target:
 	@$(MAKE) --no-print-directory test-target TARGET=stm32h563 \
-		WT_ENGINE=hsm WT_INTERFACE_OS=$(WT_INTERFACE_OS) \
+		WT_INTERFACE_OS=$(WT_INTERFACE_OS) \
 		WT_SCENARIOS=pkcs11
 
 test-tpm-interfaces-target:
-	@WT_ENGINE=hsm WT_INTERFACE_OS=zephyr \
-		tests/target/run_suite.sh m33mu pkcs11
-	@WT_ENGINE=hsm WT_INTERFACE_OS=freertos \
-		tests/target/run_suite.sh m33mu pkcs11 pkcs11neg
-	@WT_ENGINE=native WT_INTERFACE_OS=zephyr \
-		tests/target/run_suite.sh m33mu tpm
-	@WT_ENGINE=native WT_INTERFACE_OS=freertos \
-		tests/target/run_suite.sh m33mu tpm tpmneg
+	@set -e; for engine in native hsm; do \
+		for os in zephyr freertos; do \
+			WT_ENGINE=$$engine WT_INTERFACE_OS=$$os \
+				tests/target/run_suite.sh m33mu tpm tpmneg pkcs11 pkcs11neg; \
+		done; \
+	done
 
 # AArch64 twin of test-target on QEMU (virt GICv2/GICv3, xlnx-versal-virt);
 # auto-detect qemu-system-aarch64 + aarch64-none-elf (or WT_TARGET_SCENARIOS=1),

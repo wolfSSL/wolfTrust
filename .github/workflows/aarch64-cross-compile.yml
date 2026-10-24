@@ -64,15 +64,33 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - job: qemuvirt_psa_native
+            scenario: positive
+            engine: native
+          - job: qemuvirt_psa_hsm
+            scenario: positive
+            engine: hsm
+          - job: qemuvirt_fwtpm_hsm
+            scenario: tpm
+            engine: hsm
           - job: qemuvirt_fwtpm_native
             scenario: tpm
             engine: native
+          - job: qemuvirt_fwtpm_isolation_hsm
+            scenario: tpmneg
+            engine: hsm
           - job: qemuvirt_fwtpm_isolation_native
             scenario: tpmneg
+            engine: native
+          - job: qemuvirt_pkcs11_native
+            scenario: pkcs11
             engine: native
           - job: qemuvirt_pkcs11_hsm
             scenario: pkcs11
             engine: hsm
+          - job: qemuvirt_pkcs11_isolation_native
+            scenario: pkcs11neg
+            engine: native
           - job: qemuvirt_pkcs11_isolation_hsm
             scenario: pkcs11neg
             engine: hsm
@@ -160,14 +178,14 @@ jobs:
         run: make ARCH=aarch64 TARGET=${{ matrix.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" BUILD_DIR=build-aarch64-guard el3-image
 
       - name: Cross-build the Versal TPM and PKCS11 interfaces
-        if: matrix.kind == 'suite' && matrix.target == 'versal' && matrix.engine == 'native'
+        if: matrix.kind == 'suite' && matrix.target == 'versal'
         run: |
           make ARCH=aarch64 TARGET=versal WT_GIC_VERSION="$GIC" \
-            WT_CPU="$CPU" WT_PORT_BOOT_CPUS=1 CONFIG_TPM=y \
+            WT_CPU="$CPU" WT_PORT_BOOT_CPUS=1 WT_ENGINE=${{ matrix.engine }} CONFIG_TPM=y \
             WT_ATTEST_COSE=0 BUILD_DIR=build-versal-tpm secure-image
           make ARCH=aarch64 TARGET=versal WT_GIC_VERSION="$GIC" \
             WT_CPU="$CPU" WT_PORT_BOOT_CPUS=1 CONFIG_PKCS11=y \
-            WT_ENGINE=hsm WT_ATTEST_COSE=0 \
+            WT_ENGINE=${{ matrix.engine }} WT_ATTEST_COSE=0 \
             BUILD_DIR=build-versal-pkcs11 secure-image
 
       - name: Fetch the pinned Arm FF-A ACS once for the six groups

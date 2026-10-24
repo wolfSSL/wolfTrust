@@ -38,6 +38,30 @@ operations and volatile keys remain local to the Non-secure guest. The native
 wire is a separate explicit interface for vault-backed key operations. Secure
 services such as attestation use that vault backend directly.
 
+## API selection
+
+`WT_ENGINE` selects the backend in the same way for all three application APIs.
+`native` is the default; `hsm` opts into the wolfHSM backend. Legacy
+`WT_ENGINE_HSM=0/1` remains equivalent and conflicting selectors fail the build.
+
+| Application API | Native engine | HSM engine |
+| --- | --- | --- |
+| PSA Crypto | Guest wolfPSA and wolfCrypt, with Secure RNG and explicit vault-key operations | Supported operations use the mediated wolfHSM backend |
+| PKCS#11 | Isolated wolfPKCS11 provider calls wolfCrypt directly | Provider selects the wolfHSM callback through FF-M IPC |
+| TPM 2.0 | Isolated fwTPM provider calls wolfCrypt directly | Provider selects the wolfHSM callback through FF-M IPC |
+
+The provider remains in its existing protection domain: a separate Non-secure
+guest on Cortex-M, or an S-EL0 Secure Partition on Cortex-A. Selecting native
+crypto does not move private keys between those domains. The PKCS#11 and TPM
+API relays, caller roles, and copied-transfer bounds are the same for both
+engines. Select one application interface with `CONFIG_PKCS11=y` or
+`CONFIG_TPM=y`, independently of the engine.
+
+CI covers `[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]` on
+STM32H563, plus both interface isolation scenarios under both engines.
+AArch64 has both engines for TPM and PKCS#11 positive and isolation scenarios;
+its existing PSA suite also runs on both engines.
+
 ## One service seam
 
 `SERVICE_HSM` keeps its existing name and SID in both builds. The service

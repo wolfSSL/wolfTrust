@@ -93,6 +93,7 @@ SECTIONS
         _s_interface = .;
         *tpm_sec_*.o(.data .data.*)
         *tpm_wc_*.o(.data .data.*)
+        *tpm_wh_*.o(.data .data.*)
         *p11_sec_*.o(.data .data.*)
         *p11_wc_*.o(.data .data.*)
         *p11_wh_*.o(.data .data.*)
@@ -110,6 +111,7 @@ SECTIONS
         _s_interface_bss = .;
         *tpm_sec_*.o(.bss .bss.* COMMON)
         *tpm_wc_*.o(.bss .bss.* COMMON)
+        *tpm_wh_*.o(.bss .bss.* COMMON)
         *p11_sec_*.o(.bss .bss.* COMMON)
         *p11_wc_*.o(.bss .bss.* COMMON)
         *p11_wh_*.o(.bss .bss.* COMMON)

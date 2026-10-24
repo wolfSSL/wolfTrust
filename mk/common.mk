@@ -153,8 +153,10 @@ SECURE_CFLAGS_COSE := -I$(WOLFCOSE_DIR)/include \
 endif
 
 WOLFPKCS11_COMMON_DEFS := -DWOLFPKCS11_USER_SETTINGS \
-    -DWOLFPKCS11_NO_STORE -DWOLFPKCS11_NO_TIME -DWOLFPKCS11_NO_ENV \
-    -DWOLFPKCS11_DEFAULT_DEVID=0x5748534D
+    -DWOLFPKCS11_NO_STORE -DWOLFPKCS11_NO_TIME -DWOLFPKCS11_NO_ENV
+ifeq ($(WT_ENGINE),hsm)
+WOLFPKCS11_COMMON_DEFS += -DWOLFPKCS11_DEFAULT_DEVID=0x5748534D
+endif
 
 SECURE_CFLAGS := $(CPU_FLAGS) -std=c99 -ffreestanding -fno-builtin -nostdlib -Os -g \
     -ffunction-sections -fdata-sections -Wall -Wextra \
@@ -182,9 +184,6 @@ WT_VNET_DATA_LENGTH := 0
 endif
 
 ifeq ($(CONFIG_PKCS11),y)
-ifneq ($(WT_ENGINE),hsm)
-$(error CONFIG_PKCS11=y requires WT_ENGINE=hsm)
-endif
 ifeq ($(filter stm32h563 mimxrt700 qemuvirt versal,$(TARGET)),)
 $(error TARGET=$(TARGET) has no SERVICE_PKCS11 manifest; build with CONFIG_PKCS11=n)
 endif
@@ -210,9 +209,6 @@ WT_VNET_DATA_LENGTH := 0x5000
 endif
 
 ifeq ($(CONFIG_TPM),y)
-ifneq ($(WT_ENGINE),native)
-$(error CONFIG_TPM=y requires WT_ENGINE=native)
-endif
 ifeq ($(filter stm32h563 mimxrt700 qemuvirt versal,$(TARGET)),)
 $(error TARGET=$(TARGET) has no SERVICE_TPM manifest; build with CONFIG_TPM=n)
 endif
@@ -426,6 +422,7 @@ WOLFPKCS11_SECURE_SRCS :=
 TPM_WOLFCRYPT_SECURE_SRCS :=
 P11_WOLFCRYPT_SECURE_SRCS :=
 P11_WOLFHSM_SECURE_SRCS :=
+TPM_WOLFHSM_SECURE_SRCS :=
 WOLFTPM_SECURE_CFLAGS := -DWOLFTPM_USER_SETTINGS -DWOLFTPM_FWTPM \
     -DFWTPM_NO_NV -include wolftrust/tpm/tpm_abi.h \
     -DFWTPM_MAX_COMMAND_SIZE=WT_TPM_FRAME_MAX \
@@ -513,7 +510,15 @@ WOLFTPM_SECURE_SRCS += \
     $(WOLFTPM_DIR)/src/tpm2_util.c \
     $(WOLFTPM_DIR)/src/tpm2_packet.c \
     $(WOLFTPM_DIR)/src/tpm2_param_enc.c \
-    $(WOLFTPM_DIR)/src/tpm2_crypto.c
+    $(WOLFTPM_DIR)/src/tpm2_crypto.c \
+    $(ROOT)/src/client/provider_crypto.c
+ifeq ($(WT_ENGINE),hsm)
+WOLFTPM_SECURE_SRCS += $(ROOT)/src/client/hsm_psa_transport.c
+TPM_WOLFHSM_SECURE_SRCS := \
+    $(WOLFHSM_DIR)/src/wh_client.c \
+    $(WOLFHSM_DIR)/src/wh_client_crypto.c \
+    $(WOLFHSM_DIR)/src/wh_client_cryptocb.c
+endif
 WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/tpm/tpm_local_provider.c
 endif
 endif
@@ -526,21 +531,23 @@ WOLFPKCS11_SECURE_SRCS += \
     $(WOLFPKCS11_DIR)/src/wolfpkcs11.c \
     $(WOLFPKCS11_DIR)/src/internal.c \
     $(WOLFPKCS11_DIR)/src/slot.c \
-    $(WOLFPKCS11_DIR)/src/crypto.c
+    $(WOLFPKCS11_DIR)/src/crypto.c \
+    $(ROOT)/src/client/provider_crypto.c
+ifeq ($(WT_ENGINE),hsm)
+WOLFPKCS11_SECURE_SRCS += $(ROOT)/src/client/hsm_psa_transport.c
 P11_WOLFHSM_SECURE_SRCS += \
     $(WOLFHSM_DIR)/src/wh_client.c \
     $(WOLFHSM_DIR)/src/wh_client_crypto.c \
     $(WOLFHSM_DIR)/src/wh_client_cryptocb.c
+endif
 WOLFCRYPT_SECURE_SRCS += \
     $(WOLFSSL_DIR)/wolfcrypt/src/sha512.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/kdf.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/pwdbased.c
 P11_WOLFCRYPT_SECURE_SRCS := $(WOLFCRYPT_SECURE_SRCS)
 WT_SECURE_EXTRA_SRCS += \
-    $(ROOT)/src/client/hsm_psa_transport.c \
     $(ROOT)/src/pkcs11/pkcs11_wire.c \
     $(ROOT)/src/pkcs11/pkcs11_provider.c \
-    $(ROOT)/src/pkcs11/pkcs11_secure_client.c \
     $(ROOT)/src/pkcs11/pkcs11_secure_heap.c
 endif
 endif
@@ -561,6 +568,8 @@ P11_WOLFCRYPT_RAW_OBJS := $(patsubst %.c,$(BUILD_DIR)/p11_wc_raw_%.o,$(notdir $(
 P11_WOLFCRYPT_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/p11_wc_%.o,$(notdir $(P11_WOLFCRYPT_SECURE_SRCS)))
 P11_WOLFHSM_RAW_OBJS := $(patsubst %.c,$(BUILD_DIR)/p11_wh_raw_%.o,$(notdir $(P11_WOLFHSM_SECURE_SRCS)))
 P11_WOLFHSM_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/p11_wh_%.o,$(notdir $(P11_WOLFHSM_SECURE_SRCS)))
+TPM_WOLFHSM_RAW_OBJS := $(patsubst %.c,$(BUILD_DIR)/tpm_wh_raw_%.o,$(notdir $(TPM_WOLFHSM_SECURE_SRCS)))
+TPM_WOLFHSM_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/tpm_wh_%.o,$(notdir $(TPM_WOLFHSM_SECURE_SRCS)))
 TPM_NAMESPACE_MAP := $(BUILD_DIR)/tpm_wc_symbols.map
 P11_NAMESPACE_MAP := $(BUILD_DIR)/p11_wc_symbols.map
 MANIFEST_OBJ := $(BUILD_DIR)/wt_sec_wolftrust_manifest_generated.o
@@ -579,6 +588,7 @@ ALL_SECURE_OBJS := $(strip \
     $(WOLFTPM_SECURE_OBJS) \
     $(WOLFPKCS11_SECURE_OBJS) \
     $(TPM_WOLFCRYPT_SEC_OBJS) \
+    $(TPM_WOLFHSM_SEC_OBJS) \
     $(P11_WOLFCRYPT_SEC_OBJS) \
     $(P11_WOLFHSM_SEC_OBJS) \
     $(ARCH_SECURE_OBJS) \
@@ -1715,8 +1725,17 @@ $(BUILD_DIR)/tpm_sec_raw_%.o: $(WOLFTPM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MO
 $(BUILD_DIR)/tpm_sec_raw_%.o: $(WOLFTPM_DIR)/src/fwtpm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) $(WOLFTPM_SECURE_CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/tpm_sec_raw_%.o: $(ROOT)/src/client/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) -UWC_NO_DEFAULT_DEVID $(WOLFTPM_SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/tpm_wh_raw_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_WOLFHSM_CFLAGS) -UWC_NO_DEFAULT_DEVID -c -o $@ $<
+
+$(BUILD_DIR)/tpm_wh_%.o: $(BUILD_DIR)/tpm_wh_raw_%.o $(TPM_NAMESPACE_MAP)
+	$(OBJCOPY) --redefine-syms=$(TPM_NAMESPACE_MAP) $< $@
+
 $(BUILD_DIR)/tpm_wc_raw_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
-	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
+	$(CC) $(HSM_LIB_CFLAGS) -UWC_NO_DEFAULT_DEVID -c -o $@ $<
 
 $(TPM_NAMESPACE_MAP): $(TPM_WOLFCRYPT_RAW_OBJS) | $(BUILD_DIR)
 	@$(NM) -g --defined-only $^ | awk 'NF >= 2 && $$(NF - 1) ~ /^[A-ZTWV]$$/ { print $$NF, "wt_tpm_" $$NF }' | LC_ALL=C sort -u > $@.tmp
@@ -1729,6 +1748,9 @@ $(BUILD_DIR)/tpm_sec_%.o: $(BUILD_DIR)/tpm_sec_raw_%.o $(TPM_NAMESPACE_MAP)
 	$(OBJCOPY) --redefine-syms=$(TPM_NAMESPACE_MAP) $< $@
 
 $(BUILD_DIR)/p11_sec_raw_%.o: $(WOLFPKCS11_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/p11_sec_raw_%.o: $(ROOT)/src/client/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/p11_wc_raw_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)

@@ -5,6 +5,8 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 TPM_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 ROOT=$(CDPATH= cd -- "$TPM_DIR/../../.." && pwd)
 
+. "$ROOT/tests/target/lib/engine.sh"
+
 APP_DIR="$TPM_DIR/freertos-pkcs11-provider"
 FREERTOS_DIR="${FREERTOS_DIR:-$ROOT/tests/firmware/zephyr-stm32h5/.workspace/freertos}"
 FREERTOS_KERNEL="$FREERTOS_DIR/FreeRTOS/Source"
@@ -94,12 +96,20 @@ $WOLFPKCS11_DIR/src/crypto.c"
 
 WT_SRCS="
 $ROOT/src/client/psa_ffm_client.c
-$ROOT/src/client/hsm_psa_transport.c
 $ROOT/src/client/pkcs11_psa_transport.c
 $ROOT/src/pkcs11/pkcs11_wire.c
 $ROOT/src/pkcs11/pkcs11_provider.c
-$WOLFHSM_GLUE
+
 $NS_DIR/libc_stubs_guest.c"
+
+ENGINE_DEFS="-DWT_ENGINE_NATIVE=1"
+ENGINE_SRCS="$ROOT/src/client/crypto_native_client.c"
+if [ "$WT_ENGINE" = hsm ]; then
+    ENGINE_DEFS="-DWT_ENGINE_HSM=1 -DWOLFHSM_CFG -DWOLF_CRYPTO_CB
+        -DWOLFPKCS11_DEFAULT_DEVID=0x5748534D"
+    ENGINE_SRCS="$WOLFHSM_SRCS $WOLFHSM_GLUE
+        $ROOT/src/client/hsm_psa_transport.c"
+fi
 
 # Production keeps wolfPKCS11's 600,000-round PIN PBKDF2; only the M33MU
 # emulator gate lowers it, explicitly, because emulated SHA-256 is too slow.
@@ -141,8 +151,7 @@ CFLAGS="
 -I$WH_CFG_DIR
 -DWOLFSSL_USER_SETTINGS -DWOLFPKCS11_USER_SETTINGS
 -DWOLFPKCS11_NO_STORE -DWOLFPKCS11_NO_TIME -DWOLFPKCS11_NO_ENV
--DWOLFPKCS11_DEFAULT_DEVID=0x5748534D
--DWOLFHSM_CFG -DWOLF_CRYPTO_CB -DWT_ENGINE_HSM=1
+$ENGINE_DEFS
 -DWT_WOLFHSM_CLIENT_ID=2
 -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM
 -DWOLFSSL_ARM_ARCH=8 -DWOLFSSL_ARMASM
@@ -163,7 +172,7 @@ LDFLAGS="
 
 # shellcheck disable=SC2086
 $GUEST_CC $CFLAGS $LDFLAGS -o "$BUILD_DIR/guest1.elf" \
-    "$APP_DIR/main.c" $FREERTOS_SRCS $WOLFCRYPT_SRCS $WOLFHSM_SRCS \
+    "$APP_DIR/main.c" $FREERTOS_SRCS $WOLFCRYPT_SRCS $ENGINE_SRCS \
     $WOLFPKCS11_SRCS $WT_SRCS "$SECURE_CMSE_IMPLIB" -lgcc
 
 NM_OUT=$($GUEST_NM "$BUILD_DIR/guest1.elf") || exit 1
@@ -171,10 +180,18 @@ printf '%s\n' "$NM_OUT" | grep -q 'wt_pkcs11_provider_dispatch' || {
     echo "FAIL: PKCS11 provider dispatch missing from provider guest" >&2
     exit 1
 }
+if [ "$WT_ENGINE" = hsm ]; then
 printf '%s\n' "$NM_OUT" | grep -q 'wt_hsm_psa_transport_cb' || {
     echo "FAIL: provider is not connected to SERVICE_HSM" >&2
     exit 1
 }
+else
+    printf '%s\n' "$NM_OUT" | grep -q 'wt_crypto_native_random' || exit 1
+    if printf '%s\n' "$NM_OUT" | grep -q 'wh_Client_'; then
+        echo "FAIL: native provider links a wolfHSM client" >&2
+        exit 1
+    fi
+fi
 printf '%s\n' "$NM_OUT" | grep -q 'WP11_GetSlotList' || {
     echo "FAIL: wolfPKCS11 provider implementation missing" >&2
     exit 1

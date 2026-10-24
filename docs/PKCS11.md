@@ -40,13 +40,16 @@ level-3 isolation claim.
 
 ## Build and run
 
+PKCS#11 uses the same `WT_ENGINE=native` (default) or `WT_ENGINE=hsm`
+selector as PSA. Use the same engine for the Secure image and provider builds.
+
 See [TPM and PKCS#11 footprint](Interface-Footprint.md) for measured Secure
 and provider image sizes against the base revision.
 
 Enable the service and its manifest in the Secure image with:
 
 ```sh
-make TARGET=stm32h563 CONFIG_PKCS11=y WT_ENGINE=hsm secure-image \
+make TARGET=stm32h563 CONFIG_PKCS11=y WT_ENGINE=native secure-image \
     TOOLPREFIX=arm-none-eabi-
 ```
 
@@ -82,6 +85,10 @@ does not contain the wolfPKCS11 provider, wolfTPM, or a TPM transport. Link-time
 checks enforce that separation for the Zephyr, FreeRTOS, and Cortex-A
 Normal-world builds.
 
+The native provider runs wolfCrypt directly in its isolated domain. The HSM
+provider registers the wolfHSM crypto callback and reaches `SERVICE_HSM`
+through FF-M IPC. Both retain the same PKCS#11 proxy and relay protocol.
+
 The proxy supports the PKCS#11 single-threaded initialization contract. It
 rejects partial mutex callback sets with `CKR_ARGUMENTS_BAD` and rejects caller
 locking callbacks or `CKF_OS_LOCKING_OK` with `CKR_CANT_LOCK`; applications
@@ -92,22 +99,20 @@ wolfPKCS11 does. Neither pointer is sent to the provider. A NULL `phSession`
 is still forwarded, so the provider returns wolfPKCS11's own error codes in
 wolfPKCS11's own order.
 
-On Cortex-M, a second Non-secure image contains wolfPKCS11 and connects to
-`SERVICE_HSM` for its cryptographic operations. On Cortex-A, wolfPKCS11 runs
-inside the `SERVICE_PKCS11` S-EL0 partition and calls the separate HSM S-EL0
-partition through secure-partition-to-secure-partition FF-M IPC. Its code,
+On Cortex-M, a second Non-secure image contains wolfPKCS11 and uses the selected native or HSM backend for cryptographic operations. On Cortex-A, wolfPKCS11 runs
+inside the `SERVICE_PKCS11` S-EL0 partition and uses wolfCrypt directly with `native`, or calls the separate HSM
+S-EL0 partition through SP-to-SP FF-M IPC with `hsm`. Its code,
 read-only data, stack, and writable state are protected by the PKCS#11
 partition's stage-1 translation table. The executable and read-only pages come
 from the shared Secure image, while the private stack and writable-state pages
 are mapped only for this partition.
 
-Both providers are built with `WOLFPKCS11_NO_STORE`. They set
-`WOLFPKCS11_DEFAULT_DEVID` to bind token slots to the wolfHSM-backed wolfCrypt
-device without enabling a TPM-specific backend. PIN PBKDF2 runs in software so
-its 600,000 rounds do not become 600,000 individual HSM IPC transactions; key
-operations and the tested token cryptography still use the HSM device. Both
-providers define `WC_NO_DEFAULT_DEVID` so the software PBKDF2 path cannot fall
-back to the registered HSM device.
+Both engine variants are built with `WOLFPKCS11_NO_STORE`. The native variant
+keeps the token's device ID at `INVALID_DEVID` and links no wolfHSM client.
+The HSM variant sets `WOLFPKCS11_DEFAULT_DEVID` to the wolfHSM device and
+keeps `WC_NO_DEFAULT_DEVID` enabled so explicitly local operations stay local.
+PIN PBKDF2 always runs in software; its 600,000 rounds do not become 600,000
+individual HSM IPC transactions. Neither variant requires a TPM backend.
 
 The M33MU and QEMU emulator gates lower the PBKDF2 count with the test-only
 `WT_PKCS11_TEST_PBKDF2_ITERATIONS` setting because emulated hashing is too

@@ -141,7 +141,8 @@
  * ---------------------------------------------------------------------- */
 #define HAVE_AESGCM
 #define GCM_SMALL
-#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+#if defined(WT_INTERFACE_LOCAL_PROVIDER) || \
+    (defined(WT_ENGINE_HSM) && (defined(CONFIG_TPM) || defined(CONFIG_PKCS11)))
 #define WOLFSSL_AES_CFB
 #define WOLFSSL_AES_COUNTER
 #define HAVE_AESCTR

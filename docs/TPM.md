@@ -35,6 +35,9 @@ isolation claim.
 
 ## Build and run
 
+TPM uses the same `WT_ENGINE=native` (default) or `WT_ENGINE=hsm`
+selector as PSA. Use the same engine for the Secure image and provider builds.
+
 See [TPM and PKCS#11 footprint](Interface-Footprint.md) for measured Secure
 and provider image sizes against the base revision.
 
@@ -68,6 +71,11 @@ WT_ENGINE=native tests/target/run_suite.sh qemu-a tpm tpmneg
 ```
 
 ## Application and provider boundary
+
+The native provider runs its wolfCrypt operations directly. The HSM provider
+registers the wolfHSM crypto callback for supported operations and obtains
+randomness through the mediated HSM service. Native Non-secure providers
+seed their DRBG through the native Secure RNG service.
 
 The application image contains wolfTPM and the `SERVICE_TPM` transport. It does
 not contain the fwTPM responder. On Cortex-M, a second Non-secure guest contains

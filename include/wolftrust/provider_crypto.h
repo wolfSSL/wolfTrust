@@ -1,4 +1,4 @@
-/* pkcs11_secure_client.h
+/* provider_crypto.h
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,14 +18,14 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef WOLFTRUST_PKCS11_SECURE_CLIENT_H
-#define WOLFTRUST_PKCS11_SECURE_CLIENT_H
+#ifndef WOLFTRUST_PROVIDER_CRYPTO_H
+#define WOLFTRUST_PROVIDER_CRYPTO_H
 
-#define WT_PKCS11_HSM_NAMESPACE 1U
-#define WT_PKCS11_HSM_CLIENT_ID (WT_PKCS11_HSM_NAMESPACE + 1U)
+#define WT_PROVIDER_HSM_NAMESPACE 1U
+#define WT_PROVIDER_HSM_CLIENT_ID (WT_PROVIDER_HSM_NAMESPACE + 1U)
 
-int wt_pkcs11_secure_client_init(void);
-int wt_pkcs11_secure_client_prepare(void);
-void wt_pkcs11_secure_client_hsm_restarted(void);
+int wt_provider_crypto_init(void);
+int wt_provider_crypto_prepare(void);
+void wt_provider_crypto_hsm_restarted(void);
 
-#endif /* WOLFTRUST_PKCS11_SECURE_CLIENT_H */
+#endif /* WOLFTRUST_PROVIDER_CRYPTO_H */

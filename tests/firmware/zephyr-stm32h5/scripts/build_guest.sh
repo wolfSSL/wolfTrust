@@ -76,10 +76,6 @@ if [ "$APP_NAME" = "guest0_pkcs11" ]; then
         "-DWT_PKCS11_SUITE=$WT_PKCS11_SUITE" \
         "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=n" \
         "-DCONFIG_WOLFTRUST_NATIVE_CLIENT=n"
-elif [ "$APP_NAME" = "guest0_tpm" ]; then
-    set -- "$@" \
-        "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=n" \
-        "-DCONFIG_WOLFTRUST_NATIVE_CLIENT=y"
 elif [ "$WT_ENGINE" = "native" ]; then
     set -- "$@" \
         "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=n" \

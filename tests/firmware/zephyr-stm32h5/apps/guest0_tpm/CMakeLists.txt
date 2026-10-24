@@ -19,6 +19,7 @@ set(WT_WOLFTPM_SOURCES
   ${WT_WOLFTPM_DIR}/src/tpm2_asn.c
   ${WT_WOLFTPM_DIR}/src/tpm2_crypto.c
   ${WT_WOLFTPM_DIR}/src/tpm2_param_enc.c
+  ${WT_WOLFTPM_DIR}/src/tpm2_cryptocb.c
 )
 
 target_sources(app PRIVATE

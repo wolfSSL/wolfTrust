@@ -124,7 +124,8 @@ typedef struct wt_hsm_guest {
 } wt_hsm_guest_t;
 
 static wt_hsm_guest_t g_guests[WT_MAX_GUESTS];
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
 static int32_t g_secure_client_id;
 static wt_guest_id_t g_secure_namespace_id;
 static bool g_secure_client_bound;
@@ -539,7 +540,8 @@ int wt_hsm_guest_init_relay(wt_guest_id_t guest_id)
     return wt_hsm_guest_init(guest_id);
 }
 
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
 int wt_hsm_relay_set_secure_client(int32_t partition_id,
                                    wt_guest_id_t namespace_id)
 {
@@ -594,7 +596,8 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
          * wt_ffm_boot_caller_guest. */
         gid = (wt_guest_id_t)(-client_id - 1);
     }
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
     else if (g_secure_client_bound && client_id == g_secure_client_id) {
         gid = g_secure_namespace_id;
     }

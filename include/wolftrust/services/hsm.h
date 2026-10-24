@@ -80,7 +80,8 @@ int wt_hsm_guest_init_relay(wt_guest_id_t guest_id);
 /* Bind one positive Secure-partition identity to a distinct wolfHSM key
  * namespace. The FF-M core has already enforced the caller's manifest
  * dependency before SERVICE_HSM sees the SPM-stamped partition identity. */
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
 int wt_hsm_relay_set_secure_client(int32_t partition_id,
                                    wt_guest_id_t namespace_id);
 #endif

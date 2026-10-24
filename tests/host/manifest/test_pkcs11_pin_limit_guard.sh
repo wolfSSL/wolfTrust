@@ -21,15 +21,19 @@ printf '%s\n' "\$@" >> "$work/cc.args"
 EOF
 cat > "$work/bin/nm" <<'EOF'
 #!/bin/sh
-printf '%s\n' wt_pkcs11_provider_dispatch wt_hsm_psa_transport_cb \
-    WP11_GetSlotList
+printf '%s\n' wt_pkcs11_provider_dispatch WP11_GetSlotList
+if [ "$WT_ENGINE" = hsm ]; then
+    printf '%s\n' wt_hsm_psa_transport_cb
+else
+    printf '%s\n' wt_crypto_native_random
+fi
 EOF
 printf '#!/bin/sh\nexit 0\n' > "$work/bin/true"
 chmod +x "$work/bin/cc" "$work/bin/nm" "$work/bin/true"
 
 run_build() {
     rm -f "$work/cc.args"
-    env FREERTOS_DIR="$work/freertos" SECURE_CMSE_IMPLIB="$work/implib.o" \
+    env WT_ENGINE=hsm FREERTOS_DIR="$work/freertos" SECURE_CMSE_IMPLIB="$work/implib.o" \
         BUILD_DIR="$work/build" GUEST_CC="$work/bin/cc" \
         GUEST_NM="$work/bin/nm" GUEST_OBJCOPY="$work/bin/true" \
         GUEST_SIZE="$work/bin/true" "$@" sh "$script" >/dev/null 2>&1
@@ -70,6 +74,26 @@ for bad in 0 07 abc -1; do
         report 0 "PIN limit '$bad' is refused before compiling"
     else
         report 1 "PIN limit '$bad' is refused before compiling"
+    fi
+done
+
+for engine in native hsm; do
+    rc=0
+    run_build WT_ENGINE="$engine" || rc=1
+    if [ "$engine" = native ]; then
+        if [ "$rc" -eq 0 ] &&
+                grep -q '/crypto_native_client.c' "$work/cc.args" &&
+                ! grep -q '/wh_client.c' "$work/cc.args" &&
+                ! grep -q 'WOLFPKCS11_DEFAULT_DEVID' "$work/cc.args"; then
+            report 0 "native PKCS11 uses direct wolfCrypt and the native RNG (WT-FFM-0054)"
+        else
+            report 1 "native PKCS11 uses direct wolfCrypt and the native RNG (WT-FFM-0054)"
+        fi
+    elif [ "$rc" -eq 0 ] && grep -q '/wh_client.c' "$work/cc.args" &&
+            grep -q -- '-DWOLFPKCS11_DEFAULT_DEVID=0x5748534D' "$work/cc.args"; then
+        report 0 "HSM PKCS11 selects the mediated HSM callback (WT-FFM-0054)"
+    else
+        report 1 "HSM PKCS11 selects the mediated HSM callback (WT-FFM-0054)"
     fi
 done
 

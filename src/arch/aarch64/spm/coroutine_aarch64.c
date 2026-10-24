@@ -38,8 +38,9 @@
 #include "wolftrust/arch.h"
 #include "wolftrust/platform.h"
 #include "wolftrust/services/hsm.h"
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
-#include "wolftrust/pkcs11_secure_client.h"
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+#include "wolftrust/provider_crypto.h"
 #endif
 #include "wolftrust/spm_transport.h"
 
@@ -394,10 +395,11 @@ void wt_spm_init_partitions(void)
     if (wt_hsm_guest_init_relay((wt_guest_id_t)0) != 0) {
         wt_platform_panic();
     }
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
-    if (!wt_hsm_guest_ready((wt_guest_id_t)WT_PKCS11_HSM_NAMESPACE) &&
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (!wt_hsm_guest_ready((wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE) &&
             wt_hsm_guest_init_relay(
-                (wt_guest_id_t)WT_PKCS11_HSM_NAMESPACE) != 0) {
+                (wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE) != 0) {
         wt_platform_panic();
     }
 #endif

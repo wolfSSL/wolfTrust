@@ -218,8 +218,8 @@ The relay enforces the caller role without interpreting the TPM packet.
 `CONFIG_PKCS11=y` adds `SERVICE_PKCS11`. A standard PKCS#11 application calls
 a proxy over FF-M IPC. On Cortex-M, an isolated Non-secure wolfPKCS11 provider
 handles the request. On Cortex-A, the provider runs in the
-`SERVICE_PKCS11` S-EL0 partition and reaches the separate HSM partition through
-SP-to-SP FF-M IPC.
+`SERVICE_PKCS11` S-EL0 partition. Both interfaces select native wolfCrypt or
+SPM-mediated wolfHSM operations with the same `WT_ENGINE` selector as PSA.
 
 The TPM and PKCS#11 builds are mutually exclusive, and neither interface uses
 the PSA Crypto API. Both options default to `n`, so neither provider nor relay

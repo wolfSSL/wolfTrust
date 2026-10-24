@@ -33,6 +33,7 @@ scenario list with --flat, so a scenario is registered in exactly one place.
 import argparse
 import json
 import os
+import re
 import sys
 from pathlib import Path
 
@@ -45,8 +46,7 @@ PKCS11_SCENARIOS = frozenset((
     "pkcs11", "pkcs11core", "pkcs11objects", "pkcs11crypto",
     "pkcs11negative", "pkcs11neg",
 ))
-HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg")) | \
-    PKCS11_SCENARIOS
+HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
 TPM_SCENARIOS = frozenset(("tpm", "tpmneg"))
 INTERFACE_SCENARIOS = TPM_SCENARIOS | PKCS11_SCENARIOS
 
@@ -55,6 +55,12 @@ INTERFACE_JOBS = {
     "stm32h563_psa_zephyr_hsm": "positive",
     "stm32h563_psa_freertos_native": "positive",
     "stm32h563_psa_freertos_hsm": "positive",
+    "stm32h563_pkcs11_zephyr_native": "pkcs11",
+    "stm32h563_pkcs11_freertos_native": "pkcs11",
+    "stm32h563_tpm_zephyr_hsm": "tpm",
+    "stm32h563_tpm_freertos_hsm": "tpm",
+    "stm32h563_pkcs11_isolation_native": "pkcs11neg",
+    "stm32h563_tpm2_isolation_hsm": "tpmneg",
     "stm32h563_pkcs11_zephyr_hsm": "pkcs11",
     "stm32h563_pkcs11_freertos_hsm": "pkcs11",
     "stm32h563_tpm_zephyr_native": "tpm",
@@ -63,10 +69,8 @@ INTERFACE_JOBS = {
     "stm32h563_tpm2_isolation_native": "tpmneg",
 }
 
-# Scenarios whose application and Secure image are built only against the
-# native crypto engine. A wolfHSM-engine job would build the same TPM image
-# under a wrong label.
-NATIVE_ONLY = TPM_SCENARIOS
+# Every application interface supports either selected crypto engine.
+NATIVE_ONLY = frozenset()
 
 # The isolation level 3 bar: every port's full tier runs each of these, or
 # names it in its "l3_exempt" map with the reason (an open issue) it cannot.
@@ -258,6 +262,12 @@ QEMU_A_TPM = frozenset(("tpm", "tpmneg"))
 QEMU_A_PKCS11 = frozenset(("pkcs11", "pkcs11neg"))
 QEMU_A_INTERFACES = QEMU_A_TPM | QEMU_A_PKCS11
 QEMU_A_INTERFACE_JOBS = {
+    "qemuvirt_psa_native": "positive",
+    "qemuvirt_psa_hsm": "positive",
+    "qemuvirt_fwtpm_hsm": "tpm",
+    "qemuvirt_fwtpm_isolation_hsm": "tpmneg",
+    "qemuvirt_pkcs11_native": "pkcs11",
+    "qemuvirt_pkcs11_isolation_native": "pkcs11neg",
     "qemuvirt_fwtpm_native": "tpm",
     "qemuvirt_fwtpm_isolation_native": "tpmneg",
     "qemuvirt_pkcs11_hsm": "pkcs11",
@@ -469,6 +479,26 @@ def qemu_a_l3_gaps():
     return gaps
 
 
+def interface_jobs_error(workflow, expected):
+    """Check each literal CI row binds its name to the right runtime inputs."""
+    rows = re.findall(r"^          - job: ([^\n]+)\n"
+                      r"((?:            [^\n]+\n)*)", workflow, re.MULTILINE)
+    for job, scenario in expected.items():
+        matches = [body for name, body in rows if name == job]
+        if len(matches) != 1:
+            return "interface matrix needs exactly one %s row" % job
+        fields = dict(re.findall(r"^            (\w+): ([^\n]+)$",
+                                 matches[0], re.MULTILINE))
+        if (fields.get("scenario") != scenario or
+                fields.get("engine") != job.rsplit("_", 1)[-1]):
+            return "interface row %s selects the wrong scenario or engine" % job
+        parts = job.split("_")
+        if parts[0] == "stm32h563" and parts[2] in ("zephyr", "freertos"):
+            if fields.get("api") != parts[1] or fields.get("os") != parts[2]:
+                return "interface row %s selects the wrong API or OS" % job
+    return None
+
+
 def selftest():
     """The routing table above, the engine rule and the level 3 bars, run by
     the select job."""
@@ -481,17 +511,15 @@ def selftest():
         return gaps[0]
     pr_jobs = {e["job"] for e in ci_plan("pull_request", [], "")}
     for scenario in sorted(INTERFACE_SCENARIOS):
-        expected_engine = "hsm" if scenario in PKCS11_SCENARIOS else "native"
-        if engines_for((scenario,), None) != [expected_engine]:
-            return "%s is not restricted to the %s engine" % (
-                scenario, expected_engine)
-        required_job = "stm32h563_%s_%s" % (scenario, expected_engine)
-        if required_job in pr_jobs:
-            return "generated matrix duplicates explicit job %s" % required_job
-    for job, scenario in sorted(INTERFACE_JOBS.items()):
-        if ("job: %s" % job not in workflow or
-                "scenario: %s" % scenario not in workflow):
-            return "explicit workflow matrix is missing %s" % job
+        if engines_for((scenario,), None) != list(ENGINES):
+            return "%s does not support both crypto engines" % scenario
+        for engine in ENGINES:
+            required_job = "stm32h563_%s_%s" % (scenario, engine)
+            if required_job in pr_jobs:
+                return "generated matrix duplicates explicit job %s" % required_job
+    error = interface_jobs_error(workflow, INTERFACE_JOBS)
+    if error:
+        return error
     for event, labels, port_input, expect in SELFTEST:
         got = " ".join(sorted(set(e["port"] + ":" + e["tier"] for e in
                                   ci_plan(event, labels.split(), port_input))))
@@ -510,10 +538,9 @@ def selftest():
         scenarios = set(entry_["scenarios"].split())
         if scenarios & set(QEMU_A_INTERFACES):
             return "bad AArch64 interface plan for %s" % entry_["job"]
-    for job, scenario in sorted(QEMU_A_INTERFACE_JOBS.items()):
-        if ("job: %s" % job not in aarch_workflow or
-                "scenario: %s" % scenario not in aarch_workflow):
-            return "explicit AArch64 workflow matrix is missing %s" % job
+    error = interface_jobs_error(aarch_workflow, QEMU_A_INTERFACE_JOBS)
+    if error:
+        return error
     if "inputs.cell == ''" not in aarch_workflow:
         return "AArch64 interface matrix skips an input-less nightly dispatch"
     for port in sorted(PORTS):

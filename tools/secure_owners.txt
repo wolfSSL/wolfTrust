@@ -159,10 +159,10 @@ wt_sec_tpm_relay_service.o             tpm
 wt_sec_tpm_local_provider.o            tpm
 tpm_sec_*                              tpm
 tpm_wc_*                               tpm
+tpm_wh_*                               tpm
 wt_sec_pkcs11_relay_service.o          pkcs11
 wt_sec_hsm_psa_transport.o             pkcs11
 wt_sec_pkcs11_provider.o               pkcs11
-wt_sec_pkcs11_secure_client.o          pkcs11
 wt_sec_pkcs11_secure_heap.o            pkcs11
 wt_sec_pkcs11_wire.o                   pkcs11
 wh_sec_wh_client.o                     pkcs11

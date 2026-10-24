@@ -134,7 +134,7 @@ the services that depend on it fail closed.
 | [API Reference](API-Reference.md) | PSA client, service, storage, update, lifecycle, attestation, and gateway APIs |
 | [Services](Services.md) | Behavior and access policy for each Secure service |
 | [TPM 2.0 Interface](TPM.md) | Direct wolfTPM client, mediated service, firmware TPM, and isolation |
-| [PKCS#11 Interface](PKCS11.md) | Zephyr, FreeRTOS, and Cortex-A clients with isolated HSM-backed providers |
+| [PKCS#11 Interface](PKCS11.md) | Zephyr, FreeRTOS, and Cortex-A clients with isolated native or HSM providers |
 | [TF-M Compatibility](TF-M-Compatibility.md) | Supported interfaces, intentional differences, and migration guidance |
 | [FF-A Compatibility](FF-A-Compatibility.md) | The AArch64 FF-A interface register, intentional differences, and Arm FF-A ACS results |
 | [Macros](Macros.md) | Supported build and manifest configuration |

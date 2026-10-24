@@ -19,6 +19,7 @@
  */
 
 #include "wolftrust/services/tpm_local_provider.h"
+#include "wolftrust/provider_crypto.h"
 
 #include <limits.h>
 #include <string.h>
@@ -62,6 +63,9 @@ int wt_tpm_local_provider_process(const uint8_t* command,
         return -1;
     }
     *response_len = 0U;
+    if (wt_provider_crypto_prepare() != 0) {
+        return -1;
+    }
     length = (int)response_cap;
     rc = FWTPM_ProcessCommand(tpm, command, (int)command_len, response,
                               &length, 0);

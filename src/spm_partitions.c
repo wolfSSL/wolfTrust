@@ -23,6 +23,9 @@
  * transport. Deliberate test faults go through wt_arch_sp_fault_probe(). */
 
 #include "wolftrust/spm_transport.h"
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+#include "wolftrust/provider_crypto.h"
+#endif
 
 #include "wolftrust/ffm.h"
 #include "wolftrust/ffm_domain.h"
@@ -65,7 +68,6 @@
 #endif
 #if defined(CONFIG_PKCS11)
 #include "wolftrust/pkcs11_provider.h"
-#include "wolftrust/pkcs11_secure_client.h"
 #include "wolftrust/services/pkcs11_relay.h"
 #endif
 #include "wolftrust/sp_recovery.h"
@@ -327,13 +329,13 @@ static uint8_t g_spm_iak_public[WT_HSM_ATTEST_PUBLIC_KEY_LEN];
 static size_t g_spm_iak_public_len;
 #endif
 
-#if defined(WT_ENGINE_HSM) && defined(CONFIG_PKCS11) && \
-    defined(WT_INTERFACE_LOCAL_PROVIDER)
-static int wt_spm_hsm_init_pkcs11_namespace(void)
+#if defined(WT_ENGINE_HSM) && (defined(CONFIG_PKCS11) || \
+    defined(CONFIG_TPM)) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+static int wt_spm_hsm_init_provider_namespace(void)
 {
-    if (!wt_hsm_guest_ready((wt_guest_id_t)WT_PKCS11_HSM_NAMESPACE) &&
+    if (!wt_hsm_guest_ready((wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE) &&
             wt_hsm_guest_init_relay(
-                (wt_guest_id_t)WT_PKCS11_HSM_NAMESPACE) != 0) {
+                (wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE) != 0) {
         return WT_FFM_ERROR_STATE;
     }
     return WT_FFM_SUCCESS;
@@ -356,9 +358,15 @@ static int wt_spm_hsm_bind(int32_t partition_id)
     if (wt_hsm_bind_nvm(wt_nvm_client_partition_nvm()) != 0) {
         return WT_FFM_ERROR_STATE;
     }
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
-    if (wt_hsm_relay_set_secure_client(PARTITION_PKCS11_ID,
-            (wt_guest_id_t)WT_PKCS11_HSM_NAMESPACE) != 0) {
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (wt_hsm_relay_set_secure_client(
+#if defined(CONFIG_PKCS11)
+            PARTITION_PKCS11_ID,
+#else
+            PARTITION_TPM_ID,
+#endif
+            (wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE) != 0) {
         return WT_FFM_ERROR_STATE;
     }
 #endif
@@ -392,8 +400,9 @@ static int wt_spm_hsm_restore(int32_t partition_id)
             return WT_FFM_ERROR_STATE;
         }
     }
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
-    if (wt_spm_hsm_init_pkcs11_namespace() != WT_FFM_SUCCESS) {
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (wt_spm_hsm_init_provider_namespace() != WT_FFM_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
 #endif
@@ -412,9 +421,9 @@ int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     int ret;
 
-#if defined(WT_ENGINE_HSM) && defined(CONFIG_PKCS11) && \
-    defined(WT_INTERFACE_LOCAL_PROVIDER)
-    ret = wt_spm_hsm_init_pkcs11_namespace();
+#if defined(WT_ENGINE_HSM) && (defined(CONFIG_PKCS11) || \
+    defined(CONFIG_TPM)) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+    ret = wt_spm_hsm_init_provider_namespace();
     if (ret != WT_FFM_SUCCESS) {
         return ret;
     }
@@ -939,7 +948,8 @@ static void wt_spm_tpm_entry(void* arg)
 #endif
     wt_tpm_relay_set_transport(wt_spm_svc_transport);
 #if defined(WT_INTERFACE_LOCAL_PROVIDER)
-    if (wt_tpm_local_provider_init(&provider_context) != 0) {
+    if (wt_provider_crypto_init() != 0 ||
+            wt_tpm_local_provider_init(&provider_context) != 0) {
         psa_panic();
     }
     wt_tpm_relay_set_local_provider(wt_tpm_local_provider_process,
@@ -977,7 +987,7 @@ static int wt_spm_pkcs11_local_dispatch(uint8_t* request,
                                         size_t* response_len,
                                         void* context)
 {
-    if (wt_pkcs11_secure_client_prepare() != 0) {
+    if (wt_provider_crypto_prepare() != 0) {
         *response_len = 0U;
         return -1;
     }
@@ -996,7 +1006,7 @@ static void wt_spm_pkcs11_entry(void* arg)
 #endif
     wt_pkcs11_relay_set_transport(wt_spm_svc_transport);
 #if defined(WT_INTERFACE_LOCAL_PROVIDER)
-    if (wt_pkcs11_secure_client_init() != 0) {
+    if (wt_provider_crypto_init() != 0) {
         psa_panic();
     }
     wt_pkcs11_relay_set_local_provider(wt_spm_pkcs11_local_dispatch, NULL);

@@ -14,7 +14,7 @@ INTERFACES = {
         "service": "SERVICE_TPM",
         "sid": 4104,
         "uuid": "14a60fe3-05ca-583d-a88a-1e9d0a47d74d",
-        "dependencies": [],
+        "dependencies": [4102],
     },
     "pkcs11": {
         "partition": "PARTITION_PKCS11",

@@ -117,20 +117,40 @@ jobs:
             os: freertos
             engine: hsm
             scenario: positive
+          - job: stm32h563_pkcs11_zephyr_native
+            api: pkcs11
+            os: zephyr
+            engine: native
+            scenario: pkcs11
           - job: stm32h563_pkcs11_zephyr_hsm
             api: pkcs11
             os: zephyr
             engine: hsm
+            scenario: pkcs11
+          - job: stm32h563_pkcs11_freertos_native
+            api: pkcs11
+            os: freertos
+            engine: native
             scenario: pkcs11
           - job: stm32h563_pkcs11_freertos_hsm
             api: pkcs11
             os: freertos
             engine: hsm
             scenario: pkcs11
+          - job: stm32h563_tpm_zephyr_hsm
+            api: tpm
+            os: zephyr
+            engine: hsm
+            scenario: tpm
           - job: stm32h563_tpm_zephyr_native
             api: tpm
             os: zephyr
             engine: native
+            scenario: tpm
+          - job: stm32h563_tpm_freertos_hsm
+            api: tpm
+            os: freertos
+            engine: hsm
             scenario: tpm
           - job: stm32h563_tpm_freertos_native
             api: tpm
@@ -345,8 +365,14 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          - job: stm32h563_tpm2_isolation_hsm
+            scenario: tpmneg
+            engine: hsm
           - job: stm32h563_tpm2_isolation_native
             scenario: tpmneg
+            engine: native
+          - job: stm32h563_pkcs11_isolation_native
+            scenario: pkcs11neg
             engine: native
           - job: stm32h563_pkcs11_isolation_hsm
             scenario: pkcs11neg

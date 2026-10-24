@@ -43,8 +43,9 @@
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
-#include "wolftrust/pkcs11_secure_client.h"
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+#include "wolftrust/provider_crypto.h"
 #endif
 #include "wolftrust/services/crypto_native.h"
 #include "wolftrust/services/nvm_client.h"
@@ -207,9 +208,10 @@ static void wt_spm_fault_release(void* ctx)
         wt_initial_attest_hsm_restarted();
     }
 #endif
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
     if (c->slot->partition_id == g_spm_hsm_partition_id) {
-        wt_pkcs11_secure_client_hsm_restarted();
+        wt_provider_crypto_hsm_restarted();
     }
 #endif
 }

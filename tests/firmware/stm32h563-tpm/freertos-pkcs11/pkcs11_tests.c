@@ -871,7 +871,7 @@ static CK_RV generate_ec_key_pair(CK_BBOOL sign, CK_BBOOL derive,
                                    public_key, private_key);
 }
 
-static int test_hsm_ecdsa(void)
+static int test_ecdsa(void)
 {
     static const CK_BYTE digest[32] = {
         0x50, 0x4b, 0x43, 0x53, 0x23, 0x31, 0x31, 0x20,
@@ -911,7 +911,7 @@ static int test_hsm_ecdsa(void)
     return rv == CKR_OK ? 0 : -1;
 }
 
-static int test_hsm_ecdh(void)
+static int test_ecdh(void)
 {
     CK_OBJECT_HANDLE public_key = CK_INVALID_HANDLE;
     CK_OBJECT_HANDLE private_key = CK_INVALID_HANDLE;
@@ -994,8 +994,8 @@ static void run_crypto_suite(void)
     run_case("AES CTR", test_aes_ctr);
     run_case("AES GCM", test_aes_gcm);
     run_case("AES CCM", test_aes_ccm);
-    run_case("HSM-backed ECDSA", test_hsm_ecdsa);
-    run_case("HSM-backed ECDH", test_hsm_ecdh);
+    run_case("ECDSA", test_ecdsa);
+    run_case("ECDH", test_ecdh);
     if (g_keep_session == 0) {
         suite_cleanup();
     }

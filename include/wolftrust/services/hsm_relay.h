@@ -54,7 +54,8 @@ void wt_hsm_relay_set_submit(wt_hsm_relay_submit_fn fn, void* submit_ctx);
 /* Allow one positive Secure-partition identity onto the ordinary HSM wire.
  * Zero clears the binding. The default refuses every Secure caller, and
  * Non-secure callers remain governed by their SPM-stamped negative identity. */
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
 void wt_hsm_relay_set_secure_client_policy(int32_t partition_id);
 #endif
 

@@ -1,4 +1,4 @@
-/* pkcs11_secure_client.c
+/* provider_crypto.c
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,8 +18,9 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "wolftrust/pkcs11_secure_client.h"
+#include "wolftrust/provider_crypto.h"
 
+#if defined(WT_ENGINE_HSM)
 #include "wolfhsm/wh_client.h"
 #include "wolfhsm/wh_client_crypto.h"
 #include "wolfhsm/wh_client_cryptocb.h"
@@ -41,14 +42,14 @@ static whCommClientConfig g_comm_config;
 static uint8_t g_client_initialized;
 static uint8_t g_hsm_restarted;
 
-int wt_pkcs11_secure_client_init(void)
+int wt_provider_crypto_init(void)
 {
     int rc;
 
     g_comm_config.transport_cb = &wt_hsm_psa_transport_cb;
     g_comm_config.transport_context = &g_transport;
     g_comm_config.transport_config = &g_transport_config;
-    g_comm_config.client_id = WT_PKCS11_HSM_CLIENT_ID;
+    g_comm_config.client_id = WT_PROVIDER_HSM_CLIENT_ID;
     g_client_config.comm = &g_comm_config;
 
     rc = wh_Client_Init(&g_client, &g_client_config);
@@ -68,12 +69,12 @@ int wt_pkcs11_secure_client_init(void)
     return rc;
 }
 
-void wt_pkcs11_secure_client_hsm_restarted(void)
+void wt_provider_crypto_hsm_restarted(void)
 {
     g_hsm_restarted = 1U;
 }
 
-int wt_pkcs11_secure_client_prepare(void)
+int wt_provider_crypto_prepare(void)
 {
     if (g_hsm_restarted != 0U) {
         if (g_client_initialized != 0U) {
@@ -82,7 +83,25 @@ int wt_pkcs11_secure_client_prepare(void)
         }
     }
     if (g_client_initialized == 0U) {
-        return wt_pkcs11_secure_client_init();
+        return wt_provider_crypto_init();
     }
     return WH_ERROR_OK;
 }
+
+#else
+#include "wolfssl/wolfcrypt/wc_port.h"
+
+int wt_provider_crypto_init(void)
+{
+    return wolfCrypt_Init();
+}
+
+int wt_provider_crypto_prepare(void)
+{
+    return 0;
+}
+
+void wt_provider_crypto_hsm_restarted(void)
+{
+}
+#endif

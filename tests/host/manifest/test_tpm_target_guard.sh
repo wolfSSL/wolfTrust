@@ -46,19 +46,16 @@ check_conflict() {
     fi
 }
 
-check_make CONFIG_TPM stm32h563 armv8m native pass
-check_make CONFIG_TPM mimxrt700 armv8m native pass
-check_make CONFIG_TPM qemuvirt aarch64 native pass
-check_make CONFIG_TPM versal aarch64 native pass
-check_make CONFIG_TPM unsupported armv8m native fail
-check_make CONFIG_TPM stm32h563 armv8m hsm fail
-check_make CONFIG_TPM qemuvirt aarch64 hsm fail
-
-check_make CONFIG_PKCS11 stm32h563 armv8m hsm pass
-check_make CONFIG_PKCS11 mimxrt700 armv8m hsm pass
-check_make CONFIG_PKCS11 qemuvirt aarch64 hsm pass
-check_make CONFIG_PKCS11 versal aarch64 hsm pass
-check_make CONFIG_PKCS11 unsupported armv8m hsm fail
+for selected_engine in native hsm; do
+    for selected_config in CONFIG_TPM CONFIG_PKCS11; do
+        check_make "$selected_config" stm32h563 armv8m "$selected_engine" pass
+        check_make "$selected_config" mimxrt700 armv8m "$selected_engine" pass
+        check_make "$selected_config" qemuvirt aarch64 "$selected_engine" pass
+        check_make "$selected_config" versal aarch64 "$selected_engine" pass
+        check_make "$selected_config" unsupported armv8m "$selected_engine" fail
+        check_make "$selected_config" stm32h563 armv8m invalid fail
+    done
+done
 
 for target_arch in "stm32h563 armv8m" "mimxrt700 armv8m" \
         "qemuvirt aarch64" "versal aarch64"; do
@@ -69,7 +66,7 @@ done
 
 echo "Interface target guard tests: $checks checks, $failures failures"
 if [ "$failures" -eq 0 ]; then
-    echo "PASS: tpm_target_guard"
+    echo "PASS: tpm_target_guard (WT-FFM-0054, both provider engines)"
     exit 0
 fi
 echo "FAIL: tpm_target_guard"

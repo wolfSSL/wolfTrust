@@ -46,6 +46,39 @@ check_recipe pkcs11-freertos-app "freertos-workspace" \
 check_recipe tpm-freertos-app "freertos-workspace" \
     "TPM application provisions FreeRTOS"
 
+# Required API rows must distinguish a real pass from a successful skip.
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT INT TERM
+mkdir -p "$work/tests/target"
+cp "$root/tests/target/run_suite.sh" "$work/tests/target/run_suite.sh"
+cat > "$work/tests/target/run_qemu_a_scenario.sh" <<'EOF'
+#!/bin/sh
+case "$WT_FAKE_RESULT" in
+    skip) echo 'SKIP: qemu-a/tpm: unavailable' ;;
+    missing) echo 'no terminal verdict' ;;
+    pass) echo 'PASS: qemu-a/tpm (fixture)' ;;
+    fail) exit 1 ;;
+esac
+EOF
+chmod +x "$work/tests/target/run_qemu_a_scenario.sh"
+check_verdict() {
+    checks=$((checks + 1))
+    if WT_FAKE_RESULT="$1" WT_REQUIRE_SCENARIO_PASS="$2" \
+            bash "$work/tests/target/run_suite.sh" qemu-a tpm \
+            > "$work/out" 2>&1; then actual=0; else actual=1; fi
+    if [ "$actual" -eq "$3" ]; then
+        echo "  [check] PASS  verdict=$1 required=$2 (WT-FFM-0054)"
+    else
+        failures=$((failures + 1))
+        echo "  [check] FAIL  verdict=$1 required=$2"
+    fi
+}
+check_verdict skip 0 0
+check_verdict skip 1 1
+check_verdict missing 1 1
+check_verdict pass 1 0
+check_verdict fail 1 1
+
 echo "Interface runner guard tests: $checks checks, $failures failures"
 if [ "$failures" -eq 0 ]; then
     echo "PASS: interface_runner_guard"

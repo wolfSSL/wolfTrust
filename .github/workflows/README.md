@@ -27,7 +27,9 @@ An accepted upload queues analysis; results appear after Coverity processes it.
 | **AArch64 smoke** | every PR | a representative subset: `virt-gicv3-a72` `smoke boot positive crossdomain ffa-direct confboot devcrypto` on both crypto engines, `versal-virt` the same on the native engine, plus dedicated QEMU fwTPM and PKCS#11 interface and isolation jobs |
 | **AArch64 full** | PR labels `ci:all`, `ci:aarch64`, `ci:qemu-virt`, `ci:qemu-versal`; push to main; nightly; `workflow_dispatch` (cell input) | every AArch64 scenario and the Arm FF-A ACS groups on three QEMU cells under both crypto engines (see below) |
 
-PSA has one positive check per engine in the API matrix.
+All dedicated API and interface-isolation rows require a real terminal pass
+marker; a successful skip cannot satisfy the job. PSA has one positive check
+per engine in the AArch64 API matrix.
 The TPM and PKCS#11 runtime scenarios run as eight dedicated PR checks on
 `virt`, with both `native` and `hsm` for each scenario: fwTPM, fwTPM isolation, PKCS#11, and PKCS#11 isolation. Versal
 cross-builds both configurations but its QEMU model cannot provide the

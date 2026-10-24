@@ -166,6 +166,7 @@ jobs:
       WOLFBOOT_REF: d85fa9dbdf6c36f47b7e96eba5c9df750ad3c963
       WT_ENGINE: ${{ matrix.engine }}
       WT_INTERFACE_OS: ${{ matrix.os }}
+      WT_REQUIRE_SCENARIO_PASS: 1
       CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
       ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
       # The wolfBoot configuration reserves the wolfTrust partition at the
@@ -382,6 +383,7 @@ jobs:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     env:
       WT_ENGINE: ${{ matrix.engine }}
+      WT_REQUIRE_SCENARIO_PASS: 1
     steps:
       - uses: actions/checkout@v4
 

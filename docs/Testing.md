@@ -643,7 +643,8 @@ The separate STM32H563 interface matrix runs the full cross product
 `[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]`. All 12 application
 rows run on every PR. TPM and PKCS#11 also have isolation-negative rows under
 each engine. QEMU runs each interface and its isolation scenario under both
-engines.
+engines. Dedicated API rows set `WT_REQUIRE_SCENARIO_PASS=1`: a skipped
+scenario or a missing terminal pass marker fails the job.
 The full matrix runs on a
 push to `main`, on the nightly schedule, on
 manual dispatch (with a `port` input), and on a pull request that carries the

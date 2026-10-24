@@ -119,18 +119,6 @@ if [ "$scenario" = hsmattackneg ] && [ "$WT_ENGINE" = native ]; then
   exit 0
 fi
 
-if { [ "$scenario" = tpm ] || [ "$scenario" = tpmneg ]; } && \
-   [ "$WT_ENGINE" != native ]; then
-  echo "SKIP: qemu-a/$scenario: the TPM interface runs in the native-engine cell"
-  exit 0
-fi
-
-if { [ "$scenario" = pkcs11 ] || [ "$scenario" = pkcs11neg ]; } && \
-   [ "$WT_ENGINE" != hsm ]; then
-  echo "SKIP: qemu-a/$scenario: the PKCS11 provider uses the wolfHSM engine"
-  exit 0
-fi
-
 # cpus = cores the image expects to see (boot core + parked secondaries).
 # versal-virt models 2 A72 + 2 R5 and QEMU refuses fewer than 4 CPUs there;
 # its APU core 1 is created powered off and the CRF/APU control blocks that

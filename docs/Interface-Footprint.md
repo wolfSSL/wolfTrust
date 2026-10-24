@@ -148,7 +148,9 @@ STM32H563 M33MU passed both engines with Zephyr and FreeRTOS PSA, PKCS#11,
 and TPM clients. Each PKCS#11 run passed all 40 cases. Both interface
 isolation-negative scenarios passed on each engine. QEMU AArch64 passed
 PSA, PKCS#11, TPM, and both interface isolation scenarios under each engine.
-These are emulator results, not physical-board qualification.
+The API gates require a terminal pass marker, so an unsupported-engine skip
+cannot count as a tested cell. These are emulator results, not physical-board
+qualification.
 
 The native Cortex-M provider initially overflowed its 8 KiB task stack in
 software ECC. Its native task now uses 16 KiB, and the complete suite passes.

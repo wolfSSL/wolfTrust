@@ -96,6 +96,7 @@ jobs:
             engine: hsm
     env:
       WT_ENGINE: ${{ matrix.engine }}
+      WT_REQUIRE_SCENARIO_PASS: 1
       MACHINE: virt
       GIC: 3
       CPU: cortex-a72

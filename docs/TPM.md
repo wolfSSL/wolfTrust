@@ -35,6 +35,9 @@ isolation claim.
 
 ## Build and run
 
+See [TPM and PKCS#11 footprint](Interface-Footprint.md) for measured Secure
+and provider image sizes against the base revision.
+
 Enable the service and its manifest in the Secure image with:
 
 ```sh

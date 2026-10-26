@@ -144,9 +144,14 @@ read_words() {
   pyocd_probe 60 cmd -t cortex_m "${cmds[@]}" 2>&1 | awk '/^[0-9a-f]+:/ { print $2 }'
 }
 # One PFR page (512 bytes) over SWD into a file; the IFR is memory mapped.
+# The commander exits 0 after a failed command, so its output is checked and
+# a stale file from an earlier read never stands in for this one.
 read_page() {
-  pyocd_probe 60 cmd -t cortex_m -c "savemem $1 $PFR_PAGE_SIZE $2" >/dev/null 2>&1 &&
-    [ "$(wc -c < "$2" | tr -d ' ')" = "$PFR_PAGE_SIZE" ]
+  local out
+  rm -f "$2"
+  out="$(pyocd_probe 60 cmd -t cortex_m -c "savemem $1 $PFR_PAGE_SIZE $2" 2>&1)" || return 1
+  ! printf '%s\n' "$out" | grep -qiE 'error|exception|fault|failure' &&
+    [ -f "$2" ] && [ "$(wc -c < "$2" | tr -d ' ')" = "$PFR_PAGE_SIZE" ]
 }
 page_digest() { sha256 < "$1" | cut -c1-64; }
 psa_name() {

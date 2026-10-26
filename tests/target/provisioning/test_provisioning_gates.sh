@@ -103,7 +103,9 @@ if [ "\$1" = cmd ]; then
         "read32 "*) k=\$(printf '%08x' "\${a#read32 }" 2>/dev/null || echo 0)
           v=\$(awk -v k="\$k" '\$1 == k { print \$2 }' "$T/mcxn_regs")
           echo "\$k:  \${v:-00000000}" ;;
-        "savemem "*) set -- \$a; head -c "\$3" /dev/zero | tr '\\000' '\\377' > "\$4" ;;
+        "savemem "*) set -- \$a
+          if [ -e "$T/savemem_err" ]; then echo "Error: memory transfer fault"; continue; fi
+          head -c "\$3" /dev/zero | tr '\\000' '\\377' > "\$4" ;;
       esac
     done
     exit 0
@@ -492,6 +494,11 @@ else
 fi
 nowrite
 check "verify-pages: unchanged since the preview" 0 "cfpa-pong unchanged since the preview" -- "${MX[@]}" verify-pages
+# A savemem that fails while the commander exits 0 must not let the previous
+# readback stand in for the page.
+touch "$T/savemem_err"
+check "verify-pages: a failed read is never the earlier readback" 1 "cannot read cmpa over SWD" -- "${MX[@]}" verify-pages
+rm -f "$T/savemem_err"
 # From a part fused one step further, the closed states are still no lock
 # target: the ladder stops them before any preview.
 regs 0x07 0x07; mrec 0x0F 0x07 "$(now)"

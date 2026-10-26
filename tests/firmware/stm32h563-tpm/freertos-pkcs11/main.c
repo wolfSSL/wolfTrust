@@ -67,7 +67,7 @@ void PendSV_Handler(void);
 void SysTick_Handler(void);
 void DebugMon_Handler(void) __attribute__((weak, alias("default_handler")));
 
-__attribute__((section(".vectors")))
+__attribute__((used, section(".vectors")))
 const uint32_t g_vectors[16] = {
     [0]  = (uint32_t)&_estack,
     [1]  = (uint32_t)&Reset_Handler,

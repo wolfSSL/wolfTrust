@@ -51,7 +51,7 @@ jobs:
               print(e["job"], "(" + e["engine"] + ")")'
 
   interfaces-qemu-a:
-    name: ${{ matrix.job }}
+    name: qemuvirt_${{ matrix.scenario }}_${{ matrix.engine }}_${{ matrix.profile }}
     if: >-
       github.event_name != 'workflow_dispatch' || inputs.cell == '' ||
       inputs.cell == 'all' || inputs.cell == 'qemu-virt' ||
@@ -63,39 +63,12 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - job: qemuvirt_psa_native
-            scenario: positive
-            engine: native
-          - job: qemuvirt_psa_hsm
-            scenario: positive
-            engine: hsm
-          - job: qemuvirt_fwtpm_hsm
-            scenario: tpm
-            engine: hsm
-          - job: qemuvirt_fwtpm_native
-            scenario: tpm
-            engine: native
-          - job: qemuvirt_fwtpm_isolation_hsm
-            scenario: tpmneg
-            engine: hsm
-          - job: qemuvirt_fwtpm_isolation_native
-            scenario: tpmneg
-            engine: native
-          - job: qemuvirt_pkcs11_native
-            scenario: pkcs11
-            engine: native
-          - job: qemuvirt_pkcs11_hsm
-            scenario: pkcs11
-            engine: hsm
-          - job: qemuvirt_pkcs11_isolation_native
-            scenario: pkcs11neg
-            engine: native
-          - job: qemuvirt_pkcs11_isolation_hsm
-            scenario: pkcs11neg
-            engine: hsm
+        scenario: [positive, tpm, tpmneg, pkcs11, pkcs11neg]
+        engine: [native, hsm]
+        profile: [default, full]
     env:
       WT_ENGINE: ${{ matrix.engine }}
+      WT_CRYPTO_PROFILE: ${{ matrix.profile }}
       WT_REQUIRE_SCENARIO_PASS: 1
       MACHINE: virt
       GIC: 3

@@ -37,6 +37,9 @@ isolation claim.
 
 TPM uses the same `WT_ENGINE=native` (default) or `WT_ENGINE=hsm`
 selector as PSA. Use the same engine for the Secure image and provider builds.
+`WT_CRYPTO_PROFILE=default` selects the RNG/SHA-256/P-256 command set; `full`
+retains broader commands such as PCR operations. Commands can be individually
+selected through [operation profiles](Crypto-Profiles.md).
 
 See [TPM and PKCS#11 footprint](Interface-Footprint.md) for measured Secure
 and provider image sizes against the base revision.

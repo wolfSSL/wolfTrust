@@ -434,6 +434,17 @@ TPM_CRYPTO_DEVICE_CFLAGS := $(if $(filter hsm,$(WT_ENGINE)),-DWOLF_CRYPTO_CB_FIN
 WOLFTPM_SECURE_CFLAGS += $(TPM_CRYPTO_DEVICE_CFLAGS)
 WOLFPKCS11_SECURE_CFLAGS := $(WOLFPKCS11_COMMON_DEFS) -DWOLFSSL_PUBLIC_MP \
     -include time.h
+WT_PROVIDER_ECC_FALLBACK ?= 0
+ifeq ($(WT_ENGINE)/$(WT_PROVIDER_ECC_FALLBACK),hsm/0)
+TPM_CRYPTO_DEVICE_CFLAGS += -DWT_TPM_HSM_CALLBACK_ECC
+WOLFTPM_SECURE_CFLAGS += -DWT_TPM_HSM_CALLBACK_ECC
+WOLFPKCS11_SECURE_CFLAGS += -DWOLF_CRYPTO_CB_ONLY_ECC
+else ifeq ($(WT_ENGINE),hsm)
+ifneq ($(WT_PROVIDER_ECC_FALLBACK),1)
+$(error WT_PROVIDER_ECC_FALLBACK must be 0 or 1)
+endif
+endif
+
 $(BUILD_DIR)/wt_sec_tpm_local_provider.o: SECURE_CFLAGS += $(WOLFTPM_SECURE_CFLAGS)
 
 WT_SECURE_EXTRA_SRCS := \
@@ -498,6 +509,15 @@ WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/vnet/vnet_switch.c \
     $(ROOT)/src/services/vnet/vnet_service.c \
     $(ROOT)/src/services/vnet/vnet_relay_service.c
+endif
+
+ifeq ($(WT_INTERFACE_LOCAL_PROVIDER),1)
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+include $(ROOT)/mk/crypto-profile.mk
+SECURE_CFLAGS += $(WT_CRYPTO_PROFILE_FLAGS)
+HSM_LIB_CFLAGS += $(WT_CRYPTO_PROFILE_FLAGS)
+HSM_WOLFHSM_CFLAGS += $(WT_CRYPTO_PROFILE_FLAGS)
+endif
 endif
 
 ifeq ($(CONFIG_TPM),y)
@@ -595,6 +615,10 @@ ALL_SECURE_OBJS := $(strip \
     $(P11_WOLFHSM_SEC_OBJS) \
     $(ARCH_SECURE_OBJS) \
     $(MANIFEST_OBJ))
+
+ifneq ($(WT_CRYPTO_PROFILE_HEADER),)
+$(ALL_SECURE_OBJS): $(WT_CRYPTO_PROFILE_HEADER)
+endif
 
 # LTO cannot safely rewrite objects whose symbols are consumed by inline
 # assembly or synthesized by the CMSE linker. Objects that own a
@@ -1643,6 +1667,7 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE)' \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
 		'WT_LTO=$(WT_LTO)' \
+		'WT_PROVIDER_ECC_FALLBACK=$(WT_PROVIDER_ECC_FALLBACK)' \
 		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
 		'WT_CONFORMANCE=$(WT_CONFORMANCE)' \
 		'CONFIG_VNET=$(CONFIG_VNET)' \
@@ -1722,6 +1747,11 @@ $(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/st/%.c $(WOLFHSM_CFG_
 	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
 
 ifeq ($(WT_INTERFACE_LOCAL_PROVIDER),1)
+ifeq ($(CONFIG_TPM),y)
+$(BUILD_DIR)/tpm_sec_raw_fwtpm_command.o: $(WT_CRYPTO_PROFILE_DIR)/fwtpm_command.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFTPM_SECURE_CFLAGS) -c -o $@ $<
+endif
+
 $(BUILD_DIR)/tpm_sec_raw_%.o: $(WOLFTPM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) $(WOLFTPM_SECURE_CFLAGS) -c -o $@ $<
 

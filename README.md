@@ -33,6 +33,8 @@ Armv8-M, or FF-A through the EL3 SPMD on AArch64. Neither uses the PSA Crypto
 API or depends on the other interface. See the [PKCS#11 Interface](docs/PKCS11.md)
 and [TPM 2.0 Interface](docs/TPM.md). All three interfaces use the same
 `WT_ENGINE=native` (default) or `WT_ENGINE=hsm` selector.
+[Operation profiles](docs/Crypto-Profiles.md) select a small default, the full
+operation set, or individual API operations.
 
 Runtime qualification for these optional interfaces is currently scoped to
 STM32H563 under M33MU and `qemuvirt` under QEMU. MIMXRT700 and Versal have

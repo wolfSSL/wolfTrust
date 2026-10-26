@@ -1,3 +1,5 @@
+.DEFAULT_GOAL := all
+
 # Makefile
 #
 # Copyright (C) 2026 wolfSSL Inc.
@@ -147,6 +149,10 @@ endif
 ifneq ($(filter 1,$(WT_NS_GUEST_TPM) $(WT_NS_GUEST_PKCS11)),)
 SRCS += crypto/ns_crypto_port.c
 endif
+ifneq ($(filter 1,$(WT_NS_GUEST_TPM) $(WT_NS_GUEST_PKCS11)),)
+include $(ROOT)/mk/crypto-profile.mk
+CFLAGS += $(WT_CRYPTO_PROFILE_FLAGS)
+endif
 ifeq ($(WT_NS_GUEST_TPM),1)
 CFLAGS += -DWT_NS_GUEST_TPM=1 -DWOLFTPM_SWTPM \
     -DWOLFTPM_USER_SETTINGS -DWOLFSSL_USER_SETTINGS \
@@ -166,7 +172,8 @@ SRCS += $(ROOT)/src/client/tpm_psa_transport.c \
         wc_port.c wolfmath.c)
 endif
 ifeq ($(WT_NS_GUEST_PKCS11),1)
-CFLAGS += -DWT_NS_GUEST_PKCS11=1 -DWT_PKCS11_SUITE_ALL \
+CFLAGS += -Wno-unused-function -Wno-unused-variable \
+    -DWT_NS_GUEST_PKCS11=1 -D$(if $(filter default,$(WT_CRYPTO_PROFILE)),WT_PKCS11_SUITE_PROFILE,WT_PKCS11_SUITE_ALL) \
     -DWOLFPKCS11_USER_SETTINGS \
     -DWT_PKCS11_APP_NAME=\"pkcs11-aarch64\" \
     -I$(WOLFPKCS11_DIR) \
@@ -361,7 +368,7 @@ $(addprefix $(BUILD_DIR)/conf/,UsefulBuf.o qcbor_encode.o qcbor_decode.o ieee754
     CONF_CFLAGS := $(filter-out -mgeneral-regs-only,$(CONF_CFLAGS))
 endif
 
-$(ELF): $(SRCS) $(CONF_OBJS) ns.ld | $(BUILD_DIR)
+$(ELF): $(SRCS) $(CONF_OBJS) $(WT_CRYPTO_PROFILE_HEADER) ns.ld | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRCS) $(CONF_OBJS) -lgcc
 
 $(BIN): $(ELF)

@@ -1,3 +1,5 @@
+.DEFAULT_GOAL := all
+
 # stm32h563-tpm end-to-end firmware-TPM test.
 #
 # Two bare-metal NS guests: guest0 is a stock wolfTPM application, guest1 is
@@ -50,7 +52,8 @@ $(error unsupported WT_ENGINE=$(WT_ENGINE))
 endif
 EMU_TIMEOUT ?= 180
 WT_MAX_GUESTS ?= 2
-WT_PKCS11_SUITE ?= all
+WT_CRYPTO_PROFILE ?= default
+WT_PKCS11_SUITE ?= $(if $(filter default,$(WT_CRYPTO_PROFILE)),profile,all)
 
 # Guest windows match the Secure image's manifest-tpm.json domains (guest0 at
 # 0x080A0000, guest1 at 0x080E0000); the scenario runners may override them.
@@ -90,6 +93,13 @@ GUEST_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ) \
     -DWT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_ORIGIN)u \
     -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_ORIGIN)u
+WT_LTO ?= 1
+ifeq ($(WT_LTO),1)
+GUEST_CFLAGS += -flto=auto
+else ifneq ($(WT_LTO),0)
+$(error unsupported WT_LTO=$(WT_LTO))
+endif
+GUEST_KEEP_FLAGS := -Wl,-u,memcpy,-u,memset,-u,memmove,-u,memcmp
 GUEST_CFLAGS += $(GUEST_EXTRA_CFLAGS)
 
 # guest0: the bare-metal wolfTPM client routed through SERVICE_TPM by building
@@ -171,7 +181,13 @@ FTPM_SRCS := \
     $(WOLFTPM_DIR)/src/tpm2_crypto.c
 
 ifeq ($(WT_ENGINE),hsm)
+WT_PROVIDER_ECC_FALLBACK ?= 0
 FTPM_CFLAGS += -DWOLF_CRYPTO_CB_FIND
+ifeq ($(WT_PROVIDER_ECC_FALLBACK),0)
+FTPM_CFLAGS += -DWT_TPM_HSM_CALLBACK_ECC
+else ifneq ($(WT_PROVIDER_ECC_FALLBACK),1)
+$(error WT_PROVIDER_ECC_FALLBACK must be 0 or 1)
+endif
 GUEST_CFLAGS += -DWT_ENGINE_HSM=1 -DWOLF_CRYPTO_CB -DWOLFHSM_CFG \
     -I$(ROOT)/lib/wolfHSM -I$(BUILD_DIR)
 COMMON_SRCS := $(filter-out %/crypto_native_client.c,$(COMMON_SRCS))
@@ -187,6 +203,10 @@ GUEST_ENGINE_DEPS := $(BUILD_DIR)/wolfhsm_cfg.h
 else
 GUEST_CFLAGS += -DWT_ENGINE_NATIVE=1
 endif
+
+include $(ROOT)/mk/crypto-profile.mk
+GUEST_CFLAGS += $(WT_CRYPTO_PROFILE_FLAGS)
+FTPM_SRCS := $(filter-out %/fwtpm_command.c,$(FTPM_SRCS)) $(WT_CRYPTO_PROFILE_DIR)/fwtpm_command.c
 
 G0_OBJS := $(patsubst %.c,$(BUILD_DIR)/g0_%.o,$(notdir $(COMMON_SRCS) $(APP_SRCS)))
 G1_OBJS := $(patsubst %.c,$(BUILD_DIR)/g1_%.o,$(notdir $(COMMON_SRCS) $(FTPM_SRCS)))
@@ -276,15 +296,21 @@ $(BUILD_DIR):
 $(BUILD_DIR)/wolfhsm_cfg.h: | $(BUILD_DIR)
 	@printf '#include "%s"\n' '$(abspath $(ROOT)/tests/firmware/stm32h563/nonsecure/wh_settings_guest.h)' > $@
 
-$(BUILD_DIR)/g0_%.o: %.c nonsecure/user_settings.h $(GUEST_ENGINE_DEPS) | $(BUILD_DIR)
+$(BUILD_DIR)/g0_%.o: %.c $(WT_CRYPTO_PROFILE_HEADER) nonsecure/user_settings.h $(GUEST_ENGINE_DEPS) | $(BUILD_DIR)
 	$(CC) $(GUEST_CFLAGS) $(APP_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/g1_%.o: %.c nonsecure/user_settings.h $(GUEST_ENGINE_DEPS) | $(BUILD_DIR)
+$(BUILD_DIR)/g1_fwtpm_command.o: $(WT_CRYPTO_PROFILE_DIR)/fwtpm_command.c $(WT_CRYPTO_PROFILE_HEADER) nonsecure/user_settings.h $(GUEST_ENGINE_DEPS) | $(BUILD_DIR)
 	$(CC) $(GUEST_CFLAGS) $(FTPM_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/g1_%.o: %.c $(WT_CRYPTO_PROFILE_HEADER) nonsecure/user_settings.h $(GUEST_ENGINE_DEPS) | $(BUILD_DIR)
+	$(CC) $(GUEST_CFLAGS) $(FTPM_CFLAGS) -c -o $@ $<
+
+$(GUEST0_ELF): GUEST_KEEP_FLAGS += -Wl,-u,wt_tpm_psa_submit,-u,TPM2_SWTPM_SendCommand
+$(GUEST1_ELF): GUEST_KEEP_FLAGS += -Wl,-u,wt_tpm_psa_fetch,-u,FWTPM_ProcessCommand
 
 define GUEST_LINK
 $(BUILD_DIR)/$(1).elf: $(2) nonsecure/guest.ld $(SECURE_CMSE_IMPLIB) | $(BUILD_DIR)
-	$(CC) $(GUEST_CFLAGS) \
+	$(CC) $(GUEST_CFLAGS) $$(GUEST_KEEP_FLAGS) \
 	    -Wl,-Tnonsecure/guest.ld \
 	    -Wl,--defsym=GUEST_FLASH_ORIGIN=$(3) \
 	    -Wl,--defsym=GUEST_FLASH_LENGTH=$(WT_GUEST_FLASH_SIZE) \
@@ -301,20 +327,20 @@ $(eval $(call GUEST_LINK,guest1,$(G1_OBJS),$(WT_GUEST1_FLASH_ORIGIN),$(WT_GUEST1
 # Every Secure crossing is SPM-mediated: no retired direct veneers, the
 # application rides the SERVICE_TPM transport, the fwTPM serves it.
 $(GUEST0_BIN): $(GUEST0_ELF)
-	@! $(NM) $< | grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_' || \
+	@! $(NM) --defined-only $< | grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_' || \
 	    { echo "FAIL: retired direct veneers linked into $<" >&2; exit 1; }
-	@$(NM) $< | grep -q 'wt_tpm_psa_submit' || \
+	@$(NM) --defined-only $< | grep -q 'wt_tpm_psa_submit' || \
 	    { echo "FAIL: $< is not wired to the SERVICE_TPM transport" >&2; exit 1; }
-	@$(NM) $< | grep -q 'TPM2_SWTPM_SendCommand' || \
+	@$(NM) --defined-only $< | grep -q 'TPM2_SWTPM_SendCommand' || \
 	    { echo "FAIL: wolfTPM client not routed through SERVICE_TPM in $<" >&2; exit 1; }
 	$(OBJCOPY) -O binary $< $@
 
 $(GUEST1_BIN): $(GUEST1_ELF)
-	@! $(NM) $< | grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_' || \
+	@! $(NM) --defined-only $< | grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_' || \
 	    { echo "FAIL: retired direct veneers linked into $<" >&2; exit 1; }
-	@$(NM) $< | grep -q 'FWTPM_ProcessCommand' || \
+	@$(NM) --defined-only $< | grep -q 'FWTPM_ProcessCommand' || \
 	    { echo "FAIL: fwTPM responder missing from $<" >&2; exit 1; }
-	@$(NM) $< | grep -q 'wt_tpm_psa_fetch' || \
+	@$(NM) --defined-only $< | grep -q 'wt_tpm_psa_fetch' || \
 	    { echo "FAIL: $< is not serving the SERVICE_TPM slot" >&2; exit 1; }
 	$(OBJCOPY) -O binary $< $@
 

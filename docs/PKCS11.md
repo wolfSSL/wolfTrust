@@ -44,6 +44,9 @@ level-3 isolation claim.
 
 PKCS#11 uses the same `WT_ENGINE=native` (default) or `WT_ENGINE=hsm`
 selector as PSA. Use the same engine for the Secure image and provider builds.
+`WT_CRYPTO_PROFILE=default` selects the RNG/SHA-256/P-256 default operation
+set; `full` retains the broader set. Individual operations and mechanisms are
+configurable through [operation profiles](Crypto-Profiles.md).
 
 See [TPM and PKCS#11 footprint](Interface-Footprint.md) for measured Secure
 and provider image sizes against the base revision.
@@ -201,10 +204,12 @@ application. The M33MU `pkcs11neg` scenario proves that:
 On QEMU `virt`, `pkcs11neg` proves that another S-EL0 partition cannot read or
 write the PKCS#11 state band, the PKCS#11 partition cannot read the HSM
 partition's private RAM, and the PKCS#11 state band is execute-never. The
-40-case suite still completes after those contained faults.
+full profile's 40-case suite still completes after those contained faults.
 
 Pull-request CI has Zephyr and FreeRTOS `pkcs11` rows in the same explicit API
 matrix as PSA and TPM. A separate `pkcs11neg` row keeps the L3 isolation proof
 visible. The cross-compile workflow also builds `CONFIG_PKCS11=y` Secure images
 for STM32H563 and MIMXRT700. The AArch64 QEMU matrix also runs `pkcs11` and
-`pkcs11neg` on the `virt` cell and requires all 40 cases to pass.
+`pkcs11neg` on the `virt` cell. Both profiles run on both engines: nine default
+profile cases and 40 full-profile cases, including disabled-operation and
+capability checks for the default.

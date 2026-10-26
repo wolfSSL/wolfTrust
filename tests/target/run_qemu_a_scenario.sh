@@ -39,6 +39,7 @@
 #
 #   QEMU_TIMEOUT=<s> (default 120)  TOOLPREFIX (default aarch64-none-elf-)
 set -euo pipefail
+export WT_CRYPTO_PROFILE="${WT_CRYPTO_PROFILE:-full}"
 
 scenario="${1:-}"
 case "$scenario" in
@@ -1187,7 +1188,12 @@ case "$scenario" in
     expect "the application completed TPM2 CreatePrimary" "tpm-aarch64: tpm primary ok"
     expect "the application completed TPM2 Sign" "tpm-aarch64: tpm sign ok"
     expect "the application verified the TPM signature" "tpm-aarch64: tpm verify ok"
-    expect "the application extended and read a PCR" "tpm-aarch64: tpm pcr ok"
+    if [ "$WT_CRYPTO_PROFILE" = default ]; then
+      expect "TPM capabilities match the selection" "tpm-aarch64: tpm command capabilities match profile"
+      expect "disabled TPM command refused" "tpm-aarch64: tpm disabled command rejected"
+    else
+      expect "the application extended and read a PCR" "tpm-aarch64: tpm pcr ok"
+    fi
     expect "the direct TPM 2.0 application suite passed" "tpm-aarch64: tpm round trip ok"
     expect "the Normal-world application completed" "[NS] tpm suite complete"
     expect "TPM requests crossed the FF-A SPM endpoint" "[SPM] direct req from=0x0000 to=0x80fd"
@@ -1215,6 +1221,13 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'
     refute_re "no EL3 panic" '\[EL3\] panic'
     refute_re "no SPMC panic" '\[SPM\] panic'
+    if [ "$WT_CRYPTO_PROFILE" = default ]; then
+      expect "the default PKCS11 operation suite passed" "pkcs11-aarch64: TOTAL PASSED: 9"
+      expect "the application exercised random generation" "pkcs11-aarch64: PASS random"
+      expect "the application exercised signing" "pkcs11-aarch64: PASS ECDSA"
+      expect "disabled proxy operation refused" "pkcs11-aarch64: PASS disabled operation rejected"
+      expect "forged disabled operation refused" "pkcs11-aarch64: PASS forged disabled operation rejected"
+    else
     expect "the application exercised token and user login" "pkcs11-aarch64: PASS token and user login"
     expect "the application exercised object storage" "pkcs11-aarch64: PASS object create and size"
     expect "the application exercised random generation" "pkcs11-aarch64: PASS random"
@@ -1222,6 +1235,7 @@ case "$scenario" in
     expect "the application exercised signing" "pkcs11-aarch64: PASS ECDSA"
     expect "the application exercised key agreement" "pkcs11-aarch64: PASS ECDH"
     expect "all PKCS11 cases passed" "pkcs11-aarch64: TOTAL PASSED: 40"
+    fi
     expect "the PKCS11 suite reported zero failures" "pkcs11-aarch64: TOTAL FAILED: 0"
     refute_re "the application did not report a PKCS11 case failure" 'pkcs11-aarch64: FAIL'
     expect "the Normal-world application completed" "[NS] pkcs11 suite complete"

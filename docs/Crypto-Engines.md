@@ -59,7 +59,8 @@ a device ID to wolfHSM. Its private wolfCrypt instance enables
 `WOLF_CRYPTO_CB_FIND`; native providers retain direct software execution. Select one application interface with `CONFIG_PKCS11=y` or
 `CONFIG_TPM=y`, independently of the engine.
 
-CI covers `[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]` on
+[Operation profiles](Crypto-Profiles.md) independently select exported operations.
+CI covers `[default, full] x [native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]` on
 STM32H563, plus both interface isolation scenarios under both engines.
 AArch64 has both engines for TPM and PKCS#11 positive and isolation scenarios;
 its existing PSA suite also runs on both engines.

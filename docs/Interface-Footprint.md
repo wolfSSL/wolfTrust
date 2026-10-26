@@ -1,165 +1,110 @@
-# TPM and PKCS#11 footprint
+# Application-interface footprint
 
-Measured on 2026-10-23 against base `7ae69b3cb6fae0a61e3d184264415d0ea0c01f36`
-and engine-selection revision `9ccd5ec04c98f69f212c6a5c93221ca142e43ea3`.
-Both interfaces now accept the same `WT_ENGINE=native|hsm` selection as PSA.
+Measured on 2026-10-26 for STM32H563 with the configurable default operation
+profile. All six configurations exercise RNG, SHA-256 and P-256 key generation,
+signing and verification. `native` and `hsm` select the engine independently of
+PSA, TPM or PKCS#11.
 
-## Measurement settings
+Earlier figures compared a PSA RNG/hash application with broader TPM and
+PKCS#11 suites. That comparison overstated the cost of replacing the application
+API. The old 11,980-byte native PSA application did not include P-256.
 
-- Compiler: Arm GNU Toolchain 15.2.Rel1, GCC 15.2.1 20251203.
-- Container: `ghcr.io/wolfssl/wolfboot-ci-m33mu@sha256:f6b66c9240ecd94f99400565196f956d1b067059b659a66dbbe83581cc7bf4c7`.
-- Cortex-M33, `-Os`, default `WT_LTO=1`, two guest slots, default attestation.
-- Both revisions use the same pins for their shared dependencies.
+## Comparable default builds
 
-Flash is allocated `text + data` from `arm-none-eabi-size`; static RAM is
-`data + bss`. The raw `.bin` includes address gaps and alignment. Debug
-sections are excluded. Static RAM excludes reserved stacks, unused memory
-protection windows, and dynamic peaks; it is not total runtime RAM.
+Flash is `text + data`, in bytes. Each total includes the Secure runtime, one
+FreeRTOS application, and its isolated provider where required. These are linked
+section sizes, excluding debug information, image signatures and unused flash
+address gaps. They are not archive, source-file or reserved partition sizes.
 
-## Secure image
+| Engine | API | Secure | Application | Provider | Total | Above same-engine PSA |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| native | PSA | 94,960 | 33,488 | 0 | 128,448 | 0 |
+| native | TPM | 96,240 | 15,596 | 44,920 | 156,756 | 28,308 |
+| native | PKCS#11 | 96,688 | 11,152 | 54,605 | 162,445 | 33,997 |
+| hsm | PSA | 119,148 | 43,156 | 0 | 162,304 | 0 |
+| hsm | TPM | 123,756 | 15,596 | 40,752 | 180,104 | 17,800 |
+| hsm | PKCS#11 | 124,236 | 11,152 | 51,288 | 186,676 | 24,372 |
 
-All sizes are bytes. With both optional interfaces disabled, the PR retains
-the base section totals and binary sizes for both engines on both targets.
+The default TPM application sends its operations to the TPM provider and links
+no application-side wolfCrypt or wolfHSM client. Its size is the same for both
+engines. PKCS#11 applications likewise use the provider selected by the build.
+Neither interface links wolfPSA Crypto. Their `psa_connect`/`psa_call` functions
+are the shared FF-M IPC transport.
 
-| Target | Configuration | Flash | Static RAM | Raw .bin |
+This is a common crypto workload, not equal protocol semantics. PKCS#11 also
+implements token/session/object state, PIN protection and wire serialization.
+TPM implements TPM command parsing, capabilities, authorization and object
+lifecycle. Both Cortex-M configurations have an additional isolated provider
+runtime. PSA runs its front end in the application. The remaining 18-34 KB gap
+is real; these measurements do not establish parity with PSA.
+
+All builds retain the Secure vault, RNG, attestation, storage and update services.
+Selecting an application API does not remove those unrelated Secure services.
+The API-disabled Secure image exactly matches the pinned base under the same
+compiler/settings: 94,960 bytes with native, 119,148 bytes with HSM. Neither
+optional interface adds flash when disabled.
+
+## Savings and retained behavior
+
+The previous full reference builds used no guest LTO and kept broader API suites
+plus software crypto fallbacks. Their totals are retained here only to show the
+combined reduction; they are not operation-equivalent baselines.
+
+| Engine | API | Previous full reference | Current default | Reduction |
 | --- | --- | ---: | ---: | ---: |
-| stm32h563 | Base and PR, native, interfaces off | 94,960 | 27,856 | 96,624 |
-| stm32h563 | Base and PR, hsm, interfaces off | 119,116 | 67,008 | 120,780 |
-| stm32h563 | tpm, native | 96,208 | 28,912 | 97,872 |
-| stm32h563 | tpm, hsm | 123,756 | 68,064 | 125,420 |
-| stm32h563 | pkcs11, native | 96,688 | 36,112 | 98,384 |
-| stm32h563 | pkcs11, hsm | 124,236 | 75,264 | 125,932 |
-| mimxrt700 | Base and PR, native, interfaces off | 94,964 | 29,180 | 97,684 |
-| mimxrt700 | Base and PR, hsm, interfaces off | 119,152 | 68,300 | 121,840 |
-| mimxrt700 | tpm, native | 96,212 | 30,236 | 98,932 |
-| mimxrt700 | tpm, hsm | 123,856 | 69,356 | 126,544 |
-| mimxrt700 | pkcs11, native | 96,756 | 37,436 | 99,444 |
-| mimxrt700 | pkcs11, hsm | 124,304 | 76,556 | 126,992 |
+| native | TPM | 207,014 | 156,756 | 50,258 |
+| native | PKCS#11 | 204,276 | 162,445 | 41,831 |
+| hsm | TPM | 266,364 | 180,104 | 86,260 |
+| hsm | PKCS#11 | 244,008 | 186,676 | 57,332 |
 
-The increments below compare each interface with its own engine baseline.
+The changes remove unselected API dispatch roots, let the linker discard their
+handlers, enable guest crypto LTO with opaque RTOS/IPC boundaries, and remove
+unneeded application-side TPM crypto. TPM/PKCS#11 HSM providers use callback-only ECC instead
+of retaining software group arithmetic alongside the HSM implementation.
+`WT_PROVIDER_ECC_FALLBACK=1` restores that fallback if a custom client needs it.
+The HSM server retains software ECC; native builds retain direct wolfCrypt ECC.
+PSA keeps software ECC needed by its deterministic-signature API. Removing it
+failed two PSA conformance cases, so those bytes are retained.
 
-| Target | Interface | Engine | Added flash | Added static RAM |
-| --- | --- | --- | ---: | ---: |
-| stm32h563 | tpm | native | 1,248 | 1,056 |
-| stm32h563 | tpm | hsm | 4,640 | 1,056 |
-| stm32h563 | pkcs11 | native | 1,728 | 8,256 |
-| stm32h563 | pkcs11 | hsm | 5,120 | 8,256 |
-| mimxrt700 | tpm | native | 1,248 | 1,056 |
-| mimxrt700 | tpm | hsm | 4,704 | 1,056 |
-| mimxrt700 | pkcs11 | native | 1,792 | 8,256 |
-| mimxrt700 | pkcs11 | hsm | 5,152 | 8,256 |
+The default preserves PIN setup, login, attempt limits and SO recovery. Public
+HMAC/AES mechanisms can be removed while their primitives remain necessary for
+PIN or object protection. No PIN iteration count is reduced in production.
+The `full` profile retains the broader reference suites, including the 40-case
+PKCS#11 regression. Individual operations can be added or removed independently
+as described in [Crypto-Profiles.md](Crypto-Profiles.md).
 
-The HSM interface builds also enable the server cipher modes needed by the
-providers, including CFB, CTR, and CCM. Their extra flash includes those
-handlers as well as the API relay.
-
-Each interface uses an 8 KiB Secure partition stack from existing reserved
-capacity. STM32H563 assigns a 2 KiB mailbox window to TPM or a 20 KiB data
-window to PKCS#11. These window capacities differ from occupied static bytes.
-
-## Reference application and provider images
-
-The STM32H563 guest scripts use `-Os` and section garbage collection without
-LTO. PKCS#11 uses the complete `all` application suite. Provider measurements
-keep the production 600,000-round PIN KDF, with no emulator-only reduction.
-The native PKCS#11 provider task uses a 16 KiB stack for software ECC; the
-HSM provider task uses 8 KiB. Both allocate these stacks from the existing
-28 KiB FreeRTOS heap, which is already counted in static RAM.
-
-| Interface | Engine | Image | Flash | Static RAM | Raw .bin |
-| --- | --- | --- | ---: | ---: | ---: |
-| tpm | native | app | 32,754 | 49,196 | 32,754 |
-| tpm | native | provider | 78,052 | 37,376 | 78,052 |
-| tpm | hsm | app | 53,076 | 50,068 | 53,108 |
-| tpm | hsm | provider | 89,532 | 38,752 | 89,532 |
-| pkcs11 | native | app | 16,860 | 49,884 | 16,860 |
-| pkcs11 | native | provider | 90,728 | 42,240 | 90,772 |
-| pkcs11 | hsm | app | 16,860 | 49,884 | 16,860 |
-| pkcs11 | hsm | provider | 102,912 | 43,224 | 102,956 |
-
-The HSM fwTPM provider was remeasured after enabling implicit-device routing
-for ECC and AES. Its ELF contains the device finder and retains the same
-section totals shown above.
-
-The existing FreeRTOS PSA reference client is unchanged: 11,980 flash bytes
-and 17,200 static RAM bytes under native, or 32,388 flash bytes and 18,164
-static RAM bytes under HSM. Its raw binaries are 11,980 and 32,428 bytes.
-
-Secure image plus application plus provider gives these reference totals:
-
-| Interface | Engine | Combined flash | Combined static RAM |
-| --- | --- | ---: | ---: |
-| tpm | native | 207,014 | 115,484 |
-| tpm | hsm | 266,364 | 156,884 |
-| pkcs11 | native | 204,276 | 128,236 |
-| pkcs11 | hsm | 244,008 | 168,372 |
-
-These sums exclude wolfBoot, signing headers, reserved flash slots, and
-protection-window padding. The applications run different test workloads,
-so comparing APIs is not a measurement of replacing the API in an otherwise
-unchanged product. The fwTPM profile is volatile with NV disabled, and
-wolfPKCS11 uses `WOLFPKCS11_NO_STORE`; persistent TPM/token profiles need
-their own measurements.
-
-## Service selection
-
-Enabling either interface adds its relay to the existing manifest. It retains
-crypto, vault, attestation, ITS, Protected Storage, and firmware update
-services. It does not strip all PSA-facing functionality. `native` calls
-wolfCrypt directly within the isolated provider; `hsm` uses the mediated
-HSM callback for supported operations. Both use the same FF-M API relays.
-
-On Cortex-M the provider is a separate Non-secure guest image. On Cortex-A
-it is inside the S-EL0 Secure Partition, so these Cortex-M numbers must not
-be applied to Cortex-A.
+Static RAM is `data + bss`, including the configured guest heaps. It does not
+include dynamic peak usage or unused reserved MPU windows. Operation pruning
+primarily reduces flash; it does not automatically shrink heap/stack capacities.
 
 ## Reproduce
 
-Initialize the pinned dependencies in clean base and PR checkouts. Use the
-recorded compiler and repeat for each target, engine, and interface:
+- Pinned base: `7ae69b3cb6fae0a61e3d184264415d0ea0c01f36`.
+- Compiler: Arm GNU Toolchain 15.2.Rel1, GCC 15.2.1.
+- Container: `ghcr.io/wolfssl/wolfboot-ci-m33mu@sha256:f6b66c9240ecd94f99400565196f956d1b067059b659a66dbbe83581cc7bf4c7`.
+- Cortex-M33, `-Os`, `WT_LTO=1`, two guest slots, default attestation and
+  production 600,000-round PKCS#11 PIN KDF.
+- The same pinned dependency sources and compiler are used for every row.
+
+Inside that container, initialize the repository dependencies and FreeRTOS
+workspace, then run:
 
 ```sh
-for target in stm32h563 mimxrt700; do
-    for engine in native hsm; do
-        make -j8 TARGET="$target" WT_ENGINE="$engine" \
-            BUILD_DIR="build/size-$target-$engine" secure-image
-        for config in CONFIG_TPM CONFIG_PKCS11; do
-            make -j8 TARGET="$target" WT_ENGINE="$engine" "$config=y" \
-                BUILD_DIR="build/size-$target-$engine-$config" secure-image
-        done
-    done
-done
-arm-none-eabi-size build/size-*/wolftrust.elf
-wc -c build/size-*/wolftrust.bin
+WT_CRYPTO_PROFILE=default bash tools/measure_interface_footprint.sh
 ```
 
-On the base revision, run only the interface-disabled configuration. For
-application/provider rows, initialize the FreeRTOS workspace, set the same
-`WT_ENGINE`, and set `SECURE_CMSE_IMPLIB` to the matching Secure build.
-The TPM fixture has `tpm-provider` and `tpm-freertos-app` Make targets. The
-PKCS#11 fixture has `pkcs11-freertos-app` and `pkcs11-provider` targets.
-Keep `WT_PKCS11_TEST_PBKDF2_ITERATIONS` unset for production sizes. Use
-`arm-none-eabi-size` and `wc -c` on the resulting guest ELFs and binaries.
+The output directory contains `sizes.csv`, compiler/source configuration, build
+logs, generated operation selections and all measured ELFs. Set the first
+argument to choose a separate output directory. Use `WT_CRYPTO_PROFILE=full` for
+the broader profile; the reference workloads then differ and must be labeled.
 
-## Validation
+Runtime gates use the same profile selections and authenticated
+wolfBoot -> wolfTrust -> application/provider chain under M33MU. Emulator-only
+PIN tests explicitly use 25 PBKDF2 rounds to bound execution time; production
+size measurements retain 600,000. Emulator evidence is separate from physical
+board qualification.
 
-All 70 host suites passed on macOS and Linux. All eight Cortex-M interface
-Secure builds, four default/control Secure builds, eight application/provider
-builds, and eight AArch64 interface cross-builds passed their applicable
-link and layout checks. The control sizes match the original base.
-
-STM32H563 M33MU passed both engines with Zephyr and FreeRTOS PSA, PKCS#11,
-and TPM clients. Each PKCS#11 run passed all 40 cases. Both interface
-isolation-negative scenarios passed on each engine. QEMU AArch64 passed
-PSA, PKCS#11, TPM, and both interface isolation scenarios under each engine.
-The API gates require a terminal pass marker, so an unsupported-engine skip
-cannot count as a tested cell. These are emulator results, not physical-board
-qualification.
-
-The native Cortex-M provider initially overflowed its 8 KiB task stack in
-software ECC. Its native task now uses 16 KiB, and the complete suite passes.
-The HSM task retains 8 KiB. Zephyr TPM also links the TPM crypto-callback
-source required when the HSM module enables wolfCrypt callbacks.
-
-Runtime emulator gates lower the test PIN KDF to 25 rounds. That reduction
-was not used for the production size rows.
+TPM selections containing `ZGen_2Phase` retain software ECC point arithmetic
+because its full-point operation is outside the HSM ECDH callback. Adding that
+command restores the dependency automatically; it is absent from the small
+default profile.

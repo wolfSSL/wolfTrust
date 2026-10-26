@@ -104,6 +104,10 @@ case "$WT_INTERFACE_OS" in
   *) echo "WT_INTERFACE_OS must be zephyr or freertos" >&2; exit 2 ;;
 esac
 export WT_INTERFACE_OS
+export WT_CRYPTO_PROFILE="${WT_CRYPTO_PROFILE:-full}"
+if [ "$family" = pkcs11 ] && [ "$WT_CRYPTO_PROFILE" = default ]; then
+  pkcs11_suite=profile
+fi
 export CROSS_COMPILE=/usr/local/bin/arm-none-eabi-
 export ZEPHYR_TOOLCHAIN_VARIANT=cross-compile
 export WT_SECURE_FLASH_BASE=0x0C060000
@@ -594,6 +598,13 @@ case "$scenario" in
       "freertos_guest1: psa rng ok"
     expect "guest1 psa_hash_compute KAT (PSA API parity)" \
       "freertos_guest1: psa hash ok"
+    expect "FreeRTOS: PSA P-256 key generation, signing and verification" \
+      "freertos_guest1: psa ECC keygen/sign/verify ok"
+    if [ "$WT_CRYPTO_PROFILE" = default ]; then
+      expect_flat "Zephyr: disabled PSA API refused" "disabled PSA operation rejected"
+      expect "FreeRTOS: disabled PSA API refused" \
+        "freertos_guest1: disabled psa operation rejected"
+    fi
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/$scenario"
     ;;
@@ -619,7 +630,14 @@ case "$scenario" in
       "psa_hash_compute(SHA-256) KAT verified"
     expect "FreeRTOS: PSA psa_hash_compute(SHA-256) KAT" \
       "freertos_guest1: psa hash ok"
+    expect "FreeRTOS: PSA P-256 key generation, signing and verification" \
+      "freertos_guest1: psa ECC keygen/sign/verify ok"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
+    if [ "$WT_CRYPTO_PROFILE" = default ]; then
+      expect_flat "Zephyr: disabled PSA API refused" "disabled PSA operation rejected"
+      expect "FreeRTOS: disabled PSA API refused" \
+        "freertos_guest1: disabled psa operation rejected"
+    fi
     echo "PASS: target/bothpsa"
     ;;
   bothiso)
@@ -1011,9 +1029,17 @@ case "$scenario" in
     expect "fwTPM handled TPM2 CreatePrimary" \
       "ftpm-guest1: command CreatePrimary"
     expect "fwTPM handled TPM2 Sign" "ftpm-guest1: command Sign"
+    if [ "$WT_CRYPTO_PROFILE" = full ]; then
     expect "fwTPM handled TPM2 PCR_Extend" \
       "ftpm-guest1: command PCR_Extend"
     expect "fwTPM handled TPM2 PCR_Read" "ftpm-guest1: command PCR_Read"
+    fi
+    if [ "$WT_CRYPTO_PROFILE" = default ]; then
+      expect_flat "TPM capabilities match the selected commands" \
+        "$tpm_app: tpm command capabilities match profile"
+      expect_flat "disabled TPM command refused by the provider" \
+        "$tpm_app: tpm disabled command rejected"
+    fi
     expect_flat "wolfTPM round trip through the isolated fwTPM" \
       "$tpm_app: tpm round trip ok"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
@@ -1091,6 +1117,7 @@ case "$scenario" in
       crypto)   expected_passed=10 ;;
       negative) expected_passed=12 ;;
       all)      expected_passed=40 ;;
+      profile)  expected_passed=9 ;;
     esac
     expect "the PKCS11 suite ran every planned case" \
       "$pkcs11_app: TOTAL PASSED: $expected_passed"

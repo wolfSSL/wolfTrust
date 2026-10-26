@@ -291,8 +291,14 @@ static int test_mechanism_list(void)
     if (g_fn->C_GetMechanismList(WT_PKCS11_SLOT, list, &count) != CKR_OK ||
             mechanism_present(list, count, CKM_EC_KEY_PAIR_GEN) == 0 ||
             mechanism_present(list, count, CKM_ECDSA) == 0 ||
+#if defined(WT_PKCS11_SUITE_PROFILE)
+            count != 3u ||
+            mechanism_present(list, count, CKM_ECDH1_DERIVE) != 0 ||
+            mechanism_present(list, count, CKM_AES_KEY_GEN) != 0 ||
+#else
             mechanism_present(list, count, CKM_ECDH1_DERIVE) == 0 ||
             mechanism_present(list, count, CKM_AES_KEY_GEN) == 0 ||
+#endif
             mechanism_present(list, count, CKM_SHA256) == 0 ||
             mechanism_present(list, count, CKM_PKCS5_PBKD2) != 0) {
         return -1;
@@ -711,7 +717,7 @@ static int test_random(void)
     return buffer_nonzero(random, sizeof(random)) != 0 ? 0 : -1;
 }
 
-static int test_sha256(void)
+static int test_sha256_single(void)
 {
     CK_MECHANISM mechanism = { CKM_SHA256, NULL, 0u };
     CK_BYTE digest[32];
@@ -733,6 +739,19 @@ static int test_sha256(void)
     }
     if (rv != CKR_OK || digest_len != sizeof(digest) ||
             memcmp(digest, g_sha256_abc, sizeof(digest)) != 0) {
+        return -1;
+    }
+    return 0;
+}
+
+static int test_sha256(void)
+{
+    CK_MECHANISM mechanism = { CKM_SHA256, NULL, 0u };
+    CK_BYTE digest[32];
+    CK_ULONG digest_len;
+    CK_RV rv;
+
+    if (test_sha256_single() != 0) {
         return -1;
     }
     digest_len = sizeof(digest);
@@ -1248,9 +1267,61 @@ static void run_negative_suite(void)
     }
 }
 
+static int test_profile_disabled(void)
+{
+    CK_OBJECT_HANDLE object = CK_INVALID_HANDLE;
+
+    return g_fn->C_CopyObject(g_session, 1u, NULL, 0u, &object) ==
+           CKR_FUNCTION_NOT_SUPPORTED ? 0 : -1;
+}
+
+static int test_profile_forged(void)
+{
+    uint8_t request[12];
+    uint8_t response[12];
+    size_t response_len = 0u;
+    wt_pkcs11_writer_t writer;
+    wt_pkcs11_reader_t reader;
+
+    wt_pkcs11_writer_init(&writer, request, sizeof(request));
+    wt_pkcs11_put_u32(&writer, WT_PKCS11_WIRE_MAGIC);
+    wt_pkcs11_put_u32(&writer, WT_PKCS11_WIRE_VERSION);
+    wt_pkcs11_put_u32(&writer, WT_P11_COPY_OBJECT);
+    if (writer.error != 0 || wt_pkcs11_psa_call(request, writer.used,
+            response, sizeof(response), &response_len) != 0) {
+        return -1;
+    }
+    wt_pkcs11_reader_init(&reader, response, response_len);
+    if (wt_pkcs11_get_u32(&reader) != WT_PKCS11_WIRE_MAGIC ||
+            wt_pkcs11_get_u32(&reader) != WT_PKCS11_WIRE_VERSION ||
+            wt_pkcs11_get_u32(&reader) != CKR_FUNCTION_NOT_SUPPORTED) {
+        return -1;
+    }
+    return reader.error == 0 && reader.used == reader.length ? 0 : -1;
+}
+
+static void run_profile_suite(void)
+{
+    report_case("suite setup", suite_setup() == 0);
+    if (g_session == CK_INVALID_HANDLE) {
+        return;
+    }
+    run_case("profile mechanisms", test_mechanism_list);
+    run_case("random", test_random);
+    run_case("SHA256 one-shot", test_sha256_single);
+    run_case("ECDSA", test_ecdsa);
+    run_case("disabled operation rejected", test_profile_disabled);
+    run_case("forged disabled operation rejected", test_profile_forged);
+    run_case("bad signature rejected", test_bad_signature);
+    run_case("PIN lockout and SO recovery", test_pin_lockout);
+    suite_cleanup();
+}
+
 const char *wt_pkcs11_suite_name(void)
 {
-#if defined(WT_PKCS11_SUITE_CORE)
+#if defined(WT_PKCS11_SUITE_PROFILE)
+    return "profile";
+#elif defined(WT_PKCS11_SUITE_CORE)
     return "core";
 #elif defined(WT_PKCS11_SUITE_OBJECTS)
     return "objects";
@@ -1267,6 +1338,10 @@ int wt_pkcs11_run(void)
 {
     g_passed = 0u;
     g_failed = 0u;
+
+#if defined(WT_PKCS11_SUITE_PROFILE)
+    run_profile_suite();
+#endif
 
 #if defined(WT_PKCS11_SUITE_ALL)
     g_keep_session = 1;

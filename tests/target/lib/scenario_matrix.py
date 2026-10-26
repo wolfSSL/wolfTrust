@@ -50,24 +50,6 @@ HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
 TPM_SCENARIOS = frozenset(("tpm", "tpmneg"))
 INTERFACE_SCENARIOS = TPM_SCENARIOS | PKCS11_SCENARIOS
 
-INTERFACE_JOBS = {
-    "stm32h563_psa_zephyr_native": "positive",
-    "stm32h563_psa_zephyr_hsm": "positive",
-    "stm32h563_psa_freertos_native": "positive",
-    "stm32h563_psa_freertos_hsm": "positive",
-    "stm32h563_pkcs11_zephyr_native": "pkcs11",
-    "stm32h563_pkcs11_freertos_native": "pkcs11",
-    "stm32h563_tpm_zephyr_hsm": "tpm",
-    "stm32h563_tpm_freertos_hsm": "tpm",
-    "stm32h563_pkcs11_isolation_native": "pkcs11neg",
-    "stm32h563_tpm2_isolation_hsm": "tpmneg",
-    "stm32h563_pkcs11_zephyr_hsm": "pkcs11",
-    "stm32h563_pkcs11_freertos_hsm": "pkcs11",
-    "stm32h563_tpm_zephyr_native": "tpm",
-    "stm32h563_tpm_freertos_native": "tpm",
-    "stm32h563_pkcs11_isolation_hsm": "pkcs11neg",
-    "stm32h563_tpm2_isolation_native": "tpmneg",
-}
 
 # Every application interface supports either selected crypto engine.
 NATIVE_ONLY = frozenset()
@@ -261,18 +243,6 @@ QEMU_A_SMOKE_CELLS = {"virt-gicv3-a72": ENGINES, "versal-virt": ("native",)}
 QEMU_A_TPM = frozenset(("tpm", "tpmneg"))
 QEMU_A_PKCS11 = frozenset(("pkcs11", "pkcs11neg"))
 QEMU_A_INTERFACES = QEMU_A_TPM | QEMU_A_PKCS11
-QEMU_A_INTERFACE_JOBS = {
-    "qemuvirt_psa_native": "positive",
-    "qemuvirt_psa_hsm": "positive",
-    "qemuvirt_fwtpm_hsm": "tpm",
-    "qemuvirt_fwtpm_isolation_hsm": "tpmneg",
-    "qemuvirt_pkcs11_native": "pkcs11",
-    "qemuvirt_pkcs11_isolation_native": "pkcs11neg",
-    "qemuvirt_fwtpm_native": "tpm",
-    "qemuvirt_fwtpm_isolation_native": "tpmneg",
-    "qemuvirt_pkcs11_hsm": "pkcs11",
-    "qemuvirt_pkcs11_isolation_hsm": "pkcs11neg",
-}
 
 
 def qemu_a_entry(cell, engine, kind, tier, scenarios):
@@ -479,23 +449,51 @@ def qemu_a_l3_gaps():
     return gaps
 
 
-def interface_jobs_error(workflow, expected):
-    """Check each literal CI row binds its name to the right runtime inputs."""
-    rows = re.findall(r"^          - job: ([^\n]+)\n"
-                      r"((?:            [^\n]+\n)*)", workflow, re.MULTILINE)
-    for job, scenario in expected.items():
-        matches = [body for name, body in rows if name == job]
-        if len(matches) != 1:
-            return "interface matrix needs exactly one %s row" % job
-        fields = dict(re.findall(r"^            (\w+): ([^\n]+)$",
-                                 matches[0], re.MULTILINE))
-        if (fields.get("scenario") != scenario or
-                fields.get("engine") != job.rsplit("_", 1)[-1]):
-            return "interface row %s selects the wrong scenario or engine" % job
-        parts = job.split("_")
-        if parts[0] == "stm32h563" and parts[2] in ("zephyr", "freertos"):
-            if fields.get("api") != parts[1] or fields.get("os") != parts[2]:
-                return "interface row %s selects the wrong API or OS" % job
+def interface_axes_error(workflow, job, axes, bindings):
+    """Fail closed if a profile/API/engine cell or its runtime binding is lost."""
+    match = re.search(r"^  " + re.escape(job) + r":\n(.*?)(?=^  [\w-]+:|\Z)",
+                      workflow, re.MULTILINE | re.DOTALL)
+    if match is None:
+        return "missing interface job " + job
+    body = match.group(1)
+    found = re.findall(r"^        (\w+): \[([^\]\n]*)\]$", body, re.MULTILINE)
+    actual = {name: tuple(v.strip() for v in values.split(","))
+              for name, values in found}
+    if actual != axes or len(found) != len(axes):
+        return "wrong interface axes for " + job
+    name = re.search(r"^    name: (.*)$", body, re.MULTILINE)
+    if name is None or any("matrix." + axis not in name.group(1) for axis in axes):
+        return "interface name omits a matrix axis for " + job
+    for variable, expression in bindings.items():
+        if not re.search(r"^      " + re.escape(variable) + ": " +
+                         re.escape(expression) + r"$", body, re.MULTILINE):
+            return "wrong interface binding for " + variable
+    if "WT_REQUIRE_SCENARIO_PASS: 1" not in body:
+        return "interface matrix does not require real runtime passes"
+    return None
+
+
+def interface_matrices_error(workflow, aarch_workflow):
+    shared = {"engine": ("native", "hsm"), "profile": ("default", "full")}
+    bindings = {"WT_ENGINE": "${{ matrix.engine }}",
+                "WT_CRYPTO_PROFILE": "${{ matrix.profile }}"}
+    for source, job, axes, extra in (
+        (workflow, "interfaces-m33mu",
+         dict(shared, api=("psa", "pkcs11", "tpm"), os=("zephyr", "freertos")),
+         {"WT_INTERFACE_OS": "${{ matrix.os }}"}),
+        (workflow, "interface-isolation-m33mu",
+         dict(shared, scenario=("tpmneg", "pkcs11neg")), {}),
+        (aarch_workflow, "interfaces-qemu-a",
+         dict(shared, scenario=("positive", "tpm", "tpmneg", "pkcs11", "pkcs11neg")), {}),
+    ):
+        error = interface_axes_error(source, job, axes, dict(bindings, **extra))
+        if error:
+            return error
+    if "${{ matrix.api == 'psa' && 'positive' || matrix.api }}" not in workflow:
+        return "wrong API scenario binding"
+    if "run_suite.sh m33mu ${{ matrix.scenario }}" not in workflow or \
+            "run_suite.sh qemu-a ${{ matrix.scenario }}" not in aarch_workflow:
+        return "wrong interface scenario binding"
     return None
 
 
@@ -517,7 +515,7 @@ def selftest():
             required_job = "stm32h563_%s_%s" % (scenario, engine)
             if required_job in pr_jobs:
                 return "generated matrix duplicates explicit job %s" % required_job
-    error = interface_jobs_error(workflow, INTERFACE_JOBS)
+    error = interface_matrices_error(workflow, aarch_workflow)
     if error:
         return error
     for event, labels, port_input, expect in SELFTEST:
@@ -538,9 +536,6 @@ def selftest():
         scenarios = set(entry_["scenarios"].split())
         if scenarios & set(QEMU_A_INTERFACES):
             return "bad AArch64 interface plan for %s" % entry_["job"]
-    error = interface_jobs_error(aarch_workflow, QEMU_A_INTERFACE_JOBS)
-    if error:
-        return error
     if "inputs.cell == ''" not in aarch_workflow:
         return "AArch64 interface matrix skips an input-less nightly dispatch"
     for port in sorted(PORTS):

@@ -5,6 +5,8 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 TPM_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 ROOT=$(CDPATH= cd -- "$TPM_DIR/../../.." && pwd)
 
+. "$ROOT/tests/target/lib/guest_build.sh"
+
 . "$ROOT/tests/target/lib/engine.sh"
 
 APP_DIR="$TPM_DIR/freertos-pkcs11-provider"
@@ -95,12 +97,9 @@ $WOLFPKCS11_DIR/src/slot.c
 $WOLFPKCS11_DIR/src/crypto.c"
 
 WT_SRCS="
-$ROOT/src/client/psa_ffm_client.c
-$ROOT/src/client/pkcs11_psa_transport.c
 $ROOT/src/pkcs11/pkcs11_wire.c
 $ROOT/src/pkcs11/pkcs11_provider.c
-
-$NS_DIR/libc_stubs_guest.c"
+"
 
 ENGINE_DEFS="-DWT_ENGINE_NATIVE=1"
 ENGINE_SRCS="$ROOT/src/client/crypto_native_client.c"
@@ -132,10 +131,12 @@ if [ -n "${WT_PKCS11_PIN_MAX_FAILURES:-}" ]; then
     PIN_LIMIT_DEF="-DWT_PKCS11_PIN_MAX_FAILURES=${WT_PKCS11_PIN_MAX_FAILURES}U"
 fi
 
+wt_guest_prepare_profile
+
 CFLAGS="
 -std=c99
 -mcpu=cortex-m33 -mthumb -mgeneral-regs-only -mno-unaligned-access
--ffreestanding -fno-builtin -nostdlib -Os -g
+-ffreestanding -fno-builtin -nostdlib -Os -g $WT_GUEST_LTO_FLAGS
 -Wall -Wextra -Wno-unused-function -Wno-unused-variable
 -Wno-unused-parameter -Wno-type-limits
 -ffunction-sections -fdata-sections
@@ -162,7 +163,21 @@ $ENGINE_DEFS
 -include time.h
 -include $APP_DIR/user_settings.h"
 
-LDFLAGS="
+if [ "$WT_ENGINE" = hsm ]; then
+    WT_GUEST_KEEP_FLAGS="$WT_GUEST_KEEP_FLAGS -Wl,-u,wt_hsm_psa_transport_cb"
+else
+    WT_GUEST_KEEP_FLAGS="$WT_GUEST_KEEP_FLAGS -Wl,-u,wt_crypto_native_random"
+fi
+
+wt_guest_hsm_ecc_flags
+CFLAGS="$CFLAGS $WT_GUEST_PROFILE_FLAGS $WT_GUEST_HSM_ECC_FLAGS"
+if wt_guest_profile_enabled pkcs11 C_GetSlotList; then
+    WT_GUEST_KEEP_FLAGS="$WT_GUEST_KEEP_FLAGS -Wl,-u,WP11_GetSlotList"
+fi
+
+LDFLAGS="$WT_GUEST_LTO_FLAGS $WT_GUEST_KEEP_FLAGS
+-Wl,-u,vTaskStartScheduler,-u,wt_pkcs11_provider_dispatch
+
 -Wl,-T$APP_DIR/guest1.ld
 -Wl,--defsym=GUEST_FLASH_ORIGIN=$WT_GUEST1_FLASH_BASE
 -Wl,--defsym=GUEST_FLASH_LENGTH=$WT_GUEST1_FLASH_SIZE
@@ -171,11 +186,15 @@ LDFLAGS="
 -Wl,--gc-sections"
 
 # shellcheck disable=SC2086
+wt_guest_compile_platform "$APP_DIR/main.c" $FREERTOS_SRCS \
+    "$NS_DIR/libc_stubs_guest.c" "$ROOT/src/client/psa_ffm_client.c" "$ROOT/src/client/pkcs11_psa_transport.c"
+
+# shellcheck disable=SC2086
 $GUEST_CC $CFLAGS $LDFLAGS -o "$BUILD_DIR/guest1.elf" \
-    "$APP_DIR/main.c" $FREERTOS_SRCS $WOLFCRYPT_SRCS $ENGINE_SRCS \
+    $WT_GUEST_PLATFORM_OBJECTS $WOLFCRYPT_SRCS $ENGINE_SRCS \
     $WOLFPKCS11_SRCS $WT_SRCS "$SECURE_CMSE_IMPLIB" -lgcc
 
-NM_OUT=$($GUEST_NM "$BUILD_DIR/guest1.elf") || exit 1
+NM_OUT=$($GUEST_NM --defined-only "$BUILD_DIR/guest1.elf") || exit 1
 printf '%s\n' "$NM_OUT" | grep -q 'wt_pkcs11_provider_dispatch' || {
     echo "FAIL: PKCS11 provider dispatch missing from provider guest" >&2
     exit 1
@@ -192,10 +211,12 @@ else
         exit 1
     fi
 fi
-printf '%s\n' "$NM_OUT" | grep -q 'WP11_GetSlotList' || {
-    echo "FAIL: wolfPKCS11 provider implementation missing" >&2
-    exit 1
-}
+if wt_guest_profile_enabled pkcs11 C_GetSlotList; then
+    printf '%s\n' "$NM_OUT" | grep -q 'WP11_GetSlotList' || {
+        echo "FAIL: wolfPKCS11 provider implementation missing" >&2
+        exit 1
+    }
+fi
 if printf '%s\n' "$NM_OUT" | grep -Eq 'wt_tpm_psa_|TPM2_SWTPM|wolfTPM'; then
     echo "FAIL: TPM transport linked into independent PKCS11 provider" >&2
     exit 1
@@ -205,6 +226,8 @@ if printf '%s\n' "$NM_OUT" | \
     echo "FAIL: retired direct veneer linked into provider guest" >&2
     exit 1
 fi
+
+wt_guest_reject_psa_crypto "$NM_OUT"
 
 $GUEST_OBJCOPY -O binary "$BUILD_DIR/guest1.elf" "$BUILD_DIR/guest1.bin"
 $GUEST_SIZE "$BUILD_DIR/guest1.elf"

@@ -8,6 +8,10 @@ if(NOT DEFINED WOLFTRUST_CMSE_IMPLIB)
 endif()
 
 set(WT_REPO_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../../../..)
+include(${WT_REPO_ROOT}/tools/cmake/CryptoProfile.cmake)
+set(WT_PROFILE_DIR ${CMAKE_CURRENT_BINARY_DIR}/crypto-profile)
+wt_crypto_profile(${WT_REPO_ROOT} ${WT_PROFILE_DIR})
+target_compile_options(app PRIVATE -include ${WT_PROFILE_DIR}/selected_profile.h)
 set(WT_WOLFTPM_DIR ${WT_REPO_ROOT}/lib/wolfTPM)
 set(WT_TEST_DIR ${WT_REPO_ROOT}/tests/firmware/stm32h563-tpm/tpm-app)
 

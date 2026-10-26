@@ -94,7 +94,7 @@ void SysTick_Handler(void);
 
 void DebugMon_Handler(void) __attribute__((weak, alias("default_handler")));
 
-__attribute__((section(".vectors")))
+__attribute__((used, section(".vectors")))
 const uint32_t g_vectors[16] = {
     [0]  = (uint32_t)&_estack,
     [1]  = (uint32_t)&Reset_Handler,
@@ -298,6 +298,55 @@ static void run_psa_smoke(void)
     }
 }
 
+/* Exercise the same key generation and signing primitives as the TPM client. */
+static void run_psa_ecc(void)
+{
+    psa_key_attributes_t attributes = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t key = PSA_KEY_ID_NULL;
+    uint8_t signature[PSA_ECDSA_SIGNATURE_SIZE(256)];
+    size_t signature_len = 0U;
+    psa_status_t status;
+
+    psa_set_key_usage_flags(&attributes,
+        PSA_KEY_USAGE_SIGN_HASH | PSA_KEY_USAGE_VERIFY_HASH);
+    psa_set_key_type(&attributes,
+        PSA_KEY_TYPE_ECC_KEY_PAIR(PSA_ECC_FAMILY_SECP_R1));
+    psa_set_key_bits(&attributes, 256U);
+    psa_set_key_algorithm(&attributes, PSA_ALG_ECDSA(PSA_ALG_SHA_256));
+    status = psa_generate_key(&attributes, &key);
+    if (status == PSA_SUCCESS) {
+        status = psa_sign_hash(key, PSA_ALG_ECDSA(PSA_ALG_SHA_256),
+            k_hash_expected, sizeof(k_hash_expected), signature,
+            sizeof(signature), &signature_len);
+    }
+    if (status == PSA_SUCCESS) {
+        status = psa_verify_hash(key, PSA_ALG_ECDSA(PSA_ALG_SHA_256),
+            k_hash_expected, sizeof(k_hash_expected), signature,
+            signature_len);
+    }
+    if (key != PSA_KEY_ID_NULL && psa_destroy_key(key) != PSA_SUCCESS) {
+        status = PSA_ERROR_GENERIC_ERROR;
+    }
+    if (status == PSA_SUCCESS) {
+        uart_puts("freertos_guest1: psa ECC keygen/sign/verify ok\r\n");
+    }
+    else {
+        uart_puts("freertos_guest1: psa ECC FAILED st=");
+        uart_put_i32((int32_t)status);
+        uart_puts("\r\n");
+    }
+#if defined(WT_PROFILE_PSA_psa_cipher_encrypt) && !WT_PROFILE_PSA_psa_cipher_encrypt
+    if (psa_cipher_encrypt(0, PSA_ALG_CTR, NULL, 0, NULL, 0,
+            &signature_len) == PSA_ERROR_NOT_SUPPORTED) {
+        uart_puts("freertos_guest1: disabled psa operation rejected\r\n");
+    }
+    else {
+        uart_puts("freertos_guest1: disabled psa operation FAILED\r\n");
+    }
+#endif
+
+}
+
 /* FF-M isolation negatives from the FreeRTOS client: the SPM must reject a
  * forged handle, an oversized input vector, and a connect to an unknown SID —
  * the same rejections guest0 proves — and none of them faults this guest. */
@@ -422,6 +471,7 @@ static void crypto_task(void *arg)
         run_ffm_sha256_kat();
         run_ffm_rng();
         run_psa_smoke();
+        run_psa_ecc();
         run_ffm_negatives();
     }
     for (;;) {
@@ -433,6 +483,12 @@ static void crypto_task(void *arg)
     }
 }
 
+#if defined(WT_ENGINE_NATIVE)
+#define WT_PSA_STACK_WORDS 4096U
+#else
+#define WT_PSA_STACK_WORDS 2048U
+#endif
+
 /* ---- entry ------------------------------------------------------------ */
 
 __attribute__((section(".reset")))
@@ -443,11 +499,8 @@ void Reset_Handler(void)
     uart_init();
     uart_puts("freertos_guest1: alive\r\n");
 
-    /* 2048 stack words = 8 KiB. The first wolfCrypt DRBG init through
-     * the FF-M RNG hook plus wolfPSA hash setup burns several KiB in
-     * peak call depth; 4 KiB triggered a STKOF on the FreeRTOS port's
-     * PSPLIM guard under the old transport, so keep the headroom. */
-    if (xTaskCreate(crypto_task, "crypto", 2048, NULL,
+    /* Native ECC needs headroom for the Cortex-M SP math call chain. */
+    if (xTaskCreate(crypto_task, "crypto", WT_PSA_STACK_WORDS, NULL,
                     tskIDLE_PRIORITY + 1, NULL) != pdPASS) {
         uart_puts("freertos_guest1: xTaskCreate failed\r\n");
         for (;;) {}

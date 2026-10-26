@@ -5,6 +5,8 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 TPM_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 ROOT=$(CDPATH= cd -- "$TPM_DIR/../../.." && pwd)
 
+. "$ROOT/tests/target/lib/guest_build.sh"
+
 . "$ROOT/tests/target/lib/engine.sh"
 
 APP_DIR="$TPM_DIR/freertos-tpm"
@@ -100,15 +102,14 @@ if [ "$WT_ENGINE" = hsm ]; then
 fi
 
 CLIENT_SRCS="
-$ROOT/src/client/psa_ffm_client.c
-$ENGINE_SRCS
-$ROOT/src/client/tpm_psa_transport.c
-$ROOT/tests/firmware/stm32h563/nonsecure/libc_stubs_guest.c"
+$ENGINE_SRCS"
+
+wt_guest_prepare_profile
 
 CFLAGS="
 -std=c99
 -mcpu=cortex-m33 -mthumb -mgeneral-regs-only -mno-unaligned-access
--ffreestanding -fno-builtin -nostdlib -Os -g
+-ffreestanding -fno-builtin -nostdlib -Os -g $WT_GUEST_LTO_FLAGS
 -Wall -Wextra -Wno-unused-function -Wno-unused-variable
 -Wno-unused-parameter -Wno-type-limits
 -ffunction-sections -fdata-sections
@@ -132,7 +133,23 @@ $ENGINE_DEFS -DWT_TPM_APP_NAME=\"tpm-freertos\"
 -DWC_RESEED_INTERVAL=1000000
 -include $APP_DIR/user_settings.h"
 
-LDFLAGS="
+CFLAGS="$CFLAGS $WT_GUEST_PROFILE_FLAGS"
+
+# Password-authorized TPM commands need no application-side crypto engine.
+WT_TPM_CLIENT_WOLFCRYPT="${WT_TPM_CLIENT_WOLFCRYPT:-$(if [ "${WT_CRYPTO_PROFILE:-default}" = default ]; then echo 0; else echo 1; fi)}"
+case "$WT_TPM_CLIENT_WOLFCRYPT" in
+    0)
+        CFLAGS="$CFLAGS -DWOLFTPM2_NO_WOLFCRYPT -UWOLFTPM_SMALL_STACK"
+        WOLFCRYPT_SRCS=
+        CLIENT_SRCS=
+        ;;
+    1) ;;
+    *) echo "WT_TPM_CLIENT_WOLFCRYPT must be 0 or 1" >&2; exit 2 ;;
+esac
+
+LDFLAGS="$WT_GUEST_LTO_FLAGS $WT_GUEST_KEEP_FLAGS
+-Wl,-u,vTaskStartScheduler,-u,wt_tpm_psa_submit,-u,TPM2_SWTPM_SendCommand
+
 -Wl,-T$TPM_DIR/freertos-pkcs11/guest0.ld
 -Wl,--defsym=GUEST_FLASH_ORIGIN=$WT_GUEST0_FLASH_BASE
 -Wl,--defsym=GUEST_FLASH_LENGTH=$WT_GUEST0_FLASH_SIZE
@@ -141,18 +158,21 @@ LDFLAGS="
 -Wl,--gc-sections"
 
 # shellcheck disable=SC2086
+wt_guest_compile_platform "$APP_DIR/main.c" $FREERTOS_SRCS \
+    "$ROOT/tests/firmware/stm32h563/nonsecure/libc_stubs_guest.c" "$ROOT/src/client/psa_ffm_client.c" "$ROOT/src/client/tpm_psa_transport.c"
+
+# shellcheck disable=SC2086
 $GUEST_CC $CFLAGS $LDFLAGS \
     -o "$BUILD_DIR/guest0.elf" \
-    "$APP_DIR/main.c" \
     "$TEST_DIR/tpm_tests.c" \
-    $FREERTOS_SRCS \
+    $WT_GUEST_PLATFORM_OBJECTS \
     $WOLFCRYPT_SRCS \
     $WOLFTPM_SRCS \
     $CLIENT_SRCS \
     "$SECURE_CMSE_IMPLIB" \
     -lgcc
 
-NM_OUT=$($GUEST_NM "$BUILD_DIR/guest0.elf") || {
+NM_OUT=$($GUEST_NM --defined-only "$BUILD_DIR/guest0.elf") || {
     echo "FAIL: nm on the FreeRTOS TPM guest failed" >&2
     exit 1
 }
@@ -177,6 +197,8 @@ if printf '%s\n' "$NM_OUT" | \
     echo "FAIL: retired direct veneer linked into TPM guest" >&2
     exit 1
 fi
+
+wt_guest_reject_psa_crypto "$NM_OUT"
 
 $GUEST_OBJCOPY -O binary "$BUILD_DIR/guest0.elf" "$BUILD_DIR/guest0.bin"
 $GUEST_SIZE "$BUILD_DIR/guest0.elf"

@@ -8,6 +8,10 @@ if(NOT DEFINED WOLFTRUST_CMSE_IMPLIB)
 endif()
 
 set(WT_REPO_ROOT ${CMAKE_CURRENT_LIST_DIR}/../../../../..)
+include(${WT_REPO_ROOT}/tools/cmake/CryptoProfile.cmake)
+set(WT_PROFILE_DIR ${CMAKE_CURRENT_BINARY_DIR}/crypto-profile)
+wt_crypto_profile(${WT_REPO_ROOT} ${WT_PROFILE_DIR})
+target_compile_options(app PRIVATE -include ${WT_PROFILE_DIR}/selected_profile.h)
 set(WT_TEST_DIR ${WT_REPO_ROOT}/tests/firmware/stm32h563-tpm/freertos-pkcs11)
 
 target_sources(app PRIVATE
@@ -28,10 +32,16 @@ target_include_directories(app PRIVATE
 )
 
 if(NOT DEFINED WT_PKCS11_SUITE)
-  set(WT_PKCS11_SUITE all)
+  if(WT_CRYPTO_PROFILE STREQUAL "default")
+    set(WT_PKCS11_SUITE profile)
+  else()
+    set(WT_PKCS11_SUITE all)
+  endif()
 endif()
 
-if(WT_PKCS11_SUITE STREQUAL "core")
+if(WT_PKCS11_SUITE STREQUAL "profile")
+  set(WT_PKCS11_SUITE_DEF WT_PKCS11_SUITE_PROFILE)
+elseif(WT_PKCS11_SUITE STREQUAL "core")
   set(WT_PKCS11_SUITE_DEF WT_PKCS11_SUITE_CORE)
 elseif(WT_PKCS11_SUITE STREQUAL "objects")
   set(WT_PKCS11_SUITE_DEF WT_PKCS11_SUITE_OBJECTS)
@@ -42,7 +52,7 @@ elseif(WT_PKCS11_SUITE STREQUAL "negative")
 elseif(WT_PKCS11_SUITE STREQUAL "all")
   set(WT_PKCS11_SUITE_DEF WT_PKCS11_SUITE_ALL)
 else()
-  message(FATAL_ERROR "WT_PKCS11_SUITE must be core, objects, crypto, negative, or all")
+  message(FATAL_ERROR "WT_PKCS11_SUITE must be profile, core, objects, crypto, negative, or all")
 endif()
 
 target_compile_definitions(app PRIVATE

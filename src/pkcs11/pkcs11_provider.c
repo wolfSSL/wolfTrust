@@ -24,6 +24,14 @@
 #include "wolftrust/zeroize.h"
 
 #include "wolfpkcs11/pkcs11.h"
+static CK_RV provider_backend_mechanism_info(CK_SLOT_ID slot,
+    CK_MECHANISM_TYPE mechanism, CK_MECHANISM_INFO_PTR info)
+{
+    return C_GetMechanismInfo(slot, mechanism, info);
+}
+
+#define WT_PKCS11_PROVIDER_BUILD
+#include "wolftrust/crypto_profile.h"
 
 #include <string.h>
 
@@ -297,6 +305,9 @@ static int provider_raw_mechanism_supported(CK_MECHANISM_TYPE mechanism)
  * cannot carry; they are hidden so no caller is offered one it cannot use. */
 static int provider_mechanism_transportable(CK_MECHANISM_TYPE mechanism)
 {
+    if (!wt_profile_pkcs11_mechanism(mechanism)) {
+        return 0;
+    }
     switch (mechanism) {
         case CKM_RSA_PKCS_OAEP:
         case CKM_HKDF_DERIVE:
@@ -313,13 +324,20 @@ static int provider_mechanism_transportable(CK_MECHANISM_TYPE mechanism)
 }
 
 static CK_ULONG provider_filter_mechanisms(CK_MECHANISM_TYPE* mechanisms,
-                                           CK_ULONG count)
+                                           CK_ULONG count, CK_SLOT_ID slot)
 {
+    CK_MECHANISM_INFO info;
     CK_ULONG kept = 0U;
     CK_ULONG i;
 
     for (i = 0U; i < count; i++) {
-        if (provider_mechanism_transportable(mechanisms[i]) != 0) {
+        if (provider_mechanism_transportable(mechanisms[i]) != 0 &&
+                provider_backend_mechanism_info(slot, mechanisms[i], &info) == CKR_OK &&
+                (wt_profile_pkcs11_flags(info.flags) &
+                 (CKF_ENCRYPT | CKF_DECRYPT | CKF_DIGEST | CKF_SIGN |
+                  CKF_VERIFY | CKF_SIGN_RECOVER | CKF_VERIFY_RECOVER |
+                  CKF_GENERATE | CKF_GENERATE_KEY_PAIR | CKF_DERIVE |
+                  CKF_WRAP | CKF_UNWRAP)) != 0U) {
             mechanisms[kept] = mechanisms[i];
             kept++;
         }
@@ -801,6 +819,11 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
     }
     function = wt_pkcs11_get_u32(&reader);
     provider_response_begin(&writer, response, response_cap);
+    if (!wt_profile_pkcs11_operation(function)) {
+        provider_response_rv(response, CKR_FUNCTION_NOT_SUPPORTED);
+        *response_len = writer.used;
+        return 0;
+    }
 
     switch (function) {
         case WT_P11_INITIALIZE:
@@ -894,7 +917,8 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                     rv = CKR_DEVICE_MEMORY;
                 }
                 if (rv == CKR_OK) {
-                    count = provider_filter_mechanisms(mechanisms, count);
+                    count = provider_filter_mechanisms(mechanisms, count,
+                        (CK_SLOT_ID)value);
                     if (has_output != 0U && capacity < count) {
                         rv = CKR_BUFFER_TOO_SMALL;
                     }
@@ -920,6 +944,16 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                 C_GetMechanismInfo((CK_SLOT_ID)value,
                     (CK_MECHANISM_TYPE)second_value, &info) :
                 CKR_ARGUMENTS_BAD;
+            if (rv == CKR_OK) {
+                info.flags = wt_profile_pkcs11_flags(info.flags);
+                if ((info.flags & (CKF_ENCRYPT | CKF_DECRYPT | CKF_DIGEST |
+                        CKF_SIGN | CKF_VERIFY | CKF_SIGN_RECOVER |
+                        CKF_VERIFY_RECOVER | CKF_GENERATE |
+                        CKF_GENERATE_KEY_PAIR | CKF_DERIVE | CKF_WRAP |
+                        CKF_UNWRAP)) == 0U) {
+                    rv = CKR_MECHANISM_INVALID;
+                }
+            }
             if (rv == CKR_OK && provider_mechanism_transportable(
                     (CK_MECHANISM_TYPE)second_value) == 0) {
                 (void)memset(&info, 0, sizeof(info));

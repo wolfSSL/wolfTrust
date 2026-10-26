@@ -90,6 +90,39 @@ static int tpm_property_matches(UINT32 property, UINT32 expected)
     return 0;
 }
 
+#if defined(WT_PROFILE_FULL) && !WT_PROFILE_FULL
+static int tpm_command_capabilities(void)
+{
+    GetCapability_In in;
+    GetCapability_Out out;
+    UINT32 index;
+    UINT32 command;
+    int found_sign = 0;
+
+    memset(&in, 0, sizeof(in));
+    memset(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_COMMANDS;
+    in.property = 0;
+    in.propertyCount = MAX_CAP_CC;
+    if (TPM2_GetCapability(&in, &out) != TPM_RC_SUCCESS ||
+            out.capabilityData.capability != TPM_CAP_COMMANDS ||
+            out.capabilityData.data.command.count != WT_PROFILE_TPM_COMMAND_COUNT) {
+        return -1;
+    }
+    for (index = 0; index < out.capabilityData.data.command.count; index++) {
+        command = out.capabilityData.data.command.commandAttributes[index] &
+                  TPMA_CC_commandIndex;
+        if (command == TPM_CC_Sign) {
+            found_sign = 1;
+        }
+        if (command == TPM_CC_PCR_Extend) {
+            return -1;
+        }
+    }
+    return found_sign ? 0 : -1;
+}
+#endif
+
 static int tpm_max_frame_hash(void)
 {
     Hash_In in;
@@ -145,6 +178,14 @@ int wt_tpm_run(void)
         return -1;
     }
     app_line("tpm frame caps ok");
+#if defined(WT_PROFILE_FULL) && !WT_PROFILE_FULL
+    if (tpm_command_capabilities() != 0) {
+        app_line("tpm command capabilities FAILED");
+        return -1;
+    }
+    app_line("tpm command capabilities match profile");
+#endif
+
 
     if (tpm_max_frame_hash() != 0) {
         app_line("tpm max frame FAILED");
@@ -190,6 +231,7 @@ int wt_tpm_run(void)
     }
     app_line("tpm verify ok");
 
+#if !defined(WT_PROFILE_TPM_PCR_Extend) || WT_PROFILE_TPM_PCR_Extend
     rc = wolfTPM2_ExtendPCR(&g_dev, 7, TPM_ALG_SHA256, digest,
                             (int)sizeof(digest));
     if (rc == 0) {
@@ -200,6 +242,15 @@ int wt_tpm_run(void)
         return -1;
     }
     app_line("tpm pcr ok");
+#else
+    rc = wolfTPM2_ExtendPCR(&g_dev, 7, TPM_ALG_SHA256, digest,
+                            (int)sizeof(digest));
+    if (rc != TPM_RC_COMMAND_CODE) {
+        app_line_i32("disabled tpm command accepted rc=", rc);
+        return -1;
+    }
+    app_line("tpm disabled command rejected");
+#endif
 
     (void)wolfTPM2_UnloadHandle(&g_dev, &g_key.handle);
     (void)wolfTPM2_Cleanup(&g_dev);

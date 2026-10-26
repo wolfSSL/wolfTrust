@@ -43,6 +43,9 @@ WT_FWU_PROBE ?= 0
 WT_FWU_PROBE_STREAM_BYTES ?=
 # The backend under test refuses a write that skips ahead of the staged extent.
 WT_FWU_PROBE_SEQUENTIAL ?= 0
+# Bytes of the FWU probe's final write; a size off the backend alignment proves
+# FINISH accepts a padded last block.
+WT_FWU_PROBE_TAIL_BYTES ?=
 # The attestation verify pins the token measurement to wolfBoot's measurement
 # of the signed Secure image and the lifecycle the Secure side reports.
 WT_EXPECTED_MEASUREMENT_HEX ?=
@@ -285,6 +288,9 @@ PROBE_CFLAGS += -DWT_FWU_PROBE_STREAM_BYTES=$(WT_FWU_PROBE_STREAM_BYTES)
 endif
 ifeq ($(WT_FWU_PROBE_SEQUENTIAL),1)
 PROBE_CFLAGS += -DWT_FWU_PROBE_SEQUENTIAL
+endif
+ifneq ($(WT_FWU_PROBE_TAIL_BYTES),)
+PROBE_CFLAGS += -DWT_FWU_PROBE_TAIL_BYTES=$(WT_FWU_PROBE_TAIL_BYTES)
 endif
 
 # guest0 carries the probes; guest1 is the peer that must keep running.

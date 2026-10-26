@@ -182,8 +182,9 @@ case "$scenario" in
   restart)      guest_flags="WT_GUEST_FAULT_PROBE=1" ;;
   attestneg)    guest_flags="WT_ATTEST_NEG_PROBE=1" ;;
   hsmattackneg) guest_flags="WT_HSM_ATTACK_PROBE=1" ;;
-  # 0x21000 bytes of body reach sector 16 of the 32-sector update partition.
-  fwustage)     guest_flags="WT_FWU_PROBE=1 WT_FWU_PROBE_STREAM_BYTES=0x21000u WT_FWU_PROBE_SEQUENTIAL=1" ;;
+  # 0x21000 bytes of body reach sector 16 of the 32-sector update partition;
+  # the 27-byte tail ends off a phrase, so FINISH sees a padded last block.
+  fwustage)     guest_flags="WT_FWU_PROBE=1 WT_FWU_PROBE_STREAM_BYTES=0x21000u WT_FWU_PROBE_SEQUENTIAL=1 WT_FWU_PROBE_TAIL_BYTES=27u" ;;
   confboot)     guest_flags="WT_RUN_CONFORMANCE=1 WT_M33MU_EXPECT_BKPT=1" ;;
   devstorage)   guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=storage WT_M33MU_EXPECT_BKPT=1" ;;
   devcrypto|vaultrecover|vaultrecoversec)

@@ -93,15 +93,17 @@ esac
 EOF
 cat > "$T/venv/bin/pyocd" <<EOF
 #!/bin/sh
+echo "\$*" >> $T/pyocd_calls
 if [ "\$1" = cmd ]; then
-  # With a register file (MCXN947), answer each read32 from it; else the
-  # RT700 SFP dump.
+  # With a register file (MCXN947), answer each read32 from it and give a
+  # savemem a blank page; else the RT700 SFP dump.
   if [ -s "$T/mcxn_regs" ]; then
     for a in "\$@"; do
       case "\$a" in
         "read32 "*) k=\$(printf '%08x' "\${a#read32 }" 2>/dev/null || echo 0)
           v=\$(awk -v k="\$k" '\$1 == k { print \$2 }' "$T/mcxn_regs")
           echo "\$k:  \${v:-00000000}" ;;
+        "savemem "*) set -- \$a; head -c "\$3" /dev/zero | tr '\\000' '\\377' > "\$4" ;;
       esac
     done
     exit 0
@@ -119,7 +121,43 @@ printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v python3)" > "$T/venv/bin/python
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
 subst() { sed "s/$1/$2/" "$3" > "$3.tmp" && mv "$3.tmp" "$3"; }
 have_expect=0; command -v expect >/dev/null 2>&1 && have_expect=1
-chmod +x "$T/bin/stcli" "$T/venv/bin/blhost" "$T/venv/bin/pyocd"
+# SPSDK stubs for the MCXN947 lock preview: pfr parses a page into a YAML
+# that names its source and exports that source back (a byte-true round
+# trip); nxpfuses writes the fuse script for the named life cycle; every
+# write-class command of pfr, nxpfuses and nxpdebugmbox is logged and fails.
+cat > "$T/venv/bin/pfr" <<EOF
+#!/usr/bin/env bash
+sub="\$1"; shift
+case "\$sub" in
+  parse) while [ \$# -gt 0 ]; do case "\$1" in -b) b="\$2"; shift;; -o) o="\$2"; shift;; esac; shift; done
+    printf 'family: mcxn947\\nsource: %s\\nsha: %s\\n' "\$b" "\$(sha256sum "\$b" | cut -c1-16)" > "\$o" ;;
+  export) while [ \$# -gt 0 ]; do case "\$1" in -c) c="\$2"; shift;; -o) o="\$2"; shift;; esac; shift; done
+    cp "\$(sed -n 's/^source: //p' "\$c")" "\$o" ;;
+  get-template) while [ \$# -gt 0 ]; do case "\$1" in -o) o="\$2"; shift;; esac; shift; done
+    printf 'family: mcxn947\\n' > "\$o" ;;
+  *) echo "pfr \$sub \$*" >> $T/writes; exit 1 ;;
+esac
+EOF
+cat > "$T/venv/bin/nxpfuses" <<EOF
+#!/usr/bin/env bash
+sub="\$1"; shift
+case "\$sub" in
+  fuses-script) while [ \$# -gt 0 ]; do case "\$1" in -c) c="\$2"; shift;; -o) o="\$2"; shift;; esac; shift; done
+    case "\$(sed -n 's/.*"LIFECYCLE\\[7:0\\]": //p' "\$c")" in
+      DEVELOP2) v=7 ;; IN_FIELD) v=F ;; *) exit 1 ;;
+    esac
+    printf '# Fuse LIFE_CYCLE, index 1 and value: 0x%s00000%s.\\nefuse-program-once 1 0x%s00000%s --no-verify\\n' "\$v" "\$v" "\$v" "\$v" > "\$o" ;;
+  *) echo "nxpfuses \$sub \$*" >> $T/writes; exit 1 ;;
+esac
+EOF
+cat > "$T/venv/bin/nxpdebugmbox" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *"tool get-uuid"*) echo "The device UUID is: 11111111222222223333333344444444" ;;
+  *) echo "nxpdebugmbox \$*" >> $T/writes; exit 1 ;;
+esac
+EOF
+chmod +x "$T/bin/stcli" "$T/venv/bin/blhost" "$T/venv/bin/pyocd" "$T/venv/bin/pfr" "$T/venv/bin/nxpfuses" "$T/venv/bin/nxpdebugmbox"
 
 pass=0; failn=0
 check() { # check <name> <expected-rc> <grep-in-output> -- cmd...
@@ -376,11 +414,24 @@ check "In Field refused until ROM authentication" 2 "needs the BootROM to authen
 nowrite
 
 echo "== MCXN947"
-MX=(env TARGET=mcxn947 MCXN947_SPSDK_VENV="$T/venv" WT_PROVISION_STATE="$T/st" PATH="$T/venv/bin:$PATH" "$P")
-mkdir -p "$R/build/mcxn947" "$R/tests/firmware/mcxn947-baremetal/build"
-echo mwb > "$R/build/mcxn947/flash_wolfboot.bin"
+MX=(env TARGET=mcxn947 MCXN947_SPSDK_VENV="$T/venv" MCXN947_PROBE_UID=PROBEA MCXN947_WOLFBOOT_DIR="$R/wolfBoot" WT_PROVISION_STATE="$T/st" PATH="$T/venv/bin:$PATH" "$P")
+MS="$T/st/mcxn947"
+mkdir -p "$R/tests/firmware/mcxn947-baremetal/build"
 echo mg0 > "$R/tests/firmware/mcxn947-baremetal/build/guest0.bin"
 echo mg1 > "$R/tests/firmware/mcxn947-baremetal/build/guest1.bin"
+# restore runs the hardware runner; here a stub that reports the probe it got.
+printf '#!/bin/sh\necho "stub runner $1 probe=${MCXN947_PROBE_UID:-none}"\n' > "$R/tests/target/run_mcxn947_hardware.sh"
+chmod +x "$R/tests/target/run_mcxn947_hardware.sh"
+mdig() {
+  local a f
+  for a in 0x00000000:wolfBoot/wolfboot.bin 0x00040000:build/wolftrust_v1_signed.bin \
+           0x00080000:tests/firmware/mcxn947-baremetal/build/guest0.bin \
+           0x00100000:tests/firmware/mcxn947-baremetal/build/guest1.bin; do
+    f="$R/${a#*:}"; printf '%s %s\n' "${a%%:*}" "$(wc -c < "$f" | tr -d ' ')"; cat "$f"
+  done | sha | cut -c1-64
+}
+# mrec <state> <fused> <completed> [probe]: a rehearsal record of this part
+mrec() { mkdir -p "$MS"; echo "state=$1 run=r id=11111111222222223333333344444444 image=$(mdig) fused=$2 fence=none probe=${4:-PROBEA} time=$3 cred=none completed=$3" > "$MS/rehearsal-$1"; }
 # regs <LC_STATE> <LC_STATE_DP> [DAUTHSTATUS]: the words the pyocd stub answers
 # (SYSCON life cycle, debug status, UUID, an intact handoff, the reset vector).
 regs() {
@@ -395,11 +446,9 @@ for m in 0 0x4 junk; do
   check "MCXN947_GUEST_MASK=$m refused" 2 "MCXN947_GUEST_MASK must be" -- env MCXN947_GUEST_MASK="$m" WT_LOCK_CONFIRM=1 "${MX[@]}" advance 0x07
 done
 check "no guest flash fence is reported" 1 "no guest flash fence" -- "${MX[@]}" verify-wrp
-check "lock refused: oem-secure-world" 2 "oem-secure-world (0x07) is not a lock target" -- "${MX[@]}" lock 0x07
 check "lock refused: oem-closed by name" 2 "oem-closed (0x0F) is not a lock target" -- "${MX[@]}" lock oem-closed
 check "lock refused: oem-locked" 2 "is not a lock target" -- "${MX[@]}" lock 0xCF
 check "lock refused: oem-field-return" 2 "is not a lock target" -- "${MX[@]}" lock 0x1F
-check "lock refused with the production opt-in too" 2 "is not a lock target" -- env WT_FIXTURE_BOUND=1 WT_LOCK_CONFIRM=1 WT_PRODUCTION_LOCK=1 "${MX[@]}" lock 0x07
 check "advance needs discover" 2 "run 'discover' first" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" advance 0x07
 check "status reads the life cycle and the UUID" 0 "device UUID      11111111222222223333333344444444" -- "${MX[@]}" status
 regs 0x03 0x07
@@ -413,7 +462,42 @@ check "discover stamps the life cycle and UUID" 0 "discovery stamped" -- "${MX[@
 check "advance past oem-secure-world needs a regress" 2 "prove 'regress' from oem-secure-world" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" advance 0x0F
 check "OTP writes refused" 2 "would program OTP" -- "${MX[@]}" burn
 check "perimeter commands refused" 2 "has no MCXN947 form" -- "${MX[@]}" set-wrp
-check "restore has no runner yet" 1 "no MCXN947 hardware runner" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" restore
+check "restore runs the hardware runner bound to the probe" 0 "stub runner positive probe=PROBEA" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" restore
+# Three probes and no id: every device command refuses loudly, never a
+# silent empty read.
+printf 'PROBEA\nPROBEB\nPROBEC\n' > "$T/probe"
+check "status with three probes and no id refuses" 2 "set MCXN947_PROBE_UID" -- env -u MCXN947_PROBE_UID TARGET=mcxn947 MCXN947_SPSDK_VENV="$T/venv" WT_PROVISION_STATE="$T/st" PATH="$T/venv/bin:$PATH" "$P" status
+check "status names the bound probe" 0 "debug probe      PROBEA" -- "${MX[@]}" status
+check "discover stamps the probe" 0 "probe PROBEA" -- "${MX[@]}" discover
+grep -q "PROBE=PROBEA" "$MS/discovery" && { pass=$((pass+1)); echo "ok   discovery records the probe"; } || { failn=$((failn+1)); echo "FAIL discovery lacks the probe"; }
+: > "$T/pyocd_calls"
+# The lock: previews the vendor write from the live pages and refuses it,
+# with every confirmation supplied, on the hard-wired port constant.
+check "lock needs a rehearsal" 2 "no rehearsal for oem-secure-world" -- "${MX[@]}" lock 0x07
+mrec 0x07 0x03 "$(now)"
+out="$("${MX[@]}" lock 0x07 2>&1)"; rc=$?
+[ $rc = 2 ] && grep -q "preview only" <<<"$out" && grep -q "efuse-program-once 1 0x7000007 --no-verify" <<<"$out" && grep -q "pfr write: nothing" <<<"$out" && grep -q "hard-wired off" <<<"$out" && grep -q "CMPA/CFPA read and parsed" <<<"$out" && { pass=$((pass+1)); echo "ok   lock previews the fuse script and the pages, then stops"; } || { failn=$((failn+1)); echo "FAIL lock preview rc=$rc"; echo "$out" | tail -8; }
+[ -s "$MS/lock-0x07/burn-0x07.bls" ] && [ -s "$MS/lock-0x07/cmpa.yaml" ] && [ -s "$MS/lock-0x07/pages.sha256" ] && { pass=$((pass+1)); echo "ok   the preview keeps the script, the parsed pages and their digests"; } || { failn=$((failn+1)); echo "FAIL preview artifacts missing"; }
+if grep -q . "$T/pyocd_calls" && ! grep -v -- "-u PROBEA" "$T/pyocd_calls" | grep -q .; then pass=$((pass+1)); echo "ok   every pyocd call of the preview carried the probe id"; else failn=$((failn+1)); echo "FAIL a pyocd call ran without -u PROBEA: $(grep -v -- '-u PROBEA' "$T/pyocd_calls" | head -2)"; fi
+mrec 0x07 0x03 "$(now)" PROBEB
+check "a rehearsal on another probe is refused" 2 "no rehearsal for oem-secure-world" -- "${MX[@]}" lock 0x07
+mrec 0x07 0x03 "$(now)"
+check "lock refused with the production opt-in but no terminal" 2 "needs an interactive terminal" -- env WT_FIXTURE_BOUND=1 WT_LOCK_CONFIRM=1 WT_PRODUCTION_LOCK=1 "${MX[@]}" lock 0x07
+if [ "$have_expect" = 1 ]; then
+MXX="env TARGET=mcxn947 MCXN947_SPSDK_VENV=$T/venv MCXN947_PROBE_UID=PROBEA MCXN947_WOLFBOOT_DIR=$R/wolfBoot WT_PROVISION_STATE=$T/st PATH=$T/venv/bin:$PATH WT_LOCK_CONFIRM=1 WT_PRODUCTION_LOCK=1 $P"
+out="$(expect -c "set timeout 300; spawn $MXX lock 0x07; expect \"to continue: \"; send \"I ACCEPT 0x07\r\"; expect eof; catch close; catch wait r; exit [lindex \$r 3]")"
+rc=$?; [ $rc = 2 ] && grep -q "hard-wired off in this port (MCXN947_LOCK_WRITE_ENABLED=0)" <<<"$out" && [ -e "$MS/rehearsal-0x07" ] && { pass=$((pass+1)); echo "ok   the exact phrase with every confirmation is still refused at the write"; } || { failn=$((failn+1)); echo "FAIL typed acceptance rc=$rc"; echo "$out" | tail -5; }
+else
+  echo "skip typed lock refusal (no expect)"
+fi
+nowrite
+check "verify-pages: unchanged since the preview" 0 "cfpa-pong unchanged since the preview" -- "${MX[@]}" verify-pages
+# From a part fused one step further, the closed states are still no lock
+# target: the ladder stops them before any preview.
+regs 0x07 0x07; mrec 0x0F 0x07 "$(now)"
+check "lock refused: oem-closed from oem-secure-world" 2 "oem-closed (0x0F) is not a lock target" -- "${MX[@]}" lock 0x0F
+regs 0x0F 0x0F; mrec 0xCF 0x0F "$(now)"
+check "lock refused: oem-locked from oem-closed" 2 "oem-locked (0xCF) is not a lock target" -- "${MX[@]}" lock 0xCF
 nowrite
 rm -f "$T/mcxn_regs"
 echo "provisioning gates: $pass passed, $failn failed"

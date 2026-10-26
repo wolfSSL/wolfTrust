@@ -19,8 +19,10 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 # MCXN947 (FRDM-MCXN947) port for provisioning_ctrl.sh: the OTP life cycle
-# the ROM reflects into SYSCON, rehearsed in the boot handoff record; no
-# permanent write is implemented. Sourced, never run. See docs/MCXN947-Guide.md.
+# the ROM reflects into SYSCON, rehearsed in the boot handoff record; the
+# lock is previewed from the vendor tools (SPSDK pfr and nxpfuses) and
+# refused, hard-wired off in this phase. Sourced, never run. See
+# docs/MCXN947-Guide.md.
 # shellcheck disable=SC2034,SC2154  # PORT_* are read, and $cur/$PENDING set, by the main script
 
 # A port file only works inside provisioning_ctrl.sh, which holds the gates.
@@ -31,7 +33,7 @@ fi
 
 PORT_NAME="MCXN947"
 target_dir="$here/.."
-pyocd_target="${MCXN947_TARGET:-mcxn947}"
+pyocd_target="${MCXN947_TARGET:-mcxn947vdf}"
 spsdk_venv="${MCXN947_SPSDK_VENV:-$HOME/spsdk-venv}"
 # Set here, not in a helper: the controller runs many port calls in subshells.
 [ ! -d "$spsdk_venv/bin" ] || PATH="$spsdk_venv/bin:$PATH"
@@ -48,10 +50,18 @@ case "$guest_mask" in
   *) refuse "MCXN947_GUEST_MASK must be 0x1, 0x2, or 0x3 (both guests), not '$guest_mask'." ;;
 esac
 elf="$repo/build/wolftrust.elf"
+wolfboot_dir="${MCXN947_WOLFBOOT_DIR:-$HOME/.cache/wolftrust/wolfboot-mcxn947}"
+# The blhost connection of the part in ISP mode, named only in the preview.
+isp="${MCXN947_ISP:-<MCXN947_ISP>}"
+# The life cycle write stays hard-wired off in this phase: the lock previews
+# the exact vendor write and refuses it whatever the caller supplies.
+MCXN947_LOCK_WRITE_ENABLED=0
 
 # SYSCON life cycle state the ROM reflects from OTP (read-only), its
 # duplicate, the debug authentication status, the device UUID (IPC1), the
-# BOOT partition's reset vector, and the handoff record.
+# BOOT partition's reset vector, the handoff record, and the PFR pages
+# (SPSDK device database: CMPA 0x01004000, CFPA 0x01000000, 512 bytes; the
+# CFPA ping and pong copies follow it).
 LC_STATE=0x50000980
 LC_STATE_DP=0x50000984
 DAUTHSTATUS=0xE000EFB8
@@ -59,11 +69,19 @@ UUID_BASE=0x01100000
 WOLFTRUST_RESET_VECTOR=0x10040404
 HANDOFF=0x30030000
 LC_OEM_OPEN=0x03
+CMPA_ADDR=0x01004000
+CFPA_SCRATCH_ADDR=0x01000000
+CFPA_PING_ADDR=0x01002000
+CFPA_PONG_ADDR=0x01003000
+PFR_PAGE_SIZE=512
+# The OTP fuse SPSDK's fuse map names LIFE_CYCLE (index 1): LIFECYCLE[7:0]
+# and its duplicate LIFECYCLE_DP[7:0] carry the same code the ROM reflects.
+FUSE_LIFE_CYCLE=1
 
 port_ladder() {
   cat <<'EOF'
 0x03 oem-open         no  no  permanent -
-0x07 oem-secure-world yes no  permanent 0x03
+0x07 oem-secure-world yes yes permanent 0x03
 0x0F oem-closed       yes no  permanent 0x07
 0xCF oem-locked       yes no  permanent 0x0F
 0x1F oem-field-return yes no  permanent 0x0F
@@ -72,10 +90,18 @@ EOF
 port_usage_extra() {
   cat <<'EOF'
   verify-wrp          report the guest flash fence (none on this port yet)
+  verify-pages        re-read the CMPA and CFPA pages and compare them with the last lock preview
 EOF
 }
 
 lc_hex() { printf '0x%02X' $(( $1 & 0xFF )); }
+# SPSDK's fuse map name for a life cycle code (nxpfuses LIFECYCLE[7:0]).
+fuse_lc_name() {
+  case "$1" in
+    0x03) echo DEVELOP ;; 0x07) echo DEVELOP2 ;; 0x0F) echo IN_FIELD ;;
+    0xCF) echo IN_FIELD_LOCKED ;; 0x1F) echo FIELD_RETURN_OEM ;;
+  esac
+}
 ensure_pyocd() {
   if ! command -v pyocd >/dev/null 2>&1; then
     [ -x "$spsdk_venv/bin/pyocd" ] || fail "tools" "pyocd not found (set MCXN947_SPSDK_VENV)"
@@ -83,13 +109,46 @@ ensure_pyocd() {
     export PATH
   fi
 }
+ensure_spsdk() {
+  ensure_pyocd
+  command -v pfr >/dev/null 2>&1 && command -v nxpfuses >/dev/null 2>&1 ||
+    fail "tools" "SPSDK pfr and nxpfuses not found (set MCXN947_SPSDK_VENV)"
+}
+# The probe this host names, else the one attached debug probe; the FRDM
+# board's MCU-Link is soldered on. Resolved once, outside any subshell, so a
+# missing id refuses loudly instead of leaving a read empty.
+probe_uid() {
+  local ids
+  if [ -n "${MCXN947_PROBE_UID:-}" ]; then echo "$MCXN947_PROBE_UID"; return 0; fi
+  ids="$(timeout 30 pyocd list 2>/dev/null | awk '$1 ~ /^[0-9]+$/ { print $(NF-1) }')"
+  [ "$(printf '%s\n' "$ids" | grep -c .)" = "1" ] && echo "$ids"
+}
+ensure_probe() {
+  ensure_pyocd
+  [ -n "${PROBE:-}" ] && return 0
+  PROBE="$(probe_uid)" ||
+    refuse "this host has more than one debug probe: set MCXN947_PROBE_UID to the FRDM-MCXN947 MCU-Link's unique id (pyocd list)."
+}
+# pyocd bound to that probe: <timeout seconds> <pyocd args...>.
+pyocd_probe() {
+  local secs="$1"
+  shift
+  [ -n "${PROBE:-}" ] || refuse "no debug probe bound (ensure_probe was not called)."
+  timeout "$secs" pyocd "$@" -u "$PROBE"
+}
 # Words over SWD with the generic attach, which never resets the chip.
 read_words() {
   local -a cmds=()
   local a
   for a in "$@"; do cmds+=(-c "read32 $a"); done
-  timeout 60 pyocd cmd -t cortex_m "${cmds[@]}" 2>&1 | awk '/^[0-9a-f]+:/ { print $2 }'
+  pyocd_probe 60 cmd -t cortex_m "${cmds[@]}" 2>&1 | awk '/^[0-9a-f]+:/ { print $2 }'
 }
+# One PFR page (512 bytes) over SWD into a file; the IFR is memory mapped.
+read_page() {
+  pyocd_probe 60 cmd -t cortex_m -c "savemem $1 $PFR_PAGE_SIZE $2" >/dev/null 2>&1 &&
+    [ "$(wc -c < "$2" | tr -d ' ')" = "$PFR_PAGE_SIZE" ]
+}
+page_digest() { sha256 < "$1" | cut -c1-64; }
 psa_name() {
   case "$1" in
     00001000) echo "ASSEMBLY_AND_TEST" ;; 00002000) echo "PSA_ROT_PROVISIONING" ;;
@@ -134,10 +193,11 @@ handoff_lifecycle() {
   read_words "$sym"
 }
 # The four images the chain flashes, as "address file" lines (physical
-# offsets; wolfBoot at 0, the BOOT partition and both guest windows).
+# offsets; wolfBoot at 0, the BOOT partition and both guest windows), the
+# ones run_mcxn947_hardware.sh builds and flashes.
 flashed_images() {
   printf '%s %s\n' \
-    0x00000000 "${MCXN947_WORK:-$repo/build/mcxn947}/flash_wolfboot.bin" \
+    0x00000000 "$wolfboot_dir/wolfboot.bin" \
     0x00040000 "$repo/build/wolftrust_v1_signed.bin" \
     0x00080000 "$repo/tests/firmware/mcxn947-baremetal/build/guest0.bin" \
     0x00100000 "$repo/tests/firmware/mcxn947-baremetal/build/guest1.bin"
@@ -146,7 +206,7 @@ port_image_digest() { framed_digest; }
 images_on_device() {
   local a f
   while read -r a f; do
-    timeout 120 pyocd cmd -t cortex_m \
+    pyocd_probe 120 cmd -t cortex_m \
       -c "savemem $a $(wc -c < "$f" | tr -d ' ') $state_dir/readback.bin" \
       >/dev/null 2>&1 && cmp -s "$state_dir/readback.bin" "$f" || return 1
   done < <(flashed_images)
@@ -158,12 +218,6 @@ chip_uuid() {
   [ ${#w} -eq 32 ] && [ "$w" != "00000000000000000000000000000000" ] &&
     [ "$w" != "ffffffffffffffffffffffffffffffff" ] && echo "$w"
 }
-# The one attached debug probe; the FRDM board's MCU-Link is soldered on.
-probe_uid() {
-  local ids
-  ids="$(timeout 30 pyocd list 2>/dev/null | awk '$1 ~ /^[0-9]+$/ { print $(NF-1) }')"
-  [ "$(printf '%s\n' "$ids" | grep -c .)" = "1" ] && echo "$ids"
-}
 # The MCXN947 has no guest flash fence yet: the array is written only through
 # the ROM API from the Secure side, and no hardware write fence is claimed.
 fence_line() {
@@ -173,12 +227,15 @@ fence_line() {
 
 port_status() {
   local lc lcd dauth hl vm rf uuid
-  ensure_pyocd
+  ensure_probe
   read -r lc lcd dauth < <(read_words "$LC_STATE" "$LC_STATE_DP" "$DAUTHSTATUS" | tr '\n' ' '; echo)
+  [ -n "${lc:-}" ] && [ -n "${lcd:-}" ] || fail "status" "cannot read the life cycle over SWD through probe $PROBE"
+  echo "debug probe      $PROBE"
   echo "OTP life cycle   LC_STATE=0x${lc: -2} ($(state_name "$(lc_hex "0x$lc")" || true))  LC_STATE_DP=0x${lcd: -2}"
   echo "DAUTHSTATUS      0x$dauth"
   echo "device UUID      $(chip_uuid || echo unreadable)"
   echo "guest fence      $(fence_line || true)"
+  echo "lock write       hard-wired off (MCXN947_LOCK_WRITE_ENABLED=$MCXN947_LOCK_WRITE_ENABLED): lock previews only"
   if hl="$(handoff_lifecycle)"; then echo "wolfTrust saw    0x$hl ($(psa_name "$hl"))"; fi
   if [ -s "$elf" ]; then
     read -r vm rf < <(read_words "$(elf_sym g_wt_launch_verified_mask)" \
@@ -188,11 +245,11 @@ port_status() {
 }
 port_discover() {
   local lc lcd dauth hl uuid
-  ensure_pyocd
+  ensure_probe
   mkdir -p "$state_dir"
   rm -f "$state_dir/discovery" "$state_dir/regress-ok"
   read -r lc lcd dauth < <(read_words "$LC_STATE" "$LC_STATE_DP" "$DAUTHSTATUS" | tr '\n' ' '; echo)
-  [ -n "${lc:-}" ] && [ -n "${lcd:-}" ] || fail "discover" "cannot read the life cycle over SWD"
+  [ -n "${lc:-}" ] && [ -n "${lcd:-}" ] || fail "discover" "cannot read the life cycle over SWD through probe $PROBE"
   [ "$(lc_hex "0x$lc")" = "$(lc_hex "0x$lcd")" ] || fail "discover" "life cycle copies disagree (LC 0x$lc, DP 0x$lcd)"
   [ $((0x$lc & 0xFFFFFF00)) -eq 0 ] && [ $((0x$lcd & 0xFFFFFF00)) -eq 0 ] ||
     fail "discover" "life cycle words 0x$lc/0x$lcd carry bits above the state byte"
@@ -200,16 +257,19 @@ port_discover() {
     0x03|0x07|0x0F) ;;
     *) fail "discover" "life cycle $(lc_hex "0x$lc") has no further rehearsal step" ;;
   esac
-  pass "life cycle is $(label "$(lc_hex "0x$lc")") and its duplicate agrees"
+  pass "life cycle is $(label "$(lc_hex "0x$lc")") and its duplicate agrees (probe $PROBE)"
   uuid="$(chip_uuid)" || fail "discover" "cannot read the device UUID at $UUID_BASE"
   pass "device UUID $uuid"
   hl="$(handoff_lifecycle)" || fail "discover" "no readable boot handoff: boot the wolfTrust chain first"
   pass "the boot handoff life cycle is readable (0x$hl, $(psa_name "$hl"))"
-  printf 'LC=0x%s DP=0x%s DAUTH=0x%s UUID=%s\n' "$lc" "$lcd" "$dauth" "$uuid" > "$state_dir/discovery"
+  printf 'LC=0x%s DP=0x%s DAUTH=0x%s UUID=%s PROBE=%s\n' "$lc" "$lcd" "$dauth" "$uuid" "$PROBE" > "$state_dir/discovery"
   echo "PASS: discovery stamped ($state_dir/discovery)"
 }
+# The production images, through the hardware runner bound to this probe.
 port_restore() {
-  fail "restore" "no MCXN947 hardware runner yet: flash wolfBoot, the signed wolfTrust image and both guests by hand (see the MCXN947 Guide), then run 'discover'"
+  ensure_probe
+  MCXN947_PROBE_UID="$PROBE" "$target_dir/run_mcxn947_hardware.sh" positive ||
+    fail "restore" "the hardware runner did not pass; see its output"
 }
 port_extra() {
   local line
@@ -217,6 +277,9 @@ port_extra() {
     verify-wrp)
       line="$(fence_line)" || fail "verify-wrp" "$line"
       pass "guest fence $line" ;;
+    verify-pages)
+      ensure_probe
+      verify_pages ;;
     provision-da|burn)
       refuse "'$1' would program OTP: this port rehearses life cycles only and writes none of them; see the MCXN947 Guide." ;;
     set-perimeter|set-wrp|clear-wrp)
@@ -235,15 +298,15 @@ port_advance_check() {
 # the target state's, and resume. The fuses and SYSCON are untouched.
 port_advance() {
   local entry vm rf psa
-  ensure_pyocd
+  ensure_probe
   vm="$(elf_sym g_wt_launch_verified_mask)"; rf="$(elf_sym g_wt_launch_refused_mask)"
   [ -n "$vm" ] && [ -n "$rf" ] || fail "advance" "launch masks not found in $elf"
   entry="$(read_words "$WOLFTRUST_RESET_VECTOR")"
   [ -n "$entry" ] && [ "$entry" != "00000000" ] && [ "$entry" != "ffffffff" ] ||
     fail "advance" "no wolfTrust reset vector at $WOLFTRUST_RESET_VECTOR (flash the chain first)"
   psa="$(mock_psa "$1")"
-  echo "ADVANCING the boot handoff life cycle to $psa for $1 ($(state_name "$1")); regress or any reset undoes it"
-  "$spsdk_py" - "0x$entry" "$psa" "$HANDOFF" "$pyocd_target" "$vm" "$rf" <<'PYEOF'
+  echo "ADVANCING the boot handoff life cycle to $psa for $1 ($(state_name "$1")) through probe $PROBE; regress or any reset undoes it"
+  "$spsdk_py" - "0x$entry" "$psa" "$HANDOFF" "$pyocd_target" "$vm" "$rf" "$PROBE" <<'PYEOF'
 import sys
 import time
 from pyocd.core.helpers import ConnectHelper
@@ -252,6 +315,7 @@ from pyocd.core.target import Target
 HANDOFF_MAGIC = 0x5742484F
 entry, psa, handoff = (int(a, 0) for a in sys.argv[1:4])
 with ConnectHelper.session_with_chosen_probe(
+        unique_id=sys.argv[7],
         options={"target_override": sys.argv[4], "resume_on_disconnect": True,
                  "reset_type": "hw"}) as s:
     t = s.target
@@ -283,9 +347,10 @@ PYEOF
   sleep 3
 }
 # The rehearsal evidence: the life cycle wolfTrust saw, every guest launched
-# verified, the images read back, and the device UUID.
+# verified, the images read back, the device UUID, and the probe.
 port_booted() {
   local hl want vm rf digest uuid
+  ensure_probe
   # advance cleared the launch masks, so both are this boot's.
   hl="$(handoff_lifecycle)" || { echo "no boot handoff life cycle readable after the advance"; return 1; }
   echo "wolfTrust saw 0x$hl ($(psa_name "$hl"))"
@@ -312,12 +377,12 @@ port_booted() {
   images_on_device || { echo "the images on the part differ from the host build: flash the chain again"; return 1; }
   pass "the images on the part match the host build (${digest:0:16})"
   uuid="$(chip_uuid)" || { echo "cannot read the device UUID"; return 1; }
-  EVIDENCE="id=$uuid image=$digest fused=$(fused_lc) fence=none"
+  EVIDENCE="id=$uuid image=$digest fused=$(fused_lc) fence=none probe=$PROBE"
 }
 port_regress() {
   local fused lc lcd hl
-  ensure_pyocd
-  timeout 60 pyocd reset -t "$pyocd_target" -m hw >/dev/null 2>&1 ||
+  ensure_probe
+  pyocd_probe 60 reset -t "$pyocd_target" -m hw >/dev/null 2>&1 ||
     fail "regress" "hardware reset through pyocd failed"
   sleep 3
   fused="$(fused_lc || echo "$LC_OEM_OPEN")"
@@ -340,7 +405,7 @@ port_regress() {
 port_cred_fp() { echo none; }
 port_lock_current() {
   local lc lcd
-  ensure_pyocd
+  ensure_probe
   read -r lc lcd < <(read_words "$LC_STATE" "$LC_STATE_DP" | tr '\n' ' '; echo)
   [ -n "${lc:-}" ] && [ -n "${lcd:-}" ] || refuse "cannot read the life cycle over SWD."
   [ "$(lc_hex "0x$lc")" = "$(lc_hex "0x$lcd")" ] || refuse "the life cycle copies disagree (LC 0x$lc, DP 0x$lcd)."
@@ -350,17 +415,82 @@ port_lock_identity() { chip_uuid || true; }
 port_rehearsal_for() { echo "$1"; }
 port_record_ok() {
   local rfused
+  ensure_probe
   rfused="$(field fused "$1")"
   [ -n "$rfused" ] && [ $((rfused & ~cur & 0xFF)) -eq 0 ] &&
     [ "$(field fence "$1")" = "none" ] &&
+    [ "$(field probe "$1")" = "$PROBE" ] &&
     [ "$(chip_uuid || true)" = "$(field id "$1")" ]
 }
-# No life cycle write is implemented for this part: the ladder marks every
-# state unlockable, and these refuse again should the ladder ever change.
-port_ready() {
-  refuse "$(label "$1") cannot be locked by this port: the MCXN947 life cycle write (ROM ISP, OTP) is not validated here, so only rehearsals run; see the MCXN947 Guide."
+
+# --- The lock preview: the live pages, parsed; the state's fuse script and
+#     CMPA page from the vendor tools; the diff. Nothing here writes. ---
+preview_dir() { echo "$state_dir/lock-$1"; }
+# Read the four PFR pages into $1/, parse each, and digest them.
+read_pages() {
+  local d="$1" n a
+  mkdir -p "$d"
+  for n in cmpa:$CMPA_ADDR cfpa-scratch:$CFPA_SCRATCH_ADDR cfpa-ping:$CFPA_PING_ADDR cfpa-pong:$CFPA_PONG_ADDR; do
+    a="${n##*:}"; n="${n%%:*}"
+    read_page "$a" "$d/$n.bin" || return 1
+    pfr parse -f mcxn947 -t "${n%%-*}" -b "$d/$n.bin" -o "$d/$n.yaml" >/dev/null 2>&1 || return 1
+    printf '%s %s\n' "$(page_digest "$d/$n.bin")" "$n.bin"
+  done
 }
-port_lock_plan() { refuse "no MCXN947 life cycle write is implemented."; }
+# The state's exact OTP write from SPSDK's fuse map, and its CMPA page from
+# the live configuration (the life cycle lives in OTP, so the page is kept).
+generate_lock() {
+  local d="$1" state="$2" name
+  name="$(fuse_lc_name "$state")"
+  [ -n "$name" ] || return 1
+  printf 'family: mcxn947\nrevision: latest\nregisters:\n  LIFE_CYCLE:\n    "LIFECYCLE[7:0]": %s\n    "LIFECYCLE_DP[7:0]": %s\n' \
+    "$name" "$name" > "$d/fuses-$state.yaml"
+  nxpfuses fuses-script -c "$d/fuses-$state.yaml" -o "$d/burn-$state.bls" >/dev/null 2>&1 || return 1
+  grep -q "^efuse-program-once $FUSE_LIFE_CYCLE " "$d/burn-$state.bls" || return 1
+  pfr export -c "$d/cmpa.yaml" -o "$d/cmpa-$state.bin" >/dev/null 2>&1 || return 1
+  pfr parse -f mcxn947 -t cmpa -b "$d/cmpa-$state.bin" -o "$d/cmpa-$state.yaml" >/dev/null 2>&1 || return 1
+  { diff "$d/cmpa.yaml" "$d/cmpa-$state.yaml" | grep '^[<>]' | grep -v '^. *#' || true; } > "$d/cmpa-$state.diff"
+}
+port_ready() {
+  local d digests
+  ensure_spsdk
+  ensure_probe
+  case "$1" in
+    0x0F|0xCF|0x1F)
+      refuse "$(label "$1") needs the BootROM to authenticate wolfBoot (a signed image under the fused root key table hash, SEC_BOOT_EN in the CMPA), which this port does not build yet; see the MCXN947 Guide." ;;
+  esac
+  d="$(preview_dir "$1")"
+  digests="$(read_pages "$d")" || refuse "cannot read and parse the CMPA and CFPA pages over SWD (probe $PROBE)."
+  printf '%s\n' "$digests" > "$d/pages.sha256"
+  generate_lock "$d" "$1" || refuse "SPSDK could not generate the $(label "$1") fuse script and CMPA page."
+  CHECKED="$CHECKED, same debug probe $PROBE, CMPA/CFPA read and parsed ($(awk 'NR == 1 { print substr($1, 1, 16) }' "$d/pages.sha256")), fuse script and page generated in $d"
+}
+port_lock_plan() {
+  local d
+  d="$(preview_dir "$1")"
+  echo "blhost $isp batch $d/burn-$1.bls"
+  grep -v '^#' "$d/burn-$1.bls" | grep -v '^$' | sed 's/^/    /'
+  echo "pfr write: nothing (the life cycle is OTP; the CMPA re-exported from the live page differs in $(cmp -l "$d/cmpa.bin" "$d/cmpa-$1.bin" 2>/dev/null | wc -l | tr -d ' ') bytes, field diff in $d/cmpa-$1.diff)"
+  echo "REFUSED at the write: MCXN947_LOCK_WRITE_ENABLED=$MCXN947_LOCK_WRITE_ENABLED, hard-wired off in this port"
+}
 port_consequence() { echo "the OTP life cycle cannot be unburned, and the part never returns to $(label "$cur")."; }
-port_lock_write() { refuse "no MCXN947 life cycle write is implemented."; }
+port_lock_write() {
+  [ "$MCXN947_LOCK_WRITE_ENABLED" = "1" ] ||
+    refuse "the MCXN947 life cycle write is hard-wired off in this port (MCXN947_LOCK_WRITE_ENABLED=0): the preview is the whole of what this phase does, and nothing was written."
+  refuse "no MCXN947 life cycle write path is implemented even when enabled."
+}
 port_lock_verify() { refuse "no MCXN947 life cycle write is implemented."; }
+# The pages as they are now against the last preview's digests.
+verify_pages() {
+  local d n now was
+  d="$(ls -d "$state_dir"/lock-0x* 2>/dev/null | tail -1)"
+  [ -n "$d" ] && [ -s "$d/pages.sha256" ] || fail "verify-pages" "no lock preview recorded yet: run 'lock <state>' first"
+  mkdir -p "$d/after"
+  for n in cmpa:$CMPA_ADDR cfpa-scratch:$CFPA_SCRATCH_ADDR cfpa-ping:$CFPA_PING_ADDR cfpa-pong:$CFPA_PONG_ADDR; do
+    read_page "${n##*:}" "$d/after/${n%%:*}.bin" || fail "verify-pages" "cannot read ${n%%:*} over SWD"
+    now="$(page_digest "$d/after/${n%%:*}.bin")"
+    was="$(awk -v f="${n%%:*}.bin" '$2 == f { print $1 }' "$d/pages.sha256")"
+    [ "$now" = "$was" ] || fail "verify-pages" "${n%%:*} changed since the preview (was $was, now $now)"
+    pass "${n%%:*} unchanged since the preview (${now:0:16})"
+  done
+}

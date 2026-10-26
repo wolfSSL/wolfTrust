@@ -124,11 +124,48 @@ static void test_debug_status(void)
               MCXN_LC_OEM_LOCKED, DAUTH_CLOSED), 0x3000u);
 }
 
+/* The OTP fuse map SPSDK carries for the part (fuses.json, register
+ * LIFE_CYCLE, index 1): LIFECYCLE[7:0] at bit 0 and its duplicate at bit 24
+ * use the same codes the ROM reflects into SYSCON, and every ladder step only
+ * sets fuse bits, which is what makes it one way. */
+#define FUSE_LC_DEVELOP           3u
+#define FUSE_LC_DEVELOP2          7u
+#define FUSE_LC_IN_FIELD          15u
+#define FUSE_LC_IN_FIELD_LOCKED   207u
+#define FUSE_LC_FIELD_RETURN_OEM  31u
+#define FUSE_LC_WORD(lc)          ((uint32_t)(lc) | ((uint32_t)(lc) << 24))
+
+static void test_fuse_map(void)
+{
+    static const uint32_t ladder[][2] = {
+        { MCXN_LC_OEM_OPEN, MCXN_LC_OEM_SECURE_WORLD_CLOSED },
+        { MCXN_LC_OEM_SECURE_WORLD_CLOSED, MCXN_LC_OEM_CLOSED },
+        { MCXN_LC_OEM_CLOSED, MCXN_LC_OEM_LOCKED },
+        { MCXN_LC_OEM_CLOSED, MCXN_LC_OEM_FIELD_RETURN },
+    };
+    size_t i;
+
+    EXPECT_LC(MCXN_LC_OEM_OPEN, FUSE_LC_DEVELOP);
+    EXPECT_LC(MCXN_LC_OEM_SECURE_WORLD_CLOSED, FUSE_LC_DEVELOP2);
+    EXPECT_LC(MCXN_LC_OEM_CLOSED, FUSE_LC_IN_FIELD);
+    EXPECT_LC(MCXN_LC_OEM_LOCKED, FUSE_LC_IN_FIELD_LOCKED);
+    EXPECT_LC(MCXN_LC_OEM_FIELD_RETURN, FUSE_LC_FIELD_RETURN_OEM);
+    EXPECT_LC(FUSE_LC_WORD(MCXN_LC_OEM_SECURE_WORLD_CLOSED), 0x07000007u);
+    EXPECT_LC(FUSE_LC_WORD(MCXN_LC_OEM_CLOSED), 0x0F00000Fu);
+    for (i = 0; i < sizeof(ladder) / sizeof(ladder[0]); i++) {
+        EXPECT_LC(FUSE_LC_WORD(ladder[i][0]) & ~FUSE_LC_WORD(ladder[i][1]),
+                  0u);
+        EXPECT_LC(mcxn_lc_to_psa_lifecycle(ladder[i][1], ladder[i][1]) != 0u,
+                  1u);
+    }
+}
+
 int main(void)
 {
     test_state_table();
     test_redundancy();
     test_debug_status();
+    test_fuse_map();
     printf("%s: %d checks, %d failures\n",
            (failures == 0) ? "PASS" : "FAIL", checks, failures);
     return (failures == 0) ? 0 : 1;

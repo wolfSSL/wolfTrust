@@ -111,8 +111,10 @@ static void wt_rom_flash_irq_restore(uint32_t primask)
 static void wt_rom_flash_cache_clear(void)
 {
 #if defined(__ARM_EABI__)
+    /* CLR_LPCAC is sticky: the cache stays cleared until it is written 0. */
     WT_SYSCON_LPCAC_CTRL |= WT_SYSCON_LPCAC_CTRL_CLR;
     __asm volatile("dsb sy\n\tisb" ::: "memory");
+    WT_SYSCON_LPCAC_CTRL &= ~WT_SYSCON_LPCAC_CTRL_CLR;
 #endif
 }
 

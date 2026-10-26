@@ -41,10 +41,10 @@
 #define WT_FLASH_TO_S_ALIAS(address) \
     ((address) - WT_FLASH_NS_BASE + WT_FLASH_S_ALIAS_BASE)
 #ifndef WT_GUEST0_FLASH_BASE
-#define WT_GUEST0_FLASH_BASE     0x08020000u
+#define WT_GUEST0_FLASH_BASE     0x080A0000u
 #endif
 #ifndef WT_GUEST1_FLASH_BASE
-#define WT_GUEST1_FLASH_BASE     0x08040000u
+#define WT_GUEST1_FLASH_BASE     0x080E0000u
 #endif
 #ifndef WT_GUEST_FLASH_SIZE
 #define WT_GUEST_FLASH_SIZE      0x00020000u
@@ -52,7 +52,7 @@
 /* Per-guest window sizes; guest0 can grow past guest1's without moving it
  * across the bank-1/bank-2 watermark boundary. */
 #ifndef WT_GUEST0_FLASH_SIZE
-#define WT_GUEST0_FLASH_SIZE     WT_GUEST_FLASH_SIZE
+#define WT_GUEST0_FLASH_SIZE     0x00040000u
 #endif
 #ifndef WT_GUEST1_FLASH_SIZE
 #define WT_GUEST1_FLASH_SIZE     WT_GUEST_FLASH_SIZE
@@ -184,8 +184,23 @@
  * so the unprivileged coroutine reaches only its own state. MUST match the
  * VNETDATA region in src/services/wolfhsm/runner/secure.ld and the
  * manifest-vnet.json domain resource. */
-#define WT_VNET_DATA_BASE        (WT_RAM_S_BASE + 0x00048000u)  /* 0x30070000 */
-#define WT_VNET_DATA_SIZE        0x00005000u                    /* 20 KiB */
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+#define WT_VNET_DATA_BASE        0x30065000u
+#define WT_VNET_DATA_SIZE        0x00010000u
+#else
+#define WT_VNET_DATA_BASE        (WT_RAM_S_BASE + 0x00048000u)
+#define WT_VNET_DATA_SIZE        0x00005000u
+#endif
+
+/* Interface state and stacks share the auxiliary window, with disjoint MPU grants. */
+#define WT_PKCS11_DATA_BASE      (WT_KEYSTORE_BASE - 0x00010000u)
+#define WT_PKCS11_DATA_SIZE      0x0000C000u
+#define WT_SP_PKCS11_STACK_BASE  (WT_PKCS11_DATA_BASE + WT_PKCS11_DATA_SIZE)
+#define WT_SP_PKCS11_STACK_SIZE  0x00004000u
+#define WT_TPM_DATA_BASE         WT_PKCS11_DATA_BASE
+#define WT_TPM_DATA_SIZE         0x0000C000u
+#define WT_SP_TPM_STACK_BASE     (WT_TPM_DATA_BASE + WT_TPM_DATA_SIZE)
+#define WT_SP_TPM_STACK_SIZE     0x00004000u
 
 /* wolfBoot update partition (WOLFBOOT_PARTITION_UPDATE_ADDRESS): the secure
  * flash window SERVICE_FWU stages a candidate image into (WT-FWU-0002). Secure

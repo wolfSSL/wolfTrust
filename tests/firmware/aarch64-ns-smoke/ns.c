@@ -47,6 +47,19 @@
 
 #include <stdint.h>
 
+#if defined(WT_NS_GUEST_TPM)
+#include "tpm_tests.h"
+#endif
+#if defined(WT_NS_GUEST_PKCS11)
+#include "pkcs11_tests.h"
+#if defined(WT_NS_PKCS11_HSM_RESTART_PROBE)
+#include "psa/client.h"
+#include "psa/error.h"
+#include "psa_manifest/sid.h"
+#include "wolftrust/services/hsm_relay.h"
+#endif
+#endif
+
 #define UART_DR         0x00u
 #define UART_FR         0x18u
 #define UART_FR_TXFF    (1u << 5)
@@ -99,6 +112,72 @@ static void put_dec(uint32_t value)
     } while (value != 0u && i > 0);
     put_str(&buf[i]);
 }
+
+#if defined(WT_NS_GUEST_TPM)
+void wt_tpm_puts(const char* text)
+{
+    put_str(text);
+}
+
+void wt_tpm_print_i32(int value)
+{
+    if (value < 0) {
+        put_char('-');
+        put_dec((uint32_t)(-(value + 1)) + 1u);
+    }
+    else {
+        put_dec((uint32_t)value);
+    }
+}
+
+void wt_tpm_wait(void)
+{
+    __asm__ volatile("yield");
+}
+
+int wt_ns_generate_seed(unsigned char* output, unsigned int size);
+
+int wolftrust_guest_rng_stub(unsigned char* output, unsigned int size)
+{
+    return wt_ns_generate_seed(output, size);
+}
+#endif
+
+#if defined(WT_NS_GUEST_PKCS11)
+void wt_pkcs11_puts(const char* text)
+{
+    put_str(text);
+}
+
+void wt_pkcs11_print_u32(unsigned int value)
+{
+    put_dec(value);
+}
+
+void wt_pkcs11_wait(void)
+{
+    __asm__ volatile("yield");
+}
+
+#if defined(WT_NS_PKCS11_HSM_RESTART_PROBE)
+static int guest_pkcs11_restart_hsm(void)
+{
+    psa_handle_t handle;
+    psa_status_t status;
+
+    handle = psa_connect(SERVICE_HSM_SID, 1U);
+    if (!PSA_HANDLE_IS_VALID(handle)) {
+        return -1;
+    }
+    status = psa_call(handle, WT_HSM_OP_TEST_RESTART, NULL, 0U, NULL, 0U);
+    psa_close(handle);
+    put_str("[NS] pkcs11 HSM restart status=0x");
+    put_hex((uint32_t)status);
+    put_str("\r\n");
+    return status == PSA_ERROR_COMMUNICATION_FAILURE ? 0 : -1;
+}
+#endif
+#endif
 
 /* One FF-A SMC to the SPMD at the NS physical instance: in0/in1 in x0/x1, the
  * reply x0-x3 written back to out[0..3]. */
@@ -2216,5 +2295,26 @@ void ns_main(void)
 
 #if defined(WT_NS_GUEST_CONF)
     guest_conformance();
+#endif
+
+#if defined(WT_NS_GUEST_TPM)
+    put_str(wt_tpm_run() == 0 ? "[NS] tpm suite complete\r\n" :
+                               "[NS] tpm suite FAILED\r\n");
+#endif
+
+#if defined(WT_NS_GUEST_PKCS11)
+#if defined(WT_NS_PKCS11_HSM_RESTART_PROBE)
+    if (wt_pkcs11_run() == 0 && guest_pkcs11_restart_hsm() == 0 &&
+            wt_pkcs11_run() == 0) {
+        put_str("[NS] pkcs11 recovered after HSM restart\r\n");
+        put_str("[NS] pkcs11 suite complete\r\n");
+    }
+    else {
+        put_str("[NS] pkcs11 suite FAILED\r\n");
+    }
+#else
+    put_str(wt_pkcs11_run() == 0 ? "[NS] pkcs11 suite complete\r\n" :
+                                  "[NS] pkcs11 suite FAILED\r\n");
+#endif
 #endif
 }

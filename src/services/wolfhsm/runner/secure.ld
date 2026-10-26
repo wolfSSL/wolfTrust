@@ -68,6 +68,12 @@ MEMORY {
    * RAM window, reserved so each Secure Partition runs on its own secure
    * stack the MPU can confine. Mirrors WT_SP_SECURE_RAM_* in memory_map.h. */
   SPSTACKS (rw): ORIGIN = 0x30096000, LENGTH = 40K
+  /* SERVICE_TPM mailbox band (CONFIG_TPM builds): the command/response mailbox
+   * the confined fwTPM-relay partition touches in-thread, carved from the
+   * otherwise-empty upper CONFDATA window (CONFIG_TPM, CONFIG_VNET, and
+   * WT_CONFORMANCE are mutually exclusive). Empty outside CONFIG_TPM builds.
+   * Mirrors WT_TPM_DATA_* in port/stm32h563/memory_map.h. */
+  TPMDATA (rw): ORIGIN = 0x30095000, LENGTH = 2K
 }
 
 _estack = ORIGIN(RAM) + LENGTH(RAM);
@@ -77,6 +83,14 @@ _wt_part_stacks_base = ORIGIN(FWUSTACK);
 _wt_part_stacks_limit = ORIGIN(VAULTSTACK) + LENGTH(VAULTSTACK);
 _wt_sp_stacks_base = ORIGIN(SPSTACKS);
 _wt_sp_stacks_limit = ORIGIN(SPSTACKS) + LENGTH(SPSTACKS);
+_wt_tpm_stack_base = ORIGIN(VNETDATA) +
+    ((SIZEOF(.tpm_data) + SIZEOF(.tpm_bss)) != 0 ? 48K : 0);
+_wt_tpm_stack_limit = ORIGIN(VNETDATA) +
+    ((SIZEOF(.tpm_data) + SIZEOF(.tpm_bss)) != 0 ? 64K : 0);
+_wt_pkcs11_stack_base = ORIGIN(VNETDATA) +
+    ((SIZEOF(.pkcs11_data) + SIZEOF(.pkcs11_bss)) != 0 ? 48K : 0);
+_wt_pkcs11_stack_limit = ORIGIN(VNETDATA) +
+    ((SIZEOF(.pkcs11_data) + SIZEOF(.pkcs11_bss)) != 0 ? 64K : 0);
 _sidata = LOADADDR(.data);
 
 SECTIONS {
@@ -121,6 +135,7 @@ SECTIONS {
      * tools/check_secure_layout.py fails the link if a setter of them is
      * referenced (wc_Sha256Drbg_Enable/Disable). */
     *(.data.always_prefetch* .bss.always_prefetch*)
+    *(.data.never_prefetch* .bss.never_prefetch*)
     *(.data.sha256DrbgDisabled* .bss.sha256DrbgDisabled*)
     *(.rodata*)
     *(.ARM.extab* .gnu.linkonce.armextab.*)
@@ -284,6 +299,56 @@ SECTIONS {
     _e_vnet = .;
   } > VNETDATA
 
+  /* SERVICE_PKCS11 copied request and response slot. CONFIG_PKCS11 and
+   * CONFIG_VNET are mutually exclusive, so the selected relay owns this
+   * entire auxiliary band. */
+  .pkcs11_data : {
+    . = ALIGN(32);
+    _s_pkcs11 = .;
+    *wt_sec_pkcs11*.o(.data .data.*)
+    *p11_sec_*.o(.data .data.*)
+    *p11_wc_*.o(.data .data.*)
+    *p11_wh_*.o(.data .data.*)
+    . = ALIGN(4);
+    _e_pkcs11_data = .;
+  } > VNETDATA AT > FLASH
+  _si_pkcs11 = LOADADDR(.pkcs11_data);
+
+  .pkcs11_bss (NOLOAD) : {
+    _s_pkcs11_bss = .;
+    *wt_sec_pkcs11*.o(.bss .bss.* COMMON)
+    *p11_sec_*.o(.bss .bss.* COMMON)
+    *p11_wc_*.o(.bss .bss.* COMMON)
+    *p11_wh_*.o(.bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_pkcs11 = .;
+  } > VNETDATA
+
+  /* SERVICE_TPM mailbox band: first-claim the fwTPM-relay partition's mailbox
+   * and wiring out of shared SPM .data/.bss so its MPU grant covers exactly its
+   * own state (isolation level 3). Empty outside CONFIG_TPM builds. */
+  .tpm_data : {
+    . = ALIGN(32);
+    _s_tpm = .;
+    *wt_sec_tpm*.o(.data .data.*)
+    *tpm_sec_*.o(.data .data.*)
+    *tpm_wc_*.o(.data .data.*)
+    *tpm_wh_*.o(.data .data.*)
+    . = ALIGN(4);
+    _e_tpm_data = .;
+  } > VNETDATA AT > FLASH
+  _si_tpm = LOADADDR(.tpm_data);
+
+  .tpm_bss (NOLOAD) : {
+    _s_tpm_bss = .;
+    *wt_sec_tpm*.o(.bss .bss.* COMMON)
+    *tpm_sec_*.o(.bss .bss.* COMMON)
+    *tpm_wc_*.o(.bss .bss.* COMMON)
+    *tpm_wh_*.o(.bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_tpm = .;
+  } > VNETDATA
+
   .data : {
     _sdata = .;
     *(.data*)
@@ -307,6 +372,8 @@ SECTIONS {
          "vault data band must sit directly above the vnet data band")
   ASSERT(_e_vnet <= (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
          "vnet data band overflow")
+  ASSERT(_e_pkcs11 <= (ORIGIN(VNETDATA) + 48K),
+         "pkcs11 data band overflow")
   ASSERT(ORIGIN(ATTESTDATA) == (ORIGIN(VAULTDATA) + LENGTH(VAULTDATA)),
          "attestation data band must sit directly above the vault data band")
   ASSERT(ORIGIN(HSMDATA) == (ORIGIN(ATTESTDATA) + LENGTH(ATTESTDATA)),
@@ -323,6 +390,12 @@ SECTIONS {
   _wt_band_hsm_limit = ORIGIN(HSMDATA) + LENGTH(HSMDATA);
   _wt_band_vnet_base = ORIGIN(VNETDATA);
   _wt_band_vnet_limit = ORIGIN(VNETDATA) + LENGTH(VNETDATA);
+  _wt_band_pkcs11_base = ORIGIN(VNETDATA);
+  _wt_band_pkcs11_limit = ORIGIN(VNETDATA) +
+    ((SIZEOF(.pkcs11_data) + SIZEOF(.pkcs11_bss)) != 0 ? 48K : 0);
+  _wt_band_tpm_base = ORIGIN(VNETDATA);
+  _wt_band_tpm_limit = ORIGIN(VNETDATA) +
+    ((SIZEOF(.tpm_data) + SIZEOF(.tpm_bss)) != 0 ? 48K : 0);
 
   ASSERT(_e_vault <= (ORIGIN(VAULTDATA) + LENGTH(VAULTDATA)),
          "vault data band overflow")

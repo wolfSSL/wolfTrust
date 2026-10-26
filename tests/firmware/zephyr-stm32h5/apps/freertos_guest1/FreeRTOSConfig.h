@@ -32,7 +32,7 @@
 
 /* Heap (heap_4.c). The wolfPSA + wolfCrypt cryptocb path allocates
  * key scratch buffers on the FreeRTOS heap, so it needs a few KiB. */
-#define configTOTAL_HEAP_SIZE                     ( (size_t) ( 16 * 1024 ) )
+#define configTOTAL_HEAP_SIZE                     ( (size_t) ( 28 * 1024 ) )
 #define configSUPPORT_DYNAMIC_ALLOCATION          1
 #define configSUPPORT_STATIC_ALLOCATION           0
 #define configMINIMAL_STACK_SIZE                  ( (uint16_t) 256 )

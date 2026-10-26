@@ -33,14 +33,26 @@ scenario list with --flat, so a scenario is registered in exactly one place.
 import argparse
 import json
 import os
+import re
 import sys
+from pathlib import Path
 
 ENGINES = ("native", "hsm")
 
 # Scenarios whose Secure-image probe or client wire lives only in the wolfHSM
 # engine: the native engine does not link it, so the behaviour under test does
 # not exist there.
+PKCS11_SCENARIOS = frozenset((
+    "pkcs11", "pkcs11core", "pkcs11objects", "pkcs11crypto",
+    "pkcs11negative", "pkcs11neg",
+))
 HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
+TPM_SCENARIOS = frozenset(("tpm", "tpmneg"))
+INTERFACE_SCENARIOS = TPM_SCENARIOS | PKCS11_SCENARIOS
+
+
+# Every application interface supports either selected crypto engine.
+NATIVE_ONLY = frozenset()
 
 # smoke: the per-PR set (one job per scenario and engine). groups: the full
 # tier, packed so each job builds the emulator and wolfBoot once.
@@ -50,7 +62,7 @@ PORTS = {
         "arm": "m33mu",
         "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15",
         "smoke": ("positive", "gtzcneg", "crossdomain", "bothpsa", "confboot",
-                  "devcrypto"),
+                  "devcrypto", "tpm", "tpmneg", "pkcs11", "pkcs11neg"),
         "groups": (
             ("positive", "Positive lifecycle"),
             ("bothpsa", "Both-OS PSA parity (Zephyr + FreeRTOS)"),
@@ -83,6 +95,11 @@ PORTS = {
             ("bootupdate", "Full boot-and-update swap gate"),
             ("vnet", "wolfIP virtual network (mediated ping)"),
             ("vnetneg", "Confined VNET isolation negatives"),
+            ("tpm", "Zephyr and FreeRTOS TPM 2.0 through the isolated fwTPM"),
+            ("tpmneg", "Confined TPM relay and fwTPM isolation negatives"),
+            ("pkcs11",
+             "Zephyr and FreeRTOS PKCS11 API through an isolated provider"),
+            ("pkcs11neg", "Confined PKCS11 relay and provider isolation negatives"),
             ("manifestneg", "Corrupted-manifest activation refused"),
             ("manifestneg2", "Level 2 manifest refused at boot"),
             ("manifestneg3", "Overlapping partition tables refused at boot"),
@@ -179,7 +196,8 @@ QEMU_A_SUITE = (
     "guest1", "smcfuzz", "secramneg", "periphneg", "periphspneg",
     "resetneg", "ffa-memneg", "hsmattackneg", "hsmpinneg", "attestneg",
     "vaultrecover", "vaultrecoversec", "confboot", "storage", "devstorage",
-    "devattest", "devattestqcbor", "devcrypto",
+    "devattest", "devattestqcbor", "devcrypto", "tpm", "tpmneg",
+    "pkcs11", "pkcs11neg",
 )
 QEMU_A_ACS = (
     "ffaacs-discovery", "ffaacs-direct", "ffaacs-memory", "ffaacs-notify",
@@ -190,8 +208,12 @@ QEMU_A_ACS = (
 # representative GICv3 virt cell (both engines) and the versal cell (native).
 # boot-smp2 and the ACS stay in the full tier.
 QEMU_A_SMOKE = ("smoke", "boot", "positive", "crossdomain", "ffa-direct",
-                "confboot", "devcrypto")
+                "confboot", "devcrypto", "tpm", "tpmneg", "pkcs11",
+                "pkcs11neg")
 QEMU_A_SMOKE_CELLS = {"virt-gicv3-a72": ENGINES, "versal-virt": ("native",)}
+QEMU_A_TPM = frozenset(("tpm", "tpmneg"))
+QEMU_A_PKCS11 = frozenset(("pkcs11", "pkcs11neg"))
+QEMU_A_INTERFACES = QEMU_A_TPM | QEMU_A_PKCS11
 
 
 def qemu_a_entry(cell, engine, kind, tier, scenarios):
@@ -209,17 +231,24 @@ def qemu_a_cell_suite(cell):
     return tuple(s for s in QEMU_A_SUITE if s not in exempt)
 
 
+def qemu_a_scenarios(cell, engine, scenarios):
+    """The direct interfaces run in their own visible QEMU PR matrix."""
+    return tuple(s for s in scenarios if s not in QEMU_A_INTERFACES)
+
+
 def qemu_a_full(cell):
     out = []
     for engine in ENGINES:
         out.append(qemu_a_entry(cell, engine, "suite", "full",
-                                qemu_a_cell_suite(cell)))
+                                qemu_a_scenarios(cell, engine,
+                                                 qemu_a_cell_suite(cell))))
         out.append(qemu_a_entry(cell, engine, "acs", "full", QEMU_A_ACS))
     return out
 
 
 def qemu_a_smoke(cell):
-    return [qemu_a_entry(cell, engine, "suite", "smoke", QEMU_A_SMOKE)
+    return [qemu_a_entry(cell, engine, "suite", "smoke",
+                         qemu_a_scenarios(cell, engine, QEMU_A_SMOKE))
             for engine in QEMU_A_SMOKE_CELLS.get(cell["name"], ())]
 
 
@@ -256,7 +285,12 @@ def group_name(port, scenario):
 
 
 def engines_for(scenarios, engine):
-    engines = ("hsm",) if all(s in HSM_ONLY for s in scenarios) else ENGINES
+    if all(s in HSM_ONLY for s in scenarios):
+        engines = ("hsm",)
+    elif all(s in NATIVE_ONLY for s in scenarios):
+        engines = ("native",)
+    else:
+        engines = ENGINES
     return [e for e in engines if engine is None or e == engine]
 
 
@@ -300,7 +334,11 @@ def ci_plan(event, labels, port_input):
                 continue
         else:
             full = True
-        out.extend(entries(port, "full" if full else "smoke", None))
+        planned = entries(port, "full" if full else "smoke", None)
+        if port == "stm32h563":
+            planned = [e for e in planned if not any(
+                s in INTERFACE_SCENARIOS for s in e["key"].split())]
+        out.extend(planned)
     return out
 
 
@@ -362,11 +400,74 @@ def qemu_a_l3_gaps():
     return gaps
 
 
+def interface_axes_error(workflow, job, axes, bindings):
+    """Fail closed if a profile/API/engine cell or its runtime binding is lost."""
+    match = re.search(r"^  " + re.escape(job) + r":\n(.*?)(?=^  [\w-]+:|\Z)",
+                      workflow, re.MULTILINE | re.DOTALL)
+    if match is None:
+        return "missing interface job " + job
+    body = match.group(1)
+    found = re.findall(r"^        (\w+): \[([^\]\n]*)\]$", body, re.MULTILINE)
+    actual = {name: tuple(v.strip() for v in values.split(","))
+              for name, values in found}
+    if actual != axes or len(found) != len(axes):
+        return "wrong interface axes for " + job
+    name = re.search(r"^    name: (.*)$", body, re.MULTILINE)
+    if name is None or any("matrix." + axis not in name.group(1) for axis in axes):
+        return "interface name omits a matrix axis for " + job
+    for variable, expression in bindings.items():
+        if not re.search(r"^      " + re.escape(variable) + ": " +
+                         re.escape(expression) + r"$", body, re.MULTILINE):
+            return "wrong interface binding for " + variable
+    if "WT_REQUIRE_SCENARIO_PASS: 1" not in body:
+        return "interface matrix does not require real runtime passes"
+    return None
+
+
+def interface_matrices_error(workflow, aarch_workflow):
+    shared = {"engine": ("native", "hsm"), "profile": ("default", "full")}
+    bindings = {"WT_ENGINE": "${{ matrix.engine }}",
+                "WT_CRYPTO_PROFILE": "${{ matrix.profile }}"}
+    for source, job, axes, extra in (
+        (workflow, "interfaces-m33mu",
+         dict(shared, api=("psa", "pkcs11", "tpm"), os=("zephyr", "freertos")),
+         {"WT_INTERFACE_OS": "${{ matrix.os }}"}),
+        (workflow, "interface-isolation-m33mu",
+         dict(shared, scenario=("tpmneg", "pkcs11neg")), {}),
+        (aarch_workflow, "interfaces-qemu-a",
+         dict(shared, scenario=("positive", "tpm", "tpmneg", "pkcs11", "pkcs11neg")), {}),
+    ):
+        error = interface_axes_error(source, job, axes, dict(bindings, **extra))
+        if error:
+            return error
+    if "${{ matrix.api == 'psa' && 'positive' || matrix.api }}" not in workflow:
+        return "wrong API scenario binding"
+    if "run_suite.sh m33mu ${{ matrix.scenario }}" not in workflow or \
+            "run_suite.sh qemu-a ${{ matrix.scenario }}" not in aarch_workflow:
+        return "wrong interface scenario binding"
+    return None
+
+
 def selftest():
     """The routing table above and the engine rule, run by the select job."""
     gaps = qemu_a_l3_gaps()
+    workflow = (Path(__file__).parents[3] / ".github" / "workflows" /
+                "m33mu.yml").read_text(encoding="utf-8")
+    aarch_workflow = (Path(__file__).parents[3] / ".github" / "workflows" /
+                      "aarch64-cross-compile.yml").read_text(encoding="utf-8")
     if gaps:
         return gaps[0]
+    pr_jobs = {e["job"] for e in ci_plan("pull_request", [], "")}
+    for scenario in sorted(INTERFACE_SCENARIOS):
+        if engines_for((scenario,), None) != list(ENGINES):
+            return "%s does not support both crypto engines" % scenario
+        for engine in ENGINES:
+            required_job = "stm32h563_%s_%s" % (scenario, engine)
+            if required_job in pr_jobs:
+                return "generated matrix duplicates explicit job %s" % required_job
+    error = interface_matrices_error(workflow, aarch_workflow)
+    if error:
+        return error
     for event, labels, port_input, expect in SELFTEST:
         got = " ".join(sorted(set(e["port"] + ":" + e["tier"] for e in
                                   ci_plan(event, labels.split(), port_input))))
@@ -380,12 +481,22 @@ def selftest():
         if got != expect:
             return "qemu_a_plan(%s, %r, %r) = %s, expected %s" % (
                 event, labels, cell_input, got, expect)
+    pr_aarch = qemu_a_plan("pull_request", [], "")
+    for entry_ in pr_aarch:
+        scenarios = set(entry_["scenarios"].split())
+        if scenarios & set(QEMU_A_INTERFACES):
+            return "bad AArch64 interface plan for %s" % entry_["job"]
+    if "inputs.cell == ''" not in aarch_workflow:
+        return "AArch64 interface matrix skips an input-less nightly dispatch"
     for port in sorted(PORTS):
         for tier in ("smoke", "full"):
             for e in entries(port, tier, None):
                 if e["engine"] == "native" and all(
                         s in HSM_ONLY for s in e["key"].split()):
                     return "native job for the hsm-only %s" % e["key"]
+                if e["engine"] == "hsm" and all(
+                        s in NATIVE_ONLY for s in e["key"].split()):
+                    return "hsm job for the native-only %s" % e["key"]
                 if e["engine"] not in ENGINES or e["image"] == "":
                     return "bad entry %r" % e
     return None

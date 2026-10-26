@@ -87,15 +87,20 @@ jobs:
         run: |
           ./test-app/emu-test-apps/test.sh
 
-  wolfboot-wolftrust-m33mu:
-    name: stm32h563_${{ matrix.guest }}_lifecycle_${{ matrix.engine }}
+  interfaces-m33mu:
+    name: stm32h563_${{ matrix.api }}_${{ matrix.os }}_${{ matrix.engine }}_${{ matrix.profile }}
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      inputs.port == 'all' || inputs.port == 'stm32h563'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        guest: [zephyr, freertos]
+        api: [psa, pkcs11, tpm]
+        os: [zephyr, freertos]
         engine: [native, hsm]
-    timeout-minutes: 45
+        profile: [default, full]
+    timeout-minutes: 60
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     env:
@@ -103,6 +108,9 @@ jobs:
       # upstreamed; upstream master does not yet ship this wolfTrust config.
       WOLFBOOT_REF: d85fa9dbdf6c36f47b7e96eba5c9df750ad3c963
       WT_ENGINE: ${{ matrix.engine }}
+      WT_CRYPTO_PROFILE: ${{ matrix.profile }}
+      WT_INTERFACE_OS: ${{ matrix.os }}
+      WT_REQUIRE_SCENARIO_PASS: 1
       CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
       ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
       # The wolfBoot configuration reserves the wolfTrust partition at the
@@ -120,7 +128,7 @@ jobs:
       WT_ZEPHYR_DTC_OVERLAY_FILE: boards/wolfboot-stm32h563.overlay
       WT_MAX_GUESTS: 2
       ZEPHYR_BOARD: nucleo_h563zi/stm32h563xx/ns
-      WT_TEST_GUEST: ${{ matrix.guest }}
+      WT_TEST_GUEST: ${{ matrix.os }}
       # Upstream master with danielinux/m33mu PR #21 (deterministic USART IRQ timing).
       M33MU_REF: f3c03675260264cdec815adebe4b020bb6fe57b8
     steps:
@@ -132,6 +140,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
 
       - name: Build pinned upstream M33MU
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         run: |
           git clone --no-checkout https://github.com/danielinux/m33mu.git m33mu
           git -C m33mu fetch --depth 1 origin "$M33MU_REF"
@@ -141,13 +150,16 @@ jobs:
           echo "M33MU=$GITHUB_WORKSPACE/m33mu/build/m33mu" >> "$GITHUB_ENV"
 
       - name: Initialize wolfTrust dependencies
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         run: git submodule update --init --single-branch
 
       - name: Prepare Zephyr and FreeRTOS workspaces
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         working-directory: tests/firmware/zephyr-stm32h5
         run: make clone
 
       - name: Fetch secure-app wolfBoot
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         run: |
           git clone --no-checkout https://github.com/aidangarske/wolfBoot.git wolfBoot
           git -C wolfBoot fetch --depth 1 origin "$WOLFBOOT_REF"
@@ -155,6 +167,7 @@ jobs:
           git -C wolfBoot submodule update --init --single-branch
 
       - name: Build wolfBoot secure first stage
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         working-directory: wolfBoot
         run: |
           cp config/examples/stm32h5-tz-wolftrust.config .config
@@ -167,10 +180,12 @@ jobs:
           make -j1 wolfboot.bin wolfboot_signing_private_key.der
 
       - name: Build relocated wolfTrust
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         run: |
           make build/wolftrust.bin build/secure_cmse_implib.o
 
       - name: Build Zephyr and FreeRTOS PSA guests
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         run: |
           make -C tests/firmware/zephyr-stm32h5 \
             WT_REUSE_SECURE_BUILD=1 \
@@ -180,12 +195,14 @@ jobs:
             build-guest0-psa build-freertos-guest1
 
       - name: Pin guest measurements into the secure image
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         run: |
           python3 tools/measure/patch_guest_digests.py build/wolftrust.bin \
             "0:1:tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin" \
             "1:1:tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
 
       - name: Sign wolfTrust secure runtime
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         working-directory: wolfBoot
         run: |
           IMAGE_HEADER_SIZE=1024 \
@@ -197,12 +214,14 @@ jobs:
           test -s "$GITHUB_WORKSPACE/build/wolftrust_v1_signed.bin"
 
       - name: Read the wolfBoot authenticated measurement
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         run: |
           measurement=$(python3 tests/scripts/read_wolfboot_measurement.py \
             build/wolftrust_v1_signed.bin)
           echo "WT_EXPECTED_MEASUREMENT_HEX=$measurement" >> "$GITHUB_ENV"
 
       - name: Boot the authenticated wolfBoot → wolfTrust → guests chain
+        if: matrix.api == 'psa' && matrix.profile == 'full'
         run: |
           echo "Guest vector tables (SP, reset PC):"
           od -An -tx4 -N8 tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin
@@ -277,7 +296,42 @@ jobs:
             need_raw "freertos_guest1: psa_crypto_init st=0"
             need_raw "freertos_guest1: psa rng ok"
             need_raw "freertos_guest1: psa hash ok"
+            need_raw "freertos_guest1: psa ECC keygen/sign/verify ok"
           fi
+
+      - name: Run the direct SPM interface scenario
+        if: matrix.api != 'psa' || matrix.profile != 'full'
+        run: tests/target/run_suite.sh m33mu ${{ matrix.api == 'psa' && 'positive' || matrix.api }}
+
+  interface-isolation-m33mu:
+    name: stm32h563_${{ matrix.scenario }}_${{ matrix.engine }}_${{ matrix.profile }}
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      inputs.port == 'all' || inputs.port == 'stm32h563'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        scenario: [tpmneg, pkcs11neg]
+        engine: [native, hsm]
+        profile: [default, full]
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
+      WT_CRYPTO_PROFILE: ${{ matrix.profile }}
+      WT_REQUIRE_SCENARIO_PASS: 1
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Trust the checked-out workspace
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+
+      - name: Run the direct interface scenario
+        run: tests/target/run_suite.sh m33mu ${{ matrix.scenario }}
 
   # Label-selected, the wolfProvider way: one select job reads the ci:* labels
   # (ci:stm32h563 or ci:imxrt700 for that port's full matrix when only that port
@@ -292,7 +346,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - id: p
+      - name: Generate and verify the M33MU scenario matrix
+        id: p
         env:
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
           PORT_INPUT: ${{ inputs.port }}

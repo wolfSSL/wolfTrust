@@ -9,8 +9,9 @@ enforce that policy.
 
 Two architecture ports run the same policy and service code. The Armv8-M
 adapter with the STM32H563 port is the reference implementation validated on
-hardware; it runs two Non-secure guests on one Cortex-M33 and exposes Secure
-services only through FF-M IPC. The AArch64 adapter replaces Trusted
+hardware; it runs one or two Non-secure guests on one Cortex-M33 and exposes
+Secure services through FF-M IPC. TPM and PKCS#11 run directly in Secure
+partitions and need only the application guest. The AArch64 adapter replaces Trusted
 Firmware-A on Cortex-A and is validated under QEMU; see
 [AArch64 architecture](#aarch64-architecture). The boot flow, isolation, and
 scheduling sections below describe the Armv8-M reference port.

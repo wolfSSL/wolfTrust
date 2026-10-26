@@ -147,10 +147,22 @@ static int wolfhsm_guest_register_retry(void)
     return rc;
 }
 
+#if defined(WT_TPM_ROLE_FTPM) && defined(WOLF_CRYPTO_CB_FIND)
+/* fwTPM initializes keys without a device ID. */
+static int wolfhsm_guest_find_device(int devId, int algoType)
+{
+    (void)algoType;
+    return devId == INVALID_DEVID ? WH_DEV_ID : devId;
+}
+#endif
+
 int wolfhsm_guest_init(void)
 {
     int rc;
 
+#if defined(WT_TPM_ROLE_FTPM) && defined(WOLF_CRYPTO_CB_FIND)
+    wc_CryptoCb_SetDeviceFindCb(wolfhsm_guest_find_device);
+#endif
     rc = wolfhsm_guest_connect();
     if (rc == WH_ERROR_OK) {
         return WH_ERROR_OK;

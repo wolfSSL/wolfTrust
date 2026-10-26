@@ -21,7 +21,8 @@ says otherwise; the AArch64 variables are under
 
 | Define | Description | Requirement |
 | --- | --- | --- |
-| `WT_MAX_GUESTS` | Selects one or two compiled STM32H563 guest contexts; default `2`. | The current port supports only `1` or `2`. Larger values require extending the partition tables and matching manifest, linker, emulator, flash, and measurement configuration. |
+| `WT_MAX_GUESTS` | Selects one or two compiled STM32H563 guest contexts; default `1` for TPM/PKCS#11 and `2` otherwise. | The current port supports only `1` or `2`. Larger values require extending the partition tables and matching manifest, linker, emulator, flash, and measurement configuration. |
+| `WT_SECURE_FLASH_SIZE` | STM32H563 defaults to 128 KiB, or 256 KiB with TPM/PKCS#11 so either engine fits. RT700 defaults to 256 KiB. | This reserves image capacity; linked `text + data` reports actual code/data usage. |
 | `WT_TIMESLICE_MS` | Guest scheduler interval in milliseconds; default `2`. | Must be nonzero and supported by the target timer. |
 | `WT_CO_STACK_SIZE` | Default fixed coroutine stack size in bytes, including each per-guest wolfHSM server tasklet in the hsm engine; default `10240` (measured: the deep M33MU workloads pass at 8K with PSPLIM overflow detection armed, so 10K carries at least 2K margin). With two guests, the hsm-only server slots total 20,480 stack bytes plus 512 guard bytes. Manifest-sized Secure Partition stacks use their declared sizes instead. | Size from measured stack high-water marks and keep at least the scheduler minimum. |
 | `WT_SHARED_UART` | Reference guest UART selection; default `3`. | Guest and Secure builds must use a consistent value. |
@@ -34,6 +35,9 @@ says otherwise; the AArch64 variables are under
 | --- | --- | --- |
 | `WT_GUEST_FLASH_WRP` | When `1`, verify full STM32 guest-window WRP coverage before launch; default `0`. | Set to `1` for the hardened STM32H563 image and provision WRP after flashing. M33MU does not model WRP. |
 | `WT_ENGINE_HSM` | Legacy engine selector; unset by default. `0` maps to `WT_ENGINE=native` and `1` maps to `WT_ENGINE=hsm` when the public selector is not supplied. The build also derives this internal value from `WT_ENGINE`. | Prefer `WT_ENGINE` for new builds and do not supply conflicting selectors. The guest and Secure image must select the same engine. |
+| `CONFIG_TPM` | Add `SERVICE_TPM` and its firmware TPM handler in the same Secure partition; default `n`. | Supported by STM32H563, MIMXRT700, QEMU `virt`, and Versal builds. Select either `WT_ENGINE=native` (default) or `WT_ENGINE=hsm`, as with PSA. It is mutually exclusive with `CONFIG_PKCS11`, `CONFIG_VNET`, and conformance manifests where those share the auxiliary service band. |
+| `CONFIG_PKCS11` | Add `SERVICE_PKCS11` and its wolfPKCS11 handler in the same Secure partition; default `n`. | Supported by STM32H563, MIMXRT700, QEMU `virt`, and Versal builds. Select either `WT_ENGINE=native` (default) or `WT_ENGINE=hsm`, as with PSA. It is mutually exclusive with `CONFIG_TPM`, `CONFIG_VNET`, and conformance manifests where those share the auxiliary service band. |
+| `WT_PKCS11_PIN_MAX_FAILURES` | Consecutive failed checks of one PKCS#11 PIN before the provider returns `CKR_PIN_LOCKED` for it; default `3`. | Set it on the Secure-image build for either architecture. Both refuse anything but a positive integer and pass it to the compiler. See [PKCS#11](PKCS11.md). |
 | `WT_ATTEST_COSE` | Must remain `1` in the current STM32H563 reference build; default `1`. The `0` configuration does not compile because the reset path still references attestation-gated handoff variables. | Requires the wolfCOSE submodule and the configured attestation key backend. |
 | `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `1`. | Requires compatible Armv8-M assembly sources and toolchain. |
 | `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `1`. | Requires a compatible GNU Arm toolchain. |
@@ -66,14 +70,15 @@ in `port/common/aarch64/l3_layout.h`.
 | `WT_SECURE_FLASH_BASE` | Secure image link base; standalone default `0x0C000000`. | Must match the bootloader slot and linker layout. |
 | `WT_SECURE_FLASH_SIZE` | Available Secure image bytes; standalone default `0x00020000`. | Must cover the linked image without overlapping another flash region. |
 | `WT_SECURE_IMAGE_HEADER_SIZE` | Bytes reserved before linked code; default `0` (`0x400` for `TARGET=mimxrt700`, wolfBoot's RT700 header). | Set to match the header layout of an image signed for wolfBoot. |
-| `WT_GUEST0_FLASH_BASE` | Guest 0 flash base; standalone default `0x08020000`. | Must match the guest link address and manifest executable window. |
-| `WT_GUEST1_FLASH_BASE` | Guest 1 flash base; standalone default `0x08040000`. | Must match the guest link address and manifest executable window. |
-| `WT_GUEST0_FLASH_SIZE` | Guest 0 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
-| `WT_GUEST1_FLASH_SIZE` | Guest 1 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
+| `WT_GUEST0_FLASH_BASE` | Guest 0 flash base; STM32H563 default `0x080A0000`, RT700 default `0x28080000`. | Must match the guest link address and manifest executable window. |
+| `WT_GUEST1_FLASH_BASE` | Guest 1 flash base; STM32H563 default `0x080E0000`, RT700 default `0x28100000`. STM32H563 PKCS#11 uses `0x080C0000`. | Must match the guest link address and manifest executable window. |
+| `WT_GUEST0_FLASH_SIZE` | Guest 0 flash window; STM32H563 default `0x00040000`, RT700 default `0x00080000`. STM32H563 PKCS#11 uses `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
+| `WT_GUEST1_FLASH_SIZE` | Guest 1 flash window; STM32H563 default `0x00020000`, RT700 default `0x00040000`. STM32H563 PKCS#11 uses `0x00040000`. | Must contain the signed record's image size and use valid target alignment. |
 
-The target runners used for authenticated boot override standalone addresses
-for the wolfBoot partition layout. Keep bootloader, Secure image, manifest,
-guest linker files, measurement records, and flash commands consistent.
+The Secure-image build checks these guest windows against the selected
+manifest before generating it. Target runners may still override the defaults
+for their authenticated wolfBoot layout; keep the bootloader, guest linker
+files, measurement records, and flash commands consistent with those values.
 
 ## Virtual network options
 

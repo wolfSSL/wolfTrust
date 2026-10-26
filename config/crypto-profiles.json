@@ -1,0 +1,27 @@
+{
+  "default": {
+    "psa": [
+      "psa_crypto_init", "psa_generate_random", "psa_hash_compute",
+      "psa_generate_key", "psa_import_key", "psa_export_public_key",
+      "psa_get_key_attributes", "psa_destroy_key", "psa_sign_hash",
+      "psa_verify_hash"
+    ],
+    "pkcs11": [
+      "C_Initialize", "C_Finalize", "C_GetInfo", "C_GetSlotList",
+      "C_GetSlotInfo", "C_GetTokenInfo", "C_GetMechanismList",
+      "C_GetMechanismInfo", "C_InitToken", "C_InitPIN", "C_SetPIN",
+      "C_OpenSession", "C_CloseSession", "C_CloseAllSessions",
+      "C_GetSessionInfo", "C_Login", "C_Logout", "C_CreateObject",
+      "C_DestroyObject", "C_GetAttributeValue", "C_FindObjectsInit",
+      "C_FindObjects", "C_FindObjectsFinal", "C_GenerateKeyPair",
+      "C_GenerateRandom", "C_DigestInit", "C_Digest", "C_SignInit",
+      "C_Sign", "C_VerifyInit", "C_Verify"
+    ],
+    "mechanisms": ["CKM_SHA256", "CKM_EC_KEY_PAIR_GEN", "CKM_ECDSA"],
+    "tpm": [
+      "Startup", "Shutdown", "SelfTest", "GetTestResult", "GetCapability",
+      "GetRandom", "Hash", "CreatePrimary", "ReadPublic", "Sign",
+      "VerifySignature", "FlushContext"
+    ]
+  }
+}

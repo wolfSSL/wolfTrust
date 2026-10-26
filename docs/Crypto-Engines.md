@@ -38,6 +38,33 @@ operations and volatile keys remain local to the Non-secure guest. The native
 wire is a separate explicit interface for vault-backed key operations. Secure
 services such as attestation use that vault backend directly.
 
+## API selection
+
+`WT_ENGINE` selects the backend in the same way for all three application APIs.
+`native` is the default; `hsm` opts into the wolfHSM backend. Legacy
+`WT_ENGINE_HSM=0/1` remains equivalent and conflicting selectors fail the build.
+
+| Application API | Native engine | HSM engine |
+| --- | --- | --- |
+| PSA Crypto | Guest wolfPSA and wolfCrypt, with Secure RNG and explicit vault-key operations | Supported operations use the mediated wolfHSM backend |
+| PKCS#11 | SERVICE_PKCS11 runs wolfCrypt directly | The same partition selects the wolfHSM callback through FF-M IPC |
+| TPM 2.0 | SERVICE_TPM runs wolfCrypt directly | The same partition selects the wolfHSM callback through FF-M IPC |
+
+TPM and PKCS#11 run inside ordinary Secure partitions on both architectures.
+They need no additional Non-secure guest, RTOS, or worker. Native uses wolfCrypt
+directly; HSM uses the existing HSM service from the same partition. Working
+state, callbacks, and keys remain confined to the corresponding domain.
+Read-only code is shared where its configuration and ownership checks permit.
+The fwTPM HSM configuration maps keys initialized without a device ID to its
+private wolfHSM callback. Native uses direct software execution.
+
+Select the API with `CONFIG_PKCS11=y` or `CONFIG_TPM=y`, independently of the
+engine. Both default to `n`; PSA builds include neither implementation.
+CI exercises `[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]` on
+STM32H563 under both operation profiles, plus both interface isolation scenarios.
+Cortex-A exercises PSA, TPM, and PKCS#11 with both engines and profiles, including
+the TPM and PKCS#11 isolation cases. Required matrix cells cannot pass by skipping.
+
 ## One service seam
 
 `SERVICE_HSM` keeps its existing name and SID in both builds. The service

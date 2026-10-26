@@ -23,6 +23,8 @@ all: run
 
 run:
 	@python3 ../../../tools/check_secure_layout.py --self-test
+	@python3 test_tpm_band_init.py
+	@python3 test_aarch64_interface_layout.py
 	@python3 ../../../tools/check_no_fp_insn.py --self-test
 	@python3 ../../../tools/check_stack_seal.py --self-test
 	@out="$$( $(MAKE) --no-print-directory -C ../../.. \

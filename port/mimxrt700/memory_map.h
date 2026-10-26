@@ -133,8 +133,23 @@
 #define WT_SP_VNET_STACK_BASE    (WT_RAM_S_BASE + 0x0006B000u)  /* 0x301F3000 */
 #define WT_SP_VNET_STACK_SIZE    WT_SP_SECURE_STACK_SIZE
 
-#define WT_VNET_DATA_BASE        (WT_RAM_S_BASE + 0x00048000u)  /* 0x301D0000 */
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+#define WT_VNET_DATA_BASE        0x301C5000u
+#define WT_VNET_DATA_SIZE        0x00010000u
+#else
+#define WT_VNET_DATA_BASE        (WT_RAM_S_BASE + 0x00048000u)
 #define WT_VNET_DATA_SIZE        0x00005000u
+#endif
+
+/* Interface state and stacks share the auxiliary window, with disjoint MPU grants. */
+#define WT_PKCS11_DATA_BASE      (WT_KEYSTORE_BASE - 0x00010000u)
+#define WT_PKCS11_DATA_SIZE      0x0000C000u
+#define WT_SP_PKCS11_STACK_BASE  (WT_PKCS11_DATA_BASE + WT_PKCS11_DATA_SIZE)
+#define WT_SP_PKCS11_STACK_SIZE  0x00004000u
+#define WT_TPM_DATA_BASE         WT_PKCS11_DATA_BASE
+#define WT_TPM_DATA_SIZE         0x0000C000u
+#define WT_SP_TPM_STACK_BASE     (WT_TPM_DATA_BASE + WT_TPM_DATA_SIZE)
+#define WT_SP_TPM_STACK_SIZE     0x00004000u
 
 /* wolfBoot update partition on XSPI0 (Secure alias). */
 #define WT_FWU_UPDATE_FLASH_BASE_S 0x38180000u

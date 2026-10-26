@@ -90,6 +90,14 @@
 #ifndef WT_SPM_SHARE_SIZE
 #define WT_SPM_SHARE_SIZE     0x00001000u
 #endif
+/* CONFIG_TPM and CONFIG_PKCS11 are mutually exclusive and share this private
+ * provider band. The selected service is its only manifest owner. */
+#ifndef WT_SPM_INTERFACE_PA
+#define WT_SPM_INTERFACE_PA   (WT_L3_BAND_BASE + 0x00350000u)
+#endif
+#ifndef WT_SPM_INTERFACE_SIZE
+#define WT_SPM_INTERFACE_SIZE 0x00080000u
+#endif
 /* Arm FF-A ACS conformance images: SP1..SP4 load into 1 MB bands from here. */
 #define WT_L3_FFA_ACS_PA      (WT_L3_BAND_BASE + 0x00400000u)
 
@@ -112,7 +120,8 @@
     !WT_L3_IN_RAM_S(WT_SPM_CONFDATA_PA, WT_SPM_CONFDATA_SIZE) || \
     !WT_L3_IN_RAM_S(WT_SPM_KEYSTORE_PA, WT_SPM_KEYSTORE_SIZE) || \
     !WT_L3_IN_RAM_S(WT_SPM_RXTX_PA, WT_SPM_RXTX_SIZE) || \
-    !WT_L3_IN_RAM_S(WT_SPM_SHARE_PA, WT_SPM_SHARE_SIZE)
+    !WT_L3_IN_RAM_S(WT_SPM_SHARE_PA, WT_SPM_SHARE_SIZE) || \
+    !WT_L3_IN_RAM_S(WT_SPM_INTERFACE_PA, WT_SPM_INTERFACE_SIZE)
 #error "a level 3 band lies outside the port's Secure RAM"
 #endif
 #if defined(WT_SPM_TABLE_POOL_PAGES) && \
@@ -132,7 +141,8 @@
       WT_SPM_IMAGE_SIZE | WT_SPM_RAM_PA | WT_SPM_RAM_SIZE | \
       WT_SPM_CONFDATA_PA | WT_SPM_CONFDATA_SIZE | WT_SPM_KEYSTORE_PA | \
       WT_SPM_KEYSTORE_SIZE | WT_SPM_RXTX_PA | WT_SPM_RXTX_SIZE | \
-      WT_SPM_SHARE_PA | WT_SPM_SHARE_SIZE) & 0xFFFu) != 0u
+      WT_SPM_SHARE_PA | WT_SPM_SHARE_SIZE | WT_SPM_INTERFACE_PA | \
+      WT_SPM_INTERFACE_SIZE) & 0xFFFu) != 0u
 #error "a level 3 band is not page aligned"
 #endif
 #if !WT_L3_APART(WT_SPM_BOOT_INFO_PA, 0x1000u, WT_SPM_TABLE_POOL_PA, WT_L3_POOL_SIZE) || \
@@ -164,6 +174,26 @@
     !WT_L3_APART(WT_SPM_KEYSTORE_PA, WT_SPM_KEYSTORE_SIZE, WT_SPM_SHARE_PA, WT_SPM_SHARE_SIZE) || \
     !WT_L3_APART(WT_SPM_RXTX_PA, WT_SPM_RXTX_SIZE, WT_SPM_SHARE_PA, WT_SPM_SHARE_SIZE)
 #error "two level 3 bands overlap"
+#endif
+
+#if !WT_L3_APART(WT_SPM_INTERFACE_PA, WT_SPM_INTERFACE_SIZE, \
+                 WT_SPM_BOOT_INFO_PA, 0x1000u) || \
+    !WT_L3_APART(WT_SPM_INTERFACE_PA, WT_SPM_INTERFACE_SIZE, \
+                 WT_SPM_TABLE_POOL_PA, WT_L3_POOL_SIZE) || \
+    !WT_L3_APART(WT_SPM_INTERFACE_PA, WT_SPM_INTERFACE_SIZE, \
+                 WT_SPM_IMAGE_PA, WT_SPM_IMAGE_SIZE) || \
+    !WT_L3_APART(WT_SPM_INTERFACE_PA, WT_SPM_INTERFACE_SIZE, \
+                 WT_SPM_RAM_PA, WT_SPM_RAM_SIZE) || \
+    !WT_L3_APART(WT_SPM_INTERFACE_PA, WT_SPM_INTERFACE_SIZE, \
+                 WT_SPM_CONFDATA_PA, WT_SPM_CONFDATA_SIZE) || \
+    !WT_L3_APART(WT_SPM_INTERFACE_PA, WT_SPM_INTERFACE_SIZE, \
+                 WT_SPM_KEYSTORE_PA, WT_SPM_KEYSTORE_SIZE) || \
+    !WT_L3_APART(WT_SPM_INTERFACE_PA, WT_SPM_INTERFACE_SIZE, \
+                 WT_SPM_RXTX_PA, WT_SPM_RXTX_SIZE) || \
+    !WT_L3_APART(WT_SPM_INTERFACE_PA, WT_SPM_INTERFACE_SIZE, \
+                 WT_SPM_SHARE_PA, WT_SPM_SHARE_SIZE) || \
+    ((WT_SPM_INTERFACE_PA + WT_SPM_INTERFACE_SIZE) > WT_L3_FFA_ACS_PA)
+#error "the application-interface band overlaps another Secure band"
 #endif
 
 #endif /* WOLFTRUST_PORT_AARCH64_L3_LAYOUT_H */

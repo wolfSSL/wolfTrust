@@ -1112,11 +1112,30 @@ static void test_door_confinement(void)
     check(status == PSA_ERROR_NOT_PERMITTED && g_submit_calls == 0U,
           "K2 another partition is refused on the ordinary wire");
     (void)wt_ffm_close(&g_runtime, TEST_ROGUE_PARTITION, handle);
+    wt_hsm_relay_set_secure_client_policy(TEST_ROGUE_PARTITION);
+    handle = wt_ffm_connect(&g_runtime, TEST_ROGUE_PARTITION, TEST_HSM_SID,
+                            1U);
+    out_vec[0].len = sizeof(out);
+    status = wt_ffm_call(&g_runtime, TEST_ROGUE_PARTITION, handle,
+                         PSA_IPC_CALL, in_vec, 1U, out_vec, 1U);
+    check(status == PSA_SUCCESS && g_submit_calls == 1U &&
+          out_vec[0].len == 1U && out[0] == 0x5AU,
+          "K2 the explicitly bound Secure partition uses its ordinary wire");
+    (void)wt_ffm_close(&g_runtime, TEST_ROGUE_PARTITION, handle);
+    wt_hsm_relay_set_secure_client_policy(0);
+    handle = wt_ffm_connect(&g_runtime, TEST_ROGUE_PARTITION, TEST_HSM_SID,
+                            1U);
+    out_vec[0].len = sizeof(out);
+    status = wt_ffm_call(&g_runtime, TEST_ROGUE_PARTITION, handle,
+                         PSA_IPC_CALL, in_vec, 1U, out_vec, 1U);
+    check(status == PSA_ERROR_NOT_PERMITTED && g_submit_calls == 1U,
+          "K2 clearing the binding re-denies the Secure partition");
+    (void)wt_ffm_close(&g_runtime, TEST_ROGUE_PARTITION, handle);
     handle = wt_ffm_connect(&g_runtime, TEST_NS_CLIENT, TEST_HSM_SID, 1U);
     out_vec[0].len = sizeof(out);
     status = wt_ffm_call(&g_runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                          in_vec, 1U, out_vec, 1U);
-    check(status == PSA_SUCCESS && g_submit_calls == 1U &&
+    check(status == PSA_SUCCESS && g_submit_calls == 2U &&
           out_vec[0].len == 1U && out[0] == 0x5AU,
           "K2 a Non-secure client is served on the ordinary wire");
     (void)wt_ffm_close(&g_runtime, TEST_NS_CLIENT, handle);

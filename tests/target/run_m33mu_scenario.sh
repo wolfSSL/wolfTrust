@@ -135,8 +135,7 @@ if [ "$scenario" = tpm ] || [ "$scenario" = tpmneg ] || [ "$family" = pkcs11 ]; 
   export WT_PKCS11_TEST_PBKDF2_ITERATIONS=25
 fi
 if [ "$family" = "pkcs11" ]; then
-  # The proxy application is small. Give the wolfPKCS11 plus wolfHSM provider
-  # the larger second flash window in this mutually exclusive image.
+  # Match the optional PKCS11 manifest's application window.
   export WT_GUEST0_FLASH_SIZE=0x00020000
   export WT_GUEST1_FLASH_BASE=0x080C0000
   export WT_GUEST1_FLASH_SIZE=0x00040000

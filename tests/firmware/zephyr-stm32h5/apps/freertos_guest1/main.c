@@ -41,6 +41,9 @@
 /* SERVICE_HSM (port/stm32h563/manifest.json): the single mediated door to
  * the secure crypto engine — the same path guest0 uses. */
 #define WT_SERVICE_HSM_SID 4102u
+#ifndef WT_FREERTOS_OTHER_RAM_BASE
+#define WT_FREERTOS_OTHER_RAM_BASE 0x20000000u
+#endif
 
 #if defined(WT_ENGINE_HSM)
 /* wolfHSM client glue (module/wolfhsm-client/src/wolfhsm_client_glue.c). */
@@ -399,10 +402,8 @@ static void run_ffm_negatives(void)
               "freertos_guest1: ffm oversized-vector rejected\r\n" :
               "freertos_guest1: ffm oversized-vector NOT rejected\r\n");
 
-    /* Cross-guest vector: a base inside guest0's NS RAM window must be
-     * refused by the caller-banded memcheck — guests are isolated from each
-     * other through the SPM, not merely NS from Secure (WT-FFM-0011). */
-    in_vec.base = (const void *)0x20000000u; /* guest0 NS RAM, not ours */
+    /* A vector outside this caller's NS RAM band must be refused before copy. */
+    in_vec.base = (const void *)(uintptr_t)WT_FREERTOS_OTHER_RAM_BASE;
     in_vec.len = 16u;
     out_vec.base = digest;
     out_vec.len = sizeof(digest);

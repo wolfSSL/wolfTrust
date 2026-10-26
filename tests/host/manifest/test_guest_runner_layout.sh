@@ -145,6 +145,48 @@ check_file "$zephyr/patches/zephyr/0002-boards-arm-nucleo_h563zi-add-wolftrust-n
     "Zephyr board metadata reports the manifest RAM window"
 check_rejected_size
 
+# Trace the actual build script without requiring a cross compiler on the host.
+work=$(mktemp -d)
+trap 'rm -rf "$work"' EXIT INT TERM
+mkdir -p "$work/bin" "$work/freertos/FreeRTOS/Source"
+touch "$work/implib.o"
+cat > "$work/bin/cc" <<EOF
+#!/bin/sh
+printf '%s\n' "\$@" >> "$work/compiler.args"
+EOF
+cat > "$work/bin/arm-none-eabi-nm" <<'EOF'
+#!/bin/sh
+echo wt_hsm_psa_transport_cb
+EOF
+printf '#!/bin/sh\nexit 0\n' > "$work/bin/arm-none-eabi-size"
+cp "$work/bin/arm-none-eabi-size" "$work/bin/objcopy"
+chmod +x "$work/bin/"*
+for slot in default single; do
+    rm -f "$work/compiler.args"
+    if [ "$slot" = default ]; then
+        client=2
+        foreign=0x20000000
+        set -- -u WT_WOLFHSM_CLIENT_ID -u WT_FREERTOS_OTHER_RAM_BASE
+    else
+        client=1
+        foreign=0x20010000
+        set -- WT_WOLFHSM_CLIENT_ID=1 WT_FREERTOS_OTHER_RAM_BASE=0x20010000
+    fi
+    checks=$((checks + 1))
+    if env "$@" PATH="$work/bin:$PATH" WT_ENGINE=hsm WT_ENGINE_HSM=1 \
+            FREERTOS_DIR="$work/freertos" SECURE_CMSE_IMPLIB="$work/implib.o" \
+            GUEST_CC="$work/bin/cc" GUEST_OBJCOPY="$work/bin/objcopy" \
+            BUILD_DIR="$work/$slot" \
+            sh "$zephyr/scripts/build_freertos_guest.sh" > "$work/build.log" 2>&1 &&
+       grep -qx -- "-DWT_WOLFHSM_CLIENT_ID=$client" "$work/compiler.args" &&
+       grep -qx -- "-DWT_FREERTOS_OTHER_RAM_BASE=${foreign}u" "$work/compiler.args"; then
+        echo "  [check] PASS  $slot PSA client identity and foreign RAM reach the compiler"
+    else
+        failures=$((failures + 1))
+        echo "  [check] FAIL  $slot PSA client identity or foreign RAM was lost"
+    fi
+done
+
 echo "Guest runner layout tests: $checks checks, $failures failures"
 if [ "$failures" -eq 0 ]; then
     echo "PASS: guest_runner_layout"

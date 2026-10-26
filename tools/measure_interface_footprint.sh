@@ -63,7 +63,9 @@ for WT_ENGINE in native hsm; do
         export BUILD_DIR="$out/$api-$WT_ENGINE-app"
         mkdir -p "$BUILD_DIR"
         if [ "$api" = psa ]; then
-            bash tests/firmware/zephyr-stm32h5/scripts/build_freertos_guest.sh > "$BUILD_DIR/build.log" 2>&1
+            WT_GUEST1_FLASH_BASE=0x080A0000 WT_GUEST1_RAM_BASE=0x20000000 \
+                WT_WOLFHSM_CLIENT_ID=1 WT_FREERTOS_OTHER_RAM_BASE=0x20010000 \
+                bash tests/firmware/zephyr-stm32h5/scripts/build_freertos_guest.sh > "$BUILD_DIR/build.log" 2>&1
             record "$api" "$WT_ENGINE" app "$BUILD_DIR/freertos_guest1.elf"
         else
             export WT_PKCS11_SUITE=all

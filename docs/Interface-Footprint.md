@@ -81,6 +81,10 @@ fwTPM configuration has no heap.
 - Cortex-M33, `-Os`, `WT_LTO=1`, one guest slot, default attestation, and
   production PIN KDF settings. All rows use the same pinned dependencies.
 
+The PSA fixture uses guest 0's flash/RAM addresses and HSM client ID 1. Its
+foreign-vector negative uses the other RAM window. The single-application
+native and HSM pairs also pass real RNG, hash, P-256, and caller-boundary tests.
+
 Initialize dependencies and the FreeRTOS workspace inside that container, then:
 
 ```sh
@@ -97,6 +101,10 @@ P-256. They are not a comparable baseline for these builds.
 
 ## Validation
 
+Implementation: [7c503777](https://github.com/aidangarske/wolfTrust-fork/commit/7c5037779d2129523f051f1a5ce32d1dd8ae03b8).
+All 71 host suites and their C99 run pass. Six focused ASan/UBSan suites pass,
+and four RT700 API/engine cross-builds pass their layout checks.
+
 Local host tests exercise the synchronous production transports through the
 FF-M runtime, including exact bounds, identity checks, zeroization, connection
 recovery, and prevention of implicit replay. M33MU and QEMU run the actual
@@ -106,5 +114,5 @@ FreeRTOS, and the bare-metal TPM isolation client.
 
 Emulator-only PIN tests explicitly use 25 PBKDF2 rounds to bound execution
 time. Size measurements retain 600,000 rounds. Emulator and cross-build results
-are recorded separately from physical hardware qualification. Final commit
-and CI evidence are recorded after the tested branch update.
+are recorded separately from physical hardware qualification. Current branch
+CI results are available in [PR 76 checks](https://github.com/wolfSSL/wolfTrust/pull/76/checks).

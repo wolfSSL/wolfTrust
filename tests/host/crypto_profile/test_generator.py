@@ -113,6 +113,45 @@ class GeneratorTests(unittest.TestCase):
         self.assertIn("flags &= ~(CK_FLAGS)CKF_SIGN;", header)
         self.assertNotIn("case CKM_EC", header)
 
+    def test_raw_provider_objects_wait_for_generated_header(self):
+        cases = (("p11_wc_raw_ecc.o", "PKCS11", "native"),
+                 ("p11_sec_raw_internal.o", "PKCS11", "native"),
+                 ("p11_wh_raw_wh_client.o", "PKCS11", "hsm"),
+                 ("tpm_wc_raw_ecc.o", "TPM", "native"),
+                 ("tpm_sec_raw_fwtpm_crypto.o", "TPM", "native"),
+                 ("tpm_wh_raw_wh_client.o", "TPM", "hsm"))
+        for object_name, api, engine in cases:
+            with self.subTest(object=object_name), tempfile.TemporaryDirectory(dir=BUILD_DIR) as temporary:
+                output = Path(temporary)
+                compiler = output / "compiler.py"
+                compiler.write_text("#!/usr/bin/env python3\n"
+                    "import pathlib, sys\n"
+                    "args = sys.argv[1:]\n"
+                    "if '-o' not in args: raise SystemExit(0)\n"
+                    "seen = False\n"
+                    "for i, arg in enumerate(args):\n"
+                    "    if arg == '-include' and pathlib.Path(args[i+1]).name == 'selected_profile.h':\n"
+                    "        assert pathlib.Path(args[i+1]).is_file(), args[i+1]\n"
+                    "        seen = True\n"
+                    "assert seen, 'profile header not passed to compiler'\n"
+                    "pathlib.Path(args[args.index('-o')+1]).touch()\n")
+                compiler.chmod(0o755)
+                build = output / "objects"
+                # This independent make has its own parallel job pool; Python
+                # does not pass through the parent make's jobserver descriptors.
+                environment = os.environ.copy()
+                environment.pop("MAKEFLAGS", None)
+                environment.pop("MFLAGS", None)
+                result = subprocess.run(["make", "--no-print-directory", "-j8",
+                    "-C", str(ROOT), "ARCH=aarch64", "TARGET=qemuvirt", "TOOLPREFIX=",
+                    "CONFIG_" + api + "=y", "WT_ENGINE=" + engine,
+                    "BUILD_DIR=" + str(build), "CC=" + str(compiler),
+                    str(build / object_name)], text=True, capture_output=True,
+                    env=environment)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertTrue((build / "crypto-profile/selected_profile.h").is_file())
+                self.assertTrue((build / object_name).is_file())
+
     def test_empty_pkcs11_selection_compiles(self):
         with tempfile.TemporaryDirectory(dir=BUILD_DIR) as temporary:
             output = Path(temporary)

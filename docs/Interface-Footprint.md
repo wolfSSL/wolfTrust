@@ -122,3 +122,10 @@ engines, both profiles, both Cortex-M clients, Cortex-A, partition isolation,
 and PSA Crypto conformance (64 passed, 13 existing unsupported cases skipped,
 zero failed). No API/engine matrix cell is accepted as a successful skip.
 Final-head GitHub CI is recorded separately after the branch update.
+
+Fresh parallel builds also check that raw provider and private crypto objects
+wait for the generated profile header. The host regression invokes six actual
+Make targets with `-j8`; all six fail before the dependency correction and pass
+after it. Four fresh AArch64 provider builds pass with `-j16`. Cortex-M
+PKCS#11/native and TPM/HSM operation and isolation scenarios pass after the
+correction. This changes build ordering without changing the measured code.

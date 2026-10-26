@@ -617,7 +617,13 @@ ALL_SECURE_OBJS := $(strip \
     $(MANIFEST_OBJ))
 
 ifneq ($(WT_CRYPTO_PROFILE_HEADER),)
-$(ALL_SECURE_OBJS): $(WT_CRYPTO_PROFILE_HEADER)
+# Namespaced objects also have raw compile prerequisites; a dependency on
+# only the final object does not order those compilations after generation.
+WT_PROFILE_RAW_OBJS := $(TPM_WOLFCRYPT_RAW_OBJS) $(P11_WOLFCRYPT_RAW_OBJS) \
+    $(TPM_WOLFHSM_RAW_OBJS) $(P11_WOLFHSM_RAW_OBJS) \
+    $(patsubst $(BUILD_DIR)/tpm_sec_%.o,$(BUILD_DIR)/tpm_sec_raw_%.o,$(WOLFTPM_SECURE_OBJS)) \
+    $(patsubst $(BUILD_DIR)/p11_sec_%.o,$(BUILD_DIR)/p11_sec_raw_%.o,$(WOLFPKCS11_SECURE_OBJS))
+$(ALL_SECURE_OBJS) $(WT_PROFILE_RAW_OBJS): $(WT_CRYPTO_PROFILE_HEADER)
 endif
 
 # LTO cannot safely rewrite objects whose symbols are consumed by inline

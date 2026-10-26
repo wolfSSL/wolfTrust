@@ -1184,6 +1184,11 @@ static int test_bad_signature(void)
     if (public_key != CK_INVALID_HANDLE) {
         (void)g_fn->C_DestroyObject(g_session, public_key);
     }
+    if (rv != CKR_SIGNATURE_INVALID) {
+        wt_pkcs11_puts("bad signature rv=");
+        wt_pkcs11_print_u32((unsigned int)rv);
+        wt_pkcs11_puts("\r\n");
+    }
     return rv == CKR_SIGNATURE_INVALID ? 0 : -1;
 }
 

@@ -29,14 +29,14 @@ export FREERTOS_DIR="${FREERTOS_DIR:-$root/tests/firmware/zephyr-stm32h5/.worksp
 export WT_CRYPTO_PROFILE="${WT_CRYPTO_PROFILE:-default}"
 export WT_LTO="${WT_LTO:-1}"
 export WT_SECURE_FLASH_BASE=0x0C060000 WT_SECURE_FLASH_SIZE=0x40000
-export WT_MAX_GUESTS=2
+export WT_MAX_GUESTS=1
 printf 'api,engine,role,text,data,bss,flash\n' > "$out/sizes.csv"
 {
     git rev-parse HEAD
     git diff --stat HEAD --ignore-submodules=all
     git status --porcelain --ignore-submodules=all
     arm-none-eabi-gcc --version | head -1
-    printf 'profile=%s lto=%s\n' "$WT_CRYPTO_PROFILE" "$WT_LTO"
+    printf 'profile=%s lto=%s guests=%s\n' "$WT_CRYPTO_PROFILE" "$WT_LTO" "$WT_MAX_GUESTS"
 } > "$out/configuration.txt"
 record()
 {
@@ -70,15 +70,7 @@ for WT_ENGINE in native hsm; do
             [ "$WT_CRYPTO_PROFILE" != default ] || export WT_PKCS11_SUITE=profile
             bash "tests/firmware/stm32h563-tpm/scripts/build_freertos_$api.sh" > "$BUILD_DIR/build.log" 2>&1
             record "$api" "$WT_ENGINE" app "$BUILD_DIR/guest0.elf"
-            export BUILD_DIR="$out/$api-$WT_ENGINE-provider"
-            mkdir -p "$BUILD_DIR"
-            if [ "$api" = pkcs11 ]; then
-                bash tests/firmware/stm32h563-tpm/scripts/build_freertos_pkcs11_provider.sh > "$BUILD_DIR/build.log" 2>&1
-            else
-                make -C tests/firmware/stm32h563-tpm -j"${JOBS:-4}" \
-                    tpm-provider BUILD_DIR="$BUILD_DIR" SECURE_CMSE_IMPLIB="$SECURE_CMSE_IMPLIB" > "$BUILD_DIR/build.log" 2>&1
-            fi
-            record "$api" "$WT_ENGINE" provider "$BUILD_DIR/guest1.elf"
+
         fi
     done
 done

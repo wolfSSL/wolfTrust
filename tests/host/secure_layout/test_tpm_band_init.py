@@ -46,42 +46,20 @@ require(
 for linker in LINKERS:
     text = "".join(path.read_text(encoding="utf-8")
                    for path in sorted(linker.glob("secure_l3_*.ld")))
-    require(text, "_wt_band_tpm_base = ORIGIN(TPMDATA);", linker)
-    require(
-        text,
-        "_wt_band_tpm_limit = ORIGIN(TPMDATA) + LENGTH(TPMDATA);",
-        linker,
-    )
-    require(text, "_wt_tpm_stack_base = ORIGIN(CONFDATA);", linker)
-    require(text, "_wt_tpm_stack_limit = ORIGIN(TPMDATA);", linker)
-    require(
-        text,
-        "*wt_sec_tpm_relay_service.o(.data .data.*)",
-        linker,
-    )
-    require(
-        text,
-        "*wt_sec_tpm_relay_service.o(.bss .bss.* COMMON)",
-        linker,
-    )
-    require(text, "_wt_band_pkcs11_base = ORIGIN(VNETDATA);", linker)
-    require(
-        text,
-        "_wt_band_pkcs11_limit = ORIGIN(VNETDATA) + LENGTH(VNETDATA);",
-        linker,
-    )
-    require(text, "_wt_pkcs11_stack_base = ORIGIN(CONFDATA);", linker)
-    require(text, "_wt_pkcs11_stack_limit = ORIGIN(TPMDATA);", linker)
-    require(
-        text,
-        "*wt_sec_pkcs11_relay_service.o(.data .data.*)",
-        linker,
-    )
-    require(
-        text,
-        "*wt_sec_pkcs11_relay_service.o(.bss .bss.* COMMON)",
-        linker,
-    )
+    for api, prefix in (("tpm", "tpm"), ("pkcs11", "p11")):
+        require(text, "_wt_band_%s_base = ORIGIN(VNETDATA);" % api,
+                linker)
+        require(text, "_wt_band_%s_limit = ORIGIN(VNETDATA) +\n"
+                "    ((SIZEOF(.%s_data) + SIZEOF(.%s_bss)) != 0 ? 48K : 0);"
+                % (api, api, api), linker)
+        for edge, amount in (("base", "48K"), ("limit", "64K")):
+            require(text, "_wt_%s_stack_%s = ORIGIN(VNETDATA) +\n"
+                    "    ((SIZEOF(.%s_data) + SIZEOF(.%s_bss)) != 0 ? %s : 0);"
+                    % (api, edge, api, api, amount), linker)
+        for pattern in ("wt_sec_%s*.o" % api, "%s_sec_*.o" % prefix,
+                        "%s_wc_*.o" % prefix, "%s_wh_*.o" % prefix):
+            require(text, "*%s(.data .data.*)" % pattern, linker)
+            require(text, "*%s(.bss .bss.* COMMON)" % pattern, linker)
 
 require(
     start,

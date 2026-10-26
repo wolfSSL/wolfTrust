@@ -21,7 +21,16 @@
 #ifndef WOLFTRUST_PROVIDER_CRYPTO_H
 #define WOLFTRUST_PROVIDER_CRYPTO_H
 
-#define WT_PROVIDER_HSM_NAMESPACE 1U
+#include "wolftrust/types.h"
+
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+#define WT_HSM_NAMESPACE_COUNT (WT_MAX_GUESTS + 1U)
+#else
+#define WT_HSM_NAMESPACE_COUNT WT_MAX_GUESTS
+#endif
+
+#define WT_PROVIDER_HSM_NAMESPACE WT_MAX_GUESTS
 #define WT_PROVIDER_HSM_CLIENT_ID (WT_PROVIDER_HSM_NAMESPACE + 1U)
 
 int wt_provider_crypto_init(void);

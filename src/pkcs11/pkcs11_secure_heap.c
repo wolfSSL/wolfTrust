@@ -24,13 +24,19 @@
 #include <stdint.h>
 #include <string.h>
 
+#ifndef WT_PKCS11_HEAP_SIZE
 #define WT_PKCS11_HEAP_SIZE  0x60000U
+#endif
 #define WT_PKCS11_HEAP_ALIGN 16U
 
 typedef struct wt_pkcs11_heap_block {
     size_t size;
     size_t used;
 } wt_pkcs11_heap_block_t;
+
+#define WT_PKCS11_HEAP_HEADER_SIZE \
+    ((sizeof(wt_pkcs11_heap_block_t) + WT_PKCS11_HEAP_ALIGN - 1U) & \
+     ~(size_t)(WT_PKCS11_HEAP_ALIGN - 1U))
 
 static uint8_t g_heap[WT_PKCS11_HEAP_SIZE] __attribute__((aligned(16)));
 static int g_heap_ready;
@@ -42,11 +48,11 @@ static int heap_block_valid(const wt_pkcs11_heap_block_t* block)
     uintptr_t end = begin + sizeof(g_heap);
     size_t remaining;
 
-    if (address < begin || address > end - sizeof(*block) ||
+    if (address < begin || address > end - WT_PKCS11_HEAP_HEADER_SIZE ||
             ((address - begin) & (WT_PKCS11_HEAP_ALIGN - 1U)) != 0U) {
         return 0;
     }
-    remaining = (size_t)(end - address) - sizeof(*block);
+    remaining = (size_t)(end - address) - WT_PKCS11_HEAP_HEADER_SIZE;
     if (block->size == 0U ||
             (block->size & (WT_PKCS11_HEAP_ALIGN - 1U)) != 0U ||
             block->size > remaining || block->used > 1U) {
@@ -58,7 +64,7 @@ static int heap_block_valid(const wt_pkcs11_heap_block_t* block)
 static wt_pkcs11_heap_block_t* heap_next(wt_pkcs11_heap_block_t* block)
 {
     return (wt_pkcs11_heap_block_t*)(void*)((uint8_t*)block +
-        sizeof(*block) + block->size);
+        WT_PKCS11_HEAP_HEADER_SIZE + block->size);
 }
 
 static wt_pkcs11_heap_block_t* heap_find_pointer(const void* pointer)
@@ -68,7 +74,7 @@ static wt_pkcs11_heap_block_t* heap_find_pointer(const void* pointer)
 
     while (heap_block_valid(block)) {
         if ((const uint8_t*)pointer ==
-                (const uint8_t*)block + sizeof(*block)) {
+                (const uint8_t*)block + WT_PKCS11_HEAP_HEADER_SIZE) {
             return block;
         }
         block = heap_next(block);
@@ -81,7 +87,7 @@ static void heap_init(void)
     wt_pkcs11_heap_block_t* first =
         (wt_pkcs11_heap_block_t*)(void*)g_heap;
 
-    first->size = sizeof(g_heap) - sizeof(*first);
+    first->size = sizeof(g_heap) - WT_PKCS11_HEAP_HEADER_SIZE;
     first->used = 0U;
     g_heap_ready = 1;
 }
@@ -101,7 +107,7 @@ void* XMALLOC(size_t size, void* heap, int type)
     if (size == 0U) {
         size = 1U;
     }
-    if (size > sizeof(g_heap) - sizeof(*block) -
+    if (size > sizeof(g_heap) - WT_PKCS11_HEAP_HEADER_SIZE -
             (WT_PKCS11_HEAP_ALIGN - 1U)) {
         return NULL;
     }
@@ -112,20 +118,20 @@ void* XMALLOC(size_t size, void* heap, int type)
         if (block->used == 0U) {
             next = heap_next(block);
             while (heap_block_valid(next) && next->used == 0U) {
-                block->size += sizeof(*next) + next->size;
+                block->size += WT_PKCS11_HEAP_HEADER_SIZE + next->size;
                 next = heap_next(block);
             }
             if (block->size >= size) {
-                if (block->size >= size + sizeof(*block) +
+                if (block->size >= size + WT_PKCS11_HEAP_HEADER_SIZE +
                         WT_PKCS11_HEAP_ALIGN) {
                     split = (wt_pkcs11_heap_block_t*)(void*)((uint8_t*)block +
-                        sizeof(*block) + size);
-                    split->size = block->size - size - sizeof(*block);
+                        WT_PKCS11_HEAP_HEADER_SIZE + size);
+                    split->size = block->size - size - WT_PKCS11_HEAP_HEADER_SIZE;
                     split->used = 0U;
                     block->size = size;
                 }
                 block->used = 1U;
-                result = (uint8_t*)block + sizeof(*block);
+                result = (uint8_t*)block + WT_PKCS11_HEAP_HEADER_SIZE;
             }
         }
         if (result == NULL) {

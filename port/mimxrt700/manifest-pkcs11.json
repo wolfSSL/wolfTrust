@@ -363,8 +363,8 @@
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 939888640,
-      "stack_base": 807350272,
-      "stack_size": 8192,
+      "stack_base": 807211008,
+      "stack_size": 16384,
       "memory_resources": [
         {
           "base": 939888640,
@@ -373,14 +373,14 @@
           "share_id": 0
         },
         {
-          "base": 807350272,
-          "size": 8192,
+          "base": 807211008,
+          "size": 16384,
           "attributes": 19,
           "share_id": 0
         },
         {
-          "base": 807206912,
-          "size": 20480,
+          "base": 807161856,
+          "size": 49152,
           "attributes": 19,
           "share_id": 0
         }
@@ -550,7 +550,9 @@
           "connection_based": true
         }
       ],
-      "dependencies": [],
+      "dependencies": [
+        4102
+      ],
       "interrupts": []
     }
   ],

@@ -11,6 +11,7 @@ ifeq ($(CONFIG_VNET),y)
 $(error TARGET=mimxrt700 has no SERVICE_VNET manifest; build with CONFIG_VNET=n)
 endif
 ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+WT_MAX_GUESTS ?= 1
 ifeq ($(WT_CONFORMANCE),1)
 $(error CONFIG_TPM/CONFIG_PKCS11 conflicts with WT_CONFORMANCE=1; the manifests are mutually exclusive)
 endif

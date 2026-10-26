@@ -11,6 +11,7 @@ TARGET_CONF_DIR := $(PORT_DIR)/conformance
 # variants are mutually exclusive, so reject a combination that would silently
 # discard a requested service rather than build it.
 ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+WT_MAX_GUESTS ?= 1
 ifeq ($(WT_CONFORMANCE),1)
 $(error CONFIG_TPM/CONFIG_PKCS11 conflicts with WT_CONFORMANCE=1; the manifests are mutually exclusive)
 endif

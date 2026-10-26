@@ -25,7 +25,8 @@
   /* General SPM RAM up to the keystore bands, less the VNET band when built. */
   RAM   (rwx): ORIGIN = WT_RAM_S_ORIGIN,
                LENGTH = WT_L3_KEYSTORE_ORIGIN - WT_RAM_S_ORIGIN - WT_VNET_DATA_LENGTH
-  /* SERVICE_VNET data band; zero length outside CONFIG_VNET builds. */
+  /* SERVICE_VNET data band, or the TPM/PKCS11 interface window; zero length
+   * outside CONFIG_VNET, CONFIG_TPM and CONFIG_PKCS11 builds. */
   VNETDATA (rw): ORIGIN = WT_L3_KEYSTORE_ORIGIN - WT_VNET_DATA_LENGTH,
                  LENGTH = WT_VNET_DATA_LENGTH
   /* Keystore bands: the vault, attestation and crypto partitions each own one. */
@@ -40,6 +41,4 @@
   VAULTSTACK (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 24K, LENGTH = 16K
   /* Conformance partition data; CONFIG_VNET builds use it as the VNET stack. */
   CONFDATA (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 40K, LENGTH = 12K
-  /* SERVICE_TPM mailbox, inside CONFDATA: CONFIG_TPM builds have no conformance data. */
-  TPMDATA (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 48K, LENGTH = 2K
   SPSTACKS (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 52K, LENGTH = 40K

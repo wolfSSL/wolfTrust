@@ -130,6 +130,10 @@ if [ "$scenario" = "restartidle" ]; then
   export WT_MAX_GUESTS=1
 fi
 export ZEPHYR_BOARD=nucleo_h563zi/stm32h563xx/ns
+if [ "$scenario" = tpm ] || [ "$scenario" = tpmneg ] || [ "$family" = pkcs11 ]; then
+  export WT_MAX_GUESTS=1
+  export WT_PKCS11_TEST_PBKDF2_ITERATIONS=25
+fi
 if [ "$family" = "pkcs11" ]; then
   # The proxy application is small. Give the wolfPKCS11 plus wolfHSM provider
   # the larger second flash window in this mutually exclusive image.
@@ -271,23 +275,17 @@ if [ "$scenario" = "vnet" ] || [ "$scenario" = "vnetneg" ]; then
 elif [ "$scenario" = "tpmneg" ]; then
   rm -rf tests/firmware/stm32h563-tpm/build
   make -C tests/firmware/stm32h563-tpm \
-    build/tpm/guest0.bin build/tpm/guest1.bin \
+    build/tpm/guest0.bin \
     BUILD_DIR=build/tpm \
     WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
     WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
     WT_GUEST_RAM_SIZE=0x00010000 \
     GUEST_EXTRA_CFLAGS="-DWT_TPM_EXIT_BKPT=1 -DWT_TPM_TRACE_COMMANDS=1"
   g0_img="$repo/tests/firmware/stm32h563-tpm/build/tpm/guest0.bin"
-  g1_img="$repo/tests/firmware/stm32h563-tpm/build/tpm/guest1.bin"
+  g1_img=""
 elif [ "$scenario" = "tpm" ]; then
   rm -rf tests/firmware/stm32h563-tpm/build
-  make -C tests/firmware/stm32h563-tpm tpm-provider \
-    BUILD_DIR=build/tpm-provider \
-    WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
-    WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
-    WT_GUEST_RAM_SIZE=0x00010000 \
-    GUEST_EXTRA_CFLAGS="-DWT_TPM_TRACE_COMMANDS=1"
-  g1_img="$repo/tests/firmware/stm32h563-tpm/build/tpm-provider/guest1.bin"
+  g1_img=""
   if [ "$WT_INTERFACE_OS" = "zephyr" ]; then
     # shellcheck disable=SC2086
     env $secure_flags WT_REUSE_SECURE_BUILD=1 WT_M33MU_EXPECT_BKPT=1 \
@@ -303,13 +301,7 @@ elif [ "$scenario" = "tpm" ]; then
   fi
 elif [ "$family" = "pkcs11" ]; then
   rm -rf tests/firmware/stm32h563-tpm/build
-  WT_PKCS11_TEST_PBKDF2_ITERATIONS=25 \
-    make -C tests/firmware/stm32h563-tpm pkcs11-provider \
-    PKCS11_BUILD_DIR="build/$scenario" \
-    WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080C0000 \
-    WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
-    WT_GUEST_RAM_SIZE=0x00010000
-  g1_img="$repo/tests/firmware/stm32h563-tpm/build/$scenario/guest1.bin"
+  g1_img=""
   if [ "$WT_INTERFACE_OS" = "zephyr" ]; then
     # shellcheck disable=SC2086
     env $secure_flags WT_REUSE_SECURE_BUILD=1 WT_M33MU_EXPECT_BKPT=1 \
@@ -333,16 +325,16 @@ fi
 
 echo "Guest vector tables (SP, reset PC):"
 od -An -tx4 -N8 "$g0_img"
-od -An -tx4 -N8 "$g1_img"
+if [ -n "$g1_img" ]; then od -An -tx4 -N8 "$g1_img"; fi
 
 # --- Pin the guest measurements into the secure image, then sign: the wolfBoot
 #     signature covers the pins, extending the chain of trust to the guests.
 #     The harness (not the guest) holds the expected wolfBoot measurement and
 #     asserts the token's reported value below. ---
 cp -f "$repo/build/wolftrust-unsigned.bin" "$repo/build/wolftrust.bin"
-python3 tools/measure/patch_guest_digests.py "$repo/build/wolftrust.bin" \
-  "0:${WT_GUEST0_VERSION:-1}:$g0_img" \
-  "1:${WT_GUEST1_VERSION:-1}:$g1_img"
+guest_pins=("0:${WT_GUEST0_VERSION:-1}:$g0_img")
+if [ -n "$g1_img" ]; then guest_pins+=("1:${WT_GUEST1_VERSION:-1}:$g1_img"); fi
+python3 tools/measure/patch_guest_digests.py "$repo/build/wolftrust.bin" "${guest_pins[@]}"
 IMAGE_HEADER_SIZE=1024 WOLFBOOT_PARTITION_SIZE=0x40000 WOLFBOOT_SECTOR_SIZE=0x2000 \
   "$repo/wolfBoot/tools/keytools/sign" --ecc256 \
     "$repo/build/wolftrust.bin" \
@@ -506,11 +498,19 @@ g1_emu_offset=0xE0000
 if [ "$family" = "pkcs11" ]; then
   g1_emu_offset=0xC0000
 fi
+guest_images=("$g0_img:0xA0000")
+if [ -n "$g1_img" ]; then guest_images+=("$g1_img:$g1_emu_offset"); fi
+if [ "$scenario" = tpm ] || [ "$scenario" = tpmneg ] || [ "$family" = pkcs11 ]; then
+  if [ "$WT_MAX_GUESTS" != 1 ] || [ "${#guest_images[@]}" != 1 ] || \
+     [ "${#guest_pins[@]}" != 1 ]; then
+    echo "FAIL: interface scenario requires exactly one authenticated application" >&2
+    exit 1
+  fi
+fi
 set +e
 "$M33MU" "$repo/wolfBoot/wolfboot.bin" \
   "$repo/build/wolftrust_v1_signed.bin:0x60000" \
-  "$g0_img:0xA0000" \
-  "$g1_img:$g1_emu_offset" \
+  "${guest_images[@]}" \
   ${update_img:+"$update_img"} \
   --uart-stdout --expect-bkpt $expect_bkpt $quit_flag --timeout "$timeout_s" | tee "$log"
 emu_status=${PIPESTATUS[0]}
@@ -1018,22 +1018,10 @@ case "$scenario" in
       '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)'
     tpm_app="tpm-$WT_INTERFACE_OS"
     expect "$WT_INTERFACE_OS TPM application guest alive" "$tpm_app: alive"
-    expect "fwTPM heap scrubs a freed allocation before reuse" \
-      "ftpm-guest1: heap scrub ok"
-    expect "isolated fwTPM partition ready" "ftpm-guest1: ready"
     expect "fwTPM capabilities match the relay frame limit" \
       "$tpm_app: tpm frame caps ok"
     expect "valid TPM command reaches the advertised frame limit" \
       "$tpm_app: tpm max frame ok"
-    expect "fwTPM handled TPM2 GetRandom" "ftpm-guest1: command GetRandom"
-    expect "fwTPM handled TPM2 CreatePrimary" \
-      "ftpm-guest1: command CreatePrimary"
-    expect "fwTPM handled TPM2 Sign" "ftpm-guest1: command Sign"
-    if [ "$WT_CRYPTO_PROFILE" = full ]; then
-    expect "fwTPM handled TPM2 PCR_Extend" \
-      "ftpm-guest1: command PCR_Extend"
-    expect "fwTPM handled TPM2 PCR_Read" "ftpm-guest1: command PCR_Read"
-    fi
     if [ "$WT_CRYPTO_PROFILE" = default ]; then
       expect_flat "TPM capabilities match the selected commands" \
         "$tpm_app: tpm command capabilities match profile"
@@ -1051,28 +1039,20 @@ case "$scenario" in
     # its own data band. Both partitions restart before the mediated TPM flow.
     expect_n_re "TPMDATA read and write faulted on the HSM partition stack" 2 \
       '^\[MEMFAULT\] sp=0x3009[67]'
-    expect "TPM relay cannot read the fwTPM guest RAM" \
-      "addr=0x20010000"
+    expect "TPM handler cannot read SPM private RAM" \
+      "addr=0x30028000"
     expect_re "TPM relay cannot execute from its XN TPMDATA band" \
-      '^\[MEMFAULT\] pc=0x30095000 addr=0x30095000'
+      '^\[MEMFAULT\] pc=0x30065000 addr=0x30065000'
     expect_n_re "both TPM relay faults used its own partition stack" 2 \
-      '^\[MEMFAULT\] sp=0x3009[34]'
+      '^\[MEMFAULT\] sp=0x3007[1-4]'
     refute_re "isolation faults did not escalate" \
       '^(\[HARDFLT\]|HardFault|SecureFault)'
     expect "application guest alive after the quarantines" \
       "tpm-guest0: alive"
-    expect "fwTPM heap scrubs a freed allocation before reuse" \
-      "ftpm-guest1: heap scrub ok"
-    expect "isolated fwTPM partition ready after the quarantines" \
-      "ftpm-guest1: ready"
     expect "fwTPM capabilities match the relay frame limit" \
       "tpm-guest0: tpm frame caps ok"
     expect "valid TPM command reaches the advertised frame limit" \
       "tpm-guest0: tpm max frame ok"
-    expect "fwTPM handled TPM2 CreatePrimary after recovery" \
-      "ftpm-guest1: command CreatePrimary"
-    expect "fwTPM handled TPM2 Sign after recovery" \
-      "ftpm-guest1: command Sign"
     expect_flat "mediated TPM still completes after every restart" \
       "tpm-guest0: tpm round trip ok"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
@@ -1082,12 +1062,12 @@ case "$scenario" in
     if [ "$scenario" = "pkcs11neg" ]; then
       expect_n_re "PKCS11DATA read and write faulted on the HSM partition stack" 2 \
         '^\[MEMFAULT\] sp=0x3009[67]'
-      expect "PKCS11 relay cannot read the provider guest RAM" \
-        "addr=0x20010000"
+      expect "PKCS11 handler cannot read SPM private RAM" \
+        "addr=0x30028000"
       expect_re "PKCS11 relay cannot execute from its XN data band" \
-        '^\[MEMFAULT\] pc=0x30070000 addr=0x30070000'
+        '^\[MEMFAULT\] pc=0x30065000 addr=0x30065000'
       expect_n_re "both PKCS11 relay faults used its own partition stack" 2 \
-        '^\[MEMFAULT\] sp=0x3009[34]'
+        '^\[MEMFAULT\] sp=0x3007[1-4]'
       refute_re "isolation faults did not escalate" \
         '^(\[HARDFLT\]|HardFault|SecureFault)'
     else
@@ -1101,12 +1081,6 @@ case "$scenario" in
       expect "FreeRTOS scheduler ran the PKCS11 task" \
         "$pkcs11_app: scheduler started"
     fi
-    expect "isolated wolfPKCS11 provider guest alive" \
-      "pkcs11-provider: alive"
-    expect "the provider heap scrubs a freed allocation before reuse" \
-      "pkcs11-provider: heap scrub ok"
-    expect "wolfPKCS11 provider connected through SERVICE_PKCS11" \
-      "pkcs11-provider: ready"
     expect "the selected PKCS11 suite completed" \
       "$pkcs11_app: suite $pkcs11_suite complete"
     expect "the PKCS11 suite reported zero failures" \

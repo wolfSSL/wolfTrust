@@ -166,7 +166,7 @@ static void wt_spm_tpm_partition_probe(void* arg)
         }
         (void)wt_tpm_relay_restart_probe(0);
         seen = *(const volatile uint32_t*)
-            wt_platform_probe_address(WT_PROBE_TPM_FTPM_RAM);
+            wt_platform_probe_address(WT_PROBE_OUT_OF_DOMAIN);
         (void)seen;
         wt_arch_sp_fault_probe(3u);
     }
@@ -217,7 +217,7 @@ static void wt_spm_pkcs11_partition_probe(void* arg)
         }
         (void)wt_pkcs11_relay_restart_probe(0);
         seen = *(const volatile uint32_t*)
-            wt_platform_probe_address(WT_PROBE_PKCS11_PROVIDER_RAM);
+            wt_platform_probe_address(WT_PROBE_OUT_OF_DOMAIN);
         (void)seen;
         wt_arch_sp_fault_probe(3u);
     }

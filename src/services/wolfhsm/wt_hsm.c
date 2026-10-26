@@ -77,6 +77,7 @@
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/nvm_store.h"
 #include "wolftrust/services/nvm_client.h"
+#include "wolftrust/provider_crypto.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/vault_service.h"
@@ -123,7 +124,7 @@ typedef struct wt_hsm_guest {
     bool                      ready;
 } wt_hsm_guest_t;
 
-static wt_hsm_guest_t g_guests[WT_MAX_GUESTS];
+static wt_hsm_guest_t g_guests[WT_HSM_NAMESPACE_COUNT];
 #if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
     defined(WT_INTERFACE_LOCAL_PROVIDER)
 static int32_t g_secure_client_id;
@@ -282,7 +283,7 @@ static int wt_hsm_guest_init(wt_guest_id_t guest_id)
     /* ------------------------------------------------------------------
      * 1. Bounds + duplicate check.
      * ---------------------------------------------------------------- */
-    if (guest_id >= WT_MAX_GUESTS) {
+    if (guest_id >= WT_HSM_NAMESPACE_COUNT) {
         return WH_ERROR_BADARGS;
     }
     g = &g_guests[guest_id];
@@ -349,19 +350,21 @@ static int wt_hsm_guest_init(wt_guest_id_t guest_id)
     /* ------------------------------------------------------------------
      * 7. Create tasklet.
      * ---------------------------------------------------------------- */
-    tasklet = wt_hsm_guest_tasklet(guest_id);
-    if (tasklet == NULL) {
-        tasklet = wt_tasklet_create_blocked(wt_hsm_priv_stack(guest_id),
-                                            WT_CO_STACK_SIZE,
-                                            wt_hsm_tasklet_main,
-                                            (void *)(uintptr_t)guest_id);
+    if (guest_id < WT_MAX_GUESTS) {
+        tasklet = wt_hsm_guest_tasklet(guest_id);
+        if (tasklet == NULL) {
+            tasklet = wt_tasklet_create_blocked(wt_hsm_priv_stack(guest_id),
+                                                WT_CO_STACK_SIZE,
+                                                wt_hsm_tasklet_main,
+                                                (void *)(uintptr_t)guest_id);
+        }
+        if (tasklet == NULL) {
+            wh_Server_Cleanup(&g->server);
+            wc_FreeRng(g->crypto.rng);
+            return WH_ERROR_ABORTED;
+        }
+        wt_hsm_priv_register(guest_id, tasklet);
     }
-    if (tasklet == NULL) {
-        wh_Server_Cleanup(&g->server);
-        wc_FreeRng(g->crypto.rng);
-        return WH_ERROR_ABORTED;
-    }
-    wt_hsm_priv_register(guest_id, tasklet);
 
     /* ------------------------------------------------------------------
      * 8. Mark guest ready.
@@ -392,7 +395,7 @@ typedef struct wt_hsm_relay_buf {
     uint8_t  resp_ready;
 } wt_hsm_relay_buf_t;
 
-static wt_hsm_relay_buf_t g_relay_bufs[WT_MAX_GUESTS];
+static wt_hsm_relay_buf_t g_relay_bufs[WT_HSM_NAMESPACE_COUNT];
 
 static int wt_hsm_relay_srv_init(void* context, const void* config,
                                  whCommSetConnectedCb connectcb,
@@ -534,7 +537,7 @@ static void wt_hsm_bind_server_cfg(wt_guest_id_t guest_id)
 
 int wt_hsm_guest_init_relay(wt_guest_id_t guest_id)
 {
-    if (guest_id >= WT_MAX_GUESTS) {
+    if (guest_id >= WT_HSM_NAMESPACE_COUNT) {
         return WH_ERROR_BADARGS;
     }
     return wt_hsm_guest_init(guest_id);
@@ -545,7 +548,8 @@ int wt_hsm_guest_init_relay(wt_guest_id_t guest_id)
 int wt_hsm_relay_set_secure_client(int32_t partition_id,
                                    wt_guest_id_t namespace_id)
 {
-    if (partition_id <= 0 || namespace_id >= WT_MAX_GUESTS) {
+    if (partition_id <= 0 || namespace_id < WT_MAX_GUESTS ||
+            namespace_id >= WT_HSM_NAMESPACE_COUNT) {
         return WH_ERROR_BADARGS;
     }
     wt_hsm_relay_set_secure_client_policy(partition_id);
@@ -594,7 +598,10 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
     if (client_id < 0) {
         /* The SPM stamps NS callers as -(guest + 1); the mapping mirrors
          * wt_ffm_boot_caller_guest. */
-        gid = (wt_guest_id_t)(-client_id - 1);
+        gid = (wt_guest_id_t)(-(client_id + 1));
+        if (gid >= WT_MAX_GUESTS) {
+            return WH_ERROR_BADARGS;
+        }
     }
 #if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
     defined(WT_INTERFACE_LOCAL_PROVIDER)
@@ -605,7 +612,7 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
     else {
         return WH_ERROR_ACCESS;
     }
-    if (gid >= WT_MAX_GUESTS) {
+    if (gid >= WT_HSM_NAMESPACE_COUNT) {
         return WH_ERROR_BADARGS;
     }
     g = &g_guests[gid];
@@ -674,7 +681,7 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
  * ====================================================================== */
 bool wt_hsm_guest_ready(wt_guest_id_t guest_id)
 {
-    if (guest_id >= WT_MAX_GUESTS) {
+    if (guest_id >= WT_HSM_NAMESPACE_COUNT) {
         return false;
     }
     return g_guests[guest_id].ready;
@@ -759,7 +766,7 @@ int wt_hsm_relay_reinit_servers(void)
     wt_tasklet_t   *tasklet;
     wt_guest_id_t   gid;
 
-    for (gid = 0; gid < WT_MAX_GUESTS; gid++) {
+    for (gid = 0; gid < WT_HSM_NAMESPACE_COUNT; gid++) {
         g = &g_guests[gid];
         if (!g->ready) {
             continue;
@@ -814,7 +821,7 @@ int wt_hsm_bind_nvm(whNvmContext* nvm)
         return WH_ERROR_BADARGS;
     }
     g_hsm_nvm = nvm;
-    for (gid = 0; gid < WT_MAX_GUESTS; gid++) {
+    for (gid = 0; gid < WT_HSM_NAMESPACE_COUNT; gid++) {
         g_guests[gid].server_cfg.nvm = nvm;
     }
     g_hsm_attest_server_cfg.nvm = nvm;

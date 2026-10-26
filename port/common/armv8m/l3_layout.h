@@ -101,22 +101,24 @@
 #define WT_SP_VNET_STACK_BASE    WT_CONF_SP_DATA_BASE
 #define WT_SP_VNET_STACK_SIZE    WT_SP_SECURE_STACK_SIZE
 
-/* The top of the SPM RAM window, directly below the keystore. */
+/* The top of the SPM RAM window, directly below the keystore. CONFIG_TPM and
+ * CONFIG_PKCS11 widen it into the 64 KiB interface window. */
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+#define WT_VNET_DATA_SIZE        0x00010000u
+#else
 #define WT_VNET_DATA_SIZE        0x00005000u
+#endif
 #define WT_VNET_DATA_BASE        (WT_KEYSTORE_BASE - WT_VNET_DATA_SIZE)
 
-/* CONFIG_PKCS11 is exclusive with CONFIG_VNET, so its relay owns the VNET band. */
-#define WT_PKCS11_DATA_BASE      WT_VNET_DATA_BASE
-#define WT_PKCS11_DATA_SIZE      WT_VNET_DATA_SIZE
-#define WT_SP_PKCS11_STACK_BASE  WT_CONF_SP_DATA_BASE
-#define WT_SP_PKCS11_STACK_SIZE  WT_SP_SECURE_STACK_SIZE
-
-/* CONFIG_TPM is exclusive with CONFIG_VNET and WT_CONFORMANCE: the TPM relay
- * stack and mailbox are carved from the conformance window. */
-#define WT_SP_TPM_STACK_BASE     WT_CONF_SP_DATA_BASE
-#define WT_SP_TPM_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
-#define WT_TPM_DATA_BASE         (WT_CONF_SP_DATA_BASE + 0x00002000u)
-#define WT_TPM_DATA_SIZE         0x00000800u
+/* Interface state and stacks share the auxiliary window, with disjoint MPU grants. */
+#define WT_PKCS11_DATA_BASE      (WT_KEYSTORE_BASE - 0x00010000u)
+#define WT_PKCS11_DATA_SIZE      0x0000C000u
+#define WT_SP_PKCS11_STACK_BASE  (WT_PKCS11_DATA_BASE + WT_PKCS11_DATA_SIZE)
+#define WT_SP_PKCS11_STACK_SIZE  0x00004000u
+#define WT_TPM_DATA_BASE         WT_PKCS11_DATA_BASE
+#define WT_TPM_DATA_SIZE         0x0000C000u
+#define WT_SP_TPM_STACK_BASE     (WT_TPM_DATA_BASE + WT_TPM_DATA_SIZE)
+#define WT_SP_TPM_STACK_SIZE     0x00004000u
 
 /* Per-partition pseudo-MMIO holes at the top of the conformance window; must
  * match SERVER/DRIVER_PARTITION_MMIO_0_* in the port's pal_config.h. */

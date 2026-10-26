@@ -208,6 +208,12 @@ endif
 WT_VNET_DATA_LENGTH := 0x5000
 endif
 
+ifeq ($(ARCH),armv8m)
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+WT_VNET_DATA_LENGTH := 0x10000
+endif
+endif
+
 ifeq ($(CONFIG_TPM),y)
 ifeq ($(filter stm32h563 mimxrt700 qemuvirt versal,$(TARGET)),)
 $(error TARGET=$(TARGET) has no SERVICE_TPM manifest; build with CONFIG_TPM=n)
@@ -1776,6 +1782,9 @@ $(BUILD_DIR)/tpm_wh_%.o: $(BUILD_DIR)/tpm_wh_raw_%.o $(TPM_NAMESPACE_MAP)
 $(BUILD_DIR)/tpm_wc_raw_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) -UWC_NO_DEFAULT_DEVID $(TPM_CRYPTO_DEVICE_CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/tpm_wc_raw_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) -UWC_NO_DEFAULT_DEVID $(TPM_CRYPTO_DEVICE_CFLAGS) -c -o $@ $<
+
 $(TPM_NAMESPACE_MAP): $(TPM_WOLFCRYPT_RAW_OBJS) | $(BUILD_DIR)
 	@$(NM) -g --defined-only $^ | awk 'NF >= 2 && $$(NF - 1) ~ /^[A-ZTWV]$$/ { print $$NF, "wt_tpm_" $$NF }' | LC_ALL=C sort -u > $@.tmp
 	@mv $@.tmp $@
@@ -1793,6 +1802,9 @@ $(BUILD_DIR)/p11_sec_raw_%.o: $(ROOT)/src/client/%.c $(WOLFHSM_CFG_H) $(BUILD_MO
 	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/p11_wc_raw_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/p11_wc_raw_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/p11_wh_raw_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)

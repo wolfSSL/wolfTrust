@@ -134,7 +134,10 @@
   .pkcs11_data : {
     . = ALIGN(32);
     _s_pkcs11 = .;
-    *wt_sec_pkcs11_relay_service.o(.data .data.*)
+    *wt_sec_pkcs11*.o(.data .data.*)
+    *p11_sec_*.o(.data .data.*)
+    *p11_wc_*.o(.data .data.*)
+    *p11_wh_*.o(.data .data.*)
     . = ALIGN(4);
     _e_pkcs11_data = .;
   } > VNETDATA AT > FLASH
@@ -142,25 +145,34 @@
 
   .pkcs11_bss (NOLOAD) : {
     _s_pkcs11_bss = .;
-    *wt_sec_pkcs11_relay_service.o(.bss .bss.* COMMON)
+    *wt_sec_pkcs11*.o(.bss .bss.* COMMON)
+    *p11_sec_*.o(.bss .bss.* COMMON)
+    *p11_wc_*.o(.bss .bss.* COMMON)
+    *p11_wh_*.o(.bss .bss.* COMMON)
     . = ALIGN(32);
     _e_pkcs11 = .;
   } > VNETDATA
 
-  /* SERVICE_TPM relay state, claimed out of SPM .data/.bss so its MPU grant
-   * covers exactly its own state. Empty outside CONFIG_TPM builds. */
+  /* SERVICE_TPM state, claimed out of SPM .data/.bss so its MPU grant covers
+   * exactly its own state. Empty outside CONFIG_TPM builds. */
   .tpm_data : {
     . = ALIGN(32);
     _s_tpm = .;
-    *wt_sec_tpm_relay_service.o(.data .data.*)
+    *wt_sec_tpm*.o(.data .data.*)
+    *tpm_sec_*.o(.data .data.*)
+    *tpm_wc_*.o(.data .data.*)
+    *tpm_wh_*.o(.data .data.*)
     . = ALIGN(4);
     _e_tpm_data = .;
-  } > TPMDATA AT > FLASH
+  } > VNETDATA AT > FLASH
   _si_tpm = LOADADDR(.tpm_data);
 
   .tpm_bss (NOLOAD) : {
     _s_tpm_bss = .;
-    *wt_sec_tpm_relay_service.o(.bss .bss.* COMMON)
+    *wt_sec_tpm*.o(.bss .bss.* COMMON)
+    *tpm_sec_*.o(.bss .bss.* COMMON)
+    *tpm_wc_*.o(.bss .bss.* COMMON)
+    *tpm_wh_*.o(.bss .bss.* COMMON)
     . = ALIGN(32);
     _e_tpm = .;
-  } > TPMDATA
+  } > VNETDATA

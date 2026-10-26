@@ -108,3 +108,17 @@ TPM selections containing `ZGen_2Phase` retain software ECC point arithmetic
 because its full-point operation is outside the HSM ECDH callback. Adding that
 command restores the dependency automatically; it is absent from the small
 default profile.
+
+## Validation record
+
+Implementation: `f0e28c6e06c5d59d97e47be6e04ce277f9afd893`. The reproducible
+script produced the table above from that commit. The matched base build uses
+the same compiler and settings.
+
+All 71 host suites pass on macOS and Linux. The focused profile suite also
+passes ISO C99 and ASan/UBSan checks. The audited local evidence contains 49 real
+emulator passes across the profile snapshots and final source rechecks: both
+engines, both profiles, both Cortex-M clients, Cortex-A, partition isolation,
+and PSA Crypto conformance (64 passed, 13 existing unsupported cases skipped,
+zero failed). No API/engine matrix cell is accepted as a successful skip.
+Final-head GitHub CI is recorded separately after the branch update.

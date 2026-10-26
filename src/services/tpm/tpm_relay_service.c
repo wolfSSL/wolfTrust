@@ -164,19 +164,18 @@ static psa_status_t wt_tpm_transact(wt_ffm_runtime_t* runtime,
     }
     status = wt_tpm_relay_take_frame(runtime, partition_id, msg,
                                      g_relay_slot.cmd, &g_relay_slot.cmd_len);
-    if (status != PSA_SUCCESS) {
-        goto cleanup;
+    if (status == PSA_SUCCESS) {
+        rc = g_local_provider(g_relay_slot.cmd, g_relay_slot.cmd_len,
+            g_relay_slot.resp, sizeof(g_relay_slot.resp), &response_len,
+            g_local_provider_context);
+        if (rc != 0 || response_len == 0U || response_len > WT_TPM_FRAME_MAX) {
+            status = PSA_ERROR_GENERIC_ERROR;
+        }
+        else {
+            status = wt_tpm_relay_give_frame(runtime, partition_id, msg,
+                g_relay_slot.resp, (uint16_t)response_len);
+        }
     }
-    rc = g_local_provider(g_relay_slot.cmd, g_relay_slot.cmd_len,
-        g_relay_slot.resp, sizeof(g_relay_slot.resp), &response_len,
-        g_local_provider_context);
-    if (rc != 0 || response_len == 0U || response_len > WT_TPM_FRAME_MAX) {
-        status = PSA_ERROR_GENERIC_ERROR;
-        goto cleanup;
-    }
-    status = wt_tpm_relay_give_frame(runtime, partition_id, msg,
-        g_relay_slot.resp, (uint16_t)response_len);
-cleanup:
     wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
     return status;
 }

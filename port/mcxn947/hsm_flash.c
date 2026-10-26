@@ -382,6 +382,9 @@ int wt_hsm_flash_format(void)
 static uint32_t g_fwu_erased_end;
 static uint32_t g_fwu_written_end;
 
+/* Write-once wolfBoot keeps a trailer copy in each of the last two sectors. */
+#define WT_FWU_TRAILER_SIZE (2u * WT_FLASH_SECTOR_SIZE)
+
 static int wt_fwu_ensure_erased(uint32_t offset, uint32_t size)
 {
     uint32_t sector_size = g_fwu_flash_cfg.sector_size;
@@ -414,11 +417,11 @@ static int wt_fwu_backend_write(void *ctx, uint32_t offset,
                                 const uint8_t *data, uint32_t size)
 {
     const uint8_t *mapped = (const uint8_t *)(g_fwu_flash_cfg.base + offset);
-    uint32_t reserved = g_fwu_flash_cfg.size - g_fwu_flash_cfg.sector_size;
+    uint32_t reserved = g_fwu_flash_cfg.size - WT_FWU_TRAILER_SIZE;
 
     (void)ctx;
-    /* The trailer sector holds wolfBoot's swap trigger and is owned by
-     * arm/disarm alone; staging data must never pre-program it. */
+    /* The trailer sectors hold wolfBoot's swap trigger and are owned by
+     * arm/disarm alone; staging data must never pre-program them. */
     if (offset >= reserved || size > reserved - offset ||
             offset != g_fwu_written_end) {
         return -1;
@@ -450,8 +453,8 @@ static int wt_fwu_backend_arm(void *ctx, uint32_t image_size,
     (void)image_size;
     (void)version;
     /* The wolfBoot trigger lives in the topmost program unit of the partition
-     * (state + magic); the block below it stays erased. The trailer sector
-     * never holds staged data, so it is erased outright. */
+     * (state + magic); the block below it stays erased. The trailer sectors
+     * never hold staged data, so they are erased outright. */
     if (wt_fwu_wolfboot_arm_trailer(block, (uint32_t)sizeof(block)) != 0) {
         return -1;
     }
@@ -470,11 +473,11 @@ static int wt_fwu_backend_arm(void *ctx, uint32_t image_size,
 
 static int wt_fwu_backend_disarm(void *ctx)
 {
-    uint32_t trailer = g_fwu_flash_cfg.size - g_fwu_flash_cfg.sector_size;
+    uint32_t trailer = g_fwu_flash_cfg.size - WT_FWU_TRAILER_SIZE;
 
     (void)ctx;
     if (wt_hsm_flash_erase(&g_fwu_flash_ctx, trailer,
-                           g_fwu_flash_cfg.sector_size) != WH_ERROR_OK) {
+                           WT_FWU_TRAILER_SIZE) != WH_ERROR_OK) {
         return -1;
     }
     return 0;
@@ -543,8 +546,8 @@ const wt_fwu_backend_t wt_fwu_flash_backend = {
     .write = wt_fwu_backend_write,
     .arm = wt_fwu_backend_arm,
     .disarm = wt_fwu_backend_disarm,
-    /* The trailer sector is arm/disarm-owned, never staging capacity. */
-    .capacity = WT_FWU_UPDATE_FLASH_SIZE - WT_FLASH_SECTOR_SIZE,
+    /* The trailer sectors are arm/disarm-owned, never staging capacity. */
+    .capacity = WT_FWU_UPDATE_FLASH_SIZE - WT_FWU_TRAILER_SIZE,
     .align = WT_FLASH_PHRASE_SIZE,
     .verify = wt_fwu_backend_verify,
 };

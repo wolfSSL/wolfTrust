@@ -26,8 +26,9 @@ Cortex-A ports are an intended extension point.
 
 Non-secure applications can use PSA Crypto, PKCS#11, or TPM 2.0 as independent
 interfaces through the SPM. `CONFIG_PKCS11=y` routes standard PKCS#11 `C_*`
-calls to an isolated wolfPKCS11 provider. `CONFIG_TPM=y` routes wolfTPM command
-traffic to an isolated firmware TPM. Both use FF-M IPC through the port's
+calls to wolfPKCS11 inside `SERVICE_PKCS11`. `CONFIG_TPM=y` routes wolfTPM command
+traffic to fwTPM inside `SERVICE_TPM`. Neither needs an additional guest or
+RTOS. Both use FF-M IPC through the port's
 normal client boundary: the same five CMSE gateway veneers as PSA clients on
 Armv8-M, or FF-A through the EL3 SPMD on AArch64. Neither uses the PSA Crypto
 API or depends on the other interface. See the [PKCS#11 Interface](docs/PKCS11.md)
@@ -39,7 +40,7 @@ operation set, or individual API operations.
 Runtime qualification for these optional interfaces is currently scoped to
 STM32H563 under M33MU and `qemuvirt` under QEMU. MIMXRT700 and Versal have
 compile and absolute-layout gates for both configurations, but this release
-does not claim TPM or PKCS#11 application/provider runtime coverage on those
+does not claim TPM or PKCS#11 application/service runtime coverage on those
 two targets.
 
 ## Architecture
@@ -70,7 +71,7 @@ flowchart TB
             FW[Firmware Update]
             VN[Optional virtual networking]
             P11[Optional PKCS#11 relay]
-            TPM[Optional TPM 2.0 relay]
+            TPM[Optional TPM 2.0 service]
         end
         SPM --> CR
         SPM --> ST
@@ -87,8 +88,8 @@ flowchart TB
         COSE[wolfCOSE]
         HAL[wolfHAL]
         IP[wolfIP<br/>optional bare-metal reference networking]
-        P11P[wolfPKCS11<br/>isolated provider]
-        FTPM[wolfTPM<br/>isolated firmware TPM]
+        P11P[wolfPKCS11<br/>Secure partition]
+        FTPM[wolfTPM fwTPM<br/>Secure partition]
     end
 
     BOOT -->|authenticated measurement, lifecycle, and version handoff| SPM
@@ -110,8 +111,11 @@ flowchart TB
     AT --> COSE
     AT --> WC
     P11 --> P11P
-    P11P -->|SERVICE_HSM| CR
+    P11P -->|native| WC
+    P11P -->|hsm| CR
     TPM --> FTPM
+    FTPM -->|native| WC
+    FTPM -->|hsm| CR
     TARGET -->|STM32H563 register and RNG access| HAL
 ```
 

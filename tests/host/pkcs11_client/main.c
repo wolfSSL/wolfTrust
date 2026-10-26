@@ -18,7 +18,7 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* PKCS11 PSA client suite: a scripted relay checks chunking, bounded polling,
+/* PKCS11 PSA client suite: a scripted relay checks chunking, synchronous execution,
  * response framing, abort recovery, and cached-connection recovery. */
 
 #include "psa/client.h"
@@ -50,7 +50,8 @@ static size_t g_request_expected;
 static size_t g_request_received;
 static uint8_t g_response[WT_PKCS11_MESSAGE_MAX];
 static size_t g_response_len;
-static uint32_t g_poll_busy;
+static unsigned int g_executions;
+static unsigned int g_polls;
 static int g_auto_complete;
 static size_t g_forced_poll_len;
 static size_t g_forced_read_len;
@@ -132,17 +133,13 @@ static psa_status_t mock_poll(psa_outvec* out_vec, size_t out_len)
         return PSA_ERROR_PROGRAMMER_ERROR;
     }
     if (g_state == MOCK_PENDING) {
-        if (g_poll_busy > 0U) {
-            g_poll_busy--;
-            return (psa_status_t)WT_PKCS11_E_BUSY;
-        }
         if (g_auto_complete == 0) {
-            return (psa_status_t)WT_PKCS11_E_BUSY;
+            return PSA_ERROR_CONNECTION_BUSY;
         }
         g_state = MOCK_DONE;
     }
     if (g_state != MOCK_DONE) {
-        return (psa_status_t)WT_PKCS11_E_EMPTY;
+        return PSA_ERROR_BAD_STATE;
     }
     length.length = (uint32_t)g_response_len;
     (void)memcpy(out_vec[0].base, &length, sizeof(length));
@@ -193,15 +190,17 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
             return mock_begin(in_vec, in_len);
         case WT_PKCS11_OP_APP_WRITE:
             return mock_write(in_vec, in_len);
-        case WT_PKCS11_OP_APP_COMMIT:
+        case WT_PKCS11_OP_APP_EXECUTE:
+            g_executions++;
             if (g_state != MOCK_WRITING ||
                     g_request_received != g_request_expected) {
                 return PSA_ERROR_BAD_STATE;
             }
             g_state = MOCK_PENDING;
-            return PSA_SUCCESS;
-        case WT_PKCS11_OP_APP_POLL:
             return mock_poll(out_vec, out_len);
+        case 4 /* retired polling opcode */:
+            g_polls++;
+            return PSA_ERROR_NOT_SUPPORTED;
         case WT_PKCS11_OP_APP_READ:
             return mock_read(in_vec, in_len, out_vec, out_len);
         case WT_PKCS11_OP_APP_ABORT:
@@ -226,7 +225,8 @@ static void mock_reset(void)
     g_request_expected = 0U;
     g_request_received = 0U;
     g_response_len = 0U;
-    g_poll_busy = 0U;
+    g_executions = 0U;
+    g_polls = 0U;
     g_auto_complete = 1;
     g_forced_poll_len = 0U;
     g_forced_read_len = 0U;
@@ -263,7 +263,7 @@ static void test_arguments(void)
           "client rejects invalid call arguments before connecting");
 }
 
-static void test_chunking_and_polling(void)
+static void test_chunking_and_execution(void)
 {
     uint8_t request[WT_PKCS11_CHUNK_MAX + 17U];
     uint8_t output[WT_PKCS11_CHUNK_MAX + 23U];
@@ -273,21 +273,21 @@ static void test_chunking_and_polling(void)
     fill_pattern(request, sizeof(request), 0x5AU);
     fill_pattern(g_response, sizeof(output), 0xA5U);
     g_response_len = sizeof(output);
-    g_poll_busy = 2U;
     check(wt_pkcs11_psa_call(request, sizeof(request), output, sizeof(output),
               &output_len) == PSA_SUCCESS &&
           output_len == sizeof(output) &&
           memcmp(g_request, request, sizeof(request)) == 0 &&
           memcmp(output, g_response, sizeof(output)) == 0 &&
-          g_connects == 1 && g_state == MOCK_IDLE,
-          "multi-chunk client call completes after bounded busy polls");
+          g_connects == 1 && g_state == MOCK_IDLE &&
+          g_executions == 1U && g_polls == 0U,
+          "chunked request completes with one synchronous execution and no polls");
 
     mock_reset();
     g_auto_complete = 0;
     check(wt_pkcs11_psa_call(request, 16U, output, sizeof(output),
-              &output_len) == WT_PKCS11_E_BUSY && g_aborts == 1 &&
-              g_state == MOCK_IDLE,
-          "poll exhaustion aborts at the configured bound");
+              &output_len) == PSA_ERROR_CONNECTION_BUSY && g_aborts == 1 &&
+              g_state == MOCK_IDLE && g_executions == 1U && g_polls == 0U,
+          "failed execution aborts without replay");
 }
 
 static void test_response_failures(void)
@@ -363,7 +363,7 @@ static void test_connection_recovery(void)
 int main(void)
 {
     test_arguments();
-    test_chunking_and_polling();
+    test_chunking_and_execution();
     test_response_failures();
     test_connection_recovery();
 
@@ -371,6 +371,6 @@ int main(void)
     if (g_failures != 0) {
         return 1;
     }
-    (void)printf("PASS: PKCS11 PSA client chunking, polling, and recovery\n");
+    (void)printf("PASS: PKCS11 PSA client chunking, execution, and recovery\n");
     return 0;
 }

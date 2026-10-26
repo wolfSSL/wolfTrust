@@ -266,8 +266,8 @@ g1_img="$repo/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest
 if [ "$scenario" = "vnet" ] || [ "$scenario" = "vnetneg" ]; then
   rm -rf tests/firmware/stm32h563-vnet/build
   make -C tests/firmware/stm32h563-vnet build/guest0.bin build/guest1.bin \
-    WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
-    WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
+    WT_GUEST0_FLASH_ORIGIN=0x080A0000 \
+    WT_GUEST0_RAM_BASE=0x20000000 \
     WT_GUEST_RAM_SIZE=0x00010000 \
     GUEST_EXTRA_CFLAGS="-DWT_VNET_EXIT_BKPT=1"
   g0_img="$repo/tests/firmware/stm32h563-vnet/build/guest0.bin"
@@ -277,10 +277,10 @@ elif [ "$scenario" = "tpmneg" ]; then
   make -C tests/firmware/stm32h563-tpm \
     build/tpm/guest0.bin \
     BUILD_DIR=build/tpm \
-    WT_GUEST0_FLASH_ORIGIN=0x080A0000 WT_GUEST1_FLASH_ORIGIN=0x080E0000 \
-    WT_GUEST0_RAM_BASE=0x20000000 WT_GUEST1_RAM_BASE=0x20010000 \
+    WT_GUEST0_FLASH_ORIGIN=0x080A0000 \
+    WT_GUEST0_RAM_BASE=0x20000000 \
     WT_GUEST_RAM_SIZE=0x00010000 \
-    GUEST_EXTRA_CFLAGS="-DWT_TPM_EXIT_BKPT=1 -DWT_TPM_TRACE_COMMANDS=1"
+    GUEST_EXTRA_CFLAGS="-DWT_TPM_EXIT_BKPT=1"
   g0_img="$repo/tests/firmware/stm32h563-tpm/build/tpm/guest0.bin"
   g1_img=""
 elif [ "$scenario" = "tpm" ]; then

@@ -23,13 +23,7 @@
 
 #include <string.h>
 
-#define WT_TPM_SLOT_IDLE        0U
-#define WT_TPM_SLOT_PENDING     1U
-#define WT_TPM_SLOT_IN_SERVICE  2U
-#define WT_TPM_SLOT_DONE        3U
-
 static int32_t g_relay_app_client = 0;
-static int32_t g_relay_ftpm_client = 0;
 static wt_spm_transport_fn g_relay_transport = wt_spm_transport_direct;
 static wt_tpm_local_provider_fn g_local_provider;
 static void* g_local_provider_context;
@@ -39,8 +33,6 @@ static struct {
     uint8_t cmd[WT_TPM_FRAME_MAX];
     uint8_t resp[WT_TPM_FRAME_MAX];
     uint16_t cmd_len;
-    uint16_t resp_len;
-    uint8_t state;
 } g_relay_slot;
 
 #if defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)
@@ -48,10 +40,9 @@ static struct {
 WT_RESTART_PROBE_DEFINE(wt_tpm_relay_restart_probe)
 #endif
 
-void wt_tpm_relay_set_roles(int32_t app_client_id, int32_t ftpm_client_id)
+void wt_tpm_relay_set_client(int32_t app_client_id)
 {
     g_relay_app_client = app_client_id;
-    g_relay_ftpm_client = ftpm_client_id;
     wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
 }
 
@@ -157,131 +148,51 @@ static psa_status_t wt_tpm_relay_give_frame(wt_ffm_runtime_t* runtime,
     return PSA_SUCCESS;
 }
 
-static psa_status_t wt_tpm_relay_app_op(wt_ffm_runtime_t* runtime,
-                                        int32_t partition_id,
-                                        const psa_msg_t* msg)
+static psa_status_t wt_tpm_transact(wt_ffm_runtime_t* runtime,
+                                     int32_t partition_id,
+                                     const psa_msg_t* msg)
 {
     psa_status_t status;
+    size_t response_len = 0U;
+    int rc;
 
-    if (msg->type == WT_TPM_OP_SUBMIT) {
-        /* A command the responder has taken IN_SERVICE is left alone so a
-         * stray submit cannot erase it mid-process; the responder finishes it
-         * (slot -> DONE, reclaimed below) or re-fetches it after its own
-         * restart. */
-        if (g_relay_slot.state == WT_TPM_SLOT_IN_SERVICE) {
-            return (psa_status_t)WT_TPM_E_BUSY;
-        }
-        /* A fresh submit owns a new transaction, so reclaim a slot the
-         * application abandoned without the responder touching it (it
-         * restarted after SUBMIT, or its poll limit expired on a DONE
-         * response). This keeps a guest restart from wedging the relay and
-         * scrubs the stale command or response before the new one lands. */
-        if (g_relay_slot.state != WT_TPM_SLOT_IDLE) {
-            wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
-        }
-        status = wt_tpm_relay_take_frame(runtime, partition_id, msg,
-                                         g_relay_slot.cmd,
-                                         &g_relay_slot.cmd_len);
-        if (status == PSA_SUCCESS) {
-            g_relay_slot.state = WT_TPM_SLOT_PENDING;
-            if (g_local_provider != NULL) {
-                size_t response_len = 0U;
-                int rc = g_local_provider(g_relay_slot.cmd,
-                    g_relay_slot.cmd_len, g_relay_slot.resp,
-                    sizeof(g_relay_slot.resp), &response_len,
-                    g_local_provider_context);
-
-                if (rc != 0 || response_len == 0U ||
-                        response_len > sizeof(g_relay_slot.resp)) {
-                    wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
-                    return PSA_ERROR_GENERIC_ERROR;
-                }
-                g_relay_slot.resp_len = (uint16_t)response_len;
-                wt_forceZero(g_relay_slot.cmd, sizeof(g_relay_slot.cmd));
-                g_relay_slot.cmd_len = 0U;
-                g_relay_slot.state = WT_TPM_SLOT_DONE;
-            }
-        }
-        return status;
+    if (g_local_provider == NULL) {
+        return PSA_ERROR_NOT_SUPPORTED;
     }
-    if (g_relay_slot.state == WT_TPM_SLOT_IDLE) {
-        return (psa_status_t)WT_TPM_E_EMPTY;
-    }
-    if (g_relay_slot.state != WT_TPM_SLOT_DONE) {
-        return (psa_status_t)WT_TPM_E_BUSY;
-    }
-    status = wt_tpm_relay_give_frame(runtime, partition_id, msg,
-                                     g_relay_slot.resp,
-                                     g_relay_slot.resp_len);
-    if (status == PSA_SUCCESS) {
-        /* The exchange is complete: scrub the slot before it is reused. */
-        wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
-    }
-    return status;
-}
-
-static psa_status_t wt_tpm_relay_ftpm_op(wt_ffm_runtime_t* runtime,
-                                         int32_t partition_id,
-                                         const psa_msg_t* msg)
-{
-    psa_status_t status;
-
-    if (msg->type == WT_TPM_OP_FETCH) {
-        /* Deliver the pending command. A responder that restarted after a
-         * prior fetch (slot still IN_SERVICE, no response posted) re-fetches
-         * the same command instead of seeing the slot as empty, so a fwTPM
-         * restart cannot wedge the exchange. */
-        if (g_relay_slot.state != WT_TPM_SLOT_PENDING &&
-                g_relay_slot.state != WT_TPM_SLOT_IN_SERVICE) {
-            return (psa_status_t)WT_TPM_E_EMPTY;
-        }
-        status = wt_tpm_relay_give_frame(runtime, partition_id, msg,
-                                         g_relay_slot.cmd,
-                                         g_relay_slot.cmd_len);
-        if (status == PSA_SUCCESS) {
-            g_relay_slot.state = WT_TPM_SLOT_IN_SERVICE;
-        }
-        return status;
-    }
-    if (g_relay_slot.state != WT_TPM_SLOT_IN_SERVICE) {
-        return PSA_ERROR_BAD_STATE;
+    if (msg->out_size[0] == 0U || msg->out_size[0] > WT_TPM_FRAME_MAX) {
+        return PSA_ERROR_INVALID_ARGUMENT;
     }
     status = wt_tpm_relay_take_frame(runtime, partition_id, msg,
-                                     g_relay_slot.resp,
-                                     &g_relay_slot.resp_len);
-    if (status == PSA_SUCCESS) {
-        g_relay_slot.state = WT_TPM_SLOT_DONE;
+                                     g_relay_slot.cmd, &g_relay_slot.cmd_len);
+    if (status != PSA_SUCCESS) {
+        goto cleanup;
     }
+    rc = g_local_provider(g_relay_slot.cmd, g_relay_slot.cmd_len,
+        g_relay_slot.resp, sizeof(g_relay_slot.resp), &response_len,
+        g_local_provider_context);
+    if (rc != 0 || response_len == 0U || response_len > WT_TPM_FRAME_MAX) {
+        status = PSA_ERROR_GENERIC_ERROR;
+        goto cleanup;
+    }
+    status = wt_tpm_relay_give_frame(runtime, partition_id, msg,
+        g_relay_slot.resp, (uint16_t)response_len);
+cleanup:
+    wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
     return status;
 }
 
-/* Role by SPM-stamped identity: the application may only SUBMIT/POLL, the
- * fwTPM partition may only FETCH/RESPOND; everyone else is refused. */
 static psa_status_t wt_tpm_relay_call(wt_ffm_runtime_t* runtime,
                                       int32_t partition_id,
                                       const psa_msg_t* msg)
 {
-    if (g_relay_app_client == 0 ||
-            (g_relay_ftpm_client == 0 && g_local_provider == NULL)) {
+    if (g_relay_app_client >= 0 || g_local_provider == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
-    if (msg->client_id >= 0) {
+    if (msg->client_id != g_relay_app_client) {
         return PSA_ERROR_NOT_PERMITTED;
     }
-    if (msg->type == WT_TPM_OP_SUBMIT || msg->type == WT_TPM_OP_POLL) {
-        if (msg->client_id != g_relay_app_client) {
-            return PSA_ERROR_NOT_PERMITTED;
-        }
-        return wt_tpm_relay_app_op(runtime, partition_id, msg);
-    }
-    if (msg->type == WT_TPM_OP_FETCH || msg->type == WT_TPM_OP_RESPOND) {
-        if (g_local_provider != NULL) {
-            return PSA_ERROR_NOT_PERMITTED;
-        }
-        if (msg->client_id != g_relay_ftpm_client) {
-            return PSA_ERROR_NOT_PERMITTED;
-        }
-        return wt_tpm_relay_ftpm_op(runtime, partition_id, msg);
+    if (msg->type == WT_TPM_OP_TRANSACT) {
+        return wt_tpm_transact(runtime, partition_id, msg);
     }
     return PSA_ERROR_NOT_SUPPORTED;
 }

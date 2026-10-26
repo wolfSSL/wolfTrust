@@ -127,7 +127,7 @@ define arch_image_checks
             $(BUILD_DIR)/nsc-syms.txt; then \
         echo "FAIL: interface handler links an RTOS runtime" >&2; exit 1; \
     fi
-	@if test -n "$(WT_INTERFACE_BODY)" && \
+	@if test -n "$(strip $(WT_INTERFACE_BODY))" && \
             ! grep -Eq ' [TW] $(strip $(WT_INTERFACE_BODY))$$' $(BUILD_DIR)/nsc-syms.txt; then \
         echo "FAIL: selected interface handler is absent from wolfTrust" >&2; exit 1; \
     fi

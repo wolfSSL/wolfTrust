@@ -32,6 +32,7 @@ SECTIONS
         /* wolfCrypt globals that are only ever read (the AES prefetch anchor,
          * the DRBG selection flag): read-only, so every partition sees them. */
         *(.data.always_prefetch* .bss.always_prefetch*)
+        *(.data.never_prefetch* .bss.never_prefetch*)
         *(.data.sha256DrbgDisabled* .bss.sha256DrbgDisabled*)
         *(.rodata .rodata.*)
         . = ALIGN(4096);

@@ -18,9 +18,8 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Host proof of the SERVICE_PKCS11 copied-transfer relay. Both roles use
- * real FF-M connect/call/close dispatch, and no caller buffer is shared with
- * the other guest. */
+/* WT-FFM-0054: the actual client and Secure service exchange copied frames
+ * through the FF-M runtime. The handler needs no worker or operating system. */
 
 #include <stdint.h>
 #include <stdio.h>
@@ -43,6 +42,10 @@ static int32_t g_transport_fail_op;
 static int32_t g_transport_repeat_fail_op;
 static unsigned int g_transport_repeat_failures;
 static unsigned int g_provider_dispatches;
+static uint8_t g_received_request[WT_PKCS11_MESSAGE_MAX];
+static size_t g_received_length;
+static const uint8_t* g_private_request;
+static uint8_t* g_private_response;
 static int g_relay_partial_read;
 static unsigned int g_chunk_wipes;
 static psa_status_t g_chunk_wipe_status;
@@ -60,12 +63,12 @@ psa_handle_t psa_connect(uint32_t sid, uint32_t version)
             version != WT_PKCS11_SERVICE_VERSION) {
         return PSA_ERROR_CONNECTION_REFUSED;
     }
-    return wt_ffm_connect(&g_runtime, TEST_PROVIDER_CLIENT, sid, version);
+    return wt_ffm_connect(&g_runtime, TEST_APP_CLIENT, sid, version);
 }
 
 void psa_close(psa_handle_t handle)
 {
-    (void)wt_ffm_close(&g_runtime, TEST_PROVIDER_CLIENT, handle);
+    (void)wt_ffm_close(&g_runtime, TEST_APP_CLIENT, handle);
 }
 
 psa_status_t psa_call(psa_handle_t handle, int32_t type,
@@ -81,7 +84,7 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
         g_transport_repeat_failures--;
         return PSA_ERROR_COMMUNICATION_FAILURE;
     }
-    return wt_ffm_call(&g_runtime, TEST_PROVIDER_CLIENT, handle, type,
+    return wt_ffm_call(&g_runtime, TEST_APP_CLIENT, handle, type,
                        in_vec, in_len, out_vec, out_len);
 }
 
@@ -308,20 +311,6 @@ static psa_status_t read_chunks(int32_t client_id, int32_t op, uint8_t* data,
     return PSA_SUCCESS;
 }
 
-static int round_trip(const uint8_t* request, size_t request_len,
-                      const uint8_t* response, size_t response_len,
-                      uint8_t* scratch);
-
-static int queue_request(const uint8_t* request, size_t request_len)
-{
-    return begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN,
-                         request_len) == PSA_SUCCESS &&
-           write_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, request,
-                        request_len) == PSA_SUCCESS &&
-           p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_COMMIT, NULL, 0U, NULL,
-                  0U, NULL) == PSA_SUCCESS ? 0 : -1;
-}
-
 static int provider_dispatch(uint8_t* request, size_t request_len,
                              uint8_t* response, size_t response_cap,
                              size_t* response_len, void* context)
@@ -329,6 +318,10 @@ static int provider_dispatch(uint8_t* request, size_t request_len,
     test_dispatch_context_t* test = (test_dispatch_context_t*)context;
 
     g_provider_dispatches++;
+    g_private_request = request;
+    g_private_response = response;
+    g_received_length = request_len;
+    (void)memcpy(g_received_request, request, request_len);
     if (test->fail != 0 || request == NULL || request_len == 0U ||
             response == NULL || response_len == NULL ||
             test->response_len > response_cap) {
@@ -366,422 +359,207 @@ static int buffer_is_zero(const uint8_t* buffer, size_t length)
     return 1;
 }
 
-static int provider_failure_recovers(const uint8_t* request,
-                                     size_t request_len,
-                                     const uint8_t* response,
-                                     size_t response_len,
-                                     int dispatch_fail, int32_t fail_op,
-                                     uint8_t* scratch)
+static void test_direct_execution(void)
 {
+    uint8_t request[WT_PKCS11_MESSAGE_MAX];
+    uint8_t response[WT_PKCS11_MESSAGE_MAX];
+    uint8_t collected[WT_PKCS11_MESSAGE_MAX];
     test_dispatch_context_t context;
-    uint8_t provider_request[WT_PKCS11_MESSAGE_MAX];
-    uint8_t provider_response[WT_PKCS11_MESSAGE_MAX];
     size_t length = 0U;
-    int rc;
+    size_t i;
+    unsigned int calls;
 
-    context.response = response;
-    context.response_len = response_len;
-    context.fail = dispatch_fail;
-    if (queue_request(request, request_len) != 0) {
-        return -1;
+    check(wt_ffm_init(&g_runtime, &g_manifest, &g_port_ops, NULL) ==
+              WT_FFM_SUCCESS, "WT-FFM-0054 direct PKCS11 runtime initializes");
+    for (i = 0U; i < sizeof(request); i++) {
+        request[i] = (uint8_t)i;
+        response[i] = (uint8_t)(i ^ 0x5AU);
     }
-    (void)memset(provider_request, 0xA5, sizeof(provider_request));
-    (void)memset(provider_response, 0x5A, sizeof(provider_response));
-    g_transport_fail_op = fail_op;
-    rc = wt_pkcs11_psa_provider_step(provider_request,
-        sizeof(provider_request), provider_response, sizeof(provider_response),
-        provider_dispatch, &context);
-    if (rc == 0 || buffer_is_zero(provider_request,
-                                  sizeof(provider_request)) == 0 ||
-            buffer_is_zero(provider_response,
-                           sizeof(provider_response)) == 0 ||
-            report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_POLL, &length) !=
-                (psa_status_t)WT_PKCS11_E_EMPTY) {
-        return -2;
-    }
-    return round_trip(request, request_len, response, response_len, scratch);
-}
-
-static int provider_step_round_trip(const uint8_t* request,
-                                    size_t request_len,
-                                    const uint8_t* response,
-                                    size_t response_len, uint8_t* scratch)
-{
-    test_dispatch_context_t context;
-    uint8_t provider_request[WT_PKCS11_MESSAGE_MAX];
-    uint8_t provider_response[WT_PKCS11_MESSAGE_MAX];
-    size_t length = 0U;
-
+    wt_pkcs11_psa_close();
     context.response = response;
-    context.response_len = response_len;
+    context.response_len = sizeof(response);
     context.fail = 0;
-    if (queue_request(request, request_len) != 0 ||
-            wt_pkcs11_psa_provider_step(provider_request,
-                sizeof(provider_request), provider_response,
-                sizeof(provider_response), provider_dispatch, &context) != 0 ||
-            buffer_is_zero(provider_request, sizeof(provider_request)) == 0 ||
-            buffer_is_zero(provider_response, sizeof(provider_response)) == 0 ||
-            report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_POLL, &length) !=
-                PSA_SUCCESS || length != response_len ||
-            read_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_READ, scratch,
-                        length) != PSA_SUCCESS ||
-            memcmp(scratch, response, response_len) != 0) {
-        return -1;
-    }
-    return 0;
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, NULL, 0U,
+              NULL, 0U, NULL) == PSA_ERROR_NOT_SUPPORTED,
+          "unbound PKCS11 service fails closed");
+    wt_pkcs11_relay_set_client(TEST_APP_CLIENT);
+    wt_pkcs11_relay_set_local_provider(provider_dispatch, &context);
+    calls = g_provider_dispatches;
+    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN,
+              sizeof(request)) == PSA_SUCCESS &&
+          write_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, request,
+              sizeof(request)) == PSA_SUCCESS,
+          "direct PKCS11 stages the full bounded message");
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_EXECUTE, NULL, 0U,
+              collected, 1U, NULL) == PSA_ERROR_INVALID_ARGUMENT &&
+              g_provider_dispatches == calls,
+          "bad reply metadata capacity cannot execute a PKCS11 operation");
+    check(report_length(TEST_OTHER_CLIENT, WT_PKCS11_OP_APP_EXECUTE,
+              &length) == PSA_ERROR_NOT_PERMITTED &&
+              g_provider_dispatches == calls,
+          "WT-FFM-0059 wrong PKCS11 caller cannot execute the staged operation");
+    check(report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_EXECUTE,
+              &length) == PSA_SUCCESS && length == sizeof(response) &&
+              g_provider_dispatches == calls + 1U,
+          "one execute call returns the completed response length without polling");
+    check(report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_EXECUTE,
+              &length) == PSA_ERROR_BAD_STATE &&
+              g_provider_dispatches == calls + 1U,
+          "duplicate execute never replays a completed PKCS11 operation");
+    check(read_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_READ, collected,
+              sizeof(collected)) == PSA_SUCCESS &&
+              memcmp(collected, response, sizeof(response)) == 0,
+          "direct PKCS11 returns the exact maximum-sized response");
+    check(g_received_length == sizeof(request) &&
+              memcmp(g_received_request, request, sizeof(request)) == 0 &&
+              g_private_request != request && g_private_response != collected &&
+              buffer_is_zero(g_private_request, WT_PKCS11_MESSAGE_MAX) &&
+              buffer_is_zero(g_private_response, WT_PKCS11_MESSAGE_MAX),
+          "both directions copy exact bytes and scrub all private staging");
+    check(report_length(TEST_PROVIDER_CLIENT, 7 /* retired worker FETCH */,
+              &length) == PSA_ERROR_NOT_PERMITTED,
+          "there is no external provider role in the direct service");
+    wt_pkcs11_relay_set_local_provider(NULL, NULL);
 }
 
-static int provider_reconnect_recovers(const uint8_t* request,
-                                       size_t request_len,
-                                       const uint8_t* response,
-                                       size_t response_len, uint8_t* scratch)
+static void test_bounds_and_recovery(void)
 {
+    uint8_t request[31];
+    uint8_t response[41];
+    uint8_t collected[41];
     test_dispatch_context_t context;
-    uint8_t provider_request[WT_PKCS11_MESSAGE_MAX];
-    uint8_t provider_response[WT_PKCS11_MESSAGE_MAX];
+    wt_pkcs11_chunk_t chunk;
+    wt_pkcs11_range_t range;
     size_t length = 0U;
-    int rc;
+    unsigned int calls;
 
+    (void)memset(request, 0xA5, sizeof(request));
+    (void)memset(response, 0x5A, sizeof(response));
     context.response = response;
-    context.response_len = response_len;
+    context.response_len = sizeof(response);
     context.fail = 0;
-    if (queue_request(request, request_len) != 0) {
-        return -1;
-    }
-    g_provider_dispatches = 0U;
-    g_transport_fail_op = WT_PKCS11_OP_PROVIDER_WRITE;
-    g_transport_repeat_fail_op = WT_PKCS11_OP_PROVIDER_ABORT;
-    g_transport_repeat_failures = 2U;
-    rc = wt_pkcs11_psa_provider_step(provider_request,
-        sizeof(provider_request), provider_response, sizeof(provider_response),
-        provider_dispatch, &context);
-    if (rc == 0 || g_transport_repeat_failures != 0U ||
-            g_provider_dispatches != 1U) {
-        return -2;
-    }
-    rc = wt_pkcs11_psa_provider_step(provider_request,
-        sizeof(provider_request), provider_response, sizeof(provider_response),
-        provider_dispatch, &context);
-    if (rc != PSA_ERROR_BAD_STATE || g_provider_dispatches != 1U ||
-            wt_pkcs11_psa_provider_step(provider_request,
-                sizeof(provider_request), provider_response,
-                sizeof(provider_response), provider_dispatch, &context) !=
-                WT_PKCS11_E_EMPTY || g_provider_dispatches != 1U ||
-            report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_POLL, &length) !=
-                (psa_status_t)WT_PKCS11_E_EMPTY) {
-        return -3;
-    }
-    return provider_step_round_trip(request, request_len, response,
-                                    response_len, scratch);
-}
-
-static int provider_oversize_recovers(const uint8_t* request,
-                                      size_t request_len,
-                                      const uint8_t* response,
-                                      size_t response_len, uint8_t* scratch)
-{
-    uint8_t provider_request[WT_PKCS11_MESSAGE_MAX];
-    uint8_t provider_response[WT_PKCS11_MESSAGE_MAX];
-    size_t length = 0U;
-    int rc;
-
-    if (queue_request(request, request_len) != 0) {
-        return -1;
-    }
-    (void)memset(provider_request, 0xA5, sizeof(provider_request));
-    (void)memset(provider_response, 0x5A, sizeof(provider_response));
-    rc = wt_pkcs11_psa_provider_step(provider_request,
-        sizeof(provider_request), provider_response, 8U,
-        provider_oversize_dispatch, NULL);
-    if (rc != PSA_ERROR_INVALID_ARGUMENT ||
-            buffer_is_zero(provider_request,
-                           sizeof(provider_request)) == 0 ||
-            buffer_is_zero(provider_response, 8U) == 0 ||
-            report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_POLL, &length) !=
-                (psa_status_t)WT_PKCS11_E_EMPTY) {
-        return -2;
-    }
-    return round_trip(request, request_len, response, response_len, scratch);
-}
-
-static int round_trip(const uint8_t* request, size_t request_len,
-                      const uint8_t* response, size_t response_len,
-                      uint8_t* scratch)
-{
-    size_t length = 0U;
-
-    if (begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, request_len) !=
-            PSA_SUCCESS ||
-            write_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, request,
-                         request_len) != PSA_SUCCESS ||
-            p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_COMMIT, NULL, 0U, NULL,
-                   0U, NULL) != PSA_SUCCESS ||
-            report_length(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_FETCH,
-                          &length) != PSA_SUCCESS || length != request_len ||
-            read_chunks(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_READ,
-                        scratch, length) != PSA_SUCCESS ||
-            memcmp(scratch, request, request_len) != 0) {
-        return -1;
-    }
-    if (begin_message(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_BEGIN,
-                      response_len) != PSA_SUCCESS ||
-            write_chunks(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_WRITE,
-                         response, response_len) != PSA_SUCCESS ||
-            p11_op(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_COMMIT, NULL,
-                   0U, NULL, 0U, NULL) != PSA_SUCCESS ||
-            report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_POLL, &length) !=
-                PSA_SUCCESS || length != response_len ||
-            read_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_READ, scratch,
-                        length) != PSA_SUCCESS ||
-            memcmp(scratch, response, response_len) != 0) {
-        return -2;
-    }
-    return 0;
+    wt_pkcs11_relay_set_client(TEST_APP_CLIENT);
+    wt_pkcs11_relay_set_local_provider(provider_dispatch, &context);
+    wt_pkcs11_relay_set_transport(test_relay_transport);
+    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 0U) ==
+              PSA_ERROR_INVALID_ARGUMENT &&
+          begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN,
+              WT_PKCS11_MESSAGE_MAX + 1U) == PSA_ERROR_INVALID_ARGUMENT,
+          "empty and oversized PKCS11 messages are refused");
+    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 16U) ==
+              PSA_SUCCESS,
+          "begin partial request");
+    check(report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_EXECUTE,
+              &length) == PSA_ERROR_BAD_STATE,
+          "partial requests never execute");
+    chunk.offset = 0U;
+    chunk.length = 7U;
+    (void)memset(chunk.data, 0xA5, sizeof(chunk.data));
+    chunk_wipe_reset();
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk, 16U,
+              NULL, 0U, NULL) == PSA_ERROR_INVALID_ARGUMENT &&
+              chunk_wipe_matches(PSA_ERROR_INVALID_ARGUMENT),
+          "malformed chunk is refused and scrubbed");
+    chunk.length = 8U;
+    chunk.offset = UINT32_MAX;
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk, 16U,
+              NULL, 0U, NULL) == PSA_ERROR_INVALID_ARGUMENT,
+          "chunk offset overflow is refused");
+    chunk.offset = 0U;
+    g_relay_partial_read = 1;
+    chunk_wipe_reset();
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk, 16U,
+              NULL, 0U, NULL) == PSA_ERROR_INVALID_ARGUMENT &&
+              chunk_wipe_matches(PSA_ERROR_INVALID_ARGUMENT),
+          "short copied read is refused and scrubbed");
+    chunk_wipe_reset();
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk, 16U,
+              NULL, 0U, NULL) == PSA_SUCCESS &&
+              chunk_wipe_matches(PSA_SUCCESS),
+          "valid copied chunk is scrubbed after staging");
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk, 16U,
+              NULL, 0U, NULL) == PSA_ERROR_INVALID_ARGUMENT,
+          "duplicate chunk offsets are refused");
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_ABORT, NULL, 0U,
+              NULL, 0U, NULL) == PSA_SUCCESS,
+          "abort discards a partial request");
+    chunk_wipe_reset();
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk, 16U,
+              NULL, 0U, NULL) == PSA_ERROR_BAD_STATE &&
+              chunk_wipe_matches(PSA_ERROR_BAD_STATE),
+          "bad-state chunk is refused and scrubbed");
+    calls = g_provider_dispatches;
+    check(wt_pkcs11_psa_call(request, sizeof(request), collected,
+              sizeof(collected), &length) == 0 && length == sizeof(response) &&
+              memcmp(collected, response, sizeof(response)) == 0 &&
+              g_provider_dispatches == calls + 1U,
+          "the production client completes one synchronous service exchange");
+    context.fail = 1;
+    calls = g_provider_dispatches;
+    check(wt_pkcs11_psa_call(request, sizeof(request), collected,
+              sizeof(collected), &length) == PSA_ERROR_GENERIC_ERROR &&
+              g_provider_dispatches == calls + 1U &&
+              buffer_is_zero(g_private_request, WT_PKCS11_MESSAGE_MAX) &&
+              buffer_is_zero(g_private_response, WT_PKCS11_MESSAGE_MAX),
+          "handler failure scrubs both frames without replay");
+    context.fail = 0;
+    wt_pkcs11_relay_set_local_provider(provider_oversize_dispatch, NULL);
+    check(wt_pkcs11_psa_call(request, sizeof(request), collected,
+              sizeof(collected), &length) == PSA_ERROR_GENERIC_ERROR &&
+              buffer_is_zero(g_private_request, WT_PKCS11_MESSAGE_MAX) &&
+              buffer_is_zero(g_private_response, WT_PKCS11_MESSAGE_MAX),
+          "oversized handler response is refused and scrubbed");
+    wt_pkcs11_relay_set_local_provider(provider_dispatch, &context);
+    check(wt_pkcs11_psa_call(request, sizeof(request), collected,
+              sizeof(collected), &length) == 0,
+          "a new request succeeds after handler failures");
+    calls = g_provider_dispatches;
+    g_transport_repeat_fail_op = WT_PKCS11_OP_APP_EXECUTE;
+    g_transport_repeat_failures = 1U;
+    check(wt_pkcs11_psa_call(request, sizeof(request), collected,
+              sizeof(collected), &length) == PSA_ERROR_COMMUNICATION_FAILURE &&
+              g_provider_dispatches == calls,
+          "lost execute transport never triggers an implicit replay");
+    check(wt_pkcs11_psa_call(request, sizeof(request), collected,
+              sizeof(collected), &length) == 0 &&
+              g_provider_dispatches == calls + 1U,
+          "next explicit request reconnects and succeeds");
+    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN,
+              sizeof(request)) == PSA_SUCCESS &&
+          write_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, request,
+              sizeof(request)) == PSA_SUCCESS &&
+          report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_EXECUTE,
+              &length) == PSA_SUCCESS,
+          "prepare a response for bounded reads");
+    range.offset = UINT32_MAX;
+    range.length = 1U;
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_READ, &range,
+              sizeof(range), collected, 1U, NULL) == PSA_ERROR_INVALID_ARGUMENT,
+          "response range overflow is refused");
+    range.offset = 0U;
+    range.length = sizeof(response);
+    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_READ, &range,
+              sizeof(range), collected, 1U, NULL) == PSA_ERROR_BUFFER_TOO_SMALL,
+          "short response capacity cannot consume the reply");
+    check(read_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_READ, collected,
+              sizeof(collected)) == PSA_SUCCESS &&
+              buffer_is_zero(g_private_response, WT_PKCS11_MESSAGE_MAX),
+          "valid read consumes and scrubs the reply after a rejected read");
+    check(p11_op(TEST_SP_CLIENT, WT_PKCS11_OP_APP_ABORT, NULL, 0U,
+              NULL, 0U, NULL) != PSA_SUCCESS,
+          "WT-FFM-0059 unrelated Secure caller cannot access PKCS11");
+    wt_pkcs11_psa_close();
+    wt_pkcs11_relay_set_local_provider(NULL, NULL);
+    wt_pkcs11_relay_set_transport(NULL);
 }
 
 int main(void)
 {
-    uint8_t request[WT_PKCS11_MESSAGE_MAX];
-    uint8_t response[WT_PKCS11_MESSAGE_MAX];
-    uint8_t scratch[WT_PKCS11_MESSAGE_MAX];
-    wt_pkcs11_chunk_t chunk;
-    wt_pkcs11_range_t range;
-    size_t length = 0U;
-    size_t output_len = 0U;
-    size_t i;
-
-    for (i = 0U; i < sizeof(request); i++) {
-        request[i] = (uint8_t)i;
-        response[i] = (uint8_t)(0xA5U ^ (uint8_t)i);
+    test_direct_execution();
+    test_bounds_and_recovery();
+    if (g_failures != 0) {
+        return 1;
     }
-    check(wt_ffm_init(&g_runtime, &g_manifest, &g_port_ops, NULL) ==
-              WT_FFM_SUCCESS,
-          "in-process FF-M runtime initializes");
-    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 16U) ==
-              PSA_ERROR_NOT_SUPPORTED,
-          "unbound relay refuses every operation");
-
-    wt_pkcs11_relay_set_roles(TEST_APP_CLIENT, TEST_PROVIDER_CLIENT);
-    wt_pkcs11_relay_set_transport(test_relay_transport);
-    check(report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_POLL, &length) ==
-              (psa_status_t)WT_PKCS11_E_EMPTY,
-          "application POLL reports an empty slot");
-    check(report_length(TEST_PROVIDER_CLIENT,
-                        WT_PKCS11_OP_PROVIDER_FETCH, &length) ==
-              (psa_status_t)WT_PKCS11_E_EMPTY,
-          "provider FETCH reports an empty slot");
-    check(wt_pkcs11_psa_provider_step(request, sizeof(request), response,
-              sizeof(response), provider_dispatch, NULL) ==
-              WT_PKCS11_E_EMPTY,
-          "idle provider step preserves the empty status");
-    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 0U) ==
-              PSA_ERROR_INVALID_ARGUMENT &&
-          begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN,
-                        WT_PKCS11_MESSAGE_MAX + 1U) ==
-              PSA_ERROR_INVALID_ARGUMENT,
-          "zero and oversized messages are refused");
-
-    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 16U) ==
-              PSA_SUCCESS,
-          "application begins a request");
-    (void)memset(&chunk, 0, sizeof(chunk));
-    chunk.offset = 1U;
-    chunk.length = 8U;
-    chunk_wipe_reset();
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk, 16U,
-                 NULL, 0U, NULL) == PSA_ERROR_INVALID_ARGUMENT &&
-              chunk_wipe_matches(PSA_ERROR_INVALID_ARGUMENT),
-          "invalid-offset request is refused and its chunk is scrubbed");
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_COMMIT, NULL, 0U, NULL,
-                 0U, NULL) == PSA_ERROR_BAD_STATE,
-          "partial request cannot commit");
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_ABORT, NULL, 0U, NULL, 0U,
-                 NULL) == PSA_SUCCESS &&
-          report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_POLL, &length) ==
-              (psa_status_t)WT_PKCS11_E_EMPTY,
-          "application abort scrubs a partial request");
-
-    chunk.offset = 0U;
-    chunk.length = 8U;
-    (void)memset(chunk.data, 0xA5, 8U);
-    chunk_wipe_reset();
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk, 16U,
-                 NULL, 0U, NULL) == PSA_ERROR_BAD_STATE &&
-              chunk_wipe_matches(PSA_ERROR_BAD_STATE),
-          "bad-state request is refused and its chunk is scrubbed");
-
-    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 16U) ==
-              PSA_SUCCESS,
-          "application begins malformed-frame test request");
-    chunk.length = 7U;
-    chunk_wipe_reset();
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk, 16U,
-                 NULL, 0U, NULL) == PSA_ERROR_INVALID_ARGUMENT &&
-              chunk_wipe_matches(PSA_ERROR_INVALID_ARGUMENT),
-          "malformed request is refused and its chunk is scrubbed");
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_ABORT, NULL, 0U, NULL, 0U,
-                 NULL) == PSA_SUCCESS,
-          "malformed-frame transaction can be aborted safely");
-
-    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 16U) ==
-              PSA_SUCCESS,
-          "application begins partial-read test request");
-    chunk.length = 8U;
-    g_relay_partial_read = 1;
-    chunk_wipe_reset();
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk, 16U,
-                 NULL, 0U, NULL) == PSA_ERROR_INVALID_ARGUMENT &&
-              g_relay_partial_read == 0 &&
-              chunk_wipe_matches(PSA_ERROR_INVALID_ARGUMENT),
-          "partial read is refused and its copied chunk is scrubbed");
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_ABORT, NULL, 0U, NULL, 0U,
-                 NULL) == PSA_SUCCESS,
-          "partial-read transaction can be aborted safely");
-
-    check(round_trip(request, 19U, response, 37U, scratch) == 0,
-          "multi-step request and response cross the copied FF-M relay");
-    check(round_trip(request, WT_PKCS11_MESSAGE_MAX, response,
-                     WT_PKCS11_MESSAGE_MAX, scratch) == 0,
-          "exact maximum-size messages cross every chunk boundary");
-    check(provider_failure_recovers(request, 31U, response, 41U, 1, 0,
-                                    scratch) == 0,
-          "dispatch failure aborts and releases the provider transaction");
-    check(provider_failure_recovers(request, 31U, response, 41U, 0,
-                                    WT_PKCS11_OP_PROVIDER_BEGIN,
-                                    scratch) == 0,
-          "response-begin failure aborts and releases the transaction");
-    check(provider_failure_recovers(request, 31U, response, 41U, 0,
-                                    WT_PKCS11_OP_PROVIDER_WRITE,
-                                    scratch) == 0,
-          "response-write failure aborts and releases the transaction");
-    check(provider_failure_recovers(request, 31U, response, 41U, 0,
-                                    WT_PKCS11_OP_PROVIDER_COMMIT,
-                                    scratch) == 0,
-          "response-commit failure aborts and releases the transaction");
-    check(provider_step_round_trip(request, 31U, response, 41U, scratch) == 0,
-          "provider step publishes a response and scrubs its local buffers");
-    check(provider_oversize_recovers(request, 31U, response, 41U, scratch) ==
-              0,
-          "oversized provider response aborts before transport and recovers");
-
-    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 16U) ==
-              PSA_SUCCESS &&
-          write_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, request,
-                       16U) == PSA_SUCCESS &&
-          p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_COMMIT, NULL, 0U, NULL,
-                 0U, NULL) == PSA_SUCCESS &&
-          report_length(TEST_PROVIDER_CLIENT,
-                        WT_PKCS11_OP_PROVIDER_FETCH, &length) == PSA_SUCCESS &&
-          p11_op(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_ABORT, NULL, 0U,
-                 NULL, 0U, NULL) == PSA_SUCCESS &&
-          report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_POLL, &length) ==
-              (psa_status_t)WT_PKCS11_E_EMPTY &&
-          round_trip(request, 13U, response, 17U, scratch) == 0,
-          "provider abort recovers a processing transaction");
-
-    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 16U) ==
-              PSA_SUCCESS &&
-          write_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, request,
-                       16U) == PSA_SUCCESS &&
-          p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_COMMIT, NULL, 0U, NULL,
-                 0U, NULL) == PSA_SUCCESS &&
-          report_length(TEST_PROVIDER_CLIENT,
-                        WT_PKCS11_OP_PROVIDER_FETCH, &length) == PSA_SUCCESS &&
-          read_chunks(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_READ,
-                      scratch, 16U) == PSA_SUCCESS &&
-          begin_message(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_BEGIN,
-                        16U) == PSA_SUCCESS &&
-          p11_op(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_ABORT, NULL, 0U,
-                 NULL, 0U, NULL) == PSA_SUCCESS &&
-          round_trip(request, 23U, response, 29U, scratch) == 0,
-          "provider abort recovers a responding transaction");
-
-    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 16U) ==
-              PSA_SUCCESS &&
-          write_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, request,
-                       16U) == PSA_SUCCESS &&
-          p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_COMMIT, NULL, 0U, NULL,
-                 0U, NULL) == PSA_SUCCESS &&
-          report_length(TEST_PROVIDER_CLIENT,
-                        WT_PKCS11_OP_PROVIDER_FETCH, &length) == PSA_SUCCESS &&
-          begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 8U) ==
-              (psa_status_t)WT_PKCS11_E_BUSY &&
-          p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_ABORT, NULL, 0U, NULL, 0U,
-                 NULL) == (psa_status_t)WT_PKCS11_E_BUSY &&
-          report_length(TEST_PROVIDER_CLIENT,
-                        WT_PKCS11_OP_PROVIDER_FETCH, &length) ==
-              PSA_ERROR_BAD_STATE &&
-          p11_op(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_ABORT, NULL, 0U,
-                 NULL, 0U, NULL) == PSA_SUCCESS &&
-          report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_POLL, &length) ==
-              (psa_status_t)WT_PKCS11_E_EMPTY &&
-          round_trip(request, 23U, response, 29U, scratch) == 0,
-          "provider restart fails an indeterminate request without replay");
-
-    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 16U) ==
-              PSA_SUCCESS &&
-          write_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, request,
-                       16U) == PSA_SUCCESS &&
-          p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_COMMIT, NULL, 0U, NULL,
-                 0U, NULL) == PSA_SUCCESS &&
-          report_length(TEST_PROVIDER_CLIENT,
-                        WT_PKCS11_OP_PROVIDER_FETCH, &length) == PSA_SUCCESS &&
-          read_chunks(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_READ,
-                      scratch, 16U) == PSA_SUCCESS &&
-          begin_message(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_BEGIN,
-                        16U) == PSA_SUCCESS &&
-          write_chunks(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_WRITE,
-                       response, 16U) == PSA_SUCCESS &&
-          p11_op(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_PROVIDER_COMMIT, NULL, 0U,
-                 NULL, 0U, NULL) == PSA_SUCCESS,
-          "provider publishes a response for bounded application reads");
-
-    check(report_length(TEST_APP_CLIENT, WT_PKCS11_OP_APP_POLL, &length) ==
-              PSA_SUCCESS && length == 16U,
-          "application observes the completed response length");
-    range.offset = 0U;
-    range.length = 16U;
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_READ, &range, sizeof(range),
-                 scratch, 8U, &output_len) == PSA_ERROR_BUFFER_TOO_SMALL,
-          "short output buffer preserves the completed response");
-    check(read_chunks(TEST_APP_CLIENT, WT_PKCS11_OP_APP_READ, scratch, 16U) ==
-              PSA_SUCCESS && memcmp(scratch, response, 16U) == 0,
-          "retry with enough space collects and scrubs the response");
-
-    (void)memset(&chunk, 0, sizeof(chunk));
-    check(begin_message(TEST_APP_CLIENT, WT_PKCS11_OP_APP_BEGIN,
-                        WT_PKCS11_MESSAGE_MAX) == PSA_SUCCESS,
-          "maximum-size request begins");
-    chunk.length = WT_PKCS11_CHUNK_MAX + 1U;
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_WRITE, &chunk,
-                 sizeof(chunk), NULL, 0U, NULL) ==
-              PSA_ERROR_INVALID_ARGUMENT,
-          "oversized chunk is refused");
-    check(p11_op(TEST_APP_CLIENT, WT_PKCS11_OP_APP_ABORT, NULL, 0U, NULL, 0U,
-                 NULL) == PSA_SUCCESS,
-          "oversized-chunk transaction can be aborted safely");
-
-    check(begin_message(TEST_PROVIDER_CLIENT, WT_PKCS11_OP_APP_BEGIN, 8U) ==
-              PSA_ERROR_NOT_PERMITTED,
-          "provider cannot submit as the application");
-    check(report_length(TEST_APP_CLIENT, WT_PKCS11_OP_PROVIDER_FETCH,
-                        &length) == PSA_ERROR_NOT_PERMITTED,
-          "application cannot fetch as the provider");
-    check(begin_message(TEST_OTHER_CLIENT, WT_PKCS11_OP_APP_BEGIN, 8U) ==
-              PSA_ERROR_NOT_PERMITTED,
-          "unrelated guest is refused both roles");
-    check(begin_message(TEST_SP_CLIENT, WT_PKCS11_OP_APP_BEGIN, 8U) !=
-              PSA_SUCCESS,
-          "unrelated Secure Partition is refused both roles");
-    check(provider_reconnect_recovers(request, 31U, response, 41U, scratch) ==
-              0,
-          "provider reconnect clears an indeterminate response without replay");
-
-    if (g_failures == 0) {
-        printf("PASS: pkcs11_relay (copied PKCS11 messages over the "
-               "SPM-mediated door)\n");
-        return 0;
-    }
-    printf("FAIL: pkcs11_relay (%d failures)\n", g_failures);
-    return 1;
+    (void)printf("PASS: WT-FFM-0054 synchronous PKCS11 service\n");
+    return 0;
 }

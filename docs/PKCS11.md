@@ -3,8 +3,8 @@
 wolfTrust lets an application call the standard PKCS#11 `C_*` API through the
 Secure Partition Manager. The reference Cortex-M clients run under Zephyr and
 FreeRTOS. The Cortex-A test client runs in the Normal world under QEMU. The
-application uses a PKCS#11 proxy, while the real wolfPKCS11 token runs in an
-isolated provider. PKCS#11 is a direct application interface to wolfTrust. It
+application uses a PKCS#11 proxy, while wolfPKCS11 runs directly inside the
+`SERVICE_PKCS11` Secure Partition. No second image, RTOS, or worker is needed. PKCS#11 is a direct application interface to wolfTrust. It
 does not use the PSA Crypto API and it does not depend on TPM support.
 
 The HSM backend follows this path:
@@ -20,10 +20,7 @@ Application
         | Cortex-M: CMSE gateway
         | Cortex-A: FF-A through the EL3 SPMD
         v
-  SERVICE_PKCS11 Secure Partition
-        |
-        v
-  isolated wolfPKCS11 provider
+  SERVICE_PKCS11 Secure Partition: wolfPKCS11
         |
         | SERVICE_HSM
         v
@@ -36,20 +33,21 @@ payload and public API are PKCS#11.
 
 The runtime-qualified targets in this release are STM32H563 under M33MU and
 `qemuvirt` under QEMU. MIMXRT700 and Versal have `CONFIG_PKCS11=y` compile and
-absolute-layout gates, but no PKCS#11 application/provider runtime claim yet.
+absolute-layout gates, but no PKCS#11 application/service runtime claim yet.
 The Versal QEMU model also lacks the XMPU/RISAF needed for a Normal-world
 level-3 isolation claim.
 
 ## Build and run
 
 PKCS#11 uses the same `WT_ENGINE=native` (default) or `WT_ENGINE=hsm`
-selector as PSA. Use the same engine for the Secure image and provider builds.
+selector as PSA. Native needs no wolfHSM crypto. The application may run bare
+metal or under an RTOS; the Secure service uses wolfTrust's existing runtime.
 `WT_CRYPTO_PROFILE=default` selects the RNG/SHA-256/P-256 default operation
 set; `full` retains the broader set. Individual operations and mechanisms are
 configurable through [operation profiles](Crypto-Profiles.md).
 
 See [TPM and PKCS#11 footprint](Interface-Footprint.md) for measured Secure
-and provider image sizes against the base revision.
+and application sizes against the base revision.
 
 Enable the service and its manifest in the Secure image with:
 
@@ -71,7 +69,7 @@ WT_ENGINE=hsm WT_INTERFACE_OS=freertos \
 `make test-pkcs11-target WT_INTERFACE_OS=freertos` are equivalent focused
 entry points.
 
-Build the Cortex-A provider and run its positive and isolation scenarios with:
+Build the Cortex-A service and run its positive and isolation scenarios with:
 
 ```sh
 make ARCH=aarch64 TARGET=qemuvirt CONFIG_PKCS11=y WT_ENGINE=hsm \
@@ -83,16 +81,16 @@ The older `pkcs11core`, `pkcs11objects`, `pkcs11crypto`, and
 `pkcs11negative` scenario names remain available for focused debugging. The CI
 gate uses `pkcs11`, which runs all four groups in one authenticated boot.
 
-## Application and provider boundary
+## Application and service boundary
 
 The application image contains the PKCS#11 proxy and FF-M client transport. It
-does not contain the wolfPKCS11 provider, wolfTPM, or a TPM transport. Link-time
+does not contain the wolfPKCS11 implementation, wolfTPM, or a TPM transport. Link-time
 checks enforce that separation for the Zephyr, FreeRTOS, and Cortex-A
 Normal-world builds.
 
-The native provider runs wolfCrypt directly in its isolated domain. The HSM
-provider registers the wolfHSM crypto callback and reaches `SERVICE_HSM`
-through FF-M IPC. Both retain the same PKCS#11 proxy and relay protocol.
+The native configuration runs wolfCrypt directly in the PKCS#11 domain. The
+HSM configuration registers the wolfHSM callback and reaches `SERVICE_HSM`
+through FF-M IPC. Both use the same application proxy and service protocol.
 
 The proxy supports the PKCS#11 single-threaded initialization contract. It
 rejects partial mutex callback sets with `CKR_ARGUMENTS_BAD` and rejects caller
@@ -104,13 +102,11 @@ wolfPKCS11 does. Neither pointer is sent to the provider. A NULL `phSession`
 is still forwarded, so the provider returns wolfPKCS11's own error codes in
 wolfPKCS11's own order.
 
-On Cortex-M, a second Non-secure image contains wolfPKCS11 and uses the selected native or HSM backend for cryptographic operations. On Cortex-A, wolfPKCS11 runs
-inside the `SERVICE_PKCS11` S-EL0 partition and uses wolfCrypt directly with `native`, or calls the separate HSM
-S-EL0 partition through SP-to-SP FF-M IPC with `hsm`. Its code,
-read-only data, stack, and writable state are protected by the PKCS#11
-partition's stage-1 translation table. The executable and read-only pages come
-from the shared Secure image, while the private stack and writable-state pages
-are mapped only for this partition.
+On both architectures, wolfPKCS11 runs inside `SERVICE_PKCS11`. Cortex-M
+uses private MPU state and stack regions; Cortex-A maps private writable pages
+in the partition's S-EL0 translation table. Executable and read-only code can
+be shared. Native builds reuse stateless wolfCrypt code already in the Secure
+image, while RNG, initialization, PBKDF2 policy, and callback state stay private.
 
 Both engine variants are built with `WOLFPKCS11_NO_STORE`. The native variant
 keeps the token's device ID at `INVALID_DEVID` and links no wolfHSM client.
@@ -121,7 +117,7 @@ individual HSM IPC transactions. Neither variant requires a TPM backend.
 
 The M33MU and QEMU emulator gates lower the PBKDF2 count with the test-only
 `WT_PKCS11_TEST_PBKDF2_ITERATIONS` setting because emulated hashing is too
-slow; production provider builds keep the 600,000-round default.
+slow; production builds keep the 600,000-round default.
 
 The embedded application suite covers:
 
@@ -131,14 +127,14 @@ The embedded application suite covers:
 - invalid arguments, handles, state transitions, and signatures;
 - user PIN lockout after repeated wrong PINs, and SO recovery.
 
-It requires all 40 cases to pass through the real proxy, relay, provider, and
-HSM path. This is API-level runtime evidence, not a cross-compile-only check.
+The full profile requires all 40 cases through the real proxy, service, and
+selected engine. The default profile runs nine cases for its selected operations. This is API-level runtime evidence, not a cross-compile-only check.
 
 ## PIN attempt limit
 
-The provider partition has no trusted clock, so it is built with
+The PKCS#11 partition has no trusted clock, so it is built with
 `WOLFPKCS11_NO_TIME`, which removes wolfPKCS11's time-based failed-login
-lockout. The provider enforces its own attempt limit instead, and that limit
+lockout. The handler enforces its own attempt limit instead, and that limit
 does not use a clock:
 
 - After `WT_PKCS11_PIN_MAX_FAILURES` consecutive failed checks of the user
@@ -157,25 +153,30 @@ does not use a clock:
   reconnecting to `SERVICE_PKCS11` does not reset them.
 - A locked user PIN stays locked until the SO logs in and sets a new user PIN
   with `C_InitPIN`, or until `C_InitToken` re-initializes the token.
-- A locked SO PIN stays locked until `C_InitToken` succeeds, and the provider
+- A locked SO PIN stays locked until `C_InitToken` succeeds, and the handler
   refuses `C_InitToken` while the token is still initialized. The token is
   RAM-only (`WOLFPKCS11_NO_STORE`), so it is erased, along with all of its
-  objects, when the last `C_Finalize` releases the library or the provider
+  objects, when the last `C_Finalize` releases the library or the partition
   restarts. Both counts are cleared with it. A `C_Finalize` that leaves the
   library loaded, because of an extra `C_Initialize`, keeps the counts.
 - `C_GetTokenInfo` reports the counts with the standard
   `CKF_USER_PIN_COUNT_LOW`, `CKF_USER_PIN_FINAL_TRY`, and
   `CKF_USER_PIN_LOCKED` flags and their SO equivalents.
 
-The counts live in provider RAM, the same as the token they protect.
+The counts live in private PKCS#11 RAM, the same as the token they protect.
 
 ## SERVICE_PKCS11
 
-`SERVICE_PKCS11` is a role-checked FF-M relay between the application and the
-provider. It copies bounded requests and responses through its own Secure data
-band, records the SPM-stamped caller identity, and refuses calls from the wrong
-domain or role. The application cannot call `SERVICE_HSM` as the provider, and
-the provider cannot impersonate the application.
+`SERVICE_PKCS11` checks the SPM-stamped application identity and copies bounded
+requests and responses into its private state. Messages up to 4096 bytes use
+chunks that fit the 1024-byte FF-M transfer budget. The client stages the
+request, calls `APP_EXECUTE` once, and reads the completed response in chunks.
+No worker fetch or polling loop is involved. Duplicate execution is refused;
+transport errors never implicitly replay an operation. Staging is wiped after
+completion, abort, or handler failure.
+
+The application cannot register or use the Secure partition's HSM namespace.
+An unrelated client or Secure Partition cannot access its requests or objects.
 
 The wire format carries PKCS#11 operation identifiers, handles, attributes,
 mechanism parameters, and bounded data buffers. Handles remain provider-owned;
@@ -191,20 +192,17 @@ mechanisms, and `CKM_PKCS5_PBKD2` out of `C_GetMechanismList`, and
 
 ## Isolation and CI
 
-The PKCS#11 service runs as an isolation-level-3 Secure Partition. On
-Cortex-M, the provider runs in a separate Non-secure domain from the
-application. The M33MU `pkcs11neg` scenario proves that:
+The PKCS#11 service runs as an isolation-level-3 Secure Partition on Cortex-M
+and QEMU `virt`. `pkcs11neg` proves that:
 
-- another Secure Partition cannot read or write the PKCS11 data band;
-- the relay cannot read provider guest RAM directly;
-- the relay cannot execute from its execute-never data band;
-- each deliberate fault is contained and the partition restarts;
-- the mediated PKCS#11 path still completes after recovery.
+- another Secure Partition cannot read or write PKCS#11 state;
+- PKCS#11 cannot read SPM-private RAM or execute its writable state;
+- deliberate faults are contained and the partition restarts;
+- the actual PKCS#11 suite completes after recovery.
 
-On QEMU `virt`, `pkcs11neg` proves that another S-EL0 partition cannot read or
-write the PKCS#11 state band, the PKCS#11 partition cannot read the HSM
-partition's private RAM, and the PKCS#11 state band is execute-never. The
-full profile's 40-case suite still completes after those contained faults.
+The host suite exercises the production copied-transfer service through FF-M,
+including 4096-byte messages, malformed chunks, wrong callers, short outputs,
+wiping, handler failures, reconnection, and prevention of duplicate execution.
 
 Pull-request CI has Zephyr and FreeRTOS `pkcs11` rows in the same explicit API
 matrix as PSA and TPM. A separate `pkcs11neg` row keeps the L3 isolation proof

@@ -32,7 +32,7 @@ CFLAGS += $(EXTRA_CFLAGS)
 
 # The relay is port-free: the FF-M runtime plus tpm_relay_service.c run here
 # exactly as SERVICE_TPM's dispatch drives them on target. No wolfHSM or
-# wolfCrypt dependency; the fwTPM responder backs the submit hook later.
+# wolfCrypt dependency; the handler seam supplies deterministic responses.
 _WT_SRCS := \
     $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_domain.c \

@@ -44,6 +44,7 @@ READONLY_STATE = tuple(
     re.compile(pattern)
     for pattern in (
         r"^always_prefetch(?:\.|$)",
+        r"^never_prefetch(?:\.|$)",
         r"^sha256DrbgDisabled(?:\.|$)",
     )
 )
@@ -888,6 +889,9 @@ def self_test():
          "shared library state is not read-only"),
         ("writable DRBG flag", list(good) + [
             Symbol(0x30028200, 4, "b", "sha256DrbgDisabled")
+         ], "shared library state is not read-only"),
+        ("writable CCM prefetch anchor", list(good) + [
+            Symbol(0x30028200, 4, "D", "never_prefetch")
          ], "shared library state is not read-only"),
     ) + heap_cases + (
         ("missing timeout", removed(good, "g_whalTimeout"),

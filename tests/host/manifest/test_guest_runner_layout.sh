@@ -29,7 +29,7 @@ check_recipe() {
     description=$4
     output_file=$(mktemp)
     checks=$((checks + 1))
-    if MAKEFLAGS= MFLAGS= BUILD_DIR=build \
+    if MAKEFLAGS= MFLAGS= BUILD_DIR=build WT_ENGINE=hsm WT_ENGINE_HSM=1 \
             make -n -C "$directory" "$target" \
             >"$output_file" 2>/dev/null &&
        grep -Fq "$needle" "$output_file"; then

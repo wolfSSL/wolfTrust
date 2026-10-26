@@ -154,7 +154,7 @@ if [ "$APP_NAME" = "guest0_pkcs11" ]; then
         exit 1
     fi
 elif [ "$APP_NAME" = "guest0_tpm" ]; then
-    if ! printf '%s\n' "$NM_OUT" | grep -q 'wt_tpm_psa_submit'; then
+    if ! printf '%s\n' "$NM_OUT" | grep -q 'wt_tpm_psa_transact'; then
         echo "FAIL: $APP_NAME is not wired to SERVICE_TPM" >&2
         exit 1
     fi

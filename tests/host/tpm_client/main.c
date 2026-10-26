@@ -19,7 +19,7 @@
  */
 
 /* TPM PSA client suite: a scripted PSA transport checks connection recovery,
- * bounded polling, response framing, and the SWTPM initialization contract. */
+ * synchronous execution, response framing, and the SWTPM initialization contract. */
 
 #include "psa/client.h"
 #include "psa/error.h"
@@ -39,7 +39,6 @@ static int g_connects;
 static int g_calls;
 static int g_closes;
 static psa_status_t g_call_status;
-static uint32_t g_poll_busy;
 static uint8_t g_response[WT_TPM_FRAME_MAX];
 static size_t g_response_len;
 static size_t g_forced_out_len;
@@ -82,22 +81,11 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
     if (g_call_status != PSA_SUCCESS) {
         return g_call_status;
     }
-    if (type == WT_TPM_OP_SUBMIT || type == WT_TPM_OP_RESPOND) {
-        if (in_vec == NULL || in_len != 1U || out_vec != NULL ||
-                out_len != 0U) {
-            return PSA_ERROR_PROGRAMMER_ERROR;
-        }
-        return PSA_SUCCESS;
-    }
-    if (type != WT_TPM_OP_POLL && type != WT_TPM_OP_FETCH) {
+    if (type != WT_TPM_OP_TRANSACT || in_vec == NULL || in_len != 1U ||
+            out_vec == NULL || out_len != 1U ||
+            in_vec[0].len > WT_TPM_FRAME_MAX ||
+            out_vec[0].len > WT_TPM_FRAME_MAX) {
         return PSA_ERROR_PROGRAMMER_ERROR;
-    }
-    if (in_vec != NULL || in_len != 0U || out_vec == NULL || out_len != 1U) {
-        return PSA_ERROR_PROGRAMMER_ERROR;
-    }
-    if (g_poll_busy > 0U) {
-        g_poll_busy--;
-        return (psa_status_t)WT_TPM_E_BUSY;
     }
     copy_len = g_response_len;
     if (copy_len > out_vec[0].len) {
@@ -115,7 +103,6 @@ static void mock_reset(void)
     g_calls = 0;
     g_closes = 0;
     g_call_status = PSA_SUCCESS;
-    g_poll_busy = 0U;
     g_response_len = 0U;
     g_forced_out_len = 0U;
     (void)memset(g_response, 0, sizeof(g_response));
@@ -146,17 +133,22 @@ static void test_arguments(void)
     size_t len = 0U;
 
     mock_reset();
-    check(wt_tpm_psa_submit(NULL, 1U) == PSA_ERROR_INVALID_ARGUMENT &&
-          wt_tpm_psa_submit(frame, 0U) == PSA_ERROR_INVALID_ARGUMENT &&
-          wt_tpm_psa_submit(frame, sizeof(frame)) == PSA_ERROR_INVALID_ARGUMENT &&
+    check(wt_tpm_psa_transact(NULL, 1U, frame, sizeof(frame), &len) ==
+              PSA_ERROR_INVALID_ARGUMENT &&
+          wt_tpm_psa_transact(frame, 0U, frame, sizeof(frame), &len) ==
+              PSA_ERROR_INVALID_ARGUMENT &&
+          wt_tpm_psa_transact(frame, sizeof(frame), frame, sizeof(frame),
+              &len) == PSA_ERROR_INVALID_ARGUMENT &&
           g_connects == 0 && g_calls == 0,
-          "submit rejects invalid frames before connecting");
-    check(wt_tpm_psa_poll(NULL, 1U, &len) == PSA_ERROR_INVALID_ARGUMENT &&
-          wt_tpm_psa_poll(frame, 0U, &len) == PSA_ERROR_INVALID_ARGUMENT &&
-          wt_tpm_psa_poll(frame, sizeof(frame), NULL) ==
+          "transact rejects invalid commands before connecting");
+    check(wt_tpm_psa_transact(frame, 1U, NULL, 1U, &len) ==
+              PSA_ERROR_INVALID_ARGUMENT &&
+          wt_tpm_psa_transact(frame, 1U, frame, 0U, &len) ==
+              PSA_ERROR_INVALID_ARGUMENT &&
+          wt_tpm_psa_transact(frame, 1U, frame, sizeof(frame), NULL) ==
               PSA_ERROR_INVALID_ARGUMENT &&
           g_connects == 0 && g_calls == 0,
-          "receive rejects invalid buffers before connecting");
+          "transact rejects invalid response buffers before connecting");
 }
 
 static void test_connection_recovery(void)
@@ -169,27 +161,29 @@ static void test_connection_recovery(void)
     };
     uint8_t frame[TPM2_HEADER_SIZE] = { 0U };
     size_t i;
+    size_t length;
 
     for (i = 0U; i < sizeof(dead) / sizeof(dead[0]); i++) {
         mock_reset();
-        check(wt_tpm_psa_submit(frame, sizeof(frame)) == PSA_SUCCESS &&
+        set_success_response(TPM2_HEADER_SIZE, TPM2_HEADER_SIZE);
+        check(wt_tpm_psa_transact(frame, sizeof(frame), frame, sizeof(frame), &length) == PSA_SUCCESS &&
               g_connects == 1 && g_calls == 1,
               "first TPM request opens one cached connection");
-        check(wt_tpm_psa_submit(frame, sizeof(frame)) == PSA_SUCCESS &&
+        check(wt_tpm_psa_transact(frame, sizeof(frame), frame, sizeof(frame), &length) == PSA_SUCCESS &&
               g_connects == 1 && g_calls == 2,
               "next TPM request reuses the cached connection");
         g_call_status = dead[i];
-        check(wt_tpm_psa_submit(frame, sizeof(frame)) == dead[i] &&
+        check(wt_tpm_psa_transact(frame, sizeof(frame), frame, sizeof(frame), &length) == dead[i] &&
               g_closes == 1,
               "a dead-connection status evicts the cached handle");
         g_call_status = PSA_SUCCESS;
-        check(wt_tpm_psa_submit(frame, sizeof(frame)) == PSA_SUCCESS &&
+        check(wt_tpm_psa_transact(frame, sizeof(frame), frame, sizeof(frame), &length) == PSA_SUCCESS &&
               g_connects == 2,
               "the request after eviction reconnects");
     }
 }
 
-static void test_polling_and_framing(void)
+static void test_execution_and_framing(void)
 {
     TPM2_CTX ctx;
     TPM2_Packet packet;
@@ -198,19 +192,18 @@ static void test_polling_and_framing(void)
 
     mock_reset();
     packet_init(&packet, frame, sizeof(frame));
-    g_poll_busy = 2U;
     set_success_response(TPM2_HEADER_SIZE, TPM2_HEADER_SIZE);
     rc = TPM2_SWTPM_SendCommand(&ctx, &packet);
-    check(rc == TPM_RC_SUCCESS && g_calls == 4 &&
+    check(rc == TPM_RC_SUCCESS && g_calls == 1 &&
           packet.size == TPM2_HEADER_SIZE,
-          "busy polling reaches a framed response within the limit");
+          "one synchronous call returns the framed response");
 
     mock_reset();
     packet_init(&packet, frame, sizeof(frame));
-    g_poll_busy = 4U;
+    g_call_status = PSA_ERROR_CONNECTION_BUSY;
     rc = TPM2_SWTPM_SendCommand(&ctx, &packet);
-    check(rc == TPM_RC_FAILURE && g_calls == 4,
-          "poll exhaustion fails after the configured bound");
+    check(rc == TPM_RC_FAILURE && g_calls == 1,
+          "a failed command is never implicitly replayed");
 
     mock_reset();
     packet_init(&packet, frame, sizeof(frame));
@@ -287,7 +280,7 @@ int main(void)
 {
     test_arguments();
     test_connection_recovery();
-    test_polling_and_framing();
+    test_execution_and_framing();
     test_packet_bounds();
     test_locality_contract();
 

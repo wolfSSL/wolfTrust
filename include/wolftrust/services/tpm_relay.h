@@ -32,19 +32,10 @@ typedef int (*wt_tpm_local_provider_fn)(const uint8_t* command,
                                         size_t* response_len,
                                         void* context);
 
-/* SERVICE_TPM: the single mediated door between the application guest and
- * the isolated fwTPM guest. The relay never parses a frame; it owns the one
- * in-flight command/response slot in its own band and enforces which
- * SPM-stamped caller may play which role, so the crossing is the same FF-M
- * level-3 door every other service rides. Secure Partition callers and any
- * Non-secure caller outside the two bound roles are refused. */
+/* Bind the SPM-stamped Non-secure caller (guest N is -(N+1)). */
+void wt_tpm_relay_set_client(int32_t app_client_id);
 
-/* Bind the roles to SPM-stamped Non-secure client ids (guest N is -(N+1)).
- * Until both are bound the relay fails closed on every op. */
-void wt_tpm_relay_set_roles(int32_t app_client_id, int32_t ftpm_client_id);
-
-/* AArch64 hosts fwTPM inside this S-EL0 partition because the port has one
- * Normal-world endpoint. NULL selects the two-client relay used on M33. */
+/* The fwTPM command handler executes inside SERVICE_TPM's private domain. */
 void wt_tpm_relay_set_local_provider(wt_tpm_local_provider_fn provider,
                                      void* context);
 

@@ -32,8 +32,7 @@ typedef int (*wt_pkcs11_local_provider_fn)(uint8_t* request,
                                            size_t* response_len,
                                            void* context);
 
-void wt_pkcs11_relay_set_roles(int32_t app_client_id,
-                               int32_t provider_client_id);
+void wt_pkcs11_relay_set_client(int32_t app_client_id);
 void wt_pkcs11_relay_set_local_provider(
     wt_pkcs11_local_provider_fn provider, void* context);
 void wt_pkcs11_relay_set_transport(wt_spm_transport_fn fn);

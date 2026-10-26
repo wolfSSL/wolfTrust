@@ -12,7 +12,6 @@ BUILD_DIR ?= build
 CFLAGS := \
 	-I. \
 	-I$(ROOT)/include \
-	-DWT_PKCS11_POLL_LIMIT=3U \
 	-std=c11 -O2 -g -Wall -Wextra -Werror -pedantic \
 	-Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)

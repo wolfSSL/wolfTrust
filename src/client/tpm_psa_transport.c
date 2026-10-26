@@ -58,92 +58,51 @@ static int wt_tpm_psa_conn_dead(psa_status_t st)
            st == PSA_ERROR_BAD_STATE;
 }
 
-/* One frame inbound to the relay: SUBMIT or RESPOND. */
-static int wt_tpm_psa_send(int32_t op, const uint8_t* frame, size_t len)
+int wt_tpm_psa_transact(const uint8_t* command, size_t command_len,
+                        uint8_t* response, size_t response_cap,
+                        size_t* response_len)
 {
-    psa_invec in;
-    psa_status_t st;
+    psa_invec input;
+    psa_outvec output;
+    psa_status_t status;
     int rc;
 
-    if (frame == NULL || len == 0U || len > WT_TPM_FRAME_MAX) {
+    if (command == NULL || command_len == 0U ||
+            command_len > WT_TPM_FRAME_MAX || response == NULL ||
+            response_cap == 0U || response_len == NULL) {
         return (int)PSA_ERROR_INVALID_ARGUMENT;
     }
+    *response_len = 0U;
     rc = wt_tpm_psa_connect();
     if (rc != 0) {
         return rc;
     }
-    in.base = frame;
-    in.len = len;
-    st = psa_call(g_tpm_handle, op, &in, 1U, NULL, 0U);
-    if (wt_tpm_psa_conn_dead(st)) {
+    input.base = command;
+    input.len = command_len;
+    output.base = response;
+    output.len = response_cap < WT_TPM_FRAME_MAX ? response_cap : WT_TPM_FRAME_MAX;
+    status = psa_call(g_tpm_handle, WT_TPM_OP_TRANSACT, &input, 1U, &output, 1U);
+    if (status == PSA_SUCCESS) {
+        if (output.len == 0U || output.len > response_cap ||
+                output.len > WT_TPM_FRAME_MAX) {
+            return (int)PSA_ERROR_COMMUNICATION_FAILURE;
+        }
+        *response_len = output.len;
+    }
+    else if (wt_tpm_psa_conn_dead(status)) {
         wt_tpm_psa_close();
     }
-    return (int)st;
-}
-
-/* One frame outbound from the relay: POLL or FETCH. */
-static int wt_tpm_psa_recv(int32_t op, uint8_t* frame, size_t cap,
-                           size_t* out_len)
-{
-    psa_outvec out;
-    psa_status_t st;
-    int rc;
-
-    if (frame == NULL || cap == 0U || out_len == NULL) {
-        return (int)PSA_ERROR_INVALID_ARGUMENT;
-    }
-    rc = wt_tpm_psa_connect();
-    if (rc != 0) {
-        return rc;
-    }
-    if (cap > WT_TPM_FRAME_MAX) {
-        cap = WT_TPM_FRAME_MAX;
-    }
-    out.base = frame;
-    out.len = cap;
-    st = psa_call(g_tpm_handle, op, NULL, 0U, &out, 1U);
-    if (st == PSA_SUCCESS) {
-        *out_len = out.len;
-    }
-    else if (wt_tpm_psa_conn_dead(st)) {
-        wt_tpm_psa_close();
-    }
-    return (int)st;
-}
-
-int wt_tpm_psa_submit(const uint8_t* cmd, size_t cmd_len)
-{
-    return wt_tpm_psa_send(WT_TPM_OP_SUBMIT, cmd, cmd_len);
-}
-
-int wt_tpm_psa_poll(uint8_t* resp, size_t resp_cap, size_t* resp_len)
-{
-    return wt_tpm_psa_recv(WT_TPM_OP_POLL, resp, resp_cap, resp_len);
-}
-
-int wt_tpm_psa_fetch(uint8_t* cmd, size_t cmd_cap, size_t* cmd_len)
-{
-    return wt_tpm_psa_recv(WT_TPM_OP_FETCH, cmd, cmd_cap, cmd_len);
-}
-
-int wt_tpm_psa_respond(const uint8_t* resp, size_t resp_len)
-{
-    return wt_tpm_psa_send(WT_TPM_OP_RESPOND, resp, resp_len);
+    return (int)status;
 }
 
 #if defined(WOLFTPM_SWTPM)
 /* wolfTPM client transport: built with WOLFTPM_SWTPM so the core routes
  * every command through TPM2_SWTPM_SendCommand, which this file provides in
- * place of the socket client. The whole command rides SUBMIT, then the
- * caller spins on POLL until the fwTPM partition has posted the response. */
+ * place of the socket client. One synchronous call returns the response. */
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_tis.h>
 #include <wolftpm/tpm2_swtpm.h>
-
-#ifndef WT_TPM_POLL_LIMIT
-#define WT_TPM_POLL_LIMIT 2000000U
-#endif
 
 /* The core still runs its TIS chip-startup sequence; the mediated door has
  * no TIS registers, so startup wait, locality, and device info are no-ops. */
@@ -180,7 +139,6 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
 {
     size_t rsp_len = 0U;
     uint32_t declared;
-    uint32_t tries;
     int rc;
 
     (void)ctx;
@@ -188,16 +146,8 @@ int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
             packet->size <= 0 || packet->pos > packet->size) {
         return BAD_FUNC_ARG;
     }
-    rc = wt_tpm_psa_submit(packet->buf, (size_t)packet->pos);
-    if (rc != 0) {
-        return TPM_RC_FAILURE;
-    }
-    for (tries = 0U; tries < WT_TPM_POLL_LIMIT; tries++) {
-        rc = wt_tpm_psa_poll(packet->buf, (size_t)packet->size, &rsp_len);
-        if (rc != WT_TPM_E_BUSY) {
-            break;
-        }
-    }
+    rc = wt_tpm_psa_transact(packet->buf, (size_t)packet->pos, packet->buf,
+                            (size_t)packet->size, &rsp_len);
     if (rc != 0 || rsp_len < (size_t)TPM2_HEADER_SIZE ||
             rsp_len > (size_t)packet->size) {
         return TPM_RC_FAILURE;

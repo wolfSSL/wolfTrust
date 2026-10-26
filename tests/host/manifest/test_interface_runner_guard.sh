@@ -1,25 +1,27 @@
 #!/bin/sh
+# Copyright (C) 2026 wolfSSL Inc.
+#
+# This file is part of wolfTrust.
+#
+# wolfTrust is free software; you can redistribute it and/or modify
+# it under the terms of the GNU General Public License as published by
+# the Free Software Foundation; either version 3 of the License, or
+# (at your option) any later version.
+#
+# wolfTrust is distributed in the hope that it will be useful,
+# but WITHOUT ANY WARRANTY; without even the implied warranty of
+# MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+# GNU General Public License for more details.
+#
+# You should have received a copy of the GNU General Public License
+# along with this program; if not, see <https://www.gnu.org/licenses/>.
+
 set -eu
 
 root=$(cd "$(dirname "$0")/../../.." && pwd)
 target_dir="$root/tests/firmware/stm32h563-tpm"
-runner="$target_dir/run_tpm_test.sh"
-fixture="$root/tests/host/manifest/interface_runner_fixture.sh"
 checks=0
 failures=0
-
-check_run() {
-    mode=$1
-    checks=$((checks + 1))
-    if WT_TPM_TEST_MODE="$mode" WT_PKCS11_SUITE=all M33MU="$fixture" \
-            SECURE_BIN=unused GUEST0_BIN=unused GUEST1_BIN=unused \
-            sh "$runner" >/dev/null; then
-        echo "  [check] PASS  $mode runner expects its provider markers"
-    else
-        failures=$((failures + 1))
-        echo "  [check] FAIL  $mode runner provider marker mismatch"
-    fi
-}
 
 check_recipe() {
     target=$1
@@ -35,12 +37,21 @@ check_recipe() {
     fi
 }
 
-check_run tpm
-check_run pkcs11
-check_recipe pkcs11 "WT_GUEST1_FLASH_SIZE=0x00040000" \
-    "PKCS11 secure image grants the provider 256 KiB"
-check_recipe pkcs11-provider "freertos-workspace" \
-    "PKCS11 provider provisions FreeRTOS"
+check_recipe run-tpm "run_suite.sh m33mu tpm" \
+    "TPM uses the authenticated single-application runner"
+check_recipe run-pkcs11 "run_suite.sh m33mu pkcs11" \
+    "PKCS11 uses the authenticated single-application runner"
+check_recipe secure "WT_MAX_GUESTS=1" \
+    "interface Secure images default to one guest context"
+for retired in tpm-provider pkcs11-provider; do
+    checks=$((checks + 1))
+    if make -n -C "$target_dir" "$retired" >/dev/null 2>&1; then
+        failures=$((failures + 1))
+        echo "  [check] FAIL  retired $retired target still exists"
+    else
+        echo "  [check] PASS  no extra $retired image can be built"
+    fi
+done
 check_recipe pkcs11-freertos-app "freertos-workspace" \
     "PKCS11 application provisions FreeRTOS"
 check_recipe tpm-freertos-app "freertos-workspace" \

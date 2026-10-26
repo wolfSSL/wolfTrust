@@ -23,9 +23,8 @@
 
 #include <stdint.h>
 
-/* SERVICE_PKCS11 is an FF-M copied-transfer relay. The application submits
- * serialized PKCS#11 calls and the provider fetches them. Neither side maps
- * the other guest's memory. */
+/* SERVICE_PKCS11 runs serialized calls inside its Secure partition.
+ * Messages larger than the FF-M transfer budget use bounded chunks. */
 #define WT_PKCS11_SERVICE_SID       4105U
 #define WT_PKCS11_SERVICE_VERSION   1U
 
@@ -35,19 +34,10 @@
 
 #define WT_PKCS11_OP_APP_BEGIN      1
 #define WT_PKCS11_OP_APP_WRITE      2
-#define WT_PKCS11_OP_APP_COMMIT     3
-#define WT_PKCS11_OP_APP_POLL       4
 #define WT_PKCS11_OP_APP_READ       5
 #define WT_PKCS11_OP_APP_ABORT      6
-#define WT_PKCS11_OP_PROVIDER_FETCH 7
-#define WT_PKCS11_OP_PROVIDER_READ  8
-#define WT_PKCS11_OP_PROVIDER_BEGIN 9
-#define WT_PKCS11_OP_PROVIDER_WRITE 10
-#define WT_PKCS11_OP_PROVIDER_COMMIT 11
-#define WT_PKCS11_OP_PROVIDER_ABORT 12
+#define WT_PKCS11_OP_APP_EXECUTE    13
 
-#define WT_PKCS11_E_EMPTY           (-2200)
-#define WT_PKCS11_E_BUSY            (-2201)
 
 typedef struct wt_pkcs11_length {
     uint32_t length;

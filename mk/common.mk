@@ -584,6 +584,19 @@ ifeq ($(CONFIG_TPM)/$(WT_INTERFACE_LOCAL_PROVIDER),y/1)
 TPM_WOLFCRYPT_SECURE_SRCS := $(WOLFCRYPT_SECURE_SRCS)
 endif
 
+# Shared code has no writable state; working contexts stay in the caller domain.
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+HSM_LIB_CFLAGS += -DWOLFSSL_PUBLIC_MP
+WT_INTERFACE_SHARED_CRYPTO := $(ARCH_WOLFCRYPT_ASM_SRCS) \
+    $(WOLFSSL_DIR)/wolfcrypt/src/sp_int.c
+ifeq ($(WT_ENGINE),native)
+WT_INTERFACE_SHARED_CRYPTO := $(filter-out \
+    %/wc_port.c %/cryptocb.c %/random.c %/pwdbased.c,$(WOLFCRYPT_SECURE_SRCS))
+endif
+P11_WOLFCRYPT_SECURE_SRCS := $(filter-out $(WT_INTERFACE_SHARED_CRYPTO),$(P11_WOLFCRYPT_SECURE_SRCS))
+TPM_WOLFCRYPT_SECURE_SRCS := $(filter-out $(WT_INTERFACE_SHARED_CRYPTO),$(TPM_WOLFCRYPT_SECURE_SRCS))
+endif
+
 HSM_SECURE_BASE_OBJS := $(patsubst %.c,$(BUILD_DIR)/sec_%.o,$(notdir $(SECURE_SRCS)))
 HSM_WOLFHSM_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wh_sec_%.o,$(notdir $(WOLFHSM_SECURE_SRCS)))
 HSM_WOLFCRYPT_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wc_sec_%.o,$(notdir $(WOLFCRYPT_SECURE_SRCS)))
@@ -631,6 +644,9 @@ WT_PROFILE_RAW_OBJS := $(TPM_WOLFCRYPT_RAW_OBJS) $(P11_WOLFCRYPT_RAW_OBJS) \
     $(patsubst $(BUILD_DIR)/p11_sec_%.o,$(BUILD_DIR)/p11_sec_raw_%.o,$(WOLFPKCS11_SECURE_OBJS))
 $(ALL_SECURE_OBJS) $(WT_PROFILE_RAW_OBJS): $(WT_CRYPTO_PROFILE_HEADER)
 endif
+
+# Rebuild namespace maps when makefile edits change private source membership.
+$(ALL_SECURE_OBJS) $(WT_PROFILE_RAW_OBJS): $(MAKEFILE_LIST)
 
 # LTO cannot safely rewrite objects whose symbols are consumed by inline
 # assembly or synthesized by the CMSE linker. Objects that own a
@@ -1737,6 +1753,7 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)' \
 		'WT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)' \
 		'WT_EXTRA_CFLAGS=$(WT_EXTRA_CFLAGS)' \
+		'WT_INTERFACE_SHARED_CRYPTO=$(WT_INTERFACE_SHARED_CRYPTO)' \
 		'WT_PKCS11_PIN_MAX_FAILURES=$(WT_PKCS11_PIN_MAX_FAILURES)' \
 		'WT_PKCS11_TEST_PBKDF2_ITERATIONS=$(WT_PKCS11_TEST_PBKDF2_ITERATIONS)' \
 		'WT_EXTRA_LDFLAGS=$(WT_EXTRA_LDFLAGS)' > "$$tmp"; \
@@ -1794,6 +1811,12 @@ $(BUILD_DIR)/tpm_wc_%.o: $(BUILD_DIR)/tpm_wc_raw_%.o $(TPM_NAMESPACE_MAP)
 
 $(BUILD_DIR)/tpm_sec_%.o: $(BUILD_DIR)/tpm_sec_raw_%.o $(TPM_NAMESPACE_MAP)
 	$(OBJCOPY) --redefine-syms=$(TPM_NAMESPACE_MAP) $< $@
+
+ifeq ($(CONFIG_PKCS11),y)
+$(BUILD_DIR)/p11_sec_raw_crypto.o: $(WT_CRYPTO_PROFILE_DIR)/pkcs11_crypto.c \
+        $(WOLFPKCS11_DIR)/src/crypto.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
+endif
 
 $(BUILD_DIR)/p11_sec_raw_%.o: $(WOLFPKCS11_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<

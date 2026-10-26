@@ -927,14 +927,7 @@ int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 #ifndef WT_TPM_APP_GUEST
 #define WT_TPM_APP_GUEST 0
 #endif
-#ifndef WT_TPM_FTPM_GUEST
-#define WT_TPM_FTPM_GUEST 1
-#endif
-/* SERVICE_TPM: the single mediated door between the application guest and
- * the isolated fwTPM guest. An unprivileged scheduled coroutine confined to
- * its own domain; the one in-flight command/response slot lives in its own
- * data band. Roles bind to the SPM-stamped guest identities (-(N+1)), and a
- * restart re-binds them because the fault scrub zeroes the band. */
+/* The ordinary Secure partition runs fwTPM in its own protection domain. */
 static void wt_spm_tpm_entry(void* arg)
 {
     int32_t partition_id = (int32_t)(intptr_t)arg;
@@ -954,10 +947,7 @@ static void wt_spm_tpm_entry(void* arg)
     }
     wt_tpm_relay_set_local_provider(wt_tpm_local_provider_process,
                                     provider_context);
-    wt_tpm_relay_set_roles(-1, 0);
-#else
-    wt_tpm_relay_set_roles(-(WT_TPM_APP_GUEST + 1),
-                           -(WT_TPM_FTPM_GUEST + 1));
+    wt_tpm_relay_set_client(-(WT_TPM_APP_GUEST + 1));
 #endif
     for (;;) {
         (void)wt_tpm_relay_dispatch(NULL, NULL, partition_id);
@@ -974,9 +964,6 @@ int wt_spm_tpm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 #if defined(CONFIG_PKCS11)
 #ifndef WT_PKCS11_APP_GUEST
 #define WT_PKCS11_APP_GUEST 0
-#endif
-#ifndef WT_PKCS11_PROVIDER_GUEST
-#define WT_PKCS11_PROVIDER_GUEST 1
 #endif
 
 #if defined(WT_INTERFACE_LOCAL_PROVIDER)
@@ -1010,10 +997,7 @@ static void wt_spm_pkcs11_entry(void* arg)
         psa_panic();
     }
     wt_pkcs11_relay_set_local_provider(wt_spm_pkcs11_local_dispatch, NULL);
-    wt_pkcs11_relay_set_roles(-1, 0);
-#else
-    wt_pkcs11_relay_set_roles(-(WT_PKCS11_APP_GUEST + 1),
-                              -(WT_PKCS11_PROVIDER_GUEST + 1));
+    wt_pkcs11_relay_set_client(-(WT_PKCS11_APP_GUEST + 1));
 #endif
     for (;;) {
         (void)wt_pkcs11_relay_dispatch(NULL, NULL, partition_id);

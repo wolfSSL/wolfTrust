@@ -18,8 +18,7 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* wolfCrypt settings for the bare-metal TPM guests (application + fwTPM): the
- * same profile the STM32H563 FreeRTOS guest builds with, minus the RTOS. */
+/* wolfCrypt settings for the bare-metal TPM application. */
 
 #ifndef WOLFTRUST_TPM_GUEST_USER_SETTINGS_H
 #define WOLFTRUST_TPM_GUEST_USER_SETTINGS_H
@@ -48,7 +47,6 @@
 
 #define NO_SHA
 #define WOLFSSL_AES_COUNTER
-/* fwTPM wraps private key blobs with AES-CFB. */
 #define WOLFSSL_AES_CFB
 #define HAVE_AESGCM
 #define HAVE_AESCCM

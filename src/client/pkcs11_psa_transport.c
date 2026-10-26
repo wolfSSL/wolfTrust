@@ -26,10 +26,6 @@
 
 #include <string.h>
 
-#ifndef WT_PKCS11_POLL_LIMIT
-#define WT_PKCS11_POLL_LIMIT 2000000U
-#endif
-
 static psa_handle_t g_pkcs11_handle = PSA_NULL_HANDLE;
 
 static int wt_pkcs11_conn_dead(psa_status_t status)
@@ -167,28 +163,12 @@ static void wt_pkcs11_abort(void)
     (void)wt_pkcs11_call(WT_PKCS11_OP_APP_ABORT, NULL, 0U, NULL, 0U, NULL);
 }
 
-static int wt_pkcs11_provider_abort(void)
-{
-    uint32_t tries;
-    int rc = (int)PSA_ERROR_COMMUNICATION_FAILURE;
-
-    for (tries = 0U; tries < 2U; tries++) {
-        rc = wt_pkcs11_call(WT_PKCS11_OP_PROVIDER_ABORT, NULL, 0U, NULL, 0U,
-                            NULL);
-        if (rc == 0 || wt_pkcs11_conn_dead((psa_status_t)rc) == 0) {
-            break;
-        }
-    }
-    return rc;
-}
-
 int wt_pkcs11_psa_call(const uint8_t* request, size_t request_len,
                        uint8_t* response, size_t response_cap,
                        size_t* response_len)
 {
     wt_pkcs11_length_t length;
     size_t actual = 0U;
-    uint32_t tries;
     int rc;
 
     if (request == NULL || request_len == 0U || response == NULL ||
@@ -202,24 +182,8 @@ int wt_pkcs11_psa_call(const uint8_t* request, size_t request_len,
     }
     rc = wt_pkcs11_push(WT_PKCS11_OP_APP_WRITE, request, request_len);
     if (rc == 0) {
-        rc = wt_pkcs11_call(WT_PKCS11_OP_APP_COMMIT, NULL, 0U, NULL, 0U,
-                            NULL);
-    }
-    if (rc != 0) {
-        wt_pkcs11_abort();
-        return rc;
-    }
-    /* Each PSA call enters the SPM scheduler, allowing the provider guest to
-     * advance before the next bounded poll. No client-side delay is needed;
-     * the limit is a liveness backstop for a wedged provider, not a latency
-     * tuning parameter. */
-    for (tries = 0U; tries < WT_PKCS11_POLL_LIMIT; tries++) {
-        actual = 0U;
-        rc = wt_pkcs11_call(WT_PKCS11_OP_APP_POLL, NULL, 0U, &length,
+        rc = wt_pkcs11_call(WT_PKCS11_OP_APP_EXECUTE, NULL, 0U, &length,
                             sizeof(length), &actual);
-        if (rc != WT_PKCS11_E_BUSY) {
-            break;
-        }
     }
     if (rc != 0 || actual != sizeof(length)) {
         wt_pkcs11_abort();
@@ -237,72 +201,5 @@ int wt_pkcs11_psa_call(const uint8_t* request, size_t request_len,
     else {
         wt_pkcs11_abort();
     }
-    return rc;
-}
-
-int wt_pkcs11_psa_provider_step(uint8_t* request, size_t request_cap,
-                                uint8_t* response, size_t response_cap,
-                                wt_pkcs11_dispatch_fn dispatch,
-                                void* context)
-{
-    wt_pkcs11_length_t length;
-    size_t response_len = 0U;
-    size_t actual = 0U;
-    int rc;
-
-    if (request == NULL || request_cap == 0U || response == NULL ||
-            response_cap == 0U || dispatch == NULL) {
-        return (int)PSA_ERROR_INVALID_ARGUMENT;
-    }
-    wt_forceZero(request, request_cap);
-    wt_forceZero(response, response_cap);
-    rc = wt_pkcs11_call(WT_PKCS11_OP_PROVIDER_FETCH, NULL, 0U, &length,
-                        sizeof(length), &actual);
-    if (rc == (int)PSA_ERROR_BAD_STATE) {
-        int abort_rc = wt_pkcs11_provider_abort();
-
-        return abort_rc != 0 ? abort_rc : rc;
-    }
-    if (rc != 0) {
-        return rc;
-    }
-    if (actual != sizeof(length) || length.length == 0U ||
-            length.length > WT_PKCS11_MESSAGE_MAX ||
-            length.length > request_cap) {
-        rc = (int)PSA_ERROR_BUFFER_TOO_SMALL;
-    }
-    if (rc == 0) {
-        rc = wt_pkcs11_pull(WT_PKCS11_OP_PROVIDER_READ, request,
-                            length.length);
-    }
-    if (rc == 0) {
-        rc = dispatch(request, length.length, response, response_cap,
-                      &response_len, context);
-    }
-    if (rc == 0 && (response_len == 0U ||
-            response_len > WT_PKCS11_MESSAGE_MAX ||
-            response_len > response_cap)) {
-        rc = (int)PSA_ERROR_INVALID_ARGUMENT;
-    }
-    wt_forceZero(request, request_cap);
-    if (rc == 0) {
-        rc = wt_pkcs11_begin(WT_PKCS11_OP_PROVIDER_BEGIN, response_len);
-    }
-    if (rc == 0) {
-        rc = wt_pkcs11_push(WT_PKCS11_OP_PROVIDER_WRITE, response,
-                            response_len);
-    }
-    if (rc == 0) {
-        rc = wt_pkcs11_call(WT_PKCS11_OP_PROVIDER_COMMIT, NULL, 0U, NULL,
-                            0U, NULL);
-    }
-    if (rc != 0) {
-        int abort_rc = wt_pkcs11_provider_abort();
-
-        if (abort_rc != 0) {
-            rc = abort_rc;
-        }
-    }
-    wt_forceZero(response, response_cap);
     return rc;
 }

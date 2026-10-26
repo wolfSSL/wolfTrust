@@ -25,13 +25,10 @@
 
 #define WT_PKCS11_SLOT_IDLE       0U
 #define WT_PKCS11_SLOT_RECEIVING  1U
-#define WT_PKCS11_SLOT_READY      2U
 #define WT_PKCS11_SLOT_PROCESSING 3U
-#define WT_PKCS11_SLOT_RESPONDING 4U
 #define WT_PKCS11_SLOT_DONE       5U
 
 static int32_t g_relay_app_client;
-static int32_t g_relay_provider_client;
 static wt_spm_transport_fn g_relay_transport = wt_spm_transport_direct;
 static wt_pkcs11_local_provider_fn g_local_provider;
 static void* g_local_provider_context;
@@ -47,7 +44,6 @@ static struct {
     uint32_t request_len;
     uint32_t request_used;
     uint32_t response_len;
-    uint32_t response_used;
     uint8_t state;
 } g_relay_slot;
 
@@ -56,11 +52,9 @@ static struct {
 WT_RESTART_PROBE_DEFINE(wt_pkcs11_relay_restart_probe)
 #endif
 
-void wt_pkcs11_relay_set_roles(int32_t app_client_id,
-                               int32_t provider_client_id)
+void wt_pkcs11_relay_set_client(int32_t app_client_id)
 {
     g_relay_app_client = app_client_id;
-    g_relay_provider_client = provider_client_id;
     wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
 }
 
@@ -158,7 +152,7 @@ static psa_status_t wt_pkcs11_write_exact(wt_ffm_runtime_t* runtime,
 
 static psa_status_t wt_pkcs11_begin(wt_ffm_runtime_t* runtime,
                                     int32_t partition_id,
-                                    const psa_msg_t* msg, int provider)
+                                    const psa_msg_t* msg)
 {
     wt_pkcs11_length_t length;
     psa_status_t status;
@@ -169,35 +163,20 @@ static psa_status_t wt_pkcs11_begin(wt_ffm_runtime_t* runtime,
             length.length > WT_PKCS11_MESSAGE_MAX) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    if (provider != 0) {
-        if (g_relay_slot.state != WT_PKCS11_SLOT_PROCESSING) {
-            return PSA_ERROR_BAD_STATE;
-        }
-        wt_forceZero(g_relay_slot.response, sizeof(g_relay_slot.response));
-        g_relay_slot.response_len = length.length;
-        g_relay_slot.response_used = 0U;
-        g_relay_slot.state = WT_PKCS11_SLOT_RESPONDING;
+    if (g_relay_slot.state == WT_PKCS11_SLOT_PROCESSING) {
+        return PSA_ERROR_BAD_STATE;
     }
-    else {
-        if (g_relay_slot.state == WT_PKCS11_SLOT_PROCESSING ||
-                g_relay_slot.state == WT_PKCS11_SLOT_RESPONDING) {
-            return (psa_status_t)WT_PKCS11_E_BUSY;
-        }
-        wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
-        g_relay_slot.request_len = length.length;
-        g_relay_slot.state = WT_PKCS11_SLOT_RECEIVING;
-    }
+    wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
+    g_relay_slot.request_len = length.length;
+    g_relay_slot.state = WT_PKCS11_SLOT_RECEIVING;
     return PSA_SUCCESS;
 }
 
 static psa_status_t wt_pkcs11_write_chunk(wt_ffm_runtime_t* runtime,
                                           int32_t partition_id,
-                                          const psa_msg_t* msg, int provider)
+                                          const psa_msg_t* msg)
 {
     wt_pkcs11_chunk_t chunk;
-    uint8_t* dst;
-    uint32_t* used;
-    uint32_t total;
     size_t frame_len;
     psa_status_t status;
 
@@ -215,35 +194,22 @@ static psa_status_t wt_pkcs11_write_chunk(wt_ffm_runtime_t* runtime,
             status = PSA_ERROR_INVALID_ARGUMENT;
         }
     }
-    if (status == PSA_SUCCESS) {
-        if (provider != 0) {
-            if (g_relay_slot.state != WT_PKCS11_SLOT_RESPONDING) {
-                status = PSA_ERROR_BAD_STATE;
-            }
-            else {
-                dst = g_relay_slot.response;
-                used = &g_relay_slot.response_used;
-                total = g_relay_slot.response_len;
-            }
-        }
-        else if (g_relay_slot.state != WT_PKCS11_SLOT_RECEIVING) {
-            status = PSA_ERROR_BAD_STATE;
-        }
-        else {
-            dst = g_relay_slot.request;
-            used = &g_relay_slot.request_used;
-            total = g_relay_slot.request_len;
-        }
+    if (status == PSA_SUCCESS &&
+            g_relay_slot.state != WT_PKCS11_SLOT_RECEIVING) {
+        status = PSA_ERROR_BAD_STATE;
     }
     if (status == PSA_SUCCESS) {
-        if (*used > total || chunk.offset != *used ||
-                chunk.length > total - *used) {
+        if (g_relay_slot.request_used > g_relay_slot.request_len ||
+                chunk.offset != g_relay_slot.request_used ||
+                chunk.length > g_relay_slot.request_len -
+                    g_relay_slot.request_used) {
             status = PSA_ERROR_INVALID_ARGUMENT;
         }
     }
     if (status == PSA_SUCCESS) {
-        (void)memcpy(dst + *used, chunk.data, chunk.length);
-        *used += chunk.length;
+        (void)memcpy(g_relay_slot.request + g_relay_slot.request_used,
+                     chunk.data, chunk.length);
+        g_relay_slot.request_used += chunk.length;
     }
 
     wt_forceZero(&chunk, sizeof(chunk));
@@ -253,87 +219,49 @@ static psa_status_t wt_pkcs11_write_chunk(wt_ffm_runtime_t* runtime,
     return status;
 }
 
-static psa_status_t wt_pkcs11_commit(int provider)
-{
-    if (provider != 0) {
-        if (g_relay_slot.state != WT_PKCS11_SLOT_RESPONDING ||
-                g_relay_slot.response_used != g_relay_slot.response_len) {
-            return PSA_ERROR_BAD_STATE;
-        }
-        wt_forceZero(g_relay_slot.request, sizeof(g_relay_slot.request));
-        g_relay_slot.request_len = 0U;
-        g_relay_slot.request_used = 0U;
-        g_relay_slot.state = WT_PKCS11_SLOT_DONE;
-    }
-    else {
-        if (g_relay_slot.state != WT_PKCS11_SLOT_RECEIVING ||
-                g_relay_slot.request_used != g_relay_slot.request_len) {
-            return PSA_ERROR_BAD_STATE;
-        }
-        g_relay_slot.state = WT_PKCS11_SLOT_READY;
-        if (g_local_provider != NULL) {
-            size_t response_len = 0U;
-            int rc;
-
-            g_relay_slot.state = WT_PKCS11_SLOT_PROCESSING;
-            rc = g_local_provider(g_relay_slot.request,
-                g_relay_slot.request_len, g_relay_slot.response,
-                sizeof(g_relay_slot.response), &response_len,
-                g_local_provider_context);
-            if (rc != 0 || response_len == 0U ||
-                    response_len > sizeof(g_relay_slot.response)) {
-                wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
-                return PSA_ERROR_GENERIC_ERROR;
-            }
-            g_relay_slot.response_len = (uint32_t)response_len;
-            g_relay_slot.response_used = (uint32_t)response_len;
-            wt_forceZero(g_relay_slot.request,
-                         sizeof(g_relay_slot.request));
-            g_relay_slot.request_len = 0U;
-            g_relay_slot.request_used = 0U;
-            g_relay_slot.state = WT_PKCS11_SLOT_DONE;
-        }
-    }
-    return PSA_SUCCESS;
-}
-
-static psa_status_t wt_pkcs11_report_length(wt_ffm_runtime_t* runtime,
-                                            int32_t partition_id,
-                                            const psa_msg_t* msg,
-                                            int provider)
+static psa_status_t wt_pkcs11_execute(wt_ffm_runtime_t* runtime,
+                                      int32_t partition_id,
+                                      const psa_msg_t* msg)
 {
     wt_pkcs11_length_t length;
+    size_t response_len = 0U;
+    psa_status_t status;
+    int rc;
 
-    if (provider != 0) {
-        /* Once a provider has fetched a request, replay could repeat a
-         * state-changing PKCS11 operation. Report the indeterminate state so
-         * the reconnected provider aborts it instead of dispatching twice. */
-        if (g_relay_slot.state == WT_PKCS11_SLOT_PROCESSING ||
-                g_relay_slot.state == WT_PKCS11_SLOT_RESPONDING) {
-            return PSA_ERROR_BAD_STATE;
-        }
-        if (g_relay_slot.state != WT_PKCS11_SLOT_READY) {
-            return (psa_status_t)WT_PKCS11_E_EMPTY;
-        }
-        length.length = g_relay_slot.request_len;
-        g_relay_slot.state = WT_PKCS11_SLOT_PROCESSING;
+    if (msg->in_size[0] != 0U ||
+            msg->out_size[0] != sizeof(length)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
     }
-    else {
-        if (g_relay_slot.state == WT_PKCS11_SLOT_IDLE) {
-            return (psa_status_t)WT_PKCS11_E_EMPTY;
-        }
-        if (g_relay_slot.state != WT_PKCS11_SLOT_DONE) {
-            return (psa_status_t)WT_PKCS11_E_BUSY;
-        }
-        length.length = g_relay_slot.response_len;
+    if (g_relay_slot.state != WT_PKCS11_SLOT_RECEIVING ||
+            g_relay_slot.request_used != g_relay_slot.request_len) {
+        return PSA_ERROR_BAD_STATE;
     }
-    return wt_pkcs11_write_exact(runtime, partition_id, msg, &length,
-                                 sizeof(length));
+    g_relay_slot.state = WT_PKCS11_SLOT_PROCESSING;
+    rc = g_local_provider(g_relay_slot.request, g_relay_slot.request_len,
+        g_relay_slot.response, sizeof(g_relay_slot.response), &response_len,
+        g_local_provider_context);
+    if (rc != 0 || response_len == 0U ||
+            response_len > sizeof(g_relay_slot.response)) {
+        wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
+        return PSA_ERROR_GENERIC_ERROR;
+    }
+    wt_forceZero(g_relay_slot.request, sizeof(g_relay_slot.request));
+    g_relay_slot.request_len = 0U;
+    g_relay_slot.request_used = 0U;
+    g_relay_slot.response_len = (uint32_t)response_len;
+    g_relay_slot.state = WT_PKCS11_SLOT_DONE;
+    length.length = (uint32_t)response_len;
+    status = wt_pkcs11_write_exact(runtime, partition_id, msg, &length,
+                                   sizeof(length));
+    if (status != PSA_SUCCESS) {
+        wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
+    }
+    return status;
 }
 
 static psa_status_t wt_pkcs11_read_chunk(wt_ffm_runtime_t* runtime,
                                          int32_t partition_id,
-                                         const psa_msg_t* msg, int provider)
+                                         const psa_msg_t* msg)
 {
     wt_pkcs11_range_t range;
     const uint8_t* src;
@@ -346,26 +274,17 @@ static psa_status_t wt_pkcs11_read_chunk(wt_ffm_runtime_t* runtime,
             range.length > WT_PKCS11_CHUNK_MAX) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    if (provider != 0) {
-        if (g_relay_slot.state != WT_PKCS11_SLOT_PROCESSING) {
-            return PSA_ERROR_BAD_STATE;
-        }
-        src = g_relay_slot.request;
-        total = g_relay_slot.request_len;
+    if (g_relay_slot.state != WT_PKCS11_SLOT_DONE) {
+        return PSA_ERROR_BAD_STATE;
     }
-    else {
-        if (g_relay_slot.state != WT_PKCS11_SLOT_DONE) {
-            return PSA_ERROR_BAD_STATE;
-        }
-        src = g_relay_slot.response;
-        total = g_relay_slot.response_len;
-    }
+    src = g_relay_slot.response;
+    total = g_relay_slot.response_len;
     if (range.offset > total || range.length > total - range.offset) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     status = wt_pkcs11_write_exact(runtime, partition_id, msg,
                                     src + range.offset, range.length);
-    if (status == PSA_SUCCESS && provider == 0 &&
+    if (status == PSA_SUCCESS &&
             range.offset + range.length == total) {
         wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
     }
@@ -377,46 +296,16 @@ static psa_status_t wt_pkcs11_app_call(wt_ffm_runtime_t* runtime,
                                        const psa_msg_t* msg)
 {
     switch (msg->type) {
+        case WT_PKCS11_OP_APP_EXECUTE:
+            return wt_pkcs11_execute(runtime, partition_id, msg);
         case WT_PKCS11_OP_APP_BEGIN:
-            return wt_pkcs11_begin(runtime, partition_id, msg, 0);
+            return wt_pkcs11_begin(runtime, partition_id, msg);
         case WT_PKCS11_OP_APP_WRITE:
-            return wt_pkcs11_write_chunk(runtime, partition_id, msg, 0);
-        case WT_PKCS11_OP_APP_COMMIT:
-            return wt_pkcs11_commit(0);
-        case WT_PKCS11_OP_APP_POLL:
-            return wt_pkcs11_report_length(runtime, partition_id, msg, 0);
+            return wt_pkcs11_write_chunk(runtime, partition_id, msg);
         case WT_PKCS11_OP_APP_READ:
-            return wt_pkcs11_read_chunk(runtime, partition_id, msg, 0);
+            return wt_pkcs11_read_chunk(runtime, partition_id, msg);
         case WT_PKCS11_OP_APP_ABORT:
-            if (g_relay_slot.state == WT_PKCS11_SLOT_PROCESSING ||
-                    g_relay_slot.state == WT_PKCS11_SLOT_RESPONDING) {
-                return (psa_status_t)WT_PKCS11_E_BUSY;
-            }
-            wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
-            return PSA_SUCCESS;
-        default:
-            return PSA_ERROR_NOT_SUPPORTED;
-    }
-}
-
-static psa_status_t wt_pkcs11_provider_call(wt_ffm_runtime_t* runtime,
-                                            int32_t partition_id,
-                                            const psa_msg_t* msg)
-{
-    switch (msg->type) {
-        case WT_PKCS11_OP_PROVIDER_FETCH:
-            return wt_pkcs11_report_length(runtime, partition_id, msg, 1);
-        case WT_PKCS11_OP_PROVIDER_READ:
-            return wt_pkcs11_read_chunk(runtime, partition_id, msg, 1);
-        case WT_PKCS11_OP_PROVIDER_BEGIN:
-            return wt_pkcs11_begin(runtime, partition_id, msg, 1);
-        case WT_PKCS11_OP_PROVIDER_WRITE:
-            return wt_pkcs11_write_chunk(runtime, partition_id, msg, 1);
-        case WT_PKCS11_OP_PROVIDER_COMMIT:
-            return wt_pkcs11_commit(1);
-        case WT_PKCS11_OP_PROVIDER_ABORT:
-            if (g_relay_slot.state != WT_PKCS11_SLOT_PROCESSING &&
-                    g_relay_slot.state != WT_PKCS11_SLOT_RESPONDING) {
+            if (g_relay_slot.state == WT_PKCS11_SLOT_PROCESSING) {
                 return PSA_ERROR_BAD_STATE;
             }
             wt_forceZero(&g_relay_slot, sizeof(g_relay_slot));
@@ -430,31 +319,13 @@ static psa_status_t wt_pkcs11_relay_call(wt_ffm_runtime_t* runtime,
                                          int32_t partition_id,
                                          const psa_msg_t* msg)
 {
-    if (g_relay_app_client == 0 ||
-            (g_relay_provider_client == 0 && g_local_provider == NULL)) {
+    if (g_relay_app_client >= 0 || g_local_provider == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
     }
-    if (msg->client_id >= 0) {
+    if (msg->client_id != g_relay_app_client) {
         return PSA_ERROR_NOT_PERMITTED;
     }
-    if (msg->client_id == g_relay_app_client) {
-        if (msg->type >= WT_PKCS11_OP_PROVIDER_FETCH &&
-                msg->type <= WT_PKCS11_OP_PROVIDER_ABORT) {
-            return PSA_ERROR_NOT_PERMITTED;
-        }
-        return wt_pkcs11_app_call(runtime, partition_id, msg);
-    }
-    if (msg->client_id == g_relay_provider_client) {
-        if (g_local_provider != NULL) {
-            return PSA_ERROR_NOT_PERMITTED;
-        }
-        if (msg->type >= WT_PKCS11_OP_APP_BEGIN &&
-                msg->type <= WT_PKCS11_OP_APP_ABORT) {
-            return PSA_ERROR_NOT_PERMITTED;
-        }
-        return wt_pkcs11_provider_call(runtime, partition_id, msg);
-    }
-    return PSA_ERROR_NOT_PERMITTED;
+    return wt_pkcs11_app_call(runtime, partition_id, msg);
 }
 
 int wt_pkcs11_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,

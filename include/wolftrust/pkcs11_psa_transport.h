@@ -24,24 +24,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef int (*wt_pkcs11_dispatch_fn)(uint8_t* request,
-                                     size_t request_len, uint8_t* response,
-                                     size_t response_cap,
-                                     size_t* response_len, void* context);
-
-/* Submit one serialized PKCS#11 request and wait for its serialized response.
- * The buffers are copied through SERVICE_PKCS11. They are never shared with
- * the provider guest. */
+/* Execute one serialized PKCS#11 call in the Secure partition. Requests
+ * and responses use bounded copied transfers; no client pointers cross. */
 int wt_pkcs11_psa_call(const uint8_t* request, size_t request_len,
                        uint8_t* response, size_t response_cap,
                        size_t* response_len);
-
-/* Serve one pending request from the provider guest. Returns
- * WT_PKCS11_E_EMPTY when no request is ready. */
-int wt_pkcs11_psa_provider_step(uint8_t* request, size_t request_cap,
-                                uint8_t* response, size_t response_cap,
-                                wt_pkcs11_dispatch_fn dispatch,
-                                void* context);
 
 void wt_pkcs11_psa_close(void);
 

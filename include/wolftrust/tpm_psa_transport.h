@@ -28,18 +28,13 @@
 
 /* Non-secure client helpers for SERVICE_TPM. Each call is one psa_call on a
  * cached connection; a lost connection is reopened on the next call. The
- * application side moves whole TPM 2.0 command/response frames; the fwTPM
- * partition side serves them. Return 0, or the negative relay/PSA status. */
+ * application moves whole TPM 2.0 frames to the Secure service, which runs
+ * fwTPM directly. Return 0, or the negative service/PSA status. */
 
-/* Application: submit one command frame (non-blocking). */
-int wt_tpm_psa_submit(const uint8_t* cmd, size_t cmd_len);
-/* Application: collect the response; WT_TPM_E_BUSY while still in service. */
-int wt_tpm_psa_poll(uint8_t* resp, size_t resp_cap, size_t* resp_len);
-
-/* fwTPM partition: take the pending command; WT_TPM_E_EMPTY when none. */
-int wt_tpm_psa_fetch(uint8_t* cmd, size_t cmd_cap, size_t* cmd_len);
-/* fwTPM partition: post the response to the command last fetched. */
-int wt_tpm_psa_respond(const uint8_t* resp, size_t resp_len);
+/* Execute one command synchronously; transport errors never replay it. */
+int wt_tpm_psa_transact(const uint8_t* command, size_t command_len,
+                        uint8_t* response, size_t response_cap,
+                        size_t* response_len);
 
 /* Drop the cached connection (after a transport error or for teardown). */
 void wt_tpm_psa_close(void);

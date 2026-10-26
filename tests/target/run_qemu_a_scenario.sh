@@ -1199,7 +1199,7 @@ case "$scenario" in
     expect "TPM requests crossed the FF-A SPM endpoint" "[SPM] direct req from=0x0000 to=0x80fd"
     if [ "$scenario" = tpmneg ]; then
       interface_far=$(printf 'FAR=0x%016x' $((WT_SPM_INTERFACE_PA)))
-      provider_far=$(printf 'FAR=0x%016x' $((WT_SPM_HSMDATA_PA)))
+      spm_far=$(printf 'FAR=0x%016x' $((WT_SPM_RAM_PA)))
       interface_xn_far=$(printf 'FAR=0x%016x' $((WT_SPM_INTERFACE_PA + 1)))
       interface_data_faults=$(grep -c "^\[SYNC EL=0 EC=0x24 .*$interface_far" "$log" || true)
       if [ "$interface_data_faults" -eq 2 ]; then
@@ -1208,8 +1208,8 @@ case "$scenario" in
         check_fail "TPM state-band isolation" \
           "expected 2 S-EL0 data aborts at $interface_far, saw $interface_data_faults"
       fi
-      expect "the TPM relay was denied the provider's private RAM" \
-        "[SYNC EL=0 EC=0x24 ISS=0x000000f $provider_far]"
+      expect "the TPM handler was denied SPM private RAM" \
+        "[SYNC EL=0 EC=0x24 ISS=0x000000f $spm_far]"
       expect "the TPM state band was execute-never" \
         "[SYNC EL=0 EC=0x22 ISS=0x0000000 $interface_xn_far]"
     else
@@ -1242,7 +1242,7 @@ case "$scenario" in
     expect "PKCS11 requests crossed the FF-A SPM endpoint" "[SPM] direct req from=0x0000 to=0x80fd"
     if [ "$scenario" = pkcs11neg ]; then
       interface_far=$(printf 'FAR=0x%016x' $((WT_SPM_INTERFACE_PA)))
-      provider_far=$(printf 'FAR=0x%016x' $((WT_SPM_HSMDATA_PA)))
+      spm_far=$(printf 'FAR=0x%016x' $((WT_SPM_RAM_PA)))
       interface_xn_far=$(printf 'FAR=0x%016x' $((WT_SPM_INTERFACE_PA + 1)))
       interface_data_faults=$(grep -c "^\[SYNC EL=0 EC=0x24 .*$interface_far" "$log" || true)
       if [ "$interface_data_faults" -eq 2 ]; then
@@ -1251,8 +1251,8 @@ case "$scenario" in
         check_fail "PKCS11 state-band isolation" \
           "expected 2 S-EL0 data aborts at $interface_far, saw $interface_data_faults"
       fi
-      expect "the PKCS11 relay was denied the provider's private RAM" \
-        "[SYNC EL=0 EC=0x24 ISS=0x000000f $provider_far]"
+      expect "the PKCS11 handler was denied SPM private RAM" \
+        "[SYNC EL=0 EC=0x24 ISS=0x000000f $spm_far]"
       expect "the PKCS11 state band was execute-never" \
         "[SYNC EL=0 EC=0x22 ISS=0x0000000 $interface_xn_far]"
       partition_faults=$(grep -c '^\[SYNC EL=0' "$log" || true)

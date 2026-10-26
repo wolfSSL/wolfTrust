@@ -2,10 +2,8 @@
 
 # stm32h563-tpm end-to-end firmware-TPM test.
 #
-# Two bare-metal NS guests: guest0 is a stock wolfTPM application, guest1 is
-# the isolated firmware TPM (wolfTPM's fwTPM responder). Every TPM 2.0 command
-# crosses the SPM-mediated SERVICE_TPM door; the runner asserts on the
-# application's round-trip markers.
+# A bare-metal wolfTPM client calls fwTPM inside the existing Secure partition.
+# FreeRTOS and Zephyr clients exercise the same service and engine choices.
 #
 # Copyright (C) 2026 wolfSSL Inc.
 #
@@ -51,20 +49,16 @@ ifneq ($(filter $(WT_ENGINE),native hsm),$(WT_ENGINE))
 $(error unsupported WT_ENGINE=$(WT_ENGINE))
 endif
 EMU_TIMEOUT ?= 180
-WT_MAX_GUESTS ?= 2
+WT_MAX_GUESTS ?= 1
 WT_CRYPTO_PROFILE ?= default
 WT_PKCS11_SUITE ?= $(if $(filter default,$(WT_CRYPTO_PROFILE)),profile,all)
 
-# Guest windows match the Secure image's manifest-tpm.json domains (guest0 at
-# 0x080A0000, guest1 at 0x080E0000); the scenario runners may override them.
+# The application window matches manifest-tpm.json; runners may override it.
 WT_GUEST0_FLASH_ORIGIN ?= 0x080A0000
-WT_GUEST1_FLASH_ORIGIN ?= 0x080E0000
 WT_GUEST_FLASH_SIZE    ?= 0x00020000
 WT_GUEST0_RAM_BASE     ?= 0x20000000
-WT_GUEST1_RAM_BASE     ?= 0x20010000
 WT_GUEST_RAM_SIZE      ?= 0x00010000
 WT_GUEST0_EMU_OFFSET   ?= 0xA0000
-WT_GUEST1_EMU_OFFSET   ?= 0xE0000
 
 WT_GUEST_CORE_CLOCK_HZ ?= 240000000
 WT_GUEST_UART_CLOCK_HZ ?= 120000000
@@ -91,8 +85,7 @@ GUEST_CFLAGS := $(CPU_FLAGS) -ffreestanding -fno-builtin -nostdlib -Os -g \
     -DWOLFTPM_SMALL_STACK \
     -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ) \
     -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ) \
-    -DWT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_ORIGIN)u \
-    -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_ORIGIN)u
+    -DWT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_ORIGIN)u
 WT_LTO ?= 1
 ifeq ($(WT_LTO),1)
 GUEST_CFLAGS += -flto=auto
@@ -107,18 +100,6 @@ GUEST_CFLAGS += $(GUEST_EXTRA_CFLAGS)
 APP_CFLAGS := -DWT_WOLFHSM_CLIENT_ID=1 -DWT_TPM_ROLE_APP -DWOLFTPM_SWTPM -DGUEST_HEAP_POOL_SZ=32768u \
     -DWOLF_CRYPTO_CB -DWOLFTPM_CRYPTOCB \
     -DWT_TPM_APP_NAME=\"tpm-guest0\"
-
-# guest1: the fwTPM responder, volatile ECC core profile sized for the 64 KiB
-# guest RAM window (no in-memory NV, two persistent/session slots). PCR count
-# stays at the stock 24 so the unmodified client's PCR selection matches.
-FTPM_CFLAGS := -DWT_WOLFHSM_CLIENT_ID=2 -DWT_TPM_ROLE_FTPM -DWOLFTPM_FWTPM \
-    -DFWTPM_NO_NV -include wolftrust/tpm/tpm_abi.h \
-    -DFWTPM_MAX_COMMAND_SIZE=WT_TPM_FRAME_MAX \
-    -DFWTPM_MAX_PERSISTENT=2 -DFWTPM_MAX_SESSIONS=2 \
-    -DFWTPM_NO_POLICY -DFWTPM_NO_CREDENTIAL -DFWTPM_NO_DA \
-    -DFWTPM_NO_PARAM_ENC -DFWTPM_NO_KEY_MIGRATION \
-    -DFWTPM_NO_CONTEXT -DFWTPM_NO_SYM_ENCRYPT -DFWTPM_NO_CLOCK \
-    -DGUEST_HEAP_POOL_SZ=12288u
 
 TPM_BUILD_ROOT ?= build
 BUILD_DIR     ?= $(TPM_BUILD_ROOT)/tpm
@@ -170,24 +151,7 @@ APP_SRCS := \
     $(WOLFTPM_DIR)/src/tpm2_param_enc.c \
     $(WOLFTPM_DIR)/src/tpm2_cryptocb.c
 
-FTPM_SRCS := \
-    $(WOLFTPM_DIR)/src/fwtpm/fwtpm.c \
-    $(WOLFTPM_DIR)/src/fwtpm/fwtpm_command.c \
-    $(WOLFTPM_DIR)/src/fwtpm/fwtpm_crypto.c \
-    $(WOLFTPM_DIR)/src/fwtpm/fwtpm_nv.c \
-    $(WOLFTPM_DIR)/src/tpm2_util.c \
-    $(WOLFTPM_DIR)/src/tpm2_packet.c \
-    $(WOLFTPM_DIR)/src/tpm2_param_enc.c \
-    $(WOLFTPM_DIR)/src/tpm2_crypto.c
-
 ifeq ($(WT_ENGINE),hsm)
-WT_PROVIDER_ECC_FALLBACK ?= 0
-FTPM_CFLAGS += -DWOLF_CRYPTO_CB_FIND
-ifeq ($(WT_PROVIDER_ECC_FALLBACK),0)
-FTPM_CFLAGS += -DWT_TPM_HSM_CALLBACK_ECC
-else ifneq ($(WT_PROVIDER_ECC_FALLBACK),1)
-$(error WT_PROVIDER_ECC_FALLBACK must be 0 or 1)
-endif
 GUEST_CFLAGS += -DWT_ENGINE_HSM=1 -DWOLF_CRYPTO_CB -DWOLFHSM_CFG \
     -I$(ROOT)/lib/wolfHSM -I$(BUILD_DIR)
 COMMON_SRCS := $(filter-out %/crypto_native_client.c,$(COMMON_SRCS))
@@ -206,20 +170,16 @@ endif
 
 include $(ROOT)/mk/crypto-profile.mk
 GUEST_CFLAGS += $(WT_CRYPTO_PROFILE_FLAGS)
-FTPM_SRCS := $(filter-out %/fwtpm_command.c,$(FTPM_SRCS)) $(WT_CRYPTO_PROFILE_DIR)/fwtpm_command.c
 
 G0_OBJS := $(patsubst %.c,$(BUILD_DIR)/g0_%.o,$(notdir $(COMMON_SRCS) $(APP_SRCS)))
-G1_OBJS := $(patsubst %.c,$(BUILD_DIR)/g1_%.o,$(notdir $(COMMON_SRCS) $(FTPM_SRCS)))
 
-vpath %.c $(sort $(dir $(COMMON_SRCS) $(APP_SRCS) $(FTPM_SRCS)))
+vpath %.c $(sort $(dir $(COMMON_SRCS) $(APP_SRCS)))
 
 GUEST0_ELF := $(BUILD_DIR)/guest0.elf
 GUEST0_BIN := $(BUILD_DIR)/guest0.bin
-GUEST1_ELF := $(BUILD_DIR)/guest1.elf
-GUEST1_BIN := $(BUILD_DIR)/guest1.bin
 
-.PHONY: all secure clean run tpm tpm-provider tpm-freertos-app \
-        pkcs11 pkcs11-guests pkcs11-provider pkcs11-freertos-app \
+.PHONY: all secure clean run tpm tpm-freertos-app \
+        pkcs11 pkcs11-guests pkcs11-freertos-app \
         run-tpm run-pkcs11
 
 tpm:
@@ -227,11 +187,10 @@ tpm:
 
 pkcs11:
 	@$(MAKE) --no-print-directory secure CONFIG_TPM=n CONFIG_PKCS11=y \
-		WT_ENGINE=$(WT_ENGINE) WT_GUEST1_FLASH_BASE=0x080C0000 \
-		WT_GUEST1_FLASH_SIZE=0x00040000
+		WT_ENGINE=$(WT_ENGINE)
 	@$(MAKE) --no-print-directory pkcs11-guests
 
-pkcs11-guests: pkcs11-freertos-app pkcs11-provider
+pkcs11-guests: pkcs11-freertos-app
 
 pkcs11-freertos-app:
 	@$(MAKE) --no-print-directory -C ../zephyr-stm32h5 freertos-workspace
@@ -244,18 +203,6 @@ pkcs11-freertos-app:
 		WT_GUEST_RAM_SIZE="$(WT_GUEST_RAM_SIZE)" \
 		sh ./scripts/build_freertos_pkcs11.sh
 
-pkcs11-provider:
-	@$(MAKE) --no-print-directory -C ../zephyr-stm32h5 freertos-workspace
-	@BUILD_DIR="$(abspath $(PKCS11_BUILD_DIR))" \
-		SECURE_CMSE_IMPLIB="$(abspath $(SECURE_CMSE_IMPLIB))" \
-		WT_GUEST1_FLASH_BASE=0x080C0000 \
-		WT_GUEST1_FLASH_SIZE=0x00040000 \
-		WT_GUEST1_RAM_BASE="$(WT_GUEST1_RAM_BASE)" \
-		WT_GUEST_RAM_SIZE="$(WT_GUEST_RAM_SIZE)" \
-		sh ./scripts/build_freertos_pkcs11_provider.sh
-
-tpm-provider: $(GUEST1_BIN)
-
 tpm-freertos-app:
 	@$(MAKE) --no-print-directory -C ../zephyr-stm32h5 freertos-workspace
 	@BUILD_DIR="$(abspath $(TPM_FREERTOS_BUILD_DIR))" \
@@ -266,28 +213,13 @@ tpm-freertos-app:
 		WT_GUEST_RAM_SIZE="$(WT_GUEST_RAM_SIZE)" \
 		sh ./scripts/build_freertos_tpm.sh
 
-run-tpm:
-	@$(MAKE) --no-print-directory run
-
-run-pkcs11:
-	@$(MAKE) --no-print-directory pkcs11
-	@EMU_TIMEOUT="$(EMU_TIMEOUT)" M33MU="$(M33MU)" \
-		SECURE_BIN="$(SECURE_BIN)" \
-		GUEST0_BIN="$(PKCS11_BUILD_DIR)/guest0.bin" \
-		GUEST1_BIN="$(PKCS11_BUILD_DIR)/guest1.bin" \
-		WT_TPM_TEST_MODE=pkcs11 WT_PKCS11_SUITE="$(WT_PKCS11_SUITE)" \
-		WT_GUEST0_EMU_OFFSET="$(WT_GUEST0_EMU_OFFSET)" \
-		WT_GUEST1_EMU_OFFSET=0xC0000 \
-		./run_tpm_test.sh
-
-all: secure $(GUEST0_BIN) $(GUEST1_BIN)
-	@$(SIZE) $(GUEST0_ELF) $(GUEST1_ELF)
+all: secure $(GUEST0_BIN)
+	@$(SIZE) $(GUEST0_ELF)
 
 secure:
 	rm -rf $(TOP_BUILD_DIR)
 	CONFIG_TPM=$(CONFIG_TPM) WT_MAX_GUESTS=$(WT_MAX_GUESTS) \
 	    WT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_ORIGIN) \
-	    WT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_ORIGIN) \
 	    $(MAKE) -C $(ROOT) build/wolftrust.bin build/secure_cmse_implib.o
 
 $(BUILD_DIR):
@@ -299,14 +231,7 @@ $(BUILD_DIR)/wolfhsm_cfg.h: | $(BUILD_DIR)
 $(BUILD_DIR)/g0_%.o: %.c $(WT_CRYPTO_PROFILE_HEADER) nonsecure/user_settings.h $(GUEST_ENGINE_DEPS) | $(BUILD_DIR)
 	$(CC) $(GUEST_CFLAGS) $(APP_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/g1_fwtpm_command.o: $(WT_CRYPTO_PROFILE_DIR)/fwtpm_command.c $(WT_CRYPTO_PROFILE_HEADER) nonsecure/user_settings.h $(GUEST_ENGINE_DEPS) | $(BUILD_DIR)
-	$(CC) $(GUEST_CFLAGS) $(FTPM_CFLAGS) -c -o $@ $<
-
-$(BUILD_DIR)/g1_%.o: %.c $(WT_CRYPTO_PROFILE_HEADER) nonsecure/user_settings.h $(GUEST_ENGINE_DEPS) | $(BUILD_DIR)
-	$(CC) $(GUEST_CFLAGS) $(FTPM_CFLAGS) -c -o $@ $<
-
-$(GUEST0_ELF): GUEST_KEEP_FLAGS += -Wl,-u,wt_tpm_psa_submit,-u,TPM2_SWTPM_SendCommand
-$(GUEST1_ELF): GUEST_KEEP_FLAGS += -Wl,-u,wt_tpm_psa_fetch,-u,FWTPM_ProcessCommand
+$(GUEST0_ELF): GUEST_KEEP_FLAGS += -Wl,-u,wt_tpm_psa_transact,-u,TPM2_SWTPM_SendCommand
 
 define GUEST_LINK
 $(BUILD_DIR)/$(1).elf: $(2) nonsecure/guest.ld $(SECURE_CMSE_IMPLIB) | $(BUILD_DIR)
@@ -322,36 +247,25 @@ $(BUILD_DIR)/$(1).elf: $(2) nonsecure/guest.ld $(SECURE_CMSE_IMPLIB) | $(BUILD_D
 endef
 
 $(eval $(call GUEST_LINK,guest0,$(G0_OBJS),$(WT_GUEST0_FLASH_ORIGIN),$(WT_GUEST0_RAM_BASE)))
-$(eval $(call GUEST_LINK,guest1,$(G1_OBJS),$(WT_GUEST1_FLASH_ORIGIN),$(WT_GUEST1_RAM_BASE)))
 
 # Every Secure crossing is SPM-mediated: no retired direct veneers, the
-# application rides the SERVICE_TPM transport, the fwTPM serves it.
+# application rides SERVICE_TPM and contains no fwTPM implementation.
 $(GUEST0_BIN): $(GUEST0_ELF)
 	@! $(NM) --defined-only $< | grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_' || \
 	    { echo "FAIL: retired direct veneers linked into $<" >&2; exit 1; }
-	@$(NM) --defined-only $< | grep -q 'wt_tpm_psa_submit' || \
+	@$(NM) --defined-only $< | grep -q 'wt_tpm_psa_transact' || \
 	    { echo "FAIL: $< is not wired to the SERVICE_TPM transport" >&2; exit 1; }
 	@$(NM) --defined-only $< | grep -q 'TPM2_SWTPM_SendCommand' || \
 	    { echo "FAIL: wolfTPM client not routed through SERVICE_TPM in $<" >&2; exit 1; }
 	$(OBJCOPY) -O binary $< $@
 
-$(GUEST1_BIN): $(GUEST1_ELF)
-	@! $(NM) --defined-only $< | grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_' || \
-	    { echo "FAIL: retired direct veneers linked into $<" >&2; exit 1; }
-	@$(NM) --defined-only $< | grep -q 'FWTPM_ProcessCommand' || \
-	    { echo "FAIL: fwTPM responder missing from $<" >&2; exit 1; }
-	@$(NM) --defined-only $< | grep -q 'wt_tpm_psa_fetch' || \
-	    { echo "FAIL: $< is not serving the SERVICE_TPM slot" >&2; exit 1; }
-	$(OBJCOPY) -O binary $< $@
+run run-tpm:
+	@cd $(ROOT) && WT_ENGINE=$(WT_ENGINE) WT_CRYPTO_PROFILE=$(WT_CRYPTO_PROFILE) \
+		M33MU=$(M33MU) bash tests/target/run_suite.sh m33mu tpm
 
-run: all
-	EMU_TIMEOUT="$(EMU_TIMEOUT)" M33MU="$(M33MU)" \
-	    SECURE_BIN="$(SECURE_BIN)" \
-	    GUEST0_BIN="$(GUEST0_BIN)" GUEST1_BIN="$(GUEST1_BIN)" \
-	    WT_TPM_TEST_MODE=tpm \
-	    WT_GUEST0_EMU_OFFSET="$(WT_GUEST0_EMU_OFFSET)" \
-	    WT_GUEST1_EMU_OFFSET="$(WT_GUEST1_EMU_OFFSET)" \
-	    ./run_tpm_test.sh
+run-pkcs11:
+	@cd $(ROOT) && WT_ENGINE=$(WT_ENGINE) WT_CRYPTO_PROFILE=$(WT_CRYPTO_PROFILE) \
+		M33MU=$(M33MU) bash tests/target/run_suite.sh m33mu pkcs11
 
 clean:
 	rm -rf $(TPM_BUILD_ROOT)

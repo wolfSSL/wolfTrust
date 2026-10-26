@@ -1,131 +1,110 @@
 # Application-interface footprint
 
-Measured on 2026-10-26 for STM32H563 with the configurable default operation
-profile. All six configurations exercise RNG, SHA-256 and P-256 key generation,
-signing and verification. `native` and `hsm` select the engine independently of
-PSA, TPM or PKCS#11.
+Measured on 2026-10-26 for STM32H563. All six default-profile builds exercise
+RNG, SHA-256, P-256 key generation, signing, and verification. Every row has one
+FreeRTOS application and one wolfTrust image. TPM and PKCS#11 run directly in
+Secure partitions; no provider image, extra RTOS, or worker is built or loaded.
 
-Earlier figures compared a PSA RNG/hash application with broader TPM and
-PKCS#11 suites. That comparison overstated the cost of replacing the application
-API. The old 11,980-byte native PSA application did not include P-256.
+## Matched default builds
 
-## Comparable default builds
+Flash is linked `text + data`, in bytes. It excludes debug information, image
+signatures, and unused address gaps. It is not source size, archive size, or a
+reserved partition's capacity.
 
-Flash is `text + data`, in bytes. Each total includes the Secure runtime, one
-FreeRTOS application, and its isolated provider where required. These are linked
-section sizes, excluding debug information, image signatures and unused flash
-address gaps. They are not archive, source-file or reserved partition sizes.
+| Engine | API | Secure | Application | Total | Above same-engine PSA |
+| --- | --- | ---: | ---: | ---: | ---: |
+| native | PSA | 94,208 | 33,488 | 127,696 | 0 |
+| native | TPM | 116,332 | 15,476 | 131,808 | 4,112 |
+| native | PKCS#11 | 125,276 | 11,052 | 136,328 | 8,632 |
+| hsm | PSA | 118,076 | 43,156 | 161,232 | 0 |
+| hsm | TPM | 160,960 | 15,476 | 176,436 | 15,204 |
+| hsm | PKCS#11 | 164,384 | 11,052 | 175,436 | 14,204 |
 
-| Engine | API | Secure | Application | Provider | Total | Above same-engine PSA |
-| --- | --- | ---: | ---: | ---: | ---: | ---: |
-| native | PSA | 94,960 | 33,488 | 0 | 128,448 | 0 |
-| native | TPM | 96,240 | 15,596 | 44,920 | 156,756 | 28,308 |
-| native | PKCS#11 | 96,688 | 11,152 | 54,605 | 162,445 | 33,997 |
-| hsm | PSA | 119,148 | 43,156 | 0 | 162,304 | 0 |
-| hsm | TPM | 123,756 | 15,596 | 40,752 | 180,104 | 17,800 |
-| hsm | PKCS#11 | 124,236 | 11,152 | 51,288 | 186,676 | 24,372 |
+The API-disabled Secure images exactly match the pinned base under these
+settings: 94,208 bytes native and 118,076 bytes HSM. Disabling both optional
+interfaces adds no Secure flash cost. Vault, RNG, attestation, storage, and
+update services remain enabled in every row.
 
-The default TPM application sends its operations to the TPM provider and links
-no application-side wolfCrypt or wolfHSM client. Its size is the same for both
-engines. PKCS#11 applications likewise use the provider selected by the build.
-Neither interface links wolfPSA Crypto. Their `psa_connect`/`psa_call` functions
-are the shared FF-M IPC transport.
+TPM and PKCS#11 link no wolfPSA Crypto implementation. Their `psa_call` helpers
+use the existing FF-M IPC transport. The default TPM application also links no
+local wolfCrypt/HSM engine, so its size is identical for both engine choices.
+Native PSA runs wolfPSA and wolfCrypt in the application; native TPM and
+PKCS#11 run their protocol implementations in Secure partitions.
 
-This is a common crypto workload, not equal protocol semantics. PKCS#11 also
-implements token/session/object state, PIN protection and wire serialization.
-TPM implements TPM command parsing, capabilities, authorization and object
-lifecycle. Both Cortex-M configurations have an additional isolated provider
-runtime. PSA runs its front end in the application. The remaining 18-34 KB gap
-is real; these measurements do not establish parity with PSA.
+The extra RTOS and duplicate native math were removable overhead. The current
+remaining differences are smaller, but PSA parity has not been reached. These
+measurements do not establish a minimum size for either protocol. The retained
+code implements TPM commands, authorization, and object formats, or PKCS#11
+token/session/object state, PIN protection, and wire handling.
 
-All builds retain the Secure vault, RNG, attestation, storage and update services.
-Selecting an application API does not remove those unrelated Secure services.
-The API-disabled Secure image exactly matches the pinned base under the same
-compiler/settings: 94,960 bytes with native, 119,148 bytes with HSM. Neither
-optional interface adds flash when disabled.
+## Reductions and retained operations
 
-## Savings and retained behavior
+The previous default builds used a separate Cortex-M provider guest:
 
-The previous full reference builds used no guest LTO and kept broader API suites
-plus software crypto fallbacks. Their totals are retained here only to show the
-combined reduction; they are not operation-equivalent baselines.
-
-| Engine | API | Previous full reference | Current default | Reduction |
+| Engine | API | Previous total | Current total | Reduction |
 | --- | --- | ---: | ---: | ---: |
-| native | TPM | 207,014 | 156,756 | 50,258 |
-| native | PKCS#11 | 204,276 | 162,445 | 41,831 |
-| hsm | TPM | 266,364 | 180,104 | 86,260 |
-| hsm | PKCS#11 | 244,008 | 186,676 | 57,332 |
+| native | TPM | 156,756 | 131,808 | 24,948 |
+| native | PKCS#11 | 162,445 | 136,328 | 26,117 |
+| hsm | TPM | 180,104 | 176,436 | 3,668 |
+| hsm | PKCS#11 | 186,676 | 175,436 | 11,240 |
 
-The changes remove unselected API dispatch roots, let the linker discard their
-handlers, enable guest crypto LTO with opaque RTOS/IPC boundaries, and remove
-unneeded application-side TPM crypto. TPM/PKCS#11 HSM providers use callback-only ECC instead
-of retaining software group arithmetic alongside the HSM implementation.
-`WT_PROVIDER_ECC_FALLBACK=1` restores that fallback if a custom client needs it.
-The HSM server retains software ECC; native builds retain direct wolfCrypt ECC.
-PSA keeps software ECC needed by its deterministic-signature API. Removing it
-failed two PSA conformance cases, so those bytes are retained.
+The new layout removes the provider guest, its scheduler, and asynchronous
+forwarding/polling. TPM executes each command in one copied call. PKCS#11
+keeps bounded chunking for 4096-byte messages, with one execution call and no
+worker polling. Native domains share stateless crypto code already in flash.
+Both engines share low-level integer and assembly code, while HSM callbacks
+and the software fallback paths that use them remain private. Writable-state
+ownership checks reject unsafe sharing.
 
-The default preserves PIN setup, login, attempt limits and SO recovery. Public
-HMAC/AES mechanisms can be removed while their primitives remain necessary for
-PIN or object protection. No PIN iteration count is reduced in production.
-The `full` profile retains the broader reference suites, including the 40-case
-PKCS#11 regression. Individual operations can be added or removed independently
-as described in [Crypto-Profiles.md](Crypto-Profiles.md).
+Operations remain individually configurable. The default removes unselected
+public AES/HMAC mechanism dispatch while keeping the internal PIN primitives
+and common structure layouts. The full profile restores the broader reference
+suite. Production PIN PBKDF2 remains at 600,000 rounds. See
+[Crypto-Profiles.md](Crypto-Profiles.md) for selection and dependencies.
 
-Static RAM is `data + bss`, including the configured guest heaps. It does not
-include dynamic peak usage or unused reserved MPU windows. Operation pruning
-primarily reduces flash; it does not automatically shrink heap/stack capacities.
+`WT_PROVIDER_ECC_FALLBACK=1` restores optional software ECC fallback in HSM
+builds. Native always retains software ECC. TPM `ZGen_2Phase` selections
+restore the software point arithmetic they require. PSA retains software ECC
+needed by deterministic-signature operations.
+
+Static RAM is `data + bss`, including configured heaps. It is separate from
+flash and from dynamic peak usage or unused MPU window capacity. The Cortex-M
+interface region reserves 48 KiB for state and 16 KiB for its stack. PKCS#11
+uses a bounded private 28-KiB heap inside that state region; the volatile
+fwTPM configuration has no heap.
 
 ## Reproduce
 
-- Pinned base: `7ae69b3cb6fae0a61e3d184264415d0ea0c01f36`.
+- Base: `7ae69b3cb6fae0a61e3d184264415d0ea0c01f36`.
 - Compiler: Arm GNU Toolchain 15.2.Rel1, GCC 15.2.1.
 - Container: `ghcr.io/wolfssl/wolfboot-ci-m33mu@sha256:f6b66c9240ecd94f99400565196f956d1b067059b659a66dbbe83581cc7bf4c7`.
-- Cortex-M33, `-Os`, `WT_LTO=1`, two guest slots, default attestation and
-  production 600,000-round PKCS#11 PIN KDF.
-- The same pinned dependency sources and compiler are used for every row.
+- Cortex-M33, `-Os`, `WT_LTO=1`, one guest slot, default attestation, and
+  production PIN KDF settings. All rows use the same pinned dependencies.
 
-Inside that container, initialize the repository dependencies and FreeRTOS
-workspace, then run:
+Initialize dependencies and the FreeRTOS workspace inside that container, then:
 
 ```sh
 WT_CRYPTO_PROFILE=default bash tools/measure_interface_footprint.sh
 ```
 
-The output directory contains `sizes.csv`, compiler/source configuration, build
-logs, generated operation selections and all measured ELFs. Set the first
-argument to choose a separate output directory. Use `WT_CRYPTO_PROFILE=full` for
-the broader profile; the reference workloads then differ and must be labeled.
+The output contains `sizes.csv`, compiler/source configuration, logs, generated
+operation selections, symbol/section reports, and all measured ELFs. The first
+argument chooses an output directory. `WT_CRYPTO_PROFILE=full` measures the
+broader profile, whose reference workloads differ from the default.
 
-Runtime gates use the same profile selections and authenticated
-wolfBoot -> wolfTrust -> application/provider chain under M33MU. Emulator-only
-PIN tests explicitly use 25 PBKDF2 rounds to bound execution time; production
-size measurements retain 600,000. Emulator evidence is separate from physical
-board qualification.
+Earlier 11,980-byte native PSA application figures covered RNG/hash without
+P-256. They are not a comparable baseline for these builds.
 
-TPM selections containing `ZGen_2Phase` retain software ECC point arithmetic
-because its full-point operation is outside the HSM ECDH callback. Adding that
-command restores the dependency automatically; it is absent from the small
-default profile.
+## Validation
 
-## Validation record
+Local host tests exercise the synchronous production transports through the
+FF-M runtime, including exact bounds, identity checks, zeroization, connection
+recovery, and prevention of implicit replay. M33MU and QEMU run the actual
+fwTPM and wolfPKCS#11 implementations under both engines and profiles, with
+partition isolation and restart tests. The Cortex-M clients cover Zephyr,
+FreeRTOS, and the bare-metal TPM isolation client.
 
-Implementation: `f0e28c6e06c5d59d97e47be6e04ce277f9afd893`. The reproducible
-script produced the table above from that commit. The matched base build uses
-the same compiler and settings.
-
-All 71 host suites pass on macOS and Linux. The focused profile suite also
-passes ISO C99 and ASan/UBSan checks. The audited local evidence contains 49 real
-emulator passes across the profile snapshots and final source rechecks: both
-engines, both profiles, both Cortex-M clients, Cortex-A, partition isolation,
-and PSA Crypto conformance (64 passed, 13 existing unsupported cases skipped,
-zero failed). No API/engine matrix cell is accepted as a successful skip.
-Final-head GitHub CI is recorded separately after the branch update.
-
-Fresh parallel builds also check that raw provider and private crypto objects
-wait for the generated profile header. The host regression invokes six actual
-Make targets with `-j8`; all six fail before the dependency correction and pass
-after it. Four fresh AArch64 provider builds pass with `-j16`. Cortex-M
-PKCS#11/native and TPM/HSM operation and isolation scenarios pass after the
-correction. This changes build ordering without changing the measured code.
+Emulator-only PIN tests explicitly use 25 PBKDF2 rounds to bound execution
+time. Size measurements retain 600,000 rounds. Emulator and cross-build results
+are recorded separately from physical hardware qualification. Final commit
+and CI evidence are recorded after the tested branch update.

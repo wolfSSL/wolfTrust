@@ -148,7 +148,7 @@ case "$WT_TPM_CLIENT_WOLFCRYPT" in
 esac
 
 LDFLAGS="$WT_GUEST_LTO_FLAGS $WT_GUEST_KEEP_FLAGS
--Wl,-u,vTaskStartScheduler,-u,wt_tpm_psa_submit,-u,TPM2_SWTPM_SendCommand
+-Wl,-u,vTaskStartScheduler,-u,wt_tpm_psa_transact,-u,TPM2_SWTPM_SendCommand
 
 -Wl,-T$TPM_DIR/freertos-pkcs11/guest0.ld
 -Wl,--defsym=GUEST_FLASH_ORIGIN=$WT_GUEST0_FLASH_BASE
@@ -180,7 +180,7 @@ printf '%s\n' "$NM_OUT" | grep -q 'vTaskStartScheduler' || {
     echo "FAIL: FreeRTOS scheduler missing from TPM guest" >&2
     exit 1
 }
-printf '%s\n' "$NM_OUT" | grep -q 'wt_tpm_psa_submit' || {
+printf '%s\n' "$NM_OUT" | grep -q 'wt_tpm_psa_transact' || {
     echo "FAIL: SERVICE_TPM transport missing from application guest" >&2
     exit 1
 }

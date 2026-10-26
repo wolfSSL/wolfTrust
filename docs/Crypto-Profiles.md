@@ -13,7 +13,7 @@ libraries and this platform's algorithm and memory configuration.
 
 ## Select operations
 
-Use the same settings for the application and its provider:
+Use the same settings for the application and Secure image:
 
 ```sh
 make secure-image CONFIG_PKCS11=y WT_ENGINE=native WT_CRYPTO_PROFILE=default
@@ -43,7 +43,7 @@ profile's defaults:
 Pass its absolute path with `WT_CRYPTO_CONFIG`. The accepted fields are `psa`,
 `pkcs11`, `tpm`, and `mechanisms`, each a JSON array of names. An empty mechanism
 list exports no crypto mechanisms. Unknown fields and operation names fail the
-build. The TPM provider requires at least one selected command; disable the
+build. The TPM service requires at least one selected command; disable the
 interface with `CONFIG_TPM=n` when no TPM commands are needed.
 
 Inspect known dependency entry points or generate a selection directly:
@@ -81,7 +81,9 @@ retain their handlers through the table. Dependency source and pins are not
 modified.
 
 Removing an operation does not remove primitives needed internally. PKCS#11
-PIN protection still needs PBKDF2/HMAC, and fwTPM can need hashing and symmetric
+PIN protection still needs PBKDF2/HMAC. Public AES and HMAC mechanism dispatch
+is omitted when unselected, while the internal PIN primitives and shared
+structure layouts stay intact. fwTPM can need hashing and symmetric
 crypto for object protection even when related public mechanisms are absent.
 TPM and PKCS#11 images link no wolfPSA Crypto implementation. Their `psa_call`
 functions are the FF-M IPC boundary.
@@ -94,7 +96,7 @@ boundaries. The default FreeRTOS TPM application uses the TPM for crypto and
 links no application-side wolfCrypt/HSM engine. Set `WT_TPM_CLIENT_WOLFCRYPT=1`
 when a custom application needs local cryptography for HMAC/parameter-encrypted
 sessions or host-side key preparation. Full reference builds retain that support.
-The TPM provider still selects native/HSM normally.
+The TPM service still selects native/HSM normally.
 TPM/PKCS#11 HSM providers omit unused software ECC fallback by default.
 `WT_PROVIDER_ECC_FALLBACK=1` restores it; native builds always retain software
 ECC, and the HSM server keeps its own implementation. PSA retains the software

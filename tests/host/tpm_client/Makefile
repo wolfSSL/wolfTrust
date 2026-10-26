@@ -28,7 +28,6 @@ CFLAGS := \
 	-DWOLFTPM_USER_SETTINGS \
 	-DWOLFTPM2_NO_WOLFCRYPT \
 	-DSINGLE_THREADED \
-	-DWT_TPM_POLL_LIMIT=3U \
 	-D_DEFAULT_SOURCE \
 	-ffunction-sections -fdata-sections \
 	-I. \

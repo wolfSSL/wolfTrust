@@ -19,12 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
-/* Single-source bare-metal NS guests for the stm32h563-tpm end-to-end test.
- * The role is fixed at compile time: WT_TPM_ROLE_APP builds guest0, a
- * wolfTPM application whose every TPM 2.0 command rides SERVICE_TPM;
- * WT_TPM_ROLE_FTPM builds guest1, the isolated firmware TPM that serves
- * them with wolfTPM's fwTPM responder. Neither guest calls PSA Crypto; the
- * only Secure crossings are the mediated TPM door and SERVICE_HSM entropy. */
+/* Bare-metal wolfTPM client. fwTPM runs inside the Secure service. */
 
 #include <stdint.h>
 #include <stddef.h>
@@ -41,16 +36,8 @@ int wolfhsm_guest_init(void);
 #endif
 #include "wolftrust/tpm_psa_transport.h"
 
-#if defined(WT_TPM_ROLE_APP)
 #include "tpm_tests.h"
 #define GUEST_NAME "tpm-guest0"
-#elif defined(WT_TPM_ROLE_FTPM)
-#include <wolftpm/fwtpm/fwtpm.h>
-#include <wolftpm/fwtpm/fwtpm_command.h>
-#define GUEST_NAME "ftpm-guest1"
-#else
-#error "build with WT_TPM_ROLE_APP or WT_TPM_ROLE_FTPM"
-#endif
 
 #ifndef WT_GUEST_UART_CLOCK_HZ
 #define WT_GUEST_UART_CLOCK_HZ 120000000u
@@ -186,7 +173,6 @@ int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
     return wolftrust_guest_rng_stub((unsigned char*)output, (unsigned int)sz);
 }
 
-#if defined(WT_TPM_ROLE_APP)
 /* ---- guest0: platform hooks for the shared wolfTPM application suite.
  * Every wolfTPM2_* call becomes a TPM 2.0 command carried by SERVICE_TPM. */
 
@@ -219,194 +205,12 @@ static int run_app(void)
 #endif
     return rc;
 }
-#endif /* WT_TPM_ROLE_APP */
-
-#if defined(WT_TPM_ROLE_FTPM)
-/* ---- guest1: the isolated firmware TPM. wolfTPM's fwTPM responder serves
- * whole command frames fetched from SERVICE_TPM; the application never
- * touches this guest's memory, only the mediated slot. Volatile profile: no
- * in-memory NV, so state lives for the power cycle. ---- */
-
-static FWTPM_CTX g_ftpm;
-static byte g_cmd[WT_TPM_FRAME_MAX];
-/* FWTPM_ProcessCommand ignores the capacity passed in and writes up to
- * FWTPM_MAX_COMMAND_SIZE, so the response buffer must cover that bound or an
- * oversized response overruns it (CWE-787). The mediated transport still
- * bounds what leaves the guest to WT_TPM_FRAME_MAX in run_ftpm below. */
-static byte g_rsp[FWTPM_MAX_COMMAND_SIZE];
-typedef char wt_ftpm_rsp_cap_ok[(sizeof(g_rsp) >= FWTPM_MAX_COMMAND_SIZE)
-                                ? 1 : -1];
-typedef char wt_ftpm_relay_cap_match[
-    (FWTPM_MAX_COMMAND_SIZE == WT_TPM_FRAME_MAX) ? 1 : -1];
-
-static int ftpm_heap_scrub_test(void)
-{
-    volatile uint8_t *first;
-    volatile uint8_t *reused;
-    uintptr_t first_addr;
-    size_t i;
-    int scrubbed = 1;
-
-    first = (volatile uint8_t *)malloc(64U);
-    if (first == NULL) {
-        return -1;
-    }
-    for (i = 0U; i < 64U; i++) {
-        first[i] = 0xA5U;
-    }
-    first_addr = (uintptr_t)first;
-    free((void *)first);
-    first = NULL;
-    reused = (volatile uint8_t *)malloc(64U);
-    if (reused == NULL || (uintptr_t)reused != first_addr) {
-        scrubbed = 0;
-    }
-    if (reused != NULL) {
-        for (i = 0U; i < 64U; i++) {
-            if (reused[i] != 0U) {
-                scrubbed = 0;
-            }
-        }
-        free((void *)reused);
-    }
-    return scrubbed != 0 ? 0 : -1;
-}
-
-#if defined(WT_TPM_TRACE_COMMANDS) && (WT_TPM_TRACE_COMMANDS == 1)
-static uint32_t tpm_command_code(const byte *command, size_t length)
-{
-    if (length < TPM2_HEADER_SIZE) {
-        return 0u;
-    }
-    return ((uint32_t)command[6] << 24) |
-           ((uint32_t)command[7] << 16) |
-           ((uint32_t)command[8] << 8) |
-           (uint32_t)command[9];
-}
-
-static void trace_tpm_command(const byte *command, size_t length)
-{
-    const char *name = NULL;
-
-    switch (tpm_command_code(command, length)) {
-        case TPM_CC_Startup:
-            name = "command Startup";
-            break;
-        case TPM_CC_Shutdown:
-            name = "command Shutdown";
-            break;
-        case TPM_CC_GetCapability:
-            name = "command GetCapability";
-            break;
-        case TPM_CC_Hash:
-            name = "command Hash";
-            break;
-        case TPM_CC_GetRandom:
-            name = "command GetRandom";
-            break;
-        case TPM_CC_CreatePrimary:
-            name = "command CreatePrimary";
-            break;
-        case TPM_CC_Create:
-            name = "command Create";
-            break;
-        case TPM_CC_Load:
-            name = "command Load";
-            break;
-        case TPM_CC_Sign:
-            name = "command Sign";
-            break;
-        case TPM_CC_VerifySignature:
-            name = "command VerifySignature";
-            break;
-        case TPM_CC_PCR_Extend:
-            name = "command PCR_Extend";
-            break;
-        case TPM_CC_PCR_Read:
-            name = "command PCR_Read";
-            break;
-        case TPM_CC_FlushContext:
-            name = "command FlushContext";
-            break;
-        case TPM_CC_ECDH_ZGen:
-            name = "command ECDH_ZGen";
-            break;
-        default:
-            break;
-    }
-    if (name != NULL) {
-        guest_line(name);
-    }
-}
-#endif
-
-static int run_ftpm(void)
-{
-    size_t cmd_len = 0U;
-    int rsp_len;
-    int rc;
-
-    guest_line("alive");
-    if (ftpm_heap_scrub_test() != 0) {
-        guest_line("heap scrub FAILED");
-        return -1;
-    }
-    guest_line("heap scrub ok");
-#if defined(WT_ENGINE_HSM)
-    rc = wolfhsm_guest_init();
-    if (rc != 0) {
-        guest_line_i32("HSM init FAILED rc=", rc);
-        return -1;
-    }
-#endif
-    rc = FWTPM_Init(&g_ftpm);
-    if (rc != 0) { guest_line_i32("ftpm init FAILED rc=", rc); return -1; }
-    guest_line("ready");
-
-    for (;;) {
-        rc = wt_tpm_psa_fetch(g_cmd, sizeof(g_cmd), &cmd_len);
-        if (rc == WT_TPM_E_EMPTY) {
-            wt_spin(256u);
-            continue;
-        }
-        if (rc != 0) {
-            guest_line_i32("ftpm fetch FAILED rc=", rc);
-            wt_spin(200000u);
-            continue;
-        }
-#if defined(WT_TPM_TRACE_COMMANDS) && (WT_TPM_TRACE_COMMANDS == 1)
-        trace_tpm_command(g_cmd, cmd_len);
-#endif
-        rsp_len = (int)sizeof(g_rsp);
-        rc = FWTPM_ProcessCommand(&g_ftpm, g_cmd, (int)cmd_len, g_rsp,
-                                  &rsp_len, 0);
-        if (rc != 0 || rsp_len <= 0 || (size_t)rsp_len > WT_TPM_FRAME_MAX) {
-            /* A fetched command must always be answered or the slot stays in
-             * service and the application polls forever: reply TPM_RC_FAILURE. */
-            guest_line_i32("ftpm command FAILED rc=", rc);
-            memset(g_rsp, 0, 10);
-            g_rsp[0] = 0x80; g_rsp[1] = 0x01;      /* TPM_ST_NO_SESSIONS */
-            g_rsp[5] = 0x0A;                       /* size 10 */
-            g_rsp[8] = 0x01; g_rsp[9] = 0x01;      /* TPM_RC_FAILURE */
-            rsp_len = 10;
-        }
-        rc = wt_tpm_psa_respond(g_rsp, (size_t)rsp_len);
-        if (rc != 0) {
-            guest_line_i32("ftpm respond FAILED rc=", rc);
-        }
-    }
-}
-#endif /* WT_TPM_ROLE_FTPM */
 
 void Reset_Handler(void)
 {
     wt_copy_data();
     wt_zero_bss();
     wt_uart_init();
-#if defined(WT_TPM_ROLE_APP)
     (void)run_app();
-#else
-    (void)run_ftpm();
-#endif
     for (;;) { __asm volatile("wfi"); }
 }

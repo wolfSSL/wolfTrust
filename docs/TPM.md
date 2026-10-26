@@ -1,155 +1,95 @@
 # TPM 2.0 Interface
 
-wolfTrust lets an application use the wolfTPM API through the Secure Partition
-Manager. The reference Cortex-M clients run under Zephyr and FreeRTOS. The
-Cortex-A test client runs in the Normal world under QEMU. The TPM application
-is independent of PKCS#11 and PSA Crypto. Its TPM 2.0 command traffic crosses
-an FF-M service and reaches an isolated firmware TPM.
+A wolfTPM application sends TPM 2.0 commands to `SERVICE_TPM`. The service
+runs wolfTPM's firmware TPM directly inside a normal wolfTrust Secure
+Partition. It needs no second application image, RTOS, or worker. A bare-metal,
+Zephyr, or FreeRTOS client uses the same transport.
 
 ```text
-Application
-  wolfTPM TPM2_* API
-        |
-        v
-  wolfTPM transport shim
-        |
-        | FF-M IPC
-        | Cortex-M: CMSE gateway
-        | Cortex-A: FF-A through the EL3 SPMD
-        v
-  SERVICE_TPM Secure Partition
-        |
-        v
-  isolated wolfTPM firmware TPM
+Application: wolfTPM TPM2_* API
+    |
+    | TPM 2.0 frames over FF-M IPC
+    v
+SERVICE_TPM Secure Partition: fwTPM
+    |
+    +-- WT_ENGINE=native: wolfCrypt
+    +-- WT_ENGINE=hsm: SERVICE_HSM / wolfHSM
 ```
 
-The transport uses the FF-M `psa_connect`, `psa_call`, and `psa_close` IPC
-operations. It does not call the PSA Crypto API. The payload is an unmodified
-TPM 2.0 command or response frame.
-
-The runtime-qualified targets in this release are STM32H563 under M33MU and
-`qemuvirt` under QEMU. MIMXRT700 and Versal have `CONFIG_TPM=y` compile and
-absolute-layout gates, but no TPM application/provider runtime claim yet. The
-Versal QEMU model also lacks the XMPU/RISAF needed for a Normal-world level-3
-isolation claim.
+The transport uses FF-M `psa_connect`, `psa_call`, and `psa_close`. These are
+IPC operations, not PSA Crypto calls. TPM and PKCS#11 builds link no wolfPSA
+Crypto implementation. Cortex-M reaches the SPM through its CMSE gateway;
+Cortex-A uses FF-A through the EL3 SPMD.
 
 ## Build and run
 
-TPM uses the same `WT_ENGINE=native` (default) or `WT_ENGINE=hsm`
-selector as PSA. Use the same engine for the Secure image and provider builds.
-`WT_CRYPTO_PROFILE=default` selects the RNG/SHA-256/P-256 command set; `full`
-retains broader commands such as PCR operations. Commands can be individually
-selected through [operation profiles](Crypto-Profiles.md).
-
-See [TPM and PKCS#11 footprint](Interface-Footprint.md) for measured Secure
-and provider image sizes against the base revision.
-
-Enable the service and its manifest in the Secure image with:
+All three application interfaces use `WT_ENGINE=native` (default) or
+`WT_ENGINE=hsm`. TPM's native configuration does not need wolfHSM crypto.
+`WT_CRYPTO_PROFILE=default` exports RNG, SHA-256, P-256 key generation,
+signing, verification, and their required lifecycle commands. `full` retains
+the broader supported command set, including PCR operations. Individual
+commands can be added or removed with [operation profiles](Crypto-Profiles.md).
 
 ```sh
-make TARGET=stm32h563 CONFIG_TPM=y WT_ENGINE=native secure-image \
-    TOOLPREFIX=arm-none-eabi-
-```
+make TARGET=stm32h563 CONFIG_TPM=y WT_ENGINE=native secure-image
 
-Run the Cortex-M wolfTPM application and isolated fwTPM provider with either
-supported guest OS:
-
-```sh
-WT_ENGINE=native WT_INTERFACE_OS=zephyr \
+WT_ENGINE=native WT_CRYPTO_PROFILE=default WT_INTERFACE_OS=zephyr \
     tests/target/run_suite.sh m33mu tpm
-WT_ENGINE=native WT_INTERFACE_OS=freertos \
-    tests/target/run_suite.sh m33mu tpm
-```
+WT_ENGINE=hsm WT_CRYPTO_PROFILE=full WT_INTERFACE_OS=freertos \
+    tests/target/run_suite.sh m33mu tpm tpmneg
 
-`make test-tpm-target WT_INTERFACE_OS=zephyr` and
-`make test-tpm-target WT_INTERFACE_OS=freertos` are equivalent focused entry
-points.
-
-Build the Cortex-A service and run its positive and isolation scenarios with:
-
-```sh
 make ARCH=aarch64 TARGET=qemuvirt CONFIG_TPM=y WT_ENGINE=native \
     secure-image TOOLPREFIX=aarch64-none-elf-
 WT_ENGINE=native tests/target/run_suite.sh qemu-a tpm tpmneg
 ```
 
-## Application and provider boundary
+The Cortex-M runner authenticates wolfBoot, wolfTrust, and one application.
+`make test-tpm-target WT_INTERFACE_OS=zephyr` and the `freertos` variant are
+focused entry points. The isolation scenario also exercises a bare-metal
+wolfTPM application. See [footprint measurements](Interface-Footprint.md) for
+matched Secure-image and application sizes across all six configurations.
 
-The native provider runs its wolfCrypt operations directly. The HSM provider
-registers the wolfHSM crypto callback for supported operations and obtains
-randomness through the mediated HSM service. Native Non-secure providers
-seed their DRBG through the native Secure RNG service.
+## Service boundary
 
-The application image contains wolfTPM and the `SERVICE_TPM` transport. It does
-not contain the fwTPM responder. On Cortex-M, a second Non-secure guest contains
-the responder but not the application. Link-time checks enforce this split for
-both the Zephyr and FreeRTOS application builds.
+The application links the wolfTPM client and `SERVICE_TPM` transport. It does
+not link fwTPM. The Secure partition owns the `FWTPM_CTX`, keys, command
+buffers, and stack. Native operations run wolfCrypt in this domain; the HSM
+configuration registers the wolfHSM callback and calls the existing HSM
+service from the Secure partition.
 
-On Cortex-A, the Normal-world image still contains only the wolfTPM client.
-The heap-free volatile fwTPM profile runs inside the `SERVICE_TPM` S-EL0
-partition. Its executable and read-only pages come from the shared Secure
-image. Its private stack and writable-state pages are mapped only in the TPM
-partition's stage-1 translation table.
+`WT_TPM_OP_TRANSACT` copies one command in, executes it, and copies one response
+out in the same call. Each frame is at most `WT_TPM_FRAME_MAX` (512 bytes), so
+the combined transfer fits the 1024-byte FF-M budget. fwTPM advertises matching
+limits through `TPM2_GetCapability`. The client checks TPM response framing.
+Transport errors never cause an automatic replay of a potentially mutating
+command. A lost connection is reopened for the next explicit command.
 
-The shared application suite performs real TPM operations through the relay:
+The SPM supplies caller identity. Only the configured application client can
+use the service; unrelated Non-secure clients and Secure Partitions are
+refused. Command and response staging is wiped after every successful or failed
+execution. There are no submit/poll/fetch/respond worker operations.
 
-- capability reads for the advertised frame limits;
-- a maximum-sized TPM2_Hash command;
-- random generation;
-- ECC primary-key creation, signing, and verification;
-- PCR extend and read;
-- handle unload and TPM cleanup.
+The volatile `FWTPM_NO_NV` configuration has no heap. Keys and PCR values do
+not survive reboot. On Cortex-M the linker and MPU assign the handler a
+private state region and stack; on Cortex-A its S-EL0 translation table maps
+its private writable pages. Native builds share read-only crypto code while
+keeping working state private. HSM builds retain private callback state.
 
-The M33MU provider logs GetRandom, CreatePrimary, Sign, PCR_Extend, and PCR_Read
-when the separate fwTPM guest receives them. The QEMU application requires the
-same operations to complete through the S-EL0 TPM partition.
+## Validation and supported targets
 
-## SERVICE_TPM
+STM32H563 under M33MU and QEMU `virt` run actual commands and isolation tests.
+The default suite checks capabilities, a maximum-sized hash command, RNG,
+P-256 key creation, signing, verification, disabled commands, and cleanup.
+The full suite also checks PCR extend/read and broader object operations.
 
-`SERVICE_TPM` is a mediated mailbox between the application and fwTPM domains.
-The application submits one command frame and polls for the response. The fwTPM
-fetches the command and posts the response. The Secure relay copies the data,
-enforces bounds and roles from the SPM-stamped caller identity, and never
-interprets the TPM packet.
+`tpmneg` proves that another Secure Partition cannot read or write TPM state,
+that the TPM partition cannot read SPM-private RAM or execute its writable
+state, that each fault is contained, and that commands succeed after recovery.
+The host suite drives the production client/service protocol through a real
+FF-M runtime and checks bounds, caller identity, wiping, and no replay.
 
-One command and one response can be in flight. Each is bounded by
-`WT_TPM_FRAME_MAX`, currently 512 bytes. The fwTPM advertises matching input,
-command, and response limits through `TPM2_GetCapability`. The slot is held in
-the TPM partition's dedicated data band and is zeroed after completion.
-
-On Cortex-M, the application role owns submit and poll while the provider role
-owns fetch and respond. A Secure caller or a caller from the wrong domain is
-refused. On Cortex-A, the Normal-world application owns submit and poll, and
-the local provider is reachable only from inside the TPM partition.
-
-## Provider placement
-
-wolfTrust keeps its Secure image heap-free. On Cortex-M, the responder stays in
-an isolated Non-secure provider domain and the Secure image contains only the
-bounded relay. On Cortex-A, the S-EL0 service uses the heap-free volatile
-`FWTPM_NO_NV` profile. Keys and PCR values in both test configurations do not
-survive a reboot.
-
-## Isolation and CI
-
-The TPM service runs as an isolation-level-3 Secure Partition. On Cortex-M,
-the application, fwTPM provider, and Secure relay have separate memory
-boundaries. The M33MU `tpmneg` scenario proves that:
-
-- another Secure Partition cannot read or write the TPM data band;
-- the relay cannot read fwTPM guest RAM directly;
-- the relay cannot execute from its execute-never data band;
-- each deliberate fault is contained and the partition restarts;
-- a complete mediated TPM transaction succeeds after recovery.
-
-On QEMU `virt`, `tpmneg` proves that another S-EL0 partition cannot read or
-write the TPM state band, the TPM partition cannot read another partition's
-private RAM, and the TPM state band is execute-never. The full TPM operation
-sequence still completes after those contained faults.
-
-Pull-request CI has Zephyr and FreeRTOS `tpm` rows in the same explicit API
-matrix as PSA and PKCS#11. A separate `tpmneg` row keeps the L3 isolation proof
-visible. The cross-compile workflow builds `CONFIG_TPM=y` Secure images for
-STM32H563 and MIMXRT700. The AArch64 QEMU matrix also runs `tpm` and `tpmneg`
-on the `virt` cell, including GetRandom, CreatePrimary, Sign, signature
-verification, PCR extend, and PCR read.
+CI covers both engines and profiles, Zephyr and FreeRTOS applications on
+Cortex-M, and Normal-world applications on Cortex-A. Required matrix cells
+must report real passes; successful skips are rejected. MIMXRT700 and Versal
+have compile and layout gates, without an API runtime qualification claim.
+Versal QEMU lacks the XMPU/RISAF needed for Normal-world level-3 isolation.

@@ -114,10 +114,11 @@ class GeneratorTests(unittest.TestCase):
         self.assertNotIn("case CKM_EC", header)
 
     def test_raw_provider_objects_wait_for_generated_header(self):
-        cases = (("p11_wc_raw_ecc.o", "PKCS11", "native"),
+        cases = (("p11_wc_raw_random.o", "PKCS11", "native"),
                  ("p11_sec_raw_internal.o", "PKCS11", "native"),
+                 ("p11_sec_raw_crypto.o", "PKCS11", "native"),
                  ("p11_wh_raw_wh_client.o", "PKCS11", "hsm"),
-                 ("tpm_wc_raw_ecc.o", "TPM", "native"),
+                 ("tpm_wc_raw_random.o", "TPM", "native"),
                  ("tpm_sec_raw_fwtpm_crypto.o", "TPM", "native"),
                  ("tpm_wh_raw_wh_client.o", "TPM", "hsm"))
         for object_name, api, engine in cases:
@@ -165,6 +166,22 @@ class GeneratorTests(unittest.TestCase):
                 "-include", str(output / "selected_profile.h"), "-"],
                 input='#include "wolftrust/crypto_profile.h"\nint main(void) { return wt_profile_pkcs11_operation(0); }\n',
                 text=True, capture_output=True, check=True)
+
+    def test_public_mechanisms_do_not_remove_internal_pin_crypto(self):
+        for mechanisms, aes, hmac in (
+            (self.defaults["mechanisms"], False, False),
+            (["CKM_SHA256_HMAC"], False, True),
+            (["CKM_AES_GCM"], True, False),
+            (None, True, True),
+        ):
+            with self.subTest(mechanisms=mechanisms):
+                source = profile.pkcs11_mechanism_source(ROOT, mechanisms)
+                self.assertEqual("#define NO_AES" in source, not aes)
+                self.assertEqual("#define NO_HMAC" in source, not hmac)
+                for macro in ("#define NO_AES", "#define NO_HMAC"):
+                    if macro in source:
+                        self.assertLess(source.index("<wolfpkcs11/internal.h>"),
+                                        source.index(macro))
 
     def test_tpm_full_point_dependency_restores_software_ecc(self):
         for enabled in ([], ["tpm:ZGen_2Phase"]):

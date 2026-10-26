@@ -139,13 +139,16 @@ make test-pkcs11-target
 make test-tpm-interfaces-target
 ```
 
-`make test-tpm-target` boots the selected Zephyr or FreeRTOS wolfTPM client
-with the isolated fwTPM provider. The PKCS#11 target boots the selected Zephyr
-or FreeRTOS client, runs the combined 40-case suite, and pairs it with the
-isolated wolfPKCS11/HSM provider. Pull-request CI exposes eight positive
-interface jobs: four PSA rows covering both OS and engine choices, two PKCS#11
-rows, and two TPM rows. Separate `pkcs11neg` and `tpmneg` jobs exercise the L3
-isolation paths.
+`make test-tpm-target` boots one Zephyr or FreeRTOS wolfTPM application and
+runs fwTPM inside `SERVICE_TPM`. The PKCS#11 target likewise boots one client
+and runs wolfPKCS11 inside `SERVICE_PKCS11`. The default PKCS#11 profile has
+nine cases; the full profile has 40. Neither service needs another RTOS guest.
+
+The explicit Cortex-M matrix has 24 positive cells:
+`[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos] x [default, full]`.
+Eight separate TPM/PKCS#11 cells test partition isolation across engines and
+profiles. The Cortex-A matrix has 20 PSA/TPM/PKCS#11 operation and isolation
+cells across both engines and profiles.
 
 The runner's usage output is the authoritative scenario list. It includes
 authenticated-boot failure, rollback, runtime remeasurement, Secure Partition
@@ -419,7 +422,7 @@ the run.
 These are emulator results. They prove the SAU attribution and the monitor's
 containment on a faithful core model; the silicon `ahbscneg` run on the EVK is
 recorded separately. The MIMXRT700 matrix does not yet run the TPM or PKCS#11
-application/provider scenarios; those configurations are compile- and
+application/service scenarios; those configurations are compile- and
 layout-gated for this target.
 ## QEMU AArch64 scenarios
 
@@ -459,8 +462,8 @@ assert through `tests/target/lib/expect.sh`.
 | `parkneg`, `rdistneg`, `tickneg` | The monitor stops the boot with a panic, before it enters Secure EL1, when a declared secondary never parks, the GICv3 redistributor reads asleep (SKIP on GICv2), or the secure tick never reaches EL3 |
 | `positive-secure` | The neutral core boots at Secure EL1 and every Secure Partition initializes at Secure EL0 under its own translation table |
 | `positive` | The Normal-world guest discovers the partitions, reads framework and service versions, is refused an unknown service, and completes a data-carrying `psa_call` through the FF-M gateway: a wolfHSM echo under `hsm`, two random draws over the native wire under `native` |
-| `tpm`, `tpmneg` | A Normal-world wolfTPM client sends real TPM 2.0 commands through FF-A and `SERVICE_TPM` to the fwTPM in its S-EL0 partition. GetRandom, CreatePrimary, Sign, signature verification, PCR extend, and PCR read must complete. The negative also proves state-band read/write isolation, foreign partition-RAM isolation, and execute-never state before the same operation sequence passes. These scenarios run under `native`. |
-| `pkcs11`, `pkcs11neg` | A Normal-world application runs the shared 40-case PKCS#11 suite through FF-A and `SERVICE_PKCS11`. The S-EL0 wolfPKCS11 provider calls the separate HSM partition through SP-to-SP FF-M IPC. The negative also proves state-band read/write isolation, HSM private-RAM isolation, and execute-never state before all 40 cases pass. These scenarios run under `hsm`. |
+| `tpm`, `tpmneg` | A Normal-world wolfTPM client sends real TPM 2.0 commands through FF-A and `SERVICE_TPM` to the fwTPM in its S-EL0 partition. GetRandom, CreatePrimary, Sign, signature verification, PCR extend, and PCR read must complete. The negative also proves state-band read/write isolation, SPM-private RAM isolation, and execute-never state before the same operation sequence passes. These scenarios run under both engines and profiles. |
+| `pkcs11`, `pkcs11neg` | A Normal-world application runs nine default-profile or 40 full-profile PKCS#11 cases through FF-A and `SERVICE_PKCS11`. The S-EL0 handler uses native wolfCrypt or the existing HSM partition. The negative proves state-band read/write isolation, SPM-private RAM isolation, and execute-never state before the suite completes. Both engines and profiles run. |
 | `guest1` | SKIP: the AArch64 ports run a single Normal-world endpoint (`0x0000`), so the second-guest identity path has no AArch64 counterpart; M33MU covers it |
 | `crossdomain`, `keystoreneg`, `periphspneg` | A partition reading outside its domain, a non-keystore partition reading the keystore band, or a partition reading the SPM's secure UART takes a data abort at S-EL0, spends its restart budget, and escalates to fail-closed recovery |
 | `bandneg1` to `bandneg6` | Each of the vault, attestation, and crypto partitions reads and then writes another one's private band at boot; both accesses take a data abort at S-EL0 on that band, and every partition still initializes |
@@ -640,10 +643,10 @@ each port's smoke tier on both crypto engines (STM32H563: `positive`,
 `tpmneg`, `pkcs11`, and `pkcs11neg`; MIMXRT700:
 `positive`, `ahbscneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`).
 The separate STM32H563 interface matrix runs the full cross product
-`[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]`. All 12 application
-rows run on every PR. TPM and PKCS#11 also have isolation-negative rows under
-each engine. QEMU runs each interface and its isolation scenario under both
-engines. Dedicated API rows set `WT_REQUIRE_SCENARIO_PASS=1`: a skipped
+`[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos] x [default, full]`.
+All 24 application rows run on every PR. TPM and PKCS#11 also have eight
+isolation-negative rows across engines and profiles. QEMU runs 20 interface
+and isolation rows across both engines and profiles. Dedicated API rows set `WT_REQUIRE_SCENARIO_PASS=1`: a skipped
 scenario or a missing terminal pass marker fails the job.
 The full matrix runs on a
 push to `main`, on the nightly schedule, on

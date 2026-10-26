@@ -271,6 +271,26 @@ def pkcs11_header(signatures, enabled, mechanisms):
     return "\n".join(lines)
 
 
+def pkcs11_mechanism_source(root, mechanisms):
+    # Keep shared structure layouts and PIN primitives intact in other files.
+    lines = ["/* Generated public mechanisms; internal PIN crypto stays enabled. */",
+             "#include <wolfssl/wolfcrypt/settings.h>",
+             "#include <wolfssl/wolfcrypt/error-crypt.h>",
+             "#include <wolfssl/wolfcrypt/asn.h>",
+             "#include <wolfssl/wolfcrypt/random.h>",
+             "#include <wolfpkcs11/pkcs11.h>",
+             "#include <wolfpkcs11/internal.h>"]
+    if mechanisms is not None:
+        if not any(name.startswith("CKM_AES_") for name in mechanisms):
+            lines.append("#define NO_AES")
+        if not any("HMAC" in name or "HKDF" in name or
+                   "PBKD" in name or "PBE" in name for name in mechanisms):
+            lines.append("#define NO_HMAC")
+    lines.extend(["#include %s" % json.dumps(str(
+        (root / "lib/wolfPKCS11/src/crypto.c").resolve())), ""])
+    return "\n".join(lines)
+
+
 def generate(root, output, profile, custom, enable, disable):
     catalog, signatures, sources, commands = discover(root)
     defaults = json.loads((root / "config/crypto-profiles.json").read_text())["default"]
@@ -278,6 +298,7 @@ def generate(root, output, profile, custom, enable, disable):
     output.mkdir(parents=True, exist_ok=True)
     write_file(output / "pkcs11_profile.h",
         pkcs11_header(signatures, selected["pkcs11"], mechanisms))
+    write_file(output / "pkcs11_crypto.c", pkcs11_mechanism_source(root, mechanisms))
     write_file(output / "fwtpm_command.c", selected_tpm(commands, selected["tpm"], profile == "full"))
     psa_wrappers(root, output, sources, selected["psa"], catalog["psa"])
     flags = ["/* Generated build configuration. */",

@@ -47,23 +47,23 @@ services such as attestation use that vault backend directly.
 | Application API | Native engine | HSM engine |
 | --- | --- | --- |
 | PSA Crypto | Guest wolfPSA and wolfCrypt, with Secure RNG and explicit vault-key operations | Supported operations use the mediated wolfHSM backend |
-| PKCS#11 | Isolated wolfPKCS11 provider calls wolfCrypt directly | Provider selects the wolfHSM callback through FF-M IPC |
-| TPM 2.0 | Isolated fwTPM provider calls wolfCrypt directly | Provider selects the wolfHSM callback through FF-M IPC |
+| PKCS#11 | SERVICE_PKCS11 runs wolfCrypt directly | The same partition selects the wolfHSM callback through FF-M IPC |
+| TPM 2.0 | SERVICE_TPM runs wolfCrypt directly | The same partition selects the wolfHSM callback through FF-M IPC |
 
-The provider remains in its existing protection domain: a separate Non-secure
-guest on Cortex-M, or an S-EL0 Secure Partition on Cortex-A. Selecting native
-crypto does not move private keys between those domains. The PKCS#11 and TPM
-API relays, caller roles, and copied-transfer bounds are the same for both
-engines. In HSM mode, the fwTPM provider also maps keys initialized without
-a device ID to wolfHSM. Its private wolfCrypt instance enables
-`WOLF_CRYPTO_CB_FIND`; native providers retain direct software execution. Select one application interface with `CONFIG_PKCS11=y` or
-`CONFIG_TPM=y`, independently of the engine.
+TPM and PKCS#11 run inside ordinary Secure partitions on both architectures.
+They need no additional Non-secure guest, RTOS, or worker. Native uses wolfCrypt
+directly; HSM uses the existing HSM service from the same partition. Working
+state, callbacks, and keys remain confined to the corresponding domain.
+Read-only code is shared where its configuration and ownership checks permit.
+The fwTPM HSM configuration maps keys initialized without a device ID to its
+private wolfHSM callback. Native uses direct software execution.
 
-[Operation profiles](Crypto-Profiles.md) independently select exported operations.
-CI covers `[default, full] x [native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]` on
-STM32H563, plus both interface isolation scenarios under both engines.
-AArch64 has both engines for TPM and PKCS#11 positive and isolation scenarios;
-its existing PSA suite also runs on both engines.
+Select the API with `CONFIG_PKCS11=y` or `CONFIG_TPM=y`, independently of the
+engine. Both default to `n`; PSA builds include neither implementation.
+CI exercises `[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]` on
+STM32H563 under both operation profiles, plus both interface isolation scenarios.
+Cortex-A exercises PSA, TPM, and PKCS#11 with both engines and profiles, including
+the TPM and PKCS#11 isolation cases. Required matrix cells cannot pass by skipping.
 
 ## One service seam
 

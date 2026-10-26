@@ -208,23 +208,17 @@ interrupt.
 
 ## Optional TPM and PKCS#11 interfaces
 
-`CONFIG_TPM=y` adds `SERVICE_TPM` and runs a wolfTPM firmware TPM 2.0 responder
-in an isolated provider. On Cortex-M the responder is a separate Non-secure
-guest. On Cortex-A it runs inside the `SERVICE_TPM` S-EL0 partition. A
-Non-secure application reaches it directly through wolfTPM. The service is a
-mediated mailbox with one bounded command and response in flight at a time.
-The relay enforces the caller role without interpreting the TPM packet.
+`CONFIG_TPM=y` runs wolfTPM's firmware TPM inside `SERVICE_TPM`.
+`CONFIG_PKCS11=y` runs wolfPKCS11 inside `SERVICE_PKCS11`. Both use ordinary
+wolfTrust Secure partitions on Cortex-M and Cortex-A, without an additional
+Non-secure guest, RTOS, or worker. A bare-metal or RTOS application uses the
+same FF-M boundary. TPM returns each command's response in one call. PKCS#11
+stages larger serialized messages in bounded chunks and executes each once.
 
-`CONFIG_PKCS11=y` adds `SERVICE_PKCS11`. A standard PKCS#11 application calls
-a proxy over FF-M IPC. On Cortex-M, an isolated Non-secure wolfPKCS11 provider
-handles the request. On Cortex-A, the provider runs in the
-`SERVICE_PKCS11` S-EL0 partition. Both interfaces select native wolfCrypt or
-SPM-mediated wolfHSM operations with the same `WT_ENGINE` selector as PSA.
-
-The TPM and PKCS#11 builds are mutually exclusive, and neither interface uses
-the PSA Crypto API. Both options default to `n`, so neither provider nor relay
-is linked into the default PSA build. See the [TPM 2.0 Interface](TPM.md) and
-[PKCS#11 Interface](PKCS11.md) for their transports and isolation evidence.
+All three interfaces select native wolfCrypt or wolfHSM with `WT_ENGINE`.
+TPM and PKCS#11 are mutually exclusive and link no PSA Crypto front end.
+Both default to `n`, so disabling them removes their protocol handlers.
+See [TPM](TPM.md), [PKCS#11](PKCS11.md), and the [six-build footprint](Interface-Footprint.md).
 
 See [API Reference](API-Reference.md) for client signatures and [Macros](Macros.md) for service build
 controls.

@@ -309,11 +309,14 @@ the checks read are kept under `logs/mcxn947-hw/<scenario>-<engine>/`
 under `logs/mcxn947-suite/`: outside `build/`, which every run cleans before
 it builds, and never overwritten by another scenario or engine.
 
-Two board facts the runner encodes: the pack's `reset halt` leaves a DWT
-comparator and the debug fault status armed, so the core is released only
-after both are cleared; and the MCU-Link forwards early-boot UART only while
-the debug link stays active, so the console capture runs alongside spaced
-reads. The two guests share LPUART4, so their console lines interleave on
+Three board facts the runner encodes: the device pack resets the chip on
+every pyOCD connect, so the park and the flash, erase and SRAM writes that
+depend on it share one session (a second session finds the chain running and
+pyOCD's flash routine then races wolfTrust's tick); the pack's `reset halt`
+leaves a DWT comparator and the debug fault status armed, so the core is
+released only after both are cleared; and the MCU-Link forwards early-boot
+UART only while the debug link stays active, so the console capture runs
+alongside spaced reads. The two guests share LPUART4, so their console lines interleave on
 silicon; the assertions are the mailboxes and counters, the console is
 evidence.
 

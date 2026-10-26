@@ -55,8 +55,9 @@ wolfboot_flash_addr=0x00000000
 secure_flash_addr=0x00040000
 guest0_flash_addr=0x00080000
 guest1_flash_addr=0x00100000
-update_erase=0x00180000-0x001C2000
-nvm_erase=0x001E0000-0x001E6000
+# 8 KiB sectors: update and swap 0x180000-0x1C2000, NVM 0x1E0000-0x1E6000.
+update_erase="0x00180000 33"
+nvm_erase="0x001E0000 3"
 hsm_nvm_addr=0x001E0000
 flash_sector=0x2000
 guest0_ram=0x20000000
@@ -122,34 +123,28 @@ dap() {
         grep -viE "rom table|APB-AP|coresight|cidr"
 }
 
-# Park the core before wolfTrust owns it: pyOCD's flash algorithm runs in RAM
-# and faults under wolfTrust's Secure MPU whitelist, so the halt is followed
-# by disabling the MPU explicitly.
-park_core() {
-    timeout 60 pyocd cmd -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
-        -O reset_type=hw -c "reset halt" -c "write32 0xE000ED94 0" \
-        >/dev/null 2>&1 || fail "could not park the core"
-}
+# pyOCD's flash routine runs in RAM and faults under wolfTrust's Secure MPU
+# whitelist, so the core is parked and the MPU disabled first. The pack resets
+# the chip on every connect, so the park and every step that depends on it
+# share one pyOCD session; a second session would find the chain running.
+park_cmds=(-O reset_type=hw -c "reset halt" -c "write32 0xE000ED94 0")
+board_cmds=()
 
 # A failed or partial flash must stop the run: a stale image either boots old
 # code or fails its pinned measurement and looks like a port bug.
 flash_at() {
-    local addr="$1" image="$2" out
+    local addr="$1" image="$2"
     [ -s "$image" ] || fail "flash image missing: $image"
-    park_core
-    if ! out="$(timeout 300 pyocd flash -u "$probe_uid" -t "$target" \
-            -O resume_on_disconnect=false --no-reset -a "$addr" -e sector "$image" 2>&1)"; then
-        printf '%s\n' "$out" | tail -6
-        fail "flash of $(basename "$image") at $addr failed"
-    fi
+    board_cmds+=(-c "load $image $addr")
 }
 
 # The board keeps the update, swap and NVM sectors across runs where the
 # emulator starts fresh; erasing them puts every run on a blank vault.
 erase_ranges() {
-    park_core
-    timeout 180 pyocd erase -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
-        -s "$@" >/dev/null 2>&1 || fail "erase of $* failed"
+    local range
+    for range in "$@"; do
+        board_cmds+=(-c "erase $range")
+    done
 }
 
 # SRAM survives a warm reset, so the last run's mailboxes, sentinel and launch
@@ -159,13 +154,23 @@ clear_mailboxes() {
     verified="$(elf_sym g_wt_launch_verified_mask)"
     refused="$(elf_sym g_wt_launch_refused_mask)"
     [ -n "$verified" ] && [ -n "$refused" ] || fail "launch masks not found in wolftrust.elf"
-    park_core
-    timeout 60 pyocd cmd -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
-        -c "write32 $guest0_ram 0 0 0 0 0 0 0 0 0 0 0 0" \
+    board_cmds+=(-c "write32 $guest0_ram 0 0 0 0 0 0 0 0 0 0 0 0" \
         -c "write32 $guest1_ram 0 0 0 0 0 0 0 0 0 0 0 0" \
         -c "write32 $probe_addr 0" \
-        -c "write32 $verified 0" -c "write32 $refused 0" >/dev/null 2>&1 || \
-        fail "could not clear the guest mailboxes"
+        -c "write32 $verified 0" -c "write32 $refused 0")
+}
+
+# The commander exits 0 whatever a command did, so its output is the verdict.
+program_board() {
+    local out
+    [ "${#board_cmds[@]}" -gt 0 ] || fail "nothing to program"
+    out="$(timeout 900 pyocd cmd -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
+        "${park_cmds[@]}" "${board_cmds[@]}" 2>&1)" || true
+    if printf '%s\n' "$out" | grep -qiE 'error|exception|not halted|failure|not within|not in flash'; then
+        printf '%s\n' "$out" | grep -iE 'error|exception|not halted|failure|not within|not in flash' | tail -6
+        fail "programming the board failed"
+    fi
+    board_cmds=()
 }
 
 # Boot from the parked state: the pack's halt leaves a DWT comparator and the
@@ -256,14 +261,14 @@ run_chain() {
         "$repo/build/wolftrust.bin" \
         "$wolfboot_dir/wolfboot_signing_private_key.der" 1
 
-    stage "flash the chain"
+    stage "flash the chain, erase the update, swap and NVM sectors, clear SRAM"
     flash_at "$wolfboot_flash_addr" "$wolfboot_dir/wolfboot.bin"
     flash_at "$secure_flash_addr" "$repo/build/wolftrust_v1_signed.bin"
     flash_at "$guest0_flash_addr" "$guest_build/guest0.bin"
     flash_at "$guest1_flash_addr" "$guest_build/guest1.bin"
-    stage "erase the update, swap and NVM sectors so the run starts from a fresh vault"
     erase_ranges "$update_erase" "$nvm_erase"
     clear_mailboxes
+    program_board
 
     stage "boot the chain, reading the console for ${console_seconds}s"
     release_core

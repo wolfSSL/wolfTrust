@@ -19,7 +19,7 @@ guide covers its states, quirks, and a walkthrough with real output:
 - [STM32H5 Guide: Provisioning and product state](STM32H5-Guide.md#provisioning-and-product-state)
 - [MIMXRT700 Guide: Provisioning and life cycle](MIMXRT700-Guide.md#provisioning-and-life-cycle)
 - [MCXN947 Guide: Provisioning and life cycle](MCXN947-Guide.md#provisioning-and-life-cycle)
-  (rehearsal only: this port locks nothing)
+  (rehearsal and lock preview only: this port writes no life cycle)
 
 > **Production locks are permanent.** `lock` is for a production station and a
 > part you intend to ship, never a development board. Every step before it is
@@ -202,7 +202,7 @@ with it can never be updated; a leaked one means they trust whoever holds it.
 | `WT_DA_OBK`, `WT_DA_KEY`, `WT_DA_CERT`, `WT_DA_PWD` | STM32H5 Debug Authentication inputs; a production lock requires all four, none of them ST's sample |
 | `STM32_CLI`, `H5_SERIAL` | STM32H5: STM32CubeProgrammer CLI and the board UART |
 | `RT700_ISP`, `RT700_SPSDK_VENV`, `RT700_GUEST_MASK` | MIMXRT700: blhost ISP connection, SPSDK environment, guests a rehearsal must launch |
-| `MCXN947_SPSDK_VENV`, `MCXN947_GUEST_MASK`, `MCXN947_TARGET` | MCXN947: the pyOCD environment, guests a rehearsal must launch, and the pyOCD target name |
+| `MCXN947_PROBE_UID`, `MCXN947_SPSDK_VENV`, `MCXN947_GUEST_MASK`, `MCXN947_TARGET`, `MCXN947_WOLFBOOT_DIR`, `MCXN947_ISP` | MCXN947: the board's MCU-Link unique id (required when the host has more than one probe), the SPSDK environment, guests a rehearsal must launch, the pyOCD target name, the wolfBoot tree the runner flashed, and the blhost ISP connection the lock preview names |
 
 ## Adding a port
 

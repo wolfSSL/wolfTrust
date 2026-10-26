@@ -349,6 +349,17 @@ WT_LOCK_CONFIRM=1 tests/target/provisioning/provisioning_ctrl.sh regress
 
 What differs from the MIMXRT700:
 
+- **Every device command is bound to one probe.** The host that owns the
+  board may carry several CMSIS-DAP probes; `MCXN947_PROBE_UID` names the
+  board's MCU-Link (the one `pyocd list` shows as `MCU-LINK FRDM-MCXN947`),
+  and with more than one probe and no id every command refuses instead of
+  reading nothing. `status` prints the probe, `discover` stamps it, the
+  rehearsal record carries it, and `lock` accepts only a rehearsal made
+  through the same probe.
+- **`restore` is the hardware runner.** It runs
+  `tests/target/run_mcxn947_hardware.sh positive` on that probe, so the
+  images a rehearsal binds are the ones the runner built, flashed and read
+  back.
 - **The mock lock is in the handoff record.** The MCXN947 has no life cycle
   shadow register (`ELS_OTP_LC_STATE` is read-only), so `advance` halts the
   core at wolfTrust's reset vector, after wolfBoot wrote the handoff record
@@ -356,16 +367,43 @@ What differs from the MIMXRT700:
   with the target state's production value (`0x2000`, `0x3000`, or
   `0x6000`). Fuses and SYSCON are untouched; `regress` is a hardware reset.
   The rehearsal records what wolfTrust saw, the guests launched verified,
-  the images read back, and the device UUID (`0x01100000`).
-- **No state can be locked.** The port implements no OTP write: every
-  `lock`, `burn`, and `provision-da` is refused, and `verify-wrp` reports
-  that there is no guest flash fence. The real life cycle advance on this
-  part (the ROM's ISP path) is not validated here.
-- **`restore` has no runner yet.** Flash wolfBoot, the signed Secure image,
-  and both guests by hand, then `discover`.
+  the images read back, the device UUID (`0x01100000`), and the probe.
+- **`lock` previews the vendor write and refuses it.** The life cycle is an
+  OTP fuse (SPSDK's fuse map for the part: `LIFE_CYCLE`, index 1,
+  `LIFECYCLE[7:0]` and its duplicate at bit 24, the same codes the ROM
+  reflects into SYSCON). `lock oem-secure-world` reads the live CMPA
+  (`0x01004000`) and the three CFPA pages (`0x01000000` scratch, ping and
+  pong) over SWD, parses them with `pfr parse`, generates the exact fuse
+  script with `nxpfuses fuses-script` (`efuse-program-once 1 0x7000007`),
+  re-exports the CMPA from its parsed configuration with `pfr export` and
+  diffs it against the live page (the life cycle is not in the page, so the
+  page is kept), prints all of it as the `will run:` preview, and then
+  refuses the write on `MCXN947_LOCK_WRITE_ENABLED=0`, a port constant
+  hard-wired off in this phase. That refusal holds with `WT_LOCK_CONFIRM=1`,
+  `WT_PRODUCTION_LOCK=1` and the typed acceptance all supplied, which
+  `make test-provisioning` proves against stubbed vendor tools;
+  `verify-pages` re-reads the four pages and compares them with the preview's
+  digests. The closed states (`oem-closed`, `oem-locked`,
+  `oem-field-return`) are refused earlier: they need the BootROM to
+  authenticate wolfBoot under a fused root key table hash, which this port
+  does not build. `burn` and `provision-da` are refused outright.
+- **What the vendor flow validated on the board, and what it did not.**
+  Read-only or reversible SPSDK 3.11 steps ran first and were extracted into
+  the port: the life cycle and `DAUTHSTATUS` over SWD, the CMPA and CFPA
+  pages over SWD (the IFR is memory mapped; `pfr read` itself is an ISP
+  path and was not used), `pfr parse`, `pfr get-template`, `pfr export` of a
+  closed-state page and its diff, `nxpfuses get-template` and
+  `nxpfuses fuses-script` for the next and the closed state,
+  `nxpdebugmbox tool list-probes`, `mem-tool test-connection` and
+  `tool get-uuid`. `nxpdebugmbox cmd get-dac` is not offered for this part
+  by SPSDK 3.11. Nothing that writes ran: no `pfr write`, no `blhost`, no
+  `nxpdebugmbox ispmode`, `program-lifecycle` or `erase`, no fuse, CMPA,
+  CFPA, IFR or debug-authentication change.
 
-`make test-provisioning` runs the MCXN947 gates against stub tools with the
-other ports' gates.
+`make test-provisioning` runs the MCXN947 gates against stub `pyocd`,
+`pfr`, `nxpfuses`, `nxpdebugmbox` and `blhost` with the other ports' gates;
+`tests/host/mcxn947_lifecycle` checks the life cycle codes against SPSDK's
+fuse map and that every ladder step only sets fuse bits.
 
 ## Open items
 

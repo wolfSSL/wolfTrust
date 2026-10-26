@@ -37,6 +37,11 @@ int wolftrust_rng_generate_block_direct(unsigned char *output,
 #define WT_ELS_PAGE_WORDS 16u
 
 static bool s_rng_ready;
+/* A request that outlives its deadline may still complete by DMA, so the page
+ * is static rather than stack and the engine is never asked again. */
+static bool s_rng_failed;
+static uint32_t s_els_page[WT_ELS_PAGE_WORDS]
+    __attribute__((aligned(WT_ELS_RND_ALIGN)));
 /* Read over the debug port by the hardware runner. */
 volatile uint32_t g_wt_els_errors __attribute__((used));
 volatile uint32_t g_wt_els_last_status __attribute__((used));
@@ -82,6 +87,7 @@ static int wt_els_rnd_page(uint32_t *page)
                       WT_ELS_CTRL_CMD(WT_ELS_CMD_RND_REQ);
         ret = wt_els_wait_idle();
         if (ret != 0) {
+            s_rng_failed = true;
             WT_ELS_ERR_STATUS_CLR = WT_ELS_ERR_STATUS_CLR_ALL;
         }
     }
@@ -90,8 +96,8 @@ static int wt_els_rnd_page(uint32_t *page)
 
 static int wt_els_fill(unsigned char *output, unsigned int sz)
 {
-    uint32_t page[WT_ELS_PAGE_WORDS] __attribute__((aligned(WT_ELS_RND_ALIGN)));
-    volatile uint32_t* wipe = page;
+    uint32_t *page = s_els_page;
+    volatile uint32_t* wipe = s_els_page;
     unsigned int done = 0u;
     unsigned int chunk;
     unsigned int i;
@@ -101,8 +107,8 @@ static int wt_els_fill(unsigned char *output, unsigned int sz)
         ret = wt_els_rnd_page(page);
         if (ret == 0) {
             chunk = sz - done;
-            if (chunk > (unsigned int)sizeof(page)) {
-                chunk = (unsigned int)sizeof(page);
+            if (chunk > (unsigned int)sizeof(s_els_page)) {
+                chunk = (unsigned int)sizeof(s_els_page);
             }
             (void)memcpy(output + done, page, chunk);
             done += chunk;
@@ -116,7 +122,7 @@ static int wt_els_fill(unsigned char *output, unsigned int sz)
 
 int wolftrust_rng_generate_block_direct(unsigned char *output, unsigned int sz)
 {
-    if (output == NULL && sz != 0u) {
+    if ((output == NULL && sz != 0u) || s_rng_failed) {
         return -1;
     }
     if (!s_rng_ready) {

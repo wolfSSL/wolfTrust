@@ -33,7 +33,7 @@ endif
 
 UNIT_SUITES := domain manifest lifecycle monitor guest_verify rollback sp_recovery \
     fabric_windows periph irq_claim rt700_trng rt700_xspi rt700_lifecycle \
-    mcxn947_flash mcxn947_lifecycle \
+    mcxn947_flash mcxn947_lifecycle mcxn947_rng \
     ipc ffm spm \
     vnet wolfhsm_loopback wolfhsm_relay native_wire native_wire_client \
     keystore_isolation \

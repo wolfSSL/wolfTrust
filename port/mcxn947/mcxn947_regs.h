@@ -43,7 +43,9 @@
 #define WT_ROM_SIZE              0x00040000u
 #define WT_ROM_API_TREE          0x1303FC00u
 
+#ifndef WT_REG32
 #define WT_REG32(address)        (*(volatile uint32_t*)(address))
+#endif
 
 /* EdgeLock (ELS, S50) command interface; register offsets per the MCUXpresso
  * S50 peripheral header. */

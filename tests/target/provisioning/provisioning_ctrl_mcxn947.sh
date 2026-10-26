@@ -150,7 +150,7 @@ read_page() {
   local out
   rm -f "$2"
   out="$(pyocd_probe 60 cmd -t cortex_m -c "savemem $1 $PFR_PAGE_SIZE $2" 2>&1)" || return 1
-  ! printf '%s\n' "$out" | grep -qiE 'error|exception|fault|failure' &&
+  ! grep -qiE 'error|exception|fault|failure' <<<"$out" &&
     [ -f "$2" ] && [ "$(wc -c < "$2" | tr -d ' ')" = "$PFR_PAGE_SIZE" ]
 }
 page_digest() { sha256 < "$1" | cut -c1-64; }

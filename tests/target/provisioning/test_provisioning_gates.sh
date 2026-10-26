@@ -104,8 +104,11 @@ if [ "\$1" = cmd ]; then
           v=\$(awk -v k="\$k" '\$1 == k { print \$2 }' "$T/mcxn_regs")
           echo "\$k:  \${v:-00000000}" ;;
         "savemem "*) set -- \$a
-          if [ -e "$T/savemem_err" ]; then echo "Error: memory transfer fault"; continue; fi
-          head -c "\$3" /dev/zero | tr '\\000' '\\377' > "\$4" ;;
+          head -c "\$3" /dev/zero | tr '\\000' '\\377' > "\$4"
+          # A failed read: the file is written but the commander reports an
+          # error, ahead of a long log, and still exits 0.
+          if [ -e "$T/savemem_err" ]; then echo "Error: memory transfer fault"
+            printf '%02000000d\\n' 0; fi ;;
       esac
     done
     exit 0

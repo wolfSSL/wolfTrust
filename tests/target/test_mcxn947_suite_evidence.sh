@@ -71,10 +71,12 @@ check "$([ -s "$tmp/logs/beta.log" ]; echo $?)" "the batch runs once the lock is
 sed -n '/^program_board() {/,/^}/p' "$runner" > "$tmp/program_board.sh"
 program_case() {
     bash -c '
+set -euo pipefail
 fail() { echo "FAIL: $*"; exit 1; }
 timeout() { shift; "$@"; }
 pyocd() { case "$PB_MODE" in
     silent) return 124 ;; error) echo "Error: transfer failed"; return 0 ;;
+    longerror) echo "Error: transfer failed"; printf "%02000000d\n" 0; return 0 ;;
     *) echo "loaded"; return 0 ;; esac; }
 probe_uid=X; target=mcxn947vdf
 park_cmds=(-c "reset halt"); board_cmds=(-c "load a.bin 0x0")
@@ -85,6 +87,8 @@ check "$(! PB_MODE=silent program_case | grep -q RELEASED; echo $?)" \
     "a silent pyOCD timeout stops programming"
 check "$(! PB_MODE=error program_case | grep -q RELEASED; echo $?)" \
     "a command error reported with exit 0 stops programming"
+check "$(! PB_MODE=longerror program_case | grep -q RELEASED; echo $?)" \
+    "a command error ahead of a long log stops programming"
 check "$(PB_MODE=ok program_case | grep -q RELEASED; echo $?)" \
     "a clean session releases the core"
 

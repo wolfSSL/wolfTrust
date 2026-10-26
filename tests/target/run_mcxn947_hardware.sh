@@ -170,7 +170,9 @@ program_board() {
         printf '%s\n' "$out" | tail -6
         fail "programming the board failed (pyocd exit $rc)"
     fi
-    if printf '%s\n' "$out" | grep -qiE 'error|exception|not halted|failure|not within|not in flash'; then
+    # A here-string, not a pipe: under pipefail an early grep -q exit can
+    # SIGPIPE the writer and hide a match in a long log.
+    if grep -qiE 'error|exception|not halted|failure|not within|not in flash' <<<"$out"; then
         printf '%s\n' "$out" | grep -iE 'error|exception|not halted|failure|not within|not in flash' | tail -6
         fail "programming the board failed"
     fi

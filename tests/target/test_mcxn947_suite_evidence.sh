@@ -25,6 +25,8 @@ check "$(! grep -qE '(logs|work|lock)="\$\{[A-Z0-9_]+:-\$repo/build' "$suite" "$
     "no evidence path defaults to build/"
 check "$(grep -q 'flock' "$suite" && grep -q 'flock' "$runner"; echo $?)" \
     "the suite and the runner both take the board lock"
+check "$(grep -qE '^evidence="\$work/\$scenario-\$engine"' "$runner"; echo $?)" \
+    "the runner keeps each run's console and dumps by scenario and engine"
 
 # A stub runner that cleans build/ the way a real run does (the suite's old
 # log home), then reports; its log must survive in the suite's log dir.

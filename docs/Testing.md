@@ -438,7 +438,7 @@ MCXN947 Guide lists what each scenario asserts). The two guests share one
 LPUART, so their console lines interleave on silicon; the console is captured
 as evidence and the assertions are the mailboxes and the monitor's counters.
 The suite's logs (`logs/mcxn947-suite/`) and the runner's retained evidence
-(`logs/mcxn947-hw/`: per-scenario console, readback, wolfBoot build log)
+(`logs/mcxn947-hw/<scenario>-<engine>/`: console, readbacks, SWD dump)
 live outside `build/`, which every run cleans before it builds, and one batch
 at a time owns the board through `logs/mcxn947-hw.lock` (`flock`, shared by
 the runner); `tests/target/test_mcxn947_suite_evidence.sh` checks both under

@@ -40,6 +40,9 @@ repo="$(cd "$here/../.." && pwd)"
 # build/, which every run cleans before it builds.
 work="${MCXN947_WORK:-$repo/logs/mcxn947-hw}"
 lock="${MCXN947_HW_LOCK:-$repo/logs/mcxn947-hw.lock}"
+engine="${WT_ENGINE:-native}"
+# Each run's console, readbacks and SWD dump, kept per scenario and engine.
+evidence="$work/$scenario-$engine"
 target="${MCXN947_TARGET:-mcxn947vdf}"
 probe_uid="${MCXN947_PROBE_UID:-}"
 console="${MCXN947_CONSOLE:-}"
@@ -173,7 +176,7 @@ clear_mailboxes() {
 release_core() {
     local n
     stty -F "$console" 115200 raw -echo -crtscts -ixon 2>/dev/null || true
-    ( timeout "$console_seconds" cat "$console" > "$work/console-$scenario.log" 2>/dev/null ) &
+    ( timeout "$console_seconds" cat "$console" > "$evidence/console.log" 2>/dev/null ) &
     sleep 0.5
     timeout 60 pyocd cmd -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
         -O reset_type=hw -c "reset halt" -c "write32 0xE0001028 0" \
@@ -189,12 +192,13 @@ release_core() {
 # Read an image back over the debug port once the chain has booted and
 # compare it.
 verify_at() {
-    local addr="$1" image="$2" size
+    local addr="$1" image="$2" size back
     size="$(wc -c < "$image" | tr -d ' ')"
+    back="$evidence/readback-$(basename "$image")"
     timeout 120 pyocd cmd -u "$probe_uid" -t cortex_m \
-        -c "savemem $addr $size $work/readback.bin" >/dev/null 2>&1 || \
+        -c "savemem $addr $size $back" >/dev/null 2>&1 || \
         fail "readback of $addr failed"
-    cmp -s "$work/readback.bin" "$image" || \
+    cmp -s "$back" "$image" || \
         fail "flash verify mismatch at $addr ($(basename "$image"))"
     log "  [flash] verified $(basename "$image") @ $addr"
 }
@@ -230,8 +234,8 @@ run_chain() {
     # boot base + 0x400 and is signed with a matching header. Exported so the
     # secure image and the guest CMSE import library agree.
     export WT_SECURE_IMAGE_HEADER_SIZE=0x400
-    rm -rf "$repo/build"
-    mkdir -p "$work"
+    rm -rf "$repo/build" "$evidence"
+    mkdir -p "$evidence"
 
     stage "build wolfTrust secure image + CMSE import library (${WT_ENGINE:-native})"
     make -s -C "$repo" TARGET=mcxn947 secure-image TOOLPREFIX=arm-none-eabi-
@@ -267,7 +271,24 @@ run_chain() {
     verify_at "$secure_flash_addr" "$repo/build/wolftrust_v1_signed.bin"
     verify_at "$guest0_flash_addr" "$guest_build/guest0.bin"
     verify_at "$guest1_flash_addr" "$guest_build/guest1.bin"
-    log "  [console] $work/console-$scenario.log"
+    dump_evidence
+    log "  [evidence] $evidence (console.log, readback-*.bin, swd.txt)"
+}
+
+# The words every check reads, kept as text beside the console so a verdict
+# can be re-read without the board.
+dump_evidence() {
+    {
+        echo "scenario=$scenario engine=$engine image=$(sha256sum "$repo/build/wolftrust_v1_signed.bin" | cut -c1-16)"
+        dap -c "read32 $guest0_ram 48" -c "read32 $guest1_ram 48" -c "read32 $probe_addr 4" \
+            -c "read32 $(elf_sym g_wt_launch_verified_mask)" -c "read32 $(elf_sym g_wt_launch_refused_mask)" \
+            -c "read32 $(elf_sym g_wt_restart_events)" -c "read32 $(elf_sym g_wt_quarantine_events)" \
+            -c "read32 $(elf_sym g_wt_rom_flash_last_status)" -c "read32 $(elf_sym g_wt_flash_last_error)" \
+            -c "read32 $(elf_sym g_wt_els_errors) 12" -c "read32 $(elf_sym g_wt_boot_handoff) 56" \
+            -c "read32 $hsm_nvm_addr 32" -c "read32 $((hsm_nvm_addr + flash_sector)) 16" \
+            -c "read32 $handoff_addr 16" -c "read32 $syscon_lc_state" \
+            -c halt -c "reg pc" -c "reg xpsr" -c go
+    } > "$evidence/swd.txt" 2>&1 || true
 }
 
 # One 32-bit word at base+offset over SWD, as eight lowercase hex digits.
@@ -356,7 +377,7 @@ check_secure_side() {
     else
         log "  [lifecycle] handoff lifecycle 0x$handed"
     fi
-    check "$(grep -q "Verifying signature...done" "$work/console-$scenario.log"; echo $?)" \
+    check "$(grep -q "Verifying signature...done" "$evidence/console.log"; echo $?)" \
         "wolfBoot verified the wolfTrust image signature (console)"
 }
 
@@ -417,7 +438,7 @@ sauneg)
 periphneg)
     run_chain "$baremetal_dir" "WT_PERIPH_NEG_PROBE=1"
     check_guest0_quarantined
-    check "$(! grep -q "periph probe LEAKED" "$work/console-$scenario.log"; echo $?)" \
+    check "$(! grep -q "periph probe LEAKED" "$evidence/console.log"; echo $?)" \
         "no NS read of the SPM's ELS ever returned (console)"
     check_secure_side
     log "PASS: hardware/mcxn947/$scenario"

@@ -299,9 +299,11 @@ compares it, and asserts the result over SWD:
 - for `psa`, each PSA guest's mailbox stage bits (TEE, crypto, ITS, PS,
   key-ops, SHA-256 KAT, COSE attestation, done).
 
-The console capture, the readback and the wolfBoot build log are kept under
-`logs/mcxn947-hw/`, the suite's per-scenario logs under `logs/mcxn947-suite/`:
-outside `build/`, which every run cleans before it builds.
+Each run's console capture, image readbacks and an SWD dump of every word
+the checks read are kept under `logs/mcxn947-hw/<scenario>-<engine>/`
+(`console.log`, `readback-*.bin`, `swd.txt`), the suite's per-scenario logs
+under `logs/mcxn947-suite/`: outside `build/`, which every run cleans before
+it builds, and never overwritten by another scenario or engine.
 
 Two board facts the runner encodes: the pack's `reset halt` leaves a DWT
 comparator and the debug fault status armed, so the core is released only

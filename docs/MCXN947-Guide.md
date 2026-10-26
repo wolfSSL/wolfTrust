@@ -34,10 +34,14 @@ the part; this port rehearses life cycles and writes none of them.
   through the veneers (`positive`, both engines), the isolation negative
   (`sauneg`) shows a guest's store into the other guest's RAM refused by the
   SAU, contained by the monitor, and the offender quarantined after its
-  restart budget while the peer keeps running, and the isolation level 3
-  scenarios the matrix lists for this port
-  (`tests/target/lib/scenario_matrix.py`) pass on the model. Scenarios the
-  matrix exempts have not been run.
+  restart budget while the peer keeps running, and every other scenario the
+  matrix lists for this port (`tests/target/lib/scenario_matrix.py`: the
+  whole MIMXRT700 set, every isolation level 3 scenario included) passes on
+  the model on both crypto engines. The one MIMXRT700 scenario not listed is
+  `confboot`: the Arm FF-M IPC suite did not reach its exit breakpoint within
+  the 900 s budget on this model, while the dev_apis storage, crypto and
+  attestation suites and the vault recovery runs do; it is being run again
+  with a longer budget before it is claimed.
 - **Not validated:** any guest flash fence and any life cycle write. The
   TRDC and the AHB secure controller are left as the first loader leaves
   them. See [Open items](#open-items).

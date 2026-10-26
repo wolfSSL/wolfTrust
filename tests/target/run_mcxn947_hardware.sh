@@ -63,6 +63,10 @@ flash_sector=0x2000
 guest0_ram=0x20000000
 guest1_ram=0x20018000
 probe_addr=0x20028000
+# What guest0's negatives touch (tests/firmware/mcxn947-baremetal/Makefile):
+# the SPM's ELS through its NS alias, and Secure RAM for the restart probe.
+periph_probe_addr=0x40054000
+restart_probe_addr=0x30031000
 handoff_addr=0x30030000
 syscon_lc_state=0x50000980
 # The guests' manifest restart budget (port/mcxn947/partitions.c).
@@ -392,12 +396,16 @@ check_secure_side() {
         "wolfBoot verified the wolfTrust image signature (console)"
 }
 
-# guest0 faulted on every launch: the monitor spent its restart budget and
-# quarantined it, while guest1 ran untouched.
+# guest0 faulted at $1 on every launch (the Secure fault handler records the
+# address), so a fault anywhere else fails the scenario; the monitor spent its
+# restart budget and quarantined guest0, while guest1 ran untouched.
 check_guest0_quarantined() {
-    local restarts quarantines st beat
+    local want="$1" restarts quarantines st beat fault
     restarts="$(sym_word g_wt_restart_events)"
     quarantines="$(sym_word g_wt_quarantine_events)"
+    fault="$(sym_word g_last_fault_address)"
+    check "$([ "$((0x$fault))" -eq "$((want))" ]; echo $?)" \
+        "guest0's last fault was its probe's access to $want (0x$fault)"
     check "$([ "$((0x$restarts))" -eq "$restart_limit" ]; echo $?)" \
         "guest0 relaunched through its restart budget ($((0x$restarts)) of $restart_limit)"
     check "$([ "$((0x$quarantines))" -eq 1 ]; echo $?)" \
@@ -439,7 +447,7 @@ positive)
     ;;
 sauneg)
     run_chain "$baremetal_dir" "WT_SAU_PROBE=1"
-    check_guest0_quarantined
+    check_guest0_quarantined "$probe_addr"
     peer="$(word_at "$probe_addr" 0)"
     check "$([ "$peer" != "deadbeef" ]; echo $?)" \
         "guest1 RAM never received guest0's sentinel (0x$peer)"
@@ -448,7 +456,7 @@ sauneg)
     ;;
 periphneg)
     run_chain "$baremetal_dir" "WT_PERIPH_NEG_PROBE=1"
-    check_guest0_quarantined
+    check_guest0_quarantined "$periph_probe_addr"
     check "$(! grep -q "periph probe LEAKED" "$evidence/console.log"; echo $?)" \
         "no NS read of the SPM's ELS ever returned (console)"
     check_secure_side
@@ -456,7 +464,7 @@ periphneg)
     ;;
 restart)
     run_chain "$baremetal_dir" "WT_GUEST_FAULT_PROBE=1"
-    check_guest0_quarantined
+    check_guest0_quarantined "$restart_probe_addr"
     check_secure_side
     log "PASS: hardware/mcxn947/$scenario"
     ;;

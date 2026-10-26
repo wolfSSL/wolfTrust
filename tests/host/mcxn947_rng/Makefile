@@ -27,7 +27,7 @@ CFLAGS := \
     -I$(ROOT)/include \
     -I$(ROOT)/port/mcxn947 \
     -include mock_els.h \
-    -std=c99 -O0 -g -Wall -Wextra -pedantic
+    -std=c99 -O0 -g -Wall -Wextra -pedantic -fno-pie
 CFLAGS += $(EXTRA_CFLAGS)
 
 ALL_OBJS := $(BUILD_DIR)/wt_rng_entropy.o $(BUILD_DIR)/main.o
@@ -47,7 +47,7 @@ $(BUILD_DIR)/%.o: %.c mock_els.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(TEST_BIN): $(ALL_OBJS)
-	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(ALL_OBJS)
+	$(CC) $(CFLAGS) -no-pie $(EXTRA_LDFLAGS) -o $@ $(ALL_OBJS)
 
 run: $(TEST_BIN)
 	$(TEST_BIN)

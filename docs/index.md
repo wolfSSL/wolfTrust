@@ -61,7 +61,7 @@ port's five CMSE gateway veneers.
 | [Footprint](Footprint.md) | Measured image sizes and the options that change them |
 | [Porting](Porting.md) | Architecture and target port contracts |
 | [Building](Building.md) | Build targets, outputs, and cross-build options |
-| [Testing](Testing.md) | Host, M33MU, and STM32H563 validation |
+| [Testing](Testing.md) | Host, M33MU, STM32H563, and MIMXRT700 validation |
 | [Provisioning](Provisioning.md) | Rehearse, validate, then lock: the production life cycle flow for every port |
 | [Project Structure](Project-Structure.md) | Repository layout |
 | [Ports](Ports.md) | Every registered port with its board guide, CI, emulator and hardware tiers (generated) |

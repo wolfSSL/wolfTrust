@@ -122,6 +122,20 @@ TrustZone perimeter first as described in [STM32H5 Guide](STM32H5-Guide.md);
 the runner's preflight refuses a board whose guest sectors are
 write-protected and names the provisioning command that clears them.
 
+## Run on MIMXRT700
+
+Pass `TARGET=mimxrt700` to build and test the second port:
+
+```sh
+make TARGET=mimxrt700 secure-image
+make test-target TARGET=mimxrt700
+make test-hardware TARGET=mimxrt700
+```
+
+`test-target` runs the RT700 emulator scenarios and `test-hardware` runs the
+EVK suite on the host that owns the probe. See the
+[MIMXRT700 Guide](MIMXRT700-Guide.md) for the rig and flash layout.
+
 ## Next steps
 
 - Read [Architecture](Architecture.md) for the request path and isolation model.

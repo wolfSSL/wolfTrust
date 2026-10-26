@@ -20,7 +20,8 @@ Read the current state first and keep a development board recoverable.
   through the veneers (`positive`); the isolation negative (`guestisoneg`) shows a
   guest's store into the other guest's RAM refused by the SAU, contained by the
   monitor, and the offender quarantined after its restart budget while the peer
-  keeps running.
+  keeps running. The runner also carries the STM32H563 scenario matrix,
+  including every isolation level 3 negative and Arm's conformance suites.
 - **Validated on the EVK:** the same two scenarios on both crypto engines
   (`tests/target/run_hardware.sh mimxrt700`). In `guestisoneg`, guest0 disables its
   Non-secure MPU and stores into guest1's RAM; the store faults, guest1's RAM

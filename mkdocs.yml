@@ -20,6 +20,7 @@ nav:
       - Testing: Testing.md
   - Ports:
       - Supported targets: Targets.md
+      - Provisioning: Provisioning.md
       - STM32H563 board guide: STM32H5-Guide.md
       - MIMXRT700 board guide: MIMXRT700-Guide.md
   - Use wolfTrust:

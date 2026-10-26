@@ -2,7 +2,8 @@
 
 wolfTrust targets the Arm Firmware Framework for M (FF-M) 1.0 contract and
 selected Platform Security Architecture (PSA) service APIs. The reference
-implementation is the STM32H563 Cortex-M33 port. Compatibility is documented
+implementation is the STM32H563 Cortex-M33 port; MIMXRT700 is the second
+Armv8-M port. Compatibility is documented
 per interface, with its limits and test evidence; no full FF-M or PSA
 certification is claimed.
 
@@ -16,7 +17,9 @@ certification is claimed.
 
 On the STM32H563, wolfTrust meets FF-M isolation level 3;
 [Security Model](Security-Model.md#ff-m-isolation-level-3) maps each isolation
-rule and lists the deviations; [Threat Model](Threat-Model.md) describes assumptions
+rule and lists the deviations. The MIMXRT700 port links the same level 3 layer
+and runs every level 3 negative under M33MU; the
+[MIMXRT700 Guide](MIMXRT700-Guide.md) records its evidence. [Threat Model](Threat-Model.md) describes assumptions
 and residual risks. [Testing](Testing.md) separates host, emulator, and
 physical-board evidence.
 

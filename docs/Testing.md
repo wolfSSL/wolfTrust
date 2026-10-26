@@ -431,7 +431,7 @@ separately.
 
 `make test-hardware TARGET=mcxn947` runs `tests/target/run_mcxn947_suite.sh`
 on the host that owns the FRDM-MCXN947's MCU-Link: `positive`, `sauneg`,
-`periphneg`, `restart`, and `psa` by default (`WT_MCXN947_SCENARIOS`
+`periphneg`, `restart`, `psa`, and `wrpoff` by default (`WT_MCXN947_SCENARIOS`
 overrides the list; `WT_ENGINE` selects the crypto engine), each built,
 flashed at its physical offset, erased to a fresh vault, read back, and
 asserted over the debug port (`tests/target/run_mcxn947_hardware.sh`; the

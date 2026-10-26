@@ -271,7 +271,7 @@ the SAU with the peer window Secure at dispatch.
 ## Build and verify on the FRDM-MCXN947
 
 ```sh
-make test-hardware TARGET=mcxn947            # positive sauneg periphneg restart psa
+make test-hardware TARGET=mcxn947            # positive sauneg periphneg restart psa wrpoff
 tests/target/run_mcxn947_hardware.sh positive
 WT_ENGINE=hsm tests/target/run_mcxn947_hardware.sh positive
 ```
@@ -297,7 +297,10 @@ compares it, and asserts the result over SWD:
   `0xFF`, the handoff record consumed, IPSR outside the fault handlers, and
   wolfBoot's `Verifying signature...done` on the console;
 - for `psa`, each PSA guest's mailbox stage bits (TEE, crypto, ITS, PS,
-  key-ops, SHA-256 KAT, COSE attestation, done).
+  key-ops, SHA-256 KAT, COSE attestation, done);
+- for `wrpoff`, a Secure image built with `WT_GUEST_FLASH_WRP=1` refusing
+  both guests (launch refused mask `0x3`, both mailboxes untouched), since
+  the port reports no guest flash fence.
 
 Each run's console capture, image readbacks and an SWD dump of every word
 the checks read are kept under `logs/mcxn947-hw/<scenario>-<engine>/`

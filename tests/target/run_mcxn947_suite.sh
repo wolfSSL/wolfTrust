@@ -13,7 +13,7 @@ set -euo pipefail
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 runner="${MCXN947_SUITE_RUNNER:-$repo/tests/target/run_mcxn947_hardware.sh}"
 detect="${MCXN947_SUITE_DETECT:-$repo/tests/target/detect_mcxn947.sh}"
-scenarios="${WT_MCXN947_SCENARIOS:-positive sauneg periphneg restart psa}"
+scenarios="${WT_MCXN947_SCENARIOS:-positive sauneg periphneg restart psa wrpoff}"
 spsdk_venv="${MCXN947_SPSDK_VENV:-$HOME/spsdk-venv}"
 logs="${MCXN947_SUITE_LOGS:-$repo/logs/mcxn947-suite}"
 lock="${MCXN947_HW_LOCK:-$repo/logs/mcxn947-hw.lock}"

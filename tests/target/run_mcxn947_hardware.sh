@@ -25,6 +25,9 @@
 #   psa       both Non-secure windows run the portable PSA client
 #             (tests/firmware/psa-guest): every lifecycle stage must complete
 #             in both mailboxes, with the ELS behind psa_generate_random.
+#   wrpoff    wolfTrust built with WT_GUEST_FLASH_WRP=1 requires a guest flash
+#             fence, which this port does not have: it must refuse both guests
+#             (launch refused mask 0x3, no mailbox written).
 #
 # The probe is the board's MCU-Link, the one pyOCD lists as
 # "MCU-LINK FRDM-MCXN947" (MCXN947_PROBE_UID picks one of several); the
@@ -41,6 +44,9 @@ repo="$(cd "$here/../.." && pwd)"
 work="${MCXN947_WORK:-$repo/logs/mcxn947-hw}"
 lock="${MCXN947_HW_LOCK:-$repo/logs/mcxn947-hw.lock}"
 engine="${WT_ENGINE:-native}"
+case "$scenario" in
+    wrpoff) export WT_GUEST_FLASH_WRP=1 ;;
+esac
 # Each run's console, readbacks and SWD dump, kept per scenario and engine.
 evidence="$work/$scenario-$engine"
 target="${MCXN947_TARGET:-mcxn947vdf}"
@@ -157,11 +163,15 @@ clear_mailboxes() {
     local verified refused
     verified="$(elf_sym g_wt_launch_verified_mask)"
     refused="$(elf_sym g_wt_launch_refused_mask)"
-    [ -n "$verified" ] && [ -n "$refused" ] || fail "launch masks not found in wolftrust.elf"
+    [ -n "$refused" ] || fail "launch masks not found in wolftrust.elf"
+    # A WT_GUEST_FLASH_WRP=1 image here verifies no guest, so the linker drops
+    # the verified mask; every other image must carry it.
+    [ -n "$verified" ] || [ "${WT_GUEST_FLASH_WRP:-0}" = "1" ] ||
+        fail "launch masks not found in wolftrust.elf"
     board_cmds+=(-c "write32 $guest0_ram 0 0 0 0 0 0 0 0 0 0 0 0" \
         -c "write32 $guest1_ram 0 0 0 0 0 0 0 0 0 0 0 0" \
-        -c "write32 $probe_addr 0" \
-        -c "write32 $verified 0" -c "write32 $refused 0")
+        -c "write32 $probe_addr 0" -c "write32 $refused 0")
+    [ -z "$verified" ] || board_cmds+=(-c "write32 $verified 0")
 }
 
 # The commander exits 0 whatever a command did, so its output is checked too.
@@ -477,8 +487,23 @@ psa)
     check_secure_side
     log "PASS: hardware/mcxn947/$scenario"
     ;;
+wrpoff)
+    run_chain "$baremetal_dir" ""
+    check "$([ -z "$(elf_sym g_wt_launch_verified_mask)" ] ||
+        [ "$(sym_word g_wt_launch_verified_mask)" = "00000000" ]; echo $?)" \
+        "no guest was launch-verified (the image has no path that marks one)"
+    check "$([ "$(sym_word g_wt_launch_refused_mask)" = "00000003" ]; echo $?)" \
+        "launch-refused guest mask 0x$(sym_word g_wt_launch_refused_mask) (want 0x00000003)"
+    for g in "0:$guest0_ram" "1:$guest1_ram"; do
+        sig="$(word_at "${g##*:}" 0)"
+        check "$([ "$sig" = "00000000" ]; echo $?)" \
+            "guest${g%%:*} never entered its domain (mailbox 0x$sig)"
+    done
+    check_secure_side
+    log "PASS: hardware/mcxn947/$scenario"
+    ;;
 *)
-    log "usage: $0 positive|sauneg|periphneg|restart|psa"
+    log "usage: $0 positive|sauneg|periphneg|restart|psa|wrpoff"
     exit 2
     ;;
 esac

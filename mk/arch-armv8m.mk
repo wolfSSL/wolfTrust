@@ -104,7 +104,7 @@ ARCH_LDFLAGS = -Wl,--cmse-implib -Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
 # The owner map the post-link layout check reads: the shared map plus the
 # port's own objects (port/<soc>/secure_owners.txt), so a port adds its
 # owners without editing the shared file.
-WT_SECURE_OWNERS := $(BUILD_DIR)/secure_owners.txt
+WT_SECURE_OWNERS := $(BUILD_DIR)/secure_owners-$(TARGET).txt
 $(WT_SECURE_OWNERS): $(ROOT)/tools/secure_owners.txt \
     $(wildcard $(PORT_DIR)/secure_owners.txt) | $(BUILD_DIR)
 	cat $^ > $@

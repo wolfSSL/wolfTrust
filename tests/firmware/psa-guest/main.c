@@ -851,6 +851,9 @@ static void exercise_hsm_attack_probe(void)
 #if !defined(WT_FWU_PROBE_TAIL_BYTES)
 #define WT_FWU_PROBE_TAIL_BYTES 32u
 #endif
+#if WT_FWU_PROBE_TAIL_BYTES < 1 || WT_FWU_PROBE_TAIL_BYTES > 512
+#error "WT_FWU_PROBE_TAIL_BYTES must fit the probe's 512-byte write payload"
+#endif
 #define GUEST_FWU_OP_START   2u
 #define GUEST_FWU_OP_WRITE   3u
 #define GUEST_FWU_OP_FINISH  4u

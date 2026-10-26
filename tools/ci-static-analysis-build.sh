@@ -1,13 +1,13 @@
 #!/bin/sh
-# Compile the host and both Armv8-M ports under a static-analysis build tracer.
+# Compile the host and every Armv8-M port under a static-analysis build tracer.
 set -eu
 
 make test
 
-for target in stm32h563 mimxrt700; do
+for target in stm32h563 mimxrt700 mcxn947; do
     for engine in native hsm; do
         case "$target" in
-            mimxrt700) attest_cose=0 ;;
+            mimxrt700|mcxn947) attest_cose=0 ;;
             *) attest_cose=1 ;;
         esac
         make TARGET="$target" WT_ENGINE="$engine" \

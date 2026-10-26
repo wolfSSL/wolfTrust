@@ -53,7 +53,7 @@ endif
 # Secure runtime placement. The default preserves the standalone image;
 # the wolfBoot handoff build relocates it to 0x0C020000.
 WT_SECURE_FLASH_BASE ?= 0x0C000000
-WT_SECURE_FLASH_SIZE ?= 0x00020000
+WT_SECURE_FLASH_SIZE ?= $(if $(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),0x00040000,0x00020000)
 WT_SECURE_IMAGE_HEADER_SIZE ?= 0
 ifeq ($(CONFIG_PKCS11),y)
 WT_GUEST0_FLASH_BASE ?= 0x080A0000

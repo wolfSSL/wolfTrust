@@ -73,6 +73,10 @@ interface region reserves 48 KiB for state and 16 KiB for its stack. PKCS#11
 uses a bounded private 28-KiB heap inside that state region; the volatile
 fwTPM configuration has no heap.
 
+STM32H563 interface builds default to a 256-KiB Secure flash slot so either
+engine fits. The API-disabled standalone build keeps its 128-KiB slot. The
+reserved slot size is a layout limit; the table counts only linked code/data.
+
 ## Reproduce
 
 - Base: `7ae69b3cb6fae0a61e3d184264415d0ea0c01f36`.

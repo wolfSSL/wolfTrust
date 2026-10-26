@@ -22,6 +22,7 @@ says otherwise; the AArch64 variables are under
 | Define | Description | Requirement |
 | --- | --- | --- |
 | `WT_MAX_GUESTS` | Selects one or two compiled STM32H563 guest contexts; default `1` for TPM/PKCS#11 and `2` otherwise. | The current port supports only `1` or `2`. Larger values require extending the partition tables and matching manifest, linker, emulator, flash, and measurement configuration. |
+| `WT_SECURE_FLASH_SIZE` | STM32H563 defaults to 128 KiB, or 256 KiB with TPM/PKCS#11 so either engine fits. RT700 defaults to 256 KiB. | This reserves image capacity; linked `text + data` reports actual code/data usage. |
 | `WT_TIMESLICE_MS` | Guest scheduler interval in milliseconds; default `2`. | Must be nonzero and supported by the target timer. |
 | `WT_CO_STACK_SIZE` | Default fixed coroutine stack size in bytes, including each per-guest wolfHSM server tasklet in the hsm engine; default `10240` (measured: the deep M33MU workloads pass at 8K with PSPLIM overflow detection armed, so 10K carries at least 2K margin). With two guests, the hsm-only server slots total 20,480 stack bytes plus 512 guard bytes. Manifest-sized Secure Partition stacks use their declared sizes instead. | Size from measured stack high-water marks and keep at least the scheduler minimum. |
 | `WT_SHARED_UART` | Reference guest UART selection; default `3`. | Guest and Secure builds must use a consistent value. |

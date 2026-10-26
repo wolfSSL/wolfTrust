@@ -131,6 +131,27 @@ check_recipe "$zephyr" secure 'WT_GUEST0_FLASH_SIZE="0x00040000"' \
     "Zephyr runner forwards guest 0's flash size"
 check_recipe "$zephyr" secure 'WT_GUEST1_FLASH_SIZE="0x00020000"' \
     "Zephyr runner forwards guest 1's flash size"
+slot_work=$(mktemp -d)
+for slot_api in psa tpm pkcs11; do
+    slot_tpm=n
+    slot_p11=n
+    slot_size=0x00020000
+    if [ "$slot_api" = tpm ]; then slot_tpm=y; slot_size=0x00040000; fi
+    if [ "$slot_api" = pkcs11 ]; then slot_p11=y; slot_size=0x00040000; fi
+    checks=$((checks + 1))
+    if env -u WT_SECURE_FLASH_SIZE MAKEFLAGS= MFLAGS= \
+            make -n -C "$root" TARGET=stm32h563 TOOLPREFIX= \
+            WT_ENGINE=hsm WT_ENGINE_HSM=1 CONFIG_TPM="$slot_tpm" \
+            CONFIG_PKCS11="$slot_p11" BUILD_DIR="$slot_work/build" secure-image \
+            > "$slot_work/output" 2>&1 &&
+       grep -Fq -- "-DWT_SECURE_FLASH_SIZE=$slot_size" "$slot_work/output"; then
+        echo "  [check] PASS  $slot_api standalone Secure slot fits its engines"
+    else
+        failures=$((failures + 1))
+        echo "  [check] FAIL  $slot_api standalone Secure slot is wrong"
+    fi
+done
+rm -rf "$slot_work"
 check_file "$pkcs11_app" \
     'WT_GUEST0_FLASH_SIZE="${WT_GUEST0_FLASH_SIZE:-0x00020000}"' \
     "standalone PKCS11 application defaults to its non-overlapping slot"

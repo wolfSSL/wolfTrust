@@ -355,6 +355,131 @@ index 148ef22..d15bd66 100644
  }
  
  mm_bool mm_mcxn947_secure_rom_call_allowed(enum mm_sec_state sec)
+diff --git a/include/m33mu/decode.h b/include/m33mu/decode.h
+index 9f5739c..382fce2 100644
+--- a/include/m33mu/decode.h
++++ b/include/m33mu/decode.h
+@@ -124,6 +124,8 @@ enum mm_op_kind {
+     MM_OP_LDRSB_POST_IMM,
+     MM_OP_LDRSH_REG,
+     MM_OP_LDRSH_IMM,
++    MM_OP_LDRSH_PRE_IMM,
++    MM_OP_LDRSH_POST_IMM,
+     MM_OP_LDRSHT,
+     MM_OP_STRHT,
+     MM_OP_LDRHT,
+diff --git a/src/execute.c b/src/execute.c
+index 9f06d51..aaddc0f 100644
+--- a/src/execute.c
++++ b/src/execute.c
+@@ -4492,6 +4492,36 @@ enum mm_exec_status mm_execute_decoded(struct mm_execute_ctx *ctx)
+                                                           cpu.r[d.rn] = base + d.imm;
+                                                       }
+                                                   } break;
++                        case MM_OP_LDRSH_POST_IMM: {
++                                                      mm_u32 base = cpu.r[d.rn];
++                                                      mm_u32 val = 0;
++                                                      EXEC_CHECK_UNALIGN(base, 2u);
++                                                      if (!exec_read_signed(&map, cpu.sec_state, base, 2u, &val)) {
++                                                          if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, base, MM_FALSE)) done = MM_TRUE;
++                                                          return MM_EXEC_CONTINUE;
++                                                      }
++                                                      cpu.r[d.rd] = val;
++                                                      if (d.rn == 13u) {
++                                                          EXEC_SET_SP(base + d.imm);
++                                                      } else {
++                                                          cpu.r[d.rn] = base + d.imm;
++                                                      }
++                                                  } break;
++                        case MM_OP_LDRSH_PRE_IMM: {
++                                                     mm_u32 addr = cpu.r[d.rn] + d.imm;
++                                                     mm_u32 val = 0;
++                                                     EXEC_CHECK_UNALIGN(addr, 2u);
++                                                     if (!exec_read_signed(&map, cpu.sec_state, addr, 2u, &val)) {
++                                                         if (!raise_mem_fault(&cpu, &map, &scs, f.pc_fetch, cpu.xpsr, addr, MM_FALSE)) done = MM_TRUE;
++                                                         return MM_EXEC_CONTINUE;
++                                                     }
++                                                     cpu.r[d.rd] = val;
++                                                     if (d.rn == 13u) {
++                                                         EXEC_SET_SP(addr);
++                                                     } else {
++                                                         cpu.r[d.rn] = addr;
++                                                     }
++                                                 } break;
+                         case MM_OP_LDRSH_IMM:
+                         case MM_OP_LDRSHT: {
+                                                   mm_u32 addr = cpu.r[d.rn] + d.imm;
+diff --git a/src/m33mu/capstone.c b/src/m33mu/capstone.c
+index bbfad17..b401d68 100644
+--- a/src/m33mu/capstone.c
++++ b/src/m33mu/capstone.c
+@@ -550,7 +550,8 @@ static mm_bool cross_check_kind(const cs_insn *insn, const struct mm_decoded *de
+         case ARM_INS_LDRSB: return (dec->kind == MM_OP_LDRSB_IMM ||
+                                     dec->kind == MM_OP_LDRSB_POST_IMM ||
+                                     dec->kind == MM_OP_LDRSB_REG);
+-        case ARM_INS_LDRSH: return (dec->kind == MM_OP_LDRSH_IMM || dec->kind == MM_OP_LDRSH_REG);
++        case ARM_INS_LDRSH: return (dec->kind == MM_OP_LDRSH_IMM || dec->kind == MM_OP_LDRSH_REG ||
++                                    dec->kind == MM_OP_LDRSH_POST_IMM || dec->kind == MM_OP_LDRSH_PRE_IMM);
+         case ARM_INS_DSB: return dec->kind == MM_OP_DSB;
+         case ARM_INS_DMB: return dec->kind == MM_OP_DMB;
+         case ARM_INS_ISB: return dec->kind == MM_OP_ISB;
+@@ -1288,12 +1289,13 @@ static mm_bool cross_check_operands(const struct mm_fetch_result *fetch, const c
+                 if (dec->kind == MM_OP_LDR_POST_IMM || dec->kind == MM_OP_STR_POST_IMM ||
+                     dec->kind == MM_OP_LDRB_POST_IMM || dec->kind == MM_OP_STRB_POST_IMM ||
+                     dec->kind == MM_OP_LDRH_POST_IMM || dec->kind == MM_OP_STRH_POST_IMM ||
+-                    dec->kind == MM_OP_LDRSB_POST_IMM) {
++                    dec->kind == MM_OP_LDRSB_POST_IMM || dec->kind == MM_OP_LDRSH_POST_IMM) {
+                     expect_wb = MM_TRUE;
+                     expect_post = MM_TRUE;
+                 } else if (dec->kind == MM_OP_LDR_PRE_IMM || dec->kind == MM_OP_STR_PRE_IMM ||
+                            dec->kind == MM_OP_LDRB_PRE_IMM || dec->kind == MM_OP_STRB_PRE_IMM ||
+-                           dec->kind == MM_OP_LDRH_PRE_IMM || dec->kind == MM_OP_STRH_PRE_IMM) {
++                           dec->kind == MM_OP_LDRH_PRE_IMM || dec->kind == MM_OP_STRH_PRE_IMM ||
++                           dec->kind == MM_OP_LDRSH_PRE_IMM) {
+                     expect_wb = MM_TRUE;
+                     expect_post = MM_FALSE;
+                 }
+diff --git a/src/m33mu/decode.c b/src/m33mu/decode.c
+index 6882d58..0f5eed2 100644
+--- a/src/m33mu/decode.c
++++ b/src/m33mu/decode.c
+@@ -1564,6 +1564,36 @@ static struct mm_decoded decode_32(mm_u32 insn)
+             d.undefined = MM_FALSE;
+             return d;
+         }
++        /* Post-index writeback form: LDRSH Rt, [Rn], #+/-imm8 */
++        if (p == 0u && w == 1u) {
++            mm_u8 rn = (mm_u8)((insn >> 16) & 0x0fu);
++            mm_u8 rt = (mm_u8)((insn >> 12) & 0x0fu);
++            mm_u32 imm8 = insn & 0xffu;
++            if (rt == 15u || rn == 15u) {
++                return d;
++            }
++            d.kind = MM_OP_LDRSH_POST_IMM;
++            d.rn = rn;
++            d.rd = rt;
++            d.imm = u ? imm8 : (mm_u32)(0u - imm8);
++            d.undefined = MM_FALSE;
++            return d;
++        }
++        /* Pre-index writeback form: LDRSH Rt, [Rn, #+/-imm8]! */
++        if (p == 1u && w == 1u) {
++            mm_u8 rn = (mm_u8)((insn >> 16) & 0x0fu);
++            mm_u8 rt = (mm_u8)((insn >> 12) & 0x0fu);
++            mm_u32 imm8 = insn & 0xffu;
++            if (rt == 15u || rn == 15u) {
++                return d;
++            }
++            d.kind = MM_OP_LDRSH_PRE_IMM;
++            d.rn = rn;
++            d.rd = rt;
++            d.imm = u ? imm8 : (mm_u32)(0u - imm8);
++            d.undefined = MM_FALSE;
++            return d;
++        }
+     }
+ 
+     /* LDAEX (word) */
 diff --git a/src/main.c b/src/main.c
 index aad0697..9457fa4 100644
 --- a/src/main.c
@@ -373,3 +498,50 @@ index aad0697..9457fa4 100644
              }
              if (cpu_name != 0 && strcmp(cpu_name, "lpc55s69") == 0) {
                  /* LPC55S69 ROM is at 0x03000000 (NS alias) / 0x13000000 (S alias).
+diff --git a/tests/decode_phase3_test.c b/tests/decode_phase3_test.c
+index 2731177..4564284 100644
+--- a/tests/decode_phase3_test.c
++++ b/tests/decode_phase3_test.c
+@@ -293,6 +293,33 @@ static int test_ldrsh_w_imm8_pre(void)
+     return 0;
+ }
+ 
++static int test_ldrsh_w_imm8_post(void)
++{
++    struct mm_decoded dec;
++    /* LDRSH.W fp, [r8], #2 : hw1=0xf938, hw2=0xbb02 (P=0,U=1,W=1) */
++    if (decode_insn(0xf938u, 0xbb02u, &dec) != 0) return 1;
++    if (dec.kind != MM_OP_LDRSH_POST_IMM) return 1;
++    if (dec.rd != 11u || dec.rn != 8u) return 1;
++    if (dec.imm != 2u) return 1;
++    /* LDRSH.W r1, [r2], #-4 : hw1=0xf932, hw2=0x1904 (P=0,U=0,W=1) */
++    if (decode_insn(0xf932u, 0x1904u, &dec) != 0) return 1;
++    if (dec.kind != MM_OP_LDRSH_POST_IMM) return 1;
++    if (dec.rd != 1u || dec.rn != 2u) return 1;
++    if (dec.imm != 0xfffffffcu) return 1;
++    return 0;
++}
++
++static int test_ldrsh_w_imm8_pre_wb(void)
++{
++    struct mm_decoded dec;
++    /* LDRSH.W r3, [r4, #0x20]! : hw1=0xf934, hw2=0x3f20 (P=1,U=1,W=1) */
++    if (decode_insn(0xf934u, 0x3f20u, &dec) != 0) return 1;
++    if (dec.kind != MM_OP_LDRSH_PRE_IMM) return 1;
++    if (dec.rd != 3u || dec.rn != 4u) return 1;
++    if (dec.imm != 0x20u) return 1;
++    return 0;
++}
++
+ static int test_clz_w_decode(void)
+ {
+     struct mm_decoded dec;
+@@ -604,6 +631,8 @@ int main(void)
+         { "ldrsb_w_imm8_pre", test_ldrsb_w_imm8_pre },
+         { "ldrsh_w_imm12", test_ldrsh_w_imm12 },
+         { "ldrsh_w_imm8_pre", test_ldrsh_w_imm8_pre },
++        { "ldrsh_w_imm8_post", test_ldrsh_w_imm8_post },
++        { "ldrsh_w_imm8_pre_wb", test_ldrsh_w_imm8_pre_wb },
+         { "clz_w_decode", test_clz_w_decode },
+         { "rbit_w_decode", test_rbit_w_decode },
+         { "tt_decode", test_tt_decode },

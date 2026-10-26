@@ -31,7 +31,7 @@ configuration.
 | Internal Trusted Storage | `include/psa/internal_trusted_storage.h` | 1.0 |
 | Protected Storage | `include/psa/protected_storage.h` | 1.0 |
 | Firmware Update | `include/psa/update.h` | 1.0 |
-| Initial Attestation | `lib/wolfPSA/wolfpsa/psa/initial_attestation.h` | 1.0 API operations; see [TF-M Compatibility](TF-M-Compatibility.md) for API and token-profile deviations |
+| Initial Attestation | `lib/wolfPSA/wolfpsa/psa/initial_attestation.h` | 1.0 API operations; see [PSA Compatibility](PSA-Compatibility.md) for API and token-profile deviations |
 | Lifecycle | `include/psa/lifecycle.h` | FF-M 1.0, Secure Partition only |
 | Gateway vector ABI | `include/wolftrust/ffm_veneer.h` | wolfTrust ABI |
 
@@ -88,10 +88,14 @@ struct psa_storage_info_t {
 };
 ```
 
-Defined flags are `PSA_STORAGE_FLAG_NONE`,
-`PSA_STORAGE_FLAG_WRITE_ONCE`,
-`PSA_STORAGE_FLAG_NO_CONFIDENTIALITY`, and
-`PSA_STORAGE_FLAG_NO_REPLAY_PROTECTION`.
+Defined flags are:
+
+```c
+PSA_STORAGE_FLAG_NONE
+PSA_STORAGE_FLAG_WRITE_ONCE
+PSA_STORAGE_FLAG_NO_CONFIDENTIALITY
+PSA_STORAGE_FLAG_NO_REPLAY_PROTECTION
+```
 
 ### Firmware Update types
 
@@ -406,10 +410,12 @@ buffer, and its 24-byte request header caps one copied vault response at 1000
 bytes. `data_offset` remains useful when the caller supplies an output buffer
 smaller than the object. UID zero is invalid.
 
-The current ITS and Protected Storage paths always enforce
-`PSA_STORAGE_FLAG_WRITE_ONCE`, including during
-`PSA_ROT_PROVISIONING`. PSA Secure Storage 1.0 requires that flag not to be
-enforced in the provisioning lifecycle, so this is a known lifecycle deviation.
+The ITS path enforces `PSA_STORAGE_FLAG_WRITE_ONCE` when the caller sets it,
+including during `PSA_ROT_PROVISIONING`. Objects created without the flag can
+be updated or removed. PSA Secure Storage 1.0 section 3.2 requires ITS not to enforce
+the flag in the provisioning lifecycle, so this is a known lifecycle deviation.
+Protected Storage also enforces caller-selected `WRITE_ONCE`; section 3.2's lifecycle
+exception applies to ITS.
 
 ## Protected Storage
 
@@ -501,7 +507,7 @@ returns `PSA_ERROR_INVALID_ARGUMENT`; other undersized buffers return
 `PSA_ERROR_BUFFER_TOO_SMALL`.
 
 The token advertises `tag:psacertified.org,2023:psa#tfm` but has the
-token-profile deviations listed in [TF-M Compatibility](TF-M-Compatibility.md) and must not be
+token-profile deviations listed in [PSA Compatibility](PSA-Compatibility.md) and must not be
 represented as conformant with that profile. The only working Non-secure
 attestation adapter currently resides at
 `tests/firmware/zephyr-stm32h5/module/wolftrust-tee/src/wolftrust_attestation_client.c`.
@@ -591,4 +597,4 @@ vector layout is in `include/wolftrust/ffm_veneer.h`, and
 | `PSA_ERROR_INSUFFICIENT_POWER` | -161 | Power is insufficient for the operation |
 
 For service availability and deviations, see [Services](Services.md) and
-[TF-M Compatibility](TF-M-Compatibility.md).
+[PSA Compatibility](PSA-Compatibility.md).

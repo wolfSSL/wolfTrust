@@ -20,7 +20,8 @@ Read the current state first and keep a development board recoverable.
   through the veneers (`positive`); the isolation negative (`ahbscneg`) shows a
   guest's store into the other guest's RAM refused by the SAU, contained by the
   monitor, and the offender quarantined after its restart budget while the peer
-  keeps running.
+  keeps running. The runner also carries the STM32H563 scenario matrix,
+  including every isolation level 3 negative and Arm's conformance suites.
 - **Validated on the EVK:** the same two scenarios on both crypto engines
   (`tests/target/run_rt700_hardware.sh`). In `ahbscneg`, guest0 disables its
   Non-secure MPU and stores into guest1's RAM; the store faults, guest1's RAM
@@ -156,10 +157,9 @@ on), so the CPU's own attribution is the barrier: with the peer window Secure,
 a guest's store into it faults even after the guest disables its own
 Non-secure MPU, and the monitor contains the fault. `ahbscneg` shows exactly
 that on the EVK and under M33MU.
-As on the STM32H563 (see [TF-M Compatibility](TF-M-Compatibility.md)), the
-manifest declares the guests unprivileged but the runtime launches them with
-`CONTROL_NS.nPRIV` clear. A guest's Non-secure MPU is therefore scheduling
-policy, not a boundary; the SAU window is the boundary. Fencing other bus masters (the sense M33, the DSPs, the NPU, and DMA) per
+As on the STM32H563 (see [Security Model](Security-Model.md)), the guests run
+privileged, with `CONTROL_NS.nPRIV` clear, and the manifest declares them so. A
+guest's Non-secure MPU is therefore scheduling policy, not a boundary; the SAU window is the boundary. Fencing other bus masters (the sense M33, the DSPs, the NPU, and DMA) per
 master is not implemented.
 
 ## Silicon constraints for this port

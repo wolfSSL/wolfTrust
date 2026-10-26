@@ -72,6 +72,7 @@ SECTIONS {
      * tools/check_secure_layout.py fails the link if a setter of them is
      * referenced (wc_Sha256Drbg_Enable/Disable). */
     *(.data.always_prefetch* .bss.always_prefetch*)
+    *(.data.never_prefetch* .bss.never_prefetch*)
     *(.data.sha256DrbgDisabled* .bss.sha256DrbgDisabled*)
     *(.rodata*)
     *(.ARM.extab* .gnu.linkonce.armextab.*)

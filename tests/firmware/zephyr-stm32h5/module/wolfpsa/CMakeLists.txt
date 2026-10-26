@@ -84,10 +84,11 @@ if(CONFIG_WOLFPSA)
   zephyr_library_named(wolftrust_wolfpsa)
 
   # Compile every wolfPSA src/*.c EXCEPT psa_store_posix.c (POSIX-only).
-  file(GLOB WOLFPSA_SRCS ${WT_WOLFPSA_DIR}/src/*.c)
-  list(FILTER WOLFPSA_SRCS EXCLUDE REGEX "psa_store_posix\\.c$")
-  # wolfTrust supplies the target-specific Initial Attestation backend.
-  list(FILTER WOLFPSA_SRCS EXCLUDE REGEX "psa_attestation\\.c$")
+  include(${WT_REPO_ROOT}/tools/cmake/CryptoProfile.cmake)
+  set(WT_PROFILE_DIR ${CMAKE_CURRENT_BINARY_DIR}/crypto-profile)
+  wt_crypto_profile(${WT_REPO_ROOT} ${WT_PROFILE_DIR})
+  file(GLOB WOLFPSA_SRCS ${WT_PROFILE_DIR}/psa/*.c)
+  zephyr_compile_options(-include ${WT_PROFILE_DIR}/selected_profile.h)
   zephyr_library_sources(${WOLFPSA_SRCS})
 
   zephyr_library_sources(

@@ -14,8 +14,8 @@ ZEPHYR_BOARD ?= nucleo_h563zi/stm32h563xx/ns
 EMU_TIMEOUT ?= 300
 M33MU ?= m33mu
 
-WT_GUEST0_EMU_OFFSET ?= 0x20000
-WT_GUEST1_EMU_OFFSET ?= 0x40000
+WT_GUEST0_EMU_OFFSET ?= 0xA0000
+WT_GUEST1_EMU_OFFSET ?= 0xE0000
 WT_SHARED_UART ?= 3
 
 # Dual-guest demo: Zephyr drives the TEE client as guest-a, a baremetal
@@ -32,10 +32,13 @@ WT_FWU_PROBE ?= 0
 # Baremetal guest-b memory map — matches WT_GUEST1_FLASH_BASE / WT_GUEST1_RAM_BASE
 # in port/stm32h563/memory_map.h. Kept here as overridable variables so
 # this Makefile is self-contained.
-WT_GUEST1_FLASH_BASE ?= 0x08040000
+WT_GUEST0_FLASH_BASE ?= 0x080A0000
+WT_GUEST1_FLASH_BASE ?= 0x080E0000
 WT_GUEST1_RAM_BASE   ?= 0x20010000
-WT_GUEST_FLASH_SIZE  ?= 0x00020000
-WT_GUEST_RAM_SIZE    ?= 0x00008000
+WT_GUEST0_FLASH_SIZE ?= 0x00040000
+WT_GUEST1_FLASH_SIZE ?= 0x00020000
+WT_GUEST_FLASH_SIZE  ?= $(WT_GUEST1_FLASH_SIZE)
+WT_GUEST_RAM_SIZE    ?= 0x00010000
 WT_GUEST_CORE_CLOCK_HZ ?= 240000000
 WT_GUEST_UART_CLOCK_HZ ?= 120000000
 
@@ -74,6 +77,7 @@ FREERTOS_GUEST1_DIR := $(CURDIR)/apps/freertos_guest1
 FREERTOS_GUEST1_BIN := $(CURDIR)/build/freertos_guest1/freertos_guest1.bin
 
 .PHONY: all clone workspace patch secure build-guest0 build-guest0-psa \
+        build-guest0-pkcs11 build-guest0-tpm \
         build-guest1 freertos-workspace build-freertos-guest1 \
         run run-uarts run-tui zephyr-freertos-uarts clean
 
@@ -105,7 +109,12 @@ ifeq ($(WT_REUSE_SECURE_BUILD),1)
 	test -s "$(SECURE_CMSE_IMPLIB)"
 else
 	rm -rf "$(TOP_BUILD_DIR)"
-	WT_MAX_GUESTS="$(WT_MAX_GUESTS)" $(MAKE) -C "$(ROOT)" build/wolftrust.bin build/secure_cmse_implib.o
+	WT_MAX_GUESTS="$(WT_MAX_GUESTS)" \
+	WT_GUEST0_FLASH_BASE="$(WT_GUEST0_FLASH_BASE)" \
+	WT_GUEST1_FLASH_BASE="$(WT_GUEST1_FLASH_BASE)" \
+	WT_GUEST0_FLASH_SIZE="$(WT_GUEST0_FLASH_SIZE)" \
+	WT_GUEST1_FLASH_SIZE="$(WT_GUEST1_FLASH_SIZE)" \
+	$(MAKE) -C "$(ROOT)" build/wolftrust.bin build/secure_cmse_implib.o
 endif
 
 build-guest0: patch secure
@@ -130,6 +139,25 @@ build-guest0-psa: patch secure
 	WT_ATTEST_NEG_PROBE="$(WT_ATTEST_NEG_PROBE)" \
 	WT_FWU_PROBE="$(WT_FWU_PROBE)" \
 	"$(SCRIPT_DIR)/build_guest.sh" guest0_psa
+
+build-guest0-pkcs11: patch secure
+	ZEPHYR_TAG="$(ZEPHYR_TAG)" ZEPHYR_WORKSPACE="$(ZEPHYR_WORKSPACE)" \
+	WEST_PYTHON="$(WEST_PYTHON)" WEST_BIN="$(WEST_BIN)" \
+	ZEPHYR_BOARD="$(ZEPHYR_BOARD)" \
+	SECURE_BIN="$(SECURE_BIN)" SECURE_CMSE_IMPLIB="$(SECURE_CMSE_IMPLIB)" \
+	WT_SHARED_UART="$(WT_SHARED_UART)" \
+	WT_PKCS11_SUITE="$(WT_PKCS11_SUITE)" \
+	WT_M33MU_EXPECT_BKPT="$(WT_M33MU_EXPECT_BKPT)" \
+	"$(SCRIPT_DIR)/build_guest.sh" guest0_pkcs11
+
+build-guest0-tpm: patch secure
+	ZEPHYR_TAG="$(ZEPHYR_TAG)" ZEPHYR_WORKSPACE="$(ZEPHYR_WORKSPACE)" \
+	WEST_PYTHON="$(WEST_PYTHON)" WEST_BIN="$(WEST_BIN)" \
+	ZEPHYR_BOARD="$(ZEPHYR_BOARD)" \
+	SECURE_BIN="$(SECURE_BIN)" SECURE_CMSE_IMPLIB="$(SECURE_CMSE_IMPLIB)" \
+	WT_SHARED_UART="$(WT_SHARED_UART)" \
+	WT_M33MU_EXPECT_BKPT="$(WT_M33MU_EXPECT_BKPT)" \
+	"$(SCRIPT_DIR)/build_guest.sh" guest0_tpm
 
 build-guest1: $(GUEST1_BIN)
 

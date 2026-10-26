@@ -893,6 +893,13 @@ static void exercise_psa_cipher(void)
 	st = psa_cipher_encrypt(key, PSA_ALG_CTR,
 				 plaintext, sizeof(plaintext),
 				 ciphertext, sizeof(ciphertext), &ct_len);
+#if defined(WT_PROFILE_PSA_psa_cipher_encrypt) && !WT_PROFILE_PSA_psa_cipher_encrypt
+    if (st == PSA_ERROR_NOT_SUPPORTED) {
+        LOG_INF("disabled PSA operation rejected");
+    } else {
+        LOG_ERR("disabled PSA operation accepted st=%d", st);
+    }
+#endif
 	LOG_INF("psa_cipher_encrypt(AES-CTR) st=%d ct_len=%u",
 		(int)st, (unsigned)ct_len);
 

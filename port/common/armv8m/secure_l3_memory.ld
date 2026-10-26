@@ -25,7 +25,8 @@
   /* General SPM RAM up to the keystore bands, less the VNET band when built. */
   RAM   (rwx): ORIGIN = WT_RAM_S_ORIGIN,
                LENGTH = WT_L3_KEYSTORE_ORIGIN - WT_RAM_S_ORIGIN - WT_VNET_DATA_LENGTH
-  /* SERVICE_VNET data band; zero length outside CONFIG_VNET builds. */
+  /* SERVICE_VNET data band, or the TPM/PKCS11 interface window; zero length
+   * outside CONFIG_VNET, CONFIG_TPM and CONFIG_PKCS11 builds. */
   VNETDATA (rw): ORIGIN = WT_L3_KEYSTORE_ORIGIN - WT_VNET_DATA_LENGTH,
                  LENGTH = WT_VNET_DATA_LENGTH
   /* Keystore bands: the vault, attestation and crypto partitions each own one. */

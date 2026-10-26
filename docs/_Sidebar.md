@@ -8,6 +8,8 @@
 - [[Threat Model]]
 - [[API Reference]]
 - [[Services]]
+- [[TPM]]
+- [[PKCS11]]
 - [[TF-M Compatibility]]
 - [[FF-A Compatibility]]
 - [[Macros]]

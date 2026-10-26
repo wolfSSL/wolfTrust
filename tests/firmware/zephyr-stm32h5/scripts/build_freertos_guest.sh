@@ -15,17 +15,20 @@ SCRIPT_DIR=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 SUBTREE_DIR=$(CDPATH= cd -- "$SCRIPT_DIR/.." && pwd)
 ROOT=$(CDPATH= cd -- "$SUBTREE_DIR/../../.." && pwd)
 
+. "$ROOT/tests/target/lib/guest_build.sh"
+
 FREERTOS_DIR="${FREERTOS_DIR:-${SUBTREE_DIR}/.workspace/freertos}"
 FREERTOS_KERNEL="${FREERTOS_DIR}/FreeRTOS/Source"
 FREERTOS_PORT="${FREERTOS_KERNEL}/portable/GCC/ARM_CM33_NTZ/non_secure"
 APP_DIR="${SUBTREE_DIR}/apps/freertos_guest1"
-BUILD_DIR="${SUBTREE_DIR}/build/freertos_guest1"
+BUILD_DIR="${BUILD_DIR:-${SUBTREE_DIR}/build/freertos_guest1}"
 SECURE_CMSE_IMPLIB="${SECURE_CMSE_IMPLIB:-${ROOT}/build/secure_cmse_implib.o}"
 
-WT_GUEST1_FLASH_BASE="${WT_GUEST1_FLASH_BASE:-0x08040000}"
+WT_GUEST1_FLASH_BASE="${WT_GUEST1_FLASH_BASE:-0x080E0000}"
 WT_GUEST1_RAM_BASE="${WT_GUEST1_RAM_BASE:-0x20010000}"
+WT_WOLFHSM_CLIENT_ID="${WT_WOLFHSM_CLIENT_ID:-2}"
 WT_GUEST_FLASH_SIZE="${WT_GUEST_FLASH_SIZE:-0x00020000}"
-WT_GUEST_RAM_SIZE="${WT_GUEST_RAM_SIZE:-0x00008000}"
+WT_GUEST_RAM_SIZE="${WT_GUEST_RAM_SIZE:-0x00010000}"
 
 WOLFSSL_DIR="${ROOT}/lib/wolfSSL"
 WOLFPSA_DIR="${ROOT}/lib/wolfPSA"
@@ -70,6 +73,7 @@ ${WOLFSSL_DIR}/wolfcrypt/src/coding.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/error.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/hash.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/hmac.c \
+${WOLFSSL_DIR}/wolfcrypt/src/pwdbased.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/memory.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/sha.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/sp_cortexm.c \
@@ -80,13 +84,21 @@ ${WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c"
 
 # wolfPSA subset for the PSA Crypto front-end (psa_crypto_init /
-# psa_generate_random / psa_hash_compute); the rest of the API rides the
+# psa_generate_random / psa_hash_compute / P-256 keygen/sign/verify); the
+# remaining FF-M services use the
 # neutral FF-M client directly.
 WOLFPSA_SRCS="\
 ${WOLFPSA_DIR}/src/psa_engine.c \
 ${WOLFPSA_DIR}/src/psa_crypto.c \
 ${WOLFPSA_DIR}/src/psa_random.c \
-${WOLFPSA_DIR}/src/psa_hash_engine.c"
+${WOLFPSA_DIR}/src/psa_hash_engine.c \
+${WOLFPSA_DIR}/src/psa_key_storage.c \
+${WOLFPSA_DIR}/src/psa_asymmetric.c \
+${WOLFPSA_DIR}/src/psa_asymmetric_api.c \
+${WOLFPSA_DIR}/src/psa_ecc.c \
+${WOLFPSA_DIR}/src/psa_rsa.c \
+${WOLFPSA_DIR}/src/psa_api_stub.c \
+${WOLFPSA_DIR}/src/psa_store_zephyr.c"
 
 # wolfHSM client subset: the same single mediated crypto path guest0 uses —
 # wolfCrypt (WH_DEV_ID) -> cryptocb -> wh_Client -> the SERVICE_HSM relay
@@ -116,15 +128,14 @@ WT_CLIENT_SRCS="\
 ${ROOT}/src/client/psa_ffm_client.c \
 ${ROOT}/src/client/crypto_native_client.c"
 
-GUEST_GLUE_SRCS="\
-${BAREMETAL_NS_DIR}/libc_stubs_guest.c"
+GUEST_GLUE_SRCS=""
 else
 WT_CLIENT_SRCS="\
 ${ROOT}/src/client/psa_ffm_client.c \
 ${ROOT}/src/client/hsm_psa_transport.c"
 
 GUEST_GLUE_SRCS="\
-${BAREMETAL_NS_DIR}/libc_stubs_guest.c \
+ \
 ${WOLFHSM_MODULE_DIR}/src/wolfhsm_client_glue.c"
 fi
 
@@ -138,17 +149,19 @@ printf '#include "%s"\n' "${BAREMETAL_NS_DIR}/wh_settings_guest.h" \
 printf '#include "%s"\n' "${BAREMETAL_NS_DIR}/wh_settings_guest.h" \
     > "${WH_CFG_DIR}/wolfhsm_guest_cfg.h"
 
-APP_SRCS="${APP_DIR}/main.c"
 
 if [ "${WT_ENGINE}" = "native" ]; then
 WT_ENGINE_DEFS="-DWT_ENGINE_NATIVE=1"
 else
-WT_ENGINE_DEFS="-DWOLFHSM_CFG -DWOLF_CRYPTO_CB -DWT_ENGINE_HSM=1 -DWT_WOLFHSM_CLIENT_ID=2"
+WT_ENGINE_DEFS="-DWOLFHSM_CFG -DWOLF_CRYPTO_CB -DWT_ENGINE_HSM=1 -DWT_WOLFHSM_CLIENT_ID=${WT_WOLFHSM_CLIENT_ID}"
 fi
+
+wt_guest_prepare_profile
+WOLFPSA_SRCS=$(printf '%s\n' "$WT_GUEST_PROFILE_DIR"/psa/*.c)
 
 CFLAGS="\
 -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
--ffreestanding -fno-builtin -nostdlib -Os -g \
+-ffreestanding -fno-builtin -nostdlib -Os -g $WT_GUEST_LTO_FLAGS \
 -Wall -Wextra -Wno-unused-function -Wno-unused-variable \
 -Wno-unused-parameter -Wno-type-limits \
 -ffunction-sections -fdata-sections \
@@ -166,9 +179,10 @@ CFLAGS="\
 -I${ROOT}/port/stm32h563 \
 -DWOLFSSL_USER_SETTINGS \
 -DWOLFSSL_PSA_ENGINE \
--DWOLFPSA_NO_TRACE \
+-DWOLFPSA_NO_TRACE -DWOLFPSA_CUSTOM_STORE \
 ${WT_ENGINE_DEFS} \
 -DWC_RESEED_INTERVAL=1000000 \
+-DWT_FREERTOS_OTHER_RAM_BASE=${WT_FREERTOS_OTHER_RAM_BASE:-0x20000000}u \
 -include ${SUBTREE_DIR}/module/wolfpsa/wolfpsa_no_trace.h \
 -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8 \
 -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO -DWOLFSSL_ARMASM_INLINE \
@@ -178,7 +192,17 @@ ${WT_ENGINE_DEFS} \
 -DWC_RSA_DIRECT \
 -include ${APP_DIR}/user_settings.h"
 
-LDFLAGS="\
+if [ "$WT_ENGINE" = hsm ]; then
+    WT_GUEST_KEEP_FLAGS="$WT_GUEST_KEEP_FLAGS -Wl,-u,wt_hsm_psa_transport_cb"
+else
+    WT_GUEST_KEEP_FLAGS="$WT_GUEST_KEEP_FLAGS -Wl,-u,wt_crypto_native_call"
+fi
+
+CFLAGS="$CFLAGS $WT_GUEST_PROFILE_FLAGS"
+
+LDFLAGS="$WT_GUEST_LTO_FLAGS $WT_GUEST_KEEP_FLAGS
+-Wl,-u,vTaskStartScheduler,-u,psa_crypto_init,-u,psa_generate_random,-u,psa_hash_compute
+\
 -Wl,-T${APP_DIR}/freertos_guest1.ld \
 -Wl,--defsym=GUEST_FLASH_ORIGIN=${WT_GUEST1_FLASH_BASE} \
 -Wl,--defsym=GUEST_FLASH_LENGTH=${WT_GUEST_FLASH_SIZE} \
@@ -187,10 +211,13 @@ LDFLAGS="\
 -Wl,--gc-sections"
 
 # shellcheck disable=SC2086
+wt_guest_compile_platform "$APP_DIR/main.c" $FREERTOS_KERNEL_SRCS \
+    "$BAREMETAL_NS_DIR/libc_stubs_guest.c"
+
+# shellcheck disable=SC2086
 ${GUEST_CC} ${CFLAGS} ${LDFLAGS} \
     -o "${BUILD_DIR}/freertos_guest1.elf" \
-    ${APP_SRCS} \
-    ${FREERTOS_KERNEL_SRCS} \
+    $WT_GUEST_PLATFORM_OBJECTS \
     ${WOLFCRYPT_GUEST_SRCS} \
     ${WOLFPSA_SRCS} \
     ${WOLFHSM_CLIENT_SRCS} \
@@ -202,7 +229,7 @@ ${GUEST_CC} ${CFLAGS} ${LDFLAGS} \
 # Mediated-path proof (WT-FFM-0054): the wolfHSM client must reach the secure
 # side ONLY through the SPM-mediated psa_call transport — assert the transport
 # is linked and the retired direct veneers are absent.
-NM_OUT=$(arm-none-eabi-nm "${BUILD_DIR}/freertos_guest1.elf") || {
+NM_OUT=$(arm-none-eabi-nm --defined-only "${BUILD_DIR}/freertos_guest1.elf") || {
     echo "FAIL: nm on the guest1 image failed" >&2
     exit 1
 }

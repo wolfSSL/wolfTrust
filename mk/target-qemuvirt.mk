@@ -9,10 +9,35 @@ PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
 # The conformance PAL is shared by the AArch64 targets; WT_CONFORMANCE=1 swaps
 # in the manifest that also hosts Arm's test partitions.
 TARGET_CONF_DIR := $(ROOT)/port/common/aarch64/conformance
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+ifeq ($(WT_CONFORMANCE),1)
+$(error CONFIG_TPM/CONFIG_PKCS11 conflicts with WT_CONFORMANCE=1; the manifests are mutually exclusive)
+endif
+ifeq ($(CONFIG_VNET),y)
+$(error CONFIG_TPM/CONFIG_PKCS11 conflicts with CONFIG_VNET=y; the manifests are mutually exclusive)
+endif
+endif
+ifeq ($(CONFIG_TPM)$(CONFIG_PKCS11),yy)
+$(error CONFIG_TPM=y conflicts with CONFIG_PKCS11=y; select one application API)
+endif
 ifeq ($(WT_CONFORMANCE),1)
 MANIFEST_INPUT := $(PORT_DIR)/manifest-conformance.json
+else ifeq ($(CONFIG_TPM),y)
+MANIFEST_INPUT := $(BUILD_DIR)/manifest-tpm.json
+else ifeq ($(CONFIG_PKCS11),y)
+MANIFEST_INPUT := $(BUILD_DIR)/manifest-pkcs11.json
 else
 MANIFEST_INPUT := $(PORT_DIR)/manifest.json
+endif
+
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+$(BUILD_DIR)/manifest-%.json: $(PORT_DIR)/manifest.json \
+        $(ROOT)/tools/manifest/aarch64_interface.py
+	@mkdir -p $(@D)
+	python3 $(ROOT)/tools/manifest/aarch64_interface.py \
+		$(PORT_DIR)/manifest.json $@ --interface $* \
+		--stack-base 0x0E2A0000 --data-base 0x0E350000 \
+		--data-size 0x00080000
 endif
 
 WT_EL3_TEXT_BASE ?= 0x00000000

@@ -66,5 +66,27 @@ wait "$holder"
 "$suite" >/dev/null 2>&1
 check "$([ -s "$tmp/logs/beta.log" ]; echo $?)" "the batch runs once the lock is released"
 
+# program_board must stop before the core is released when pyOCD exits nonzero
+# without saying why (a timeout) or exits 0 reporting a failed command.
+sed -n '/^program_board() {/,/^}/p' "$runner" > "$tmp/program_board.sh"
+program_case() {
+    bash -c '
+fail() { echo "FAIL: $*"; exit 1; }
+timeout() { shift; "$@"; }
+pyocd() { case "$PB_MODE" in
+    silent) return 124 ;; error) echo "Error: transfer failed"; return 0 ;;
+    *) echo "loaded"; return 0 ;; esac; }
+probe_uid=X; target=mcxn947vdf
+park_cmds=(-c "reset halt"); board_cmds=(-c "load a.bin 0x0")
+. "$1"
+program_board && echo RELEASED' _ "$tmp/program_board.sh" 2>&1
+}
+check "$(! PB_MODE=silent program_case | grep -q RELEASED; echo $?)" \
+    "a silent pyOCD timeout stops programming"
+check "$(! PB_MODE=error program_case | grep -q RELEASED; echo $?)" \
+    "a command error reported with exit 0 stops programming"
+check "$(PB_MODE=ok program_case | grep -q RELEASED; echo $?)" \
+    "a clean session releases the core"
+
 echo "mcxn947 suite evidence: $fails failures"
 [ "$fails" -eq 0 ]

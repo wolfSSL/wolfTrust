@@ -160,12 +160,16 @@ clear_mailboxes() {
         -c "write32 $verified 0" -c "write32 $refused 0")
 }
 
-# The commander exits 0 whatever a command did, so its output is the verdict.
+# The commander exits 0 whatever a command did, so its output is checked too.
 program_board() {
-    local out
+    local out rc=0
     [ "${#board_cmds[@]}" -gt 0 ] || fail "nothing to program"
     out="$(timeout 900 pyocd cmd -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
-        "${park_cmds[@]}" "${board_cmds[@]}" 2>&1)" || true
+        "${park_cmds[@]}" "${board_cmds[@]}" 2>&1)" || rc=$?
+    if [ "$rc" -ne 0 ]; then
+        printf '%s\n' "$out" | tail -6
+        fail "programming the board failed (pyocd exit $rc)"
+    fi
     if printf '%s\n' "$out" | grep -qiE 'error|exception|not halted|failure|not within|not in flash'; then
         printf '%s\n' "$out" | grep -iE 'error|exception|not halted|failure|not within|not in flash' | tail -6
         fail "programming the board failed"

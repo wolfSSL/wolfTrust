@@ -32,6 +32,8 @@ CFLAGS += $(EXTRA_CFLAGS)
 
 ALL_OBJS := $(BUILD_DIR)/wt_rng_entropy.o $(BUILD_DIR)/main.o
 TEST_BIN := $(BUILD_DIR)/test_mcxn947_rng
+# The driver latches failure, so each case runs in its own process.
+CASES := default locked error
 
 .PHONY: all run compilers sanitize valgrind clean
 
@@ -50,7 +52,7 @@ $(TEST_BIN): $(ALL_OBJS)
 	$(CC) $(CFLAGS) -no-pie $(EXTRA_LDFLAGS) -o $@ $(ALL_OBJS)
 
 run: $(TEST_BIN)
-	$(TEST_BIN)
+	for c in $(CASES); do $(TEST_BIN) $$c || exit 1; done
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
@@ -63,8 +65,10 @@ sanitize:
 		EXTRA_LDFLAGS="-fsanitize=address,undefined"
 
 valgrind: clean $(TEST_BIN)
-	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
-		$(TEST_BIN)
+	for c in $(CASES); do \
+		valgrind --error-exitcode=1 --leak-check=full \
+			--show-leak-kinds=all $(TEST_BIN) $$c || exit 1; \
+	done
 
 clean:
 	rm -rf $(BUILD_DIR)

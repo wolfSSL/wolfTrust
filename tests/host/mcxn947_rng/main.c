@@ -22,8 +22,10 @@
 /* Host suite for the MCXN947 ELS entropy driver over a model of the RND_REQ
  * command: requests serve fresh DMA pages and wipe them, and a request that
  * misses its deadline must target memory outside the stack and leave the
- * source refusing every later call. Built without PIE so the 32-bit DMA
- * register holds a host address of static storage. */
+ * source refusing every later call, as must a request the engine fails; a
+ * locked engine refuses before any request. Each case runs in its own process
+ * (the driver latches failure). Built without PIE so the 32-bit DMA register
+ * holds a host address of static storage. */
 
 #include <stdint.h>
 #include <stdio.h>
@@ -36,6 +38,7 @@
 #define WT_ELS_PAGE_WORDS_TEST (WT_ELS_PAGE_BYTES / 4u)
 
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
+extern volatile uint32_t g_wt_els_errors;
 
 static int checks;
 static int failures;
@@ -52,6 +55,8 @@ static int failures;
 static volatile uint32_t g_status;
 static volatile uint32_t g_ctrl;
 static volatile uint32_t g_scratch;
+static volatile uint32_t g_err_clr;
+static int g_fail_request;
 static uint32_t g_dma_addr;
 static uint32_t g_dma_len;
 static uint32_t g_requests;
@@ -89,6 +94,9 @@ static void wt_mock_step(void)
             if (g_hang) {
                 g_status = WT_ELS_STATUS_BUSY;
             }
+            else if (g_fail_request) {
+                g_status = WT_ELS_STATUS_ERR;
+            }
             else {
                 g_status = 0u;
                 if (!on_stack(g_dma_addr)) {
@@ -115,6 +123,8 @@ volatile uint32_t* wt_mock_reg(uintptr_t address)
             return (volatile uint32_t *)&g_dma_addr;
         case WT_ELS_BASE_S + 0x3Cu:
             return (volatile uint32_t *)&g_dma_len;
+        case WT_ELS_BASE_S + 0x50u:
+            return &g_err_clr;
         default:
             return &g_scratch;
     }
@@ -213,13 +223,58 @@ static void test_late_completion(void)
     EXPECT(g_requests == before, "no new request is issued after a timeout");
 }
 
-int main(void)
+static void test_locked_engine(void)
+{
+    unsigned char out[16];
+
+    g_status = WT_ELS_STATUS_LOCKED;
+    EXPECT(wolftrust_rng_generate_block(out, sizeof(out)) != 0,
+           "a locked engine refuses");
+    EXPECT(g_requests == 0u, "a locked engine is never sent a request");
+    EXPECT(g_wt_els_errors == 1u, "the refusal is counted");
+    g_status = 0u;
+    EXPECT(wolftrust_rng_generate_block(out, sizeof(out)) == 0,
+           "the engine serves once it is no longer locked");
+    EXPECT(served_from(out, sizeof(out), 1u), "and serves its page");
+}
+
+static void test_failed_request(void)
+{
+    unsigned char out[16];
+    uint32_t before;
+
+    g_fail_request = 1;
+    EXPECT(wolftrust_rng_generate_block(out, sizeof(out)) != 0,
+           "a request the engine fails is refused");
+    EXPECT(g_requests == 1u, "the failed request was issued");
+    EXPECT(g_wt_els_errors == 1u, "the failure is counted");
+    EXPECT((g_err_clr & WT_ELS_ERR_STATUS_CLR_ALL) != 0u,
+           "the error status is cleared");
+    g_fail_request = 0;
+    g_status = 0u;
+    before = g_requests;
+    EXPECT(wolftrust_rng_generate_block(out, sizeof(out)) != 0,
+           "the source refuses every call after a failed request");
+    EXPECT(g_requests == before, "no new request is issued after a failure");
+}
+
+int main(int argc, char **argv)
 {
     uint8_t marker = 0u;
+    const char *which = (argc > 1) ? argv[1] : "default";
 
     g_stack_marker = (uintptr_t)&marker;
-    test_completed_requests();
-    test_late_completion();
-    (void)printf("mcxn947 rng: %d checks, %d failures\n", checks, failures);
+    if (strcmp(which, "locked") == 0) {
+        test_locked_engine();
+    }
+    else if (strcmp(which, "error") == 0) {
+        test_failed_request();
+    }
+    else {
+        test_completed_requests();
+        test_late_completion();
+    }
+    (void)printf("mcxn947 rng %s: %d checks, %d failures\n", which, checks,
+                 failures);
     return failures == 0 ? 0 : 1;
 }

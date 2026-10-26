@@ -165,7 +165,8 @@ PORTS = {
         "label_only": True,
         "arm": "mcxn947-m33mu",
         "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25",
-        "smoke": ("positive", "sauneg", "crossdomain", "bothpsa", "devcrypto"),
+        "smoke": ("positive", "sauneg", "crossdomain", "bothpsa", "confboot",
+                  "devcrypto"),
         "groups": (
             ("positive", "MCXN947 positive lifecycle (SAU guest windows)"),
             ("sauneg", "MCXN947 cross-guest store faults and is contained"),
@@ -181,6 +182,7 @@ PORTS = {
              "MCXN947 attestation negatives and FWU staging"),
             ("hsmattackneg",
              "MCXN947 wolfHSM cross-namespace + NVM relay negatives"),
+            ("confboot", "MCXN947 FF-M IPC conformance (85/4)"),
             ("devstorage devattest devattestqcbor",
              "MCXN947 dev_apis storage and attestation conformance"),
             ("devcrypto vaultrecover vaultrecoversec",

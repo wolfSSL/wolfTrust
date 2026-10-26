@@ -397,8 +397,9 @@ recorded separately.
 M33MU also models the MCXN947 (`--cpu mcxn947`: internal flash, the boot ROM
 flash API tree, and, with `tests/target/m33mu-mcxn947.patch`, the ELS
 `RND_REQ` register model behind its real clock gate, the ROM's page-based
-bit-clearing flash program, an executable ROM, and the OEM_OPEN life cycle
-in SYSCON), so the MCXN947 port has the same emulator gate as the MIMXRT700,
+bit-clearing flash program, an executable ROM, the OEM_OPEN life cycle in
+SYSCON, and the post-indexed `LDRSH` (immediate) decode the conformance
+client needs), so the MCXN947 port has the same emulator gate as the MIMXRT700,
 with the same scenario names:
 
 ```sh

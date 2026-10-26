@@ -37,15 +37,11 @@ the part; this port rehearses life cycles and writes none of them.
   restart budget while the peer keeps running, and every other scenario the
   matrix lists for this port (`tests/target/lib/scenario_matrix.py`: the
   whole MIMXRT700 set, every isolation level 3 scenario included) passes on
-  the model on both crypto engines. The one MIMXRT700 scenario not listed is
-  `confboot`: on the M33MU commit this port pins (the one with the MCXN947
-  RAM attribution fix), the Arm FF-M IPC suite stops in test i002 check 5,
-  the Non-secure val guest parked in its HardFault handler with an
-  undefined-instruction UsageFault right after `psa_connect` returns, and
-  the MIMXRT700 chain does the same on that emulator commit while it passes
-  on the older one its runner pins; the dev_apis storage, crypto and
-  attestation suites and the vault recovery runs complete on both. It is an
-  emulator regression to bisect upstream, not a port claim.
+  the model on both crypto engines. That includes `confboot`, Arm's
+  unmodified FF-M IPC suite (85 passed, 4 skipped, as on the MIMXRT700): its
+  val client, built with GCC 12, uses the post-indexed `LDRSH` (immediate)
+  form, which the carried M33MU patch decodes (the pinned emulator commit
+  took it as undefined).
 - **Not validated:** any guest flash fence and any life cycle write. The
   TRDC and the AHB secure controller are left as the first loader leaves
   them. See [Open items](#open-items).

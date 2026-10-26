@@ -411,11 +411,16 @@ fuse map and that every ladder step only sets fuse bits.
   under it).
 - **Guest flash fence.** No hardware write protection of the guest windows is
   claimed: `wt_platform_guest_flash_wrp_ok` reports every window unprotected,
-  so a `WT_GUEST_FLASH_WRP=1` image refuses every guest. The TRDC MBC gates
-  bus accesses to the flash, not the FMU's program and erase commands, so it
-  is not the fence; the candidate is a flash page lock the ROM's
-  `kStatus_FLASH_ModifyProtectedAreaDisallowed` status names, which needs the
-  reference manual and a silicon negative before it can be claimed.
+  so a `WT_GUEST_FLASH_WRP=1` image refuses every guest (the `wrpoff`
+  scenario proves it). The part offers no reset-locked equivalent of the
+  MIMXRT700's XSPI fence: the FMU has no region or lock registers and takes
+  program and erase as commands; the TRDC MBC's access policies lock until
+  reset, but which policy a flash block uses has no lock, so Secure code can
+  move a block back to a writable one; and the ROM's flash firewall
+  (`kStatus_FLASH_ModifyProtectedAreaDisallowed`) follows the OTP
+  `ACTIVE_IMG_PROT` setting, which is permanent and belongs to the lock flow.
+  A peer guest reaches the flash only through the FMU or the Secure ROM, so
+  the open question is whether to claim that attribution as the fence.
 - **Other bus masters.** CPU1, DMA, and the ELS DMA are not fenced from
   Secure RAM; programming the TRDC and the AHB secure controller for them is
   silicon work that M33MU does not model.

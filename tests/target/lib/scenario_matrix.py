@@ -171,6 +171,7 @@ PORTS = {
             ("positive", "MCXN947 positive lifecycle (SAU guest windows)"),
             ("sauneg", "MCXN947 cross-guest store faults and is contained"),
             ("restart authneg", "MCXN947 guest restart budget and launch refusal"),
+            ("wrpoff", "MCXN947 fence-required build launches no guest"),
             ("rollbackneg remeasureneg manifestneg spbudgetneg",
              "MCXN947 secure verdict negatives"),
             ("crossdomain keystoreneg", "MCXN947 SP domain isolation negatives"),

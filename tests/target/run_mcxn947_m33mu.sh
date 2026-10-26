@@ -20,7 +20,8 @@
 # restarts it in place while both guests finish; fpneg proves only that the
 # relay's FP instruction takes a NOCP UsageFault. restart spends guest0's
 # restart budget on a launch-time fault; authneg refuses a tampered guest0 at
-# launch. guest1 runs on through all of them.
+# launch. guest1 runs on through all of them. wrpoff builds wolfTrust to
+# require a guest flash fence this port does not have, so neither guest runs.
 #
 # bothpsa, bothiso, attestneg, hsmattackneg, and fwustage run the portable
 # PSA test guest (tests/firmware/psa-guest) in both windows; hsmattackneg
@@ -437,6 +438,10 @@ case "$scenario" in
     sau_refusals="$(grep -A1 -E -- "$refused" "$log" | grep -c "src=SAU" || true)"
     check "$([ "$sau_refusals" -eq 1 ]; echo $?)" \
         "the refusal came from the SAU"
+    ;;
+  wrpoff)
+    refute_re "no guest entered its domain without a guest flash fence" \
+        "wolfTrust MCXN947 guest[01]: start"
     ;;
   authneg)
     refute_re "the tampered guest0 never entered its domain" \

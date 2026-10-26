@@ -43,6 +43,7 @@ test:
 	@python3 tests/scripts/test_m33mu_console.py
 	@$(MAKE) --no-print-directory -C tests/host test
 	@$(MAKE) --no-print-directory test-provisioning
+	@tests/target/test_mcxn947_suite_evidence.sh
 
 # Production lock gates of both provisioning backends, against stub tools.
 test-provisioning:

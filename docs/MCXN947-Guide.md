@@ -279,6 +279,7 @@ WT_ENGINE=hsm tests/target/run_mcxn947_hardware.sh positive
 `tests/target/run_mcxn947_hardware.sh` runs on the host that owns the
 board's MCU-Link (`MCXN947_PROBE_UID` picks one of several probes; the
 console is the MCU-Link VCOM, `MCXN947_CONSOLE`). For each scenario it
+takes the board lock (`logs/mcxn947-hw.lock`, shared with the suite), then
 builds the Secure image and the guests, pins the guest measurements, signs
 the image with the pinned wolfBoot's key, flashes wolfBoot, the signed image
 and both guests at their physical offsets with pyOCD, erases the update,
@@ -297,6 +298,10 @@ compares it, and asserts the result over SWD:
   wolfBoot's `Verifying signature...done` on the console;
 - for `psa`, each PSA guest's mailbox stage bits (TEE, crypto, ITS, PS,
   key-ops, SHA-256 KAT, COSE attestation, done).
+
+The console capture, the readback and the wolfBoot build log are kept under
+`logs/mcxn947-hw/`, the suite's per-scenario logs under `logs/mcxn947-suite/`:
+outside `build/`, which every run cleans before it builds.
 
 Two board facts the runner encodes: the pack's `reset halt` leaves a DWT
 comparator and the debug fault status armed, so the core is released only

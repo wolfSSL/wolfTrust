@@ -36,7 +36,10 @@ set -euo pipefail
 scenario="${1:-}"
 here="$(cd "$(dirname "$0")" && pwd)"
 repo="$(cd "$here/../.." && pwd)"
-work="${MCXN947_WORK:-$repo/build/mcxn947-hw}"
+# Retained evidence (console, readback, wolfBoot build log) lives outside
+# build/, which every run cleans before it builds.
+work="${MCXN947_WORK:-$repo/logs/mcxn947-hw}"
+lock="${MCXN947_HW_LOCK:-$repo/logs/mcxn947-hw.lock}"
 target="${MCXN947_TARGET:-mcxn947vdf}"
 probe_uid="${MCXN947_PROBE_UID:-}"
 console="${MCXN947_CONSOLE:-}"
@@ -65,6 +68,14 @@ psa_dir="$repo/tests/firmware/psa-guest"
 
 # shellcheck source=lib/mcxn947_wolfboot.sh disable=SC1091
 . "$here/lib/mcxn947_wolfboot.sh"
+
+# One run at a time owns the board; a suite batch takes the same lock once
+# for all of its scenarios and says so.
+if [ -z "${MCXN947_HW_LOCKED:-}" ]; then
+    mkdir -p "$(dirname "$lock")"
+    exec 9>"$lock"
+    flock 9
+fi
 
 log() { printf '%s\n' "$*"; }
 stage() { printf '  ... %s\n' "$*"; }
@@ -162,7 +173,7 @@ clear_mailboxes() {
 release_core() {
     local n
     stty -F "$console" 115200 raw -echo -crtscts -ixon 2>/dev/null || true
-    ( timeout "$console_seconds" cat "$console" > "$work/console.log" 2>/dev/null ) &
+    ( timeout "$console_seconds" cat "$console" > "$work/console-$scenario.log" 2>/dev/null ) &
     sleep 0.5
     timeout 60 pyocd cmd -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
         -O reset_type=hw -c "reset halt" -c "write32 0xE0001028 0" \
@@ -256,7 +267,7 @@ run_chain() {
     verify_at "$secure_flash_addr" "$repo/build/wolftrust_v1_signed.bin"
     verify_at "$guest0_flash_addr" "$guest_build/guest0.bin"
     verify_at "$guest1_flash_addr" "$guest_build/guest1.bin"
-    log "  [console] $work/console.log"
+    log "  [console] $work/console-$scenario.log"
 }
 
 # One 32-bit word at base+offset over SWD, as eight lowercase hex digits.
@@ -345,7 +356,7 @@ check_secure_side() {
     else
         log "  [lifecycle] handoff lifecycle 0x$handed"
     fi
-    check "$(grep -q "Verifying signature...done" "$work/console.log"; echo $?)" \
+    check "$(grep -q "Verifying signature...done" "$work/console-$scenario.log"; echo $?)" \
         "wolfBoot verified the wolfTrust image signature (console)"
 }
 
@@ -406,7 +417,7 @@ sauneg)
 periphneg)
     run_chain "$baremetal_dir" "WT_PERIPH_NEG_PROBE=1"
     check_guest0_quarantined
-    check "$(! grep -q "periph probe LEAKED" "$work/console.log"; echo $?)" \
+    check "$(! grep -q "periph probe LEAKED" "$work/console-$scenario.log"; echo $?)" \
         "no NS read of the SPM's ELS ever returned (console)"
     check_secure_side
     log "PASS: hardware/mcxn947/$scenario"

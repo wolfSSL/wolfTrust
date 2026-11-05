@@ -502,6 +502,18 @@ def interface_matrices_error(workflow, aarch_workflow):
     return None
 
 
+def reusable_concurrency_error(*workflows):
+    groups = []
+    for workflow in workflows:
+        match = re.search(r"^  group: (.+)$", workflow, re.MULTILINE)
+        if match is None:
+            return "missing reusable workflow concurrency group"
+        groups.append(re.sub(r"\s+", "", match.group(1)).casefold())
+    if len(groups) != len(set(groups)):
+        return "reusable workflows share a caller concurrency group"
+    return None
+
+
 def selftest():
     """The routing table above, the engine rule and the level 3 bars, run by
     the select job."""
@@ -521,6 +533,11 @@ def selftest():
             if required_job in pr_jobs:
                 return "generated matrix duplicates explicit job %s" % required_job
     error = interface_matrices_error(workflow, aarch_workflow)
+    if error:
+        return error
+    c99_workflow = (Path(__file__).parents[3] / ".github" / "workflows" /
+                    "c99-compliance.yml").read_text(encoding="utf-8")
+    error = reusable_concurrency_error(workflow, aarch_workflow, c99_workflow)
     if error:
         return error
     for event, labels, port_input, expect in SELFTEST:

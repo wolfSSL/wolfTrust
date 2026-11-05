@@ -249,6 +249,10 @@ class GeneratorTests(unittest.TestCase):
         workflow = (ROOT / ".github/workflows/m33mu.yml").read_text()
         aarch = (ROOT / ".github/workflows/aarch64-cross-compile.yml").read_text()
         self.assertIsNone(matrix.interface_matrices_error(workflow, aarch))
+        c99 = (ROOT / ".github/workflows/c99-compliance.yml").read_text()
+        self.assertIsNone(matrix.reusable_concurrency_error(workflow, aarch, c99))
+        collision = workflow.replace("group: m33mu-", "group: ", 1)
+        self.assertIsNotNone(matrix.reusable_concurrency_error(collision, aarch, c99))
         for original, replacement in (
             ("engine: [native, hsm]", "engine: [native]"),
             ("profile: [default, full]", "profile: [full]"),

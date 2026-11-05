@@ -494,6 +494,11 @@ def interface_matrices_error(workflow, aarch_workflow):
     if "run_suite.sh m33mu ${{ matrix.scenario }}" not in workflow or \
             "run_suite.sh qemu-a ${{ matrix.scenario }}" not in aarch_workflow:
         return "wrong interface scenario binding"
+    for job in ("interfaces-m33mu", "interface-isolation-m33mu", "interface-footprint"):
+        match = re.search(r"^  " + re.escape(job) + r":\n(.*?)(?=^  [\w-]+:|\Z)",
+                          workflow, re.MULTILINE | re.DOTALL)
+        if match is None or "inputs.port == ''" not in match.group(1):
+            return "M33 interface job skips an input-less nightly dispatch: " + job
     return None
 
 

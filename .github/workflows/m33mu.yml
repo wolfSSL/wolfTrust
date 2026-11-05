@@ -91,7 +91,7 @@ jobs:
     name: stm32h563_${{ matrix.api }}_${{ matrix.os }}_${{ matrix.engine }}_${{ matrix.profile }}
     if: >-
       github.event_name != 'workflow_dispatch' ||
-      inputs.port == 'all' || inputs.port == 'stm32h563'
+      inputs.port == '' || inputs.port == 'all' || inputs.port == 'stm32h563'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -305,7 +305,7 @@ jobs:
     name: stm32h563_${{ matrix.scenario }}_${{ matrix.engine }}_${{ matrix.profile }}
     if: >-
       github.event_name != 'workflow_dispatch' ||
-      inputs.port == 'all' || inputs.port == 'stm32h563'
+      inputs.port == '' || inputs.port == 'all' || inputs.port == 'stm32h563'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -335,7 +335,7 @@ jobs:
     name: stm32h563_interface_footprint
     if: >-
       github.event_name != 'workflow_dispatch' ||
-      inputs.port == 'all' || inputs.port == 'stm32h563'
+      inputs.port == '' || inputs.port == 'all' || inputs.port == 'stm32h563'
     runs-on: ubuntu-latest
     timeout-minutes: 30
     container:

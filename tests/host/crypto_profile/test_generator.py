@@ -260,6 +260,12 @@ class GeneratorTests(unittest.TestCase):
             with self.subTest(replacement=replacement):
                 self.assertIsNotNone(matrix.interface_matrices_error(
                     workflow.replace(original, replacement, 1), aarch))
+        for job in ("interfaces-m33mu", "interface-isolation-m33mu", "interface-footprint"):
+            with self.subTest(nightly_job=job):
+                before, body = workflow.split("  " + job + ":\n", 1)
+                missing = before + "  " + job + ":\n" + body.replace(
+                    "inputs.port == '' || ", "", 1)
+                self.assertIsNotNone(matrix.interface_matrices_error(missing, aarch))
 
 
 if __name__ == "__main__":

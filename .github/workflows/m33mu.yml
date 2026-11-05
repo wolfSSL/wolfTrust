@@ -331,6 +331,54 @@ jobs:
       - name: Run the direct interface scenario
         run: tests/target/run_suite.sh m33mu ${{ matrix.scenario }}
 
+  interface-footprint:
+    name: stm32h563_interface_footprint
+    if: >-
+      github.event_name != 'workflow_dispatch' ||
+      inputs.port == 'all' || inputs.port == 'stm32h563'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      WT_CRYPTO_PROFILE: default
+      WT_LTO: 1
+      FREERTOS_REF: f4fcc3b228643144727e9257ba12db1cb632b6e6
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Initialize pinned dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --single-branch
+          workspace=tests/firmware/zephyr-stm32h5/.workspace/freertos
+          git init "$workspace"
+          git -C "$workspace" remote add origin https://github.com/FreeRTOS/FreeRTOS.git
+          git -C "$workspace" fetch --depth 1 origin "$FREERTOS_REF"
+          git -C "$workspace" checkout --detach FETCH_HEAD
+          make -C tests/firmware/zephyr-stm32h5 freertos-workspace
+
+      - name: Measure all six API and engine combinations
+        run: bash tools/measure_interface_footprint.sh
+
+      - name: Compare total flash with same-engine PSA
+        run: |
+          python3 tools/check_interface_footprint.py \
+            build/interface-footprint/sizes.csv --max-overhead 8192 \
+            > build/interface-footprint/comparison.txt
+          cat build/interface-footprint/comparison.txt
+
+      - name: Upload size comparison
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: stm32h563-interface-footprint
+          path: |
+            build/interface-footprint/sizes.csv
+            build/interface-footprint/configuration.txt
+            build/interface-footprint/comparison.txt
+
   # Label-selected, the wolfProvider way: one select job reads the ci:* labels
   # (ci:stm32h563 or ci:imxrt700 for that port's full matrix when only that port
   # changed, ci:all or ci:m33mu for everything after a core change, no label

@@ -291,20 +291,42 @@ def pkcs11_mechanism_source(root, mechanisms):
     return "\n".join(lines)
 
 
+def hsm_callback_source(root, extra_crypto):
+    original = (root / "lib/wolfHSM/src/wh_client_cryptocb.c").resolve()
+    source = original.read_text()
+    marker = ("\n\n#if defined(WOLFSSL_HAVE_MLKEM)\n"
+              "static int _handlePqcKemKeyGen(whClientContext* ctx, wc_CryptoInfo* info,\n"
+              "                               int useDma);")
+    if source.count(marker) != 1:
+        raise ValueError("unrecognized wolfHSM callback header boundary")
+    # Load complete types before narrowing this dispatch translation unit.
+    prefix = source[:source.index(marker)] + "\n#endif\n"
+    if not extra_crypto:
+        prefix += "\n#define NO_AES\n#undef HAVE_HKDF\n"
+    return prefix + "\n#include " + json.dumps(str(original)) + "\n"
+
+
 def generate(root, output, profile, custom, enable, disable):
     catalog, signatures, sources, commands = discover(root)
     defaults = json.loads((root / "config/crypto-profiles.json").read_text())["default"]
     selected, mechanisms = select(catalog, defaults, profile, custom, enable, disable)
+    basic_mechanisms = {"CKM_SHA256", "CKM_EC_KEY_PAIR_GEN", "CKM_ECDSA",
+                        "CKM_ECDSA_KEY_PAIR_GEN"}
+    extra_crypto = (profile == "full" or mechanisms is None or
+                    not set(mechanisms) <= basic_mechanisms or
+                    not selected["tpm"] <= set(defaults["tpm"]))
     output.mkdir(parents=True, exist_ok=True)
     write_file(output / "pkcs11_profile.h",
         pkcs11_header(signatures, selected["pkcs11"], mechanisms))
     write_file(output / "pkcs11_crypto.c", pkcs11_mechanism_source(root, mechanisms))
+    write_file(output / "hsm_callback.c", hsm_callback_source(root, extra_crypto))
     write_file(output / "fwtpm_command.c", selected_tpm(commands, selected["tpm"], profile == "full"))
     psa_wrappers(root, output, sources, selected["psa"], catalog["psa"])
     flags = ["/* Generated build configuration. */",
              "#ifndef WT_SELECTED_CRYPTO_PROFILE_H",
              "#define WT_SELECTED_CRYPTO_PROFILE_H",
              "#define WT_PROFILE_FULL %d" % (profile == "full"),
+             "#define WT_PROFILE_PROVIDER_EXTRA_CRYPTO %d" % extra_crypto,
              "#define WT_PROFILE_TPM_COMMAND_COUNT %dU" % len(selected["tpm"]),
              "#define WT_PKCS11_PROFILE_HEADER %s" %
              json.dumps(str((output / "pkcs11_profile.h").resolve()))]

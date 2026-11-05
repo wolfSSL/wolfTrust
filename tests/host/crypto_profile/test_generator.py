@@ -34,6 +34,10 @@ ROOT = Path(__file__).resolve().parents[3]
 spec = importlib.util.spec_from_file_location("crypto_profile", ROOT / "tools/crypto_profile.py")
 profile = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(profile)
+footprint_spec = importlib.util.spec_from_file_location(
+    "interface_footprint", ROOT / "tools/check_interface_footprint.py")
+footprint = importlib.util.module_from_spec(footprint_spec)
+footprint_spec.loader.exec_module(footprint)
 
 
 class GeneratorTests(unittest.TestCase):
@@ -50,6 +54,21 @@ class GeneratorTests(unittest.TestCase):
         self.assertIn("C_CopyObject", selected["pkcs11"])
         self.assertNotIn("psa_sign_hash", selected["psa"])
         self.assertEqual(mechanisms, self.defaults["mechanisms"])
+
+    def test_footprint_requires_all_six_matched_pairs(self):
+        rows = [dict(api=api, engine=engine, role=role, text="100",
+                     data="10", bss="20", flash="110")
+                for api in ("psa", "pkcs11", "tpm")
+                for engine in ("native", "hsm") for role in ("secure", "app")]
+        summary, exceeded = footprint.compare(rows, 0)
+        self.assertEqual(len(summary), 6)
+        self.assertFalse(exceeded)
+        for broken in (rows[:-1], rows + [rows[0]],
+                       [dict(rows[0], flash="111")] + rows[1:]):
+            with self.subTest(rows=broken), self.assertRaises(ValueError):
+                footprint.compare(broken, 8192)
+        rows[-1] = dict(rows[-1], text="8293", flash="8303")
+        self.assertTrue(footprint.compare(rows, 8192)[1])
 
     def test_full_means_implemented_proxy_operations(self):
         selected, mechanisms = profile.select(self.catalog, self.defaults,
@@ -113,11 +132,37 @@ class GeneratorTests(unittest.TestCase):
         self.assertIn("flags &= ~(CK_FLAGS)CKF_SIGN;", header)
         self.assertNotIn("case CKM_EC", header)
 
+    def test_secure_auxiliary_modes_follow_selected_dependencies(self):
+        cases = (("default", {}, [], False),
+                 ("full", {}, [], True),
+                 ("default", {"mechanisms": ["CKM_AES_CTR"]}, [], True),
+                 ("default", {}, ["tpm:PCR_Read"], True))
+        for kind, custom, enabled, extra in cases:
+            with self.subTest(profile=kind, custom=custom, enabled=enabled), \
+                    tempfile.TemporaryDirectory(dir=BUILD_DIR) as temporary:
+                output = Path(temporary)
+                profile.generate(ROOT, output, kind, custom, enabled, [])
+                compiler = shlex.split(os.environ.get("CC", "cc"))
+                result = subprocess.run(compiler + ["-E", "-dM", "-x", "c",
+                    "-DCONFIG_TPM=1", "-DWT_INTERFACE_LOCAL_PROVIDER=1",
+                    "-I" + str(ROOT / "src/services/wolfhsm/runner"),
+                    "-include", str(output / "selected_profile.h"),
+                    "-include", str(ROOT / "src/services/wolfhsm/runner/user_settings.h"),
+                    "-"], input="", text=True, capture_output=True, check=True)
+                macros = result.stdout
+                self.assertIn("#define WOLFSSL_AES_CFB", macros)
+                self.assertEqual("#define WOLFSSL_ASN_ORIGINAL" in macros, not extra)
+                for name in ("WOLFSSL_AES_COUNTER", "HAVE_AESCCM",
+                             "WOLFSSL_ECDSA_DETERMINISTIC_K"):
+                    self.assertEqual("#define " + name in macros, extra)
+
     def test_raw_provider_objects_wait_for_generated_header(self):
         cases = (("p11_wc_raw_random.o", "PKCS11", "native"),
                  ("p11_sec_raw_internal.o", "PKCS11", "native"),
                  ("p11_sec_raw_crypto.o", "PKCS11", "native"),
                  ("p11_wh_raw_wh_client.o", "PKCS11", "hsm"),
+                 ("p11_wh_raw_wh_client_cryptocb.o", "PKCS11", "hsm"),
+                 ("tpm_wh_raw_wh_client_cryptocb.o", "TPM", "hsm"),
                  ("tpm_wc_raw_random.o", "TPM", "native"),
                  ("tpm_sec_raw_fwtpm_crypto.o", "TPM", "native"),
                  ("tpm_wh_raw_wh_client.o", "TPM", "hsm"))

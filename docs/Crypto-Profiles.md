@@ -88,6 +88,18 @@ crypto for object protection even when related public mechanisms are absent.
 TPM and PKCS#11 images link no wolfPSA Crypto implementation. Their `psa_call`
 functions are the FF-M IPC boundary.
 
+The basic selection also omits unused AES-CTR, CCM and deterministic-ECDSA
+extensions from the Secure image. Full profiles and broader custom command or
+mechanism selections restore those extensions. Required CFB and PIN primitives
+remain enabled. The basic TPM image uses wolfCrypt's original ASN codec;
+broader TPM profiles and PKCS#11 retain the template codec. Host tests cover
+both codecs, malformed keys and signatures, and cross-codec key decoding.
+
+HSM callback dispatch for basic TPM/PKCS#11 selections retains RNG, SHA-256
+and P-256. It omits unrequested AES and HKDF dispatch after loading the complete
+shared type definitions. Full and broader custom selections retain the original
+callback. No dependency files or structure layouts are changed.
+
 ## Reference builds and verification
 
 FreeRTOS guest builds use `WT_LTO=1` by default; `WT_LTO=0` disables it.

@@ -646,7 +646,14 @@ The separate STM32H563 interface matrix runs the full cross product
 `[native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos] x [default, full]`.
 All 24 application rows run on every PR. TPM and PKCS#11 also have eight
 isolation-negative rows across engines and profiles. QEMU runs 20 interface
-and isolation rows across both engines and profiles. Dedicated API rows set `WT_REQUIRE_SCENARIO_PASS=1`: a skipped
+and isolation rows across both engines and profiles. A separate footprint job
+builds all six default-profile API/engine pairs with one FreeRTOS application
+and production PIN settings. It compares Secure plus application flash with
+same-engine PSA and rejects overhead above 8 KiB. This ceiling guards against
+regressions; it does not establish exact size parity. See
+[Interface-Footprint.md](Interface-Footprint.md) for the measurements.
+
+Dedicated API rows set `WT_REQUIRE_SCENARIO_PASS=1`: a skipped
 scenario or a missing terminal pass marker fails the job.
 The full matrix runs on a
 push to `main`, on the nightly schedule, on

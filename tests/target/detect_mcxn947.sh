@@ -11,6 +11,7 @@ MCXN947_SPSDK_VENV="${MCXN947_SPSDK_VENV:-$HOME/spsdk-venv}"
 
 if ! command -v "$MCXN947_PYOCD" >/dev/null 2>&1; then
     if [ -x "$MCXN947_SPSDK_VENV/bin/pyocd" ]; then
+        MCXN947_PYOCD="$MCXN947_SPSDK_VENV/bin/pyocd"
         PATH="$MCXN947_SPSDK_VENV/bin:$PATH"
         export PATH
     else

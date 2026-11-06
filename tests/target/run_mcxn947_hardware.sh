@@ -54,6 +54,7 @@ probe_uid="${MCXN947_PROBE_UID:-}"
 console="${MCXN947_CONSOLE:-}"
 wolfboot_dir="${MCXN947_WOLFBOOT_DIR:-}"
 spsdk_venv="${MCXN947_SPSDK_VENV:-$HOME/spsdk-venv}"
+pyocd="${MCXN947_PYOCD:-pyocd}"
 console_seconds="${MCXN947_CONSOLE_SECONDS:-25}"
 # Physical flash offsets (port/mcxn947/memory_map.h, wolfBoot's
 # mcxn-tz-wolftrust config): the debugger and the ROM see the array at 0.
@@ -99,8 +100,9 @@ check() {
 }
 
 ensure_spsdk() {
-    if ! command -v pyocd >/dev/null 2>&1; then
-        [ -x "$spsdk_venv/bin/pyocd" ] || fail "pyocd not found (set MCXN947_SPSDK_VENV)"
+    if ! command -v "$pyocd" >/dev/null 2>&1; then
+        [ -x "$spsdk_venv/bin/pyocd" ] || fail "pyocd not found (set MCXN947_PYOCD or MCXN947_SPSDK_VENV)"
+        pyocd="$spsdk_venv/bin/pyocd"
         PATH="$spsdk_venv/bin:$PATH"
         export PATH
     fi
@@ -111,7 +113,7 @@ ensure_spsdk() {
 ensure_probe() {
     local listed
     if [ -z "$probe_uid" ]; then
-        listed="$(pyocd list 2>/dev/null | grep -F "MCU-LINK FRDM-MCXN947" || true)"
+        listed="$("$pyocd" list 2>/dev/null | grep -F "MCU-LINK FRDM-MCXN947" || true)"
         [ "$(printf '%s\n' "$listed" | grep -c .)" -eq 1 ] || \
             fail "expected one MCU-Link FRDM-MCXN947 probe (set MCXN947_PROBE_UID)"
         probe_uid="$(printf '%s\n' "$listed" | awk '{ for (i = 1; i <= NF; i++) if ($i ~ /^[A-Z0-9]{8,}$/) { print $i; exit } }')"
@@ -129,7 +131,7 @@ ensure_probe() {
 # the chip on connect, so a read would land in a fresh boot, not the one under
 # test.
 dap() {
-    timeout 60 pyocd cmd -u "$probe_uid" -t cortex_m "$@" 2>&1 |
+    timeout 60 "$pyocd" cmd -u "$probe_uid" -t cortex_m "$@" 2>&1 |
         grep -viE "rom table|APB-AP|coresight|cidr"
 }
 
@@ -178,7 +180,7 @@ clear_mailboxes() {
 program_board() {
     local out rc=0
     [ "${#board_cmds[@]}" -gt 0 ] || fail "nothing to program"
-    out="$(timeout 900 pyocd cmd -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
+    out="$(timeout 900 "$pyocd" cmd -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
         "${park_cmds[@]}" "${board_cmds[@]}" 2>&1)" || rc=$?
     if [ "$rc" -ne 0 ]; then
         printf '%s\n' "$out" | tail -6
@@ -203,7 +205,7 @@ release_core() {
     stty -F "$console" 115200 raw -echo -crtscts -ixon 2>/dev/null || true
     ( timeout "$console_seconds" cat "$console" > "$evidence/console.log" 2>/dev/null ) &
     sleep 0.5
-    timeout 60 pyocd cmd -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
+    timeout 60 "$pyocd" cmd -u "$probe_uid" -t "$target" -O resume_on_disconnect=false \
         -O reset_type=hw -c "reset halt" -c "write32 0xE0001028 0" \
         -c "write32 0xE0001038 0" -c "write32 0xE000ED30 0x1F" -c "go" \
         >/dev/null 2>&1 || fail "could not release the core"
@@ -220,7 +222,7 @@ verify_at() {
     local addr="$1" image="$2" size back
     size="$(wc -c < "$image" | tr -d ' ')"
     back="$evidence/readback-$(basename "$image")"
-    timeout 120 pyocd cmd -u "$probe_uid" -t cortex_m \
+    timeout 120 "$pyocd" cmd -u "$probe_uid" -t cortex_m \
         -c "savemem $addr $size $back" >/dev/null 2>&1 || \
         fail "readback of $addr failed"
     cmp -s "$back" "$image" || \

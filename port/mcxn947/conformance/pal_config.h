@@ -51,8 +51,8 @@
 #define NVMEM_0_PERMISSION                     TYPE_READ_WRITE
 
 #define NSPE_MMIO_NUM                          1
-#define NSPE_MMIO_0_START                      0x20041F00
-#define NSPE_MMIO_0_END                        0x20041F1F
+#define NSPE_MMIO_0_START                      0x20010F00
+#define NSPE_MMIO_0_END                        0x20010F1F
 #define NSPE_MMIO_0_PERMISSION                 TYPE_READ_WRITE
 
 /* Per-partition pseudo-MMIO holes carved from the top of the shared CONFDATA

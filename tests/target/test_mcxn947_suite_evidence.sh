@@ -78,7 +78,7 @@ pyocd() { case "$PB_MODE" in
     silent) return 124 ;; error) echo "Error: transfer failed"; return 0 ;;
     longerror) echo "Error: transfer failed"; printf "%02000000d\n" 0; return 0 ;;
     *) echo "loaded"; return 0 ;; esac; }
-probe_uid=X; target=mcxn947vdf
+probe_uid=X; target=mcxn947vdf; pyocd=pyocd
 park_cmds=(-c "reset halt"); board_cmds=(-c "load a.bin 0x0")
 . "$1"
 program_board && echo RELEASED' _ "$tmp/program_board.sh" 2>&1

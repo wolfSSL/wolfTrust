@@ -854,6 +854,12 @@ static void exercise_hsm_attack_probe(void)
 #if WT_FWU_PROBE_TAIL_BYTES < 1 || WT_FWU_PROBE_TAIL_BYTES > 512
 #error "WT_FWU_PROBE_TAIL_BYTES must fit the probe's 512-byte write payload"
 #endif
+#if defined(WT_FWU_PROBE_STREAM_BYTES)
+#define WT_FWU_PROBE_PAYLOAD_BYTES \
+    ((uint32_t)WT_FWU_PROBE_STREAM_BYTES - 1024u + WT_FWU_PROBE_TAIL_BYTES)
+#else
+#define WT_FWU_PROBE_PAYLOAD_BYTES ((uint32_t)WT_FWU_PROBE_TAIL_BYTES)
+#endif
 #define GUEST_FWU_OP_START   2u
 #define GUEST_FWU_OP_WRITE   3u
 #define GUEST_FWU_OP_FINISH  4u
@@ -941,7 +947,7 @@ static void exercise_fwu(void)
     memset(writebuf + 16, 0xFF, 512u);
     word = 0x464C4F57u;
     memcpy(writebuf + 16, &word, 4u);
-    word = 32u;
+    word = WT_FWU_PROBE_PAYLOAD_BYTES;
     memcpy(writebuf + 20, &word, 4u);
     writebuf[24] = 0x01u;
     writebuf[25] = 0x00u;

@@ -15,6 +15,8 @@ manifest with a seventh service.
 | `SERVICE_FWU` | `0x1005` | Yes | PSA Firmware Update staging for wolfBoot |
 | `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door |
 | `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
+| `SERVICE_TPM` | `0x1008` | Yes, optional | Mediated mailbox to an isolated Non-secure firmware TPM for wolfTPM applications (`CONFIG_TPM=y`) |
+| `SERVICE_PKCS11` | `0x1009` | Yes, optional | Copied-transfer relay between a PKCS#11 application proxy and an isolated wolfPKCS11 provider (`CONFIG_PKCS11=y`) |
 
 All service versions are `1`. ITS and Protected Storage declare a
 dependency on the Secure-only vault. The default manifest is
@@ -203,6 +205,20 @@ transport re-registers a guest's port and MAC on that guest's next TX or
 RX_FETCH. Frames sent to a port before its guest re-registers are dropped, so
 a receiver must keep polling RX_FETCH rather than wait only for the receive
 interrupt.
+
+## Optional TPM and PKCS#11 interfaces
+
+`CONFIG_TPM=y` runs wolfTPM's firmware TPM inside `SERVICE_TPM`.
+`CONFIG_PKCS11=y` runs wolfPKCS11 inside `SERVICE_PKCS11`. Both use ordinary
+wolfTrust Secure partitions on Cortex-M and Cortex-A, without an additional
+Non-secure guest, RTOS, or worker. A bare-metal or RTOS application uses the
+same FF-M boundary. TPM returns each command's response in one call. PKCS#11
+stages larger serialized messages in bounded chunks and executes each once.
+
+All three interfaces select native wolfCrypt or wolfHSM with `WT_ENGINE`.
+TPM and PKCS#11 are mutually exclusive and link no PSA Crypto front end.
+Both default to `n`, so disabling them removes their protocol handlers.
+See [TPM](TPM.md), [PKCS#11](PKCS11.md), and the [six-build footprint](Interface-Footprint.md).
 
 See [API Reference](API-Reference.md) for client signatures and [Macros](Macros.md) for service build
 controls.

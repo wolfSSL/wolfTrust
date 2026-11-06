@@ -60,6 +60,19 @@ void psa_close(psa_handle_t handle)
     WolfTrust_FFM_Close((int32_t)handle);
 }
 
+/* The veneer carries 32-bit counts and lengths: an LP64 value above them
+ * saturates, so an over-count or an oversized vector stays invalid at the
+ * Secure gateway instead of wrapping into an accepted one. */
+static uint32_t veneer_size(size_t value)
+{
+#if SIZE_MAX > UINT32_MAX
+    if (value > (size_t)UINT32_MAX) {
+        return UINT32_MAX;
+    }
+#endif
+    return (uint32_t)value;
+}
+
 psa_status_t psa_call(psa_handle_t handle, int32_t type,
                       const psa_invec* in_vec, size_t in_len,
                       psa_outvec* out_vec, size_t out_len)
@@ -77,17 +90,17 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
     if (in_len <= WT_FFM_VENEER_IOVEC_MAX) {
         for (i = 0u; i < in_len; i++) {
             iovec.in[i].base = in_vec[i].base;
-            iovec.in[i].len = (uint32_t)in_vec[i].len;
+            iovec.in[i].len = veneer_size(in_vec[i].len);
         }
     }
     if (out_len <= WT_FFM_VENEER_IOVEC_MAX) {
         for (i = 0u; i < out_len; i++) {
             iovec.out[i].base = out_vec[i].base;
-            iovec.out[i].len = (uint32_t)out_vec[i].len;
+            iovec.out[i].len = veneer_size(out_vec[i].len);
         }
     }
-    iovec.in_count = (uint32_t)in_len;
-    iovec.out_count = (uint32_t)out_len;
+    iovec.in_count = veneer_size(in_len);
+    iovec.out_count = veneer_size(out_len);
     status = (psa_status_t)WolfTrust_FFM_Call((int32_t)handle, type, &iovec);
     if (out_len <= WT_FFM_VENEER_IOVEC_MAX) {
         for (i = 0u; i < out_len; i++) {

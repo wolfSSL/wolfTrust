@@ -406,6 +406,14 @@ buffer, and its 24-byte request header caps one copied vault response at 1000
 bytes. `data_offset` remains useful when the caller supplies an output buffer
 smaller than the object. UID zero is invalid.
 
+When the caller cannot access part of `p_data`, for example memory it has lent
+or donated through FF-A, `psa_its_get()` and `psa_ps_get()` return
+`PSA_ERROR_INVALID_ARGUMENT` as PSA Secure Storage 1.0 requires. A raw
+`psa_call()` to `SERVICE_ITS` or `SERVICE_PS` naming the same memory still
+returns the FF-M `PSA_ERROR_PROGRAMMER_ERROR`; the storage client translates
+it. The write functions copy `p_data` into a local buffer before the call, so
+the Secure side never judges the caller's own pointer for them.
+
 The current ITS and Protected Storage paths always enforce
 `PSA_STORAGE_FLAG_WRITE_ONCE`, including during
 `PSA_ROT_PROVISIONING`. PSA Secure Storage 1.0 requires that flag not to be

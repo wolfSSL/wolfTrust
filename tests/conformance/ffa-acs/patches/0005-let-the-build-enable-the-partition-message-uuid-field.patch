@@ -1,0 +1,14 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b032c04..71c0b85 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -284,6 +284,9 @@ add_definitions(-DCMAKE_BUILD)
+ add_definitions(-DVERBOSITY=${VERBOSE})
+ add_definitions(-DPLATFORM_SPMC_EL=${PLATFORM_SPMC_EL})
+ add_definitions(-DPLATFORM_SP_EL=${PLATFORM_SP_EL})
++if(DEFINED INDIRECT_MESSAGE_UUID_SUPPORT)
++add_definitions(-DINDIRECT_MESSAGE_UUID_SUPPORT=${INDIRECT_MESSAGE_UUID_SUPPORT})
++endif()
+ add_definitions(-DPLATFORM_NS_HYPERVISOR_PRESENT=${PLATFORM_NS_HYPERVISOR_PRESENT})
+ add_definitions(-DPLATFORM_FFA_V_1_0=${PLATFORM_FFA_V_1_0})
+ add_definitions(-DPLATFORM_FFA_V_1_1=${PLATFORM_FFA_V_1_1})

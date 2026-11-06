@@ -63,11 +63,33 @@ extern uint32_t _e_vnet_data;
 extern uint32_t _s_vnet_bss;
 extern uint32_t _e_vnet;
 #endif
+#if defined(CONFIG_TPM)
+extern uint32_t _si_tpm;
+extern uint32_t _s_tpm;
+extern uint32_t _e_tpm_data;
+extern uint32_t _s_tpm_bss;
+extern uint32_t _e_tpm;
+#endif
+#if defined(CONFIG_PKCS11)
+extern uint32_t _si_pkcs11;
+extern uint32_t _s_pkcs11;
+extern uint32_t _e_pkcs11_data;
+extern uint32_t _s_pkcs11_bss;
+extern uint32_t _e_pkcs11;
+#endif
 
 extern uint32_t _wt_part_stacks_base;
 extern uint32_t _wt_part_stacks_limit;
 extern uint32_t _wt_sp_stacks_base;
 extern uint32_t _wt_sp_stacks_limit;
+#if defined(CONFIG_TPM)
+extern uint32_t _wt_tpm_stack_base;
+extern uint32_t _wt_tpm_stack_limit;
+#endif
+#if defined(CONFIG_PKCS11)
+extern uint32_t _wt_pkcs11_stack_base;
+extern uint32_t _wt_pkcs11_stack_limit;
+#endif
 
 /* Bytes of partition band and stack RAM zeroed at reset, read over SWD. */
 volatile uint32_t g_wt_boot_zeroed_bytes;
@@ -81,6 +103,14 @@ extern uint32_t _wt_band_hsm_limit;
 #if defined(CONFIG_VNET)
 extern uint32_t _wt_band_vnet_base;
 extern uint32_t _wt_band_vnet_limit;
+#endif
+#if defined(CONFIG_TPM)
+extern uint32_t _wt_band_tpm_base;
+extern uint32_t _wt_band_tpm_limit;
+#endif
+#if defined(CONFIG_PKCS11)
+extern uint32_t _wt_band_pkcs11_base;
+extern uint32_t _wt_band_pkcs11_limit;
 #endif
 
 /* One partition data band: where its .data loads from, where its .data and
@@ -105,6 +135,14 @@ static const wt_band_image_t g_wt_bands[] = {
 #if defined(CONFIG_VNET)
     { &_si_vnet, &_s_vnet, &_e_vnet_data, &_s_vnet_bss, &_e_vnet,
       &_wt_band_vnet_base, &_wt_band_vnet_limit },
+#endif
+#if defined(CONFIG_TPM)
+    { &_si_tpm, &_s_tpm, &_e_tpm_data, &_s_tpm_bss, &_e_tpm,
+      &_wt_band_tpm_base, &_wt_band_tpm_limit },
+#endif
+#if defined(CONFIG_PKCS11)
+    { &_si_pkcs11, &_s_pkcs11, &_e_pkcs11_data, &_s_pkcs11_bss,
+      &_e_pkcs11, &_wt_band_pkcs11_base, &_wt_band_pkcs11_limit },
 #endif
 };
 
@@ -204,10 +242,29 @@ static void wt_reset_main(void)
     for (dst = &_wt_sp_stacks_base; dst < &_wt_sp_stacks_limit; ++dst) {
         *dst = 0u;
     }
+#if defined(CONFIG_TPM)
+    for (dst = &_wt_tpm_stack_base; dst < &_wt_tpm_stack_limit; ++dst) {
+        *dst = 0u;
+    }
+#endif
+#if defined(CONFIG_PKCS11)
+    for (dst = &_wt_pkcs11_stack_base;
+         dst < &_wt_pkcs11_stack_limit; ++dst) {
+        *dst = 0u;
+    }
+#endif
     zeroed += (uint32_t)((uintptr_t)&_wt_part_stacks_limit -
                          (uintptr_t)&_wt_part_stacks_base);
     zeroed += (uint32_t)((uintptr_t)&_wt_sp_stacks_limit -
                          (uintptr_t)&_wt_sp_stacks_base);
+#if defined(CONFIG_TPM)
+    zeroed += (uint32_t)((uintptr_t)&_wt_tpm_stack_limit -
+                         (uintptr_t)&_wt_tpm_stack_base);
+#endif
+#if defined(CONFIG_PKCS11)
+    zeroed += (uint32_t)((uintptr_t)&_wt_pkcs11_stack_limit -
+                         (uintptr_t)&_wt_pkcs11_stack_base);
+#endif
     g_wt_boot_zeroed_bytes = zeroed;
 
 #if defined(WT_SEAL_NEG_PROBE) && (WT_SEAL_NEG_PROBE == 3)

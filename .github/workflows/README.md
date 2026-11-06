@@ -1,7 +1,8 @@
 # wolfTrust CI
 
-CI has a fast per-PR host lane, the tiered M33MU emulator matrix, and static
-analysis. M33MU runs a per-port smoke set on every pull request and the full
+Three lanes, modeled on wolfProvider's CI: a fast per-PR host lane, the M33MU
+emulator matrix, and the AArch64 QEMU matrix, plus static analysis. Both
+emulator lanes are tiered: a smoke set on every pull request, and the full
 matrix on labels, main pushes, and nightly.
 
 `codeql.yml` runs C security queries. `coverity.yml` runs on Sundays at
@@ -22,7 +23,24 @@ An accepted upload queues analysis; results appear after Coverity processes it.
 |------|---------|---------|
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
 | **M33MU smoke** | every PR | per port, on both crypto engines: STM32H563 `positive gtzcneg crossdomain bothpsa confboot devcrypto`; MIMXRT700 `positive ahbscneg crossdomain bothpsa confboot devcrypto` |
-| **M33MU full** | PR labels `ci:all`, `ci:h5`, `ci:rt700`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
+| **M33MU full** | PR labels `ci:all`, `ci:stm32h563`, `ci:imxrt700`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
+| **AArch64 smoke** | every PR | a representative subset: `virt-gicv3-a72` `smoke boot positive crossdomain ffa-direct confboot devcrypto` on both crypto engines, `versal-virt` the same on the native engine, plus dedicated QEMU fwTPM and PKCS#11 interface and isolation jobs |
+| **AArch64 full** | PR labels `ci:all`, `ci:aarch64`, `ci:qemu-virt`, `ci:qemu-versal`; push to main; nightly; `workflow_dispatch` (cell input) | every AArch64 scenario and the Arm FF-A ACS groups on three QEMU cells under both crypto engines (see below) |
+
+All dedicated API and interface-isolation rows require a real terminal pass
+marker; a successful skip cannot satisfy the job. Each job identifies its
+engine and operation profile. M33MU runs 24 positives across
+`[default, full] x [native, hsm] x [psa, pkcs11, tpm] x [zephyr, freertos]`, plus
+eight interface-isolation jobs. QEMU `virt` runs 20 positives/isolation jobs
+across both profiles and engines. Versal cross-builds both engines, but its QEMU
+model cannot provide the XMPU/RISAF isolation those runtime scenarios require.
+
+`stm32h563_interface_footprint` builds the six default-profile API/engine pairs
+with the same compiler, pinned FreeRTOS source, one application and production
+PIN settings. Missing measurements fail the job. Each TPM/PKCS#11 total must
+remain within 8 KiB of same-engine PSA; the uploaded CSV reports Secure,
+application, total flash and RAM sections separately. This is a regression
+ceiling, not a claim of exact parity.
 
 The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
 `pr-osp-select.yml` is: a `select` job checks the routing table
@@ -33,8 +51,8 @@ groups it picked, so a job that is not selected never appears as skipped.
 | Label | Effect |
 |-------|--------|
 | (no label) | each port's smoke tier on both engines |
-| `ci:h5` | the STM32H563 full matrix (the change touched only that port) |
-| `ci:rt700` | the MIMXRT700 full matrix (the change touched only that port) |
+| `ci:stm32h563` | the STM32H563 full matrix (the change touched only that port) |
+| `ci:imxrt700` | the MIMXRT700 full matrix (the change touched only that port) |
 | `ci:all` / `ci:m33mu` | every scenario of every port (a core change) |
 
 A label keeps applying on later pushes to the PR. Pushes to
@@ -60,6 +78,10 @@ test-target` also reads. The table below is a representative slice:
 | `stm32h563_confboot_<engine>` | `confboot` | full Arm FF-M IPC suite |
 | `stm32h563_devstorage_<engine>` | `devstorage` | PSA ITS/PS conformance |
 | `stm32h563_devcrypto_<engine>` | `devcrypto` | PSA Crypto conformance |
+| `stm32h563_pkcs11_<zephyr\|freertos>_<engine>_<profile>` | `pkcs11` | each RTOS application runs the nine-case default or 40-case full PKCS#11 suite through `SERVICE_PKCS11` and the isolated provider |
+| `stm32h563_tpm_<zephyr\|freertos>_<engine>_<profile>` | `tpm` | each RTOS application sends real TPM 2.0 commands through `SERVICE_TPM` to the Secure fwTPM partition |
+| `stm32h563_pkcs11neg_<engine>_<profile>` | `pkcs11neg` | PKCS#11 partition-band isolation and provider recovery |
+| `stm32h563_tpmneg_<engine>_<profile>` | `tpmneg` | TPM relay and fwTPM partition-band isolation |
 | `stm32h563_vaultrecover_<engine>` | `vaultrecover` | #95 foreign pool reformatted |
 | `stm32h563_vaultrecoversec_<engine>` | `vaultrecoversec` | #95 SECURED never wipes |
 | `mimxrt700_positive_<engine>` | `positive` | MIMXRT700 chain under the RT700 model, both guests finish |
@@ -85,6 +107,42 @@ full matrix on a PR, add its `ci:` label; off-PR against a branch,
 
 The local box gate `run_m33mu.sh` (a Zephyr+FreeRTOS lifecycle) and the
 `make test-target` loop remain the pre-push mirror of the M33MU jobs.
+
+## AArch64 QEMU
+
+`aarch64-cross-compile.yml` (workflow name **AArch64 cross compilation**) is
+label-selected the same way `m33mu.yml` is: a `select` job self-tests the
+matrix, reads the PR's `ci:*` labels, the event, and the dispatch input, and
+one matrix job runs exactly the cells it picked. It runs in
+`ghcr.io/wolfssl/wolfboot-ci-aarch64` on three cells, `virt-gicv2-a35`,
+`virt-gicv3-a72`, and `versal-virt`.
+
+| Label | Effect |
+|-------|--------|
+| (no label) | the smoke tier: `virt-gicv3-a72` (both engines) and `versal-virt` (native) run the catch-most subset |
+| `ci:qemu-virt` | the two `virt` cells' full suite and FF-A ACS (the change touched only that family) |
+| `ci:qemu-versal` | the `versal-virt` full suite and FF-A ACS |
+| `ci:aarch64` | every cell's full suite and FF-A ACS (a core AArch64 change) |
+| `ci:all` | this plus the full M33MU matrix |
+
+A label keeps applying on later pushes to the PR. Pushes to `main`, the nightly
+schedule (via `nightly.yml`), and manual dispatch (with a `cell` input) run the
+full matrix. The cells and the smoke subset live in
+`tests/target/lib/scenario_matrix.py`, which `make test-target-a` also reads
+(`WT_TIER=full` for the whole suite).
+
+| Check name | What it proves |
+|------------|----------------|
+| `qemuvirt_psa_<engine>` | the Normal-world PSA client uses the selected engine through FF-A |
+| `qemuvirt_tpm_<engine>_<profile>` | the Normal-world application sends real TPM 2.0 GetRandom, CreatePrimary, Sign, and full-profile PCR Extend/Read commands through FF-A and `SERVICE_TPM` to the isolated fwTPM |
+| `qemuvirt_tpmneg_<engine>_<profile>` | the fwTPM round trip plus TPM state-band, provider-RAM, and execute-never isolation negatives |
+| `qemuvirt_pkcs11_<engine>_<profile>` | the Normal-world application runs nine default or 40 full PKCS#11 cases through FF-A and the isolated provider |
+| `qemuvirt_pkcs11neg_<engine>_<profile>` | the PKCS#11 suite plus state-band, provider-RAM, execute-never, and engine-appropriate restart/recovery negatives |
+| `el3_<cell>_<engine>` | the EL3 image links under the symbol guard, then the tier's QEMU AArch64 scenarios run through `tests/target/run_suite.sh qemu-a` |
+| `ffa_acs_<cell>_<engine>` | the Arm FF-A ACS groups (discovery, direct and indirect messaging, memory, notifications, interrupts) at their asserted floors (full tier only) |
+
+To run a scenario locally, use `tests/target/run_qemu_a_scenario.sh <key>`
+with `MACHINE`, `GIC`, `CPU`, and `WT_ENGINE` set as in the workflow.
 
 ## Host unit suites (per-suite checks)
 

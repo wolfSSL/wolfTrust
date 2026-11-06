@@ -19,6 +19,8 @@ BAND_MACROS = (
     "WT_SP_ATTEST_DATA_BASE", "WT_SP_ATTEST_DATA_SIZE",
     "WT_SP_HSM_DATA_BASE", "WT_SP_HSM_DATA_SIZE",
     "WT_CONF_SP_DATA_BASE", "WT_CONF_SERVER_MMIO_BASE",
+    "WT_TPM_DATA_BASE", "WT_TPM_DATA_SIZE",
+    "WT_PKCS11_DATA_BASE", "WT_PKCS11_DATA_SIZE",
 )
 SHELL_MACROS = BAND_MACROS + (
     "WT_RAM_S_BASE", "WT_SP_SECURE_STACK_SIZE",
@@ -77,6 +79,10 @@ def band_args(v):
                    (band, base, base + v[prefix + "_SIZE"]))
     out.append("--confdata 0x%08X:0x%08X" %
                (v["WT_CONF_SP_DATA_BASE"], v["WT_CONF_SERVER_MMIO_BASE"]))
+    for flag, prefix in (("--tpm-band", "WT_TPM_DATA"),
+                         ("--pkcs11-band", "WT_PKCS11_DATA")):
+        base = v[prefix + "_BASE"]
+        out.append("%s 0x%08X:0x%08X" % (flag, base, base + v[prefix + "_SIZE"]))
     return " ".join(out)
 
 

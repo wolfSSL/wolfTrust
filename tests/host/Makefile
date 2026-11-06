@@ -34,16 +34,22 @@ endif
 UNIT_SUITES := domain manifest lifecycle monitor guest_verify rollback sp_recovery \
     fabric_windows periph irq_claim rt700_trng rt700_xspi rt700_lifecycle \
     ipc ffm spm \
-    vnet wolfhsm_loopback wolfhsm_relay native_wire native_wire_client \
+    vnet wolfhsm_loopback wolfhsm_relay tpm_relay pkcs11_relay \
+    tpm_client pkcs11_client pkcs11_proxy pkcs11_provider \
+    crypto_profile asn_codec pkcs11_secure_heap native_wire \
+    native_wire_client \
     keystore_isolation \
     attestation_service attestation attestation_token \
     attestation_golden attestation_negatives attestation_replay \
-    attestation_iak ffm_domain sp_layout tasklet_priv port_binding silicon_rev boot_handoff \
-    spm_gate \
+    attestation_iak ffm_domain sp_layout tasklet_priv port_binding silicon_rev \
+    boot_handoff ffa_abi \
+    aarch64_esr aarch64_libc ffa_boot_info aarch64_tables aarch64_domain ffa_spmd \
+    aarch64_profile \
+    ffa_mem ffa_notif ffa_runtime spm_irq spm_gate \
     flash_nvm ffm_veneer secure_layout \
     vault_service storage_service ps_service keystore_ipc negatives qcbor_shim \
     fwu_service runtime_verify psa_ffm_client psa_storage_client vnet_relay \
-    psa_headers
+    psa_headers psa_ffa_transport acs_pal
 
 .PHONY: all test test-compilers test-sanitize test-valgrind print-suites clean
 

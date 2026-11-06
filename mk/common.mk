@@ -119,8 +119,8 @@ WT_VNET_UNKNOWN_UCAST_FLOOD ?= 0
 # tests/host/tpm_relay/ build regardless of this switch.
 CONFIG_TPM ?= n
 
-# PKCS#11 subsystem. The application-side C_* proxy and provider guest both
-# use SERVICE_PKCS11; the provider reaches SERVICE_HSM with the hsm engine.
+# PKCS#11 clients call SERVICE_PKCS11 in a managed Secure partition. Its
+# implementation uses native wolfCrypt or the mediated wolfHSM engine.
 CONFIG_PKCS11 ?= n
 WT_INTERFACE_LOCAL_PROVIDER ?= 0
 
@@ -1793,6 +1793,10 @@ $(BUILD_DIR)/tpm_sec_raw_%.o: $(ROOT)/src/client/%.c $(WOLFHSM_CFG_H) $(BUILD_MO
 $(BUILD_DIR)/tpm_wh_raw_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_WOLFHSM_CFLAGS) -UWC_NO_DEFAULT_DEVID -c -o $@ $<
 
+$(BUILD_DIR)/tpm_wh_raw_wh_client_cryptocb.o: $(WT_CRYPTO_PROFILE_DIR)/hsm_callback.c \
+        $(WOLFHSM_DIR)/src/wh_client_cryptocb.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP)
+	$(CC) $(HSM_WOLFHSM_CFLAGS) -UWC_NO_DEFAULT_DEVID -c -o $@ $<
+
 $(BUILD_DIR)/tpm_wh_%.o: $(BUILD_DIR)/tpm_wh_raw_%.o $(TPM_NAMESPACE_MAP)
 	$(OBJCOPY) --redefine-syms=$(TPM_NAMESPACE_MAP) $< $@
 
@@ -1831,6 +1835,10 @@ $(BUILD_DIR)/p11_wc_raw_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/%.c $(WOLFHSM
 	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/p11_wh_raw_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_WOLFHSM_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/p11_wh_raw_wh_client_cryptocb.o: $(WT_CRYPTO_PROFILE_DIR)/hsm_callback.c \
+        $(WOLFHSM_DIR)/src/wh_client_cryptocb.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP)
 	$(CC) $(HSM_WOLFHSM_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
 
 $(P11_NAMESPACE_MAP): $(P11_WOLFCRYPT_RAW_OBJS) | $(BUILD_DIR)

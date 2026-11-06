@@ -36,3 +36,6 @@ $(WT_CRYPTO_PROFILE_DIR)/fwtpm_command.c: $(WT_CRYPTO_PROFILE_HEADER)
 
 $(WT_CRYPTO_PROFILE_DIR)/pkcs11_crypto.c: $(WT_CRYPTO_PROFILE_HEADER)
 	@test -f $@
+
+$(WT_CRYPTO_PROFILE_DIR)/hsm_callback.c: $(WT_CRYPTO_PROFILE_HEADER)
+	@test -f $@

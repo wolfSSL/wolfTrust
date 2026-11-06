@@ -64,6 +64,9 @@
 static uint8_t g_flash_memory[RAMSIM_SIZE];
 static wt_ffm_runtime_t* g_rt;
 static int g_failures;
+static void* g_output;
+static size_t g_output_size;
+static unsigned int g_storage_dispatches;
 
 static void check(int ok, const char* what)
 {
@@ -104,6 +107,9 @@ static int test_check_write(void* context, psa_client_id_t caller,
 {
     (void)context;
     (void)caller;
+    if (address == g_output && size > g_output_size) {
+        return 0;
+    }
     return size == 0U || (address != NULL && size <= TEST_CALLER_SPAN);
 }
 
@@ -121,6 +127,13 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     (void)runtime;
     (void)partition_id;
     return WT_FFM_ERROR_STATE;
+}
+
+static int test_storage_dispatch(void* context, wt_ffm_runtime_t* runtime,
+                                 int32_t partition_id)
+{
+    g_storage_dispatches++;
+    return wt_storage_service_dispatch(context, runtime, partition_id);
 }
 
 static const wt_ffm_port_ops_t g_port_ops = {
@@ -253,6 +266,7 @@ int main(void)
     uint8_t buffer[64];
     uint8_t big[600];
     uint8_t large[2048];
+    unsigned int dispatches;
     size_t got = 0U;
     psa_status_t status;
 
@@ -307,7 +321,7 @@ int main(void)
     its_ctx.vault_handle = 0;
     its_ctx.client_flags_mask = WT_VAULT_FLAG_WRITE_ONCE;
     if (wt_ffm_register_partition(&runtime, TEST_ITS_PARTITION,
-                                  wt_storage_service_dispatch, &its_ctx) !=
+                                  test_storage_dispatch, &its_ctx) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "ITS register failed\n");
         return 1;
@@ -322,7 +336,7 @@ int main(void)
     ps_ctx.vault_flags = WT_VAULT_FLAG_SEALED;
     ps_ctx.caps = 0U;
     if (wt_ffm_register_partition(&runtime, TEST_PS_PARTITION,
-                                  wt_storage_service_dispatch, &ps_ctx) !=
+                                  test_storage_dispatch, &ps_ctx) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "PS register failed\n");
         return 1;
@@ -350,6 +364,8 @@ int main(void)
           "psa_its_get honors the read offset");
 
     /* A destination larger than one copied transfer still reads the object. */
+    g_output = large;
+    g_output_size = sizeof(large);
     (void)memset(large, 0, sizeof(large));
     status = psa_its_get(0x1111ULL, 0U,
                          WT_FFM_TRANSFER_BYTES - sizeof(wt_vault_req_t) + 4U,
@@ -358,10 +374,34 @@ int main(void)
           memcmp(large, object, sizeof(object)) == 0,
           "psa_its_get reads into a buffer above the vault reply bound");
     (void)memset(large, 0, sizeof(large));
+    dispatches = g_storage_dispatches;
     status = psa_its_get(0x1111ULL, 0U, sizeof(large), large, &got);
     check(status == PSA_SUCCESS && got == sizeof(object) &&
-          memcmp(large, object, sizeof(object)) == 0,
-          "psa_its_get reads into a buffer above the transfer budget");
+          memcmp(large, object, sizeof(object)) == 0 &&
+          g_storage_dispatches == dispatches + 3U,
+          "WT-FFM-0035: oversized valid ITS buffer dispatches one read");
+    (void)memset(large, 0, sizeof(large));
+    dispatches = g_storage_dispatches;
+    status = psa_its_get(0x1111ULL, 0U, sizeof(large) + 1U, large, &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT &&
+          all_zero(large, sizeof(large)) &&
+          g_storage_dispatches == dispatches + 2U,
+          "WT-FFM-0012: ITS validates the full range before capping");
+    dispatches = g_storage_dispatches;
+    status = psa_its_get(0x1111ULL, sizeof(object) - 2U, UINT32_MAX,
+                         large, &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT &&
+          all_zero(large, sizeof(large)) &&
+          (g_storage_dispatches == dispatches ||
+           g_storage_dispatches == dispatches + 2U),
+          "WT-FFM-0012: ITS refuses the dev_apis s008 oversized range");
+#if SIZE_MAX > UINT32_MAX
+    status = psa_its_get(0x1111ULL, 0U, (size_t)UINT32_MAX + 1U,
+                         large, &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT &&
+          all_zero(large, sizeof(large)),
+          "WT-FFM-0012: ITS refuses a range above the veneer length limit");
+#endif
     (void)memset(large, 0, sizeof(large));
     status = psa_its_get(0x1111ULL, 0U, SIZE_MAX, large, &got);
     check(status != PSA_SUCCESS && all_zero(large, sizeof(large)),
@@ -414,10 +454,34 @@ int main(void)
           memcmp(buffer, ps_object, sizeof(ps_object)) == 0,
           "psa_ps_get returns the sealed object in the clear to its owner");
     (void)memset(large, 0, sizeof(large));
+    dispatches = g_storage_dispatches;
     status = psa_ps_get(0x4444ULL, 0U, sizeof(large), large, &got);
     check(status == PSA_SUCCESS && got == sizeof(ps_object) &&
-          memcmp(large, ps_object, sizeof(ps_object)) == 0,
-          "psa_ps_get reads into a buffer above the transfer budget");
+          memcmp(large, ps_object, sizeof(ps_object)) == 0 &&
+          g_storage_dispatches == dispatches + 3U,
+          "WT-FFM-0035: oversized valid PS buffer dispatches one read");
+    (void)memset(large, 0, sizeof(large));
+    dispatches = g_storage_dispatches;
+    status = psa_ps_get(0x4444ULL, 0U, sizeof(large) + 1U, large, &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT &&
+          all_zero(large, sizeof(large)) &&
+          g_storage_dispatches == dispatches + 2U,
+          "WT-FFM-0012: PS validates the full range before capping");
+    dispatches = g_storage_dispatches;
+    status = psa_ps_get(0x4444ULL, sizeof(ps_object) - 2U, UINT32_MAX,
+                        large, &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT &&
+          all_zero(large, sizeof(large)) &&
+          (g_storage_dispatches == dispatches ||
+           g_storage_dispatches == dispatches + 2U),
+          "WT-FFM-0012: PS refuses the dev_apis s008 oversized range");
+#if SIZE_MAX > UINT32_MAX
+    status = psa_ps_get(0x4444ULL, 0U, (size_t)UINT32_MAX + 1U,
+                        large, &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT &&
+          all_zero(large, sizeof(large)),
+          "WT-FFM-0012: PS refuses a range above the veneer length limit");
+#endif
     (void)memset(large, 0, sizeof(large));
     status = psa_ps_get(0x4444ULL, 0U, SIZE_MAX, large, &got);
     check(status != PSA_SUCCESS && all_zero(large, sizeof(large)),

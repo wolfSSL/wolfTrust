@@ -1,6 +1,6 @@
 # Application-interface footprint
 
-Measured on 2026-10-26 for STM32H563. All six default-profile builds exercise
+Measured on 2026-11-05 for STM32H563. All six default-profile builds exercise
 RNG, SHA-256, P-256 key generation, signing, and verification. Every row has one
 FreeRTOS application and one wolfTrust image. TPM and PKCS#11 run directly in
 Secure partitions; no provider image, extra RTOS, or worker is built or loaded.
@@ -13,15 +13,15 @@ reserved partition's capacity.
 
 | Engine | API | Secure | Application | Total | Above same-engine PSA |
 | --- | --- | ---: | ---: | ---: | ---: |
-| native | PSA | 94,208 | 33,488 | 127,696 | 0 |
-| native | TPM | 116,332 | 15,476 | 131,808 | 4,112 |
-| native | PKCS#11 | 125,276 | 11,052 | 136,328 | 8,632 |
-| hsm | PSA | 118,076 | 43,156 | 161,232 | 0 |
-| hsm | TPM | 160,960 | 15,476 | 176,436 | 15,204 |
-| hsm | PKCS#11 | 164,384 | 11,052 | 175,436 | 14,204 |
+| native | PSA | 94,400 | 33,488 | 127,888 | 0 |
+| native | TPM | 114,284 | 15,476 | 129,760 | 1,872 |
+| native | PKCS#11 | 123,260 | 11,052 | 134,312 | 6,424 |
+| hsm | PSA | 118,204 | 43,156 | 161,360 | 0 |
+| hsm | TPM | 154,044 | 15,476 | 169,520 | 8,160 |
+| hsm | PKCS#11 | 158,208 | 11,052 | 169,260 | 7,900 |
 
 The API-disabled Secure images exactly match the pinned base under these
-settings: 94,208 bytes native and 118,076 bytes HSM. Disabling both optional
+settings: 94,400 bytes native and 118,204 bytes HSM. Disabling both optional
 interfaces adds no Secure flash cost. Vault, RNG, attestation, storage, and
 update services remain enabled in every row.
 
@@ -39,16 +39,17 @@ token/session/object state, PIN protection, and wire handling.
 
 ## Reductions and retained operations
 
-The previous default builds used a separate Cortex-M provider guest:
+Compared with the pinned `wolfTrust-dev2` reference, using the same default
+operations and workload:
 
-| Engine | API | Previous total | Current total | Reduction |
+| Engine | API | Base total | Current total | Reduction |
 | --- | --- | ---: | ---: | ---: |
-| native | TPM | 156,756 | 131,808 | 24,948 |
-| native | PKCS#11 | 162,445 | 136,328 | 26,117 |
-| hsm | TPM | 180,104 | 176,436 | 3,668 |
-| hsm | PKCS#11 | 186,676 | 175,436 | 11,240 |
+| native | TPM | 132,000 | 129,760 | 2,240 |
+| native | PKCS#11 | 136,552 | 134,312 | 2,240 |
+| hsm | TPM | 176,532 | 169,520 | 7,012 |
+| hsm | PKCS#11 | 175,532 | 169,260 | 6,272 |
 
-The new layout removes the provider guest, its scheduler, and asynchronous
+Merged PR 76 removed the provider guest, its scheduler, and asynchronous
 forwarding/polling. TPM executes each command in one copied call. PKCS#11
 keeps bounded chunking for 4096-byte messages, with one execution call and no
 worker polling. Native domains share stateless crypto code already in flash.
@@ -79,11 +80,13 @@ reserved slot size is a layout limit; the table counts only linked code/data.
 
 ## Reproduce
 
-- Base: `7ae69b3cb6fae0a61e3d184264415d0ea0c01f36`.
+- Base: `wolfTrust-dev2`, `4bda5987a3b28e32917471b8ccf307111bb37eea`.
 - Compiler: Arm GNU Toolchain 15.2.Rel1, GCC 15.2.1.
 - Container: `ghcr.io/wolfssl/wolfboot-ci-m33mu@sha256:f6b66c9240ecd94f99400565196f956d1b067059b659a66dbbe83581cc7bf4c7`.
 - Cortex-M33, `-Os`, `WT_LTO=1`, one guest slot, default attestation, and
   production PIN KDF settings. All rows use the same pinned dependencies.
+- FreeRTOS: `f4fcc3b228643144727e9257ba12db1cb632b6e6`, kernel
+  `3a22924e0a9ddbbc8b0758881c33b3422a5cc20d`.
 
 The PSA fixture uses guest 0's flash/RAM addresses and HSM client ID 1. Its
 foreign-vector negative uses the other RAM window. The single-application
@@ -93,6 +96,8 @@ Initialize dependencies and the FreeRTOS workspace inside that container, then:
 
 ```sh
 WT_CRYPTO_PROFILE=default bash tools/measure_interface_footprint.sh
+python3 tools/check_interface_footprint.py build/interface-footprint/sizes.csv \
+  --max-overhead 8192
 ```
 
 The output contains `sizes.csv`, compiler/source configuration, logs, generated
@@ -100,14 +105,21 @@ operation selections, symbol/section reports, and all measured ELFs. The first
 argument chooses an output directory. `WT_CRYPTO_PROFILE=full` measures the
 broader profile, whose reference workloads differ from the default.
 
+The M33MU CI workflow runs this six-build default comparison on every PR.
+It rejects missing/duplicate rows, inconsistent section totals, emulator-only
+PIN settings, or total flash overhead above 8 KiB relative to same-engine PSA.
+This is a regression ceiling. Current overhead is 1.5% to 5.1%; exact parity
+and a minimum protocol implementation size have not been established.
+
 Earlier 11,980-byte native PSA application figures covered RNG/hash without
 P-256. They are not a comparable baseline for these builds.
 
 ## Validation
 
-Implementation: [7c503777](https://github.com/aidangarske/wolfTrust-fork/commit/7c5037779d2129523f051f1a5ce32d1dd8ae03b8).
-All 71 host suites and their C99 run pass. Six focused ASan/UBSan suites pass,
-and four RT700 API/engine cross-builds pass their layout checks.
+The aggregate host matrix includes both wolfCrypt ASN codecs, malformed DER
+keys/signatures and cross-codec key decoding. The profile tests check actual
+Secure settings for default, full and custom selections and parallel builds of
+the generated HSM callback. Disabled PKCS#11 wire operations are also tested.
 
 Local host tests exercise the synchronous production transports through the
 FF-M runtime, including exact bounds, identity checks, zeroization, connection
@@ -118,5 +130,6 @@ FreeRTOS, and the bare-metal TPM isolation client.
 
 Emulator-only PIN tests explicitly use 25 PBKDF2 rounds to bound execution
 time. Size measurements retain 600,000 rounds. Emulator and cross-build results
-are recorded separately from physical hardware qualification. Current branch
-CI results are available in [PR 76 checks](https://github.com/wolfSSL/wolfTrust/pull/76/checks).
+are recorded separately from physical hardware qualification. The
+[PR 76 checks](https://github.com/wolfSSL/wolfTrust/pull/76/checks) are evidence
+for the merged baseline; the follow-up requires its own qualification.

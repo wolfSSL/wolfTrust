@@ -143,11 +143,14 @@
 #define GCM_SMALL
 #if defined(WT_INTERFACE_LOCAL_PROVIDER) || \
     (defined(WT_ENGINE_HSM) && (defined(CONFIG_TPM) || defined(CONFIG_PKCS11)))
+/* fwTPM's common crypto helpers require CFB declarations. */
 #define WOLFSSL_AES_CFB
+#if !defined(WT_PROFILE_PROVIDER_EXTRA_CRYPTO) || WT_PROFILE_PROVIDER_EXTRA_CRYPTO
 #define WOLFSSL_AES_COUNTER
 #define HAVE_AESCTR
 #define HAVE_AESCCM
 #define WOLFSSL_ECDSA_DETERMINISTIC_K
+#endif
 #endif
 
 /* -------------------------------------------------------------------------
@@ -208,6 +211,10 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
 #define NO_DSA
 #define NO_DES3
 #define NO_MD5
+#if defined(CONFIG_TPM) && defined(WT_PROFILE_PROVIDER_EXTRA_CRYPTO) && \
+    !WT_PROFILE_PROVIDER_EXTRA_CRYPTO
+#define WOLFSSL_ASN_ORIGINAL
+#endif
 #if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
 #define HAVE_PBKDF2
 #define WOLFPKCS11_PBKDF2

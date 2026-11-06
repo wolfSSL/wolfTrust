@@ -28,6 +28,11 @@ out="$(cd "$out" && pwd)"
 export FREERTOS_DIR="${FREERTOS_DIR:-$root/tests/firmware/zephyr-stm32h5/.workspace/freertos}"
 export WT_CRYPTO_PROFILE="${WT_CRYPTO_PROFILE:-default}"
 export WT_LTO="${WT_LTO:-1}"
+# Footprint results always use production PIN settings, including in CI.
+if [ -n "${WT_PKCS11_TEST_PBKDF2_ITERATIONS:-}" ]; then
+    echo 'Refusing footprint measurement with emulator-only PIN settings' >&2
+    exit 1
+fi
 export WT_SECURE_FLASH_BASE=0x0C060000 WT_SECURE_FLASH_SIZE=0x40000
 export WT_MAX_GUESTS=1
 printf 'api,engine,role,text,data,bss,flash\n' > "$out/sizes.csv"
@@ -35,6 +40,8 @@ printf 'api,engine,role,text,data,bss,flash\n' > "$out/sizes.csv"
     git rev-parse HEAD
     git diff --stat HEAD --ignore-submodules=all
     git status --porcelain --ignore-submodules=all
+    git ls-tree HEAD lib/
+    git -C "$FREERTOS_DIR" rev-parse HEAD
     arm-none-eabi-gcc --version | head -1
     printf 'profile=%s lto=%s guests=%s\n' "$WT_CRYPTO_PROFILE" "$WT_LTO" "$WT_MAX_GUESTS"
 } > "$out/configuration.txt"

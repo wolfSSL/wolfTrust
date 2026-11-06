@@ -1052,6 +1052,9 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
         case WT_P11_COPY_OBJECT:
         {
             CK_OBJECT_HANDLE object = CK_INVALID_HANDLE;
+            if (!wt_profile_pkcs11_operation(WT_P11_COPY_OBJECT)) {
+                break;
+            }
             session = provider_ulong(&reader);
             value = provider_ulong(&reader);
             if (provider_template(&reader, attributes, &count, 0, NULL, NULL,
@@ -1071,6 +1074,9 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                 CKR_ARGUMENTS_BAD;
             break;
         case WT_P11_GET_OBJECT_SIZE:
+            if (!wt_profile_pkcs11_operation(WT_P11_GET_OBJECT_SIZE)) {
+                break;
+            }
             session = provider_ulong(&reader);
             value = provider_ulong(&reader);
             length = 0U;
@@ -1141,6 +1147,9 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             }
             break;
         case WT_P11_SET_ATTRIBUTE_VALUE:
+            if (!wt_profile_pkcs11_operation(WT_P11_SET_ATTRIBUTE_VALUE)) {
+                break;
+            }
             session = provider_ulong(&reader);
             value = provider_ulong(&reader);
             if (provider_template(&reader, attributes, &count, 0, NULL, NULL,
@@ -1182,6 +1191,9 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                 C_FindObjectsFinal(session) : CKR_ARGUMENTS_BAD;
             break;
         case WT_P11_ENCRYPT_INIT:
+            if (!wt_profile_pkcs11_operation(WT_P11_ENCRYPT_INIT)) {
+                break;
+            }
             session = provider_ulong(&reader);
             if (provider_mechanism(&reader, &decoded_mechanism,
                                    &mechanism, &provider_data_used) == 0) {
@@ -1192,6 +1204,9 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             }
             break;
         case WT_P11_DECRYPT_INIT:
+            if (!wt_profile_pkcs11_operation(WT_P11_DECRYPT_INIT)) {
+                break;
+            }
             session = provider_ulong(&reader);
             if (provider_mechanism(&reader, &decoded_mechanism,
                                    &mechanism, &provider_data_used) == 0) {
@@ -1286,6 +1301,12 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
         case WT_P11_DECRYPT_FINAL:
         case WT_P11_DIGEST_FINAL:
         case WT_P11_SIGN_FINAL:
+            if (!wt_profile_pkcs11_operation(WT_P11_ENCRYPT_FINAL) &&
+                    !wt_profile_pkcs11_operation(WT_P11_DECRYPT_FINAL) &&
+                    !wt_profile_pkcs11_operation(WT_P11_DIGEST_FINAL) &&
+                    !wt_profile_pkcs11_operation(WT_P11_SIGN_FINAL)) {
+                break;
+            }
             session = provider_ulong(&reader);
             data = provider_blob(&reader, &length);
             has_output = wt_pkcs11_get_u32(&reader);
@@ -1330,6 +1351,13 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
         case WT_P11_VERIFY_UPDATE:
         case WT_P11_VERIFY_FINAL:
         case WT_P11_SEED_RANDOM:
+            if (!wt_profile_pkcs11_operation(WT_P11_DIGEST_UPDATE) &&
+                    !wt_profile_pkcs11_operation(WT_P11_SIGN_UPDATE) &&
+                    !wt_profile_pkcs11_operation(WT_P11_VERIFY_UPDATE) &&
+                    !wt_profile_pkcs11_operation(WT_P11_VERIFY_FINAL) &&
+                    !wt_profile_pkcs11_operation(WT_P11_SEED_RANDOM)) {
+                break;
+            }
             session = provider_ulong(&reader);
             data = provider_blob(&reader, &length);
             if (!provider_request_valid(&reader)) {
@@ -1352,6 +1380,9 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             }
             break;
         case WT_P11_DIGEST_KEY:
+            if (!wt_profile_pkcs11_operation(WT_P11_DIGEST_KEY)) {
+                break;
+            }
             session = provider_ulong(&reader);
             value = provider_ulong(&reader);
             rv = provider_request_valid(&reader) ?
@@ -1368,6 +1399,9 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             break;
         case WT_P11_GENERATE_KEY:
         {
+            if (!wt_profile_pkcs11_operation(WT_P11_GENERATE_KEY)) {
+                break;
+            }
             CK_OBJECT_HANDLE key = CK_INVALID_HANDLE;
             session = provider_ulong(&reader);
             if (provider_mechanism(&reader, &decoded_mechanism,
@@ -1407,6 +1441,9 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
         }
         case WT_P11_DERIVE_KEY:
         {
+            if (!wt_profile_pkcs11_operation(WT_P11_DERIVE_KEY)) {
+                break;
+            }
             CK_OBJECT_HANDLE key = CK_INVALID_HANDLE;
             session = provider_ulong(&reader);
             if (provider_mechanism(&reader, &decoded_mechanism,

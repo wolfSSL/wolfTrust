@@ -35,6 +35,13 @@ eight interface-isolation jobs. QEMU `virt` runs 20 positives/isolation jobs
 across both profiles and engines. Versal cross-builds both engines, but its QEMU
 model cannot provide the XMPU/RISAF isolation those runtime scenarios require.
 
+`stm32h563_interface_footprint` builds the six default-profile API/engine pairs
+with the same compiler, pinned FreeRTOS source, one application and production
+PIN settings. Missing measurements fail the job. Each TPM/PKCS#11 total must
+remain within 8 KiB of same-engine PSA; the uploaded CSV reports Secure,
+application, total flash and RAM sections separately. This is a regression
+ceiling, not a claim of exact parity.
+
 The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
 `pr-osp-select.yml` is: a `select` job checks the routing table
 (`scenario_matrix.py --selftest`), reads the PR's `ci:*` labels, the
@@ -72,7 +79,7 @@ test-target` also reads. The table below is a representative slice:
 | `stm32h563_devstorage_<engine>` | `devstorage` | PSA ITS/PS conformance |
 | `stm32h563_devcrypto_<engine>` | `devcrypto` | PSA Crypto conformance |
 | `stm32h563_pkcs11_<zephyr\|freertos>_<engine>_<profile>` | `pkcs11` | each RTOS application runs the nine-case default or 40-case full PKCS#11 suite through `SERVICE_PKCS11` and the isolated provider |
-| `stm32h563_tpm_<zephyr\|freertos>_<engine>_<profile>` | `tpm` | each RTOS application sends real TPM 2.0 commands through `SERVICE_TPM` to the isolated fwTPM guest |
+| `stm32h563_tpm_<zephyr\|freertos>_<engine>_<profile>` | `tpm` | each RTOS application sends real TPM 2.0 commands through `SERVICE_TPM` to the Secure fwTPM partition |
 | `stm32h563_pkcs11neg_<engine>_<profile>` | `pkcs11neg` | PKCS#11 partition-band isolation and provider recovery |
 | `stm32h563_tpmneg_<engine>_<profile>` | `tpmneg` | TPM relay and fwTPM partition-band isolation |
 | `stm32h563_vaultrecover_<engine>` | `vaultrecover` | #95 foreign pool reformatted |

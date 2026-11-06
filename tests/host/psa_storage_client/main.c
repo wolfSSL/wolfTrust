@@ -96,12 +96,15 @@ static int test_check_read(void* context, psa_client_id_t caller,
     return size == 0U || address != NULL;
 }
 
+/* Caller memory ends well short of this span, as on an LP64 Normal world. */
+#define TEST_CALLER_SPAN (1024U * 1024U)
+
 static int test_check_write(void* context, psa_client_id_t caller,
                             void* address, size_t size)
 {
     (void)context;
     (void)caller;
-    return size == 0U || address != NULL;
+    return size == 0U || (address != NULL && size <= TEST_CALLER_SPAN);
 }
 
 static void test_panic(void* context, int32_t partition_id)
@@ -363,6 +366,12 @@ int main(void)
     status = psa_its_get(0x1111ULL, 0U, SIZE_MAX, large, &got);
     check(status != PSA_SUCCESS && all_zero(large, sizeof(large)),
           "psa_its_get refuses a buffer range that wraps the address space");
+    (void)memset(large, 0, sizeof(large));
+    got = 1U;
+    status = psa_its_get(0x1111ULL, 0U, (size_t)TEST_CALLER_SPAN + 1U, large, &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT && got == 0U &&
+          all_zero(large, sizeof(large)),
+          "psa_its_get refuses a buffer range past the caller's memory");
 
     /* WRITE_ONCE lifecycle through the client. */
     status = psa_its_set(0x2222ULL, sizeof(object), object,
@@ -413,6 +422,12 @@ int main(void)
     status = psa_ps_get(0x4444ULL, 0U, SIZE_MAX, large, &got);
     check(status != PSA_SUCCESS && all_zero(large, sizeof(large)),
           "psa_ps_get refuses a buffer range that wraps the address space");
+    (void)memset(large, 0, sizeof(large));
+    got = 1U;
+    status = psa_ps_get(0x4444ULL, 0U, (size_t)TEST_CALLER_SPAN + 1U, large, &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT && got == 0U &&
+          all_zero(large, sizeof(large)),
+          "psa_ps_get refuses a buffer range past the caller's memory");
     (void)memset(&info, 0, sizeof(info));
     status = psa_ps_get_info(0x4444ULL, &info);
     check(status == PSA_SUCCESS && info.size == sizeof(ps_object) &&

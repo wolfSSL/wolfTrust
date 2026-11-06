@@ -39,7 +39,7 @@ token/session/object state, PIN protection, and wire handling.
 
 ## Reductions and retained operations
 
-Compared with the current `wolfTrust-dev2` base, using the same default
+Compared with the pinned `wolfTrust-dev2` reference, using the same default
 operations and workload:
 
 | Engine | API | Base total | Current total | Reduction |
@@ -80,7 +80,7 @@ reserved slot size is a layout limit; the table counts only linked code/data.
 
 ## Reproduce
 
-- Base: `wolfTrust-dev2`, `038e2455949aa1c873b0069e4c8ef2ee7467d834`.
+- Base: `wolfTrust-dev2`, `4bda5987a3b28e32917471b8ccf307111bb37eea`.
 - Compiler: Arm GNU Toolchain 15.2.Rel1, GCC 15.2.1.
 - Container: `ghcr.io/wolfssl/wolfboot-ci-m33mu@sha256:f6b66c9240ecd94f99400565196f956d1b067059b659a66dbbe83581cc7bf4c7`.
 - Cortex-M33, `-Os`, `WT_LTO=1`, one guest slot, default attestation, and

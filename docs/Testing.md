@@ -104,6 +104,12 @@ The dedicated guest configurations also exercise the PSA Crypto, Storage, and
 Initial Attestation validation applications. Those are target scenarios, not
 part of a plain `make test` result.
 
+The `psa_storage_client` host suite checks the full destination range for ITS
+and PS reads, including the oversized range used by Arm storage test `s008`.
+Valid buffers larger than the copied-transfer budget still read successfully
+and execute the storage request once. The `devstorage` target scenario runs
+the pinned Arm storage suite through the production client and Secure gateway.
+
 ## M33MU scenarios
 
 The baseline target command is:

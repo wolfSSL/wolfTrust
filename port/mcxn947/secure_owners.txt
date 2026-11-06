@@ -1,0 +1,3 @@
+# MCXN947 objects, appended to tools/secure_owners.txt by the secure link.
+sec_platform_mcxn947.o                 spm
+wt_sec_rom_flash.o                     spm

@@ -1,9 +1,9 @@
 name: M33MU
 
 on:
-  # Pull requests run each port's smoke tier; the ci:all, ci:h5, and ci:rt700
-  # labels, pushes to main, the nightly schedule (workflow_call from
-  # nightly.yml), and manual dispatch run a port's full matrix.
+  # Pull requests run each port's smoke tier; the ci:all, ci:h5, ci:rt700, and
+  # ci:mcxn947 labels, pushes to main, the nightly schedule (workflow_call
+  # from nightly.yml), and manual dispatch run a port's full matrix.
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   push:
@@ -13,7 +13,7 @@ on:
       port:
         description: Port whose full matrix to run
         type: choice
-        options: [all, stm32h563, mimxrt700]
+        options: [all, stm32h563, mimxrt700, mcxn947]
         default: all
   workflow_call:
 
@@ -278,7 +278,7 @@ jobs:
           fi
 
   # Label-selected, the wolfProvider way: one select job reads the ci:* labels
-  # (ci:h5 or ci:rt700 for that port's full matrix when only that port
+  # (ci:h5, ci:rt700 or ci:mcxn947 for that port's full matrix when only that port
   # changed, ci:all or ci:m33mu for everything after a core change, no label
   # for each port's smoke tier), the event, and the dispatch input, then one
   # matrix job runs exactly those scenario groups, so nothing shows up skipped.
@@ -324,27 +324,30 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
 
-      # The RT700 wolfBoot first stage builds against the MCUXpresso SDK, staged
-      # the way wolfBoot's own imxrt700 emulator workflow stages it.
+      # The RT700 and MCXN947 wolfBoot first stages build against the
+      # MCUXpresso SDK, staged the way wolfBoot's own imxrt700 emulator
+      # workflow stages it, one board per port.
       - uses: actions/checkout@v4
-        if: matrix.port == 'mimxrt700'
+        if: matrix.port == 'mimxrt700' || matrix.port == 'mcxn947'
         with:
           repository: nxp-mcuxpresso/CMSIS_5
           ref: f9cf5df6d51a95f0146930d75af3d71977cf795a
           path: CMSIS_5
 
       - name: Cache MCUXpresso SDK
-        if: matrix.port == 'mimxrt700'
+        if: matrix.port == 'mimxrt700' || matrix.port == 'mcxn947'
         id: cache-mcuxpresso
         uses: actions/cache@v4
         with:
           path: |
             mcuxpresso-sdk
             venv
-          key: mcuxpresso-sdk-mimxrt700evk-${{ hashFiles('.github/workflows/m33mu.yml') }}
+          key: mcuxpresso-sdk-${{ matrix.port == 'mimxrt700' && 'mimxrt700evk' || 'frdmmcxn947' }}-${{ hashFiles('.github/workflows/m33mu.yml') }}
 
       - name: Setup MCUXpresso SDK
-        if: matrix.port == 'mimxrt700' && steps.cache-mcuxpresso.outputs.cache-hit != 'true'
+        if: (matrix.port == 'mimxrt700' || matrix.port == 'mcxn947') && steps.cache-mcuxpresso.outputs.cache-hit != 'true'
+        env:
+          SDK_BOARD: ${{ matrix.port == 'mimxrt700' && 'mimxrt700evk' || 'frdmmcxn947' }}
         run: |
           python3 -m venv venv
           . venv/bin/activate
@@ -352,12 +355,12 @@ jobs:
           west init -m https://github.com/nxp-mcuxpresso/mcuxsdk-manifests.git \
             --mr v26.06.00-LTS mcuxpresso-sdk
           cd mcuxpresso-sdk
-          sed -i '/se_hostlib\|emwin/d' manifests/boards/mimxrt700evk.yml
-          west update_board --set board mimxrt700evk
+          sed -i '/se_hostlib\|emwin/d' "manifests/boards/$SDK_BOARD.yml"
+          west update_board --set board "$SDK_BOARD"
 
       - name: Run target scenarios
         env:
-          MCUXSDK: ${{ matrix.port == 'mimxrt700' && '1' || '' }}
+          MCUXSDK: ${{ (matrix.port == 'mimxrt700' || matrix.port == 'mcxn947') && '1' || '' }}
           MCUXPRESSO: ${{ github.workspace }}/mcuxpresso-sdk/mcuxsdk
           MCUXPRESSO_CMSIS: ${{ github.workspace }}/CMSIS_5/CMSIS
         run: tests/target/run_suite.sh ${{ matrix.arm }} ${{ matrix.key }}

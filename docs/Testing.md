@@ -392,6 +392,64 @@ These are emulator results. They prove the SAU attribution and the monitor's
 containment on a faithful core model; the silicon `ahbscneg` run on the EVK is
 recorded separately.
 
+## MCXN947 emulator scenarios
+
+M33MU also models the MCXN947 (`--cpu mcxn947`: internal flash, the boot ROM
+flash API tree, and, with `tests/target/m33mu-mcxn947.patch`, the ELS
+`RND_REQ` register model behind its real clock gate, the ROM's page-based
+bit-clearing flash program, an executable ROM, the OEM_OPEN life cycle in
+SYSCON, and the post-indexed `LDRSH` (immediate) decode the conformance
+client needs), so the MCXN947 port has the same emulator gate as the MIMXRT700,
+with the same scenario names:
+
+```sh
+make test-target TARGET=mcxn947
+tests/target/run_mcxn947_m33mu.sh positive
+tests/target/run_mcxn947_m33mu.sh sauneg
+```
+
+`sauneg` is the MIMXRT700's `ahbscneg` on this part: guest 0 stores into
+guest 1's RAM window, which the per-dispatch SAU window keeps Secure, the
+SAU refuses the store, and the monitor contains it. Every other scenario is
+the MIMXRT700 one run on the MCXN947 model, with the port's own band, stack,
+and SPM peripheral addresses read from `port/mcxn947/memory_map.h`; the
+scenarios the port runs, and the level 3 scenarios it still exempts, are in
+`tests/target/lib/scenario_matrix.py`. The runner builds its own pinned
+emulator and wolfBoot first stage (`tests/target/lib/mcxn947_wolfboot.sh`:
+the wolfSSL/wolfBoot#948 branch at its fork ref until it merges, from
+`config/examples/mcxn-tz-wolftrust.config` plus
+`tests/target/wolfboot-mcxn947-lifecycle.patch`, the life cycle read the
+attestation service needs); building it needs the MCUXpresso SDK as any MCXN
+wolfBoot build does. `MCXN947_WOLFBOOT_DIR` reuses a tree the library built.
+The flash image offsets are physical: wolfBoot at 0, the signed Secure image
+at `0x40000`, the guests at `0x80000` and `0x100000`.
+
+These are emulator results; the board's are in the next section, recorded
+separately.
+
+## MCXN947 hardware
+
+`make test-hardware TARGET=mcxn947` runs `tests/target/run_mcxn947_suite.sh`
+on the host that owns the FRDM-MCXN947's MCU-Link: `positive`, `sauneg`,
+`periphneg`, `restart`, `psa`, and `wrpoff` by default (`WT_MCXN947_SCENARIOS`
+overrides the list; `WT_ENGINE` selects the crypto engine), each built,
+flashed at its physical offset, erased to a fresh vault, read back, and
+asserted over the debug port (`tests/target/run_mcxn947_hardware.sh`; the
+MCXN947 Guide lists what each scenario asserts). The two guests share one
+LPUART, so their console lines interleave on silicon; the console is captured
+as evidence and the assertions are the mailboxes and the monitor's counters.
+The suite's logs (`logs/mcxn947-suite/`) and the runner's retained evidence
+(`logs/mcxn947-hw/<scenario>-<engine>/`: console, readbacks, SWD dump)
+live outside `build/`, which every run cleans before it builds, and one batch
+at a time owns the board through `logs/mcxn947-hw.lock` (`flock`, shared by
+the runner); `tests/target/test_mcxn947_suite_evidence.sh` checks both under
+`make test`.
+Without the probe, console, pyOCD pack, or SPSDK, `tests/target/detect_mcxn947.sh`
+reports why and the suite skips. The device life cycle flow is driven
+separately through `TARGET=mcxn947 tests/target/provisioning/provisioning_ctrl.sh`
+and writes no fuse; see the MCXN947 Guide. Hardware test commands write flash
+and reset the board.
+
 ## MIMXRT700 hardware
 
 `make test-hardware TARGET=mimxrt700` runs `tests/target/run_rt700_suite.sh`
@@ -502,7 +560,10 @@ The workflows under `.github/workflows/` separately run:
   home-directory references in the published docs);
 - fuzz targets;
 - selected and nightly M33MU scenarios; and
-- the MIMXRT700 chain under M33MU's RT700 model (the `RT700` scenario matrix).
+- the MIMXRT700 chain under M33MU's RT700 model (the `RT700` scenario matrix);
+  and
+- the MCXN947 chain under M33MU's MCXN947 model (the `MCXN947` scenario
+  matrix).
 
 ### Trigger routing
 
@@ -516,11 +577,13 @@ that picks each port's tier and one matrix job that runs exactly those scenario
 groups) is tiered. Every pull request runs
 each port's smoke tier on both crypto engines (STM32H563: `positive`,
 `gtzcneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`; MIMXRT700:
-`positive`, `ahbscneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`).
+`positive`, `ahbscneg`, `crossdomain`, `bothpsa`, `confboot`, `devcrypto`;
+MCXN947: `positive`, `sauneg`, `crossdomain`, `bothpsa`, `confboot`,
+`devcrypto`).
 The full matrix runs on a
 push to `main`, on the nightly schedule, on
 manual dispatch (with a `port` input), and on a pull request that carries the
-`ci:h5`, `ci:rt700`, or `ci:all` label. The scenario groups per port and tier
+`ci:h5`, `ci:rt700`, `ci:mcxn947`, or `ci:all` label. The scenario groups per port and tier
 are in `tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>`
 runs the same smoke tier locally and `WT_TIER=full` every scenario.
 

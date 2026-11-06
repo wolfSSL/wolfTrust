@@ -1211,10 +1211,9 @@ static void memneg_its_calls(psa_status_t* st)
     st[1] = psa_its_get(g_memneg_uid, 0u, 16u, &g_memneg_page[64], &got);
 }
 
-/* A PSA call reaches only memory the Normal world still has (DEN0140 Table
- * 1.3): a vector in a page it lent or donated is a PROGRAMMER_ERROR before
- * any byte is read or written; one in a page it shares, or has reclaimed, is
- * served (the object does not exist). */
+/* DEN0140 Table 1.3: a raw psa_call vector in a lent or donated page is a
+ * PROGRAMMER_ERROR, which psa_its_get reports as the PSA Storage 1.0
+ * INVALID_ARGUMENT; shared or reclaimed pages are served. */
 static int memneg_psa_owned(void)
 {
     static const uint32_t fids[3] = {
@@ -1225,6 +1224,7 @@ static int memneg_psa_owned(void)
     };
     psa_status_t st[2];
     psa_status_t want;
+    psa_status_t want_get;
     uint64_t handle = 0u;
     uint32_t i;
     int ok = 1;
@@ -1234,7 +1234,9 @@ static int memneg_psa_owned(void)
         memneg_its_calls(st);
         want = (i == 0u) ? PSA_ERROR_DOES_NOT_EXIST
                          : PSA_ERROR_PROGRAMMER_ERROR;
-        ok = ok && (st[0] == want) && (st[1] == want);
+        want_get = (i == 0u) ? PSA_ERROR_DOES_NOT_EXIST
+                             : PSA_ERROR_INVALID_ARGUMENT;
+        ok = ok && (st[0] == want) && (st[1] == want_get);
         ok = ok && (mem_reclaim_smc(handle) == WT_FFA_SUCCESS32);
         memneg_its_calls(st);
         ok = ok && (st[0] == PSA_ERROR_DOES_NOT_EXIST) &&

@@ -123,6 +123,11 @@ void wt_arch_wait_for_interrupt(void)
 
 bool wt_arch_in_handler_mode(void) { return g_handler; }
 bool wt_arch_trap_from_guest_thread(void) { return false; }
+#ifdef CONFIG_VNET
+void wt_arch_route_irq_to_guest(uint32_t irq) { (void)irq; }
+void wt_arch_set_guest_irq_pending(uint32_t irq, bool asserted)
+{ (void)irq; (void)asserted; }
+#endif
 void wt_arch_mask_all_guest_irqs(void) {}
 void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* mask) { (void)mask; }
 void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask) { (void)mask; }
@@ -172,6 +177,57 @@ const wt_guest_measurement_t* wt_guest_measurement_get(size_t i,
 int wt_guest_measurement_record(const wt_guest_measurement_t* r,
                                 const char* name)
 { (void)r; (void)name; return 0; }
+
+#ifdef CONFIG_VNET
+/* Bind guest port vm with mac and queue one frame to it from the peer. */
+static int vnet_bind_and_queue(vnet_switch_t* sw, uint32_t vm,
+                               const vnet_mac_t* mac, const vnet_mac_t* peer)
+{
+    uint8_t frame[64];
+
+    (void)memset(frame, 0, sizeof(frame));
+    (void)memcpy(&frame[0], mac->b, VNET_MAC_LEN);
+    (void)memcpy(&frame[6], peer->b, VNET_MAC_LEN);
+    frame[12] = 0x08U;
+    return vnet_switch_open(sw, vm, NULL) == WT_VNET_OK &&
+           vnet_switch_assign_mac(sw, vm, mac) == WT_VNET_OK &&
+           vnet_switch_tx(sw, 1U - vm, frame, sizeof(frame), 0U) == WT_VNET_OK;
+}
+
+/* A restarted or quarantined guest's VNET port does not outlive it. */
+static void test_vnet_guest_reset(void)
+{
+    static const vnet_mac_t mac0 = {{0x02, 0, 0, 0, 0, 0x0A}};
+    static const vnet_mac_t mac1 = {{0x02, 0, 0, 0, 0, 0x0B}};
+    vnet_switch_t* sw;
+
+    wt_vnet_service_init_state();
+    sw = wt_vnet_service_switch();
+    check(sw != NULL && vnet_switch_open(sw, 1U, NULL) == WT_VNET_OK &&
+          vnet_switch_assign_mac(sw, 1U, &mac1) == WT_VNET_OK &&
+          vnet_bind_and_queue(sw, 0U, &mac0, &mac1) &&
+          vnet_pool_in_use_count(&sw->pool) == 1U,
+          "guest port bound with a queued frame");
+
+    setup(2U, 2U);
+    wt_monitor_quarantine_guest(0U);
+    check(!sw->vnics[0].open && !sw->vnics[0].mac_set &&
+          vnet_pool_in_use_count(&sw->pool) == 0U &&
+          vnet_fdb_lookup(&sw->fdb, &mac0) == VNET_FDB_NO_VM &&
+          sw->vnics[1].open &&
+          vnet_fdb_lookup(&sw->fdb, &mac1) == 1U,
+          "quarantine releases only that guest's VNET port");
+
+    check(vnet_bind_and_queue(sw, 0U, &mac0, &mac1),
+          "guest port rebound after quarantine");
+    setup(2U, 2U);
+    g_runtime[1].state = WT_GUEST_READY;
+    check(fault_current() == DISPATCHED && !sw->vnics[0].open &&
+          vnet_pool_in_use_count(&sw->pool) == 0U &&
+          vnet_fdb_lookup(&sw->fdb, &mac0) == VNET_FDB_NO_VM,
+          "guest restart releases its VNET port");
+}
+#endif
 
 int main(void)
 {
@@ -248,5 +304,8 @@ int main(void)
     check(event == HALTED && g_runtime[0].state == WT_GUEST_FAULTED &&
           g_resets == 0U, "recovery verification failure remains terminal");
 
+#ifdef CONFIG_VNET
+    test_vnet_guest_reset();
+#endif
     return g_failures == 0 ? 0 : 1;
 }

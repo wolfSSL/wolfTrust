@@ -69,6 +69,13 @@ void wt_vnet_service_refresh_irq(wt_guest_id_t guest_id)
     wt_arch_set_guest_irq_pending((uint32_t)WT_VNET_RX_IRQ, pending);
 }
 
+void wt_vnet_service_reset_guest(wt_guest_id_t guest_id)
+{
+    if (!g_switch_ready) return;
+    if ((uint32_t)guest_id >= (uint32_t)WT_MAX_GUESTS) return;
+    (void)vnet_switch_reset_vm(&g_switch, (uint32_t)guest_id);
+}
+
 vnet_switch_t* wt_vnet_service_switch(void)
 {
     return g_switch_ready ? &g_switch : NULL;

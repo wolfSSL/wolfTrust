@@ -29,12 +29,17 @@ else
 GC_FLAGS := -Wl,--gc-sections
 endif
 TEST := $(BUILD_DIR)/test_monitor
+TEST_VNET := $(BUILD_DIR)/test_monitor_vnet
+VNET_SRCS := $(ROOT)/src/services/vnet/vnet_service.c \
+    $(ROOT)/src/vnet/vnet_switch.c $(ROOT)/src/vnet/vnet_fdb.c \
+    $(ROOT)/src/vnet/vnet_mac.c $(ROOT)/src/vnet/vnet_pool.c \
+    $(ROOT)/src/vnet/vnet_ring.c
 GENERATOR := $(ROOT)/tools/manifest/generate.py
 FIXTURE := $(ROOT)/port/stm32h563/manifest.json
 GENERATED := $(BUILD_DIR)/wolftrust_manifest_generated.h
 
 .PHONY: all run sanitize valgrind clean
-all: $(TEST)
+all: $(TEST) $(TEST_VNET)
 $(GENERATED): $(GENERATOR) $(FIXTURE)
 	mkdir -p $(BUILD_DIR)
 	python3 $(GENERATOR) $(FIXTURE) $(BUILD_DIR) \
@@ -42,13 +47,19 @@ $(GENERATED): $(GENERATOR) $(FIXTURE)
 $(TEST): main.c $(ROOT)/src/monitor.c $(ROOT)/src/restart_policy.c $(GENERATED)
 	$(CC) $(CFLAGS) $(GC_FLAGS) $(EXTRA_LDFLAGS) -o $@ \
 		main.c $(ROOT)/src/restart_policy.c
-run: $(TEST)
+$(TEST_VNET): main.c $(ROOT)/src/monitor.c $(ROOT)/src/restart_policy.c \
+    $(VNET_SRCS) $(GENERATED)
+	$(CC) $(CFLAGS) -DCONFIG_VNET $(GC_FLAGS) $(EXTRA_LDFLAGS) -o $@ \
+		main.c $(ROOT)/src/restart_policy.c $(VNET_SRCS)
+run: $(TEST) $(TEST_VNET)
 	$(TEST)
+	$(TEST_VNET)
 sanitize:
 	$(MAKE) run CC=clang BUILD_DIR=$(BUILD_DIR)/sanitize \
 		EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
 		EXTRA_LDFLAGS="-fsanitize=address,undefined"
-valgrind: $(TEST)
+valgrind: $(TEST) $(TEST_VNET)
 	valgrind --error-exitcode=1 --leak-check=full $(TEST)
+	valgrind --error-exitcode=1 --leak-check=full $(TEST_VNET)
 clean:
 	rm -rf $(BUILD_DIR)

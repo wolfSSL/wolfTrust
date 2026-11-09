@@ -417,6 +417,9 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
     /* Quarantined or restarted, the guest will never close its handles. */
     (void)wt_ffm_fail_client_connections(wt_ffm_boot_runtime_mut(),
                                          -(psa_client_id_t)(guest_id + 1U));
+#ifdef CONFIG_VNET
+    wt_vnet_service_reset_guest(guest_id);
+#endif
     restart_window = wt_find_restart_clear_window(config);
     if (restart_window != NULL) {
         wt_arch_zero_guest_memory(restart_window->base, restart_window->size);
@@ -672,6 +675,9 @@ void wt_monitor_quarantine_guest(wt_guest_id_t guest_id)
 
     (void)wt_ffm_fail_client_connections(wt_ffm_boot_runtime_mut(),
                                          -(psa_client_id_t)(guest_id + 1U));
+#ifdef CONFIG_VNET
+    wt_vnet_service_reset_guest(guest_id);
+#endif
     runtime->state = WT_GUEST_FAULTED;
     g_wt_quarantine_events++;
     g_wt_launch_refused_mask |= (uint32_t)1U << guest_id;

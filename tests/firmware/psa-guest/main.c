@@ -849,7 +849,7 @@ static void exercise_hsm_attack_probe(void)
  * PSA FWU 1.0 reject/clean tail restores READY. */
 #define GUEST_FWU_OP_QUERY   1u
 #if !defined(WT_FWU_PROBE_TAIL_BYTES)
-#define WT_FWU_PROBE_TAIL_BYTES 32u
+#define WT_FWU_PROBE_TAIL_BYTES 37u
 #endif
 #if WT_FWU_PROBE_TAIL_BYTES < 1 || WT_FWU_PROBE_TAIL_BYTES > 512
 #error "WT_FWU_PROBE_TAIL_BYTES must fit the probe's 512-byte write payload"
@@ -996,6 +996,7 @@ static void exercise_fwu(void)
     tail_off = (uint32_t)WT_FWU_PROBE_STREAM_BYTES;
 #endif
 
+    /* An unaligned final block: the backend pads it to its program unit. */
     memset(&req, 0, sizeof(req));
     req.offset = tail_off;
     req.size = WT_FWU_PROBE_TAIL_BYTES;

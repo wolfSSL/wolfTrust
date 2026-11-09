@@ -55,6 +55,7 @@ L3_REQUIRED = frozenset((
 
 # smoke: the per-PR set (one job per scenario and engine). groups: the full
 # tier, packed so each job builds the emulator and wolfBoot once.
+# label_only: an unlabeled pull request runs none of this port.
 PORTS = {
     "stm32h563": {
         "label": "ci:h5",
@@ -115,6 +116,7 @@ PORTS = {
     },
     "mimxrt700": {
         "label": "ci:rt700",
+        "label_only": True,
         "arm": "rt700-m33mu",
         "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25",
         "smoke": ("positive", "ahbscneg", "crossdomain", "bothpsa", "confboot",
@@ -199,14 +201,17 @@ def entries(port, tier, engine):
 
 def ci_plan(event, labels, port_input):
     """Every job of one workflow run: a pull request gets each port's smoke
-    tier unless its label (or ci:all) asks for the full one; a push, the
-    schedule, or a dispatch gets the full tier of the selected ports."""
+    tier unless its label (or ci:all) asks for the full one, and a label_only
+    port runs only when labelled; a push, the schedule, or a dispatch gets the
+    full tier of the selected ports."""
     out = []
     for port in sorted(PORTS):
         label = PORTS[port]["label"]
         if event == "pull_request":
             full = ("ci:all" in labels or "ci:m33mu" in labels or
                     label in labels)
+            if not full and PORTS[port].get("label_only"):
+                continue
         elif event == "workflow_dispatch":
             full = port_input in ("", "all", port)
             if not full:
@@ -218,9 +223,9 @@ def ci_plan(event, labels, port_input):
 
 
 SELFTEST = (
-    ("pull_request", "", "", "mimxrt700:smoke stm32h563:smoke"),
+    ("pull_request", "", "", "stm32h563:smoke"),
     ("pull_request", "ci:rt700", "", "mimxrt700:full stm32h563:smoke"),
-    ("pull_request", "ci:h5", "", "mimxrt700:smoke stm32h563:full"),
+    ("pull_request", "ci:h5", "", "stm32h563:full"),
     ("pull_request", "ci:all", "", "mimxrt700:full stm32h563:full"),
     ("pull_request", "ci:m33mu", "", "mimxrt700:full stm32h563:full"),
     ("pull_request", "ci:h5 ci:rt700", "", "mimxrt700:full stm32h563:full"),

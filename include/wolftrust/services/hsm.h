@@ -232,6 +232,10 @@ psa_status_t wt_hsm_vault_lookup_in(struct whNvmContext_t* nvm,
                                     whNvmId* out_free_id);
 psa_status_t wt_hsm_vault_reserve_object_in(struct whNvmContext_t* nvm,
                                             whNvmSize len);
+/* Pool gate for writing fixed-id table id of len bytes, for writers outside
+ * the vault such as the boot rollback floor. */
+psa_status_t wt_hsm_vault_reserve_table_in(struct whNvmContext_t* nvm,
+                                           whNvmId id, whNvmSize len);
 
 /* Keystore object door (SERVICE_VAULT WT_VAULT_OP_NVM_*): the vault-side
  * policy and store access behind the crypto partition's NVM callbacks,

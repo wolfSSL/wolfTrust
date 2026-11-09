@@ -152,7 +152,7 @@ static int wt_nvm_rollback_load(wt_rollback_table_t* table)
     rc = wh_Nvm_GetMetadata(&g_wt_nvm_ctx, WT_HSM_ROLLBACK_TABLE_ID, &meta);
     if (rc == WH_ERROR_NOTFOUND) {
         wt_rollback_table_init(table);
-        return 0;
+        return 1;
     }
     if (rc != WH_ERROR_OK || meta.len != sizeof(*table)) {
         return -1;
@@ -170,6 +170,10 @@ static int wt_nvm_rollback_store(const wt_rollback_table_t* table)
     whNvmMetadata meta;
     int rc;
 
+    if (wt_hsm_vault_reserve_table_in(&g_wt_nvm_ctx, WT_HSM_ROLLBACK_TABLE_ID,
+            (whNvmSize)sizeof(*table)) != PSA_SUCCESS) {
+        return -1;
+    }
     (void)memset(&meta, 0, sizeof(meta));
     meta.id = WT_HSM_ROLLBACK_TABLE_ID;
     meta.access = WH_NVM_ACCESS_ANY;
@@ -200,12 +204,14 @@ int wt_hsm_rollback_enforce(uint32_t image_version)
     size_t i;
     int refused_platform = 0;
     int changed = 0;
+    int loaded;
 
     g_active_image_version = image_version;
     guest_count = wt_monitor_state()->guest_count;
 
     g_image_floor_valid = 0;
-    if (wt_nvm_rollback_load(&table) != 0) {
+    loaded = wt_nvm_rollback_load(&table);
+    if (loaded < 0) {
         /* An unreadable floor cannot prove anything: fail closed. */
         refused_platform = 1;
     }
@@ -264,6 +270,12 @@ int wt_hsm_rollback_enforce(uint32_t image_version)
         }
     }
 
+    /* The first boot that finds no table writes one while the store is still
+     * empty, so later advances only supersede it; that create alone failing
+     * persists nothing new, so it retries next boot instead of refusing. */
+    if (!changed && loaded == 1) {
+        (void)wt_nvm_rollback_store(&table);
+    }
     if (changed && wt_nvm_rollback_store(&table) != 0) {
         /* An unpersisted floor must not launch guests: the next reset would
          * accept the previous floor again. Quarantine fail-closed; secure

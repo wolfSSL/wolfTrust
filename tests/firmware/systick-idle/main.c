@@ -230,6 +230,20 @@ void Reset_Handler(void)
           g_test_context.pc == 0U && g_test_context.frame_stacked);
     __asm volatile("msr msp_ns, %0" : : "r"(0U));
 
+    /* An RTOS guest's frame sits on PSP_NS: the capture keeps the banked
+     * MSP_NS as the guest's main stack, never the frame address. */
+    __asm volatile("msr msp_ns, %0" : : "r"(TEST_GUEST_RAM_BASE + 0x100U));
+    wt_arch_guest_context_capture(&g_test_context,
+        (const wt_trap_frame_t*)(TEST_GUEST_RAM_BASE + 0x40U));
+    check(g_test_context.msp_ns == TEST_GUEST_RAM_BASE + 0x100U);
+    __asm volatile("msr msp_ns, %0" : : "r"(WT_PLATFORM_GUEST_STACK_WINDOW_BASE +
+                   WT_PLATFORM_GUEST_STACK_WINDOW_SIZE));
+    wt_arch_guest_context_capture(&g_test_context,
+        (const wt_trap_frame_t*)(TEST_GUEST_RAM_BASE + 0x40U));
+    check(g_test_context.msp_ns == WT_PLATFORM_GUEST_STACK_WINDOW_BASE +
+                                   WT_PLATFORM_GUEST_STACK_WINDOW_SIZE);
+    __asm volatile("msr msp_ns, %0" : : "r"(0U));
+
     __asm volatile("bkpt #0x7f");
     for (;;) {}
 }

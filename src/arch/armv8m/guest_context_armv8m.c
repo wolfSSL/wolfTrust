@@ -740,25 +740,25 @@ uintptr_t wt_arch_trap_pc(const wt_trap_frame_t* frame)
 void wt_arch_guest_context_capture(wt_guest_context_t* context,
                                        const wt_trap_frame_t* frame)
 {
-    wt_trap_frame_t* stacked;
-    uintptr_t stacked_addr;
+    const wt_trap_frame_t* stacked;
+    uintptr_t msp_ns;
 
     if (context == NULL || frame == NULL) {
         wt_platform_panic();
     }
 
-    stacked = (wt_trap_frame_t*)frame;
+    stacked = frame;
     context->psp_ns = wt_read_psp_ns();
-    stacked_addr = (uintptr_t)stacked;
+    /* The frame may sit on PSP_NS, so save the banked MSP_NS itself. */
+    __asm volatile("mrs %0, msp_ns" : "=r"(msp_ns));
     /* A SecureFault can be raised before the NS exception frame exists (for
      * example, on a failed first BXNS). Preserve the configured guest MSP
      * in that case; replacing it with zero would make the recovery path
      * fabricate a frame at 0xffffffe0 and fault recursively. */
-    if (stacked_addr >= WT_PLATFORM_GUEST_STACK_WINDOW_BASE &&
-        stacked_addr <= (WT_PLATFORM_GUEST_STACK_WINDOW_BASE +
-                         WT_PLATFORM_GUEST_STACK_WINDOW_SIZE -
-                         sizeof(wt_trap_frame_t))) {
-        context->msp_ns = stacked_addr;
+    if (msp_ns >= WT_PLATFORM_GUEST_STACK_WINDOW_BASE &&
+        msp_ns <= (WT_PLATFORM_GUEST_STACK_WINDOW_BASE +
+                   WT_PLATFORM_GUEST_STACK_WINDOW_SIZE)) {
+        context->msp_ns = msp_ns;
     }
     context->control_ns = wt_read_control_ns();
     __asm volatile("mrs %0, psplim_ns" : "=r"(context->psplim_ns));
@@ -916,6 +916,12 @@ __attribute__((naked)) void SecureFault_Handler(void)
         "ldr r1, =g_live_exc_return     \n"
         "str lr, [r1]                   \n"
         "mrs r0, msp_ns                 \n"
+        "tst lr, #0x40                  \n"
+        "bne 2f                         \n"
+        "tst lr, #4                     \n"
+        "it ne                          \n"
+        "mrsne r0, psp_ns               \n"
+        "2:                             \n"
         "b wt_secure_fault_dispatch     \n"
     );
 }
@@ -966,6 +972,12 @@ __attribute__((naked)) void SysTick_Handler(void)
         "ldr r1, =g_live_exc_return     \n"
         "str lr, [r1]                   \n"
         "mrs r0, msp_ns                 \n"
+        "tst lr, #0x40                  \n"
+        "bne 1f                         \n"
+        "tst lr, #4                     \n"
+        "it ne                          \n"
+        "mrsne r0, psp_ns               \n"
+        "1:                             \n"
         "b wt_secure_systick_dispatch   \n"
     );
 }

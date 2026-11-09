@@ -124,7 +124,8 @@ PORTS = {
         "groups": (
             ("positive", "RT700 positive lifecycle (SAU guest windows)"),
             ("ahbscneg", "RT700 cross-guest store faults and is contained"),
-            ("restart authneg", "RT700 guest restart budget and launch refusal"),
+            ("restart authneg handlerneg",
+             "RT700 guest restart budget, launch refusal, handler overrun"),
             ("rollbackneg remeasureneg manifestneg spbudgetneg",
              "RT700 secure verdict negatives"),
             ("crossdomain keystoreneg", "RT700 SP domain isolation negatives"),

@@ -39,9 +39,22 @@ fi
 "${prefix}objcopy" -O binary "$build/test.elf" "$build/test.bin"
 echo 'RUN: virtual SysTick idle preservation'
 (cd "$build"; "$emulator" "$build/test.bin" --expect-bkpt 0x7f --timeout 10) \
-  | tee "$build/test.log"
-grep -Fq '[EXPECT BKPT] Success' "$build/test.log"
+  | tee "$build/test.log" || true
+faultmask=1
+if ! grep -Fq '[EXPECT BKPT] Success' "$build/test.log"; then
+  # 0x7d: every check passed but the core drops FAULTMASK_NS writes.
+  grep -Fq '[BKPT] imm=0x7d' "$build/test.log"
+  faultmask=0
+fi
 echo 'PASS: virtual SysTick idle snapshot, repeat idle, resume, and interrupt ordering'
 echo 'PASS: pre-entry restart tick does not resurrect timer state'
 echo 'PASS: guest trap frame outside its own RAM is never read by the Secure tick'
 echo 'PASS: guest capture keeps the banked MSP_NS for a PSP_NS frame'
+if [[ "$faultmask" == 1 ]]; then
+  echo 'PASS: Non-secure PRIMASK, BASEPRI and FAULTMASK never mask the Secure tick'
+  echo 'PASS: guest Non-secure masks are saved and restored per guest'
+else
+  echo 'PASS: Non-secure PRIMASK and BASEPRI never mask the Secure tick'
+  echo 'PASS: guest Non-secure PRIMASK and BASEPRI are saved and restored per guest'
+  echo 'SKIP: FAULTMASK_NS checks; this core drops FAULTMASK_NS writes'
+fi

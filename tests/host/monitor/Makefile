@@ -54,6 +54,19 @@ $(TEST_VNET): main.c $(ROOT)/src/monitor.c $(ROOT)/src/restart_policy.c \
 run: $(TEST) $(TEST_VNET)
 	$(TEST)
 	$(TEST_VNET)
+	! $(CC) $(CFLAGS) -fsyntax-only -UWT_GUEST_HANDLER_SLICE_LIMIT \
+		-DWT_GUEST_HANDLER_SLICE_LIMIT=0 main.c \
+		2>$(BUILD_DIR)/limit0.log
+	grep -q 'WT_GUEST_HANDLER_SLICE_LIMIT must be 1 to' $(BUILD_DIR)/limit0.log
+	! $(CC) $(CFLAGS) -fsyntax-only -UWT_GUEST_HANDLER_SLICE_LIMIT \
+		-DWT_GUEST_HANDLER_SLICE_LIMIT=0x100000000 main.c \
+		2>$(BUILD_DIR)/limitmax.log
+	grep -q 'WT_GUEST_HANDLER_SLICE_LIMIT must be 1 to' $(BUILD_DIR)/limitmax.log
+	$(CC) $(CFLAGS) -fsyntax-only -UWT_GUEST_HANDLER_SLICE_LIMIT \
+		-DWT_GUEST_HANDLER_SLICE_LIMIT=1 main.c
+	$(CC) $(CFLAGS) -fsyntax-only -UWT_GUEST_HANDLER_SLICE_LIMIT \
+		-DWT_GUEST_HANDLER_SLICE_LIMIT=0xFFFFFFFF main.c
+	@echo 'PASS: WT-SYS-0008 handler slice limit outside 1 to 0xFFFFFFFF fails the build'
 sanitize:
 	$(MAKE) run CC=clang BUILD_DIR=$(BUILD_DIR)/sanitize \
 		EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \

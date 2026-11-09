@@ -126,11 +126,11 @@ void wt_arch_secure_irq_enable(uint32_t irq)
     if (irq >= WT_ARMV8M_SECURE_IRQS) {
         return;
     }
-    /* Route to Secure, drop any stale pending, lowest priority so the line
-     * never preempts the active SVC gate, then unmask. */
+    /* Route to Secure, drop any stale pending, at the Secure band priority
+     * (below the SVC gate, equal to SysTick/PendSV), then unmask. */
     WT_NVIC_ITNS[word] &= ~bit;
     WT_NVIC_ICPR[word] = bit;
-    WT_NVIC_IPR_BASE[irq] = 0xFFu;
+    WT_NVIC_IPR_BASE[irq] = (uint8_t)WT_ARMV8M_SECURE_BAND_PRIO;
     __asm volatile("dsb\nisb" ::: "memory");
     WT_NVIC_ISER[word] = bit;
 }

@@ -130,6 +130,9 @@ extern uint32_t _ebss;
 
 void Reset_Handler(void);
 static void Default_Handler(void);
+#if defined(WT_HANDLER_OVERRUN_PROBE)
+static void Overrun_Handler(void);
+#endif
 
 __attribute__((section(".vectors"), used))
 const uint32_t g_vectors[16] = {
@@ -145,7 +148,11 @@ const uint32_t g_vectors[16] = {
     (uint32_t)Default_Handler,
     (uint32_t)Default_Handler,
     0u,
+#if defined(WT_HANDLER_OVERRUN_PROBE)
+    (uint32_t)Overrun_Handler,
+#else
     (uint32_t)Default_Handler,
+#endif
     (uint32_t)Default_Handler,
 };
 
@@ -154,6 +161,16 @@ static void Default_Handler(void)
     for (;;) {
     }
 }
+
+#if defined(WT_HANDLER_OVERRUN_PROBE)
+/* Re-pends itself and never returns, so a leaked pend would reach guest1. */
+static void Overrun_Handler(void)
+{
+    *(volatile uint32_t*)0xE000ED04u = (1u << 28);
+    for (;;) {
+    }
+}
+#endif
 
 static void guest0_uart_putc(char c)
 {
@@ -213,6 +230,13 @@ void Reset_Handler(void)
 #if defined(WT_GUEST_FAULT_PROBE)
     /* A Non-secure read of Secure RAM faults on every launch. */
     mb->probe_read = *(volatile const uint32_t*)GUEST_FAULT_ADDR;
+#endif
+#if defined(WT_HANDLER_OVERRUN_PROBE)
+    /* Pend PendSV_NS at the lowest priority, as an RTOS does; its handler
+     * never returns, on every launch. */
+    *(volatile uint32_t*)0xE000ED20u |= (0xFFu << 16);
+    *(volatile uint32_t*)0xE000ED04u = (1u << 28);
+    __asm volatile("dsb\n isb" ::: "memory");
 #endif
 
     fw = psa_framework_version();

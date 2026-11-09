@@ -53,6 +53,12 @@ WT_GUEST_FAULT_PROBE ?= 0
 ifeq ($(WT_GUEST_FAULT_PROBE),1)
 GUEST0_CFLAGS += -DWT_GUEST_FAULT_PROBE -DGUEST_FAULT_ADDR=0x30188000u
 endif
+# WT_HANDLER_OVERRUN_PROBE=1 makes guest0 enter a Non-secure handler that
+# never returns on every launch, so the monitor restarts it (handlerneg).
+WT_HANDLER_OVERRUN_PROBE ?= 0
+ifeq ($(WT_HANDLER_OVERRUN_PROBE),1)
+GUEST0_CFLAGS += -DWT_HANDLER_OVERRUN_PROBE
+endif
 
 CLIENT_OBJ := $(BUILD)/psa_ffm_client.o
 

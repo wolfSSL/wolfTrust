@@ -40,6 +40,8 @@ static unsigned int g_resets;
 static bool g_handler;
 static int g_verify_result;
 static wt_guest_measurement_t g_record;
+static bool g_trap_handler;
+static unsigned int g_abandoned;
 
 static void check(int ok, const char* name)
 {
@@ -73,6 +75,18 @@ static void setup(size_t count, uint32_t delay)
     g_handler = true;
     g_verify_result = WT_GUEST_VERIFY_OK;
     g_wt_first_dispatch_pending = 0U;
+    g_trap_handler = false;
+    g_abandoned = 0U;
+    g_handler_slices = 0U;
+}
+
+static int tick(void)
+{
+    if (setjmp(g_exit) == 0) {
+        wt_monitor_on_secure_timer(NULL);
+        return 0;
+    }
+    return g_event;
 }
 
 static void finish(int event) __attribute__((noreturn));
@@ -123,11 +137,13 @@ void wt_arch_wait_for_interrupt(void)
 
 bool wt_arch_in_handler_mode(void) { return g_handler; }
 bool wt_arch_trap_from_guest_thread(void) { return false; }
+bool wt_arch_trap_from_guest_handler(void) { return g_trap_handler; }
 #ifdef CONFIG_VNET
 void wt_arch_route_irq_to_guest(uint32_t irq) { (void)irq; }
 void wt_arch_set_guest_irq_pending(uint32_t irq, bool asserted)
 { (void)irq; (void)asserted; }
 #endif
+void wt_arch_guest_abandon_handler(void) { g_abandoned++; }
 void wt_arch_mask_all_guest_irqs(void) {}
 void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* mask) { (void)mask; }
 void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask) { (void)mask; }
@@ -303,6 +319,31 @@ int main(void)
     event = fault_current();
     check(event == HALTED && g_runtime[0].state == WT_GUEST_FAULTED &&
           g_resets == 0U, "recovery verification failure remains terminal");
+
+    /* A guest that never leaves a Non-secure handler is bounded: it keeps
+     * the CPU only up to the slice limit, then restarts and the peer runs. */
+    setup(2U, 2U);
+    g_runtime[1].state = WT_GUEST_READY;
+    g_trap_handler = true;
+    for (event = 0; event == 0 &&
+         g_handler_slices + 1U < WT_GUEST_HANDLER_SLICE_LIMIT;) {
+        event = tick();
+    }
+    check(event == 0 && g_runtime[0].state == WT_GUEST_RUNNING &&
+          g_abandoned == 0U, "handler residency below the limit is kept");
+    event = tick();
+    check(event == DISPATCHED && g_scheduler.current_guest == 1U &&
+          g_runtime[0].state == WT_GUEST_RESTARTING && g_abandoned == 1U,
+          "handler residency past the limit restarts the guest");
+
+    setup(2U, 2U);
+    g_runtime[1].state = WT_GUEST_READY;
+    for (event = 0; event == 0 &&
+         g_idle_ticks < 2U * WT_GUEST_HANDLER_SLICE_LIMIT; g_idle_ticks++) {
+        event = tick();
+    }
+    check(event == 0 && g_runtime[0].state == WT_GUEST_RUNNING &&
+          g_abandoned == 0U, "Secure-side ticks never count against a guest");
 
 #ifdef CONFIG_VNET
     test_vnet_guest_reset();

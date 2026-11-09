@@ -40,6 +40,9 @@ struct wt_guest_context {
     bool frame_stacked;
     bool active_exception;
     uintptr_t psplim_ns;
+    uint32_t primask_ns;
+    uint32_t basepri_ns;
+    uint32_t faultmask_ns;
 };
 
 typedef struct wt_guest_context wt_armv8m_context_t;

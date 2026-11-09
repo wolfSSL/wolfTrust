@@ -62,6 +62,10 @@ void wt_arch_restore_guest_bank(const wt_guest_context_t* context);
 bool wt_arch_in_handler_mode(void);
 bool wt_arch_trap_from_guest_thread(void);
 bool wt_arch_trap_from_secure_thread(void);
+/* True when the interrupted context was a guest in Non-secure Handler mode. */
+bool wt_arch_trap_from_guest_handler(void);
+/* Clear the Non-secure exception state a guest abandoned in Handler mode. */
+void wt_arch_guest_abandon_handler(void);
 void wt_arch_return_to_secure_thread(
     void (*entry)(void) __attribute__((noreturn)));
 /* Discard the departing handler stack before entering the idle scheduler. */

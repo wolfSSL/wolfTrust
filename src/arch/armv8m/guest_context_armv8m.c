@@ -155,16 +155,21 @@ void wt_arch_init(void)
     WT_SCB_AIRCR_S = WT_SCB_AIRCR_VECTKEY |
                      (WT_SCB_AIRCR_S & WT_SCB_AIRCR_CFG_MASK &
                       ~WT_SCB_AIRCR_BFHFNMINS) |
-                     WT_SCB_AIRCR_SYSRESETREQS;
-    if ((WT_SCB_AIRCR_S & WT_SCB_AIRCR_BFHFNMINS) != 0u) {
+                     WT_SCB_AIRCR_SYSRESETREQS | WT_SCB_AIRCR_PRIS;
+    if ((WT_SCB_AIRCR_S & WT_SCB_AIRCR_BFHFNMINS) != 0u ||
+            (WT_SCB_AIRCR_S & WT_SCB_AIRCR_PRIS) == 0u) {
         wt_platform_panic();
     }
-    /* PendSV and the secure SysTick must share the lowest priority: SysTick at
-     * the reset default (0, highest) would preempt PendSV mid-coroutine switch,
-     * and a nested exception return off the half-saved frame faults INVPC.
-     * Equal priority makes the context switch atomic against the timer. */
-    WT_SCB_SHPR3_S |= (0xFFu << WT_SCB_SHPR3_PENDSV_SHIFT) |
-                      (0xFFu << WT_SCB_SHPR3_SYSTICK_SHIFT);
+    /* PendSV and SysTick share one priority so a tick never preempts a
+     * half-saved coroutine switch (INVPC); PRIS keeps that band above any
+     * Non-secure mask, so a guest cannot stop its own time slicing. */
+    WT_SCB_SHPR3_S = (WT_SCB_SHPR3_S &
+                      ~((0xFFu << WT_SCB_SHPR3_PENDSV_SHIFT) |
+                        (0xFFu << WT_SCB_SHPR3_SYSTICK_SHIFT))) |
+                     (WT_ARMV8M_SECURE_BAND_PRIO <<
+                      WT_SCB_SHPR3_PENDSV_SHIFT) |
+                     (WT_ARMV8M_SECURE_BAND_PRIO <<
+                      WT_SCB_SHPR3_SYSTICK_SHIFT);
     WT_SCB_ICSR_S = WT_SCB_ICSR_PENDSVCLR;
     g_switch_count = 0u;
     g_active_guest = UINT32_MAX;
@@ -226,6 +231,24 @@ bool wt_arch_trap_from_guest_thread(void)
     return (g_live_exc_return &
             (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_SECURITY_MASK)) ==
            (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_RETURN_TO_NONSECURE);
+}
+
+bool wt_arch_trap_from_guest_handler(void)
+{
+    return (g_live_exc_return &
+            (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_SECURITY_MASK)) ==
+           WT_EXC_RETURN_RETURN_TO_NONSECURE;
+}
+
+void wt_arch_guest_abandon_handler(void)
+{
+    /* SHCSR active bits are writable and Armv8-M always permits a return to
+     * Thread with an exception active, so this retires the system handlers. An
+     * external IRQ's active bit is read-only and stays set (documented residual). */
+    WT_SCB_SHCSR_NS &= ~(WT_SCB_SHCSR_ACT_MASK | WT_SCB_SHCSR_PEND_MASK);
+    WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSVCLR | WT_SCB_ICSR_PENDSTCLR;
+    wt_dsb();
+    wt_isb();
 }
 
 bool wt_arch_trap_from_secure_thread(void)
@@ -762,6 +785,9 @@ void wt_arch_guest_context_capture(wt_guest_context_t* context,
     }
     context->control_ns = wt_read_control_ns();
     __asm volatile("mrs %0, psplim_ns" : "=r"(context->psplim_ns));
+    __asm volatile("mrs %0, primask_ns" : "=r"(context->primask_ns));
+    __asm volatile("mrs %0, basepri_ns" : "=r"(context->basepri_ns));
+    __asm volatile("mrs %0, faultmask_ns" : "=r"(context->faultmask_ns));
     context->exc_return = g_live_exc_return;
     context->r4_r11[0] = g_live_r4_r11[0];
     context->r4_r11[1] = g_live_r4_r11[1];
@@ -777,9 +803,26 @@ void wt_arch_guest_context_capture(wt_guest_context_t* context,
     context->frame_stacked = true;
 }
 
+/* A preempted guest may hold Non-secure PRIMASK, BASEPRI or FAULTMASK; the
+ * banks are shared, so each guest resumes with its own. */
+static void wt_restore_guest_masks(const wt_guest_context_t* context)
+{
+    __asm volatile(
+        "msr primask_ns, %0   \n"
+        "msr basepri_ns, %1   \n"
+        "msr faultmask_ns, %2 \n"
+        :
+        : "r"(context->primask_ns), "r"(context->basepri_ns),
+          "r"(context->faultmask_ns)
+        : "memory");
+}
+
 void wt_arch_guest_context_restore(wt_guest_context_t* context)
 {
     g_switch_count++;
+    /* No exit below clears FAULTMASK_NS: BXNS keeps it, and returning from a
+     * Secure exception (ES=1) can clear only FAULTMASK_S. */
+    wt_restore_guest_masks(context);
 
     if (!context->frame_stacked) {
         if (wt_read_ipsr() == 0u) {
@@ -880,6 +923,7 @@ void wt_arch_restore_guest_bank(const wt_guest_context_t* context)
         :
         : "r"(context->psp_ns), "r"(context->msp_ns),
           "r"(context->psplim_ns), "r"(zero), "r"(context->control_ns));
+    wt_restore_guest_masks(context);
 }
 
 uint32_t wt_arch_active_guest_id(void)

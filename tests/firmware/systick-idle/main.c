@@ -125,6 +125,10 @@ void Reset_Handler(void)
 {
     uint32_t* p;
     uint32_t primask;
+    uint32_t basepri;
+    uint32_t faultmask;
+    uint32_t faultmask_kept;
+    uint32_t ticks;
     wt_virtual_systick_t saved;
 
     for (p = &_sbss; p < &_ebss; ++p) {
@@ -244,6 +248,62 @@ void Reset_Handler(void)
                                    WT_PLATFORM_GUEST_STACK_WINDOW_SIZE);
     __asm volatile("msr msp_ns, %0" : : "r"(0U));
 
-    __asm volatile("bkpt #0x7f");
+    /* A core that drops FAULTMASK_NS writes (M33MU) skips its checks. */
+    __asm volatile("msr faultmask_ns, %0" : : "r"(1U));
+    __asm volatile("mrs %0, faultmask_ns" : "=r"(faultmask_kept));
+    __asm volatile("msr faultmask_ns, %0" : : "r"(0U));
+
+    /* No Non-secure PRIMASK, BASEPRI or FAULTMASK masks the Secure tick. */
+    check((WT_SCB_AIRCR_S & WT_SCB_AIRCR_PRIS) != 0U &&
+          ((WT_SCB_SHPR3_S >> WT_SCB_SHPR3_SYSTICK_SHIFT) & 0xFFU) ==
+              WT_ARMV8M_SECURE_BAND_PRIO &&
+          ((WT_SCB_SHPR3_S >> WT_SCB_SHPR3_PENDSV_SHIFT) & 0xFFU) ==
+              WT_ARMV8M_SECURE_BAND_PRIO);
+    g_active_guest = UINT32_MAX;
+    ticks = g_test_ticks;
+    __asm volatile("msr primask_ns, %0" : : "r"(1U));
+    WT_SCB_ICSR_S = WT_SCB_ICSR_PENDSTSET;
+    __asm volatile("dsb 0xF\n isb 0xF" ::: "memory");
+    check(g_test_ticks == ticks + 1U);
+    __asm volatile("msr primask_ns, %0" : : "r"(0U));
+    __asm volatile("msr basepri_ns, %0" : : "r"(0x20U));
+    WT_SCB_ICSR_S = WT_SCB_ICSR_PENDSTSET;
+    __asm volatile("dsb 0xF\n isb 0xF" ::: "memory");
+    check(g_test_ticks == ticks + 2U);
+    __asm volatile("msr basepri_ns, %0" : : "r"(0U));
+    if (faultmask_kept != 0U) {
+        __asm volatile("msr faultmask_ns, %0" : : "r"(1U));
+        WT_SCB_ICSR_S = WT_SCB_ICSR_PENDSTSET;
+        __asm volatile("dsb 0xF\n isb 0xF" ::: "memory");
+        check(g_test_ticks == ticks + 3U);
+        __asm volatile("msr faultmask_ns, %0" : : "r"(0U));
+    }
+
+    /* Each guest's Non-secure masks are saved and restored with it. */
+    __asm volatile("msr faultmask_ns, %0" : : "r"(1U));
+    __asm volatile("msr primask_ns, %0" : : "r"(1U));
+    __asm volatile("msr basepri_ns, %0" : : "r"(0x40U));
+    wt_arch_guest_context_capture(&g_test_context,
+        (const wt_trap_frame_t*)(TEST_GUEST_RAM_BASE + 0x40U));
+    __asm volatile("msr primask_ns, %0" : : "r"(0U));
+    __asm volatile("msr basepri_ns, %0" : : "r"(0U));
+    __asm volatile("msr faultmask_ns, %0" : : "r"(0U));
+    wt_restore_guest_masks(&g_test_context);
+    __asm volatile("mrs %0, primask_ns" : "=r"(primask));
+    __asm volatile("mrs %0, basepri_ns" : "=r"(basepri));
+    __asm volatile("mrs %0, faultmask_ns" : "=r"(faultmask));
+    check(g_test_context.primask_ns == 1U && primask == 1U &&
+          g_test_context.basepri_ns == 0x40U && basepri == 0x40U &&
+          (faultmask_kept == 0U ||
+           (g_test_context.faultmask_ns == 1U && faultmask == 1U)));
+    g_test_context.primask_ns = 0U;
+    g_test_context.basepri_ns = 0U;
+    g_test_context.faultmask_ns = 0U;
+    wt_restore_guest_masks(&g_test_context);
+
+    if (faultmask_kept != 0U) {
+        __asm volatile("bkpt #0x7f");
+    }
+    __asm volatile("bkpt #0x7d");
     for (;;) {}
 }

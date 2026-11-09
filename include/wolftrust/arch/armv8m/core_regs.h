@@ -33,6 +33,7 @@
 #define WT_SCB_CCR_S             (*(volatile uint32_t*)0xE000ED14u)
 #define WT_SCB_SHPR3_S           (*(volatile uint32_t*)0xE000ED20u)
 #define WT_SCB_SHCSR_S           (*(volatile uint32_t*)0xE000ED24u)
+#define WT_SCB_SHCSR_NS          (*(volatile uint32_t*)0xE002ED24u)
 #define WT_SCB_CFSR_S            (*(volatile uint32_t*)0xE000ED28u)
 #define WT_SCB_HFSR_S            (*(volatile uint32_t*)0xE000ED2Cu)
 #define WT_SCB_MMFAR_S           (*(volatile uint32_t*)0xE000ED34u)
@@ -44,6 +45,7 @@
 #define WT_SCB_AIRCR_SYSRESETREQ (WT_SCB_AIRCR_VECTKEY | (1u << 2))
 #define WT_SCB_AIRCR_SYSRESETREQS (1u << 3)
 #define WT_SCB_AIRCR_BFHFNMINS   (1u << 13)
+#define WT_SCB_AIRCR_PRIS        (1u << 14)
 /* Config bits that must be preserved across an AIRCR read-modify-write. */
 #define WT_SCB_AIRCR_CFG_MASK    ((1u << 3) | (1u << 13) | (1u << 14) | (7u << 8))
 #define WT_SCB_ICSR_PENDSVCLR    (1u << 27)
@@ -57,6 +59,13 @@
 #define WT_SCB_SHCSR_MEMFAULTENA (1u << 16)
 #define WT_SCB_SHCSR_BUSFAULTENA (1u << 17)
 #define WT_SCB_SHCSR_USGFAULTENA (1u << 18)
+/* USG/MEM/BUS/SVCALL/HARDFAULT pended bits. */
+#define WT_SCB_SHCSR_PEND_MASK   ((1u << 12) | (1u << 13) | (1u << 14) | \
+                                  (1u << 15) | (1u << 21))
+/* Every SHCSR exception-active bit (Armv8-M Mainline). */
+#define WT_SCB_SHCSR_ACT_MASK    ((1u << 0) | (1u << 1) | (1u << 2) | (1u << 3) | \
+                                  (1u << 4) | (1u << 5) | (1u << 7) | \
+                                  (1u << 8) | (1u << 10) | (1u << 11))
 
 #define WT_SCB_CFSR_MMFSR_MASK   0x000000FFu
 #define WT_SCB_CFSR_BFSR_MASK    0x0000FF00u

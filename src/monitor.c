@@ -58,6 +58,15 @@ volatile uint32_t g_wt_launch_refused_mask;
  * peer's flash before the peer runs, so each guest is re-measured immediately
  * before its first dispatch. One bit per guest, cleared once re-measured. */
 volatile uint32_t g_wt_first_dispatch_pending;
+/* Consecutive slice expiries the current guest spent in Non-secure Handler
+ * mode, where it cannot be switched out; past the limit it is restarted. */
+#ifndef WT_GUEST_HANDLER_SLICE_LIMIT
+#define WT_GUEST_HANDLER_SLICE_LIMIT 50U
+#endif
+#if WT_GUEST_HANDLER_SLICE_LIMIT < 1 || WT_GUEST_HANDLER_SLICE_LIMIT > 0xFFFFFFFF
+#error "WT_GUEST_HANDLER_SLICE_LIMIT must be 1 to 0xFFFFFFFF"
+#endif
+static uint32_t g_handler_slices;
 /* WT-FFM-0052 runtime re-measurement counters (harness reads by symbol). */
 volatile uint32_t g_wt_runtime_verify_pass;
 volatile uint32_t g_wt_runtime_verify_fail;
@@ -462,6 +471,8 @@ static void wt_schedule_next_guest(void)
     wt_guest_id_t next_guest;
     wt_scheduler_rep_t rep = WT_SCHED_REP_NS;
 
+    g_handler_slices = 0U;
+
     if (g_scheduler.guest_count == 0U) {
         wt_platform_all_guests_faulted();
     }
@@ -628,8 +639,20 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
 #endif
     if (!wt_arch_trap_from_guest_thread()) {
         wt_tick_restart_backoff();
+        if (g_scheduler.current_rep == WT_SCHED_REP_NS &&
+                wt_arch_trap_from_guest_handler() &&
+                ++g_handler_slices >= WT_GUEST_HANDLER_SLICE_LIMIT) {
+            wt_arch_guest_abandon_handler();
+            wt_platform_log_fault(g_scheduler.current_guest,
+                                  WT_FAULT_HANDLER_OVERRUN, 0U,
+                                  wt_arch_trap_pc(frame));
+            wt_restart_guest(g_scheduler.current_guest,
+                             WT_FAULT_HANDLER_OVERRUN);
+            wt_schedule_next_guest();
+        }
         return;
     }
+    g_handler_slices = 0U;
     wt_save_running_guest(frame);
     wt_tick_restart_backoff();
     wt_schedule_next_guest();

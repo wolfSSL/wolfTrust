@@ -1390,6 +1390,52 @@ static void test_delayed_reply_fault_cleanup(void)
     (void)printf("PASS: WT-FFM-0017 delayed reply fault cleanup\n");
 }
 
+/* WT-FFM-0026: abnormal client cleanup keeps a message a service is still
+ * holding until it replies; the reply lands, nothing reaches the departed
+ * client, and the service then sees the cleanup disconnection. */
+static void test_client_cleanup_keeps_held_message(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    uint8_t request[3] = { 'a', 'b', 'c' };
+    uint8_t response[2] = { 0U, 0U };
+    psa_invec input = { request, sizeof(request) };
+    psa_outvec output = { response, sizeof(response) };
+    psa_handle_t handle;
+    psa_handle_t held;
+
+    test_init(&runtime, &context);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    EXPECT_INT(wt_ffm_register_partition(&runtime, TEST_PARTITION_ID,
+                   delayed_dispatch, &context), WT_FFM_SUCCESS);
+    context.delay_result = WT_FFM_ERROR_NOT_READY;
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U), PSA_ERROR_GENERIC_ERROR);
+    held = context.delayed_message.handle;
+
+    (void)wt_ffm_fail_client_connections(&runtime, TEST_NS_CLIENT);
+    EXPECT_INT(wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                           &input, 1U, &output, 1U),
+               PSA_ERROR_PROGRAMMER_ERROR);
+    EXPECT_INT(wt_ffm_write(&runtime, TEST_PARTITION_ID, held, 0U, "OK", 2U),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID, held, PSA_SUCCESS),
+               WT_FFM_SUCCESS);
+    EXPECT_INT(response[0], 0);
+    EXPECT_INT(response[1], 0);
+
+    (void)delayed_dispatch(&context, &runtime, TEST_PARTITION_ID);
+    EXPECT_INT(context.delayed_message.type, PSA_IPC_DISCONNECT);
+    EXPECT_INT(wt_ffm_reply(&runtime, TEST_PARTITION_ID,
+                            context.delayed_message.handle, PSA_SUCCESS),
+               WT_FFM_SUCCESS);
+    expect_ffm_pools_empty(&runtime);
+    EXPECT_INT(context.panics, 0);
+    (void)printf("PASS: WT-FFM-0026 client cleanup keeps a held message "
+                 "until the service replies\n");
+}
+
 int main(void)
 {
     test_arguments();
@@ -1398,6 +1444,7 @@ int main(void)
     test_refused_dispatch_queue_consistency();
     test_delayed_synchronous_reply();
     test_delayed_reply_fault_cleanup();
+    test_client_cleanup_keeps_held_message();
     test_doorbell_signal();
     test_eoi_signal();
     test_irq_route_and_assert();

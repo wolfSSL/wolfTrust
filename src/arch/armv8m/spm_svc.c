@@ -206,14 +206,15 @@ void wt_arch_diag_trap(uint32_t a, uint32_t b, uint32_t c)
     register uint32_t diag_a __asm__("r4") = a;
     register uint32_t diag_b __asm__("r5") = b;
     register uint32_t diag_c __asm__("r6") = c;
+#if defined(WT_CONF_DIAG_TRAP) && (WT_CONF_DIAG_TRAP != 0)
     volatile uint32_t probe;
+#endif
 
-#if defined(WT_CONF_DIAG_TRAP) && (WT_CONF_DIAG_TRAP == 0)
-    /* Hardware: no fault-dump printer exists, and the conformance monitor
-     * answers the deliberate fault with a system reset — which can land in
-     * the suite's NS-only report window and silently restart the whole run.
-     * Keep the probes counting but never trap. */
-    (void)diag_a; (void)diag_b; (void)diag_c; (void)probe;
+#if !defined(WT_CONF_DIAG_TRAP) || (WT_CONF_DIAG_TRAP == 0)
+    /* Production and hardware: no fault-dump printer exists, and the fault
+     * would halt the platform (or, under conformance, reset into the suite's
+     * report window), so the caller's error return must run instead. */
+    (void)diag_a; (void)diag_b; (void)diag_c;
     return;
 #else
     __asm__ volatile("" : : "r"(diag_a), "r"(diag_b), "r"(diag_c));

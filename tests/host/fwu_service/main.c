@@ -319,6 +319,39 @@ static void test_state_machine(void)
           "WT-FWU-0003 a failed arm leaves the candidate un-armed");
 }
 
+/* A restarted FWU partition loses its in-stack state machine and comes back
+ * READY, so the restart must also cancel any swap its old instance armed. */
+static void test_restart_cancels_armed_install(void)
+{
+    wt_fwu_backend_t backend;
+    mock_backend_t mem;
+    wt_fwu_service_ctx_t ctx;
+    uint8_t block[32];
+
+    (void)memset(block, 0xA5, sizeof(block));
+    mock_backend_init(&backend, &mem);
+    ctx_init(&ctx, &backend, &mem, 0u);
+    check(wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 5u) == PSA_SUCCESS &&
+              wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block,
+                           sizeof(block)) == PSA_SUCCESS &&
+              wt_fwu_finish(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS &&
+              wt_fwu_install(&ctx) == PSA_SUCCESS_REBOOT && mem.armed == 1u,
+          "WT-FWU-0002 install arms the swap before the restart");
+
+    check(wt_fwu_restart_disarm(&backend, &mem) == 0 && mem.armed == 0u,
+          "WT-FWU-0003 partition restart cancels the armed swap");
+    ctx_init(&ctx, &backend, &mem, 0u);
+    check(ctx.state == PSA_FWU_READY &&
+              wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 6u) == PSA_SUCCESS,
+          "WT-FWU-0003 restarted partition stages a new candidate unarmed");
+
+    mem.fail_disarm = 1;
+    check(wt_fwu_restart_disarm(&backend, &mem) != 0,
+          "WT-FWU-0003 a failed restart disarm fails the restart closed");
+    check(wt_fwu_restart_disarm(NULL, &mem) != 0,
+          "WT-FWU-0003 restart disarm without a backend fails closed");
+}
+
 /* A backend that tracks its padded programmed extent, as the flash ports do,
  * must accept the logical size of a candidate with a padded final block. */
 static void test_padded_extent_verify(void)
@@ -790,6 +823,7 @@ int main(void)
     test_state_machine();
     test_unaligned_write();
     test_padded_extent_verify();
+    test_restart_cancels_armed_install();
     test_ipc_round_trip();
     test_wolfboot_arm_trailer();
     test_staged_header_binding();

@@ -40,6 +40,7 @@ void wt_conf_drv_nvm_test_reset(void);
 #define FLASH_SZ 0x2000u
 static uint8_t g_flash[FLASH_SZ];
 static int g_flash_powered;
+static int g_fail_store;
 
 static void flash_power_on(void)
 {
@@ -64,6 +65,11 @@ int wt_conf_nvm_sync(uint8_t *buf, uint32_t len, int store)
     if (store == 0) {
         (void)memcpy(buf, g_flash, len);
         return 0;
+    }
+    if (g_fail_store != 0) {
+        /* Model a sync that erased the sector and then failed to program. */
+        (void)memset(g_flash, 0xFF, sizeof(g_flash));
+        return -1;
     }
     (void)memset(g_flash, 0xFF, sizeof(g_flash));
     for (i = 0u; i < len; i++) {
@@ -124,6 +130,27 @@ int main(void)
     (void)memset(readback, 0, sizeof(readback));
     check(pal_nvmem_read(0u, 16u, readback, 8) == 1, "flag read after reset");
     check(memcmp(readback, "FLAGDATA", 8) == 0, "flag field survives reset");
+
+    /* A write that fails to persist is not visible to later reads, even when
+     * the failed sync left the sector half programmed, and a later successful
+     * write does not carry the rejected bytes to flash. */
+    (void)memcpy(data, "LOSTBYTE", 8);
+    g_fail_store = 1;
+    check(pal_nvmem_write(0u, 32u, data, 8) == 0,
+          "nvmem write reports a failed flash sync");
+    g_fail_store = 0;
+    (void)memset(readback, 0, sizeof(readback));
+    check(pal_nvmem_read(0u, 32u, readback, 8) == 1 &&
+          readback[0] == 0xFFu && readback[7] == 0xFFu,
+          "failed write is not served from the shadow");
+    (void)memset(readback, 0, sizeof(readback));
+    check(pal_nvmem_read(0u, 16u, readback, 8) == 1 &&
+          memcmp(readback, "FLAGDATA", 8) == 0,
+          "failed write keeps the last good contents");
+    (void)memcpy(boot, "BOT2", 4);
+    check(pal_nvmem_write(0u, 0u, boot, 4) == 1 &&
+          g_flash[32] == 0xFFu && memcmp(g_flash, "BOT2", 4) == 0,
+          "later write does not persist rejected bytes");
 
     /* A fresh power-on with a blank sector reads back the 0xFF erased state,
      * matching the pre-flash RAM store's power-on behaviour. */

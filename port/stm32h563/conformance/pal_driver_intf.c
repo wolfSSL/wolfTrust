@@ -36,6 +36,7 @@ typedef uintptr_t addr_t;
 
 #define WT_CONF_DRV_NVM_SIZE 0x100u
 static uint8_t g_drv_nvm[WT_CONF_DRV_NVM_SIZE];
+static uint8_t g_drv_nvm_prev[WT_CONF_DRV_NVM_SIZE];
 static uint8_t g_drv_nvm_ready;
 static uint8_t g_drv_wd_enabled;
 
@@ -89,9 +90,13 @@ int pal_nvmem_write(addr_t base, uint32_t offset, void* buffer, int size)
             (size_t)size > sizeof(g_drv_nvm) - (size_t)offset) {
         return 0;
     }
+    (void)memcpy(g_drv_nvm_prev, &g_drv_nvm[offset], (size_t)size);
     (void)memcpy(&g_drv_nvm[offset], buffer, (size_t)size);
-    /* Write through to flash so the value survives an AIRCR reset. */
+    /* Write through to flash so the value survives an AIRCR reset. The sync
+     * is not atomic, so a failure keeps the last good shadow, never the
+     * rejected bytes or a reload of a half-programmed sector. */
     if (wt_conf_nvm_sync(g_drv_nvm, sizeof(g_drv_nvm), 1) != 0) {
+        (void)memcpy(&g_drv_nvm[offset], g_drv_nvm_prev, (size_t)size);
         return 0;
     }
     return 1;

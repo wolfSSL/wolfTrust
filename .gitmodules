@@ -3,16 +3,16 @@
 	url = https://github.com/wolfSSL/wolfHSM.git
 [submodule "lib/wolfSSL"]
 	path = lib/wolfSSL
-	url = git@github.com:wolfSSL/wolfSSL.git
+	url = https://github.com/wolfSSL/wolfSSL.git
 [submodule "lib/wolfhal"]
 	path = lib/wolfhal
-	url = git@github.com:wolfSSL/wolfhal.git
+	url = https://github.com/wolfSSL/wolfhal.git
 [submodule "lib/wolfPSA"]
 	path = lib/wolfPSA
 	url = https://github.com/wolfSSL/wolfPSA.git
 [submodule "lib/wolfIP"]
 	path = lib/wolfIP
-	url = git@github.com:wolfSSL/wolfip.git
+	url = https://github.com/wolfSSL/wolfip.git
 [submodule "lib/wolfCOSE"]
 	path = lib/wolfCOSE
 	url = https://github.com/wolfSSL/wolfCOSE.git

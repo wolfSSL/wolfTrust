@@ -1,9 +1,11 @@
 # Building
 
-The supported Secure build tuple is Armv8-M on STM32H563. The root Makefile
-includes `mk/target-stm32h563.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk`
-(target facts, architecture facts, and the shared build in that order) and
-cross-compiles a freestanding Cortex-M33 image.
+The supported Secure build tuples are Armv8-M on STM32H563 (the default) and
+on MIMXRT700 (`TARGET=mimxrt700`). The root Makefile includes
+`mk/target-<soc>.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk` (target facts,
+architecture facts, and the shared build in that order) and cross-compiles a
+freestanding Cortex-M33 image. This page uses the STM32H563 defaults; the
+[MIMXRT700 Guide](MIMXRT700-Guide.md) lists that port's layout and runners.
 
 ## Prerequisites
 
@@ -13,8 +15,8 @@ cross-compiles a freestanding Cortex-M33 image.
 - GNU Arm Embedded tools with the `arm-none-eabi-` prefix
 - a native C compiler for host tests
 
-Some submodule URLs use GitHub SSH. Configure GitHub SSH access or an
-equivalent Git URL rewrite before initializing them.
+Submodules use public HTTPS URLs. An existing checkout with older URLs should
+run `git submodule sync --recursive` first.
 
 ```sh
 git submodule update --init --recursive
@@ -78,7 +80,8 @@ output directory before changing an option that the recipe does not record.
 
 ## Manifest generation
 
-The default input is `port/stm32h563/manifest.json`.
+The default input is `port/<soc>/manifest.json`, `port/stm32h563/manifest.json`
+for the default target.
 `CONFIG_VNET=y` selects `manifest-vnet.json`, and
 `WT_CONFORMANCE=1` selects `manifest-conformance.json`.
 

@@ -34,8 +34,12 @@ access.
 ```sh
 git clone --recurse-submodules https://github.com/wolfSSL/wolfTrust.git
 cd wolfTrust
-git submodule update --init --recursive
 ```
+
+The repository and its six pinned submodules are public and use HTTPS URLs.
+No GitHub account or SSH key is needed to clone them. If you already have a
+checkout with older submodule URLs, run `git submodule sync --recursive` before
+`git submodule update --init --recursive`.
 
 ## Build the Secure image
 
@@ -121,6 +125,20 @@ bytes first as described in [STM32H5 Guide](STM32H5-Guide.md). The current
 `run_h5_suite.sh` wrapper does not forward `WT_GUEST_FLASH_WRP` into its Docker
 build, so its shorter `make test-hardware` form must not be used for this
 hardened build until the runner is fixed.
+
+## Run on MIMXRT700
+
+Pass `TARGET=mimxrt700` to build and test the second port:
+
+```sh
+make TARGET=mimxrt700 secure-image
+make test-target TARGET=mimxrt700
+make test-hardware TARGET=mimxrt700
+```
+
+`test-target` runs the RT700 emulator scenarios and `test-hardware` runs the
+EVK suite on the host that owns the probe. See the
+[MIMXRT700 Guide](MIMXRT700-Guide.md) for the rig and flash layout.
 
 ## Next steps
 

@@ -15,7 +15,7 @@ from markdown.extensions.toc import slugify
 MANUAL = "wolfTrust"
 PDF = "wolfTrust-Manual.pdf"
 HEADING = re.compile(r"^(#{1,6})[ \t]+(.+?)[ \t]*#*[ \t]*$")
-LINK = re.compile(r"\]\(([^)]+\.md)(?:#([^)]+))?\)")
+LINK = re.compile(r"\]\((?:([^)#]+\.md))?(?:#([^)]+))?\)")
 
 
 def pages_from_nav(value):
@@ -34,7 +34,7 @@ def page_key(filename):
 
 
 def heading_slug(title):
-    title = re.sub(r"[`*_]", "", title)
+    title = re.sub(r"[`*]", "", title)
     title = re.sub(r"\[([^]]+)\]\([^)]+\)", r"\1", title)
     return slugify(title, "-")
 
@@ -124,27 +124,34 @@ def prepare_pdf(documentation_root):
         for line in staged.read_text().splitlines(keepends=True):
             if line.lstrip().startswith(("```", "~~~")):
                 in_fence = not in_fence
+            anchor = ""
             if not in_fence:
                 match = HEADING.match(line.rstrip("\n"))
                 if match:
                     slug = heading_slug(match.group(2))
-                    if slug in seen:
-                        raise RuntimeError(f"duplicate PDF heading anchor in {page}: {slug}")
-                    seen.add(slug)
-                    line = line.rstrip("\n") + f" {{#{page_key(page)}-{slug}}}\n"
+                    unique = slug
+                    counter = 1
+                    while unique in seen:
+                        counter += 1
+                        unique = f"{slug}-{counter}"
+                    seen.add(unique)
+                    anchor = f"[]{{#{page_key(page)}-{unique}}}\n\n"
 
                 def rewrite(link):
-                    target = Path(link.group(1)).name
+                    md = link.group(1)
+                    fragment = link.group(2)
+                    if md is None and fragment is None:
+                        return link.group(0)
+                    target = page if md is None else Path(md).name
                     if target not in headers:
                         return link.group(0)
-                    fragment = link.group(2)
                     if fragment and fragment not in headers[target]:
                         raise RuntimeError(f"unresolved PDF link: {page} -> {target}#{fragment}")
                     anchor = page_key(target) + (f"-{fragment}" if fragment else "")
                     return f"](#{anchor})"
 
                 line = LINK.sub(rewrite, line)
-            output.append(line)
+            output.append(anchor + line)
         staged.write_text("".join(output))
 
 

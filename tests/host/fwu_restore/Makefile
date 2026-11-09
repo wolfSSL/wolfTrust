@@ -23,7 +23,7 @@ BUILD_DIR ?= build
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -ffunction-sections -fdata-sections \
     -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG_NO_CRYPTO -DWOLFHSM_CFG_NO_SYS_TIME \
-    -I. -I$(ROOT)/include -I$(ROOT)/lib/wolfHSM -I$(ROOT)/lib/wolfSSL \
+    -I../ps_service -I$(ROOT)/include -I$(ROOT)/lib/wolfHSM -I$(ROOT)/lib/wolfSSL \
     -I$(BUILD_DIR) $(EXTRA_CFLAGS)
 ifeq ($(shell uname -s),Darwin)
 GC_FLAGS := -Wl,-dead_strip

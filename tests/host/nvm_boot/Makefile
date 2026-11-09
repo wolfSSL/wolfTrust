@@ -30,7 +30,7 @@ CFLAGS := \
     -UHAVE_CONFIG_H \
     -DWOLFHSM_CFG_NO_CRYPTO \
     -DWOLFHSM_CFG_NO_SYS_TIME \
-    -I. \
+    -I../ps_service \
     -I$(ROOT)/include \
     -I$(WOLFHSM) \
     -I$(WOLFSSL) \

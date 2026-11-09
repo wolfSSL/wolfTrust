@@ -43,3 +43,4 @@ echo 'RUN: virtual SysTick idle preservation'
 grep -Fq '[EXPECT BKPT] Success' "$build/test.log"
 echo 'PASS: virtual SysTick idle snapshot, repeat idle, resume, and interrupt ordering'
 echo 'PASS: pre-entry restart tick does not resurrect timer state'
+echo 'PASS: guest trap frame outside its own RAM is never read by the Secure tick'

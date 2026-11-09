@@ -70,9 +70,34 @@ static volatile uint32_t* test_reload_register(void)
     return &g_test_rvr;
 }
 
+/* Per-guest RAM for the CMSE checker double, above the test image's RAM;
+ * an address no guest owns stands in for a guest-written MSP_NS. */
+#define TEST_GUEST_RAM_BASE 0x20010000u
+#define TEST_GUEST_RAM_SIZE 0x00008000u
+#define TEST_BOGUS_MSP_NS   0x60000000u
+
+static wt_guest_context_t g_test_context;
+static volatile uint32_t g_test_capture;
+static const wt_trap_frame_t* volatile g_test_frame;
+
+bool wt_cmse_check_in_guest_ns_ram(wt_guest_id_t guest_id, const void* ptr,
+                                   size_t size)
+{
+    uintptr_t base = TEST_GUEST_RAM_BASE +
+                     (uintptr_t)guest_id * TEST_GUEST_RAM_SIZE;
+    uintptr_t addr = (uintptr_t)ptr;
+
+    return guest_id < 2U && addr >= base && size <= TEST_GUEST_RAM_SIZE &&
+           addr - base <= TEST_GUEST_RAM_SIZE - size;
+}
+
 void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
 {
-    (void)frame;
+    g_test_frame = frame;
+    if (g_test_capture != 0U) {
+        g_test_capture = 0U;
+        wt_arch_guest_context_capture(&g_test_context, frame);
+    }
     g_test_ticks++;
     if (g_test_reset_owner != 0U) {
         g_test_reset_owner = 0U;
@@ -177,6 +202,34 @@ void Reset_Handler(void)
           g_guest_systick[0].cvr == 0U &&
           g_guest_systick[0].pending == 0U &&
           g_guest_systick[0].owed_ticks == 0U);
+
+    /* Only an aligned frame wholly inside the interrupted guest's RAM is
+     * read; anything else becomes the empty frame. */
+    g_active_guest = 0U;
+    check(wt_guest_frame_checked((const wt_trap_frame_t*)TEST_GUEST_RAM_BASE) ==
+          (const wt_trap_frame_t*)TEST_GUEST_RAM_BASE);
+    check(wt_guest_frame_checked(
+              (const wt_trap_frame_t*)(TEST_GUEST_RAM_BASE + 2U)) ==
+          &g_wt_guest_no_frame);
+    check(wt_guest_frame_checked((const wt_trap_frame_t*)(TEST_GUEST_RAM_BASE +
+              TEST_GUEST_RAM_SIZE - 4U)) == &g_wt_guest_no_frame);
+    check(wt_guest_frame_checked((const wt_trap_frame_t*)(TEST_GUEST_RAM_BASE +
+              TEST_GUEST_RAM_SIZE)) == &g_wt_guest_no_frame);
+    g_active_guest = UINT32_MAX;
+    check(wt_guest_frame_checked((const wt_trap_frame_t*)TEST_GUEST_RAM_BASE) ==
+          &g_wt_guest_no_frame);
+
+    /* A guest-written MSP_NS outside its RAM: the Secure tick neither reads
+     * through it nor faults, and the capture records no frame contents. */
+    g_active_guest = 0U;
+    __asm volatile("msr msp_ns, %0" : : "r"(TEST_BOGUS_MSP_NS));
+    g_test_capture = 1U;
+    WT_SCB_ICSR_S = WT_SCB_ICSR_PENDSTSET;
+    __asm volatile("dsb 0xF\n isb 0xF" ::: "memory");
+    check(g_test_capture == 0U && g_test_frame == &g_wt_guest_no_frame &&
+          g_test_context.pc == 0U && g_test_context.frame_stacked);
+    __asm volatile("msr msp_ns, %0" : : "r"(0U));
+
     __asm volatile("bkpt #0x7f");
     for (;;) {}
 }

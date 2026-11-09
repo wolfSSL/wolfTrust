@@ -26,6 +26,7 @@
 
 #include "wolftrust/arch.h"
 #include "wolftrust/arch/armv8m/armv8m.h"
+#include "wolftrust/arch/armv8m/cmse.h"
 #include "wolftrust/arch/armv8m/context.h"
 #include "wolftrust/arch/armv8m/core_regs.h"
 #include "wolftrust/spm_transport.h"
@@ -356,19 +357,38 @@ static void wt_secure_systick_dispatch(const wt_trap_frame_t* frame)
 static void wt_secure_fault_dispatch(const wt_trap_frame_t* frame)
     __attribute__((noreturn, used));
 
+/* Stands in for a guest frame the Secure side must not read: a guest
+ * (un)stacking error, or a stack pointer outside the guest's own RAM. */
+static wt_trap_frame_t g_wt_guest_no_frame;
+
+/* The guest owns its stack pointers, so read a frame only when it lies wholly
+ * inside the interrupted guest's RAM; anything else would fault this handler. */
+static const wt_trap_frame_t* wt_guest_frame_checked(
+    const wt_trap_frame_t* frame)
+{
+    if (g_active_guest >= (uint32_t)WT_MAX_GUESTS ||
+            ((uintptr_t)frame & (sizeof(uint32_t) - 1u)) != 0u ||
+            !wt_cmse_check_in_guest_ns_ram((wt_guest_id_t)g_active_guest,
+                                           frame, sizeof(*frame))) {
+        return &g_wt_guest_no_frame;
+    }
+    return frame;
+}
+
 static void wt_secure_systick_dispatch(const wt_trap_frame_t* frame)
 {
     g_secure_wall_cycles += g_systick_reload;
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     wt_spm_sched_hang_probe();
 #endif
-    wt_monitor_on_secure_timer(frame);
+    wt_monitor_on_secure_timer(wt_guest_frame_checked(frame));
 }
 
 static void wt_secure_fault_dispatch(const wt_trap_frame_t* frame)
 {
     g_last_fault_address = WT_SAU_SFAR;
-    wt_monitor_on_guest_fault(frame, WT_FAULT_SECURE_ESCALATION);
+    wt_monitor_on_guest_fault(wt_guest_frame_checked(frame),
+                              WT_FAULT_SECURE_ESCALATION);
     wt_platform_panic();
     __builtin_unreachable();
 }
@@ -378,13 +398,11 @@ static void wt_secure_fault_dispatch(const wt_trap_frame_t* frame)
 static void wt_secure_busfault_dispatch(const wt_trap_frame_t* frame)
     __attribute__((noreturn, used));
 
-/* A guest (un)stacking error leaves no readable frame; capture this instead. */
-static wt_trap_frame_t g_wt_guest_no_frame;
-
 static void wt_secure_busfault_dispatch(const wt_trap_frame_t* frame)
 {
     uint32_t cfsr = WT_SCB_CFSR_S;
 
+    frame = wt_guest_frame_checked(frame);
     if ((cfsr & (WT_SCB_CFSR_BFSR_STKERR | WT_SCB_CFSR_BFSR_UNSTKERR)) != 0u) {
         frame = &g_wt_guest_no_frame;
     }

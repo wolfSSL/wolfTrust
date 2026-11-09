@@ -1,8 +1,9 @@
 # wolfTrust CI
 
 CI has a fast per-PR host lane, the tiered M33MU emulator matrix, and static
-analysis. M33MU runs a per-port smoke set on every pull request and the full
-matrix on labels, main pushes, and nightly.
+analysis. M33MU runs the STM32H563 smoke set on every pull request and the
+full matrix on labels, main pushes, and nightly. MIMXRT700 runs on a pull
+request only when labelled.
 
 `codeql.yml` runs C security queries. `coverity.yml` runs on Sundays at
 00:00 UTC or by manual dispatch. Both build the host suites and secure images
@@ -21,8 +22,8 @@ An accepted upload queues analysis; results appear after Coverity processes it.
 | Tier | Trigger | Purpose |
 |------|---------|---------|
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
-| **M33MU smoke** | every PR | per port, on both crypto engines: STM32H563 `positive gtzcneg crossdomain bothpsa confboot devcrypto`; MIMXRT700 `positive ahbscneg crossdomain bothpsa confboot devcrypto` |
-| **M33MU full** | PR labels `ci:all`, `ci:h5`, `ci:rt700`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
+| **M33MU smoke** | every PR | STM32H563 on both crypto engines: `positive gtzcneg crossdomain bothpsa confboot devcrypto` |
+| **M33MU full** | PR labels `ci:all`, `ci:m33mu`, `ci:h5`, `ci:rt700`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
 
 The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
 `pr-osp-select.yml` is: a `select` job checks the routing table
@@ -32,7 +33,7 @@ groups it picked, so a job that is not selected never appears as skipped.
 
 | Label | Effect |
 |-------|--------|
-| (no label) | each port's smoke tier on both engines |
+| (no label) | the STM32H563 smoke tier on both engines; no MIMXRT700 jobs |
 | `ci:h5` | the STM32H563 full matrix (the change touched only that port) |
 | `ci:rt700` | the MIMXRT700 full matrix (the change touched only that port) |
 | `ci:all` / `ci:m33mu` | every scenario of every port (a core change) |
@@ -75,8 +76,8 @@ test-target` also reads. The table below is a representative slice:
 | `mimxrt700_devcrypto_vaultrecover_vaultrecoversec_<engine>` | `devcrypto vaultrecover vaultrecoversec` | PSA Crypto conformance on wolfPSA; a foreign vault pool self-heals in development and fails closed when SECURED |
 | `mimxrt700_rollbackneg_remeasureneg_manifestneg_spbudgetneg_<engine>` | `rollbackneg remeasureneg manifestneg spbudgetneg` | shared Secure-verdict table: rollback refusal, re-measure tamper, corrupted manifest, restart budget |
 
-An unlabeled PR runs only each port's smoke tier; the full matrix needs a
-`ci:` label. To run a single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>` (the
+An unlabeled PR runs only the STM32H563 smoke tier; MIMXRT700 and the full
+matrix need a `ci:` label. To run a single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>` (the
 RT700 checks use `tests/target/run_rt700_m33mu.sh <key>`); to run a port's
 full matrix on a PR, add its `ci:` label; off-PR against a branch,
 `workflow_dispatch` on `m33mu.yml` with the `port` input.

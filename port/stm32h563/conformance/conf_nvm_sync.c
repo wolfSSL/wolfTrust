@@ -25,6 +25,7 @@
 
 #include "conf_nvm.h"
 
+#include "wolftrust/ffm.h"
 #include "wolftrust/spm_transport.h"
 #include "wolftrust/spm_gate.h"
 
@@ -57,7 +58,9 @@ int wt_conf_nvm_sync(uint8_t *buf, uint32_t len, int store)
     call.num_bytes = (size_t)len;
     call.call_type = store;
 
-    (void)wt_spm_sp_call(&call);
+    if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS) {
+        return -1;
+    }
     return call.ret_int;
 }
 

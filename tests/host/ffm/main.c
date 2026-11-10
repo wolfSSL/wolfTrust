@@ -46,6 +46,7 @@ typedef struct test_context {
     int reject_write;
     int reply_programmer_error;
     int refuse_dispatch;
+    int fail_after_reply;
     psa_msg_t delayed_message;
     int delay_result;
 } test_context_t;
@@ -250,6 +251,8 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                 input, sizeof(input)), 0U);
     }
 
+    if (test->fail_after_reply)
+        return WT_FFM_ERROR_STATE;
     return WT_FFM_SUCCESS;
 }
 
@@ -1390,6 +1393,44 @@ static void test_delayed_reply_fault_cleanup(void)
     (void)printf("PASS: WT-FFM-0017 delayed reply fault cleanup\n");
 }
 
+/* WT-FFM-0025: a DISCONNECT the service could not take yet stays queued, so
+ * the service still cleans up its per-connection state before the slot is
+ * reused. */
+static void test_refused_close_releases_connection(void)
+{
+    wt_ffm_runtime_t runtime;
+    test_context_t context;
+    psa_handle_t handle;
+    size_t idx = 0U;
+
+    test_init(&runtime, &context);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    context.refuse_dispatch = 1;
+    EXPECT_TRUE(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle) !=
+                WT_FFM_SUCCESS);
+    context.refuse_dispatch = 0;
+    EXPECT_TRUE(find_connection(&runtime, TEST_NS_CLIENT, &idx));
+    EXPECT_INT(test_dispatch(&context, &runtime, TEST_PARTITION_ID),
+               WT_FFM_SUCCESS);
+    expect_ffm_pools_empty(&runtime);
+    EXPECT_INT(runtime.services[0].queue_head, WT_FFM_QUEUE_NONE);
+    (void)printf("PASS: WT-FFM-0025 undelivered close reaches the service "
+                 "before the connection is freed\n");
+
+    test_init(&runtime, &context);
+    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_SERVICE_SID, 3U);
+    EXPECT_TRUE(PSA_HANDLE_IS_VALID(handle));
+    context.fail_after_reply = 1;
+    EXPECT_INT(wt_ffm_close(&runtime, TEST_NS_CLIENT, handle),
+               WT_FFM_ERROR_STATE);
+    context.fail_after_reply = 0;
+    expect_ffm_pools_empty(&runtime);
+    EXPECT_INT(runtime.services[0].queue_head, WT_FFM_QUEUE_NONE);
+    (void)printf("PASS: WT-FFM-0025 a replied close is released even when "
+                 "the dispatcher reports an error\n");
+}
+
 /* WT-FFM-0026: abnormal client cleanup keeps a message a service is still
  * holding until it replies; the reply lands, nothing reaches the departed
  * client, and the service then sees the cleanup disconnection. */
@@ -1444,6 +1485,7 @@ int main(void)
     test_refused_dispatch_queue_consistency();
     test_delayed_synchronous_reply();
     test_delayed_reply_fault_cleanup();
+    test_refused_close_releases_connection();
     test_client_cleanup_keeps_held_message();
     test_doorbell_signal();
     test_eoi_signal();

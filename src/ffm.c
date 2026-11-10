@@ -920,17 +920,14 @@ int wt_ffm_close(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
     message->type = PSA_IPC_DISCONNECT;
     wt_ffm_enqueue(runtime, connection->service_index, message_index);
     ret = wt_ffm_dispatch_message(runtime, message_index);
-    if (ret != WT_FFM_SUCCESS && message->active != 0U) {
+    /* Delivered or not, the service must still see the DISCONNECT to release
+     * its per-connection state; its reply (or fault cleanup) frees the slot. */
+    if (ret != WT_FFM_SUCCESS && message->complete == 0U) {
         message->abandoned = WT_FFM_ABANDONED_CLOSE;
         return ret;
     }
-    if (ret != WT_FFM_SUCCESS) {
-        wt_ffm_dequeue_message(runtime, connection->service_index,
-                               message_index);
-    }
     wt_ffm_release_message(runtime, message_index);
-    if (ret == WT_FFM_SUCCESS)
-        wt_ffm_release_connection(runtime, connection_index);
+    wt_ffm_release_connection(runtime, connection_index);
     return ret;
 }
 

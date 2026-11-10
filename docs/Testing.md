@@ -135,7 +135,17 @@ runs it with both crypto engines.
 It also runs `tests/target/test_systick_idle.sh`, which executes the production
 Armv8-M timer code with modeled Non-secure timer registers and real Secure
 SysTick interrupts. The check covers timer configuration and pending-tick
-preservation across idle, repeated idle, resume, and interrupt ordering.
+preservation across idle, repeated idle, resume, and interrupt ordering. It
+also covers the guest trap-frame filter (a Secure tick never reads through a
+guest stack pointer outside that guest's RAM), MSP_NS capture for a PSP_NS
+frame, the Secure priority band, per-guest Non-secure mask save and restore,
+and the restore dropping a Secure FF-M entry mask a restarted guest left.
+M33MU has no `AIRCR.PRIS`, so the claim that Non-secure masks never stop the
+Secure tick prints SKIP there and is proven by the STM32H563 `nsmaskneg`
+hardware scenario. M33MU also drops `FAULTMASK_NS` writes, so the fixture's
+`FAULTMASK_NS` checks print SKIP there. The fixture checks which abandoned
+guest IRQs are queued for retirement; the retiring exception return itself
+runs only in the MIMXRT700 `handlerirqneg` hardware scenario.
 
 Five scenarios cover processor-state isolation, and the emulator proves less
 than their names suggest:
@@ -304,7 +314,9 @@ also checks partition restart and guest survival.
 the monitor relaunches guest 0 through its restart budget and quarantines it,
 and guest 1 runs on. `authneg` flips one byte of guest 0's image after its
 digest was pinned, so launch verification refuses guest 0 while guest 1 boots
-and runs normally.
+and runs normally. `handlerneg` parks guest 0 in a Non-secure handler that
+never returns: the Secure tick still preempts it and the monitor restarts it
+past the handler slice limit while guest 1 runs on.
 
 The remaining scenarios run the portable PSA test guest
 (`tests/firmware/psa-guest/`) in both Non-secure windows. It is the STM32H563
@@ -453,11 +465,21 @@ and reset the board.
 ## MIMXRT700 hardware
 
 `make test-hardware TARGET=mimxrt700` runs `tests/target/run_rt700_suite.sh`
-on the host that owns the EVK's probe: `positive`, `ahbscneg`, `wrpfence`,
-`wrpoff`, and `wrpneg` by default (`WT_RT700_SCENARIOS` overrides the list),
-each built, flashed, read back, and asserted over the debug port. `wrpneg`
+on the host that owns the EVK's probe: `positive`, `ahbscneg`, `nsentrymask`,
+`handlerirqneg`, `wrpfence`, `wrpoff`, and `wrpneg` by default (`WT_RT700_SCENARIOS` overrides
+the list), each built, flashed, read back, and asserted over the debug port. `wrpneg`
 builds wolfBoot's flash-protect selftest, which must see the silicon refuse an
-erase inside the guest fence with the block left unchanged. Without the probe,
+erase inside the guest fence with the block left unchanged. `nsentrymask`
+arms a short Non-secure SysTick before each of guest 0's FF-M connects so it
+comes due mid-entry, and its handler connects too; the Secure entry mask must
+hold the handler until the outer entry returns. M33MU cannot run it: it decodes
+`MSR BASEPRI_MAX` as `FAULTMASK`, lets only the Non-secure `BASEPRI` mask a
+Non-secure exception, and mishandles FF-M calls made from a Non-secure
+handler. `handlerirqneg` parks guest 0 in a Non-secure external IRQ handler on
+every launch; after its restarts, that IRQ must read inactive and guest 1's
+PendSV must keep firing. M33MU cannot run it either: it does not report the
+IRQ active, and it tracks the guest in Handler mode after the return to Thread.
+Without the probe,
 console, pyOCD pack, or SPSDK, `tests/target/detect_rt700.sh` reports why and
 the suite skips. The device life cycle flow is driven separately and manually
 through `TARGET=mimxrt700 tests/target/provisioning/provisioning_ctrl.sh`; see the MIMXRT700 Guide.
@@ -494,7 +516,9 @@ make test-hardware
 ```
 
 The target skips if hardware detection fails. It builds and flashes the
-positive, restart, cross-domain, and conformance scenarios by default. The
+positive, restart, cross-domain, Non-secure mask, and conformance scenarios by
+default. `nsmaskneg` has guest 0 set its Non-secure `PRIMASK`, `FAULTMASK`, and
+`BASEPRI` and spin; the Secure tick must still run guest 1. The
 suite wrapper forwards `WT_ENGINE` into its build container. Select a narrower
 set with `WT_H5_SCENARIOS`:
 

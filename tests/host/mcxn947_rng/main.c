@@ -23,7 +23,9 @@
  * command: requests serve fresh DMA pages and wipe them, and a request that
  * misses its deadline must target memory outside the stack and leave the
  * source refusing every later call, as must a request the engine fails; a
- * locked engine refuses before any request. Each case runs in its own process
+ * locked engine refuses before any request, a dropped START is refused by
+ * its surviving canary, and an error an earlier stage left latched is cleared
+ * at init. Each case runs in its own process
  * (the driver latches failure). Built without PIE so the 32-bit DMA register
  * holds a host address of static storage. */
 
@@ -62,6 +64,7 @@ static uint32_t g_dma_len;
 static uint32_t g_requests;
 static uint32_t g_last_dma_addr;
 static int g_hang;
+static int g_drop_start;
 static uint32_t g_ctrl_seen;
 static uintptr_t g_stack_marker;
 
@@ -85,6 +88,11 @@ static void wt_mock_step(void)
     volatile uint32_t *dst;
     uint32_t i;
 
+    /* ERR_STATUS_CLR is write-one-to-clear. */
+    if ((g_err_clr & WT_ELS_ERR_STATUS_CLR_ALL) != 0u) {
+        g_status &= ~WT_ELS_STATUS_ERR;
+        g_err_clr = 0u;
+    }
     if (g_ctrl != g_ctrl_seen) {
         if ((g_ctrl & WT_ELS_CTRL_START) != 0u) {
             /* START self-clears, so an identical later write is a new one. */
@@ -93,6 +101,9 @@ static void wt_mock_step(void)
             g_last_dma_addr = g_dma_addr;
             if (g_hang) {
                 g_status = WT_ELS_STATUS_BUSY;
+            }
+            else if (g_drop_start) {
+                g_status = 0u;
             }
             else if (g_fail_request) {
                 g_status = WT_ELS_STATUS_ERR;
@@ -258,6 +269,39 @@ static void test_failed_request(void)
     EXPECT(g_requests == before, "no new request is issued after a failure");
 }
 
+static void test_dropped_start(void)
+{
+    unsigned char out[16];
+    unsigned char zero[16];
+    uint32_t before;
+
+    g_drop_start = 1;
+    memset(out, 0, sizeof(out));
+    memset(zero, 0, sizeof(zero));
+    EXPECT(wolftrust_rng_generate_block(out, sizeof(out)) != 0,
+           "a request whose START was dropped is refused");
+    EXPECT(g_requests == 1u, "the dropped request was issued");
+    EXPECT(g_wt_els_errors == 1u, "the surviving canary is counted");
+    EXPECT(memcmp(out, zero, sizeof(out)) == 0, "nothing is served");
+    EXPECT(page_wiped(), "the canary page is wiped");
+    g_drop_start = 0;
+    before = g_requests;
+    EXPECT(wolftrust_rng_generate_block(out, sizeof(out)) != 0,
+           "the source refuses every call after a dropped request");
+    EXPECT(g_requests == before, "no new request is issued after a drop");
+}
+
+static void test_stale_error(void)
+{
+    unsigned char out[16];
+
+    g_status = WT_ELS_STATUS_ERR;
+    EXPECT(wolftrust_rng_generate_block(out, sizeof(out)) == 0,
+           "an error latched before init is cleared and the engine serves");
+    EXPECT(g_wt_els_errors == 0u, "a cleared stale error is not counted");
+    EXPECT(served_from(out, sizeof(out), 1u), "and serves its page");
+}
+
 int main(int argc, char **argv)
 {
     uint8_t marker = 0u;
@@ -269,6 +313,12 @@ int main(int argc, char **argv)
     }
     else if (strcmp(which, "error") == 0) {
         test_failed_request();
+    }
+    else if (strcmp(which, "dropped") == 0) {
+        test_dropped_start();
+    }
+    else if (strcmp(which, "stale") == 0) {
+        test_stale_error();
     }
     else {
         test_completed_requests();

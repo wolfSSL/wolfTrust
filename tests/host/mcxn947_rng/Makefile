@@ -33,7 +33,7 @@ CFLAGS += $(EXTRA_CFLAGS)
 ALL_OBJS := $(BUILD_DIR)/wt_rng_entropy.o $(BUILD_DIR)/main.o
 TEST_BIN := $(BUILD_DIR)/test_mcxn947_rng
 # The driver latches failure, so each case runs in its own process.
-CASES := default locked error
+CASES := default locked error dropped stale
 
 .PHONY: all run compilers sanitize valgrind clean
 

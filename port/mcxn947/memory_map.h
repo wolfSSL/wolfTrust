@@ -100,6 +100,18 @@
 #define WT_FWU_UPDATE_FLASH_BASE_S 0x10180000u
 #define WT_FWU_UPDATE_FLASH_SIZE   0x00040000u
 
+/* The one SAU NS region spans both guests, so it must stay off the Secure
+ * image, the update and swap partitions, and both NVM stores. */
+#define WT_GUEST_FLASH_NS_END (WT_GUEST1_FLASH_BASE + WT_GUEST1_FLASH_SIZE)
+#if WT_GUEST0_FLASH_BASE + WT_GUEST0_FLASH_SIZE > WT_GUEST1_FLASH_BASE || \
+    WT_GUEST0_FLASH_BASE < \
+        WT_SECURE_FLASH_BASE + WT_SECURE_FLASH_SIZE - WT_FLASH_S_ALIAS_BASE || \
+    WT_GUEST_FLASH_NS_END > WT_FWU_UPDATE_FLASH_BASE_S - WT_FLASH_S_ALIAS_BASE || \
+    WT_GUEST_FLASH_NS_END > WT_HSM_NVM_FLASH_BASE_NS || \
+    WT_GUEST_FLASH_NS_END > WT_CONF_NVM_FLASH_BASE_NS
+#error "MCXN947 guest flash overlaps the Secure image, update partition, or NVM"
+#endif
+
 #define WT_SHARED_STATUS_ADDR    0x20000000u
 
 #ifndef WT_PLATFORM_CORE_CLOCK_HZ

@@ -35,6 +35,7 @@ int wolftrust_rng_generate_block_direct(unsigned char *output,
 
 #define WT_ELS_SPINS      0x00200000u
 #define WT_ELS_PAGE_WORDS 16u
+#define WT_ELS_CANARY     0xC3A55A3Cu
 
 static bool s_rng_ready;
 /* A request that outlives its deadline may still complete by DMA, so the page
@@ -69,15 +70,21 @@ static int wt_els_wait_idle(void)
 static int wt_els_init(void)
 {
     WT_ELS_CTRL = WT_ELS_CTRL_EN;
+    /* An error an earlier boot stage left latched would refuse every request. */
+    WT_ELS_ERR_STATUS_CLR = WT_ELS_ERR_STATUS_CLR_ALL;
     return wt_els_wait_idle();
 }
 
 /* One RND_REQ fills a whole page the ELS writes by DMA; words a request does
  * not use are wiped, never served to a later request. */
-static int wt_els_rnd_page(uint32_t *page)
+static int wt_els_rnd_page(volatile uint32_t *page)
 {
+    unsigned int i;
     int ret;
 
+    for (i = 0u; i < WT_ELS_PAGE_WORDS; ++i) {
+        page[i] = WT_ELS_CANARY;
+    }
     ret = wt_els_wait_idle();
     if (ret == 0) {
         WT_ELS_DMA_RES0 = (uint32_t)(uintptr_t)page;
@@ -86,6 +93,15 @@ static int wt_els_rnd_page(uint32_t *page)
         WT_ELS_CTRL = WT_ELS_CTRL_EN | WT_ELS_CTRL_START |
                       WT_ELS_CTRL_CMD(WT_ELS_CMD_RND_REQ);
         ret = wt_els_wait_idle();
+        /* BUSY clear does not prove the request ran; a dropped START leaves
+         * the canary. */
+        for (i = 0u; ret == 0 && i < WT_ELS_PAGE_WORDS; ++i) {
+            if (page[i] == WT_ELS_CANARY) {
+                g_wt_els_errors++;
+                g_wt_els_last_status = WT_ELS_STATUS;
+                ret = -1;
+            }
+        }
         if (ret != 0) {
             s_rng_failed = true;
             WT_ELS_ERR_STATUS_CLR = WT_ELS_ERR_STATUS_CLR_ALL;
@@ -96,8 +112,7 @@ static int wt_els_rnd_page(uint32_t *page)
 
 static int wt_els_fill(unsigned char *output, unsigned int sz)
 {
-    uint32_t *page = s_els_page;
-    volatile uint32_t* wipe = s_els_page;
+    volatile uint32_t* page = s_els_page;
     unsigned int done = 0u;
     unsigned int chunk;
     unsigned int i;
@@ -110,12 +125,12 @@ static int wt_els_fill(unsigned char *output, unsigned int sz)
             if (chunk > (unsigned int)sizeof(s_els_page)) {
                 chunk = (unsigned int)sizeof(s_els_page);
             }
-            (void)memcpy(output + done, page, chunk);
+            (void)memcpy(output + done, s_els_page, chunk);
             done += chunk;
         }
     }
     for (i = 0u; i < WT_ELS_PAGE_WORDS; ++i) {
-        wipe[i] = 0u;
+        page[i] = 0u;
     }
     return ret;
 }

@@ -37,13 +37,11 @@ pyocd_target="${MCXN947_TARGET:-mcxn947vdf}"
 spsdk_venv="${MCXN947_SPSDK_VENV:-$HOME/spsdk-venv}"
 # Set here, not in a helper: the controller runs many port calls in subshells.
 [ ! -d "$spsdk_venv/bin" ] || PATH="$spsdk_venv/bin:$PATH"
-# The Python that runs pyOCD: the venv's, else the one behind pyocd on PATH.
-if [ -x "$spsdk_venv/bin/python" ]; then
-  spsdk_py="$spsdk_venv/bin/python"
-else
-  spsdk_py="$(sed -n '1s/^#! *\([^ ]*python[^ ]*\).*/\1/p' "$(command -v pyocd 2>/dev/null || echo /dev/null)" 2>/dev/null)"
-  spsdk_py="${spsdk_py:-python3}"
-fi
+pyocd="${MCXN947_PYOCD:-pyocd}"
+# The Python behind pyOCD, since SPSDK 3.13 no longer installs it into its venv.
+spsdk_py="$(sed -n '1s/^#! *\([^ ]*python[^ ]*\).*/\1/p' "$(command -v "$pyocd" 2>/dev/null || echo /dev/null)" 2>/dev/null)"
+[ -n "$spsdk_py" ] || [ ! -x "$spsdk_venv/bin/python" ] || spsdk_py="$spsdk_venv/bin/python"
+spsdk_py="${spsdk_py:-python3}"
 guest_mask="${MCXN947_GUEST_MASK:-0x3}"
 case "$guest_mask" in
   0x1|0x2|0x3|1|2|3) ;;
@@ -103,11 +101,8 @@ fuse_lc_name() {
   esac
 }
 ensure_pyocd() {
-  if ! command -v pyocd >/dev/null 2>&1; then
-    [ -x "$spsdk_venv/bin/pyocd" ] || fail "tools" "pyocd not found (set MCXN947_SPSDK_VENV)"
-    PATH="$spsdk_venv/bin:$PATH"
-    export PATH
-  fi
+  command -v "$pyocd" >/dev/null 2>&1 ||
+    fail "tools" "pyocd not found (set MCXN947_PYOCD or MCXN947_SPSDK_VENV)"
 }
 ensure_spsdk() {
   ensure_pyocd
@@ -120,7 +115,7 @@ ensure_spsdk() {
 probe_uid() {
   local ids
   if [ -n "${MCXN947_PROBE_UID:-}" ]; then echo "$MCXN947_PROBE_UID"; return 0; fi
-  ids="$(timeout 30 pyocd list 2>/dev/null | awk '$1 ~ /^[0-9]+$/ { print $(NF-1) }')"
+  ids="$(timeout 30 "$pyocd" list 2>/dev/null | awk '$1 ~ /^[0-9]+$/ { print $(NF-1) }')"
   [ "$(printf '%s\n' "$ids" | grep -c .)" = "1" ] && echo "$ids"
 }
 ensure_probe() {
@@ -134,7 +129,7 @@ pyocd_probe() {
   local secs="$1"
   shift
   [ -n "${PROBE:-}" ] || refuse "no debug probe bound (ensure_probe was not called)."
-  timeout "$secs" pyocd "$@" -u "$PROBE"
+  timeout "$secs" "$pyocd" "$@" -u "$PROBE"
 }
 # Words over SWD with the generic attach, which never resets the chip.
 read_words() {

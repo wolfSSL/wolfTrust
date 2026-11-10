@@ -110,7 +110,7 @@ banks) of 8 KiB sectors and 16-byte ECC phrases.
 | Guest 0 RAM (`0x18000`) | `0x20000000` |
 | Guest 1 RAM (`0x18000`) | `0x20018000` |
 | Boot-handoff record (4 KiB page, the record is 56 bytes) | `0x30030000` |
-| Secure runtime RAM (`0x37000`: 86 KiB SPM, 42 KiB keystore bands, 102 KiB stacks and conformance data) | `0x30031000` |
+| Secure runtime RAM (`0x37000`: 86 KiB SPM, 42 KiB keystore bands, 92 KiB stacks and conformance data) | `0x30031000` |
 
 The guest windows alias wolfBoot's own RAM (`0x30000000` to `0x3001E000`),
 dead after the jump; `wt_platform_init` zeroes both windows before any guest

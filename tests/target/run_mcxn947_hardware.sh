@@ -305,13 +305,23 @@ run_chain() {
 # The words every check reads, kept as text beside the console so a verdict
 # can be re-read without the board.
 dump_evidence() {
+    local spec addr
+    local -a reads=(-c "read32 $guest0_ram 48" -c "read32 $guest1_ram 48" -c "read32 $probe_addr 4")
     {
         echo "scenario=$scenario engine=$engine image=$(sha256sum "$repo/build/wolftrust_v1_signed.bin" | cut -c1-16)"
-        dap -c "read32 $guest0_ram 48" -c "read32 $guest1_ram 48" -c "read32 $probe_addr 4" \
-            -c "read32 $(elf_sym g_wt_launch_verified_mask)" -c "read32 $(elf_sym g_wt_launch_refused_mask)" \
-            -c "read32 $(elf_sym g_wt_restart_events)" -c "read32 $(elf_sym g_wt_quarantine_events)" \
-            -c "read32 $(elf_sym g_wt_rom_flash_last_status)" -c "read32 $(elf_sym g_wt_flash_last_error)" \
-            -c "read32 $(elf_sym g_wt_els_errors) 12" -c "read32 $(elf_sym g_wt_boot_handoff) 56" \
+        # A symbol this build leaves out (wrpoff) would be a bare read32, which stops pyOCD.
+        for spec in g_wt_launch_verified_mask:4 g_wt_launch_refused_mask:4 \
+                    g_wt_restart_events:4 g_wt_quarantine_events:4 \
+                    g_wt_rom_flash_last_status:4 g_wt_flash_last_error:4 \
+                    g_wt_els_errors:12 g_wt_boot_handoff:56; do
+            addr="$(elf_sym "${spec%:*}")"
+            if [ -n "$addr" ]; then
+                reads+=(-c "read32 $addr ${spec#*:}")
+            else
+                echo "${spec%:*}: not in this image"
+            fi
+        done
+        dap "${reads[@]}" \
             -c "read32 $hsm_nvm_addr 32" -c "read32 $((hsm_nvm_addr + flash_sector)) 16" \
             -c "read32 $handoff_addr 16" -c "read32 $syscon_lc_state" \
             -c halt -c "reg pc" -c "reg xpsr" -c go

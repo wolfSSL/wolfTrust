@@ -301,6 +301,12 @@ void Reset_Handler(void)
     g_test_context.faultmask_ns = 0U;
     wt_restore_guest_masks(&g_test_context);
 
+    /* A guest restarted mid FF-M entry left the Secure entry mask raised. */
+    __asm volatile("msr basepri, %0" : : "r"(WT_ARMV8M_NS_PRIO_FLOOR));
+    wt_restore_guest_masks(&g_test_context);
+    __asm volatile("mrs %0, basepri" : "=r"(basepri));
+    check(basepri == 0U);
+
     if (faultmask_kept != 0U) {
         __asm volatile("bkpt #0x7f");
     }

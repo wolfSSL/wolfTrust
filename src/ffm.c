@@ -1253,6 +1253,10 @@ int wt_ffm_fail_client_connections(wt_ffm_runtime_t* runtime,
         wt_ffm_release_connection(runtime, (uint16_t)i);
         freed++;
     }
+    /* A gateway entry the terminated client left in flight never returns. */
+    if (runtime->ns_entry_caller == caller) {
+        runtime->ns_entry_caller = 0;
+    }
     return freed;
 }
 

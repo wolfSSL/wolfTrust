@@ -7,7 +7,7 @@ set -euo pipefail
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 runner="$repo/tests/target/run_rt700_hardware.sh"
-scenarios="${WT_RT700_SCENARIOS:-positive ahbscneg wrpfence wrpoff wrpneg}"
+scenarios="${WT_RT700_SCENARIOS:-positive ahbscneg nsentrymask wrpfence wrpoff wrpneg}"
 spsdk_venv="${RT700_SPSDK_VENV:-$HOME/spsdk-venv}"
 
 # The runner puts the SPSDK venv on PATH itself; detection needs it first.

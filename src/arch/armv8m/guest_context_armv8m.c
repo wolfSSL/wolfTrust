@@ -804,16 +804,18 @@ void wt_arch_guest_context_capture(wt_guest_context_t* context,
 }
 
 /* A preempted guest may hold Non-secure PRIMASK, BASEPRI or FAULTMASK; the
- * banks are shared, so each guest resumes with its own. */
+ * banks are shared, so each guest resumes with its own. A Secure entry mask
+ * left by a guest restarted mid-entry is dropped as well. */
 static void wt_restore_guest_masks(const wt_guest_context_t* context)
 {
     __asm volatile(
         "msr primask_ns, %0   \n"
         "msr basepri_ns, %1   \n"
         "msr faultmask_ns, %2 \n"
+        "msr basepri, %3      \n"
         :
         : "r"(context->primask_ns), "r"(context->basepri_ns),
-          "r"(context->faultmask_ns)
+          "r"(context->faultmask_ns), "r"(0u)
         : "memory");
 }
 

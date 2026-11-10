@@ -25,6 +25,7 @@
  * the architecture contract. */
 
 #include "wolftrust/arch.h"
+#include "wolftrust/arch/armv8m/armv8m.h"
 #include "wolftrust/arch/armv8m/cmse.h"
 #include "wolftrust/ffm_gateway.h"
 #include "wolftrust/types.h"
@@ -47,23 +48,52 @@ int wt_arch_ns_check_writable(const void* address, size_t size)
     return wt_cmse_check_ns_rw(address, size);
 }
 
+/* No Non-secure handler may preempt an entry and re-enter the FF-M core;
+ * the Secure timer band, Secure IRQs and faults stay above the mask. */
+static uint32_t wt_ns_entry_mask(void)
+{
+    uint32_t prev;
+
+    __asm volatile("mrs %0, basepri" : "=r"(prev));
+    __asm volatile("msr basepri_max, %0 \n"
+                   "isb 0xF               \n"
+                   : : "r"(WT_ARMV8M_NS_PRIO_FLOOR) : "memory");
+    return prev;
+}
+
+static void wt_ns_entry_unmask(uint32_t prev)
+{
+    __asm volatile("msr basepri, %0" : : "r"(prev) : "memory");
+}
+
 __attribute__((cmse_nonsecure_entry))
 int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version)
 {
-    return wt_ffm_gateway_connect(sid, version);
+    uint32_t prev = wt_ns_entry_mask();
+    int32_t ret = wt_ffm_gateway_connect(sid, version);
+
+    wt_ns_entry_unmask(prev);
+    return ret;
 }
 
 __attribute__((cmse_nonsecure_entry))
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
                           wt_ffm_veneer_iovec_t* ns_iovec)
 {
-    return wt_ffm_gateway_call(handle, type, ns_iovec);
+    uint32_t prev = wt_ns_entry_mask();
+    int32_t ret = wt_ffm_gateway_call(handle, type, ns_iovec);
+
+    wt_ns_entry_unmask(prev);
+    return ret;
 }
 
 __attribute__((cmse_nonsecure_entry))
 void WolfTrust_FFM_Close(int32_t handle)
 {
+    uint32_t prev = wt_ns_entry_mask();
+
     wt_ffm_gateway_close(handle);
+    wt_ns_entry_unmask(prev);
 }
 
 __attribute__((cmse_nonsecure_entry))

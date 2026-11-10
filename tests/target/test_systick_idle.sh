@@ -58,3 +58,4 @@ else
   echo 'PASS: guest Non-secure PRIMASK and BASEPRI are saved and restored per guest'
   echo 'SKIP: FAULTMASK_NS checks; this core drops FAULTMASK_NS writes'
 fi
+echo 'PASS: guest restore drops a Secure entry mask left by a mid-entry restart'

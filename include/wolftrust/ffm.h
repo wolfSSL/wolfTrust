@@ -125,6 +125,8 @@ struct wt_ffm_runtime {
     size_t partition_count;
     size_t service_count;
     uint32_t lifecycle;
+    /* Client whose Non-secure gateway entry is in flight, 0 when idle. */
+    volatile psa_client_id_t ns_entry_caller;
 };
 
 typedef enum wt_ffm_result {

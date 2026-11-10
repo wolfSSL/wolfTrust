@@ -59,6 +59,12 @@ WT_HANDLER_OVERRUN_PROBE ?= 0
 ifeq ($(WT_HANDLER_OVERRUN_PROBE),1)
 GUEST0_CFLAGS += -DWT_HANDLER_OVERRUN_PROBE
 endif
+# WT_NS_ENTRY_MASK_PROBE=1 makes guest0 call FF-M from a Non-secure SysTick
+# that comes due during an FF-M entry (hardware nsentrymask).
+WT_NS_ENTRY_MASK_PROBE ?= 0
+ifeq ($(WT_NS_ENTRY_MASK_PROBE),1)
+GUEST0_CFLAGS += -DWT_NS_ENTRY_MASK_PROBE
+endif
 
 CLIENT_OBJ := $(BUILD)/psa_ffm_client.o
 

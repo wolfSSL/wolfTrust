@@ -36,6 +36,8 @@
  * Non-secure PRIMASK/BASEPRI/FAULTMASK boosting stops at 0x80, so a guest
  * can never mask it. Valid with 3 or 4 implemented priority bits. */
 #define WT_ARMV8M_SECURE_BAND_PRIO 0x60u
+/* With AIRCR.PRIS set every Non-secure exception sits at 0x80 or below. */
+#define WT_ARMV8M_NS_PRIO_FLOOR 0x80u
 
 #define WT_MPU_RBAR_XN       (1u << 0)
 #define WT_MPU_RBAR_AP_RW    (0u << 1)   /* privileged RW, no access from unpriv */

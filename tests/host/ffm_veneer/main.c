@@ -57,9 +57,22 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return WT_FFM_SUCCESS;
 }
 
+static int g_validate_calls;
+static int g_start_all_calls;
+static int g_start_all_after_validate;
+static int g_start_all_ret;
+
 int wt_spm_sched_validate(void)
 {
+    g_validate_calls++;
     return WT_FFM_SUCCESS;
+}
+
+int wt_spm_sched_start_all(void)
+{
+    g_start_all_calls++;
+    g_start_all_after_validate = (g_validate_calls > 0);
+    return g_start_all_ret;
 }
 
 int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
@@ -243,6 +256,20 @@ int main(void)
                          &in_vec, 1U, &out_vec, 1U);
     check(status != PSA_SUCCESS,
           "WT-FFM-0012 clearing the memcheck seam fails closed again");
+
+    /* FF-M start-up order: every partition runs to idle after the isolation
+     * check and before the NSPE starts; a partition that cannot refuses boot. */
+    g_validate_calls = 0;
+    g_start_all_calls = 0;
+    g_start_all_ret = WT_FFM_SUCCESS;
+    check(wt_ffm_boot_start_sched() == WT_FFM_SUCCESS &&
+              g_start_all_calls == 1 && g_start_all_after_validate,
+          "WT-FFM-0013 boot runs every partition to idle after validation");
+    g_start_all_calls = 0;
+    g_start_all_ret = WT_FFM_ERROR_STATE;
+    check(wt_ffm_boot_start_sched() == WT_FFM_ERROR_STATE &&
+              g_start_all_calls == 1,
+          "WT-FFM-0013 a partition that cannot reach idle refuses the boot");
 
     if (g_failures == 0) {
         printf("PASS: ffm_veneer (extracted NS gateway core)\n");

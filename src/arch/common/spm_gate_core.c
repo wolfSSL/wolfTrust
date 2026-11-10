@@ -101,6 +101,7 @@ typedef struct wt_spm_sp {
 static wt_ffm_runtime_t* g_spm_svc_runtime;
 static wt_spm_sp_t g_spm_sp[WT_FFM_MAX_PARTITIONS];
 static size_t g_spm_sp_count;
+static uint32_t g_spm_sp_faults;
 static wt_secure_domain_t g_spm_sp_domain;
 
 static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,
@@ -356,6 +357,7 @@ int wt_spm_sp_fault(struct wt_co* faulted_co)
     wt_co_mark_faulted(faulted_co);
     g_wt_co_pendsv_target = (struct wt_co *)0;
     slot->fault_pending = 1u;
+    g_spm_sp_faults++;
     return WT_FFM_SUCCESS;
 }
 
@@ -899,7 +901,7 @@ void wt_spm_conf_irq(uint32_t irq)
 /* SWD forensics: first failing wt_spm_sched_dispatch branch
  * ((branch<<28)|(co state<<24)|partition id low 16); 1 entry-faulted,
  * 2 first run, 3 wake-loop run, 4 pass cap, 5 final not blocked,
- * 6 table reaches SPM RAM, 7 tables overlap. */
+ * 6 table reaches SPM RAM, 7 tables overlap, 8 not idle after start. */
 volatile uint32_t g_wt_sched_fail;
 
 static void wt_spm_sched_note(uint32_t branch, wt_co_t* co, int32_t pid)
@@ -1187,6 +1189,43 @@ void wt_spm_sched_prime(int32_t partition_id)
     }
 }
 #endif
+
+int wt_spm_sched_start_all(void)
+{
+    wt_spm_sp_t* slot;
+    int ret = WT_FFM_SUCCESS;
+    uint32_t faults = g_spm_sp_faults;
+    size_t i;
+
+    if (g_spm_svc_runtime == NULL) {
+        return WT_FFM_ERROR_STATE;
+    }
+    for (i = 0u; ret == WT_FFM_SUCCESS && i < g_spm_sp_count; i++) {
+        slot = &g_spm_sp[i];
+        if (slot->in_use != 0u && slot->wait_kind == WT_SPM_WAIT_NONE &&
+                wt_co_state(slot->co) == WT_CO_BLOCKED) {
+            ret = wt_spm_sched_dispatch(slot->co, g_spm_svc_runtime,
+                                        slot->partition_id);
+        }
+    }
+    /* Idle means every partition parked in psa_wait; one still blocked on a
+     * reply or a lock left start-up IPC undrained. */
+    for (i = 0u; ret == WT_FFM_SUCCESS && i < g_spm_sp_count; i++) {
+        slot = &g_spm_sp[i];
+        if (slot->in_use != 0u &&
+                (wt_co_state(slot->co) != WT_CO_BLOCKED ||
+                 slot->wait_kind != WT_SPM_WAIT_SIG)) {
+            wt_spm_sched_note(8U, slot->co, slot->partition_id);
+            ret = WT_FFM_ERROR_STATE;
+        }
+    }
+    /* A partition restarted after a startup fault may look idle; refuse. */
+    if (ret == WT_FFM_SUCCESS && g_spm_sp_faults != faults) {
+        wt_spm_sched_note(8U, NULL, 0);
+        ret = WT_FFM_ERROR_STATE;
+    }
+    return ret;
+}
 
 int wt_spm_partition_memory_ok(int32_t partition_id, const void* address,
                                size_t size, int need_write)

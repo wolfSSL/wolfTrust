@@ -59,4 +59,6 @@ else
   echo 'SKIP: FAULTMASK_NS checks; this core drops FAULTMASK_NS writes'
 fi
 echo 'PASS: guest restore drops a Secure entry mask left by a mid-entry restart'
-echo 'PASS: abandoned guest IRQs are retired only for that guest, never under its FAULTMASK_NS'
+echo 'PASS: abandoned guest IRQs retire innermost first, one per exit, never under FAULTMASK_NS'
+echo 'PASS: abandoning a guest handler restarts the Secure entry stack at its sealed base'
+echo 'PASS: a pended Non-secure PendSV stays with its guest and never reaches another'

@@ -30,6 +30,7 @@
 void wt_arch_init(void);
 void wt_arch_start_secure_timer(uint32_t timeslice_ms);
 void wt_arch_mask_all_guest_irqs(void);
+void wt_arch_read_guest_irq_enables(wt_irq_mask_t* out);
 void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask);
 void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* allowed_mask);
 
@@ -64,9 +65,18 @@ bool wt_arch_trap_from_guest_thread(void);
 bool wt_arch_trap_from_secure_thread(void);
 /* True when the interrupted context was a guest in Non-secure Handler mode. */
 bool wt_arch_trap_from_guest_handler(void);
-/* Clear the Non-secure exception state a guest abandoned in Handler mode;
- * mask names the guest's own IRQs, whose active bits a later exit retires. */
-void wt_arch_guest_abandon_handler(const wt_irq_mask_t* mask);
+/* True when the interrupted context was Secure code in Handler mode. */
+bool wt_arch_trap_from_secure_handler(void);
+/* True when the interrupted context was Secure Thread code on MSP, the
+ * gateway's own context, never a partition coroutine on PSP. */
+bool wt_arch_trap_from_secure_main_thread(void);
+/* Clear the Non-secure exception state a guest abandoned in Handler mode; a
+ * later exit retires its active IRQs. */
+void wt_arch_guest_abandon_handler(void);
+/* True while a Non-secure IRQ is active and not queued for retirement. */
+bool wt_arch_guest_irq_active(void);
+/* Clear the Non-secure system-handler active bits before a guest switch. */
+void wt_arch_guest_drop_handler_active(void);
 void wt_arch_return_to_secure_thread(
     void (*entry)(void) __attribute__((noreturn)));
 /* Discard the departing handler stack before entering the idle scheduler. */

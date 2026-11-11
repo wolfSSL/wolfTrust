@@ -76,6 +76,7 @@ static uintptr_t g_live_exc_return __attribute__((used));
 static uint32_t g_systick_reload;
 static uint64_t g_secure_wall_cycles;
 static uintptr_t g_secure_entry_sp __attribute__((used));
+extern uint32_t _estack;
 /* Abandoned guest IRQs still active; only an exception return retires one. */
 static uint32_t g_retire_irqs[WT_MAX_IRQ_WORDS];
 static uint32_t g_retire_exc __attribute__((used));
@@ -243,7 +244,22 @@ bool wt_arch_trap_from_guest_handler(void)
            WT_EXC_RETURN_RETURN_TO_NONSECURE;
 }
 
-void wt_arch_guest_abandon_handler(const wt_irq_mask_t* keep)
+bool wt_arch_trap_from_secure_handler(void)
+{
+    return (g_live_exc_return &
+            (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_SECURITY_MASK)) ==
+           WT_EXC_RETURN_SECURITY_MASK;
+}
+
+bool wt_arch_trap_from_secure_main_thread(void)
+{
+    return (g_live_exc_return &
+            (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_SPSEL_PSP |
+             WT_EXC_RETURN_SECURITY_MASK)) ==
+           (WT_EXC_RETURN_MODE_THREAD | WT_EXC_RETURN_SECURITY_MASK);
+}
+
+void wt_arch_guest_abandon_handler(void)
 {
     size_t i;
 
@@ -252,15 +268,31 @@ void wt_arch_guest_abandon_handler(const wt_irq_mask_t* keep)
      * the next exits to the guests retire those through exception returns. */
     WT_SCB_SHCSR_NS &= ~(WT_SCB_SHCSR_ACT_MASK | WT_SCB_SHCSR_PEND_MASK);
     WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSVCLR | WT_SCB_ICSR_PENDSTCLR;
-    /* A guest is switched out only from Thread mode, so any other active IRQ
-     * is one a guest abandoned too, unless keep names a guest blocked in an
-     * FF-M call it made from its handler. */
     for (i = 0; i < WT_MAX_IRQ_WORDS; ++i) {
-        g_retire_irqs[i] |= WT_NVIC_IABR_NS[i] &
-                            ~(keep != NULL ? keep->words[i] : 0u);
+        g_retire_irqs[i] |= WT_NVIC_IABR_NS[i];
     }
+    /* Secure frames the abandoned handler preempted are dropped with it: the
+     * next exit starts from the sealed main stack, as the idle path does. */
+    g_secure_entry_sp = (uintptr_t)&_estack - 8u;
     wt_dsb();
     wt_isb();
+}
+
+void wt_arch_guest_drop_handler_active(void)
+{
+    WT_SCB_SHCSR_NS &= ~WT_SCB_SHCSR_ACT_MASK;
+}
+
+bool wt_arch_guest_irq_active(void)
+{
+    size_t i;
+
+    for (i = 0; i < WT_MAX_IRQ_WORDS; ++i) {
+        if ((WT_NVIC_IABR_NS[i] & ~g_retire_irqs[i]) != 0u) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /* Runs at the retired IRQ's IPSR; its exception return deactivates it. */
@@ -275,18 +307,28 @@ static uint32_t wt_next_retire_exc(const wt_guest_context_t* context)
 {
     uint32_t i;
     uint32_t live;
+    uint32_t irq;
+    uint32_t best = 0u;
+    uint32_t best_prio = 0x100u;
 
     if (context->faultmask_ns != 0u) {
         return 0u;
     }
+    /* Nested IRQs retire innermost first: a preempting IRQ always holds the
+     * higher priority, so the lowest priority value goes before the rest. */
     for (i = 0u; i < WT_MAX_IRQ_WORDS; ++i) {
         live = g_retire_irqs[i] & WT_NVIC_IABR_NS[i];
         g_retire_irqs[i] = live;
-        if (live != 0u) {
-            return 16u + (i * 32u) + (uint32_t)__builtin_ctz(live);
+        while (live != 0u) {
+            irq = (i * 32u) + (uint32_t)__builtin_ctz(live);
+            live &= live - 1u;
+            if (WT_NVIC_IPR_NS[irq] < best_prio) {
+                best_prio = WT_NVIC_IPR_NS[irq];
+                best = 16u + irq;
+            }
         }
     }
-    return 0u;
+    return best;
 }
 
 bool wt_arch_trap_from_secure_thread(void)
@@ -816,6 +858,28 @@ uintptr_t wt_arch_trap_pc(const wt_trap_frame_t* frame)
     return frame->pc;
 }
 
+/* The Non-secure system exception bank is shared, so an exception a guest
+ * left pended goes with it and never fires in the next guest. */
+static void wt_save_guest_pending(wt_guest_context_t* context)
+{
+    context->pend_ns = (WT_SCB_SHCSR_NS & WT_SCB_SHCSR_PEND_MASK) |
+                       (WT_SCB_ICSR_NS & WT_SCB_ICSR_PENDSVSET);
+    WT_SCB_SHCSR_NS &= ~WT_SCB_SHCSR_PEND_MASK;
+    if ((context->pend_ns & WT_SCB_ICSR_PENDSVSET) != 0u) {
+        WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSVCLR;
+    }
+}
+
+/* Whatever is pended now belongs to no one: the arriving guest gets only
+ * its own saved pends. */
+static void wt_restore_guest_pending(const wt_guest_context_t* context)
+{
+    WT_SCB_SHCSR_NS = (WT_SCB_SHCSR_NS & ~WT_SCB_SHCSR_PEND_MASK) |
+                      (context->pend_ns & WT_SCB_SHCSR_PEND_MASK);
+    WT_SCB_ICSR_NS = ((context->pend_ns & WT_SCB_ICSR_PENDSVSET) != 0u) ?
+                     WT_SCB_ICSR_PENDSVSET : WT_SCB_ICSR_PENDSVCLR;
+}
+
 void wt_arch_guest_context_capture(wt_guest_context_t* context,
                                        const wt_trap_frame_t* frame)
 {
@@ -844,6 +908,7 @@ void wt_arch_guest_context_capture(wt_guest_context_t* context,
     __asm volatile("mrs %0, primask_ns" : "=r"(context->primask_ns));
     __asm volatile("mrs %0, basepri_ns" : "=r"(context->basepri_ns));
     __asm volatile("mrs %0, faultmask_ns" : "=r"(context->faultmask_ns));
+    wt_save_guest_pending(context);
     context->exc_return = g_live_exc_return;
     context->r4_r11[0] = g_live_r4_r11[0];
     context->r4_r11[1] = g_live_r4_r11[1];
@@ -860,18 +925,23 @@ void wt_arch_guest_context_capture(wt_guest_context_t* context,
 }
 
 /* A preempted guest may hold Non-secure PRIMASK, BASEPRI or FAULTMASK; the
- * banks are shared, so each guest resumes with its own. A Secure entry mask
- * left by a guest restarted mid-entry is dropped as well. */
+ * banks are shared, so each guest resumes with its own. */
+/* Drop a Secure FF-M entry mask a guest restarted mid-entry left; never on
+ * the tasklet resume path, where the guest's own entry is still in flight. */
+static void wt_drop_secure_entry_mask(void)
+{
+    __asm volatile("msr basepri, %0" : : "r"(0u) : "memory");
+}
+
 static void wt_restore_guest_masks(const wt_guest_context_t* context)
 {
     __asm volatile(
         "msr primask_ns, %0   \n"
         "msr basepri_ns, %1   \n"
         "msr faultmask_ns, %2 \n"
-        "msr basepri, %3      \n"
         :
         : "r"(context->primask_ns), "r"(context->basepri_ns),
-          "r"(context->faultmask_ns), "r"(0u)
+          "r"(context->faultmask_ns)
         : "memory");
 }
 
@@ -884,6 +954,8 @@ void wt_arch_guest_context_restore(wt_guest_context_t* context)
     /* No exit below clears FAULTMASK_NS: BXNS keeps it, and returning from a
      * Secure exception (ES=1) can clear only FAULTMASK_S. */
     wt_restore_guest_masks(context);
+    wt_restore_guest_pending(context);
+    wt_drop_secure_entry_mask();
 
     if (!context->frame_stacked) {
         if (wt_read_ipsr() == 0u && retire == 0u) {

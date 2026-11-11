@@ -41,6 +41,16 @@ void wt_arch_mask_all_guest_irqs(void)
     }
 }
 
+void wt_arch_read_guest_irq_enables(wt_irq_mask_t* out)
+{
+    volatile uint32_t* iser = (volatile uint32_t*)0xE002E100u;
+    size_t i;
+
+    for (i = 0; i < WT_MAX_IRQ_WORDS; ++i) {
+        out->words[i] = iser[i];
+    }
+}
+
 void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask)
 {
     volatile uint32_t* iser = (volatile uint32_t*)0xE002E100u;

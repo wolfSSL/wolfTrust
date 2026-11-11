@@ -60,7 +60,8 @@ typedef enum wt_fault_reason {
     WT_FAULT_STACK_OVERFLOW,
     WT_FAULT_SECURE_ESCALATION,
     WT_FAULT_PLATFORM,
-    WT_FAULT_HANDLER_OVERRUN
+    WT_FAULT_HANDLER_OVERRUN,
+    WT_FAULT_IRQ_LEFT_ACTIVE
 } wt_fault_reason_t;
 
 typedef struct wt_irq_mask {

@@ -67,6 +67,7 @@ volatile uint32_t g_wt_first_dispatch_pending;
 #error "WT_GUEST_HANDLER_SLICE_LIMIT must be 1 to 0xFFFFFFFF"
 #endif
 static uint32_t g_handler_slices;
+static wt_irq_mask_t g_tick_irq_enables;
 /* WT-FFM-0052 runtime re-measurement counters (harness reads by symbol). */
 volatile uint32_t g_wt_runtime_verify_pass;
 volatile uint32_t g_wt_runtime_verify_fail;
@@ -611,21 +612,60 @@ void wt_monitor_start(void)
     wt_dispatch_guest(next_guest);
 }
 
-static void wt_abandon_guest_handler(wt_guest_id_t guest_id)
+static void wt_restart_overrun(const wt_trap_frame_t* frame,
+                               wt_fault_reason_t reason)
 {
-    const wt_guest_config_t* config = wt_guest_config(guest_id);
+    wt_platform_log_fault(g_scheduler.current_guest, reason, 0U,
+                          wt_arch_trap_pc(frame));
+    wt_arch_guest_abandon_handler();
+    wt_restart_guest(g_scheduler.current_guest, reason);
+    wt_schedule_next_guest();
+}
 
-    wt_arch_guest_abandon_handler(config != NULL ? &config->irq_mask : NULL);
+/* Give back the enables the guest had, never one its manifest withholds. */
+static void wt_tick_restore_irq_enables(void)
+{
+    const wt_guest_config_t* config = wt_guest_config(g_scheduler.current_guest);
+    size_t i;
+
+    if (g_scheduler.current_rep != WT_SCHED_REP_NS || config == NULL) {
+        return;
+    }
+    for (i = 0U; i < WT_MAX_IRQ_WORDS; ++i) {
+        g_tick_irq_enables.words[i] &= config->irq_mask.words[i];
+    }
+    wt_arch_apply_irq_mask(&g_tick_irq_enables);
+}
+
+/* Secure code is never abandoned mid-call, so a limit reached inside an FF-M
+ * call is enforced at the first tick back in the guest, Handler or Thread. */
+static bool wt_handler_overrun(const wt_trap_frame_t* frame)
+{
+    if (g_scheduler.current_rep != WT_SCHED_REP_NS ||
+            g_handler_slices < WT_GUEST_HANDLER_SLICE_LIMIT) {
+        return false;
+    }
+    wt_restart_overrun(frame, WT_FAULT_HANDLER_OVERRUN);
+    return true;
 }
 
 void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
 {
     g_scheduler.monotonic_ticks++;
+    wt_arch_read_guest_irq_enables(&g_tick_irq_enables);
     wt_arch_mask_all_guest_irqs();
-    if (g_scheduler.current_rep == WT_SCHED_REP_NS &&
-            g_handler_slices < WT_GUEST_HANDLER_SLICE_LIMIT &&
-            wt_arch_trap_from_guest_handler()) {
-        g_handler_slices++;
+    /* Secure IRQs share the tick's priority and SVC and faults sit above it,
+     * so a tick in Secure Handler mode preempted Secure code a Non-secure
+     * handler called; the Secure main thread means a Thread-mode call. */
+    if (g_scheduler.current_rep == WT_SCHED_REP_NS) {
+        if (wt_arch_trap_from_secure_main_thread()) {
+            g_handler_slices = 0U;
+        }
+        else if (g_handler_slices < WT_GUEST_HANDLER_SLICE_LIMIT &&
+                (wt_arch_trap_from_guest_handler() ||
+                 wt_arch_trap_from_secure_handler())) {
+            g_handler_slices++;
+        }
     }
 #ifdef WT_ENGINE_HSM
     if (wt_tasklet_current() != (wt_tasklet_t *)0) {
@@ -643,29 +683,39 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
             wt_arch_trap_from_secure_thread()) {
             (void)wt_tasklet_request_preempt();
         }
+        else {
+            wt_tick_restore_irq_enables();
+        }
         return;
     }
     if (wt_platform_secure_service_active()) {
+        wt_tick_restore_irq_enables();
         return;
     }
 #endif
     if (!wt_arch_trap_from_guest_thread()) {
         wt_tick_restart_backoff();
-        if (g_handler_slices >= WT_GUEST_HANDLER_SLICE_LIMIT &&
-                wt_arch_trap_from_guest_handler()) {
-            wt_platform_log_fault(g_scheduler.current_guest,
-                                  WT_FAULT_HANDLER_OVERRUN, 0U,
-                                  wt_arch_trap_pc(frame));
-            wt_abandon_guest_handler(g_scheduler.current_guest);
-            wt_restart_guest(g_scheduler.current_guest,
-                             WT_FAULT_HANDLER_OVERRUN);
-            wt_schedule_next_guest();
+        if (!wt_arch_trap_from_guest_handler() || !wt_handler_overrun(frame)) {
+            wt_tick_restore_irq_enables();
         }
         return;
     }
+    wt_tick_restart_backoff();
+    if (wt_handler_overrun(frame)) {
+        return;
+    }
+    /* Guests switch only in Thread mode, so the NS IRQ state stays one
+     * guest's; a guest that returned to Thread with an IRQ still active is
+     * not switched out holding it. */
+    if (g_scheduler.current_rep == WT_SCHED_REP_NS &&
+            wt_arch_guest_irq_active()) {
+        wt_restart_overrun(frame, WT_FAULT_IRQ_LEFT_ACTIVE);
+        return;
+    }
+    /* A system handler such a guest left active would hold off the peer's. */
+    wt_arch_guest_drop_handler_active();
     g_handler_slices = 0U;
     wt_save_running_guest(frame);
-    wt_tick_restart_backoff();
     wt_schedule_next_guest();
 }
 
@@ -692,7 +742,7 @@ void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
      * restart below instead. */
     wt_platform_system_reset();
 #endif
-    wt_abandon_guest_handler(g_scheduler.current_guest);
+    wt_arch_guest_abandon_handler();
     wt_restart_guest(g_scheduler.current_guest, reason);
     wt_schedule_next_guest();
 }

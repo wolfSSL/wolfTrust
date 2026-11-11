@@ -43,6 +43,12 @@ static wt_guest_measurement_t g_record;
 static bool g_trap_handler;
 static unsigned int g_abandoned;
 static bool g_trap_thread;
+static bool g_trap_secure_handler;
+static bool g_trap_secure_thread;
+static bool g_ns_active;
+static unsigned int g_handler_drops;
+static uint32_t g_enables_applied;
+static wt_ffm_runtime_t g_ffm;
 
 static void check(int ok, const char* name)
 {
@@ -79,6 +85,12 @@ static void setup(size_t count, uint32_t delay)
     g_trap_handler = false;
     g_abandoned = 0U;
     g_trap_thread = false;
+    g_trap_secure_handler = false;
+    g_trap_secure_thread = false;
+    g_ns_active = false;
+    g_handler_drops = 0U;
+    g_enables_applied = 0U;
+    (void)memset(&g_ffm, 0, sizeof(g_ffm));
     g_handler_slices = 0U;
 }
 
@@ -140,16 +152,22 @@ void wt_arch_wait_for_interrupt(void)
 bool wt_arch_in_handler_mode(void) { return g_handler; }
 bool wt_arch_trap_from_guest_thread(void) { return g_trap_thread; }
 bool wt_arch_trap_from_guest_handler(void) { return g_trap_handler; }
+bool wt_arch_trap_from_secure_handler(void) { return g_trap_secure_handler; }
+bool wt_arch_trap_from_secure_main_thread(void) { return g_trap_secure_thread; }
 #ifdef CONFIG_VNET
 void wt_arch_route_irq_to_guest(uint32_t irq) { (void)irq; }
 void wt_arch_set_guest_irq_pending(uint32_t irq, bool asserted)
 { (void)irq; (void)asserted; }
 #endif
-void wt_arch_guest_abandon_handler(const wt_irq_mask_t* mask)
-{ (void)mask; g_abandoned++; }
+void wt_arch_guest_abandon_handler(void) { g_abandoned++; }
+bool wt_arch_guest_irq_active(void) { return g_ns_active; }
+void wt_arch_guest_drop_handler_active(void) { g_handler_drops++; }
 void wt_arch_mask_all_guest_irqs(void) {}
 void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* mask) { (void)mask; }
-void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask) { (void)mask; }
+void wt_arch_read_guest_irq_enables(wt_irq_mask_t* out)
+{ (void)memset(out, 0, sizeof(*out)); out->words[0] = 0xA5U; }
+void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask)
+{ g_enables_applied = mask != NULL ? mask->words[0] : 0U; }
 void wt_arch_program_guest_domain(const wt_memory_region_t* r, size_t n)
 { (void)r; (void)n; }
 void wt_platform_program_memory_windows(const wt_memory_window_t* w, size_t n)
@@ -171,7 +189,7 @@ void wt_platform_log_fault(wt_guest_id_t id, wt_fault_reason_t r,
 { (void)id; (void)r; (void)a; (void)pc; }
 void wt_platform_all_guests_faulted(void) { finish(HALTED); }
 void wt_platform_panic(void) { finish(PANICKED); }
-wt_ffm_runtime_t* wt_ffm_boot_runtime_mut(void) { return NULL; }
+wt_ffm_runtime_t* wt_ffm_boot_runtime_mut(void) { return &g_ffm; }
 int wt_ffm_fail_client_connections(wt_ffm_runtime_t* r, psa_client_id_t id)
 { (void)r; (void)id; return 0; }
 
@@ -348,6 +366,89 @@ int main(void)
     check(event == 0 && g_runtime[0].state == WT_GUEST_RUNNING &&
           g_abandoned == 0U,
           "Secure-side ticks outside a guest handler never count");
+
+    /* Secure code a guest handler called counts; a Thread-mode call ends the
+     * count. */
+    setup(2U, 2U);
+    g_runtime[1].state = WT_GUEST_READY;
+    g_trap_secure_handler = true;
+    for (event = 0; event == 0 &&
+         g_idle_ticks < WT_GUEST_HANDLER_SLICE_LIMIT; g_idle_ticks++) {
+        event = tick();
+    }
+    check(event == 0 && g_abandoned == 0U &&
+          g_runtime[0].state == WT_GUEST_RUNNING,
+          "Secure-side ticks alone never restart the guest");
+    g_trap_secure_handler = false;
+    g_trap_handler = true;
+    event = tick();
+    check(event == DISPATCHED && g_abandoned == 1U &&
+          g_runtime[0].state == WT_GUEST_RESTARTING,
+          "FF-M calls from the guest's handler count toward the limit");
+
+    setup(2U, 2U);
+    g_runtime[1].state = WT_GUEST_READY;
+    g_trap_secure_handler = true;
+    for (event = 0; event == 0 &&
+         g_idle_ticks < WT_GUEST_HANDLER_SLICE_LIMIT; g_idle_ticks++) {
+        event = tick();
+    }
+    g_trap_secure_handler = false;
+    g_trap_thread = true;
+    event = tick();
+    g_trap_thread = false;
+    check(event == DISPATCHED && g_abandoned == 1U &&
+          g_runtime[0].state == WT_GUEST_RESTARTING,
+          "an overrun reached in an FF-M call survives a return to Thread");
+
+    setup(2U, 2U);
+    g_runtime[1].state = WT_GUEST_READY;
+    g_trap_handler = true;
+    g_configs[0].irq_mask.words[0] = 0x0FU;
+    event = tick();
+    check(event == 0 && g_enables_applied == 0x05U,
+          "a handler tick gives back only the IRQ enables the manifest allows");
+
+    setup(2U, 2U);
+    g_trap_handler = true;
+    for (event = 0; event == 0 &&
+         g_handler_slices + 1U < WT_GUEST_HANDLER_SLICE_LIMIT;) {
+        event = tick();
+    }
+    g_trap_handler = false;
+    g_trap_secure_thread = true;
+    event = tick();
+    check(event == 0 && g_handler_slices == 0U,
+          "an FF-M call from Thread mode ends the handler count");
+
+    setup(2U, 2U);
+    g_runtime[1].state = WT_GUEST_READY;
+    g_ns_active = true;
+    g_trap_thread = true;
+    event = tick();
+    g_trap_thread = false;
+    check(event == DISPATCHED && g_abandoned == 1U &&
+          g_runtime[0].state == WT_GUEST_RESTARTING &&
+          g_runtime[0].last_fault == WT_FAULT_IRQ_LEFT_ACTIVE,
+          "a guest back in Thread with an IRQ active is restarted");
+
+    setup(2U, 2U);
+    g_runtime[1].state = WT_GUEST_READY;
+    g_trap_thread = true;
+    event = tick();
+    g_trap_thread = false;
+    check(event == DISPATCHED && g_handler_drops == 1U,
+          "a guest switch drops any Non-secure system handler left active");
+
+    setup(2U, 2U);
+    g_runtime[1].state = WT_GUEST_READY;
+    g_trap_secure_thread = true;
+    for (event = 0; event == 0 &&
+         g_idle_ticks < 2U * WT_GUEST_HANDLER_SLICE_LIMIT; g_idle_ticks++) {
+        event = tick();
+    }
+    check(event == 0 && g_handler_slices == 0U,
+          "Secure calls a guest makes from Thread mode never count");
 
     setup(1U, 2U);
     g_trap_handler = true;

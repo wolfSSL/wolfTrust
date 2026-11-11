@@ -178,6 +178,14 @@ fused_lc() {
   [ -n "$w" ] && lc_hex "$w"
 }
 elf_sym() { arm-none-eabi-nm "$elf" | awk -v s="$1" '$3 == s && !f { print "0x" $1; f = 1 }'; }
+# Both launch masks as "verified refused", or failure when the image leaves one
+# out (a WT_GUEST_FLASH_WRP=1 build drops the verified mask): a bare read32 stops pyOCD.
+launch_masks() {
+  local vm rf
+  vm="$(elf_sym g_wt_launch_verified_mask)"; rf="$(elf_sym g_wt_launch_refused_mask)"
+  [ -n "$vm" ] && [ -n "$rf" ] || return 1
+  read_words "$vm" "$rf" | tr '\n' ' '; echo
+}
 # The life cycle wolfBoot handed wolfTrust: the raw handoff record while it is
 # intact, else wolfTrust's consumed copy.
 handoff_lifecycle() {
@@ -226,7 +234,7 @@ fence_line() {
 }
 
 port_status() {
-  local lc lcd dauth hl vm rf uuid
+  local lc lcd dauth hl vm rf uuid masks
   ensure_probe
   read -r lc lcd dauth < <(read_words "$LC_STATE" "$LC_STATE_DP" "$DAUTHSTATUS" | tr '\n' ' '; echo)
   [ -n "${lc:-}" ] && [ -n "${lcd:-}" ] || fail "status" "cannot read the life cycle over SWD through probe $PROBE"
@@ -238,9 +246,12 @@ port_status() {
   echo "lock write       hard-wired off (MCXN947_LOCK_WRITE_ENABLED=$MCXN947_LOCK_WRITE_ENABLED): lock previews only"
   if hl="$(handoff_lifecycle)"; then echo "wolfTrust saw    0x$hl ($(psa_name "$hl"))"; fi
   if [ -s "$elf" ]; then
-    read -r vm rf < <(read_words "$(elf_sym g_wt_launch_verified_mask)" \
-      "$(elf_sym g_wt_launch_refused_mask)" | tr '\n' ' '; echo)
-    echo "guest launches   verified=0x${vm:-?} refused=0x${rf:-?}"
+    if masks="$(launch_masks)"; then
+      read -r vm rf <<<"$masks"
+      echo "guest launches   verified=0x${vm:-?} refused=0x${rf:-?}"
+    else
+      echo "guest launches   launch masks not in $elf (a WT_GUEST_FLASH_WRP=1 image launches no guest)"
+    fi
   fi
 }
 port_discover() {
@@ -361,9 +372,12 @@ port_booted() {
   # Field Return is decommissioned: wolfTrust need not launch guests there.
   if [ "$1" != "0x1F" ]; then
     want=$((guest_mask))
+    [ -n "$(elf_sym g_wt_launch_verified_mask)" ] && [ -n "$(elf_sym g_wt_launch_refused_mask)" ] || {
+      echo "launch masks not in $elf (a WT_GUEST_FLASH_WRP=1 image launches no guest)"
+      return 1
+    }
     for _ in 1 2 3 4 5 6 7 8 9 10; do
-      read -r vm rf < <(read_words "$(elf_sym g_wt_launch_verified_mask)" \
-        "$(elf_sym g_wt_launch_refused_mask)" | tr '\n' ' '; echo)
+      read -r vm rf < <(launch_masks)
       [ -n "${vm:-}" ] && [ $(((0x$vm | 0x${rf:-0}) & want)) -eq "$want" ] && break
       sleep 1
     done

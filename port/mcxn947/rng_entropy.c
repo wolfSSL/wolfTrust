@@ -80,6 +80,7 @@ static int wt_els_init(void)
 static int wt_els_rnd_page(volatile uint32_t *page)
 {
     unsigned int i;
+    unsigned int canaries = 0u;
     int ret;
 
     for (i = 0u; i < WT_ELS_PAGE_WORDS; ++i) {
@@ -94,13 +95,16 @@ static int wt_els_rnd_page(volatile uint32_t *page)
                       WT_ELS_CTRL_CMD(WT_ELS_CMD_RND_REQ);
         ret = wt_els_wait_idle();
         /* BUSY clear does not prove the request ran; a dropped START leaves
-         * the canary. */
+         * the whole page canary, while one random word may match it. */
         for (i = 0u; ret == 0 && i < WT_ELS_PAGE_WORDS; ++i) {
             if (page[i] == WT_ELS_CANARY) {
-                g_wt_els_errors++;
-                g_wt_els_last_status = WT_ELS_STATUS;
-                ret = -1;
+                ++canaries;
             }
+        }
+        if (ret == 0 && canaries == WT_ELS_PAGE_WORDS) {
+            g_wt_els_errors++;
+            g_wt_els_last_status = WT_ELS_STATUS;
+            ret = -1;
         }
         if (ret != 0) {
             s_rng_failed = true;

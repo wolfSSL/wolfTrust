@@ -50,11 +50,10 @@ echo 'PASS: virtual SysTick idle snapshot, repeat idle, resume, and interrupt or
 echo 'PASS: pre-entry restart tick does not resurrect timer state'
 echo 'PASS: guest trap frame outside its own RAM is never read by the Secure tick'
 echo 'PASS: guest capture keeps the banked MSP_NS for a PSP_NS frame'
+echo 'SKIP: Non-secure masks never stop the Secure tick; M33MU has no AIRCR.PRIS (H5 hardware nsmaskneg)'
 if [[ "$faultmask" == 1 ]]; then
-  echo 'PASS: Non-secure PRIMASK, BASEPRI and FAULTMASK never mask the Secure tick'
   echo 'PASS: guest Non-secure masks are saved and restored per guest'
 else
-  echo 'PASS: Non-secure PRIMASK and BASEPRI never mask the Secure tick'
   echo 'PASS: guest Non-secure PRIMASK and BASEPRI are saved and restored per guest'
   echo 'SKIP: FAULTMASK_NS checks; this core drops FAULTMASK_NS writes'
 fi

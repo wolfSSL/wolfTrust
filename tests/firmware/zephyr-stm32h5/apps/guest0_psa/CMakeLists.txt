@@ -68,6 +68,10 @@ if(WT_GUEST_FAULT_PROBE)
     target_compile_definitions(app PRIVATE WT_GUEST_FAULT_PROBE=1)
 endif()
 
+if(WT_NS_MASK_PROBE)
+    target_compile_definitions(app PRIVATE WT_NS_MASK_PROBE=1)
+endif()
+
 if(WT_NS_BUSFAULT_PROBE)
     target_compile_definitions(app PRIVATE WT_NS_BUSFAULT_PROBE=1)
 endif()

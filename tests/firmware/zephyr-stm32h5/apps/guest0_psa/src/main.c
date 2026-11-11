@@ -1093,6 +1093,31 @@ static void wt_guest_fault_probe(void)
 }
 #endif
 
+#if defined(WT_NS_MASK_PROBE)
+/* PRIMASK | FAULTMASK << 1 | BASEPRI << 8 as read back, then spins. */
+volatile uint32_t g_wt_ns_mask_state;
+volatile uint32_t g_wt_ns_mask_spins;
+
+/* Test-only: every Non-secure mask raised, then a spin in Thread mode; only
+ * the Secure tick, above them all under AIRCR.PRIS, can still run guest1. */
+static void wt_guest_ns_mask_probe(void)
+{
+	uint32_t primask;
+	uint32_t faultmask;
+	uint32_t basepri;
+
+	__asm volatile("cpsid i \n cpsid f \n msr basepri, %0"
+		       : : "r"(0x10u) : "memory");
+	__asm volatile("mrs %0, primask" : "=r"(primask));
+	__asm volatile("mrs %0, faultmask" : "=r"(faultmask));
+	__asm volatile("mrs %0, basepri" : "=r"(basepri));
+	g_wt_ns_mask_state = primask | (faultmask << 1) | (basepri << 8);
+	for (;;) {
+		g_wt_ns_mask_spins++;
+	}
+}
+#endif
+
 #if defined(WT_NS_BUSFAULT_PROBE)
 /* Test-only: with its own MPU off, the guest reads an unmapped Non-secure hole;
  * the precise BusFault goes to the Secure monitor (BFHFNMINS=0) for restart. */
@@ -1617,6 +1642,9 @@ int main(void)
 
 	LOG_INF("guest0_psa done");
 	g_guest0_lifecycle |= WT_LC_DONE;
+#if defined(WT_NS_MASK_PROBE)
+	wt_guest_ns_mask_probe();
+#endif
 
 #if defined(WT_M33MU_EXPECT_BKPT)
     __asm volatile("bkpt #0x7f");

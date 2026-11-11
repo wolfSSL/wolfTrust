@@ -19,11 +19,13 @@
  */
 
 #include "wolftrust/arch/armv8m/core_regs.h"
+#include "wolftrust/types.h"
 
 static volatile uint32_t g_test_csr;
 static volatile uint32_t g_test_rvr;
 static volatile uint32_t g_test_cvr;
 static volatile uint32_t g_test_icsr;
+static volatile uint32_t g_test_iabr[WT_MAX_IRQ_WORDS];
 static volatile uint32_t g_test_ticks;
 static volatile uint32_t g_test_inject;
 static volatile uint32_t g_test_handoff;
@@ -37,10 +39,12 @@ static volatile uint32_t* test_reload_register(void);
 #undef WT_SYST_NS_RVR
 #undef WT_SYST_NS_CVR
 #undef WT_SCB_ICSR_NS
+#undef WT_NVIC_IABR_NS
 #define WT_SYST_NS_CSR g_test_csr
 #define WT_SYST_NS_RVR (*test_reload_register())
 #define WT_SYST_NS_CVR g_test_cvr
 #define WT_SCB_ICSR_NS g_test_icsr
+#define WT_NVIC_IABR_NS g_test_iabr
 
 /* Stable NS register model; Secure SysTick and WFI execute on the Cortex-M. */
 #include "../../../src/arch/armv8m/guest_context_armv8m.c"
@@ -130,6 +134,8 @@ void Reset_Handler(void)
     uint32_t faultmask_kept;
     uint32_t ticks;
     wt_virtual_systick_t saved;
+    wt_irq_mask_t irq_mask;
+    size_t word;
 
     for (p = &_sbss; p < &_ebss; ++p) {
         *p = 0U;
@@ -306,6 +312,25 @@ void Reset_Handler(void)
     wt_restore_guest_masks(&g_test_context);
     __asm volatile("mrs %0, basepri" : "=r"(basepri));
     check(basepri == 0U);
+
+    /* Abandon records every active IRQ but a blocked guest's; a later exit
+     * retires them one at a time, never into a guest holding FAULTMASK_NS. */
+    for (word = 0U; word < WT_MAX_IRQ_WORDS; ++word) {
+        irq_mask.words[word] = 0U;
+    }
+    irq_mask.words[2] = 0x2U;
+    g_test_iabr[2] = 0x7U;
+    wt_arch_guest_abandon_handler(&irq_mask);
+    g_test_context.faultmask_ns = 1U;
+    check(g_retire_irqs[2] == 0x5U &&
+          wt_next_retire_exc(&g_test_context) == 0U);
+    g_test_context.faultmask_ns = 0U;
+    check(wt_next_retire_exc(&g_test_context) == 80U);
+    g_test_iabr[2] = 0x6U;
+    check(wt_next_retire_exc(&g_test_context) == 82U &&
+          g_retire_irqs[2] == 0x4U);
+    g_test_iabr[2] = 0x2U;
+    check(wt_next_retire_exc(&g_test_context) == 0U && g_retire_irqs[2] == 0U);
 
     if (faultmask_kept != 0U) {
         __asm volatile("bkpt #0x7f");

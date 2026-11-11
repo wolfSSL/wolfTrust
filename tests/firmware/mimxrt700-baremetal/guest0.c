@@ -130,15 +130,24 @@ extern uint32_t _ebss;
 
 void Reset_Handler(void);
 static void Default_Handler(void);
-#if defined(WT_HANDLER_OVERRUN_PROBE)
+#if defined(WT_HANDLER_OVERRUN_PROBE) || defined(WT_HANDLER_IRQ_PROBE)
 static void Overrun_Handler(void);
+#endif
+#if defined(WT_PEER_IRQ_PROBE)
+static volatile uint32_t g_peer_pendsv;
+static void Peer_PendSV_Handler(void);
+#endif
+#if defined(WT_HANDLER_IRQ_PROBE)
+#define GUEST0_VECTOR_COUNT (17u + (uint32_t)WT_HANDLER_IRQ_PROBE)
+#else
+#define GUEST0_VECTOR_COUNT 16u
 #endif
 #if defined(WT_NS_ENTRY_MASK_PROBE)
 static void EntryMask_Tick_Handler(void);
 #endif
 
 __attribute__((section(".vectors"), used))
-const uint32_t g_vectors[16] = {
+const uint32_t g_vectors[GUEST0_VECTOR_COUNT] = {
     (uint32_t)&_estack,
     (uint32_t)Reset_Handler,
     (uint32_t)Default_Handler,
@@ -153,6 +162,8 @@ const uint32_t g_vectors[16] = {
     0u,
 #if defined(WT_HANDLER_OVERRUN_PROBE)
     (uint32_t)Overrun_Handler,
+#elif defined(WT_PEER_IRQ_PROBE)
+    (uint32_t)Peer_PendSV_Handler,
 #else
     (uint32_t)Default_Handler,
 #endif
@@ -160,6 +171,9 @@ const uint32_t g_vectors[16] = {
     (uint32_t)EntryMask_Tick_Handler,
 #else
     (uint32_t)Default_Handler,
+#endif
+#if defined(WT_HANDLER_IRQ_PROBE)
+    [16u + WT_HANDLER_IRQ_PROBE] = (uint32_t)Overrun_Handler,
 #endif
 };
 
@@ -176,6 +190,19 @@ static void Overrun_Handler(void)
     *(volatile uint32_t*)0xE000ED04u = (1u << 28);
     for (;;) {
     }
+}
+#elif defined(WT_HANDLER_IRQ_PROBE)
+static void Overrun_Handler(void)
+{
+    for (;;) {
+    }
+}
+#endif
+
+#if defined(WT_PEER_IRQ_PROBE)
+static void Peer_PendSV_Handler(void)
+{
+    g_peer_pendsv++;
 }
 #endif
 
@@ -322,6 +349,14 @@ void Reset_Handler(void)
     *(volatile uint32_t*)0xE000ED04u = (1u << 28);
     __asm volatile("dsb\n isb" ::: "memory");
 #endif
+#if defined(WT_HANDLER_IRQ_PROBE)
+    /* Above guest1's PendSV, so an IRQ left active holds it off; 0x80 stays
+     * below the Secure tick even on a core without AIRCR.PRIS (M33MU). */
+    *(volatile uint8_t*)(0xE000E400u + WT_HANDLER_IRQ_PROBE) = 0x80u;
+    *(volatile uint32_t*)(0xE000E200u + 4u * (WT_HANDLER_IRQ_PROBE / 32u)) =
+        1u << (WT_HANDLER_IRQ_PROBE % 32u);
+    __asm volatile("dsb\n isb" ::: "memory");
+#endif
 
 #if defined(WT_NS_ENTRY_MASK_PROBE)
     guest0_entry_mask_probe(mb);
@@ -384,8 +419,22 @@ void Reset_Handler(void)
     guest0_periph_probe(mb);
 #endif
 
+#if defined(WT_PEER_IRQ_PROBE)
+    *(volatile uint32_t*)0xE000ED20u |= (0xFFu << 16);
+#endif
     for (;;) {
         mb->beat++;
+#if defined(WT_PEER_IRQ_PROBE)
+        /* Wait out each PendSV: one held off by a leftover active IRQ would
+         * stop the beats for good. */
+        *(volatile uint32_t*)0xE000ED04u = (1u << 28);
+        while (g_peer_pendsv != mb->beat) {
+        }
+        if ((mb->beat & 0x3FFFFu) == 0u) {
+            guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+                             ": NS interrupt beat\r\n");
+        }
+#endif
     }
 }
 

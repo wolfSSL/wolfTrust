@@ -76,6 +76,9 @@ static uintptr_t g_live_exc_return __attribute__((used));
 static uint32_t g_systick_reload;
 static uint64_t g_secure_wall_cycles;
 static uintptr_t g_secure_entry_sp __attribute__((used));
+/* Abandoned guest IRQs still active; only an exception return retires one. */
+static uint32_t g_retire_irqs[WT_MAX_IRQ_WORDS];
+static uint32_t g_retire_exc __attribute__((used));
 static volatile uint32_t g_last_fault_address;
 static volatile uint32_t g_last_fault_pc;
 static volatile uint32_t g_switch_count;
@@ -240,15 +243,50 @@ bool wt_arch_trap_from_guest_handler(void)
            WT_EXC_RETURN_RETURN_TO_NONSECURE;
 }
 
-void wt_arch_guest_abandon_handler(void)
+void wt_arch_guest_abandon_handler(const wt_irq_mask_t* keep)
 {
-    /* SHCSR active bits are writable and Armv8-M always permits a return to
-     * Thread with an exception active, so this retires the system handlers. An
-     * external IRQ's active bit is read-only and stays set (documented residual). */
+    size_t i;
+
+    /* SHCSR active bits are writable and Armv8-M permits a return to Thread
+     * with an exception active; an external IRQ's active bit is read-only, so
+     * the next exits to the guests retire those through exception returns. */
     WT_SCB_SHCSR_NS &= ~(WT_SCB_SHCSR_ACT_MASK | WT_SCB_SHCSR_PEND_MASK);
     WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSVCLR | WT_SCB_ICSR_PENDSTCLR;
+    /* A guest is switched out only from Thread mode, so any other active IRQ
+     * is one a guest abandoned too, unless keep names a guest blocked in an
+     * FF-M call it made from its handler. */
+    for (i = 0; i < WT_MAX_IRQ_WORDS; ++i) {
+        g_retire_irqs[i] |= WT_NVIC_IABR_NS[i] &
+                            ~(keep != NULL ? keep->words[i] : 0u);
+    }
     wt_dsb();
     wt_isb();
+}
+
+/* Runs at the retired IRQ's IPSR; its exception return deactivates it. */
+__attribute__((naked, used)) static void wt_retire_irq_stub(void)
+{
+    __asm volatile("bx lr \n");
+}
+
+/* An exception return of a Non-secure IRQ also clears FAULTMASK_NS, so an
+ * exit to a guest holding it retires nothing until a later exit. */
+static uint32_t wt_next_retire_exc(const wt_guest_context_t* context)
+{
+    uint32_t i;
+    uint32_t live;
+
+    if (context->faultmask_ns != 0u) {
+        return 0u;
+    }
+    for (i = 0u; i < WT_MAX_IRQ_WORDS; ++i) {
+        live = g_retire_irqs[i] & WT_NVIC_IABR_NS[i];
+        g_retire_irqs[i] = live;
+        if (live != 0u) {
+            return 16u + (i * 32u) + (uint32_t)__builtin_ctz(live);
+        }
+    }
+    return 0u;
 }
 
 bool wt_arch_trap_from_secure_thread(void)
@@ -337,6 +375,24 @@ static void wt_exception_return_ns_msp(void)
         "ldr r0, =g_return_context      \n"
         "ldmia r0, {r4-r11}             \n"
         "ldr lr, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET) "] \n"
+        /* Retiring an abandoned IRQ: return into a Secure frame at its IPSR
+         * whose stub takes the guest's return with ES cleared. FAULTMASK_NS
+         * keeps NS exceptions off the stub, and that return clears it. */
+        "ldr r1, =g_retire_exc          \n"
+        "ldr r1, [r1]                   \n"
+        "cbz r1, 1f                     \n"
+        "mov r2, #1                     \n"
+        "msr faultmask_ns, r2           \n"
+        "orr r1, r1, #0x01000000        \n"
+        "ldr r2, =wt_retire_irq_stub    \n"
+        "bic r2, r2, #1                 \n"
+        "bic r3, lr, #1                 \n"
+        "sub sp, sp, #32                \n"
+        "str r3, [sp, #20]              \n"
+        "str r2, [sp, #24]              \n"
+        "str r1, [sp, #28]              \n"
+        "mvn lr, #14                    \n"
+        "1:                             \n"
         "bx lr                          \n"
     );
 }
@@ -821,13 +877,16 @@ static void wt_restore_guest_masks(const wt_guest_context_t* context)
 
 void wt_arch_guest_context_restore(wt_guest_context_t* context)
 {
+    /* A pending retire needs an exception-return exit, never BXNS. */
+    uint32_t retire = wt_next_retire_exc(context);
+
     g_switch_count++;
     /* No exit below clears FAULTMASK_NS: BXNS keeps it, and returning from a
      * Secure exception (ES=1) can clear only FAULTMASK_S. */
     wt_restore_guest_masks(context);
 
     if (!context->frame_stacked) {
-        if (wt_read_ipsr() == 0u) {
+        if (wt_read_ipsr() == 0u && retire == 0u) {
             wt_arm_secure_timer();
             wt_jump_to_ns((uint32_t)context->msp_ns, (uint32_t)context->pc);
         } else {
@@ -854,6 +913,7 @@ void wt_arch_guest_context_restore(wt_guest_context_t* context)
     }
 
     g_return_context = *context;
+    g_retire_exc = retire;
     wt_arm_secure_timer();
     if (wt_read_ipsr() == 0u) {
         __asm volatile("svc #0x7F");

@@ -31,6 +31,10 @@
 #             positive with guest0 arming a short Non-secure SysTick before
 #             each FF-M connect; its handler connects too. The Secure entry
 #             mask holds it until the outer entry returns, so no entry nests.
+#   handlerirqneg
+#             guest0 parks in a Non-secure external IRQ handler on every
+#             launch; the monitor must retire that IRQ's read-only active bit,
+#             or guest1's PendSV beat stops for good.
 #
 # The wolfBoot first stage is RT700_WOLFBOOT_REF plus the carried patches
 # (lib/rt700_wolfboot.sh), cached under ~/.cache/wolftrust, unless
@@ -417,6 +421,27 @@ positive|ahbscneg|nsentrymask)
     fi
     log "PASS: hardware/$scenario"
     ;;
+handlerirqneg)
+    export WT_HANDLER_IRQ_PROBE=64
+    run_chain "WT_HANDLER_IRQ_PROBE=64"
+    sleep 3
+    check_guest 1 0x20140000
+    st0="$(mailbox_word 0x20100000 20)"
+    check "$([ -n "$st0" ] && [ "$st0" != "600d600d" ]; echo $?)" \
+        "guest0 never got past its IRQ handler (status 0x$st0)"
+    quarantined="$(mailbox_word "$(elf_sym g_wt_quarantine_events)" 0)"
+    check "$([ -n "$quarantined" ] && [ "$quarantined" != "00000000" ]; echo $?)" \
+        "guest0 spent its restart budget and was quarantined (0x$quarantined)"
+    iabr="$(mailbox_word 0xE000E308 0)"
+    check "$([ $((0x${iabr:-1} & 1)) -eq 0 ]; echo $?)" \
+        "guest0's abandoned IRQ 64 is no longer active (IABR2 0x$iabr)"
+    beat1="$(mailbox_word 0x20140000 36)"
+    sleep 1
+    beat2="$(mailbox_word 0x20140000 36)"
+    check "$([ -n "$beat1" ] && [ -n "$beat2" ] && [ "$beat1" != "$beat2" ]; echo $?)" \
+        "guest1 keeps taking its PendSV after guest0's overruns (beat 0x$beat1 -> 0x$beat2)"
+    log "PASS: hardware/$scenario"
+    ;;
 wrpfence)
     run_chain ""
     rt700_fence_bounds || fail "guest fence bounds"
@@ -465,7 +490,7 @@ wrpneg)
     log "PASS: hardware/$scenario"
     ;;
 *)
-    log "usage: $0 romsmoke|positive|ahbscneg|nsentrymask|wrpfence|wrpoff|wrpneg"
+    log "usage: $0 romsmoke|positive|ahbscneg|nsentrymask|handlerirqneg|wrpfence|wrpoff|wrpneg"
     exit 2
     ;;
 esac

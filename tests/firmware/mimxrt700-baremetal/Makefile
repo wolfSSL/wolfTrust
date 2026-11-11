@@ -59,6 +59,13 @@ WT_HANDLER_OVERRUN_PROBE ?= 0
 ifeq ($(WT_HANDLER_OVERRUN_PROBE),1)
 GUEST0_CFLAGS += -DWT_HANDLER_OVERRUN_PROBE
 endif
+# WT_HANDLER_IRQ_PROBE=<irq> parks guest0 in that external IRQ's handler on
+# every launch, and guest1 keeps taking its own PendSV (handlerirqneg).
+WT_HANDLER_IRQ_PROBE ?= 0
+ifneq ($(filter-out 0,$(WT_HANDLER_IRQ_PROBE)),)
+GUEST0_CFLAGS += -DWT_HANDLER_IRQ_PROBE=$(WT_HANDLER_IRQ_PROBE)
+GUEST1_CFLAGS += -DWT_PEER_IRQ_PROBE
+endif
 # WT_NS_ENTRY_MASK_PROBE=1 makes guest0 call FF-M from a Non-secure SysTick
 # that comes due during an FF-M entry (hardware nsentrymask).
 WT_NS_ENTRY_MASK_PROBE ?= 0

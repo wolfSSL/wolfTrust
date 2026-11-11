@@ -59,3 +59,4 @@ else
   echo 'SKIP: FAULTMASK_NS checks; this core drops FAULTMASK_NS writes'
 fi
 echo 'PASS: guest restore drops a Secure entry mask left by a mid-entry restart'
+echo 'PASS: abandoned guest IRQs are retired only for that guest, never under its FAULTMASK_NS'

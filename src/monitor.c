@@ -611,10 +611,22 @@ void wt_monitor_start(void)
     wt_dispatch_guest(next_guest);
 }
 
+static void wt_abandon_guest_handler(wt_guest_id_t guest_id)
+{
+    const wt_guest_config_t* config = wt_guest_config(guest_id);
+
+    wt_arch_guest_abandon_handler(config != NULL ? &config->irq_mask : NULL);
+}
+
 void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
 {
     g_scheduler.monotonic_ticks++;
     wt_arch_mask_all_guest_irqs();
+    if (g_scheduler.current_rep == WT_SCHED_REP_NS &&
+            g_handler_slices < WT_GUEST_HANDLER_SLICE_LIMIT &&
+            wt_arch_trap_from_guest_handler()) {
+        g_handler_slices++;
+    }
 #ifdef WT_ENGINE_HSM
     if (wt_tasklet_current() != (wt_tasklet_t *)0) {
         wt_guest_id_t tasklet_guest =
@@ -639,13 +651,12 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
 #endif
     if (!wt_arch_trap_from_guest_thread()) {
         wt_tick_restart_backoff();
-        if (g_scheduler.current_rep == WT_SCHED_REP_NS &&
-                wt_arch_trap_from_guest_handler() &&
-                ++g_handler_slices >= WT_GUEST_HANDLER_SLICE_LIMIT) {
-            wt_arch_guest_abandon_handler();
+        if (g_handler_slices >= WT_GUEST_HANDLER_SLICE_LIMIT &&
+                wt_arch_trap_from_guest_handler()) {
             wt_platform_log_fault(g_scheduler.current_guest,
                                   WT_FAULT_HANDLER_OVERRUN, 0U,
                                   wt_arch_trap_pc(frame));
+            wt_abandon_guest_handler(g_scheduler.current_guest);
             wt_restart_guest(g_scheduler.current_guest,
                              WT_FAULT_HANDLER_OVERRUN);
             wt_schedule_next_guest();
@@ -681,6 +692,7 @@ void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
      * restart below instead. */
     wt_platform_system_reset();
 #endif
+    wt_abandon_guest_handler(g_scheduler.current_guest);
     wt_restart_guest(g_scheduler.current_guest, reason);
     wt_schedule_next_guest();
 }

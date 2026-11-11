@@ -42,6 +42,7 @@ static int g_verify_result;
 static wt_guest_measurement_t g_record;
 static bool g_trap_handler;
 static unsigned int g_abandoned;
+static bool g_trap_thread;
 
 static void check(int ok, const char* name)
 {
@@ -77,6 +78,7 @@ static void setup(size_t count, uint32_t delay)
     g_wt_first_dispatch_pending = 0U;
     g_trap_handler = false;
     g_abandoned = 0U;
+    g_trap_thread = false;
     g_handler_slices = 0U;
 }
 
@@ -136,14 +138,15 @@ void wt_arch_wait_for_interrupt(void)
 }
 
 bool wt_arch_in_handler_mode(void) { return g_handler; }
-bool wt_arch_trap_from_guest_thread(void) { return false; }
+bool wt_arch_trap_from_guest_thread(void) { return g_trap_thread; }
 bool wt_arch_trap_from_guest_handler(void) { return g_trap_handler; }
 #ifdef CONFIG_VNET
 void wt_arch_route_irq_to_guest(uint32_t irq) { (void)irq; }
 void wt_arch_set_guest_irq_pending(uint32_t irq, bool asserted)
 { (void)irq; (void)asserted; }
 #endif
-void wt_arch_guest_abandon_handler(void) { g_abandoned++; }
+void wt_arch_guest_abandon_handler(const wt_irq_mask_t* mask)
+{ (void)mask; g_abandoned++; }
 void wt_arch_mask_all_guest_irqs(void) {}
 void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* mask) { (void)mask; }
 void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask) { (void)mask; }
@@ -343,7 +346,33 @@ int main(void)
         event = tick();
     }
     check(event == 0 && g_runtime[0].state == WT_GUEST_RUNNING &&
-          g_abandoned == 0U, "Secure-side ticks never count against a guest");
+          g_abandoned == 0U,
+          "Secure-side ticks outside a guest handler never count");
+
+    setup(1U, 2U);
+    g_trap_handler = true;
+    for (event = 0; event == 0 &&
+         g_handler_slices + 1U < WT_GUEST_HANDLER_SLICE_LIMIT;) {
+        event = tick();
+    }
+    g_trap_handler = false;
+    g_trap_thread = true;
+    event = tick();
+    g_trap_thread = false;
+    g_trap_handler = true;
+    for (g_idle_ticks = 0U; event == DISPATCHED &&
+         g_idle_ticks + 1U < WT_GUEST_HANDLER_SLICE_LIMIT; g_idle_ticks++) {
+        if (tick() != 0) {
+            event = 0;
+        }
+    }
+    check(event == DISPATCHED && g_abandoned == 0U,
+          "a guest Thread tick restarts the handler count");
+
+    setup(2U, 2U);
+    event = fault_current();
+    check(event == DISPATCHED && g_abandoned == 1U,
+          "a guest fault drops the guest's Non-secure exception state");
 
 #ifdef CONFIG_VNET
     test_vnet_guest_reset();

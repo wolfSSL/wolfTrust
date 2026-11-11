@@ -6,16 +6,18 @@
 #   tests/target/run_suite.sh m33mu       <scenario>...   -> run_m33mu_scenario.sh
 #   tests/target/run_suite.sh qemu-a      <scenario>...   -> run_qemu_a_scenario.sh
 #   tests/target/run_suite.sh rt700-m33mu <scenario>...   -> run_rt700_m33mu.sh
+#   tests/target/run_suite.sh mcxn947-m33mu <scenario>... -> run_mcxn947_m33mu.sh
 #   WT_SUITE_LOG_DIR   where target-<scenario>.log lands (default logs)
 set -u
 
-usage() { echo "usage: $0 m33mu|qemu-a|rt700-m33mu <scenario>..." >&2; exit 2; }
+usage() { echo "usage: $0 m33mu|qemu-a|rt700-m33mu|mcxn947-m33mu <scenario>..." >&2; exit 2; }
 
 model="${1:-}"
 case "$model" in
-  m33mu)       runner=run_m33mu_scenario.sh ;;
-  qemu-a)      runner=run_qemu_a_scenario.sh ;;
-  rt700-m33mu) runner=run_rt700_m33mu.sh ;;
+  m33mu)         runner=run_m33mu_scenario.sh ;;
+  qemu-a)        runner=run_qemu_a_scenario.sh ;;
+  rt700-m33mu)   runner=run_rt700_m33mu.sh ;;
+  mcxn947-m33mu) runner=run_mcxn947_m33mu.sh ;;
   *) usage ;;
 esac
 shift

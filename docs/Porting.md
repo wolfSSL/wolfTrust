@@ -4,8 +4,10 @@ wolfTrust separates reusable policy and services from architecture, device,
 and board-specific execution. The fully silicon-validated build tuple is
 `armv8m-stm32h563`. A second Armv8-M tuple, `armv8m-mimxrt700` (external
 octal-NOR execute-in-place), is in hardware bring-up and reuses the
-architecture adapter unchanged; see the [STM32H5 Guide](STM32H5-Guide.md) and
-[MIMXRT700 Guide](MIMXRT700-Guide.md) for the two worked examples. Support for
+architecture adapter unchanged, as does a third, `armv8m-mcxn947` (internal
+ECC flash through the boot ROM's flash API, emulator-validated); see the
+[STM32H5 Guide](STM32H5-Guide.md), [MIMXRT700 Guide](MIMXRT700-Guide.md), and
+[MCXN947 Guide](MCXN947-Guide.md) for the worked examples. Support for
 additional Cortex-M ports is an intended extension point. Such ports may reuse
 common policy and service code and an existing architecture adapter when their
 execution and protection models match.
@@ -118,7 +120,9 @@ A port supplies:
   the conformance sections, .data and .bss);
 - attribution read-back for every Secure peripheral the SPM uses, panicking
   at boot on a mismatch; and
-- owner lines in `tools/secure_owners.txt` for every object it adds.
+- owner lines for every object it adds, in `tools/secure_owners.txt` or in
+  the port's own `port/<soc>/secure_owners.txt`, which the secure link
+  appends to the shared map.
 
 The build reads `WT_RAM_S_BASE` and the band placement for the linker and
 derives the post-link band check from `memory_map.h`, so no band address is
@@ -237,7 +241,8 @@ worked examples above give a concrete map for each board.
    Makefile selects them from `ARCH` and `TARGET`, and `mk/common.mk` needs
    no change.
 4. Supply startup/vector and linker handling appropriate to the target, and
-   give every object the port links an owner in `tools/secure_owners.txt`.
+   give every object the port links an owner in `tools/secure_owners.txt`
+   or in `port/<soc>/secure_owners.txt`.
 5. Generate the manifest at build time and include its digest in the signed
    Secure image.
 6. Integrate application domains with the architecture's client boundary and

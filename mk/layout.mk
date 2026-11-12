@@ -58,6 +58,14 @@ WT_LAYOUT_LDFLAGS := \
     -Wl,--defsym=WT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE) \
     -Wl,--defsym=WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE)
 
+# The system manifest is rendered from the shared template under exactly
+# this configuration (tools/manifest/render.py); a variant adds its overlay.
+WT_MANIFEST_TEMPLATE := $(ROOT)/manifest/base.json
+WT_MANIFEST_RENDER = python3 $(ROOT)/tools/manifest/render.py \
+    --cc $(WT_LAYOUT_CPP) --cflags '$(WT_LAYOUT_CFLAGS)'
+WT_MANIFEST_RENDER_DEPS = $(ROOT)/tools/manifest/render.py \
+    $(WT_MANIFEST_TEMPLATE) $(PORT_HEADERS)
+
 # Non-secure guest windows, read from the port's memory_map.h under exactly
 # this configuration; a guest build takes them instead of copying numbers.
 WT_LAYOUT_TOOL := python3 $(ROOT)/tools/l3_layout_args.py

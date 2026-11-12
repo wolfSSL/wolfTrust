@@ -9,7 +9,8 @@ override: the configuration is host-compilable; the firmware's view
 band and guest outputs, the guest Makefiles' link symbols and the make
 variables agree; the build-mode stamp differs for every input change and is
 stable without one; a layout define smuggled through WT_EXTRA_CFLAGS is
-refused."""
+refused; every secure object that includes a generated manifest header is
+ordered after its generation, so a parallel build cannot compile it first."""
 
 import os
 import re
@@ -218,6 +219,57 @@ def guest_makefiles_agree(target, flags, guest):
                       (target, directory, index, wanted))
 
 
+GENERATED_INCLUDE = re.compile(
+    r'^\s*#\s*include\s+"(psa_manifest/[^"]+|wolftrust_manifest_generated\.h)"',
+    re.M)
+LOCAL_INCLUDE = re.compile(r'^\s*#\s*include\s+"([^"]+)"', re.M)
+
+
+def includes_generated(source):
+    pending, seen = [source], set()
+    while pending:
+        path = pending.pop()
+        if path in seen or not path.is_file():
+            continue
+        seen.add(path)
+        text = path.read_text(errors="replace")
+        if GENERATED_INCLUDE.search(text):
+            return True
+        for name in LOCAL_INCLUDE.findall(text):
+            pending.extend((path.parent / name, ROOT / "include" / name))
+    return False
+
+
+def generated_headers_ordered(target, *settings):
+    result = run(["make", "-np", "--no-print-directory", "-C", str(ROOT),
+                  "TARGET=" + target, "WT_LAYOUT_CPP=" + CC, *settings,
+                  "secure-image"])
+    if result.returncode != 0:
+        fail("%s make -np secure-image %s: %s" %
+             (target, " ".join(settings), result.stderr.strip()[-400:]))
+    names = dict(re.findall(r"^(MANIFEST_GEN_H|MANIFEST_STAMP|CONF_GEN_STAMP) :?= (\S+)$",
+                            result.stdout, re.M))
+    check("MANIFEST_GEN_H" in names and "MANIFEST_STAMP" in names,
+          "%s: the make database lacks the manifest outputs" % target)
+    generated = set(names.values())
+    consumers = 0
+    for obj, prereqs in re.findall(r"^(\S+\.o): ([^\n|%]*)", result.stdout, re.M):
+        listed = prereqs.split()
+        if not listed or not listed[0].endswith(".c"):
+            continue
+        source = Path(listed[0])
+        source = source if source.is_absolute() else ROOT / source
+        if not includes_generated(source):
+            continue
+        consumers += 1
+        check(generated & set(listed[1:]),
+              "%s %s: %s includes a generated manifest header but its rule "
+              "does not depend on the manifest, so make -j can compile it "
+              "first" % (target, " ".join(settings), obj))
+    check(consumers > 0, "%s %s: no secure object includes a generated "
+          "manifest header" % (target, " ".join(settings)))
+
+
 def main():
     ports = sorted(path.parent.name
                    for path in (ROOT / "port").glob("*/port.json"))
@@ -241,6 +293,8 @@ def main():
               "%s: the build-mode stamp does not record WT_LAYOUT_CFLAGS" %
               target)
         stamps[target] = base_stamp
+        for variant in ((), ("WT_CONFORMANCE=1",), ("WT_ENGINE=hsm",)):
+            generated_headers_ordered(target, *variant)
 
         # Each case keeps the port's windows inside their regions (the
         # headers refuse an overlap), so a moved secure image also shrinks.

@@ -73,7 +73,7 @@ esac
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
 
-# Manifest guest restart_limit (port/stm32h563/manifest.json domain id 1).
+# Manifest guest restart_limit (manifest/base.json domain id 1).
 RESTART_LIMIT=3
 
 # The container runs as root while a host clone is owned by the login user;

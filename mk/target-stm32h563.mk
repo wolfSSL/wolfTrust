@@ -4,17 +4,6 @@ WT_CPU ?= cortex-m33
 PORT_DIR := $(ROOT)/port/stm32h563
 PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
 
-# WT_CONFORMANCE=1 swaps in the manifest that also hosts Arm's test partitions;
-# CONFIG_VNET=y swaps in the variant that adds the SERVICE_VNET partition so
-# the default image carries no virtual network service at all
-ifeq ($(WT_CONFORMANCE),1)
-MANIFEST_INPUT := $(PORT_DIR)/manifest-conformance.json
-else ifeq ($(CONFIG_VNET),y)
-MANIFEST_INPUT := $(PORT_DIR)/manifest-vnet.json
-else
-MANIFEST_INPUT := $(PORT_DIR)/manifest.json
-endif
-
 WT_SHARED_UART ?= 3
 WT_GUEST_CORE_CLOCK_HZ ?= 240000000
 WT_GUEST_UART_CLOCK_HZ ?= 120000000

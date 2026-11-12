@@ -5,8 +5,8 @@
   "isolation_profile": 3,
   "profile_capabilities": {
     "capabilities": 127,
-    "max_domains": 9,
-    "max_memory_resources_per_domain": 3,
+    "max_domains": 0,
+    "max_memory_resources_per_domain": 0,
     "max_interrupts_per_domain": 0
   },
   "domains": [
@@ -17,18 +17,18 @@
       "security_state": 0,
       "privilege_state": 0,
       "initial_lifecycle": 1,
-      "entry_point": 939786240,
-      "stack_base": 806912000,
+      "entry_point": "WT_SECURE_FLASH_BASE",
+      "stack_base": "WT_RAM_S_BASE",
       "stack_size": 4096,
       "memory_resources": [
         {
-          "base": 939786240,
+          "base": "WT_SECURE_FLASH_BASE",
           "size": 4096,
           "attributes": 5,
           "share_id": 0
         },
         {
-          "base": 806912000,
+          "base": "WT_RAM_S_BASE",
           "size": 4096,
           "attributes": 19,
           "share_id": 0
@@ -52,25 +52,25 @@
       "security_state": 1,
       "privilege_state": 0,
       "initial_lifecycle": 1,
-      "entry_point": 671612928,
-      "stack_base": 537919488,
-      "stack_size": 262144,
+      "entry_point": "WT_GUEST0_FLASH_BASE",
+      "stack_base": "WT_GUEST0_RAM_BASE",
+      "stack_size": "WT_GUEST0_RAM_SIZE",
       "memory_resources": [
         {
-          "base": 671612928,
-          "size": 524288,
+          "base": "WT_GUEST0_FLASH_BASE",
+          "size": "WT_GUEST0_FLASH_SIZE",
           "attributes": 5,
           "share_id": 0
         },
         {
-          "base": 537919488,
-          "size": 262144,
+          "base": "WT_GUEST0_RAM_BASE",
+          "size": "WT_GUEST0_RAM_SIZE",
           "attributes": 19,
           "share_id": 0
         },
         {
-          "base": 1074855936,
-          "size": 4096,
+          "base": "WT_GUEST_UART_BASE",
+          "size": "WT_GUEST_UART_SIZE",
           "attributes": 43,
           "share_id": 2
         }
@@ -93,25 +93,25 @@
       "security_state": 1,
       "privilege_state": 0,
       "initial_lifecycle": 1,
-      "entry_point": 672137216,
-      "stack_base": 538181632,
-      "stack_size": 262144,
+      "entry_point": "WT_GUEST1_FLASH_BASE",
+      "stack_base": "WT_GUEST1_RAM_BASE",
+      "stack_size": "WT_GUEST1_RAM_SIZE",
       "memory_resources": [
         {
-          "base": 672137216,
-          "size": 262144,
+          "base": "WT_GUEST1_FLASH_BASE",
+          "size": "WT_GUEST1_FLASH_SIZE",
           "attributes": 5,
           "share_id": 0
         },
         {
-          "base": 538181632,
-          "size": 262144,
+          "base": "WT_GUEST1_RAM_BASE",
+          "size": "WT_GUEST1_RAM_SIZE",
           "attributes": 19,
           "share_id": 0
         },
         {
-          "base": 1074855936,
-          "size": 4096,
+          "base": "WT_GUEST_UART_BASE",
+          "size": "WT_GUEST_UART_SIZE",
           "attributes": 43,
           "share_id": 2
         }
@@ -134,25 +134,25 @@
       "security_state": 0,
       "privilege_state": 1,
       "initial_lifecycle": 0,
-      "entry_point": 939851776,
-      "stack_base": 807370752,
-      "stack_size": 8192,
+      "entry_point": "WT_SP_CODE_BASE + 0 * WT_SP_CODE_SLOT_SIZE",
+      "stack_base": "WT_SP_ATTEST_STACK_BASE",
+      "stack_size": "WT_SP_SECURE_STACK_SIZE",
       "memory_resources": [
         {
-          "base": 939851776,
-          "size": 4096,
+          "base": "WT_SP_CODE_BASE + 0 * WT_SP_CODE_SLOT_SIZE",
+          "size": "WT_SP_CODE_SLOT_SIZE",
           "attributes": 5,
           "share_id": 0
         },
         {
-          "base": 807370752,
-          "size": 8192,
+          "base": "WT_SP_ATTEST_STACK_BASE",
+          "size": "WT_SP_SECURE_STACK_SIZE",
           "attributes": 19,
           "share_id": 0
         },
         {
-          "base": 807235584,
-          "size": 2048,
+          "base": "WT_SP_ATTEST_DATA_BASE",
+          "size": "WT_SP_ATTEST_DATA_SIZE",
           "attributes": 19,
           "share_id": 0
         }
@@ -175,25 +175,25 @@
       "security_state": 0,
       "privilege_state": 1,
       "initial_lifecycle": 0,
-      "entry_point": 939855872,
-      "stack_base": 807362560,
-      "stack_size": 8192,
+      "entry_point": "WT_SP_CODE_BASE + 1 * WT_SP_CODE_SLOT_SIZE",
+      "stack_base": "WT_SP_CRYPTO_STACK_BASE",
+      "stack_size": "WT_SP_SECURE_STACK_SIZE",
       "memory_resources": [
         {
-          "base": 939855872,
-          "size": 4096,
+          "base": "WT_SP_CODE_BASE + 1 * WT_SP_CODE_SLOT_SIZE",
+          "size": "WT_SP_CODE_SLOT_SIZE",
           "attributes": 5,
           "share_id": 0
         },
         {
-          "base": 807362560,
-          "size": 8192,
+          "base": "WT_SP_CRYPTO_STACK_BASE",
+          "size": "WT_SP_SECURE_STACK_SIZE",
           "attributes": 19,
           "share_id": 0
         },
         {
-          "base": 807237632,
-          "size": 71680,
+          "base": "WT_SP_HSM_DATA_BASE",
+          "size": "WT_SP_HSM_DATA_SIZE",
           "attributes": 19,
           "share_id": 0
         }
@@ -216,25 +216,25 @@
       "security_state": 0,
       "privilege_state": 1,
       "initial_lifecycle": 0,
-      "entry_point": 939872256,
-      "stack_base": 807333888,
-      "stack_size": 16384,
+      "entry_point": "WT_SP_CODE_BASE + 5 * WT_SP_CODE_SLOT_SIZE",
+      "stack_base": "WT_SP_VAULT_STACK_BASE",
+      "stack_size": "WT_SP_VAULT_STACK_SIZE",
       "memory_resources": [
         {
-          "base": 939872256,
-          "size": 4096,
+          "base": "WT_SP_CODE_BASE + 5 * WT_SP_CODE_SLOT_SIZE",
+          "size": "WT_SP_CODE_SLOT_SIZE",
           "attributes": 5,
           "share_id": 0
         },
         {
-          "base": 807333888,
-          "size": 16384,
+          "base": "WT_SP_VAULT_STACK_BASE",
+          "size": "WT_SP_VAULT_STACK_SIZE",
           "attributes": 19,
           "share_id": 0
         },
         {
-          "base": 807227392,
-          "size": 8192,
+          "base": "WT_SP_VAULT_DATA_BASE",
+          "size": "WT_SP_VAULT_DATA_SIZE",
           "attributes": 19,
           "share_id": 0
         }
@@ -257,19 +257,19 @@
       "security_state": 0,
       "privilege_state": 1,
       "initial_lifecycle": 0,
-      "entry_point": 939876352,
-      "stack_base": 807325696,
-      "stack_size": 8192,
+      "entry_point": "WT_SP_CODE_BASE + 6 * WT_SP_CODE_SLOT_SIZE",
+      "stack_base": "WT_SP_ITS_STACK_BASE",
+      "stack_size": "WT_SP_ITS_STACK_SIZE",
       "memory_resources": [
         {
-          "base": 939876352,
-          "size": 4096,
+          "base": "WT_SP_CODE_BASE + 6 * WT_SP_CODE_SLOT_SIZE",
+          "size": "WT_SP_CODE_SLOT_SIZE",
           "attributes": 5,
           "share_id": 0
         },
         {
-          "base": 807325696,
-          "size": 8192,
+          "base": "WT_SP_ITS_STACK_BASE",
+          "size": "WT_SP_ITS_STACK_SIZE",
           "attributes": 19,
           "share_id": 0
         }
@@ -292,19 +292,19 @@
       "security_state": 0,
       "privilege_state": 1,
       "initial_lifecycle": 0,
-      "entry_point": 939880448,
-      "stack_base": 807317504,
-      "stack_size": 8192,
+      "entry_point": "WT_SP_CODE_BASE + 7 * WT_SP_CODE_SLOT_SIZE",
+      "stack_base": "WT_SP_PS_STACK_BASE",
+      "stack_size": "WT_SP_PS_STACK_SIZE",
       "memory_resources": [
         {
-          "base": 939880448,
-          "size": 4096,
+          "base": "WT_SP_CODE_BASE + 7 * WT_SP_CODE_SLOT_SIZE",
+          "size": "WT_SP_CODE_SLOT_SIZE",
           "attributes": 5,
           "share_id": 0
         },
         {
-          "base": 807317504,
-          "size": 8192,
+          "base": "WT_SP_PS_STACK_BASE",
+          "size": "WT_SP_PS_STACK_SIZE",
           "attributes": 19,
           "share_id": 0
         }
@@ -327,19 +327,19 @@
       "security_state": 0,
       "privilege_state": 1,
       "initial_lifecycle": 0,
-      "entry_point": 939884544,
-      "stack_base": 807309312,
-      "stack_size": 8192,
+      "entry_point": "WT_SP_CODE_BASE + 8 * WT_SP_CODE_SLOT_SIZE",
+      "stack_base": "WT_SP_FWU_STACK_BASE",
+      "stack_size": "WT_SP_FWU_STACK_SIZE",
       "memory_resources": [
         {
-          "base": 939884544,
-          "size": 4096,
+          "base": "WT_SP_CODE_BASE + 8 * WT_SP_CODE_SLOT_SIZE",
+          "size": "WT_SP_CODE_SLOT_SIZE",
           "attributes": 5,
           "share_id": 0
         },
         {
-          "base": 807309312,
-          "size": 8192,
+          "base": "WT_SP_FWU_STACK_BASE",
+          "size": "WT_SP_FWU_STACK_SIZE",
           "attributes": 19,
           "share_id": 0
         }
@@ -493,9 +493,9 @@
     }
   ],
   "limits": {
-    "max_partitions": 6,
-    "max_services_per_partition": 1,
-    "max_dependencies_per_partition": 1,
+    "max_partitions": 0,
+    "max_services_per_partition": 0,
+    "max_dependencies_per_partition": 0,
     "max_stateless_handles": 32
   }
 }

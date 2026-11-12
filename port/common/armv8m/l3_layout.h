@@ -96,10 +96,15 @@
 #define WT_SP_HSM_DATA_BASE \
     (WT_SP_ATTEST_DATA_BASE + WT_SP_ATTEST_DATA_SIZE)
 
-/* CONFIG_VNET and WT_CONFORMANCE are exclusive, so the VNET stack reuses the
- * conformance data window. */
+/* CONFIG_VNET and WT_CONFORMANCE are exclusive, so the VNET stack takes the
+ * whole conformance data window. */
 #define WT_SP_VNET_STACK_BASE    WT_CONF_SP_DATA_BASE
-#define WT_SP_VNET_STACK_SIZE    WT_SP_SECURE_STACK_SIZE
+#define WT_SP_VNET_STACK_SIZE    WT_CONF_SP_DATA_SIZE
+
+/* Nominal code slot of each Secure Partition in the manifest: 4 KiB per
+ * partition from 64 KiB into the Secure image. */
+#define WT_SP_CODE_BASE          (WT_SECURE_FLASH_BASE + 0x00010000u)
+#define WT_SP_CODE_SLOT_SIZE     0x00001000u
 
 /* The top of the SPM RAM window, directly below the keystore. */
 #define WT_VNET_DATA_SIZE        0x00005000u

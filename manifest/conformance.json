@@ -1,0 +1,292 @@
+{
+  "drop_partitions": [
+    "PARTITION_FWU"
+  ],
+  "domains": [
+    {
+      "id": 8,
+      "domain_class": 1,
+      "rot_role": 3,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": "WT_SP_CODE_BASE + 2 * WT_SP_CODE_SLOT_SIZE",
+      "stack_base": "WT_SP_FF_SERVER_STACK_BASE",
+      "stack_size": "WT_SP_SECURE_STACK_SIZE",
+      "memory_resources": [
+        {
+          "base": "WT_SP_CODE_BASE + 2 * WT_SP_CODE_SLOT_SIZE",
+          "size": "WT_SP_CODE_SLOT_SIZE",
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": "WT_SP_FF_SERVER_STACK_BASE",
+          "size": "WT_SP_SECURE_STACK_SIZE",
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 9,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": "WT_SP_CODE_BASE + 3 * WT_SP_CODE_SLOT_SIZE",
+      "stack_base": "WT_SP_FF_DRIVER_STACK_BASE",
+      "stack_size": "WT_SP_SECURE_STACK_SIZE",
+      "memory_resources": [
+        {
+          "base": "WT_SP_CODE_BASE + 3 * WT_SP_CODE_SLOT_SIZE",
+          "size": "WT_SP_CODE_SLOT_SIZE",
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": "WT_SP_FF_DRIVER_STACK_BASE",
+          "size": "WT_SP_SECURE_STACK_SIZE",
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [
+        {
+          "interrupt": "WT_CONF_IRQ",
+          "attributes": 0,
+          "share_id": 0
+        }
+      ],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 10,
+      "domain_class": 1,
+      "rot_role": 3,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": "WT_SP_CODE_BASE + 4 * WT_SP_CODE_SLOT_SIZE",
+      "stack_base": "WT_SP_FF_CLIENT_STACK_BASE",
+      "stack_size": "WT_SP_SECURE_STACK_SIZE",
+      "memory_resources": [
+        {
+          "base": "WT_SP_CODE_BASE + 4 * WT_SP_CODE_SLOT_SIZE",
+          "size": "WT_SP_CODE_SLOT_SIZE",
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": "WT_SP_FF_CLIENT_STACK_BASE",
+          "size": "WT_SP_SECURE_STACK_SIZE",
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    }
+  ],
+  "partitions": [
+    {
+      "name": "SERVER_PARTITION",
+      "domain_id": 8,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVER_TEST_DISPATCHER",
+          "sid": 64257,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_SECURE_CONNECT_ONLY",
+          "sid": 64258,
+          "version": 2,
+          "version_policy": 1,
+          "signal": 32,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": false,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_STRICT_VERSION",
+          "sid": 64259,
+          "version": 2,
+          "version_policy": 0,
+          "signal": 64,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_UNSPECIFIED_VERSION",
+          "sid": 64260,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 128,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_RELAX_VERSION",
+          "sid": 64261,
+          "version": 2,
+          "version_policy": 1,
+          "signal": 256,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_UNEXTERN",
+          "sid": 64262,
+          "version": 2,
+          "version_policy": 1,
+          "signal": 512,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_CONNECTION_DROP",
+          "sid": 64263,
+          "version": 2,
+          "version_policy": 1,
+          "signal": 1024,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [
+        64513,
+        64515
+      ],
+      "interrupts": []
+    },
+    {
+      "name": "DRIVER_PARTITION",
+      "domain_id": 9,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "DRIVER_UART",
+          "sid": 64513,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "DRIVER_WATCHDOG",
+          "sid": 64514,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 32,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "DRIVER_NVMEM",
+          "sid": 64515,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 64,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "DRIVER_TEST",
+          "sid": 64516,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 128,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [],
+      "interrupts": [
+        {
+          "signal_name": "DRIVER_UART_INTR_SIG",
+          "interrupt": "WT_CONF_IRQ",
+          "signal": 256
+        }
+      ]
+    },
+    {
+      "name": "CLIENT_PARTITION",
+      "domain_id": 10,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "CLIENT_TEST_DISPATCHER",
+          "sid": 64001,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [
+        64513,
+        64515,
+        64516,
+        64257,
+        64260,
+        64259,
+        64261,
+        64258,
+        64263
+      ],
+      "interrupts": []
+    }
+  ]
+}

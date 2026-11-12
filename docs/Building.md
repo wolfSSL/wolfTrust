@@ -79,9 +79,13 @@ output directory before changing an option that the recipe does not record.
 
 ## Manifest generation
 
-The default input is `port/stm32h563/manifest.json`.
-`CONFIG_VNET=y` selects `manifest-vnet.json`, and
-`WT_CONFORMANCE=1` selects `manifest-conformance.json`.
+The manifest is rendered into the build directory from the shared template
+`manifest/base.json` under the build's layout configuration
+(`tools/manifest/render.py`, `WT_LAYOUT_CFLAGS`), so every address and size
+in it is the port's `memory_map.h` value for that build. `CONFIG_VNET=y`
+applies the `manifest/vnet.json` overlay and `WT_CONFORMANCE=1` the
+`manifest/conformance.json` overlay; a port registers the variants it
+supports in `port/<soc>/port.json` (`build.variants`).
 
 ```sh
 make CONFIG_VNET=y

@@ -83,7 +83,6 @@ Armv8-M isolation level 3 layer in `port/common/armv8m/` unchanged, and adds
 | `hsm_flash.c/.h`, `hsm_flash_ctx.c` | The `port_nvm.h` backend for the wolfHSM store and the FWU staging backend: reads through the Secure alias, program and erase through `rom_flash.c`. |
 | `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the ELS `RND_REQ` command, preserving the unprivileged-to-privileged trap. |
 | `secure_owners.txt` | The port's objects in the post-link owner map, appended to `tools/secure_owners.txt` by the link. |
-| `manifest.json`, `manifest-conformance.json` | The service partitions and their resources; the conformance manifest hosts Arm's test partitions over the shared PAL in `tests/conformance/pal/`. |
 | `mk/target-mcxn947.mk` | `WT_CPU`, the flash and RAM defaults, and the source lists; the shared `port/common/armv8m/secure.ld.in` links the image with the SG veneers in its second 1 KiB, as on the STM32H5. |
 
 ## Reference flash and RAM layout

@@ -38,7 +38,7 @@ Read the current state first and keep a development board recoverable.
   (`0x38180000`, the `imx-rt700-tz.config` update address) and arms the swap
   trigger in its trailer, as the STM32H563 port does; staging must be
   contiguous from offset 0, so a finished candidate has no unwritten gap. `WT_CONFORMANCE=1`
-  selects `port/mimxrt700/manifest-conformance.json`, which hosts Arm's
+  renders the shared `manifest/conformance.json` overlay, which hosts Arm's
   server, driver, and client partitions for the conformance suites.
 
 Record emulator, cross-build, and physical-board evidence separately: M33MU's
@@ -84,7 +84,6 @@ only `port/mimxrt700/` and one build fragment:
 | `xspi_nor.c/.h` | The XSPI0 octal-DTR NOR program and erase driver: bounded target-group IP commands on its own LUT sequences, run from the RAM code band with interrupts masked, flushing the XSPI read cache afterwards. |
 | `hsm_flash.c/.h` | The `port_nvm.h` backend for the wolfHSM store: reads through the Secure XIP alias, program and erase through `xspi_nor.c`. |
 | `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the on-die TRNG, preserving the unprivileged-to-privileged trap. |
-| `manifest.json` | The service partitions (attestation, HSM, vault, ITS, PS, FWU) and their resources. |
 | `mk/target-mimxrt700.mk` | `WT_CPU`, the flash and RAM defaults, `WT_LD_RAM_CODE_BAND := 1` (the shared `port/common/armv8m/secure.ld.in` then places the SG veneers, the `cmse_nonsecure_entry` bodies, and the NOR driver in the RAM code band, loaded from flash and executed from SRAM), and the source lists. |
 
 The only edit outside the port allow-list is a neutral seam: an `#ifndef` guard

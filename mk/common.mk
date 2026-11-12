@@ -1409,9 +1409,36 @@ $(BUILD_DIR):
 $(MANIFEST_DIR):
 	@mkdir -p $@
 
+# The manifest is rendered from the shared template under this build's layout
+# configuration; WT_CONFORMANCE=1 and CONFIG_VNET=y add their overlay, and
+# a port registers the variants it supports in port/<soc>/port.json.
+MANIFEST_VARIANT := base
+MANIFEST_OVERLAY :=
+ifeq ($(WT_CONFORMANCE),1)
+MANIFEST_VARIANT := conformance
+else ifeq ($(CONFIG_VNET),y)
+MANIFEST_VARIANT := vnet
+endif
+ifneq ($(MANIFEST_VARIANT),base)
+MANIFEST_OVERLAY := $(ROOT)/manifest/$(MANIFEST_VARIANT).json
+WT_PORT_VARIANTS := $(shell python3 $(ROOT)/tests/target/lib/scenario_matrix.py \
+    --port $(TARGET) --get build.variants)
+ifeq ($(filter $(MANIFEST_VARIANT),$(WT_PORT_VARIANTS)),)
+$(error TARGET=$(TARGET) registers no $(MANIFEST_VARIANT) manifest variant (port/$(TARGET)/port.json build.variants))
+endif
+endif
+MANIFEST_INPUT := $(MANIFEST_DIR)/manifest.json
+
+# FORCE: the renderer writes only on change, so a variant switch within one
+# mtime tick still re-renders on a make that compares whole seconds.
+$(MANIFEST_INPUT): $(MANIFEST_OVERLAY) $(WT_MANIFEST_RENDER_DEPS) \
+		$(BUILD_MODE_STAMP) FORCE | $(MANIFEST_DIR)
+	$(WT_MANIFEST_RENDER) $(addprefix --overlay ,$(MANIFEST_OVERLAY)) \
+		--output $@ $(WT_MANIFEST_TEMPLATE)
+
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.
-MANIFEST_MODE := MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --supported-framework-version 0x100 --address-bits 32
+MANIFEST_MODE := MANIFEST_VARIANT=$(MANIFEST_VARIANT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --supported-framework-version 0x100 --address-bits 32
 
 $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		FORCE | $(MANIFEST_DIR)
@@ -1520,7 +1547,8 @@ $(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/st/%.c $(WOLFHSM_CFG_
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/$(ARCH)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/common/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/common/%.c $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sched/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)

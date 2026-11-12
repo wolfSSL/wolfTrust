@@ -204,8 +204,13 @@ Provide target constants for:
 - guest vector-table read aliases, if required; and
 - WRP or equivalent hardware-enforced guest-image write protection.
 
-Represent the same resources in `manifest.json`. The generator rejects
-bad attributes, overlap, missing stacks, unsupported sharing, invalid signals,
+The manifest needs no port copy: `manifest/base.json` names every window by
+its `memory_map.h` macro (the guest flash, RAM and console windows, the SPM
+stack, the partition stacks and keystore bands, `WT_CONF_IRQ`), and
+`tools/manifest/render.py` renders it for the port under the build's layout
+configuration. A port only defines those macros; `tests/host/manifest_render`
+checks every rendered window against them. The generator rejects bad
+attributes, overlap, missing stacks, unsupported sharing, invalid signals,
 dependency cycles, and unsupported features.
 
 ## Bootloader contract

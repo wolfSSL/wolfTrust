@@ -18,8 +18,10 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 ROOT := ../../..
+TARGET := stm32h563
 CC ?= cc
 BUILD_DIR ?= build
+include $(ROOT)/tests/host/layout.mk
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -ffunction-sections -fdata-sections \
     -I$(ROOT)/include -I$(BUILD_DIR) $(EXTRA_CFLAGS)
@@ -35,13 +37,15 @@ VNET_SRCS := $(ROOT)/src/services/vnet/vnet_service.c \
     $(ROOT)/src/vnet/vnet_mac.c $(ROOT)/src/vnet/vnet_pool.c \
     $(ROOT)/src/vnet/vnet_ring.c
 GENERATOR := $(ROOT)/tools/manifest/generate.py
-FIXTURE := $(ROOT)/port/stm32h563/manifest.json
+FIXTURE := $(BUILD_DIR)/manifest.json
 GENERATED := $(BUILD_DIR)/wolftrust_manifest_generated.h
 
 .PHONY: all run sanitize valgrind clean
 all: $(TEST) $(TEST_VNET)
-$(GENERATED): $(GENERATOR) $(FIXTURE)
+$(FIXTURE): $(WT_MANIFEST_RENDER_DEPS)
 	mkdir -p $(BUILD_DIR)
+	$(WT_MANIFEST_RENDER) --output $@ $(WT_MANIFEST_TEMPLATE)
+$(GENERATED): $(GENERATOR) $(FIXTURE)
 	python3 $(GENERATOR) $(FIXTURE) $(BUILD_DIR) \
 		--supported-features 0x1 --address-bits 32
 $(TEST): main.c $(ROOT)/src/monitor.c $(ROOT)/src/restart_policy.c $(GENERATED)

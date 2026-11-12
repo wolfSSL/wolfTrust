@@ -17,9 +17,9 @@ manifest with a seventh service.
 | `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
 
 All service versions are `1`. ITS and Protected Storage declare a
-dependency on the Secure-only vault. The default manifest is
-`port/stm32h563/manifest.json`; the network variant is
-`port/stm32h563/manifest-vnet.json`.
+dependency on the Secure-only vault. The manifest is rendered for every
+port from `manifest/base.json`; the network variant adds
+`manifest/vnet.json`.
 
 ## Runtime model
 

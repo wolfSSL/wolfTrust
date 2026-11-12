@@ -5,16 +5,6 @@ WT_CPU ?= cortex-m33
 PORT_DIR := $(ROOT)/port/mcxn947
 PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
 
-# WT_CONFORMANCE=1 swaps in the manifest that also hosts Arm's test partitions.
-ifeq ($(CONFIG_VNET),y)
-$(error TARGET=mcxn947 has no SERVICE_VNET manifest; build with CONFIG_VNET=n)
-endif
-ifeq ($(WT_CONFORMANCE),1)
-MANIFEST_INPUT := $(PORT_DIR)/manifest-conformance.json
-else
-MANIFEST_INPUT := $(PORT_DIR)/manifest.json
-endif
-
 # Guests share LPUART4 (LP_FLEXCOMM4), the FRDM board's MCU-Link VCOM console.
 WT_SHARED_UART ?= 0
 # Clocks left as the first loader configured them (PLL150M core, FRO12M on

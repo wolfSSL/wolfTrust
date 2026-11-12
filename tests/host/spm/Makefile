@@ -36,7 +36,7 @@ GENERATED_C := $(GENERATED_DIR)/wolftrust_manifest_generated.c
 GENERATED_H := $(GENERATED_DIR)/wolftrust_manifest_generated.h
 SPM_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
     $(ROOT)/src/spm.c $(GENERATED_C) main.c
-PRODUCTION_FIXTURE := $(ROOT)/port/stm32h563/manifest.json
+PRODUCTION_FIXTURE := $(BUILD_DIR)/manifest.json
 PRODUCTION_DIR := $(BUILD_DIR)/production-generated
 PRODUCTION_STAMP := $(PRODUCTION_DIR)/.stamp
 PRODUCTION_C := $(PRODUCTION_DIR)/wolftrust_manifest_generated.c
@@ -66,6 +66,9 @@ $(GENERATED_C) $(GENERATED_H): $(GENERATED_STAMP)
 
 $(PRODUCTION_DIR):
 	mkdir -p $@
+
+$(PRODUCTION_FIXTURE): $(WT_MANIFEST_RENDER_DEPS) | $(BUILD_DIR)
+	$(WT_MANIFEST_RENDER) --output $@ $(WT_MANIFEST_TEMPLATE)
 
 $(PRODUCTION_STAMP): $(GENERATOR) $(PRODUCTION_FIXTURE) | $(PRODUCTION_DIR)
 	python3 $(GENERATOR) $(PRODUCTION_FIXTURE) $(PRODUCTION_DIR) \

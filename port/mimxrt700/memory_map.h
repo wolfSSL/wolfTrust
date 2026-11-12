@@ -80,6 +80,11 @@
 #define WT_GUEST0_RAM_BASE       0x20100000u
 #define WT_GUEST1_RAM_BASE       0x20140000u
 #define WT_GUEST_RAM_SIZE        0x00040000u
+#define WT_GUEST0_RAM_SIZE       WT_GUEST_RAM_SIZE
+#define WT_GUEST1_RAM_SIZE       WT_GUEST_RAM_SIZE
+/* The guests' shared console window (LPUART0 through its Non-secure alias). */
+#define WT_GUEST_UART_BASE       0x40110000u
+#define WT_GUEST_UART_SIZE       0x00001000u
 
 /* Secure runtime RAM: the cpu0 application SRAM (sram0) through its Secure
  * alias; the isolation level 3 bands are offsets from this base. */

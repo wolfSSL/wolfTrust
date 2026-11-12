@@ -87,6 +87,12 @@
 #define WT_GUEST0_RAM_BASE       0x20000000u
 #define WT_GUEST1_RAM_BASE       0x20010000u
 #define WT_GUEST_RAM_SIZE        0x00010000u
+#define WT_GUEST0_RAM_SIZE       WT_GUEST_RAM_SIZE
+#define WT_GUEST1_RAM_SIZE       WT_GUEST_RAM_SIZE
+/* The guests' console window (USART3) in the manifest; partitions.c picks
+ * each guest's UART by WT_SHARED_UART. */
+#define WT_GUEST_UART_BASE       0x40004800u
+#define WT_GUEST_UART_SIZE       0x00000400u
 
 #define WT_RAM_S_BASE            0x30028000u
 #define WT_RAM_S_SIZE            0x00080000u

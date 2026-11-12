@@ -88,6 +88,11 @@
 #define WT_GUEST0_RAM_BASE       0x20000000u
 #define WT_GUEST1_RAM_BASE       0x20018000u
 #define WT_GUEST_RAM_SIZE        0x00018000u
+#define WT_GUEST0_RAM_SIZE       WT_GUEST_RAM_SIZE
+#define WT_GUEST1_RAM_SIZE       WT_GUEST_RAM_SIZE
+/* The guests' shared console window (LPUART4 through its Non-secure alias). */
+#define WT_GUEST_UART_BASE       0x400B4000u
+#define WT_GUEST_UART_SIZE       0x00001000u
 
 /* Secure runtime RAM: the top 220 KiB of RAMA-H through its Secure alias,
  * one 4 KiB page above the wolfBoot handoff record (56 bytes, the page is

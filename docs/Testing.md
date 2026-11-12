@@ -366,11 +366,12 @@ self-heals on a development device (the crypto suite passes after the
 reformat), and `vaultrecoversec` forces the SECURED lifecycle and proves the
 refusal is graceful on the emulator: no fault, and the guest still starts
 (the vault-not-wiped and attestation-degraded counters are hardware-runner
-evidence, read over the debug port as on the STM32H563). The port supplies
-`port/mimxrt700/manifest-conformance.json`; the PAL bindings (console,
-watchdog, the flash-backed NVMEM boot flag, and the isolation MMIO windows)
-are the shared `tests/conformance/pal/`, which takes every address from the
-port's `memory_map.h`; the val framework, its PAL, and the test lists are the
+evidence, read over the debug port as on the STM32H563). The conformance
+manifest is `manifest/conformance.json` rendered over the shared template
+under the port's layout; the PAL bindings (console, watchdog, the
+flash-backed NVMEM boot flag, and the isolation MMIO windows) are the shared
+`tests/conformance/pal/`, which takes every address from the port's
+`memory_map.h`; the val framework, its PAL, and the test lists are the
 upstream sources the Secure build fetches and generates.
 
 `wrpfence` and `wrpoff` build wolfTrust with `WT_GUEST_FLASH_WRP=1`: behind a

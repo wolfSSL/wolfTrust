@@ -118,7 +118,8 @@ def entry(port, tier, engine, key, name):
     job = "_".join([port] + key.split() + [engine])
     return {"port": port, "tier": tier, "engine": engine, "key": key,
             "name": name, "job": job, "image": port_def["image"],
-            "arm": port_def["arm"]}
+            "arm": port_def["arm"],
+            "mcuxsdk_board": port_def["def"]["ci"].get("mcuxsdk_board", "")}
 
 
 def entries(port, tier, engine):

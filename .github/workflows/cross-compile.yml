@@ -49,7 +49,7 @@ jobs:
           echo "LTO flash: $no_lto_flash -> $lto_flash bytes"
       - name: Verify an unimplemented isolation level stops the build
         run: |
-          for target in stm32h563 mimxrt700 mcxn947; do
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
             for level in 1 2; do
               if make TARGET=$target WT_ISOLATION_LEVEL=$level \
                   BUILD_DIR=build-level-$level secure-image \
@@ -102,41 +102,25 @@ jobs:
         run: make TARGET=stm32h563 WT_ENGINE=native secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_native
       - name: Verify a changed layout input regenerates the secure image
         run: TOOLPREFIX=arm-none-eabi- tools/check-layout-rebuild.sh
-      - name: Build the MIMXRT700 secure image (both engines, default layout)
+      - name: Build every registered port (both engines, every variant, .vectors check)
         run: |
-          for engine in native hsm; do
-            make TARGET=mimxrt700 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
-              secure-image TOOLPREFIX=arm-none-eabi- \
-              BUILD_DIR=build_rt700_$engine
-            # The default must leave wolfBoot's 0x400 header before the vectors.
-            vectors="$(arm-none-eabi-objdump -h build_rt700_$engine/wolftrust.elf \
-              | awk '$2 == ".vectors" { print $4 }')"
-            test "$vectors" = "38040400" || \
-              { echo "RT700 .vectors at 0x$vectors, want 0x38040400"; exit 1; }
-          done
-      - name: Build the MIMXRT700 conformance secure image (both engines)
-        run: |
-          for engine in native hsm; do
-            make TARGET=mimxrt700 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
-              WT_CONFORMANCE=1 secure-image TOOLPREFIX=arm-none-eabi- \
-              BUILD_DIR=build_rt700_conf_$engine
-          done
-      - name: Build the MCXN947 secure image (both engines, default layout)
-        run: |
-          for engine in native hsm; do
-            make TARGET=mcxn947 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
-              secure-image TOOLPREFIX=arm-none-eabi- \
-              BUILD_DIR=build_mcxn947_$engine
-            # The default must leave wolfBoot's 0x400 header before the vectors.
-            vectors="$(arm-none-eabi-objdump -h build_mcxn947_$engine/wolftrust.elf \
-              | awk '$2 == ".vectors" { print $4 }')"
-            test "$vectors" = "10040400" || \
-              { echo "MCXN947 .vectors at 0x$vectors, want 0x10040400"; exit 1; }
-          done
-      - name: Build the MCXN947 conformance secure image (both engines)
-        run: |
-          for engine in native hsm; do
-            make TARGET=mcxn947 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
-              WT_CONFORMANCE=1 secure-image TOOLPREFIX=arm-none-eabi- \
-              BUILD_DIR=build_mcxn947_conf_$engine
-          done
+          python3 tests/target/lib/scenario_matrix.py --build-plan | python3 -c '
+          import json, subprocess, sys
+          for b in json.load(sys.stdin):
+              port, engine = b["port"], b["engine"]
+              base = ["make", "TARGET=" + port, "WT_ENGINE=" + engine,
+                      "WT_ATTEST_COSE=%d" % b["attest_cose"], "secure-image",
+                      "TOOLPREFIX=arm-none-eabi-"]
+              out = "build_%s_%s" % (port, engine)
+              subprocess.run(base + ["BUILD_DIR=" + out], check=True)
+              if b["vectors"]:
+                  # The default must leave wolfBoot header room before the vectors.
+                  hdr = subprocess.run(["arm-none-eabi-objdump", "-h", out + "/wolftrust.elf"],
+                                       check=True, capture_output=True, text=True).stdout
+                  got = [l.split()[3] for l in hdr.splitlines() if len(l.split()) > 3 and l.split()[1] == ".vectors"]
+                  if got != [b["vectors"]]:
+                      sys.exit("%s .vectors at %s, want %s" % (port, got, b["vectors"]))
+              for variant in b["variants"]:
+                  flag = {"conformance": "WT_CONFORMANCE=1", "vnet": "CONFIG_VNET=y"}[variant]
+                  subprocess.run(base + [flag, "BUILD_DIR=%s_%s" % (out, variant)], check=True)
+          '

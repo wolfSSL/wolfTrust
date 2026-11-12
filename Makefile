@@ -44,6 +44,7 @@ test:
 	@python3 tests/target/lib/scenario_matrix.py --selftest
 	@python3 tests/target/lib/scenarios.py --selftest
 	@python3 tests/scripts/test_scenario_asserts.py
+	@python3 tools/gen-port-docs.py --check
 	@tools/check-port-only-diff.sh --selftest
 	@tools/check-no-port-names.sh
 	@python3 tests/scripts/test_m33mu_console.py
@@ -132,7 +133,7 @@ test-conformance: fetch-psa-ff-tests test-manifest-ingest
 	@if tests/target/detect_m33mu.sh $(TARGET) >/dev/null 2>&1; then \
 		mkdir -p logs; \
 		echo "RUN: conformance/target (full FF-M IPC suite on M33MU)"; \
-		if tests/target/run_target.sh stm32h563 confboot \
+		if tests/target/run_target.sh $(TARGET) confboot \
 				> logs/conformance-target.log 2>&1; then \
 			grep -F '  [check] ' logs/conformance-target.log || true; \
 			echo "PASS: conformance/target"; \

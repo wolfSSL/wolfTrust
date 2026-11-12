@@ -11,9 +11,8 @@ on:
   workflow_dispatch:
     inputs:
       port:
-        description: Port whose full matrix to run
-        type: choice
-        options: [all, stm32h563, mimxrt700, mcxn947]
+        description: Port whose full matrix to run (a registered port, or all)
+        type: string
         default: all
   workflow_call:
 
@@ -137,26 +136,26 @@ jobs:
       # MCUXpresso SDK, staged the way wolfBoot's own imxrt700 emulator
       # workflow stages it, one board per port.
       - uses: actions/checkout@v4
-        if: matrix.port == 'mimxrt700' || matrix.port == 'mcxn947'
+        if: matrix.mcuxsdk_board != ''
         with:
           repository: nxp-mcuxpresso/CMSIS_5
           ref: f9cf5df6d51a95f0146930d75af3d71977cf795a
           path: CMSIS_5
 
       - name: Cache MCUXpresso SDK
-        if: matrix.port == 'mimxrt700' || matrix.port == 'mcxn947'
+        if: matrix.mcuxsdk_board != ''
         id: cache-mcuxpresso
         uses: actions/cache@v4
         with:
           path: |
             mcuxpresso-sdk
             venv
-          key: mcuxpresso-sdk-${{ matrix.port == 'mimxrt700' && 'mimxrt700evk' || 'frdmmcxn947' }}-${{ hashFiles('.github/workflows/m33mu.yml') }}
+          key: mcuxpresso-sdk-${{ matrix.mcuxsdk_board }}-${{ hashFiles('.github/workflows/m33mu.yml') }}
 
       - name: Setup MCUXpresso SDK
-        if: (matrix.port == 'mimxrt700' || matrix.port == 'mcxn947') && steps.cache-mcuxpresso.outputs.cache-hit != 'true'
+        if: matrix.mcuxsdk_board != '' && steps.cache-mcuxpresso.outputs.cache-hit != 'true'
         env:
-          SDK_BOARD: ${{ matrix.port == 'mimxrt700' && 'mimxrt700evk' || 'frdmmcxn947' }}
+          SDK_BOARD: ${{ matrix.mcuxsdk_board }}
         run: |
           python3 -m venv venv
           . venv/bin/activate
@@ -169,7 +168,7 @@ jobs:
 
       - name: Run target scenarios
         env:
-          MCUXSDK: ${{ (matrix.port == 'mimxrt700' || matrix.port == 'mcxn947') && '1' || '' }}
+          MCUXSDK: ${{ matrix.mcuxsdk_board != '' && '1' || '' }}
           MCUXPRESSO: ${{ github.workspace }}/mcuxpresso-sdk/mcuxsdk
           MCUXPRESSO_CMSIS: ${{ github.workspace }}/CMSIS_5/CMSIS
         run: tests/target/run_suite.sh ${{ matrix.port }} ${{ matrix.key }}

@@ -6,6 +6,8 @@ lock with the same commands on every port. `TARGET` selects the port:
 ```sh
 TARGET=stm32h563 tests/target/provisioning/provisioning_ctrl.sh help
 TARGET=mimxrt700 tests/target/provisioning/provisioning_ctrl.sh help
+TARGET=mcxn947 tests/target/provisioning/provisioning_ctrl.sh help
+TARGET=stm32l562 tests/target/provisioning/provisioning_ctrl.sh help
 ```
 
 The flow is the same everywhere: `advance` a state as a reversible mock,

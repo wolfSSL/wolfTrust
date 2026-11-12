@@ -46,7 +46,7 @@ test:
 	@tests/target/test_mcxn947_suite_evidence.sh
 	@tests/target/test_stm32l562_suite_evidence.sh
 
-# Production lock gates of both provisioning backends, against stub tools.
+# Production lock gates of every provisioning port, against stub tools.
 test-provisioning:
 	@mkdir -p $(BUILD_DIR)
 	@tests/target/provisioning/test_provisioning_gates.sh > $(BUILD_DIR)/provisioning-gates.log 2>&1 \

@@ -1,0 +1,728 @@
+{
+  "format_version": 1,
+  "generator_version": "WOLFTRUST_GEN_1",
+  "features": 1,
+  "isolation_profile": 3,
+  "profile_capabilities": {
+    "capabilities": 127,
+    "max_domains": 11,
+    "max_memory_resources_per_domain": 3,
+    "max_interrupts_per_domain": 1
+  },
+  "domains": [
+    {
+      "id": 0,
+      "domain_class": 0,
+      "rot_role": 1,
+      "security_state": 0,
+      "privilege_state": 0,
+      "initial_lifecycle": 1,
+      "entry_point": 201375744,
+      "stack_base": 805310464,
+      "stack_size": 4096,
+      "memory_resources": [
+        {
+          "base": 201375744,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805310464,
+          "size": 4096,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 2,
+        "restart_limit": 0,
+        "restart_window_ticks": 0,
+        "initial_delay_ticks": 0
+      },
+      "required_capabilities": 127,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 1,
+      "domain_class": 2,
+      "rot_role": 0,
+      "security_state": 1,
+      "privilege_state": 0,
+      "initial_lifecycle": 1,
+      "entry_point": 134479872,
+      "stack_base": 537034752,
+      "stack_size": 81920,
+      "memory_resources": [
+        {
+          "base": 134479872,
+          "size": 245760,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 537034752,
+          "size": 81920,
+          "attributes": 19,
+          "share_id": 0
+        },
+        {
+          "base": 1073821696,
+          "size": 1024,
+          "attributes": 43,
+          "share_id": 2
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 1,
+      "launch_min_version": 1
+    },
+    {
+      "id": 2,
+      "domain_class": 2,
+      "rot_role": 0,
+      "security_state": 1,
+      "privilege_state": 0,
+      "initial_lifecycle": 1,
+      "entry_point": 134725632,
+      "stack_base": 537116672,
+      "stack_size": 16384,
+      "memory_resources": [
+        {
+          "base": 134725632,
+          "size": 14336,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 537116672,
+          "size": 16384,
+          "attributes": 19,
+          "share_id": 0
+        },
+        {
+          "base": 1073821696,
+          "size": 1024,
+          "attributes": 43,
+          "share_id": 2
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 1,
+      "launch_min_version": 1
+    },
+    {
+      "id": 3,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 201441280,
+      "stack_base": 805427200,
+      "stack_size": 8192,
+      "memory_resources": [
+        {
+          "base": 201441280,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805427200,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        },
+        {
+          "base": 805361664,
+          "size": 2048,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 4,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 201445376,
+      "stack_base": 805419008,
+      "stack_size": 8192,
+      "memory_resources": [
+        {
+          "base": 201445376,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805419008,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        },
+        {
+          "base": 805363712,
+          "size": 2048,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 5,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 201461760,
+      "stack_base": 805390336,
+      "stack_size": 16384,
+      "memory_resources": [
+        {
+          "base": 201461760,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805390336,
+          "size": 16384,
+          "attributes": 19,
+          "share_id": 0
+        },
+        {
+          "base": 805353472,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 6,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 201465856,
+      "stack_base": 805382144,
+      "stack_size": 8192,
+      "memory_resources": [
+        {
+          "base": 201465856,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805382144,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 7,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 201469952,
+      "stack_base": 805373952,
+      "stack_size": 8192,
+      "memory_resources": [
+        {
+          "base": 201469952,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805373952,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 8,
+      "domain_class": 1,
+      "rot_role": 3,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 201449472,
+      "stack_base": 805435392,
+      "stack_size": 8192,
+      "memory_resources": [
+        {
+          "base": 201449472,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805435392,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 9,
+      "domain_class": 1,
+      "rot_role": 2,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 201453568,
+      "stack_base": 805443584,
+      "stack_size": 8192,
+      "memory_resources": [
+        {
+          "base": 201453568,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805443584,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [
+        {
+          "interrupt": 63,
+          "attributes": 0,
+          "share_id": 0
+        }
+      ],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    },
+    {
+      "id": 10,
+      "domain_class": 1,
+      "rot_role": 3,
+      "security_state": 0,
+      "privilege_state": 1,
+      "initial_lifecycle": 0,
+      "entry_point": 201457664,
+      "stack_base": 805451776,
+      "stack_size": 8192,
+      "memory_resources": [
+        {
+          "base": 201457664,
+          "size": 4096,
+          "attributes": 5,
+          "share_id": 0
+        },
+        {
+          "base": 805451776,
+          "size": 8192,
+          "attributes": 19,
+          "share_id": 0
+        }
+      ],
+      "interrupt_resources": [],
+      "restart_policy": {
+        "action": 1,
+        "restart_limit": 3,
+        "restart_window_ticks": 8000,
+        "initial_delay_ticks": 1
+      },
+      "required_capabilities": 80,
+      "launch_required": 0,
+      "launch_min_version": 0
+    }
+  ],
+  "partitions": [
+    {
+      "name": "PARTITION_ATTEST",
+      "domain_id": 3,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 2,
+      "services": [
+        {
+          "name": "SERVICE_ATTEST",
+          "sid": 4096,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [
+        4102
+      ],
+      "interrupts": []
+    },
+    {
+      "name": "PARTITION_HSM",
+      "domain_id": 4,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVICE_HSM",
+          "sid": 4102,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 32,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [
+        4098
+      ],
+      "interrupts": []
+    },
+    {
+      "name": "PARTITION_VAULT",
+      "domain_id": 5,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVICE_VAULT",
+          "sid": 4098,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": false,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [],
+      "interrupts": []
+    },
+    {
+      "name": "PARTITION_ITS",
+      "domain_id": 6,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVICE_ITS",
+          "sid": 4099,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [
+        4098
+      ],
+      "interrupts": []
+    },
+    {
+      "name": "PARTITION_PS",
+      "domain_id": 7,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVICE_PS",
+          "sid": 4100,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [
+        4098
+      ],
+      "interrupts": []
+    },
+    {
+      "name": "SERVER_PARTITION",
+      "domain_id": 8,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "SERVER_TEST_DISPATCHER",
+          "sid": 64257,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_SECURE_CONNECT_ONLY",
+          "sid": 64258,
+          "version": 2,
+          "version_policy": 1,
+          "signal": 32,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": false,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_STRICT_VERSION",
+          "sid": 64259,
+          "version": 2,
+          "version_policy": 0,
+          "signal": 64,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_UNSPECIFIED_VERSION",
+          "sid": 64260,
+          "version": 1,
+          "version_policy": 0,
+          "signal": 128,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_RELAX_VERSION",
+          "sid": 64261,
+          "version": 2,
+          "version_policy": 1,
+          "signal": 256,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_UNEXTERN",
+          "sid": 64262,
+          "version": 2,
+          "version_policy": 1,
+          "signal": 512,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "SERVER_CONNECTION_DROP",
+          "sid": 64263,
+          "version": 2,
+          "version_policy": 1,
+          "signal": 1024,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [
+        64513,
+        64515
+      ],
+      "interrupts": []
+    },
+    {
+      "name": "DRIVER_PARTITION",
+      "domain_id": 9,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "DRIVER_UART",
+          "sid": 64513,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "DRIVER_WATCHDOG",
+          "sid": 64514,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 32,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "DRIVER_NVMEM",
+          "sid": 64515,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 64,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        },
+        {
+          "name": "DRIVER_TEST",
+          "sid": 64516,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 128,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [],
+      "interrupts": [
+        {
+          "signal_name": "DRIVER_UART_INTR_SIG",
+          "interrupt": 63,
+          "signal": 256
+        }
+      ]
+    },
+    {
+      "name": "CLIENT_PARTITION",
+      "domain_id": 10,
+      "framework_version": 256,
+      "model": 0,
+      "priority": 1,
+      "services": [
+        {
+          "name": "CLIENT_TEST_DISPATCHER",
+          "sid": 64001,
+          "version": 1,
+          "version_policy": 1,
+          "signal": 16,
+          "stateless_handle_index": 0,
+          "nonsecure_clients": true,
+          "connection_based": true
+        }
+      ],
+      "dependencies": [
+        64513,
+        64515,
+        64516,
+        64257,
+        64260,
+        64259,
+        64261,
+        64258,
+        64263
+      ],
+      "interrupts": []
+    }
+  ],
+  "limits": {
+    "max_partitions": 8,
+    "max_services_per_partition": 7,
+    "max_dependencies_per_partition": 9,
+    "max_stateless_handles": 32
+  }
+}

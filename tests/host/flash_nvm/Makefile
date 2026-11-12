@@ -27,11 +27,17 @@ CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
 LDFLAGS := $(EXTRA_LDFLAGS)
 TEST := $(BUILD_DIR)/test_flash_nvm
 SRCS := $(ROOT)/port/stm32h563/conformance/pal_driver_intf.c main.c
+# The STM32L562 PAL also fails closed when the persisted sector cannot load.
+TEST_L562 := $(BUILD_DIR)/test_flash_nvm_stm32l562
+SRCS_L562 := $(ROOT)/port/stm32l562/conformance/pal_driver_intf.c main.c
+CFLAGS_L562 := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
+    -DWT_CONF_NVM_HOST_TEST -DWT_CONF_NVM_LOAD_FAIL_CLOSED \
+    -I$(ROOT)/include -I$(ROOT)/port/stm32l562/conformance $(EXTRA_CFLAGS)
 
 .PHONY: all run compilers compiler-gcc compiler-clang sanitize valgrind \
     run-valgrind clean
 
-all: $(TEST)
+all: $(TEST) $(TEST_L562)
 
 $(BUILD_DIR):
 	mkdir -p $@
@@ -39,8 +45,12 @@ $(BUILD_DIR):
 $(TEST): $(SRCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRCS)
 
-run: $(TEST)
+$(TEST_L562): $(SRCS_L562) | $(BUILD_DIR)
+	$(CC) $(CFLAGS_L562) $(LDFLAGS) -o $@ $(SRCS_L562)
+
+run: $(TEST) $(TEST_L562)
 	$(TEST)
+	$(TEST_L562)
 
 compiler-gcc:
 	$(MAKE) run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
@@ -58,9 +68,11 @@ sanitize:
 valgrind:
 	$(MAKE) run-valgrind BUILD_DIR=$(BUILD_DIR)/valgrind
 
-run-valgrind: $(TEST)
+run-valgrind: $(TEST) $(TEST_L562)
 	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
 		$(TEST)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(TEST_L562)
 
 clean:
 	rm -rf $(BUILD_DIR)

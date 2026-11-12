@@ -44,6 +44,7 @@ test:
 	@$(MAKE) --no-print-directory -C tests/host test
 	@$(MAKE) --no-print-directory test-provisioning
 	@tests/target/test_mcxn947_suite_evidence.sh
+	@tests/target/test_stm32l562_suite_evidence.sh
 
 # Production lock gates of both provisioning backends, against stub tools.
 test-provisioning:
@@ -98,14 +99,17 @@ else
 endif
 
 # Real hardware suite, the on-silicon counterpart of test-target: STM32H563 on a
-# Nucleo-H563ZI (detect_h5.sh; container toolchain via WT_H5_DOCKER_IMAGE), or
-# TARGET=mimxrt700 on the EVK from its probe host (detect_rt700.sh). Skips
-# without a board so it never silently passes.
+# Nucleo-H563ZI (detect_h5.sh; container toolchain via WT_H5_DOCKER_IMAGE),
+# TARGET=mimxrt700 on the EVK from its probe host (detect_rt700.sh), mcxn947 on
+# the FRDM board (detect_mcxn947.sh) or stm32l562 on the STM32L562E-DK
+# (detect_stm32l562.sh). Skips without a board so it never silently passes.
 test-hardware:
 ifeq ($(TARGET),mimxrt700)
 	@tests/target/run_rt700_suite.sh
 else ifeq ($(TARGET),mcxn947)
 	@tests/target/run_mcxn947_suite.sh
+else ifeq ($(TARGET),stm32l562)
+	@tests/target/run_stm32l562_suite.sh
 else
 	@tests/target/run_h5_suite.sh
 endif

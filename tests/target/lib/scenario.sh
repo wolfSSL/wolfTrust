@@ -145,11 +145,15 @@ scenario_assert_verdict() {
 }
 
 # Isolation level 3 addresses of port/$2 (band, partition stack and SPM
-# peripheral), read from its memory_map.h so no runner copies them.
+# peripheral), read from its memory_map.h under the build's own layout
+# configuration so no runner copies them.
 l3_layout_load() {
-    local vars
+    local vars cflags
+    cflags="$(make -s --no-print-directory -C "$1" TARGET="$2" \
+        print-layout-cflags)" ||
+        fail "could not read the layout configuration of port/$2"
     vars="$(python3 "$1/tools/l3_layout_args.py" --shell \
-        --cc "${L3_CPP:-arm-none-eabi-gcc}" -I "$1/include" \
+        --cc "${L3_CPP:-arm-none-eabi-gcc}" --cflags "$cflags" \
         -I "$1/lib/wolfhal" "$1/port/$2/memory_map.h")" ||
         fail "could not read the level 3 layout of port/$2"
     eval "$vars"

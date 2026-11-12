@@ -59,19 +59,16 @@ ARCH_SRCS := \
     $(ROOT)/src/arch/armv8m/sau_armv8m.c \
     $(ROOT)/src/arch/armv8m/start_armv8m.c
 
-# Isolation level the secure image implements. Only level 3 exists, so any
-# other value stops the build; the shared level 3 layer is gated on it.
-WT_ISOLATION_LEVEL ?= 3
+# Isolation level the secure image implements (mk/layout.mk). Only level 3
+# exists, so any other value stops the build; the shared layer is gated on it.
 ifneq ($(WT_ISOLATION_LEVEL),3)
 $(error only isolation level 3 is implemented (WT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL)))
 endif
-ARCH_CFLAGS += -DWT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL)
 
 ifeq ($(WT_ISOLATION_LEVEL),3)
 # Isolation level 3 layer shared by every Armv8-M port: the band layout, its
 # linker fragments and the platform hooks. A port's memory_map.h supplies
 # WT_RAM_S_BASE, from which every band is placed.
-PORT_COMMON_DIR := $(ROOT)/port/common/armv8m
 PORT_HEADERS += $(wildcard $(PORT_COMMON_DIR)/*.h)
 TARGET_EXTRA_SRCS += $(PORT_COMMON_DIR)/platform_l3.c
 WT_RAM_S_ORIGIN := $(shell sed -n \
@@ -84,18 +81,20 @@ TARGET_LDFLAGS += -Wl,-L$(PORT_COMMON_DIR) \
     -Wl,--defsym=WT_RAM_S_ORIGIN=$(WT_RAM_S_ORIGIN)
 # One linker script for every Armv8-M port, preprocessed by mk/common.mk;
 # WT_LD_RAM_CODE_BAND=1 selects the XIP-from-NOR shape (RAM code band).
-WT_LD_RAM_CODE_BAND ?= 0
 SECURE_LD_IN := $(PORT_COMMON_DIR)/secure.ld.in
 SECURE_LD_DEFS := -DWT_LD_RAM_CODE_BAND=$(WT_LD_RAM_CODE_BAND)
 SECURE_LD := $(BUILD_DIR)/secure.ld
-# Band placement for the linker fragments, read from memory_map.h at link time.
-WT_L3_LINK_ARGS = $(or $(strip $(shell python3 $(ROOT)/tools/l3_layout_args.py \
-    --link --cc $(TOOLPREFIX)gcc $(PORT_DIR)/memory_map.h)),$(error \
+# Band placement for the linker fragments, read from memory_map.h under the
+# firmware's own layout configuration at link time.
+WT_L3_LINK_ARGS = $(or $(strip $(shell $(WT_LAYOUT_TOOL) --link \
+    --cc $(WT_LAYOUT_CPP) --cflags '$(WT_LAYOUT_CFLAGS)' \
+    $(PORT_DIR)/memory_map.h)),$(error \
     cannot read the level 3 band placement from $(PORT_DIR)/memory_map.h))
-# Post-link band check inputs, read from the port's memory_map.h at link time;
-# an unreadable layout stops the link rather than checking the default bands.
-WT_L3_BAND_ARGS = $(shell python3 $(ROOT)/tools/l3_layout_args.py \
-    --cc $(TOOLPREFIX)gcc $(PORT_DIR)/memory_map.h)
+# Post-link band check inputs, read the same way at link time; an unreadable
+# layout stops the link rather than checking the default bands.
+WT_L3_BAND_ARGS = $(shell $(WT_LAYOUT_TOOL) \
+    --cc $(WT_LAYOUT_CPP) --cflags '$(WT_LAYOUT_CFLAGS)' \
+    $(PORT_DIR)/memory_map.h)
 WT_SECURE_LAYOUT_ARGS = $(or $(strip $(WT_L3_BAND_ARGS)),$(error \
     cannot read the level 3 bands from $(PORT_DIR)/memory_map.h)) \
     $(WT_SECURE_LAYOUT_EXTRA_ARGS)
@@ -105,7 +104,7 @@ endif
 SECURE_CMSE_IMPLIB := $(BUILD_DIR)/secure_cmse_implib.o
 ARCH_LINK_OUTPUTS := $(SECURE_CMSE_IMPLIB)
 ARCH_LDFLAGS = -Wl,--cmse-implib -Wl,--out-implib=$(SECURE_CMSE_IMPLIB) \
-    $(WT_L3_LINK_ARGS)
+    $(WT_LAYOUT_LDFLAGS) $(WT_L3_LINK_ARGS)
 
 # The owner map the post-link layout check reads: the shared map plus the
 # port's own objects (port/<soc>/secure_owners.txt), so a port adds its

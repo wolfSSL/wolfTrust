@@ -84,9 +84,8 @@ only `port/mimxrt700/` and one build fragment:
 | `xspi_nor.c/.h` | The XSPI0 octal-DTR NOR program and erase driver: bounded target-group IP commands on its own LUT sequences, run from the RAM code band with interrupts masked, flushing the XSPI read cache afterwards. |
 | `hsm_flash.c/.h` | The `port_nvm.h` backend for the wolfHSM store: reads through the Secure XIP alias, program and erase through `xspi_nor.c`. |
 | `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the on-die TRNG, preserving the unprivileged-to-privileged trap. |
-| `secure.ld` | The port's own Secure linker script, which INCLUDEs the shared level 3 regions, band sections, and layout ASSERTs and adds the RAM code band: the SG veneers, the `cmse_nonsecure_entry` bodies, and the NOR driver, loaded from flash and executed from SRAM. |
 | `manifest.json` | The service partitions (attestation, HSM, vault, ITS, PS, FWU) and their resources. |
-| `mk/target-mimxrt700.mk` | `WT_CPU`, the flash and RAM defaults, the linker `--defsym` set, and the source lists. |
+| `mk/target-mimxrt700.mk` | `WT_CPU`, the flash and RAM defaults, `WT_LD_RAM_CODE_BAND := 1` (the shared `port/common/armv8m/secure.ld.in` then places the SG veneers, the `cmse_nonsecure_entry` bodies, and the NOR driver in the RAM code band, loaded from flash and executed from SRAM), and the source lists. |
 
 The only edit outside the port allow-list is a neutral seam: an `#ifndef` guard
 around `WOLFHSM_CFG_FLASH_UNIT_SIZE` so the port can set the NOR write unit.

@@ -100,6 +100,8 @@ jobs:
         run: make TARGET=stm32h563 WT_ENGINE=hsm secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_hsm
       - name: Build the native-engine secure image (WT_ENGINE=native)
         run: make TARGET=stm32h563 WT_ENGINE=native secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_native
+      - name: Verify a changed layout input regenerates the secure image
+        run: TOOLPREFIX=arm-none-eabi- tools/check-layout-rebuild.sh
       - name: Build the MIMXRT700 secure image (both engines, default layout)
         run: |
           for engine in native hsm; do

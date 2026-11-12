@@ -17,8 +17,9 @@ ports="$(python3 tests/target/lib/scenario_matrix.py --list-ports)" || exit 2
 re="\\b($(printf '%s' "$ports" | tr ' ' '|'))\\b"
 
 shared_files() {
-  git ls-files Makefile mk/common.mk 'mk/arch-*.mk' 'tools/*.sh' 'tools/*.py' \
-    '.github/workflows/*.yml' 'tests/target/lib/*' tests/target/run_suite.sh \
+  git ls-files Makefile mk/common.mk mk/layout.mk 'mk/arch-*.mk' 'tools/*.sh' \
+    'tools/*.py' '.github/workflows/*.yml' 'tests/target/lib/*' \
+    tests/target/run_suite.sh tests/host/layout.mk \
     tests/host/Makefile tests/target/provisioning/provisioning_ctrl.sh \
     | grep -v -e '^tools/check-no-port-names.sh$' -e "^$baseline\$"
 }

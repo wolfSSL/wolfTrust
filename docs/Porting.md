@@ -111,22 +111,27 @@ A port supplies:
   `#include "../common/armv8m/l3_layout.h"`. The layout needs
   `WT_L3_SPM_RAM_SIZE + WT_SP_HSM_DATA_SIZE + 102 KiB`; the defaults (308 KiB
   of SPM RAM and a 70 KiB crypto band) total 480 KiB, and a part with less
-  SRAM defines smaller values before the include. Define `WT_RAMFUNC_BASE`
-  and `WT_RAMFUNC_SIZE` if the SPM runs code from RAM;
+  SRAM gives smaller defaults under `#ifndef` before the include (the Make
+  variables of the same names override them for every consumer at once).
+  Define `WT_RAMFUNC_BASE` and `WT_RAMFUNC_SIZE` if the SPM runs code from
+  RAM, and set `WT_LD_RAM_CODE_BAND := 1` in `mk/target-<soc>.mk` so the
+  shared linker script (`port/common/armv8m/secure.ld.in`) places the NSC
+  gateway and the flash program code there;
 - `l3_port.h`, naming a Secure peripheral only the SPM drives as
   `WT_L3_SPM_PERIPHERAL_BASE`;
-- a `secure.ld` that INCLUDEs the four fragments and keeps only its board
-  sections (vectors, NSC veneers, any RAM code band, text, read-only data,
-  the conformance sections, .data and .bss);
 - attribution read-back for every Secure peripheral the SPM uses, panicking
   at boot on a mismatch; and
 - owner lines for every object it adds, in `tools/secure_owners.txt` or in
   the port's own `port/<soc>/secure_owners.txt`, which the secure link
   appends to the shared map.
 
-The build reads `WT_RAM_S_BASE` and the band placement for the linker and
-derives the post-link band check from `memory_map.h`, so no band address is
-written twice.
+The build resolves every layout input once (`mk/layout.mk`,
+`WT_LAYOUT_CFLAGS`) and reads `WT_RAM_S_BASE`, the band placement for the
+linker, the post-link band check and the guest windows from `memory_map.h`
+under that one configuration, so no address is written twice and the
+firmware, the linker script, the layout check, the guest builds and the host
+fixtures cannot disagree (`tests/host/layout_config` proves it for every
+registered port).
 
 Level 3 is claimed for a port only when its full M33MU tier runs every
 scenario in `L3_REQUIRED` (`tests/target/lib/scenario_matrix.py`). A scenario

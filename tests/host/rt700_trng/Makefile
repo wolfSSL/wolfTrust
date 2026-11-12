@@ -19,13 +19,14 @@
 # Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
 
 ROOT := ../../..
+TARGET := mimxrt700
 
 CC ?= cc
 BUILD_DIR ?= build
+include $(ROOT)/tests/host/layout.mk
 
 CFLAGS := \
-    -I$(ROOT)/include \
-    -I$(ROOT)/port/mimxrt700 \
+    $(WT_LAYOUT_CFLAGS) \
     -include mock_trng_regs.h \
     -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic
 CFLAGS += $(EXTRA_CFLAGS)

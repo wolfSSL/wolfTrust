@@ -2,14 +2,15 @@
 
 The STM32H563 build is configured through GNU Make variables. The build turns
 selected values into C preprocessor defines. Defaults below come from
-`mk/target-stm32h563.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk`.
+`mk/target-stm32h563.mk`, `mk/layout.mk`, `mk/arch-armv8m.mk`, and
+`mk/common.mk`.
 
 ## Build selection
 
 | Define | Description | Requirement |
 | --- | --- | --- |
 | `ARCH` | Architecture build selector; default `armv8m`. | Must match an `mk/arch-<arch>.mk` fragment; `armv8m` is the only architecture today. |
-| `TARGET` | Target build selector; default `stm32h563`. | Must match an `mk/target-<soc>.mk` fragment; the root Makefile includes it, the architecture fragment, and `mk/common.mk`. |
+| `TARGET` | Target build selector; default `stm32h563`. | Must match an `mk/target-<soc>.mk` fragment; the root Makefile includes it, `mk/layout.mk`, the architecture fragment, and `mk/common.mk`. |
 | `TOOLPREFIX` | Cross-tool prefix; default `arm-none-eabi-`. | The prefixed GCC, objcopy, nm, and size tools must be available. |
 | `BUILD_DIR` | Secure build output directory; default `build`. | Must be writable. |
 | `WT_LTO` | Enable Secure-image link-time optimization; default `1`. | Set to `0` for diagnostics or a non-LTO size comparison. The GNU Arm compiler must support `-flto=auto`. |
@@ -50,6 +51,18 @@ selected values into C preprocessor defines. Defaults below come from
 | `WT_GUEST1_FLASH_BASE` | Guest 1 flash base; standalone default `0x08040000`. | Must match the guest link address and manifest executable window. |
 | `WT_GUEST0_FLASH_SIZE` | Guest 0 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
 | `WT_GUEST1_FLASH_SIZE` | Guest 1 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
+| `WT_L3_SPM_RAM_SIZE` | SPM-private RAM band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x0004D000`). | Moves every level 3 band above it; the keystore bands, partition stacks and conformance window follow. |
+| `WT_SP_HSM_DATA_SIZE` | Crypto partition data band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x00011800`). | Must hold the engine's working set; the post-link layout check reports an overflow. |
+| `WT_LD_RAM_CODE_BAND` | `1` links the NSC gateway and the flash program code into the RAM code band; default `0` (`1` for `TARGET=mimxrt700`). | The port's `memory_map.h` must define `WT_RAMFUNC_BASE` and `WT_RAMFUNC_SIZE`. |
+
+Every layout input is a Make variable that `mk/layout.mk` resolves once into
+`WT_LAYOUT_CFLAGS` (defines and include paths only). The firmware, the
+linker script, `tools/l3_layout_args.py`, the post-link layout check, the
+guest builds and the host fixtures all read that one set, and the build-mode
+stamp records it, so changing any input regenerates every output.
+`make TARGET=<soc> print-layout-cflags` prints the resolved set and
+`print-build-mode` the stamp; a layout define passed through
+`WT_EXTRA_CFLAGS` is refused.
 
 The target runners used for authenticated boot override standalone addresses
 for the wolfBoot partition layout. Keep bootloader, Secure image, manifest,

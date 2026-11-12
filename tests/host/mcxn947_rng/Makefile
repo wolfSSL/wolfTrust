@@ -19,13 +19,14 @@
 
 
 ROOT := ../../..
+TARGET := mcxn947
 
 CC ?= cc
 BUILD_DIR ?= build
+include $(ROOT)/tests/host/layout.mk
 
 CFLAGS := \
-    -I$(ROOT)/include \
-    -I$(ROOT)/port/mcxn947 \
+    $(WT_LAYOUT_CFLAGS) \
     -include mock_els.h \
     -std=c99 -O0 -g -Wall -Wextra -pedantic -fno-pie
 CFLAGS += $(EXTRA_CFLAGS)

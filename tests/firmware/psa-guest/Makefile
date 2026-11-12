@@ -17,7 +17,11 @@ ARCH ?= armv8m
 WT_ENGINE ?= native
 BUILD ?= build
 
-include boards/$(TARGET)/board.mk
+# The guest windows come from the port's memory map under the same layout
+# configuration the Secure image is built with.
+include $(ROOT)/mk/target-$(TARGET).mk
+include $(ROOT)/mk/layout.mk
+$(foreach kv,$(WT_LAYOUT_GUEST_WINDOWS),$(eval $(kv)))
 
 TOP_BUILD_DIR := $(ROOT)/build
 SECURE_CMSE_IMPLIB := $(TOP_BUILD_DIR)/secure_cmse_implib.o
@@ -210,7 +214,7 @@ endif
 CONF_INCS := $(CONF_SUITE_INCS) -I$(CONF_GEN) \
     -I$(CONF_U)/val/common -I$(CONF_U)/val/nspe -I$(CONF_U)/val/spe \
     -I$(CONF_U)/platform/targets/common/nspe \
-    -I$(ROOT)/tests/conformance/pal -I$(ROOT)/port/$(TARGET)
+    -I$(ROOT)/tests/conformance/pal $(WT_LAYOUT_CFLAGS)
 endif
 
 SHARED_SRCS := guest_libc.c $(WOLFCRYPT_SRCS) $(WOLFPSA_SRCS) $(WOLFCOSE_SRCS) \

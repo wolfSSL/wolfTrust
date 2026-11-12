@@ -138,7 +138,7 @@ endif
 
 SECURE_CFLAGS := $(CPU_FLAGS) -std=c99 -ffreestanding -fno-builtin -nostdlib -Os -g \
     -ffunction-sections -fdata-sections -Wall -Wextra \
-    -I$(ROOT)/include -I$(PORT_DIR) \
+    $(WT_LAYOUT_CFLAGS) \
     -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS) \
     -DWT_MAX_GUESTS=$(WT_MAX_GUESTS) \
     -DWT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE) \
@@ -1438,18 +1438,17 @@ $(WOLFHSM_CFG_H): | $(BUILD_DIR)
 .PHONY: FORCE
 FORCE:
 
-$(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
-	@tmp="$@.tmp"; \
-	printf '%s\n' \
+# The stamp is the build's configuration fingerprint: every define and flag
+# the secure objects, the linker script and the link are produced with, so a
+# changed input regenerates every output even when mtimes tie.
+BUILD_MODE_LINES = \
 		'ARCH=$(ARCH)' \
 		'TARGET=$(TARGET)' \
-		'WT_SECURE_FLASH_BASE=$(WT_SECURE_FLASH_BASE)' \
-		'WT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE)' \
-		'WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE)' \
-		'WT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_BASE)' \
-		'WT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE)' \
-		'WT_GUEST0_FLASH_SIZE=$(WT_GUEST0_FLASH_SIZE)' \
-		'WT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE)' \
+		'WT_LAYOUT_CFLAGS=$(WT_LAYOUT_CFLAGS)' \
+		'SECURE_CFLAGS=$(SECURE_CFLAGS)' \
+		'SECURE_LD_DEFS=$(SECURE_LD_DEFS)' \
+		'TARGET_LDFLAGS=$(TARGET_LDFLAGS)' \
+		'WT_LAYOUT_LDFLAGS=$(WT_LAYOUT_LDFLAGS)' \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
 		'WT_LTO=$(WT_LTO)' \
 		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
@@ -1486,17 +1485,25 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \
 		'WT_WOLFCRYPT_ARMASM=$(WT_WOLFCRYPT_ARMASM)' \
 		'WT_WOLFCRYPT_STM32_HASH=$(WT_WOLFCRYPT_STM32_HASH)' \
-		'WT_SHARED_UART=$(WT_SHARED_UART)' \
 		'WT_TIMESLICE_MS=$(WT_TIMESLICE_MS)' \
-		'WT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)' \
-		'WT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)' \
 		'WT_EXTRA_CFLAGS=$(WT_EXTRA_CFLAGS)' \
-		'WT_EXTRA_LDFLAGS=$(WT_EXTRA_LDFLAGS)' > "$$tmp"; \
+		'WT_EXTRA_LDFLAGS=$(WT_EXTRA_LDFLAGS)'
+
+$(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
+	@tmp="$@.tmp"; \
+	printf '%s\n' $(BUILD_MODE_LINES) > "$$tmp"; \
 	if test -f "$@" && cmp -s "$$tmp" "$@"; then \
 		rm -f "$$tmp"; \
 	else \
 		mv "$$tmp" "$@"; \
 	fi
+
+# The resolved configuration for tools and tests outside this directory.
+.PHONY: print-layout-cflags print-build-mode
+print-layout-cflags:
+	@echo '$(WT_LAYOUT_CFLAGS_ABS)'
+print-build-mode:
+	@printf '%s\n' $(BUILD_MODE_LINES)
 
 $(BUILD_DIR)/wh_sec_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_WOLFHSM_CFLAGS) -c -o $@ $<
@@ -1593,8 +1600,10 @@ $(SECURE_LD): $(SECURE_LD_IN) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) -E -P -x c $(SECURE_LD_DEFS) -o $@ $<
 endif
 
+# The link reads the band placement from the port headers, so they are link
+# inputs even when no object changed.
 $(SECURE_ELF) $(SECURE_MAP) $(ARCH_LINK_OUTPUTS) &: $(ALL_SECURE_OBJS) $(SECURE_LD) \
-		$(ROOT)/tools/check_secure_layout.py \
+		$(PORT_HEADERS) $(ROOT)/tools/check_secure_layout.py \
 		$(ROOT)/tools/secure_owners.txt $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(RM) $(SECURE_BIN)
 	$(CC) $(SECURE_CFLAGS) \

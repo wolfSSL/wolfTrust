@@ -20,16 +20,12 @@ WT_BUILD_DIR ?= build
 TOP_BUILD_DIR := $(ROOT)/$(WT_BUILD_DIR)
 SECURE_CMSE_IMPLIB := $(TOP_BUILD_DIR)/secure_cmse_implib.o
 
-# The same guest links into both Non-secure windows (port/mcxn947/memory_map.h);
-# the monitor refuses to start unless every configured guest has an image.
-GUEST0_FLASH_ORIGIN ?= 0x00080000
-GUEST0_FLASH_LENGTH ?= 0x00080000
-GUEST0_RAM_ORIGIN ?= 0x20000000
-GUEST0_RAM_LENGTH ?= 0x00018000
-GUEST1_FLASH_ORIGIN ?= 0x00100000
-GUEST1_FLASH_LENGTH ?= 0x00040000
-GUEST1_RAM_ORIGIN ?= 0x20018000
-GUEST1_RAM_LENGTH ?= 0x00018000
+# The same guest links into both Non-secure windows, read from the port's
+# memory map under the Secure image's layout configuration; the monitor
+# refuses to start unless every configured guest has an image.
+include $(ROOT)/mk/target-$(TARGET).mk
+include $(ROOT)/mk/layout.mk
+$(foreach kv,$(WT_LAYOUT_GUEST_WINDOWS),$(eval $(kv)))
 
 CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only -ffreestanding \
     -fno-builtin -nostdlib -Os -g -Wall -Wextra \

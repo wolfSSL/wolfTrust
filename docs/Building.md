@@ -1,9 +1,10 @@
 # Building
 
 The supported Secure build tuple is Armv8-M on STM32H563. The root Makefile
-includes `mk/target-stm32h563.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk`
-(target facts, architecture facts, and the shared build in that order) and
-cross-compiles a freestanding Cortex-M33 image.
+includes `mk/target-stm32h563.mk`, `mk/layout.mk`, `mk/arch-armv8m.mk`, and
+`mk/common.mk` (target facts, the resolved layout configuration, architecture
+facts, and the shared build in that order) and cross-compiles a freestanding
+Cortex-M33 image.
 
 ## Prerequisites
 

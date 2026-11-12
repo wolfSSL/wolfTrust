@@ -82,10 +82,9 @@ Armv8-M isolation level 3 layer in `port/common/armv8m/` unchanged, and adds
 | `rom_flash.c/.h` | Internal flash program and erase through the boot ROM's API tree, called directly with a local definition of the driver interface layout (no vendor SDK): one 16-byte phrase is programmed at most once per erase, each program is issued from its 128-byte page base behind all-ones padding as the ROM requires, every erase is verified by the ROM, and the code-bus cache is cleared after each change. |
 | `hsm_flash.c/.h`, `hsm_flash_ctx.c` | The `port_nvm.h` backend for the wolfHSM store and the FWU staging backend: reads through the Secure alias, program and erase through `rom_flash.c`. |
 | `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the ELS `RND_REQ` command, preserving the unprivileged-to-privileged trap. |
-| `secure.ld` | The port's Secure linker script, which INCLUDEs the shared level 3 regions, band sections, and layout ASSERTs; the SG veneers sit in the image's second 1 KiB, as on the STM32H5. |
 | `secure_owners.txt` | The port's objects in the post-link owner map, appended to `tools/secure_owners.txt` by the link. |
-| `manifest.json`, `manifest-conformance.json`, `conformance/` | The service partitions and their resources; the conformance manifest and PAL bindings host Arm's test partitions. |
-| `mk/target-mcxn947.mk` | `WT_CPU`, the flash and RAM defaults, the linker `--defsym` set, and the source lists. |
+| `manifest.json`, `manifest-conformance.json` | The service partitions and their resources; the conformance manifest hosts Arm's test partitions over the shared PAL in `tests/conformance/pal/`. |
+| `mk/target-mcxn947.mk` | `WT_CPU`, the flash and RAM defaults, and the source lists; the shared `port/common/armv8m/secure.ld.in` links the image with the SG veneers in its second 1 KiB, as on the STM32H5. |
 
 ## Reference flash and RAM layout
 

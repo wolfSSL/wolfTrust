@@ -18,8 +18,10 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 ROOT := ../../..
+TARGET := stm32h563
 CC ?= cc
 BUILD_DIR ?= build
+include $(ROOT)/tests/host/layout.mk
 
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ROOT)/include $(EXTRA_CFLAGS)
@@ -77,7 +79,7 @@ $(SPM_TEST): $(SPM_SRCS) $(GENERATED_STAMP) $(GENERATED_H) | $(BUILD_DIR)
 
 $(PRODUCTION_TEST): $(PRODUCTION_SRCS) $(PRODUCTION_STAMP) $(PRODUCTION_H) \
 		| $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(PRODUCTION_DIR) -I$(ROOT)/port/stm32h563 \
+	$(CC) $(CFLAGS) -I$(PRODUCTION_DIR) $(WT_LAYOUT_CFLAGS) \
 		$(LDFLAGS) -o $@ $(PRODUCTION_SRCS)
 
 run: $(SPM_TEST) $(PRODUCTION_TEST)

@@ -1,0 +1,49 @@
+{
+  "name": "mcxn947",
+  "display": "MCXN947",
+  "board": "FRDM-MCXN947",
+  "arch": "armv8m",
+  "guide": "docs/MCXN947-Guide.md",
+  "ci": {
+    "label": "ci:mcxn947",
+    "label_only": true,
+    "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25",
+    "mcuxsdk_board": "frdmmcxn947"
+  },
+  "build": {
+    "engines": ["native", "hsm"],
+    "attest_cose": 0,
+    "variants": ["conformance"],
+    "vectors": "10040400"
+  },
+  "m33mu": {
+    "arm": "mcxn947-m33mu",
+    "smoke": ["positive", "sauneg", "crossdomain", "bothpsa", "confboot", "devcrypto"],
+    "groups": [
+      ["positive", "MCXN947 positive lifecycle (SAU guest windows)"],
+      ["sauneg", "MCXN947 cross-guest store faults and is contained"],
+      ["restart authneg", "MCXN947 guest restart budget and launch refusal"],
+      ["wrpoff", "MCXN947 fence-required build launches no guest"],
+      ["rollbackneg remeasureneg manifestneg spbudgetneg", "MCXN947 secure verdict negatives"],
+      ["crossdomain keystoreneg", "MCXN947 SP domain isolation negatives"],
+      ["spfaultneg panicneg", "MCXN947 SP fault and panic recovery"],
+      ["fpneg", "MCXN947 FP isolation (partition FP faults, contained)"],
+      ["sealbootneg", "MCXN947 damaged main-stack seal refuses to boot"],
+      ["bothpsa bothiso", "MCXN947 both-guest PSA lifecycle and isolation"],
+      ["attestneg fwustage", "MCXN947 attestation negatives and FWU staging"],
+      ["hsmattackneg", "MCXN947 wolfHSM cross-namespace + NVM relay negatives"],
+      ["confboot", "MCXN947 FF-M IPC conformance (85/4)"],
+      ["devstorage devattest devattestqcbor", "MCXN947 dev_apis storage and attestation conformance"],
+      ["devcrypto vaultrecover vaultrecoversec", "MCXN947 dev_apis crypto conformance and vault recovery"],
+      ["periphneg", "MCXN947 NS read of the SPM's ELS refused by the SAU"],
+      ["deputyneg", "MCXN947 keystore-flash privileged deputy refused (L3)"],
+      ["hsmpinneg hsmfaultneg", "MCXN947 wolfHSM pointer pin and tasklet fault containment (L3)"],
+      ["bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6", "MCXN947 partition band-to-band isolation negatives (L3)"],
+      ["restartneg1 restartneg2 restartneg3", "MCXN947 partitions restart on a reset band (L3)"],
+      ["periphspneg manifestneg2 manifestneg3", "MCXN947 SPM peripheral and manifest level negatives (L3)"],
+      ["sealneg sealhaltneg sealpivotneg", "MCXN947 stack seal containment and halt (L3)"],
+      ["mspovfneg xnneg svcneg", "MCXN947 SPM stack, execute-never and SVC misuse (L3)"]
+    ],
+    "l3_exempt": {}
+  }
+}

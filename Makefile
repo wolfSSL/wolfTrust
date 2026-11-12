@@ -40,6 +40,9 @@ include mk/common.mk
 all: $(ARCH_DEFAULT_GOALS)
 
 test:
+	@python3 tests/target/lib/scenario_matrix.py --selftest
+	@tools/check-port-only-diff.sh --selftest
+	@tools/check-no-port-names.sh
 	@python3 tests/scripts/test_m33mu_console.py
 	@$(MAKE) --no-print-directory -C tests/host test
 	@$(MAKE) --no-print-directory test-provisioning

@@ -20,7 +20,10 @@ cd "$root"
 
 M_VOCAB='\b(PSP|MSP|EXC_RETURN|BXNS|ITNS|AIRCR|VTOR|SCB_[A-Z_]+|SAU_[A-Z_]+|MPU_(S|NS)_[A-Z_]+|NVIC_[A-Z_]+|CONTROL_NS|xPSR|IPSR|PSPLIM|MSPLIM|PendSV|SysTick|GTZC[A-Z_]*|MPU->|SAU->|NVIC->)\b'
 A_VOCAB='\b(TTBR[01]|VBAR|SCTLR|ESR|FAR|ELR|SPSR|CNTP(S|CT)?|CNTV|CNTFRQ|GICD_[A-Z0-9_]+|GICR_[A-Z0-9_]+|GICC_[A-Z0-9_]+|ICC_[A-Z0-9_]+|SCR_EL3|HCR_EL2|XMPU|XPPU|RISAF|RISAB|RIFSC|smc|eret|tlbi|mrs|msr)\b|_EL[0-3]\b'
-PORT_HEADERS='#[[:space:]]*include[[:space:]]*"(memory_map|board|stm32h563_regs|stm32[a-z0-9_]*)\.h"'
+# Every header a port ships, so a new port's headers are guarded without an
+# edit here (board.h covers the guest board files).
+PORT_HEADER_NAMES="$(git ls-files 'port/*.h' | sed -e 's#.*/##' -e 's#\.h$##' | sort -u | paste -sd '|' -)"
+PORT_HEADERS='#[[:space:]]*include[[:space:]]*"('"${PORT_HEADER_NAMES:-memory_map}"'|board)\.h"'
 ARCH_HEADERS='#[[:space:]]*include[[:space:]]*"wolftrust/arch/'
 CMSE='\bwt_cmse_[a-z_]+[[:space:]]*\(|__attribute__\(\([^)]*cmse'
 ASM='__asm|asm[[:space:]]+volatile'

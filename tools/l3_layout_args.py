@@ -29,11 +29,14 @@ SHELL_MACROS = BAND_MACROS + (
 LINK_MACROS = (
     "WT_KEYSTORE_BASE", "WT_SP_HSM_DATA_SIZE", "WT_SP_FWU_STACK_BASE",
 )
+# A port that runs its gateway and flash code from a RAM band places it here;
+# the others leave these undefined and the linker script's band stays out.
+LINK_OPTIONAL = ("WT_RAMFUNC_BASE", "WT_RAMFUNC_SIZE")
 INTEGER = re.compile(r"\b(0[xX][0-9a-fA-F]+|[0-9]+)[uUlL]*\b")
 EXPRESSION = re.compile(r"^[0-9a-fA-FxX+\-*() ]+$")
 
 
-def evaluate(cc, header, macros, includes):
+def evaluate(cc, header, macros, includes, optional=()):
     probe = '#include "%s"\n' % header
     port_header = os.path.join(os.path.dirname(header), "l3_port.h")
     if "WT_L3_SPM_PERIPHERAL_BASE" in macros:
@@ -60,7 +63,8 @@ def evaluate(cc, header, macros, includes):
             raise SystemExit("FAIL: %s does not reduce to a constant: %s" %
                              (name, text))
         values[name] = eval(text, {"__builtins__": {}})
-    missing = [name for name in macros if name not in values]
+    missing = [name for name in macros
+               if name not in values and name not in optional]
     if missing:
         raise SystemExit("FAIL: %s defines no %s" %
                          (header, ", ".join(missing)))
@@ -100,11 +104,14 @@ def shell_vars(v):
 
 
 def link_args(v):
-    pairs = (
+    pairs = [
         ("WT_L3_KEYSTORE_ORIGIN", v["WT_KEYSTORE_BASE"]),
         ("WT_L3_HSM_DATA_LENGTH", v["WT_SP_HSM_DATA_SIZE"]),
         ("WT_L3_STACKS_ORIGIN", v["WT_SP_FWU_STACK_BASE"]),
-    )
+    ]
+    if "WT_RAMFUNC_BASE" in v:
+        pairs.append(("WT_RAMFUNC_ORIGIN", v["WT_RAMFUNC_BASE"]))
+        pairs.append(("WT_RAMFUNC_LENGTH", v["WT_RAMFUNC_SIZE"]))
     return " ".join("-Wl,--defsym=%s=0x%08X" % pair for pair in pairs)
 
 
@@ -120,8 +127,9 @@ def main():
     args = parser.parse_args()
 
     if args.link:
-        print(link_args(evaluate(args.cc, args.memory_map, LINK_MACROS,
-                                 args.includes)))
+        print(link_args(evaluate(args.cc, args.memory_map,
+                                 LINK_MACROS + LINK_OPTIONAL, args.includes,
+                                 optional=LINK_OPTIONAL)))
     elif args.shell:
         print(shell_vars(evaluate(args.cc, args.memory_map, SHELL_MACROS,
                                   args.includes)))

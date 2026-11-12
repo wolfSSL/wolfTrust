@@ -1588,6 +1588,11 @@ $(BUILD_DIR)/sec_%.o: $(ROOT)/src/%.c $(MANIFEST_GEN_H) $(WOLFHSM_CFG_H) \
 		$(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
+ifneq ($(SECURE_LD_IN),)
+$(SECURE_LD): $(SECURE_LD_IN) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) -E -P -x c $(SECURE_LD_DEFS) -o $@ $<
+endif
+
 $(SECURE_ELF) $(SECURE_MAP) $(ARCH_LINK_OUTPUTS) &: $(ALL_SECURE_OBJS) $(SECURE_LD) \
 		$(ROOT)/tools/check_secure_layout.py \
 		$(ROOT)/tools/secure_owners.txt $(BUILD_MODE_STAMP) | $(BUILD_DIR)

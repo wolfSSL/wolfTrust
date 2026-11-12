@@ -82,6 +82,12 @@ $(error $(PORT_DIR)/memory_map.h has no literal WT_RAM_S_BASE)
 endif
 TARGET_LDFLAGS += -Wl,-L$(PORT_COMMON_DIR) \
     -Wl,--defsym=WT_RAM_S_ORIGIN=$(WT_RAM_S_ORIGIN)
+# One linker script for every Armv8-M port, preprocessed by mk/common.mk;
+# WT_LD_RAM_CODE_BAND=1 selects the XIP-from-NOR shape (RAM code band).
+WT_LD_RAM_CODE_BAND ?= 0
+SECURE_LD_IN := $(PORT_COMMON_DIR)/secure.ld.in
+SECURE_LD_DEFS := -DWT_LD_RAM_CODE_BAND=$(WT_LD_RAM_CODE_BAND)
+SECURE_LD := $(BUILD_DIR)/secure.ld
 # Band placement for the linker fragments, read from memory_map.h at link time.
 WT_L3_LINK_ARGS = $(or $(strip $(shell python3 $(ROOT)/tools/l3_layout_args.py \
     --link --cc $(TOOLPREFIX)gcc $(PORT_DIR)/memory_map.h)),$(error \

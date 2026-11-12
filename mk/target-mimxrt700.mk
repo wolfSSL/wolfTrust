@@ -54,7 +54,9 @@ TARGET_LDFLAGS := \
     -Wl,--defsym=WT_SECURE_FLASH_ORIGIN=$(WT_SECURE_FLASH_BASE) \
     -Wl,--defsym=WT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE) \
     -Wl,--defsym=WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE)
-SECURE_LD := $(PORT_DIR)/secure.ld
+# XIP from XSPI NOR: the gateway and the NOR program/erase code run from the
+# RAM code band (WT_RAMFUNC_* in memory_map.h).
+WT_LD_RAM_CODE_BAND := 1
 # This port links no wolfHAL, so the post-link check expects no wolfHAL state.
 WT_SECURE_LAYOUT_EXTRA_ARGS := --no-wolfhal
 

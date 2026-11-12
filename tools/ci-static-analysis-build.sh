@@ -4,8 +4,11 @@ set -eu
 
 make test
 
-for target in stm32h563 mimxrt700 mcxn947; do
-    for engine in native hsm; do
+for target in stm32h563 mimxrt700 mcxn947 stm32l562; do
+    # The STM32L562 builds the native engine only.
+    engines="native hsm"
+    [ "$target" != "stm32l562" ] || engines="native"
+    for engine in $engines; do
         case "$target" in
             mimxrt700|mcxn947) attest_cose=0 ;;
             *) attest_cose=1 ;;

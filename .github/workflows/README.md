@@ -54,31 +54,14 @@ test-target` also reads. The table below is a representative slice:
 | Check name | Scenario key | What it proves |
 |------------|--------------|----------------|
 | `stm32h563_wolfboot_signed_boot_rollback` | — | upstream wolfBoot signed boot + update/rollback |
-| `stm32h563_zephyr_lifecycle_<engine>` | — | full FF-M chain, Zephyr guest |
-| `stm32h563_freertos_lifecycle_<engine>` | — | full FF-M chain, FreeRTOS guest |
-| `stm32h563_positive_<engine>` | `positive` | lifecycle green, no faults |
-| `stm32h563_restart_<engine>` | `restart` | guest faults → monitor restarts it |
-| `stm32h563_crossdomain_<engine>` | `crossdomain` | SP-internal probe read blocked |
-| `stm32h563_confboot_<engine>` | `confboot` | full Arm FF-M IPC suite |
-| `stm32h563_devstorage_<engine>` | `devstorage` | PSA ITS/PS conformance |
-| `stm32h563_devcrypto_<engine>` | `devcrypto` | PSA Crypto conformance |
-| `stm32h563_vaultrecover_<engine>` | `vaultrecover` | #95 foreign pool reformatted |
-| `stm32h563_vaultrecoversec_<engine>` | `vaultrecoversec` | #95 SECURED never wipes |
-| `mimxrt700_positive_<engine>` | `positive` | MIMXRT700 chain under the RT700 model, both guests finish |
-| `mimxrt700_guestisoneg_<engine>` | `guestisoneg` | guest0's store into guest1's RAM refused by the SAU, contained |
-| `mimxrt700_restart_authneg_<engine>` | `restart authneg` | guest0's launch-time SecureFault spends its restart budget and quarantines it; a tampered guest0 is refused at launch; guest1 runs on |
-| `mimxrt700_crossdomain_keystoreneg_<engine>` | `crossdomain keystoreneg` | unprivileged SP reads of SPM RAM and the keystore band MemManage-fault, guests ride it out |
-| `mimxrt700_spfaultneg_panicneg_<engine>` | `spfaultneg panicneg` | the relay's undefined instruction and the storage SP's programmer-error close UsageFault once, the SPM restarts the SP in place, both guests finish |
-| `mimxrt700_bothpsa_bothiso_<engine>` | `bothpsa bothiso` | the portable PSA guest in both windows: crypto, storage, keys, attestation, and the FF-M negatives from each |
-| `mimxrt700_attestneg_fwustage_<engine>` | `attestneg fwustage` | invalid attestation requests refused, tampered tokens fail the guest verify; a candidate stages into the update partition and reject/clean restore READY |
-| `mimxrt700_hsmattackneg_hsm` | `hsmattackneg` | a forged client id cannot reach the IAK, an NVM-group packet never reaches the server |
-| `mimxrt700_confboot_<engine>` | `confboot` | Arm's unmodified psa-arch-tests IPC suite against the RT700 SPM: 85 pass, 4 heap tests skip |
-| `mimxrt700_devstorage_devattest_devattestqcbor_<engine>` | `devstorage devattest devattestqcbor` | PSA ITS/PS and Initial Attestation conformance (the token parses under wolfCOSE's shim and reference QCBOR) |
-| `mimxrt700_devcrypto_vaultrecover_vaultrecoversec_<engine>` | `devcrypto vaultrecover vaultrecoversec` | PSA Crypto conformance on wolfPSA; a foreign vault pool self-heals in development and fails closed when SECURED |
-| `mimxrt700_rollbackneg_remeasureneg_manifestneg_spbudgetneg_<engine>` | `rollbackneg remeasureneg manifestneg spbudgetneg` | shared Secure-verdict table: rollback refusal, re-measure tamper, corrupted manifest, restart budget |
-| `mcxn947_positive_<engine>` | `positive` | MCXN947 chain under the MCXN947 model (internal flash, ROM flash API, EdgeLock entropy), both guests finish |
-| `mcxn947_guestisoneg_<engine>` | `guestisoneg` | guest0's store into guest1's RAM refused by the SAU, contained |
-| `mcxn947_<group>_<engine>` | as the MIMXRT700 groups above | the same scenario groups on the MCXN947 model; `tests/target/lib/scenario_matrix.py` is the list |
+| `<port>_positive_<engine>` | `positive` | lifecycle green, no faults |
+| `<port>_restart_<engine>` | `restart` | guest faults; the monitor restarts it through its budget |
+| `<port>_guestisoneg_<engine>` | `guestisoneg` | guest0's store into guest1's RAM refused by the fabric, contained |
+| `<port>_crossdomain_<engine>` | `crossdomain` | SP-internal probe read of SPM RAM blocked |
+| `<port>_confboot_<engine>` | `confboot` | the full Arm FF-M IPC suite, 85 pass, 4 heap tests skip |
+| `<port>_<group>_<engine>` | the group's keys | every other scenario, packed per port in `port/<port>/port.json` (`m33mu.groups`); the table and every assertion are in `tests/target/lib/scenarios.py` |
+
+The registered ports, their labels and images are in [docs/Ports.md](../../docs/Ports.md).
 
 An unlabeled PR runs only the STM32H563 smoke tier; MIMXRT700, MCXN947, and
 the full matrix need a `ci:` label. To run a single scenario locally, use

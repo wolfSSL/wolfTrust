@@ -1,5 +1,13 @@
 # Porting
 
+A new Armv8-M SoC meeting the contracts on this page registers itself in
+`port/<soc>/port.json` and lands with zero handwritten edits to shared
+implementation code; the generated outputs (`docs/Ports.md`) regenerate by
+tool. That is the guarantee this page documents, and it is scoped to
+Armv8-M: reuse by a Cortex-A port is a design goal, not a claim.
+`tools/new-port/PLAYBOOK.md` is the agent-facing order of work with its
+gates; this page is the human guide.
+
 wolfTrust separates reusable policy and services from architecture, device,
 and board-specific execution. The fully silicon-validated build tuple is
 `armv8m-stm32h563`. A second Armv8-M tuple, `armv8m-mimxrt700` (external
@@ -27,7 +35,7 @@ must not claim security properties until they are tested on that target.
 | Architecture-neutral gate | `src/arch/common/` | Secure Partition gate dispatch, fault recovery, scheduler, the SP-side PSA API, and the NS FF-M gateway bodies, written once over the `wolftrust/arch.h` primitives and linked by every architecture |
 | Architecture | `src/arch/<arch>/` and `include/wolftrust/arch/<arch>/` | Every `wt_arch_*` operation: reset entry, guest context save/restore, exception entry and return, the secure tick, interrupt masking and routing, memory-protection programming, the SP trap and its decoder, NS range checks, and the NS entry mechanism (Armv8-M: CMSE veneers) |
 | Shared port layer | `port/common/<arch>/` | The isolation level 3 secure RAM layout, its linker fragments and the level 3 `wt_platform_*` hooks, written once per architecture and linked by every port of it |
-| SoC and board | `port/<soc>/` | Every `wt_platform_*` operation plus the SoC facts: clocks, fabric-level TrustZone filter windows, the memory-protection region tables, UART, flash, entropy, reset, the memory map, guest tables, and the manifest |
+| SoC and board | `port/<soc>/` | Every `wt_platform_*` operation plus the SoC facts: clocks, fabric-level TrustZone filter windows, the memory-protection region tables, UART, flash and entropy drivers, reset, and the memory map the shared guest tables and the generated manifest read |
 | Build | `mk/common.mk`, `mk/arch-<arch>.mk`, `mk/target-<soc>.mk` | Shared rules; toolchain and architecture sources; SoC sources, placement, and image checks |
 | Guest integration | `tests/firmware/` or an application repository | Application-domain linker layout, PSA client shim, architecture-specific client boundary, and OS wiring; Armv8-M uses a CMSE import library |
 
@@ -171,20 +179,12 @@ port-private name, or names a scenario in its profile outside a case label.
 
 ### Guest and capability tables
 
-Implement the declarations in `include/wolftrust/partition.h`:
-
-```c
-const wt_guest_config_t* wt_partitions_config_table(size_t* count);
-wt_guest_runtime_t* wt_partitions_runtime_table(size_t* count);
-const wt_profile_capabilities_t* wt_partitions_profile_capabilities(void);
-int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest);
-void wt_partition_reset_runtime(const wt_guest_config_t* config,
-                                wt_guest_runtime_t* runtime);
-```
-
-Guest executable and RAM windows, vector-table access, IRQ ownership, restart
-policy, launch policy, and minimum version must match the actual linker and
-hardware layout.
+`port/common/armv8m/partitions.c` implements `include/wolftrust/partition.h`
+for every Armv8-M port from `memory_map.h`: each guest's flash and RAM
+windows (`WT_GUEST0_RAM_SIZE` and `WT_GUEST1_RAM_SIZE` may differ), its
+console, the NSC window and `WT_PORT_CAPABILITIES`. A port ships no
+`partitions.c` of its own; the registry self-test refuses one, since the
+build would link it in place of the shared table.
 
 The capability bitmap can declare security state, privilege state, RoT
 isolation, domain isolation, memory protection, interrupt isolation, and
@@ -267,7 +267,7 @@ boundary above it.
 | Primitive | On success | On failure |
 | --- | --- | --- |
 | `read` | `dst` filled | `WH_ERROR_ABORTED` and `dst` zeroed; never halts |
-| `program`, `erase` | the range changed | `WH_ERROR_ABORTED` (device), `WH_ERROR_NOTBLANK` (a unit programmed twice); the range may be partly changed and the backend treats it as dirty; interrupt state restored on every return; staged plaintext wiped |
+| `program`, `erase` | the range changed | `WH_ERROR_ABORTED` (device; also a unit programmed twice where the device does not report that apart), `WH_ERROR_NOTBLANK` (a unit programmed twice, where it does); the range may be partly changed and the backend treats it as dirty; interrupt state restored on every return; staged plaintext wiped |
 | `blank_check` | `WH_ERROR_OK` | `WH_ERROR_NOTBLANK`, or `WH_ERROR_ABORTED` for a device fault |
 | `quiesce` | controller relocked, device idle | bounded: a wedged controller still returns, so the reset that follows can happen |
 
@@ -319,19 +319,6 @@ The shared SAU backend refuses, by a panic, a window that is misaligned,
 overflows, overlaps an open one, exceeds the SAU's regions or does not read
 back; `tests/host/fabric_sau` proves each refusal over a model of the SAU.
 
-### Entropy
-
-The current Secure wolfCrypt profile maps
-`CUSTOM_RAND_GENERATE_BLOCK` to:
-
-```c
-int wolftrust_rng_generate_block(unsigned char* output, unsigned int sz);
-```
-
-The STM32H563 callback uses wolfHAL's H5 RNG driver. Its unprivileged entry
-traps to a privileged SVC operation. A new target must provide an equivalent
-approved entropy source and preserve the privilege boundary.
-
 ### Board and memory layout
 
 Provide target constants for:
@@ -381,27 +368,74 @@ worked examples above give a concrete map for each board.
 
 ## Add a target
 
-1. Add `src/arch/<arch>/` and `include/wolftrust/arch/<arch>/` only when
-   the architecture cannot reuse an existing implementation; implement every
-   `wt_arch_*` operation there and leave `src/arch/common/` untouched.
-2. Create `port/<soc>/` with the platform, flash, entropy, board,
-   memory-map, protection-region-table, partition-table, and manifest files,
-   building on `port/common/<arch>/` for isolation level 3.
-3. Add `mk/arch-<arch>.mk` (if new) and `mk/target-<soc>.mk`; the root
-   Makefile selects them from `ARCH` and `TARGET`, and `mk/common.mk` needs
-   no change.
-4. Supply startup/vector and linker handling appropriate to the target, and
-   give every object the port links an owner in `tools/secure_owners.txt`
-   or in `port/<soc>/secure_owners.txt`.
-5. Generate the manifest at build time and include its digest in the signed
-   Secure image.
-6. Integrate application domains with the architecture's client boundary and
-   matching generated service IDs. Armv8-M targets link Non-secure guests
-   against the CMSE import library.
-7. Add image assembly that patches guest ID, version, size, and digest records
-   before signing wolfTrust.
-8. Add safe provisioning tooling for the target's security attribution,
-   application-image write protection, debug policy, and product lifecycle.
+A port is its own files and nothing else:
+
+| Path | Holds |
+| --- | --- |
+| `port/<soc>/port.json` | the registration: name, board, guide, CI label and image, engines and build variants, the M33MU tiers and guest pairs, the capabilities the port lacks (with reasons), the hardware qualification and opt-in sets |
+| `port/<soc>/memory_map.h`, `<soc>_regs.h` | the flash, RAM, alias, sector, program unit, window and peripheral facts; `memory_map_check.h` refuses an inconsistent map at compile time |
+| `port/<soc>/platform_<soc>.c` | the hooks of `port/common/armv8m/platform_port.h` and the SAU and MPU tables |
+| `port/<soc>/flash_drv.c`, `rng_drv.c` | the two driver contracts above, plus any chip driver they wrap |
+| `port/<soc>/secure_owners.txt` | the owner of every object the port adds |
+| `mk/target-<soc>.mk` | the defaults and chip sources; `mk/common.mk` and `mk/arch-armv8m.mk` need no change |
+| `tests/firmware/boards/<soc>/` | the guest board seams |
+| `tests/target/ports/<soc>/m33mu.sh`, `hw.sh` | the emulator and hardware profiles |
+| `tests/target/provisioning/provisioning_ctrl_<soc>.sh` | the provisioning backend: states, commands with their class, reads, mocks and the one permanent write |
+| `tests/host/port_flash/models/<soc>.*` | the flash model the contract suite runs the port's driver over |
+| `docs/<SOC>-Guide.md` | the board guide |
+
+`tools/new-port/new-port.sh <soc> --from <port>` scaffolds every file from
+the closest registered port with a stub on every value the reference manual
+must settle, and `--check` reports the stubs still open and runs the registry
+self-tests. A new architecture adds `src/arch/<arch>/`,
+`include/wolftrust/arch/<arch>/`, `port/common/<arch>/` and `mk/arch-<arch>.mk`
+first; `src/arch/common/` stays untouched.
+
+### Bring-up ladder
+
+Each step has one command and one last line that proves it:
+
+1. registry: `tools/new-port/new-port.sh <soc> --check` ends with
+   `0 stub(s) open, registry ok`;
+2. build: `make TARGET=<soc> secure-image TOOLPREFIX=arm-none-eabi-` on both
+   engines and with `WT_CONFORMANCE=1`, each ending in the layout check's
+   `PASS` lines;
+3. host: `make test` green, including `tests/host/port_flash` over the port's
+   model and `docs/Ports.md is current`;
+4. layout: `tools/check-layout-rebuild.sh <soc>` prints `PASS: layout rebuild (<soc>)`;
+5. emulator: `make test-target TARGET=<soc>` then `WT_TIER=full` on both
+   engines, `PASS: target/all`;
+6. silicon: `make test-hardware TARGET=<soc>` prints `PASS: hardware/all` for
+   the eight, with the evidence under `logs/<soc>-hw/`;
+7. provisioning: `status` exits 0 with the part's state and identity and
+   `discover` with its `PASS` lines; nothing is written.
+
+A port is done when every step's last line is in the PR, the emulator and
+silicon evidence are recorded apart, and `tools/check-port-only-diff.sh
+--thin <soc> <base-ref>` shows the diff touches only the paths above.
+
+### Irreversible operations by vendor
+
+Never run from a runner or a script: the STM32H5 product state advance to
+Locked and any option byte written outside `provisioning_ctrl.sh`; the NXP
+OTP life cycle and root key fuses (`blhost` fuse programs, `nxpfuses`); any
+Debug Authentication credential install on a production part. Every one is
+a `lock` step behind the typed acceptance, or refused outright by the port.
+
+### Pitfalls
+
+- An IDAU can override an SAU Non-secure-callable region (the MIMXRT700
+  honours NSC only in the Code region): an INVEP SecureFault with a correct
+  SG instruction means the veneers live in the wrong region.
+- Programming a fabric filter is not evidence that it governs the guest
+  windows; only the `guestisoneg` negative on silicon is.
+- A warm reset keeps SRAM: clear the mailboxes and launch masks before a
+  boot, or the last run answers for this one.
+- A board keeps its vault and wolfBoot trailers across runs: blank them from
+  a parked core, or a stale update trigger swaps old content over the fresh
+  image.
+- The emulator's fault dumps are buffered: an idle-ended run proves the
+  lifecycle, and a second boot with `--quit-on-faults` proves the fault.
 
 ## Validation checklist
 
@@ -434,8 +468,10 @@ worked examples above give a concrete map for each board.
   guest disables its own Non-secure MPU and stores into another guest's RAM,
   and the store must not land. Programming the fabric rules is not evidence
   that they govern those addresses.
-- Run `python3 tests/target/lib/scenario_matrix.py --selftest` and run every
-  `L3_REQUIRED` scenario the port does not exempt.
+- Run `python3 tests/target/lib/scenario_matrix.py --selftest` and
+  `python3 tests/target/lib/scenarios.py --selftest`, then every
+  `L3_REQUIRED` scenario the port does not exempt and the eight hardware
+  scenarios every board runs.
 - Test invalid manifests, memory overlap, pointer ranges, stale handles,
   cross-owner access, and unsupported capabilities.
 - Run authenticated boot, guest tamper, rollback, restart, Secure Partition

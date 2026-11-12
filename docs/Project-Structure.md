@@ -14,13 +14,14 @@
 | `src/services/` | HSM relay, vault, storage, attestation, firmware update, and VNET service code |
 | `src/sync/` | Synchronization primitives used by Secure services |
 | `src/vnet/` | Secure virtual Ethernet data plane |
-| `port/stm32h563/` | STM32H563 SoC facts and `wolftrust/platform.h` operations: registers, board and memory maps, the SAU and MPU region tables, GTZC windows, clocks, UART, flash, entropy, partition tables, manifest, and the boot-time probes |
+| `port/<soc>/` | One registered port: `port.json`, the memory map and registers, the platform hooks with the SAU and MPU tables, the flash and RNG drivers and their chip drivers, and the object owners ([Ports](Ports.md) lists them) |
+| `port/common/` | What every port shares: the flash and RNG contracts and their cores, and under `armv8m/` the layout, partitions, platform skeleton, SAU window backend and linker script |
 | `mk/` | Build fragments: `common.mk` (every rule shared by all targets), `arch-<arch>.mk` (toolchain and architecture sources), `target-<soc>.mk` (SoC sources, placement, and image checks) |
 | `tools/manifest/` | Manifest validation and C/header generation |
 | `tools/measure/` | Guest-measurement record patching before image signing |
 | `tools/handoff/` | Boot-handoff record generation and validation for emulator runs and host tests |
 | `tests/host/` | Native unit and integration suites |
-| `tests/target/` | M33MU and STM32H563 build, flash, provisioning, and scenario runners |
+| `tests/target/` | The emulator runner, the hardware runner, the scenario table and judge, the port profiles and the provisioning control for every port |
 | `tests/firmware/` | Bare-metal, Zephyr, FreeRTOS, conformance, and VNET guest images |
 | `tests/upstream/` | Fetch and integration helpers for pinned external validation suites |
 | `lib/` | Git submodules for wolfSSL, wolfPSA, wolfHSM, wolfCOSE, wolfHAL, and wolfIP |

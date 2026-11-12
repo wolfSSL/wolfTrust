@@ -24,10 +24,19 @@ allow_re() { # arch soc
     "$arch" "$arch" "$arch" "$soc" "$arch" "$soc"
 }
 
+thin_guide() { # soc -> the guide its port.json names, else the scaffold's name
+  local soc="$1" guide=""
+  local json="${PORT_ROOT:-.}/port/$soc/port.json"
+  [ -f "$json" ] && guide="$(python3 -c 'import json, sys
+print(json.load(open(sys.argv[1])).get("guide", ""))' "$json" 2>/dev/null)"
+  printf '%s' "${guide:-docs/$(printf '%s' "$soc" | tr '[:lower:]' '[:upper:]')-Guide.md}"
+}
+
 thin_re() { # soc
-  local soc="$1"
-  printf '^(port/%s/|mk/target-%s\\.mk$|tests/target/ports/%s/|tests/firmware/boards/%s/|tests/firmware/%s-[a-z0-9_-]+/|tests/host/port/models/%s/|tests/host/%s_[a-z0-9_]+/|docs/[A-Za-z0-9]+-Guide\\.md$|docs/Ports\\.md$|\\.github/ISSUE_TEMPLATE/bug_report\\.yml$)' \
-    "$soc" "$soc" "$soc" "$soc" "$soc" "$soc" "$soc"
+  local soc="$1" guide
+  guide="$(thin_guide "$soc" | sed 's/[.]/\\./g')"
+  printf '^(port/%s/|mk/target-%s\\.mk$|tests/target/ports/%s/|tests/target/provisioning/provisioning_ctrl_%s\\.sh$|tests/firmware/boards/%s/|tests/firmware/%s-[a-z0-9_-]+/|tests/host/port_flash/models/%s[._]|tests/host/%s_[a-z0-9_]+/|%s$|docs/Ports\\.md$|\\.github/ISSUE_TEMPLATE/bug_report\\.yml$)' \
+    "$soc" "$soc" "$soc" "$soc" "$soc" "$soc" "$soc" "$soc" "$guide"
 }
 
 audit() { # allow-regex, paths on stdin -> prints offenders, returns count
@@ -50,7 +59,7 @@ check_ref() { # base-ref
 }
 
 selftest() {
-  local re fails=0
+  local re fails=0 tmp
   re="$(allow_re 'aarch64' 'qemuvirt')"
   if printf '%s\n' 'src/arch/aarch64/el3/start.S' 'src/arch/common/x.c' \
       'include/wolftrust/arch/aarch64/context.h' 'port/qemuvirt/board.h' \
@@ -72,15 +81,25 @@ selftest() {
   re="$(thin_re 'wtsynth')"
   if printf '%s\n' 'port/wtsynth/port.json' 'port/wtsynth/memory_map.h' \
       'mk/target-wtsynth.mk' 'tests/target/ports/wtsynth/hw.sh' \
-      'tests/firmware/boards/wtsynth/board.h' 'tests/host/port/models/wtsynth/rng_model.c' \
+      'tests/firmware/boards/wtsynth/board.h' 'tests/host/port_flash/models/wtsynth.c' \
+      'tests/target/provisioning/provisioning_ctrl_wtsynth.sh' \
       'docs/WTSYNTH-Guide.md' 'docs/Ports.md' | audit "$re" > /dev/null; then :; else
     echo "SELFTEST FAIL: thin port paths rejected"; fails=$((fails + 1))
   fi
   for p in 'port/common/hsm_flash.c' 'port/otherport/port.json' 'mk/common.mk' \
-      'tests/target/lib/scenario_matrix.py' 'docs/Porting.md' 'Makefile'; do
+      'tests/target/lib/scenario_matrix.py' 'docs/Porting.md' 'Makefile' \
+      'docs/MCXN947-Guide.md'; do
     if printf '%s\n' "$p" | audit "$re" > /dev/null; then
       echo "SELFTEST FAIL: thin port accepted $p"; fails=$((fails + 1)); fi
   done
+  if thin 'a|.*' HEAD > /dev/null 2>&1; then
+    echo "SELFTEST FAIL: a port name carrying a regex accepted"; fails=$((fails + 1)); fi
+  tmp="$(mktemp -d)"
+  mkdir -p "$tmp/port/evil"
+  printf '{"guide": "src/monitor.c"}\n' > "$tmp/port/evil/port.json"
+  if PORT_ROOT="$tmp" thin evil HEAD > /dev/null 2>&1; then
+    echo "SELFTEST FAIL: a guide outside docs/ accepted"; fails=$((fails + 1)); fi
+  rm -rf "${tmp:?}"
   if "$0" refs/heads/__cpodiff_missing_ref__ > /dev/null 2>&1; then
     echo "SELFTEST FAIL: invalid base ref approved"; fails=$((fails + 1)); fi
   if [ "$fails" -ne 0 ]; then echo "SELFTEST: $fails failure(s)"; exit 1; fi
@@ -92,6 +111,12 @@ thin() { # soc base-ref
   local soc="$1" base="$2"
   check_ref "$base"
   echo "thin port audit: $base..HEAD (soc=$soc)"
+  # Both land in the allow-list regex, so only the scaffold's plain forms pass.
+  if ! printf '%s\n' "$soc" | grep -qE '^[a-z][a-z0-9]*$' ||
+      ! thin_guide "$soc" | grep -qE '^docs/[A-Za-z0-9_-]+-Guide\.md$'; then
+    echo "FAIL: port $soc needs a plain name and a docs/<Name>-Guide.md guide."
+    return 1
+  fi
   if git diff --name-only "$base"...HEAD | audit "$(thin_re "$soc")"; then
     echo "OK: port $soc touches only its own directories."
     return 0

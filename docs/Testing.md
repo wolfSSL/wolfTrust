@@ -300,8 +300,8 @@ runner asserts every step from the emulator log (the guest console lines and
 M33MU's protection-unit trace), never from a debugger.
 
 The runner also carries the shared Secure-verdict negatives from
-`tests/target/lib/scenario.sh`, the per-scenario table both the STM32H563 and
-MIMXRT700 runners draw their Secure-image probe flags from. Each one ends on
+`tests/target/lib/scenarios.py`, the per-scenario table every port draws its
+Secure-image probe flags from. Each one ends on
 the verdict breakpoint its probe emits, asserted port-independently:
 `rollbackneg` (a downgraded boot is refused fail-closed and no guest enters a
 domain), `remeasureneg` (guest 0 measures clean at launch verification, its
@@ -350,7 +350,7 @@ wire) proves a forged client id cannot reach the IAK and an NVM-group packet
 never reaches the server.
 
 The isolation level 3 negatives run as they do on the STM32H563, through the
-same checks in `tests/target/lib/scenario.sh`; the band, partition stack and
+same checks in `tests/target/lib/scenarios.py`; the band, partition stack and
 SPM peripheral addresses they match come from `port/mimxrt700/memory_map.h`
 through `tools/l3_layout_args.py`. `deputyneg`, `hsmpinneg`, `hsmfaultneg`,
 `bandneg1` to `bandneg6`, `restartneg1` to `restartneg3`, `periphspneg`,

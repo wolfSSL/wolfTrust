@@ -67,7 +67,7 @@
       ["svcneg", "Partition guest-return SVC panics only that partition"]
     ],
     "l3_exempt": {},
-    "guests": {"lifecycle": ["zephyr", "freertos"], "psa": ["zephyr", "freertos"], "conformance": ["zephyr", "freertos"], "vnet": ["vnet", "vnet"]},
+    "guests": {"hwpsa": ["psa", "psa"], "lifecycle": ["zephyr", "freertos"], "psa": ["zephyr", "freertos"], "conformance": ["zephyr", "freertos"], "vnet": ["vnet", "vnet"]},
     "guest_end": {"zephyr": "bkpt", "vnet": "bkpt"},
     "ends": {"crossdomain": "fault", "keystoreneg": "fault", "periphspneg": "fault"},
     "timeouts": {},
@@ -76,5 +76,41 @@
     "caps_absent": {"boot_console": "the H5 wolfBoot first stage prints no console lines the runner asserts", "prot_trace": "the M33MU STM32H5 model has no protection-unit trace; a GTZC refusal is proven by the guest's own read-back", "guest_fence": "the H5 guest write protection is the option-byte WRP that provisioning sets, not a first-stage fence", "handler_overrun": "the Non-secure handler overrun scenario exists only for the bare-metal guest ports", "busfault": "M33MU at the pinned ref does not vector a precise data BusFault (busfaultneg lands with the pin bump)"},
     "faults_by_design": {"fpneg": "M33MU ends the run itself when the relay's FP instruction raises NOCP", "mspovfneg": "M33MU escalates the entry-time STKOF to HardFault and ends the run there", "xnneg": "M33MU pends the gate's denied fetch from SPM RAM past the active SVC instead of escalating it"},
     "exempt": {"wrpoff": "the emulator has no WRP model; wrpoff runs on the Nucleo through the hardware runner"}
+  },
+  "hardware": {
+      "qualification": [
+          "confboot",
+          "nsmaskneg"
+      ],
+      "optin": [
+          "keystoreneg",
+          "panicneg",
+          "devstorage",
+          "devcrypto",
+          "devattest",
+          "devattestqcbor",
+          "vaultrecover",
+          "vaultrecoversec",
+          "writeonce",
+          "hsmattackneg",
+          "bootupdate",
+          "vnet",
+          "vnetneg",
+          "fpneg",
+          "sealneg",
+          "sealpivotneg",
+          "mspovfneg",
+          "busfaultneg",
+          "nsbusfaultneg",
+          "xnneg",
+          "svcneg"
+      ],
+      "caps_absent": {
+          "rom_xip": "the Nucleo boots through wolfBoot in internal flash; there is no XIP ROM smoke image",
+          "ns_handler_probes": "the NS entry-mask and parked-IRQ probes live in the bare-metal guest the Nucleo runs only for psa"
+      },
+      "iso_probe": "verdict",
+      "extra_blocks": [],
+      "fixture": "TZEN set, product state Open, WRPSGn1 clear on the guest windows; provisioning_ctrl.sh restore puts a board back"
   }
 }

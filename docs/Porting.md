@@ -211,6 +211,30 @@ The probe flags are the same on every port: `WT_ISO_PROBE=1` stores into the
 peer guest's window with the MPU off, `WT_PERIPH_NEG_PROBE=1` reaches the
 SPM's peripheral, `WT_GUEST_FAULT_PROBE=1` reads Secure RAM on every launch.
 
+### Hardware evidence
+
+Every board runs the same eight scenarios on silicon, and they are the
+contract a new port meets before anything else: `positive`, `guestisoneg`,
+`periphneg`, `restart`, `psa`, `wrpoff`, `crossdomain` and `authneg`
+(`tests/target/lib/scenarios.py --hardware-minimum`). `make test-hardware
+TARGET=<soc>` runs them; `WT_HW_TIER=qualification` adds the extras the
+port's registry names as its merge gate, and its `optin` list stays
+board-only. The runner (`tests/target/run_hardware.sh <soc> <scenario>`)
+builds the chain the emulator boots, programs it through the port's profile
+(`tests/target/ports/<soc>/hw.sh`), captures the console, reads the Secure
+image's latches and the guests' mailboxes over SWD into
+`logs/<soc>-hw/<scenario>-<engine>/`, and hands that evidence to the same
+judge the emulator uses with `--env hardware`.
+
+The profile supplies `hw_detect`, `hw_probe_bind` (exactly one probe, bound
+for every tool call), `hw_preflight` (reads the fixture and refuses with the
+provisioning command that repairs it; empty where the fixture holds no state
+the runner depends on, as on the MCXN947), `hw_program`, `hw_boot`, `hw_read32`
+and `hw_readback`, plus optional `hw_first_stage`, `hw_collect` (the port's
+own SWD words) and `hw_scenario_<name>` flows. No option byte, fuse or life
+cycle state is written by the runner; `tests/target/test_hw_runner.sh`
+checks that for every port under `make test`.
+
 ### Persistent flash
 
 `include/wolftrust/port_nvm.h` (`g_wt_hsm_flash_cb`, `wt_hsm_flash_context`,

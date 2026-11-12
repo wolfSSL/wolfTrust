@@ -47,7 +47,7 @@ sys.path.insert(0, LIB)
 import scenario_matrix  # noqa: E402
 import scenarios  # noqa: E402
 
-VARS = {"expected_measurement": "deadbeef00112233", "v2_measurement": "feedface44556677",
+VARS = {"expected_measurement": "deadbeef00112233" * 4, "v2_measurement": "feedface44556677" * 4,
         "probe_addr": "0x20170000", "fault_addr": "0x30188000",
         "periph_ns": "0x40187000", "L3_SPM_RAM": "0x30188000",
         "L3_VAULT_BAND": "0x301d5000", "L3_ATTEST_BAND": "0x301d7000",
@@ -56,7 +56,7 @@ VARS = {"expected_measurement": "deadbeef00112233", "v2_measurement": "feedface4
         "L3_ATTEST_STACK_HI": "0x301fa000", "L3_VAULT_STACK_LO": "0x301ef000",
         "L3_VAULT_STACK_HI": "0x301f3000", "L3_SPM_PERIPHERAL": "0x50187000",
         "conf_want": os.path.join(REPO, "tests", "target", "ffm_ipc_results.txt"),
-        "board": "RT700"}
+        "board": "RT700", "periph_addr": "0x40187000", "pst_4": "0000beef"}
 with open(os.path.join(REPO, "tests", "upstream", "psa-arch-tests.rev")) as handle:
     VARS["conf_rev"] = handle.read().strip()
 
@@ -113,6 +113,7 @@ class Evidence(object):
     def __init__(self):
         self.lines = {"log": [], "trace": [], "guest0": []}
         self.syms = []
+        self.words = {}
         self.var = dict(VARS)
 
     def add(self, where, line, n=1):
@@ -122,7 +123,8 @@ class Evidence(object):
     def logs(self, guest0_separate):
         logs = {"log": "\n".join(self.lines["log"]) + "\n",
                 "trace": "\n".join(self.lines["trace"]) + "\n",
-                "syms": "\n".join(self.syms) + "\n"}
+                "syms": "\n".join(self.syms) + "\n",
+                "swd": "".join("%s=%s\n" % kv for kv in sorted(self.words.items()))}
         if guest0_separate:
             logs["guest0"] = "\n".join(self.lines["guest0"]) + "\n"
         else:
@@ -130,9 +132,75 @@ class Evidence(object):
         return logs
 
 
+def word_width(check, var):
+    """8 hex digits, or the width of a long literal such as a measurement."""
+    for key in ("eq", "ne"):
+        if check[key] is not None:
+            literal = scenarios.substitute(check[key], var).replace("0x", "")
+            if len(literal) > 8:
+                return len(literal)
+    return 8
+
+
+def fmt_word(check, var, n):
+    width = word_width(check, var)
+    return ("%0" + str(width) + "x") % (n & ((1 << (4 * width)) - 1))
+
+
+def word_accepts(check, var, n):
+    sub = lambda t: scenarios.substitute(t, var)
+    if check["mask"]:
+        n &= int(sub(check["mask"]), 16)
+    ok = True
+    if check["eq"] is not None:
+        ok = ok and n == int(sub(check["eq"]), 16)
+    if check["ne"] is not None:
+        ok = ok and n != int(sub(check["ne"]), 16)
+    if check["ge"] is not None:
+        ok = ok and n >= int(sub(check["ge"]), 16)
+    if check["lo"] is not None:
+        ok = ok and int(sub(check["lo"]), 16) <= n < int(sub(check["hi"]), 16)
+    if check["in"] is not None:
+        ok = ok and n in [int(x, 16) for x in check["in"]]
+    return ok
+
+
+def word_value(check, var):
+    """A value the word check accepts."""
+    sub = lambda t: scenarios.substitute(t, var)
+    if check["in"] is not None:
+        return int(check["in"][0], 16)
+    n = 0
+    if check["eq"] is not None:
+        n = int(sub(check["eq"]), 16)
+    elif check["ge"] is not None:
+        n = int(sub(check["ge"]), 16)
+    elif check["lo"] is not None:
+        n = int(sub(check["lo"]), 16)
+    if check["ne"] is not None and n == int(sub(check["ne"]), 16):
+        n += 1
+    return n
+
+
 def satisfy(ev, check):
     op = check["op"]
     if op == "info":
+        return
+    if op == "word":
+        key = check["key"]
+        if key in ev.words:
+            # Another check reads the same word: keep a value both accept.
+            have = int(ev.words[key], 16)
+            if word_accepts(check, ev.var, have):
+                return
+            if check["mask"]:
+                ev.words[key] = fmt_word(check, ev.var, have | word_value(check, ev.var))
+                return
+        ev.words[key] = fmt_word(check, ev.var, word_value(check, ev.var))
+        return
+    if op == "advancing":
+        ev.words[check["key"] + "@0"] = "00000001"
+        ev.words[check["key"] + "@1"] = "00000002"
         return
     if op == "either":
         for c in check["options"][0]:
@@ -229,6 +297,40 @@ def mutations(ev, check, guest0_separate):
 
     if op in ("info",):
         return out
+    if op == "word":
+        key = check["key"]
+        good = ev.words[key]
+        bad = None
+        if check["in"] is not None:
+            bad = fmt_word(check, ev.var, max(int(x, 16) for x in check["in"]) + 1)
+        elif check["eq"] is not None:
+            flip = int(check["mask"], 16) if check["mask"] else (1 << (4 * word_width(check, ev.var))) - 1
+            bad = fmt_word(check, ev.var, int(good, 16) ^ flip)
+        elif check["ge"] is not None:
+            bad = fmt_word(check, ev.var, max(int(scenarios.substitute(check["ge"], ev.var), 16) - 1, 0))
+        elif check["lo"] is not None:
+            bad = fmt_word(check, ev.var, max(int(scenarios.substitute(check["lo"], ev.var), 16) - 1, 0))
+        elif check["ne"] is not None:
+            bad = fmt_word(check, ev.var, int(scenarios.substitute(check["ne"], ev.var), 16))
+        variants = [("word changed", bad), ("word malformed", "zz"), ("word missing", None)]
+        if not check.get("absent_ok"):
+            variants.append(("word absent", "absent"))
+        for what, value in variants:
+            logs = dict(base)
+            words = dict(ev.words)
+            if value is None:
+                del words[key]
+            else:
+                words[key] = value
+            logs["swd"] = "".join("%s=%s\n" % kv for kv in sorted(words.items()))
+            out.append((what, logs, ev.var))
+        return out
+    if op == "advancing":
+        logs = dict(base)
+        words = dict(ev.words)
+        words[check["key"] + "@1"] = words[check["key"] + "@0"]
+        logs["swd"] = "".join("%s=%s\n" % kv for kv in sorted(words.items()))
+        return [("word did not advance", logs, ev.var)]
     if op == "either":
         logs = dict(base)
         for option in check["options"]:
@@ -304,47 +406,69 @@ def mutations(ev, check, guest0_separate):
     return out
 
 
-def run_judge(port, scenario, engine, logs, var):
-    result = scenarios.judge(port, scenario, "emulator", dict(logs), dict(var), engine)
+def run_judge(port, scenario, engine, logs, var, env="emulator"):
+    result = scenarios.judge(port, scenario, env, dict(logs), dict(var), engine)
     return result.failures == 0, result.lines
+
+
+def interleave_problems():
+    marker = "freertos_guest1: ffm sha256 ok"
+    spliced = "freertos_guest1: ffm [guest0] psa ok\nsha256 ok"
+    check = scenarios.expect("sha KAT", marker)
+    out = []
+    for env, text, want in (("hardware", marker, True), ("hardware", spliced, True),
+                            ("hardware", "freertos_guest1: ffm sha256 fail", False),
+                            ("emulator", spliced, False)):
+        ctx = scenarios.Ctx("stm32h563", "positive", env, ["zephyr", "freertos"], {})
+        if scenarios.Judge(ctx, {"log": text}).run(check) != want:
+            out.append("interleaved %s console %r: want %s" % (env, text, want))
+    return out
 
 
 def main():
     checked = 0
     mutated = 0
-    problems = []
+    problems = interleave_problems()
     for port in sorted(scenario_matrix.PORTS):
         display = scenario_matrix.PORTS[port]["def"]["display"]
-        for scenario in scenario_matrix.flat(port, "full", None):
+        tiers = scenarios.hardware_tiers(port)
+        hardware = sorted(set(tiers["qualification"]) | set(tiers["optin"]))
+        runs = [(s, "emulator") for s in scenario_matrix.flat(port, "full", None)]
+        runs += [(s, "hardware") for s in hardware]
+        for scenario, env in runs:
             row = scenarios.SCENARIOS[scenario]
             for engine in row["engines"]:
-                p = scenarios.plan(port, scenario, engine)
-                guest0_separate = p["guests"][0] == "zephyr"
+                p = scenarios.plan(port, scenario, engine, env)
+                guest0_separate = p["guests"][0] == "zephyr" and env == "emulator"
                 var = dict(VARS)
                 var["board"] = display
                 var["trace_kind"] = p["trace"]
-                ctx = scenarios.Ctx(port, scenario, "emulator", p["guests"], var)
+                ctx = scenarios.Ctx(port, scenario, env, p["guests"], var)
                 ev = Evidence()
                 ev.var["board"] = display
                 checks = []
                 for block in p["applicable"]:
-                    for check in scenarios.block_checks(ctx, block, p["end"]):
+                    if env == "hardware":
+                        block_list = scenarios.hw_block_checks(ctx, block)
+                    else:
+                        block_list = scenarios.block_checks(ctx, block, p["end"])
+                    for check in block_list:
                         checks.append(check)
                         satisfy(ev, check)
-                ok, lines = run_judge(port, scenario, engine, ev.logs(guest0_separate), ev.var)
+                ok, lines = run_judge(port, scenario, engine, ev.logs(guest0_separate), ev.var, env)
                 if not ok:
-                    problems.append("%s/%s/%s: the satisfying evidence was refused:\n%s" %
-                                    (port, scenario, engine,
+                    problems.append("%s/%s/%s/%s: the satisfying evidence was refused:\n%s" %
+                                    (port, scenario, engine, env,
                                      "\n".join(l for l in lines if "FAIL" in l)))
                     continue
                 checked += len(checks)
                 for check in checks:
                     for what, logs, var in mutations(ev, check, guest0_separate):
                         mutated += 1
-                        ok, lines = run_judge(port, scenario, engine, logs, var)
+                        ok, lines = run_judge(port, scenario, engine, logs, var, env)
                         if ok:
-                            problems.append("%s/%s/%s: %r still passed with %s" %
-                                            (port, scenario, engine, check["desc"], what))
+                            problems.append("%s/%s/%s/%s: %r still passed with %s" %
+                                            (port, scenario, engine, env, check["desc"], what))
     if problems:
         print("FAIL: scenario asserts\n" + "\n".join(problems))
         return 1

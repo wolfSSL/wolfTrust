@@ -202,7 +202,7 @@ handoff_lifecycle() {
 }
 # The four images the chain flashes, as "address file" lines (physical
 # offsets; wolfBoot at 0, the BOOT partition and both guest windows), the
-# ones run_mcxn947_hardware.sh builds and flashes.
+# ones run_hardware.sh builds and flashes.
 flashed_images() {
   printf '%s %s\n' \
     0x00000000 "$wolfboot_dir/wolfboot.bin" \
@@ -279,7 +279,7 @@ port_discover() {
 # The production images, through the hardware runner bound to this probe.
 port_restore() {
   ensure_probe
-  MCXN947_PROBE_UID="$PROBE" "$target_dir/run_mcxn947_hardware.sh" positive ||
+  WT_HW_PROBE="$PROBE" "$target_dir/run_hardware.sh" mcxn947 positive ||
     fail "restore" "the hardware runner did not pass; see its output"
 }
 port_extra() {

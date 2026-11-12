@@ -188,7 +188,7 @@ fence_line() {
   done
   echo "armed $out"
 }
-# The four images run_rt700_hardware.sh flashes, as "address file" lines.
+# The four images run_hardware.sh flashes, as "address file" lines.
 flashed_images() {
   printf '%s %s\n' \
     0x28000000 "${RT700_WORK:-$repo/build/rt700}/flash_wolfboot.bin" \
@@ -260,12 +260,12 @@ port_discover() {
   pass "fused life cycle is $(label "$(lc_hex "0x$lc")") and its redundant copy agrees"
   [ $((0x$lock & 2)) -eq 0 ] || fail "discover" "LIFE_CYCLE_LOCK over-ride protect is set (0x$lock)"
   pass "life cycle shadow over-ride is open (LOCK_CFG3 0x$lock)"
-  hl="$(handoff_lifecycle)" || fail "discover" "no readable boot handoff: run tests/target/run_rt700_hardware.sh first"
+  hl="$(handoff_lifecycle)" || fail "discover" "no readable boot handoff: run tests/target/run_hardware.sh mimxrt700 positive first"
   pass "the boot handoff life cycle is readable (0x$hl, $(psa_name "$hl"))"
   printf 'LC=0x%s RED=0x%s LOCK_CFG3=0x%s DAUTH=0x%s\n' "$lc" "$lcr" "$lock" "$dauth" > "$state_dir/discovery"
   echo "PASS: discovery stamped ($state_dir/discovery)"
 }
-port_restore() { "$target_dir/run_rt700_hardware.sh" wrpfence; }
+port_restore() { "$target_dir/run_hardware.sh" mimxrt700 wrpfence; }
 port_extra() {
   local line
   case "$1" in

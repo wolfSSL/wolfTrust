@@ -94,33 +94,29 @@ results are not hardware results.
 ## Run on STM32H563
 
 Connect a provisioned NUCLEO-H563ZI and make the ST programmer visible on a
-Linux host with Bash, GNU userland, pyOCD with STM32H563 support, and a
-host-visible `arm-none-eabi-nm` (override with `ARM_NM`). Use the disposable
-build container in the published workflow:
+Linux host with Bash, GNU userland, pyOCD with STM32H563 support and a
+host-visible `arm-none-eabi-nm` (override with `ARM_NM`):
 
 ```sh
-WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 make test-hardware
+make test-hardware TARGET=stm32h563
 ```
 
-For the hardware-enforced guest-flash policy, pass the flag into the container
-build explicitly, then pass it again to the host-side flash run:
+That runs the eight scenarios every board runs on silicon;
+`WT_HW_TIER=qualification` adds the Nucleo's extras. When the host that owns
+the board has no cross toolchain, build in the published container and flash
+on the host from the same checkout:
 
 ```sh
-docker run --rm \
-    -e WT_GUEST_FLASH_WRP=1 \
-    -v "$PWD":/workspace \
-    -w /workspace \
+docker run --rm -v "$PWD":/workspace -w /workspace \
     ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 \
-    bash tests/target/run_h5_hardware.sh build positive
-WT_GUEST_FLASH_WRP=1 \
-    tests/target/run_h5_hardware.sh flash positive
+    bash tests/target/run_hardware.sh stm32h563 positive build
+tests/target/run_hardware.sh stm32h563 positive flash
 ```
 
-Hardware runs flash the board. Configure the TrustZone perimeter and WRP option
-bytes first as described in [STM32H5 Guide](STM32H5-Guide.md). The current
-`run_h5_suite.sh` wrapper does not forward `WT_GUEST_FLASH_WRP` into its Docker
-build, so its shorter `make test-hardware` form must not be used for this
-hardened build until the runner is fixed.
+Hardware runs flash the board and never write option bytes. Configure the
+TrustZone perimeter first as described in [STM32H5 Guide](STM32H5-Guide.md);
+the runner's preflight refuses a board whose guest sectors are
+write-protected and names the provisioning command that clears them.
 
 ## Next steps
 

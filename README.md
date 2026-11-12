@@ -140,7 +140,7 @@ make test-target
 make test-target TARGET=mimxrt700
 make test-target TARGET=mcxn947
 make test-conformance
-WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 make test-hardware
+make test-hardware TARGET=stm32h563
 make test-hardware TARGET=mcxn947
 ```
 
@@ -152,9 +152,9 @@ emulator and wolfBoot first stage itself.
 is not full emulator or hardware evidence. `make test-hardware` skips when
 board detection fails; on hosts without `lsusb`, a missing ST-Link can instead
 surface as a flash failure. The hardware target can flash and reset the
-connected board. Use the disposable build container for the published hardware
-workflow; the current direct-host build path changes the user's global Git
-`safe.directory` configuration.
+connected board. When the probe host has no cross toolchain, the published
+workflow builds in the disposable container (`build`) and flashes from the
+host (`flash`) out of the same checkout.
 
 ## Documentation
 

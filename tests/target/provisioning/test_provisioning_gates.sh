@@ -425,8 +425,8 @@ mkdir -p "$R/tests/firmware/baremetal-guest/build"
 echo mg0 > "$R/tests/firmware/baremetal-guest/build/guest0.bin"
 echo mg1 > "$R/tests/firmware/baremetal-guest/build/guest1.bin"
 # restore runs the hardware runner; here a stub that reports the probe it got.
-printf '#!/bin/sh\necho "stub runner $1 probe=${MCXN947_PROBE_UID:-none}"\n' > "$R/tests/target/run_mcxn947_hardware.sh"
-chmod +x "$R/tests/target/run_mcxn947_hardware.sh"
+printf '#!/bin/sh\necho "stub runner $2 probe=${WT_HW_PROBE:-none}"\n' > "$R/tests/target/run_hardware.sh"
+chmod +x "$R/tests/target/run_hardware.sh"
 mdig() {
   local a f
   for a in 0x00000000:wolfBoot/wolfboot.bin 0x00040000:build/wolftrust_v1_signed.bin \

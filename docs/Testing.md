@@ -414,7 +414,7 @@ as does a traced boot at its first delivered fault; any other status fails
 the run.
 
 These are emulator results. They prove the SAU attribution and the monitor's
-containment on a faithful core model; the silicon `ahbscneg` run on the EVK is
+containment on a faithful core model; the silicon `guestisoneg` run on the EVK is
 recorded separately.
 
 ## MCXN947 emulator scenarios
@@ -452,139 +452,105 @@ at `0x40000`, the guests at `0x80000` and `0x100000`.
 These are emulator results; the board's are in the next section, recorded
 separately.
 
-## MCXN947 hardware
+## Hardware
 
-`make test-hardware TARGET=mcxn947` runs `tests/target/run_mcxn947_suite.sh`
-on the host that owns the FRDM-MCXN947's MCU-Link: `positive`, `sauneg`,
-`periphneg`, `restart`, `psa`, and `wrpoff` by default (`WT_MCXN947_SCENARIOS`
-overrides the list; `WT_ENGINE` selects the crypto engine), each built,
-flashed at its physical offset, erased to a fresh vault, read back, and
-asserted over the debug port (`tests/target/run_mcxn947_hardware.sh`; the
-MCXN947 Guide lists what each scenario asserts). The two guests share one
-LPUART, so their console lines interleave on silicon; the console is captured
-as evidence and the assertions are the mailboxes and the monitor's counters.
-The suite's logs (`logs/mcxn947-suite/`) and the runner's retained evidence
-(`logs/mcxn947-hw/<scenario>-<engine>/`: console, readbacks, SWD dump)
-live outside `build/`, which every run cleans before it builds, and one batch
-at a time owns the board through `logs/mcxn947-hw.lock` (`flock`, shared by
-the runner); `tests/target/test_mcxn947_suite_evidence.sh` checks both under
-`make test`.
-Without the probe, console, pyOCD pack, or SPSDK, `tests/target/detect_mcxn947.sh`
-reports why and the suite skips. The device life cycle flow is driven
-separately through `TARGET=mcxn947 tests/target/provisioning/provisioning_ctrl.sh`
-and writes no fuse; see the MCXN947 Guide. Hardware test commands write flash
-and reset the board.
-
-## MIMXRT700 hardware
-
-`make test-hardware TARGET=mimxrt700` runs `tests/target/run_rt700_suite.sh`
-on the host that owns the EVK's probe: `positive`, `ahbscneg`, `nsentrymask`,
-`handlerirqneg`, `wrpfence`, `wrpoff`, and `wrpneg` by default
-(`WT_RT700_SCENARIOS` overrides the list), each built, flashed, read back, and
-asserted over the debug port. `wrpneg`
-builds wolfBoot's flash-protect selftest, which must see the silicon refuse an
-erase inside the guest fence with the block left unchanged. `nsentrymask`
-arms a short Non-secure SysTick before each of guest 0's FF-M connects so it
-comes due mid-entry, and its handler connects too; the Secure entry mask must
-hold the handler until the outer entry returns. M33MU cannot run it: it decodes
-`MSR BASEPRI_MAX` as `FAULTMASK`, lets only the Non-secure `BASEPRI` mask a
-Non-secure exception, and mishandles FF-M calls made from a Non-secure
-handler. `handlerirqneg` parks guest 0 in a Non-secure external IRQ handler on
-every launch; after its restarts, that IRQ must read inactive and guest 1's
-PendSV must keep firing. M33MU cannot run it either: it does not report the
-IRQ active, and it tracks the guest in Handler mode after the return to Thread.
-Without the probe,
-console, pyOCD pack, or SPSDK, `tests/target/detect_rt700.sh` reports why and
-the suite skips. The device life cycle flow is driven separately and manually
-through `TARGET=mimxrt700 tests/target/provisioning/provisioning_ctrl.sh`; see the MIMXRT700 Guide.
-Hardware test commands write flash and reset the board.
-
-## STM32H563 hardware
-
-The published hardware run requires:
-
-- a Linux host with Bash and GNU userland;
-- Docker for the documented container build;
-- Python 3 on the host for the flash-phase measurement check;
-- `STM32_Programmer_CLI`, found at its default install path or through
-  `STM32_CLI`;
-- pyOCD with STM32H563 support;
-- a host-visible `arm-none-eabi-nm`, or an override in `ARM_NM`;
-- a serial VCP, default `/dev/ttyACM0` or `H5_SERIAL`; and
-- a connected ST-Link.
-
-The detector checks the board/programmer path, not every required host tool. It
-verifies the ST-Link USB ID only when `lsusb` is available.
-Without `lsusb`, a missing probe can be reported later as a flash failure rather
-than an initial skip.
-
-Run the default hardware set with:
+One runner serves every board: `tests/target/run_hardware.sh <port> <scenario>`
+builds the chain the emulator boots, programs it through the port's profile
+(`tests/target/ports/<port>/hw.sh`), boots the board once, captures its
+console, reads the Secure image's latches and the guests' mailboxes over SWD,
+and hands that evidence to the judge in `tests/target/lib/scenarios.py` with
+`--env hardware`. The hardware assertions are the same declared blocks the
+emulator uses, resolved for the port's guest kinds; a block that needs a
+capability the port's registry declares absent is reported N/A with the
+reason, never skipped silently. Each run keeps its evidence under
+`logs/<port>-hw/<scenario>-<engine>/` (`console.log`, `swd.txt`,
+`readback-*.bin`, `program.log`, `result.json`), outside `build/`, and one
+run at a time owns the board through `logs/<port>-hw.lock`.
 
 ```sh
-WT_ENGINE=native \
-WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 \
-make test-hardware
-WT_ENGINE=hsm \
-WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 \
-make test-hardware
+make test-hardware TARGET=<port>                       # the eight every board runs
+make test-hardware TARGET=<port> WT_HW_TIER=qualification
+tests/target/run_hardware.sh <port> <scenario>
+tests/target/run_hardware.sh <port> <scenario> build   # toolchain host
+tests/target/run_hardware.sh <port> <scenario> flash   # probe host, same checkout
 ```
 
-The target skips if hardware detection fails. It builds and flashes the
-positive, restart, cross-domain, Non-secure mask, and conformance scenarios by
-default. `nsmaskneg` has guest 0 set its Non-secure `PRIMASK`, `FAULTMASK`, and
-`BASEPRI` and spin; the Secure tick must still run guest 1. The
-suite wrapper forwards `WT_ENGINE` into its build container. Select a narrower
-set with `WT_H5_SCENARIOS`:
+The build half copies the first stage and the guest images under
+`build/hw/` and records them in `build/hw-stamp.sh` relative to the
+checkout, so the flash half needs nothing outside it.
 
-```sh
-WT_H5_SCENARIOS="positive bootupdate" \
-WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 \
-make test-hardware
-```
+The eight scenarios every board runs on silicon are the contract a port
+meets (`scenarios.py --hardware-minimum`): `positive`, `guestisoneg`,
+`periphneg`, `restart`, `psa`, `wrpoff`, `crossdomain` and `authneg`. The
+qualification tier adds the port's merge-gating extras from
+`port/<port>/port.json` (`hardware.qualification`), and `hardware.optin`
+names the board-only scenarios a caller selects by name. The suite skips,
+never passes, without the board.
 
-The optional `gtzcneg` scenario must be selected explicitly. It verifies the
-GTZC peer-RAM curtain after a Non-secure MPU bypass; it does not establish peer
-flash confidentiality or adversarial peripheral and Non-secure NVIC ownership.
+Every profile keeps three rules: the probe is bound by serial or unique id
+for every tool call (`WT_HW_PROBE` picks one of several), the preflight only
+reads, and no option byte, fuse or life-cycle state is written by the runner
+(`tests/target/provisioning/provisioning_ctrl.sh` owns those, gated).
+`tests/target/test_hw_runner.sh` checks the hook contract, those rules, the
+evidence paths and the board lock for every port under `make test`.
 
-`periphneg` has a privileged Non-secure guest read and clear the SPM's RNG
-through its Non-secure alias and run Non-secure GPDMA copies out of the Secure
-image and Secure SRAM. Nothing may be read or changed, and Secure entropy must
-still work before the normal lifecycle completes. `periphspneg` (M33MU only) has
-the storage partition read the SPM's RNG registers; no partition domain maps a
-peripheral the port does not assign, so the read must MemManage-fault.
+### STM32H563
 
-For the hardened guest-flash configuration, explicitly forward the build flag
-into the container and repeat it for the host flash run:
+The Nucleo's profile flashes through STM32CubeProgrammer (`STM32_CLI`) on the
+bound ST-Link, parks the core with pyOCD to blank wolfBoot's trailer and swap
+sectors, the vault and (for conformance) the boot flag before a single boot,
+captures the VCP (`WT_HW_CONSOLE`, default `/dev/ttyACM0`) and reads the
+guests' latches through both the Non-secure address and its Secure alias
+(the GTZC curtain marks the idle guest's blocks Secure). Its preflight
+requires TrustZone on, product state Open and `WRPSGn1` clear on the guest
+sectors, and refuses anything else with the `provisioning_ctrl.sh` command
+that repairs it. The hardened guest-flash policy is proven by `wrpoff` on an
+unprotected fixture (the Secure image refuses both guests without the fence)
+and by `set-wrp` rehearsals in provisioning, never by the runner writing WRP.
+The qualification extras are `confboot` (the unmodified Arm IPC suite on
+silicon, panic resets through real `SYSRESETREQ`) and `nsmaskneg` (guest 0
+raises every Non-secure mask; the Secure tick still slices guest 1 through
+`AIRCR.PRIS`); the opt-in set covers the dev_apis suites, vault recovery,
+`writeonce`, `bootupdate`, the wolfIP guests and the partition negatives.
+`periphneg` on this board has the Zephyr guest read and clear the SPM's RNG
+through its Non-secure alias and run Non-secure GPDMA copies out of the
+Secure image and Secure SRAM; nothing may be read or changed. The build runs
+in the published container when the host that owns the board has no
+toolchain: `build` in the container, then `flash` on the host, sharing the
+mounted checkout.
 
-```sh
-docker run --rm \
-    -e WT_GUEST_FLASH_WRP=1 \
-    -v "$PWD":/workspace \
-    -w /workspace \
-    ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 \
-    bash tests/target/run_h5_hardware.sh build positive
-WT_GUEST_FLASH_WRP=1 \
-    tests/target/run_h5_hardware.sh flash positive
-```
+### MIMXRT700
 
-With that variable set, the flash runner clears WRP so it can program the
-guests, then re-applies WRP before boot. The Secure image independently reads
-the live WRP register and refuses an incompletely protected guest. The supported
-`provisioning_ctrl.sh set-wrp` workflow deliberately applies WRP only while the
-board is Open; that is a conservative project workflow, not the complete
-silicon rule. The hardware runner does not check product state before clearing
-or reapplying WRP. Current ST guidance makes WRP nonmodifiable in TZ-Closed,
-Closed, and Locked, and RM0481 separately defines the
-`FLASH_WRPSGNxR.UNLOCK` condition. The current suite wrapper does not forward
-this variable into its Docker build, so the shorter `make test-hardware` form
-does not build a WRP-enforcing Secure image.
+The EVK's profile wraps wolfBoot with the EVK FCB and a plain MBI
+(`nxpimage`), flashes every image with pyOCD on the bound MCU-Link with the
+core parked, resets the board through the pi4 line and observes over SWD
+only (the EVK run captures no console, so console blocks are N/A). Its
+qualification extras are `wrpfence`, `wrpneg` (wolfBoot's flash-protect
+selftest sees the silicon refuse an erase inside the guest fence),
+`nsentrymask` (a Non-secure SysTick comes due inside an FF-M entry and its
+handler connects too; the Secure entry mask holds it until the outer entry
+returns, which M33MU cannot model) and `handlerirqneg` (guest 0 parks in a
+Non-secure external IRQ handler on every launch; after its restarts that IRQ
+must read inactive and guest 1's PendSV must keep firing), plus `romsmoke`
+(the BootROM boots an XIP image from XSPI0). Without the probe, console,
+pyOCD pack or SPSDK, `tests/target/detect_rt700.sh` reports why and the suite
+skips.
 
-Use the disposable container for Secure and guest builds. The current
-direct-host build path adds `safe.directory '*'` to the user's global Git
-configuration and is not suitable as a published workflow.
+### MCXN947
 
-Hardware test commands write flash and can reset the board. Review
-[STM32H5 Guide](STM32H5-Guide.md) before running them.
+The FRDM's profile programs the chain in one pyOCD session on the board's
+bound MCU-Link (the pack resets the chip on every connect, so the park and
+every step that depends on it share the session), erases the update, swap
+and NVM sectors so every run starts from a blank vault, clears the mailboxes
+and launch masks a warm reset keeps, captures the MCU-Link VCOM and adds its
+own Secure-side words: the ROM flash API status, the wolfHSM backend's last
+error, the ELS refusal counter, the vault's first phrase, an erased phrase
+reading as `0xFF`, the consumed handoff and the life cycle wolfBoot handed
+over. The two guests share one LPUART, so their console lines interleave;
+the assertions are the mailboxes and the monitor's counters.
+
+Hardware test commands write flash and reset the board. Review the board
+guide before running them.
 
 ## CI coverage
 

@@ -13,12 +13,12 @@ the part; this port rehearses life cycles and writes none of them.
   (wolfSSL/wolfBoot#948: signed boot with ECC256/SHA-256, update swap and
   rollback over the write-once trailer, and the measured Secure-application
   handoff to `0x30030000`), and the wolfTrust chain behind it on the
-  FRDM-MCXN947 (`tests/target/run_mcxn947_hardware.sh`, see
+  FRDM-MCXN947 (`tests/target/run_hardware.sh mcxn947`, see
   [Build and verify on the board](#build-and-verify-on-the-frdm-mcxn947)):
   wolfBoot verifies the Secure image, the SPM consumes the handoff, creates
   the wolfHSM vault in the ROM-programmed NVM, and launches both guests on
   both crypto engines (`positive`); the SAU refuses a guest's store into its
-  peer's RAM (`sauneg`) and its read of the SPM's ELS (`periphneg`), and a
+  peer's RAM (`guestisoneg`) and its read of the SPM's ELS (`periphneg`), and a
   guest faulting at launch spends its restart budget and is quarantined
   (`restart`), the peer running on throughout; the portable PSA client runs
   its crypto, ITS, sealed PS, key-ops, FF-M negative and SHA-256 KAT stages
@@ -32,7 +32,7 @@ the part; this port rehearses life cycles and writes none of them.
   (`tests/target/run_target.sh mcxn947`, see Testing): wolfBoot verifies the
   Secure image, both bare-metal guests launch and complete their PSA calls
   through the veneers (`positive`, both engines), the isolation negative
-  (`sauneg`) shows a guest's store into the other guest's RAM refused by the
+  (`guestisoneg`) shows a guest's store into the other guest's RAM refused by the
   SAU, contained by the monitor, and the offender quarantined after its
   restart budget while the peer keeps running, and every other scenario the
   matrix lists for this port (`tests/target/lib/scenario_matrix.py`: the
@@ -147,7 +147,7 @@ run time by what the port programs before any guest launches:
 As on the other ports, the manifest declares the guests unprivileged but the
 runtime launches them with `CONTROL_NS.nPRIV` clear; a guest's Non-secure MPU
 is scheduling policy, not a boundary. The SAU window is the boundary, and
-`sauneg` shows it under M33MU.
+`guestisoneg` shows it under M33MU.
 
 ## Silicon constraints for this port
 
@@ -255,12 +255,12 @@ LPUART4 (`0x400B4000`):
 | `psa_connect(SERVICE_HSM)` handle | `+0x10` | > 0, distinct per guest |
 | status | `+0x14` | `0x600D600D` |
 | LPUART4 `VERID` as the guest reads it | `+0x18` | non-zero |
-| isolation probe latch (`sauneg`) | `+0x1C` | `1` faulted or `2` blocked; `3` leaked |
-| isolation probe read-back (`sauneg`) | `+0x20` | not the stored sentinel |
+| isolation probe latch (`guestisoneg`) | `+0x1C` | `1` faulted or `2` blocked; `3` leaked |
+| isolation probe read-back (`guestisoneg`) | `+0x20` | not the stored sentinel |
 
 A `status` of `0x600D600D` in both mailboxes proves the wolfBoot to wolfTrust
 to Non-secure-guest chain booted and that the Secure runtime serviced both
-Non-secure PSA clients through the veneers. In `sauneg`, guest 0 disables its
+Non-secure PSA clients through the veneers. In `guestisoneg`, guest 0 disables its
 own Non-secure MPU and stores a sentinel into guest 1's RAM; the runner
 asserts from M33MU's protection-unit trace that the store faulted, refused by
 the SAU with the peer window Secure at dispatch.
@@ -268,15 +268,15 @@ the SAU with the peer window Secure at dispatch.
 ## Build and verify on the FRDM-MCXN947
 
 ```sh
-make test-hardware TARGET=mcxn947            # positive sauneg periphneg restart psa wrpoff
-tests/target/run_mcxn947_hardware.sh positive
-WT_ENGINE=hsm tests/target/run_mcxn947_hardware.sh positive
+make test-hardware TARGET=mcxn947            # positive guestisoneg periphneg restart psa wrpoff crossdomain authneg
+tests/target/run_hardware.sh mcxn947 positive
+WT_ENGINE=hsm tests/target/run_hardware.sh mcxn947 positive
 ```
 
-`tests/target/run_mcxn947_hardware.sh` runs on the host that owns the
-board's MCU-Link (`MCXN947_PROBE_UID` picks one of several probes; the
-console is the MCU-Link VCOM, `MCXN947_CONSOLE`). For each scenario it
-takes the board lock (`logs/mcxn947-hw.lock`, shared with the suite), then
+`tests/target/run_hardware.sh mcxn947 <scenario>` runs on the host that owns
+the board's MCU-Link (`WT_HW_PROBE` picks one of several probes; the console
+is the MCU-Link VCOM, `WT_HW_CONSOLE`). For each scenario it takes the board
+lock (`logs/mcxn947-hw.lock`, shared with the suite), then
 builds the Secure image and the guests, pins the guest measurements, signs
 the image with the pinned wolfBoot's key, flashes wolfBoot, the signed image
 and both guests at their physical offsets with pyOCD, erases the update,
@@ -302,7 +302,7 @@ compares it, and asserts the result over SWD:
 Each run's console capture, image readbacks and an SWD dump of every word
 the checks read are kept under `logs/mcxn947-hw/<scenario>-<engine>/`
 (`console.log`, `readback-*.bin`, `swd.txt`), the suite's per-scenario logs
-under `logs/mcxn947-suite/`: outside `build/`, which every run cleans before
+under `logs/mcxn947-hw-suite/`: outside `build/`, which every run cleans before
 it builds, and never overwritten by another scenario or engine.
 
 Three board facts the runner encodes: the device pack resets the chip on
@@ -353,7 +353,7 @@ What differs from the MIMXRT700:
   rehearsal record carries it, and `lock` accepts only a rehearsal made
   through the same probe.
 - **`restore` is the hardware runner.** It runs
-  `tests/target/run_mcxn947_hardware.sh positive` on that probe, so the
+  `tests/target/run_hardware.sh mcxn947 positive` on that probe, so the
   images a rehearsal binds are the ones the runner built, flashed and read
   back.
 - **The mock lock is in the handoff record.** The MCXN947 has no life cycle

@@ -22,7 +22,7 @@ Read the current state first and keep a development board recoverable.
   monitor, and the offender quarantined after its restart budget while the peer
   keeps running.
 - **Validated on the EVK:** the same two scenarios on both crypto engines
-  (`tests/target/run_rt700_hardware.sh`). In `ahbscneg`, guest0 disables its
+  (`tests/target/run_hardware.sh mimxrt700`). In `guestisoneg`, guest0 disables its
   Non-secure MPU and stores into guest1's RAM; the store faults, guest1's RAM
   never holds the sentinel, and guest1 keeps running. The port isolates guest
   RAM with a per-dispatch SAU window, because the AHB secure controller's SRAM
@@ -150,7 +150,7 @@ strength of the per-dispatch SAU window. The AHBSC SRAM rules do not gate CPU0
 on this silicon (a Non-secure store into a closed guest window landed with them
 on), so the CPU's own attribution is the barrier: with the peer window Secure,
 a guest's store into it faults even after the guest disables its own
-Non-secure MPU, and the monitor contains the fault. `ahbscneg` shows exactly
+Non-secure MPU, and the monitor contains the fault. `guestisoneg` shows exactly
 that on the EVK and under M33MU.
 As on the STM32H563 (see [TF-M Compatibility](TF-M-Compatibility.md)), the
 manifest declares the guests unprivileged but the runtime launches them with
@@ -250,14 +250,13 @@ Running `discover` again clears both it and any earlier `regress` stamp.
 
 ## Build, flash, and verify
 
-The hardware runner (`tests/target/run_rt700_hardware.sh`) drives image
-assembly and flashing so the addresses stay paired; its emulator sibling
-(`tests/target/run_target.sh mimxrt700`) runs the same chain and scenario names
-under M33MU. The `romsmoke` scenario proves the BootROM XIP path; the
-`positive` scenario is the wolfTrust chain; `ahbscneg` adds the guest
-isolation negative; `wrpfence`, `wrpoff`, and `wrpneg` cover the guest flash
-fence. `make test-hardware TARGET=mimxrt700` runs that set through
-`tests/target/run_rt700_suite.sh` on the probe host and skips without a board.
+The hardware runner (`tests/target/run_hardware.sh mimxrt700 <scenario>`)
+drives image assembly and flashing so the addresses stay paired; its emulator
+sibling (`tests/target/run_target.sh mimxrt700`) runs the same chain and
+scenario names under M33MU. `make test-hardware TARGET=mimxrt700` runs the
+eight every board runs; `WT_HW_TIER=qualification` adds `wrpfence`, `wrpneg`
+and `nsentrymask`, `handlerirqneg` and `romsmoke` (the BootROM XIP path), and
+the suite skips without a board.
 Both runners build the wolfBoot first stage from one pinned upstream commit
 plus the carried patches (`tests/target/ports/mimxrt700/m33mu.sh`) unless
 `RT700_WOLFBOOT_DIR` names a prebuilt tree. The emulator runner then carries the STM32H563 scenario
@@ -303,13 +302,13 @@ echoes it on LPUART0:
 | `psa_connect(SERVICE_HSM)` handle | `+0x10` | > 0, distinct per guest |
 | status | `+0x14` | `0x600D600D` |
 | LPUART0 `VERID` as the guest reads it | `+0x18` | non-zero |
-| isolation probe latch (`ahbscneg`) | `+0x1C` | `1` faulted or `2` blocked; `3` leaked |
-| isolation probe read-back (`ahbscneg`) | `+0x20` | not the stored sentinel |
+| isolation probe latch (`guestisoneg`) | `+0x1C` | `1` faulted or `2` blocked; `3` leaked |
+| isolation probe read-back (`guestisoneg`) | `+0x20` | not the stored sentinel |
 
 A `status` of `0x600D600D` in both mailboxes proves the wolfBoot to wolfTrust to
 Non-secure-guest chain booted and that the Secure runtime serviced both
 Non-secure PSA clients through the veneers. `0xBAD00000` records a failed check
-at the `step` reached. In `ahbscneg`, guest 0 disables its own Non-secure MPU
+at the `step` reached. In `guestisoneg`, guest 0 disables its own Non-secure MPU
 and stores a sentinel into guest 1's RAM; guest 1 carries no probe of its own
 and keeps running untouched. The M33MU runner asserts the store faulted,
 refused by the SAU with the peer window Secure at dispatch; the hardware
@@ -348,9 +347,9 @@ or unlocked descriptor overlapping it. Anything less refuses the launch. The
 runners set this up per scenario:
 
 ```sh
-tests/target/run_rt700_hardware.sh wrpfence   # fence armed: both guests run
-tests/target/run_rt700_hardware.sh wrpoff     # no fence: both guests refused
-tests/target/run_rt700_hardware.sh wrpneg     # the silicon refuses a fenced erase
+tests/target/run_hardware.sh mimxrt700 wrpfence   # fence armed: both guests run
+tests/target/run_hardware.sh mimxrt700 wrpoff     # no fence: both guests refused
+tests/target/run_hardware.sh mimxrt700 wrpneg     # the silicon refuses a fenced erase
 TARGET=mimxrt700 tests/target/provisioning/provisioning_ctrl.sh verify-wrp
 ```
 

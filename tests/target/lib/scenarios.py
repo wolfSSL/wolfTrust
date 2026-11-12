@@ -62,7 +62,7 @@ ALIASES = {"gtzcneg": "guestisoneg", "ahbscneg": "guestisoneg",
            "sauneg": "guestisoneg"}
 
 GUEST_KINDS = ("baremetal", "psa", "zephyr", "freertos", "vnet")
-ROLES = ("lifecycle", "psa", "conformance", "vnet")
+ROLES = ("lifecycle", "psa", "conformance", "vnet", "hwpsa")
 CAPABILITIES = {
     "boot_console": "wolfBoot prints its HAL and signature lines on the console",
     "prot_trace": "the emulator's protection-unit trace names the unit behind a refusal",
@@ -74,19 +74,29 @@ CAPABILITIES = {
     "busfault": "the emulator vectors a precise data BusFault",
     "idle_scheduler": "the port runs the single-guest idle recovery scenario",
     "handler_overrun": "the port runs the Non-secure handler overrun scenario",
+    "hw_console": "the board's console is captured during a hardware run",
+    "hw_secure_swd": "the debugger reads Secure RAM on the fixture (an open board)",
+    "rom_xip": "the BootROM boots an XIP image the port's smoke firmware proves",
+    "ns_handler_probes": "the bare-metal guest's NS entry-mask and parked-IRQ probes",
+    "pris": "AIRCR.PRIS holds the Secure tick above every Non-secure mask",
+    "ns_bus_hole": "an unmapped Non-secure peripheral hole raises a precise BusFault",
+    "write_once": "the PSA guest seals a WRITE_ONCE object across a reset",
+    "boot_header_swd": "the boot slot's wolfBoot header is read back over SWD",
 }
 
 
 def S(secure="", role="lifecycle", guest_flags="", end="guest", timeout=None,
       quit_on_faults=True, trace=None, blocks=(), engines=("native", "hsm"),
       requires=(), level3=False, hw=False, prebuild="", update=False,
-      tamper=False, note=""):
+      tamper=False, note="", envs=("emulator", "hardware"), hw_blocks=(),
+      hw_requires=(), hw_secure=""):
     return {"secure": secure, "role": role, "guest_flags": guest_flags,
             "end": end, "timeout": timeout, "quit_on_faults": quit_on_faults,
             "trace": trace, "blocks": tuple(blocks), "engines": tuple(engines),
             "requires": tuple(requires), "level3": level3, "hw": hw,
             "prebuild": prebuild, "update": update, "tamper": tamper,
-            "note": note}
+            "note": note, "envs": tuple(envs), "hw_blocks": tuple(hw_blocks),
+            "hw_requires": tuple(hw_requires), "hw_secure": hw_secure}
 
 
 SP_PROBE_FLAGS = "WT_M33MU_EXPECT_BKPT=1"
@@ -94,25 +104,31 @@ CONF = "WT_RUN_CONFORMANCE=1"
 
 SCENARIOS = {
     "positive": S(blocks=("no_faults", "lifecycle", "storage_served"),
-                  hw=True),
+                  hw=True,
+                hw_blocks=("hw_no_faults", "hw_lifecycle", "hw_launched_all", "hw_no_restarts", "hw_positive_extras")),
     "restart": S(guest_flags="WT_GUEST_FAULT_PROBE=1", end="timeout",
                  timeout=40, quit_on_faults=False, trace="restart",
-                 blocks=("restart",), hw=True),
+                 blocks=("restart",), hw=True,
+                hw_blocks=("hw_no_escalation", "hw_quarantined", "hw_peer_alive")),
     "restartidle": S(guest_flags="WT_GUEST_FAULT_PROBE=1", end="bkpt:0x7d",
                      timeout=40, quit_on_faults=False,
                      blocks=("restart", "restartidle_verdict"),
                      requires=("idle_scheduler",)),
     "guestisoneg": S(guest_flags="WT_ISO_PROBE=1", end="timeout", timeout=40,
                      quit_on_faults=False, trace="guestisoneg",
-                     blocks=("guestisoneg",), hw=True),
+                     blocks=("guestisoneg",), hw=True,
+                hw_blocks=("hw_no_escalation", "hw_guestisoneg", "hw_peer_alive")),
     "periphneg": S(guest_flags="WT_PERIPH_NEG_PROBE=1", trace="periphneg",
-                   blocks=("periphneg",), hw=True),
+                   blocks=("periphneg",), hw=True,
+                hw_blocks=("hw_periphneg", "hw_peer_alive")),
     "crossdomain": S(secure="WT_FFM_NEGATIVE_PROBE=1", trace="band_read",
                      blocks=("sp_probe_lifecycle", "sp_probe_denied", "l3"),
-                     level3=True, hw=True),
+                     level3=True, hw=True,
+                hw_blocks=("hw_no_escalation", "hw_sp_fault", "hw_sp_guests", "hw_peer_alive")),
     "keystoreneg": S(secure="WT_KEYSTORE_NEG_PROBE=1", trace="band_read",
                      blocks=("sp_probe_lifecycle", "sp_probe_denied", "l3"),
-                     level3=True),
+                     level3=True,
+                hw_blocks=("hw_no_escalation", "hw_sp_fault", "hw_sp_guests", "hw_peer_alive")),
     "periphspneg": S(secure="WT_PERIPH_SP_NEG_PROBE=1", role="psa",
                      guest_flags=SP_PROBE_FLAGS, end="bkpt:0x7f",
                      blocks=("sp_probe_lifecycle", "l3", "periphspneg"),
@@ -144,59 +160,72 @@ SCENARIOS = {
     "panicneg": S(secure="WT_PANIC_NEG_PROBE=1", quit_on_faults=False,
                   trace="sp_fault",
                   blocks=("sp_fault", "lifecycle", "panic_unblocked",
-                          "storage_served")),
+                          "storage_served"),
+                hw_blocks=("hw_no_escalation", "hw_panic", "hw_peer_alive")),
     "confboot": S(secure="WT_CONFORMANCE=1", role="conformance",
                   guest_flags=CONF + " " + SP_PROBE_FLAGS, end="bkpt:0x7f",
                   timeout=1200, quit_on_faults=False,
-                  blocks=("conformance_boot", "confboot")),
+                  blocks=("conformance_boot", "confboot"),
+                hw_blocks=("hw_confboot",), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "devstorage": S(secure="WT_CONFORMANCE=1", role="conformance",
                     guest_flags=CONF + " WT_CONF_SUITE=storage " + SP_PROBE_FLAGS,
                     end="bkpt:0x7f", timeout=900, quit_on_faults=False,
-                    blocks=("conformance_boot", "devstorage")),
+                    blocks=("conformance_boot", "devstorage"),
+                hw_blocks=("hw_no_escalation", "hw_devsuite"), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "devcrypto": S(secure="WT_CONFORMANCE=1", role="conformance",
                    guest_flags=CONF + " WT_CONF_SUITE=crypto " + SP_PROBE_FLAGS,
                    end="bkpt:0x7f", timeout=7200, quit_on_faults=False,
-                   blocks=("conformance_boot", "devcrypto")),
+                   blocks=("conformance_boot", "devcrypto"),
+                hw_blocks=("hw_no_escalation", "hw_devsuite"), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "devattest": S(secure="WT_CONFORMANCE=1", role="conformance",
                    guest_flags=CONF + " WT_CONF_SUITE=attestation " + SP_PROBE_FLAGS,
                    end="bkpt:0x7f", timeout=900,
-                   blocks=("conformance_boot", "devattest")),
+                   blocks=("conformance_boot", "devattest"),
+                hw_blocks=("hw_no_escalation", "hw_devattest"), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "devattestqcbor": S(secure="WT_CONFORMANCE=1", role="conformance",
                         guest_flags=CONF + " WT_CONF_SUITE=attestation WT_ATTEST_CBOR=qcbor " + SP_PROBE_FLAGS,
                         end="bkpt:0x7f", timeout=900,
                         blocks=("conformance_boot", "devattest"),
-                        prebuild="tests/upstream/fetch_qcbor.sh"),
+                        prebuild="tests/upstream/fetch_qcbor.sh",
+                hw_blocks=("hw_no_escalation", "hw_devattest"), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "attestneg": S(role="psa", guest_flags="WT_ATTEST_NEG_PROBE=1",
                    blocks=("psa_lifecycle", "attestneg")),
     "hsmattackneg": S(role="psa", guest_flags="WT_HSM_ATTACK_PROBE=1",
                       blocks=("no_faults", "psa_lifecycle", "hsmattackneg"),
-                      engines=("hsm",)),
+                      engines=("hsm",),
+                hw_blocks=("hw_no_faults", "hw_hsmattack")),
     "authneg": S(end="timeout", timeout=40, blocks=("no_faults", "authneg"),
-                 tamper=True, hw=True),
+                 tamper=True, hw=True,
+                hw_blocks=("hw_no_faults", "hw_authneg", "hw_peer_alive")),
     "rollbackneg": S(secure="WT_ROLLBACK_PROBE=1", end="bkpt:0x7d",
                      blocks=("verdict_rollbackneg",)),
     "vaultrecover": S(secure="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1",
                       role="conformance",
                       guest_flags=CONF + " WT_CONF_SUITE=crypto " + SP_PROBE_FLAGS,
                       end="bkpt:0x7f", timeout=7200,
-                      blocks=("conformance_start", "vaultrecover")),
+                      blocks=("conformance_start", "vaultrecover"),
+                hw_blocks=("hw_no_escalation", "hw_vaultrecover"), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "vaultrecoversec": S(secure="WT_CONFORMANCE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1",
                          role="conformance",
                          guest_flags=CONF + " WT_CONF_SUITE=crypto " + SP_PROBE_FLAGS,
                          end="timeout", timeout=900,
-                         blocks=("vaultrecoversec",)),
+                         blocks=("vaultrecoversec",),
+                hw_blocks=("hw_no_escalation", "hw_vaultrecoversec"), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "fwustage": S(role="psa", guest_flags="WT_FWU_PROBE=1",
                   blocks=("no_faults", "psa_lifecycle", "fwustage")),
     "remeasureneg": S(secure="WT_REMEASURE_PROBE=1", end="bkpt:0x6c",
                       blocks=("verdict_remeasureneg",)),
     "bootupdate": S(secure="WT_BOOTUPDATE_PROBE=1", timeout=150,
                     blocks=("bootupdate",), requires=("bootupdate",),
-                    update=True),
+                    update=True,
+                hw_blocks=("hw_bootupdate",), hw_requires=("boot_header_swd",)),
     "vnet": S(secure="CONFIG_VNET=y", role="vnet", timeout=180,
-              blocks=("no_faults", "vnet"), requires=("vnet",)),
+              blocks=("no_faults", "vnet"), requires=("vnet",),
+                hw_blocks=("hw_no_faults", "vnet")),
     "vnetneg": S(secure="CONFIG_VNET=y WT_VNET_NEG_PROBE=1", role="vnet",
                  timeout=180, quit_on_faults=False, blocks=("vnetneg",),
-                 requires=("vnet",)),
+                 requires=("vnet",),
+                hw_blocks=("hw_no_escalation", "hw_vnetneg")),
     "manifestneg": S(secure="WT_MANIFEST_NEG_PROBE=1", end="bkpt:0x7e",
                      blocks=("verdict_manifestneg",)),
     "manifestneg2": S(secure="WT_MANIFEST_NEG_PROBE=2", end="bkpt:0x7e",
@@ -209,12 +238,14 @@ SCENARIOS = {
     "revneg": S(end="bkpt:0x7e", timeout=40, blocks=("revneg",), requires=("idcode",)),
     "fpneg": S(secure="WT_SP_FAULT_PROBE=1 WT_FP_NEG_PROBE=1", end="fault",
                timeout=40, blocks=("fpneg",),
-               level3=True),
+               level3=True,
+                hw_blocks=("hw_no_escalation", "hw_fpneg", "hw_lifecycle", "hw_peer_alive")),
     "sealneg": S(secure="WT_SEAL_NEG_PROBE=1", role="psa",
                  guest_flags=SP_PROBE_FLAGS, end="bkpt:0x7f",
                  quit_on_faults=False,
                  blocks=("psa_probe_lifecycle", "l3", "peer_alive"),
-                 level3=True),
+                 level3=True,
+                hw_blocks=("hw_no_escalation", "hw_seal", "hw_lifecycle", "hw_peer_alive")),
     "sealhaltneg": S(secure="WT_SEAL_NEG_PROBE=2", end="bkpt:0x6e",
                      timeout=40, blocks=("verdict_sealhaltneg",),
                      level3=True),
@@ -225,34 +256,62 @@ SCENARIOS = {
                       guest_flags=SP_PROBE_FLAGS, end="bkpt:0x7f",
                       quit_on_faults=False,
                       blocks=("psa_probe_lifecycle", "l3", "peer_alive"),
-                      level3=True),
+                      level3=True,
+                hw_blocks=("hw_no_escalation", "hw_seal", "hw_lifecycle", "hw_peer_alive")),
     "mspovfneg": S(secure="WT_MSP_OVF_PROBE=1", end="fault", timeout=40,
                    blocks=("verdict_mspovfneg",),
-                   level3=True),
+                   level3=True,
+                hw_blocks=("hw_mspovf",)),
     "busfaultneg": S(secure="WT_BUSFAULT_NEG_PROBE=1", quit_on_faults=False,
                      blocks=("busfaultneg", "sp_recovered"),
-                     requires=("busfault",)),
+                     requires=("busfault",),
+                hw_blocks=("hw_no_escalation", "hw_busfault", "hw_lifecycle", "hw_peer_alive")),
     "xnneg": S(secure="WT_XN_NEG_PROBE=1", end="fault", timeout=40,
-               blocks=("verdict_xnneg",), level3=True),
+               blocks=("verdict_xnneg",), level3=True,
+                hw_blocks=("hw_xnneg",)),
     "svcneg": S(secure="WT_SVC_NEG_PROBE=1", role="psa",
                 guest_flags=SP_PROBE_FLAGS, end="bkpt:0x7f",
                 quit_on_faults=False,
                 blocks=("psa_probe_lifecycle", "l3", "svcneg", "peer_alive"),
-                level3=True),
+                level3=True,
+                hw_blocks=("hw_no_escalation", "hw_panic", "hw_peer_alive")),
     "bothpsa": S(role="psa", blocks=("no_faults", "psa_lifecycle", "bothpsa")),
     "bothiso": S(role="psa", blocks=("no_faults", "psa_lifecycle", "bothiso")),
     "handlerneg": S(guest_flags="WT_HANDLER_OVERRUN_PROBE=1", end="timeout",
                     quit_on_faults=False, blocks=("handlerneg",),
                     requires=("handler_overrun",)),
     "wrpfence": S(secure="WT_GUEST_FLASH_WRP=1", blocks=("no_faults", "fenced"),
-                  requires=("guest_fence",)),
+                  requires=("guest_fence",),
+                hw_blocks=("hw_fenced",)),
     "wrpneg": S(secure="WT_GUEST_FLASH_WRP=1",
                 blocks=("no_faults", "fence_selftest", "fenced"),
-                requires=("guest_fence",)),
+                requires=("guest_fence",),
+                hw_blocks=("hw_fenced", "hw_fence_selftest")),
     "wrpoff": S(secure="WT_GUEST_FLASH_WRP=1", end="timeout",
                 blocks=("wrpoff",), hw=True,
-                note="a fence-required image behind a first stage that arms none"),
+                note="a fence-required image behind a first stage that arms none",
+                hw_blocks=("hw_wrpoff", "hw_wrpoff_fence")),
 }
+SCENARIOS.update({
+    "psa": S(role="hwpsa", envs=("hardware",), hw=True,
+             hw_blocks=("hw_no_faults", "hw_lifecycle", "hw_launched_all", "hw_no_restarts")),
+    "nsentrymask": S(guest_flags="WT_NS_ENTRY_MASK_PROBE=1", envs=("hardware",),
+                     hw_requires=("ns_handler_probes",),
+                     hw_blocks=("hw_lifecycle", "hw_entry_mask")),
+    "handlerirqneg": S(guest_flags="WT_HANDLER_IRQ_PROBE=64", envs=("hardware",),
+                       hw_requires=("ns_handler_probes",),
+                       hw_blocks=("hw_handler_irq",)),
+    "romsmoke": S(envs=("hardware",), hw_requires=("rom_xip",),
+                  hw_blocks=("hw_romsmoke",)),
+    "nsmaskneg": S(guest_flags="WT_NS_MASK_PROBE=1", envs=("hardware",),
+                   hw_requires=("pris",), hw_blocks=("hw_nsmask",)),
+    "nsbusfaultneg": S(guest_flags="WT_NS_BUSFAULT_PROBE=1", envs=("hardware",),
+                       hw_requires=("ns_bus_hole",),
+                       hw_blocks=("hw_no_escalation", "hw_nsbusfault", "hw_peer_alive")),
+    "writeonce": S(guest_flags="WT_WRITE_ONCE_RESET_PROBE=1", envs=("hardware",),
+                   hw_requires=("write_once",),
+                   hw_blocks=("hw_no_faults", "hw_writeonce")),
+})
 for _n in range(2, 7):
     SCENARIOS["bandneg%d" % _n] = dict(SCENARIOS["bandneg1"],
                                         secure="WT_BAND_NEG_PROBE=%d" % _n)
@@ -497,6 +556,21 @@ def info(desc):
     return {"op": "info", "desc": desc}
 
 
+def word(desc, key, eq=None, ne=None, mask=None, ge=None, lo=None, hi=None,
+         in_=None, absent_ok=False):
+    """One SWD word of the hardware evidence (key=hex in swd.txt). With mask,
+    the masked value must equal eq; lo/hi bound it half-open. absent_ok
+    accepts a symbol the collector recorded as absent (link-eliminated)."""
+    return {"op": "word", "desc": desc, "key": key, "eq": eq, "ne": ne,
+            "mask": mask, "ge": ge, "lo": lo, "hi": hi, "in": in_,
+            "absent_ok": absent_ok}
+
+
+def advancing(desc, key):
+    """The word was read twice (key@0, key@1) and moved: the guest is alive."""
+    return {"op": "advancing", "desc": desc, "key": key}
+
+
 class Ctx(object):
     def __init__(self, port, scenario, env, guests, var):
         self.port = port
@@ -508,6 +582,7 @@ class Ctx(object):
         self.g0 = markers(guests[0], "guest0", self.board)
         self.g1 = markers(guests[1], "guest1", self.board)
         self.m33mu = port_m33mu(port)
+        self.hw = dict(PORTS[port]["def"].get("hardware", {}))
 
     def restart_limit(self):
         return int(self.var.get("restart_limit", "3"))
@@ -987,15 +1062,282 @@ def block_checks(ctx, block, end):
     raise SystemExit("unknown block %s" % block)
 
 
-BLOCK_CAPS = {"boot_console": ("boot_console",), "trace": ("prot_trace",)}
+# --------------------------------------------------------------- hardware --
+
+GUEST_SIG = "47543030"
+PSA_SIG = "50534147"
 
 
-def plan(port, scenario, engine="native"):
+def _hw_guest_lifecycle(ctx, i):
+    g = "guest%d" % i
+    kind = ctx.kind(i)
+    if kind == "baremetal":
+        return [word("%s launched: signature 0x47543030" % g, "g%d.sig" % i, eq=GUEST_SIG),
+                word("%s psa_framework_version 0x0100" % g, "g%d.fw" % i, eq="00000100"),
+                word("%s done: FF-M connect verified, status 0x600D600D" % g, "g%d.status" % i, eq="600d600d"),
+                word("%s reaches its Non-secure console" % g, "g%d.console" % i, ne="00000000")]
+    if kind == "psa":
+        return [word("%s launched: signature PSAG" % g, "g%d.sig" % i, eq=PSA_SIG),
+                word("%s completed the TEE, crypto, ITS, PS, key-ops, SHA KAT and done stages" % g,
+                     "g%d.lc" % i, mask="000000bf", eq="000000bf"),
+                word("%s completed the attestation COSE stage" % g, "g%d.lc" % i, mask="00000040", eq="00000040"),
+                word("%s FF-M negatives all rejected: forged handle, oversized vector, cross-guest vector, unknown SID" % g,
+                     "g%d.neg" % i, eq="0000000f")]
+    if kind == "zephyr":
+        return [word("guest0 full PSA/FF-M lifecycle latched (every milestone)", "g0sym.g_guest0_lifecycle",
+                     mask="000000ff", eq="000000ff")]
+    if kind == "freertos":
+        return [expect("guest1 (FreeRTOS) runs its mediated SHA KAT", ctx.g1["sha"])]
+    if kind == "vnet":
+        return [expect("%s alive" % g, "vnet-%s: alive" % g)]
+    return []
+
+
+def _hw_masks(verified, refused):
+    return [word("launch-verified guest mask 0x%s" % verified, "sym.g_wt_launch_verified_mask", eq=verified),
+            word("launch-refused guest mask 0x%s" % refused, "sym.g_wt_launch_refused_mask", eq=refused)]
+
+
+def _hw_peer_alive(ctx):
+    if ctx.kind(1) == "freertos":
+        return [expect("guest1 (unrelated domain) still runs", ctx.g1["heartbeat"])]
+    return [advancing("guest1 still running (idle beat advances)", "g1.beat")]
+
+
+def _hw_quarantined(ctx, want_key):
+    """guest0 faulted at the probe's address on every launch, spent its
+    restart budget and was quarantined; guest1 ran untouched."""
+    limit = "%08x" % ctx.restart_limit()
+    out = []
+    if want_key:
+        out.append(word("guest0's last fault was its probe's access", "sym.g_last_fault_address",
+                        eq="{%s}" % want_key))
+    out += [word("guest0 relaunched through its restart budget", "sym.g_wt_restart_events", eq=limit),
+            word("guest0 quarantined once", "sym.g_wt_quarantine_events", eq="00000001")]
+    if ctx.kind(0) == "baremetal":
+        out += [word("guest0 never reported done", "g0.status", ne="600d600d"),
+                word("guest0 never reached its idle loop", "g0.beat", eq="00000000")]
+        out += _hw_masks("00000003", "00000000")
+    if ctx.kind(1) == "baremetal":
+        out += _hw_guest_lifecycle(ctx, 1)
+    return out
+
+
+def hw_block_checks(ctx, block):
+    v = ctx.var
+    hw = ctx.hw
+    k0, k1 = ctx.kind(0), ctx.kind(1)
+    if block == "hw_chain":
+        return [expect("wolfBoot verified the wolfTrust image signature (console)", "Verifying signature...done")]
+    if block == "hw_no_faults":
+        return [refute_re("no fault markers on the console",
+                          r'^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault|BusFault|UsageFault)')]
+    if block == "hw_no_escalation":
+        return [refute_re("no HardFault escalation on the console", r'^(\[HARDFLT\]|HardFault|SecureFault)')]
+    if block == "hw_lifecycle":
+        return _hw_guest_lifecycle(ctx, 0) + _hw_guest_lifecycle(ctx, 1)
+    if block == "hw_launched_all":
+        return _hw_masks("00000003", "00000000")
+    if block == "hw_no_restarts":
+        return [word("no guest restarted", "sym.g_wt_restart_events", eq="00000000")]
+    if block == "hw_positive_extras":
+        if k0 != "zephyr":
+            return []
+        return [word("partition stacks and bands zeroed at boot", "sym.g_wt_boot_zeroed_bytes", ge="00000001"),
+                word("cross-guest vector refused on silicon (guest1 negative mask bit 0x4)", "g1sym.g_guest1_ffm_neg",
+                     mask="00000004", eq="00000004"),
+                word("SPM RAM execute-never cover present on every dispatch", "sym.g_wt_xn_denied", eq="00000000"),
+                info("the attestation measurement is gated by the lifecycle latch; the interleaved console is not asserted")]
+    if block == "hw_peer_alive":
+        return _hw_peer_alive(ctx)
+    if block == "hw_quarantined":
+        return _hw_quarantined(ctx, "fault_addr")
+    if block == "hw_guestisoneg":
+        if k0 == "zephyr":
+            return [word("NS MPU bypass blocked (2) or faulted and contained (1)", "g0sym.g_guest0_gtzc_probe",
+                         in_=("00000001", "00000002"))]
+        out = [word("guest1 RAM never received guest0's sentinel", "peer.word", ne="deadbeef")]
+        if hw.get("iso_probe", "faults") == "faults":
+            out += _hw_quarantined(ctx, "probe_addr")
+        else:
+            out += [word("guest0 store into guest1 RAM blocked (latch 1 faulted or 2 blocked)", "g0.probe",
+                         in_=("00000001", "00000002")),
+                    word("guest0 never got past its probe store", "g0.beat", eq="00000000"),
+                    word("system still scheduling after the probes (IPSR not a fault handler)", "cpu.ipsr_fault", eq="00000000")]
+            out += _hw_guest_lifecycle(ctx, 1)
+        return out
+    if block == "hw_periphneg":
+        if k0 == "zephyr" or ctx.m33mu.get("periph_probe", "faults") == "verdict":
+            out = [word("NS peripheral and DMA access blocked (latch 2)", "g0sym.g_guest0_periph_probe" if k0 == "zephyr" else "g0.probe",
+                        eq="00000002")]
+            if k0 == "zephyr":
+                out += [refute_re("no fault markers on the console",
+                                  r'^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault|BusFault|UsageFault)')]
+            out += _hw_guest_lifecycle(ctx, 0)
+            return out
+        out = _hw_quarantined(ctx, "periph_addr")
+        if "hw_console" not in caps_absent(ctx.port):
+            out.append(refute_re("no NS read of the SPM's peripheral ever returned (console)", "periph probe LEAKED"))
+        return out
+    if block == "hw_sp_fault":
+        addr = "{L3_SPM_RAM}" if ctx.name == "crossdomain" else "{L3_VAULT_BAND}"
+        return [word("the partition faulted on the out-of-domain read", "sym.g_tasklet_fault_count", ge="00000001"),
+                word("the denied read targeted the band under test", "sym.g_last_fault_address", eq=addr)]
+    if block == "hw_sp_guests":
+        if k0 == "baremetal":
+            return _hw_guest_lifecycle(ctx, 0) + _hw_guest_lifecycle(ctx, 1)
+        return []
+    if block == "hw_authneg":
+        out = [word("the monitor quarantined the tampered guest", "sym.g_wt_quarantine_events", ge="00000001")]
+        if k0 == "baremetal":
+            out += [word("the tampered guest0 never wrote its mailbox", "g0.sig", eq="00000000")]
+            out += _hw_masks("00000002", "00000001") + _hw_guest_lifecycle(ctx, 1)
+        else:
+            out += [refute_re("the tampered guest0 never entered its domain", re.escape(ctx.g0["started"])),
+                    expect("guest1 mediated crypto still live", ctx.g1["sha"])]
+        return out
+    if block == "hw_wrpoff":
+        # An image that verifies no guest may have the verified mask dropped by the linker.
+        out = [word("launch-refused guest mask 0x3", "sym.g_wt_launch_refused_mask", eq="00000003"),
+               word("no guest was launch-verified", "sym.g_wt_launch_verified_mask", eq="00000000",
+                    absent_ok=True)]
+        if k0 == "baremetal":
+            out += [word("guest0 never entered its domain (mailbox blank)", "g0.sig", eq="00000000"),
+                    word("guest1 never entered its domain (mailbox blank)", "g1.sig", eq="00000000")]
+        else:
+            out += [refute_re("no guest entered its domain", "|".join(re.escape(x) for x in (ctx.g0["started"], ctx.g1["started"])))]
+        return out
+    if block == "hw_wrpoff_fence":
+        return [word("XSPI SFP configuration valid and sealed until reset", "fence.sfp_sealed", eq="00000001"),
+                word("no FRAD fences the guest windows (unfenced first stage)", "fence.armed", eq="00000000")]
+    if block == "hw_confboot":
+        return [expect("Arm suite TOTAL TESTS : 89", "TOTAL TESTS     : 89"),
+                expect("Arm suite TOTAL PASSED : 85", "TOTAL PASSED    : 85"),
+                expect("Arm suite TOTAL SKIPPED : 4", "TOTAL SKIPPED   : 4"),
+                expect("Arm suite TOTAL FAILED : 0", "TOTAL FAILED    : 0"),
+                expect("ACS run completed", "END OF ACS")]
+    if block == "hw_devsuite":
+        if ctx.name == "devcrypto":
+            return [totals("dev_apis crypto (77 scheduled; c047 CMAC config-skipped)", failed=0, scheduled=77)]
+        return [totals("dev_apis storage (17 scheduled)", failed=0, scheduled=17)]
+    if block == "hw_devattest":
+        return [totals("dev_apis initial_attestation (1 passed)", passed=1, failed=0)]
+    if block == "hw_vaultrecover":
+        # The crypto schedule as recorded on the Nucleo: 64 pass, none fail.
+        return [totals("crypto suite green after self-heal", passed=64, failed=0),
+                word("unlocked lifecycle: vault self-healed", "sym.g_vault_reformatted", eq="00000001")]
+    if block == "hw_vaultrecoversec":
+        return [word("SECURED lifecycle: failed closed, no trap", "sym.g_wt_attest_degraded", eq="00000001"),
+                word("SECURED lifecycle: vault not reformatted", "sym.g_vault_reformatted", eq="00000000")]
+    if block == "hw_panic":
+        out = [word("the partition panicked on its first entry", "sym.g_tasklet_fault_count", ge="00000001"),
+               word("the panic took the UNDEFINSTR trap", "sym.g_tasklet_fault_cfsr", mask="00010000", eq="00010000")]
+        if k0 == "zephyr":
+            out.append(word("client unblocked; lifecycle completed minus the panicked leg (0xFB)",
+                            "g0sym.g_guest0_lifecycle", mask="000000ff", eq="000000fb"))
+        return out
+    if block == "hw_hsmattack":
+        return [word("IAK sign and NVM read refused, own namespace works", "g0sym.g_hsm_attack_probe",
+                     mask="00000007", eq="00000007")]
+    if block == "hw_bootupdate":
+        return [word("boot slot holds v2 after the swap", "bootslot.measurement", eq="{v2_measurement}"),
+                word("the pre-update v1 image was swapped out of the boot slot", "bootslot.measurement", ne="{expected_measurement}")]
+    if block == "hw_vnetneg":
+        return [word("the vnet partition faulted on both probes", "sym.g_tasklet_fault_count", ge="00000002"),
+                expect("guest0 alive through the quarantine", "vnet-guest0: alive"),
+                expect("guest1 alive through the quarantine", "vnet-guest1: alive"),
+                expect("mediated ping completes after both restarts", "ping reply from 10.0.0.2")]
+    if block == "hw_fpneg":
+        return [word("the relay faulted on the FP instruction", "sym.g_tasklet_fault_count", ge="00000001"),
+                word("the fault took the NOCP trap on silicon", "sym.g_tasklet_fault_cfsr", mask="00080000", eq="00080000")]
+    if block == "hw_busfault":
+        return [word("the relay took the contained fault", "sym.g_tasklet_fault_count", ge="00000001"),
+                word("the fault was a precise BusFault with BFAR", "sym.g_tasklet_fault_cfsr", mask="00008200", eq="00008200"),
+                word("BFAR names the probe's bus-error window", "sym.g_last_fault_address", eq="300a0000")]
+    if block == "hw_xnneg":
+        return [word("privileged execution from SPM RAM faulted (IACCVIOL)", "sym.g_wt_spm_fault_cfsr", mask="00000001", eq="00000001"),
+                word("the faulting fetch was inside SPM RAM", "sym.g_wt_spm_fault_pc", lo="{L3_SPM_RAM}", hi="{L3_VAULT_BAND}"),
+                refute_re("no guest ran after the halt", "|".join(re.escape(x) for x in (ctx.g0["started"], ctx.g1.get("heartbeat", ctx.g1["started"]))))]
+    if block == "hw_mspovf":
+        return [word("main-stack overflow raised STKOF against MSPLIM_S", "sym.g_wt_spm_fault_cfsr", mask="00100000", eq="00100000"),
+                refute_re("no guest ran after the halt", "|".join(re.escape(x) for x in (ctx.g0["started"], ctx.g1.get("heartbeat", ctx.g1["started"]))))]
+    if block == "hw_seal":
+        return [word("the switch-time seal check detected the tamper", "sym.g_wt_seal_violation", eq="fef5eda5"),
+                word("the offending partition took the contained fault", "sym.g_tasklet_fault_count", ge="00000001")]
+    if block == "hw_fenced":
+        return [word("XSPI SFP configuration valid and sealed until reset", "fence.sfp_sealed", eq="00000001"),
+                word("a locked, write-denying FRAD spans the guest windows", "fence.armed", eq="00000001")] +                _hw_masks("00000003", "00000000") + _hw_guest_lifecycle(ctx, 0) + _hw_guest_lifecycle(ctx, 1)
+    if block == "hw_fence_selftest":
+        return [word("wolfBoot's flash-protect selftest ran to completion", "pst.0", eq="50510002"),
+                word("the boot-root erase returned the FRAD check error", "pst.3", eq="{pst_4}"),
+                word("the erase in the guest fence returned the FRAD check error", "pst.9", eq="{pst_4}"),
+                word("the guest-fence block is unchanged", "pst.11", eq="505150aa")]
+    if block == "hw_entry_mask":
+        return [word("each due tick was held to the FF-M entry's exit, none nested", "g0.probe", eq="4d41534b")]
+    if block == "hw_handler_irq":
+        return _hw_guest_lifecycle(ctx, 1) + [
+            word("guest0 never got past its IRQ handler", "g0.status", ne="600d600d"),
+            word("guest0 spent its restart budget and was quarantined", "sym.g_wt_quarantine_events", ne="00000000"),
+            word("guest0's abandoned IRQ is no longer active (IABR2 bit 0 clear)", "cpu.iabr2", mask="00000001", eq="00000000"),
+            advancing("guest1 keeps taking its PendSV after guest0's overruns", "g1.beat")]
+    if block == "hw_romsmoke":
+        return [word("ROM booted the XIP image: marker RT00", "smoke.marker", eq="52543030"),
+                advancing("smoke loop alive: counter advances", "smoke.counter"),
+                word("PC inside the XIP image", "cpu.pc", lo="28004000", hi="28100000")]
+    if block == "hw_nsmask":
+        return [word("guest0 holds PRIMASK, FAULTMASK and BASEPRI 0x10", "g0sym.g_wt_ns_mask_state", eq="00001003"),
+                advancing("guest1 keeps running beside the masked guest0", "g1sym.g_guest1_heartbeats"),
+                advancing("guest0 still gets its own slices", "g0sym.g_wt_ns_mask_spins"),
+                word("the masked guest0 was never restarted", "sym.g_wt_restart_events", eq="00000000")]
+    if block == "hw_nsbusfault":
+        return [word("BusFault BFAR names the Non-secure hole", "sym.g_last_fault_address", eq="4c000000")] +                _hw_quarantined(ctx, "")
+    if block == "hw_writeonce":
+        return [word("the first boot sealed the WRITE_ONCE object (stage 1)", "g0sym.g_write_once_stage@boot1", eq="00000001"),
+                word("the object survived the reset and refused set/remove (stage 2)", "g0sym.g_write_once_stage@boot2", eq="00000002")]
+    if block == "mcxn_secure_side":
+        return [word("ROM flash API reached from the SVC gate, last status 0", "sym.g_wt_rom_flash_last_status", eq="00000000"),
+                word("wolfHSM flash backend last error 0", "sym.g_wt_flash_last_error", eq="00000000"),
+                word("the ELS served every RND_REQ", "sym.g_wt_els_errors", eq="00000000"),
+                word("the vault's first state phrase is programmed", "nvm.phrase", ne="ffffffff"),
+                word("an erased phrase reads as 0xFF through the bus", "nvm.blank", eq="ffffffff"),
+                word("wolfBoot's handoff record was consumed and cleared", "mem.handoff", eq="00000000"),
+                word("system still scheduling (IPSR not a fault handler)", "cpu.ipsr_fault", eq="00000000"),
+                word("wolfBoot handed OEM_OPEN as PSA ASSEMBLY_AND_TEST", "handoff.lifecycle", eq="00001000")]
+    return block_checks(ctx, block, "idle")
+
+
+BLOCK_CAPS = {"boot_console": ("boot_console",), "trace": ("prot_trace",),
+              "hw_wrpoff_fence": ("guest_fence",),
+              "hw_chain": ("hw_console", "boot_console"), "hw_no_faults": ("hw_console",),
+              "hw_no_escalation": ("hw_console",), "hw_confboot": ("hw_console",),
+              "hw_devsuite": ("hw_console",), "hw_devattest": ("hw_console",),
+              "hw_vnetneg": ("hw_console",), "vnet": ("hw_console",)}
+
+
+def hardware_caps_absent(port):
+    out = dict(caps_absent(port))
+    out.update(PORTS[port]["def"].get("hardware", {}).get("caps_absent", {}))
+    return out
+
+
+def plan(port, scenario, engine="native", env="emulator"):
     r = resolve(port, scenario, engine)
-    blocks = ["end", "boot_console"] + list(r["blocks"])
-    if r["trace"]:
-        blocks.append("trace")
-    absent = caps_absent(port)
+    row = SCENARIOS[r["scenario"]]
+    if env == "hardware":
+        # A bare-metal breakpoint with no debugger would fault on silicon.
+        r["guest_flags"] = " ".join(f for f in r["guest_flags"].split()
+                                    if f != "WT_M33MU_EXPECT_BKPT=1")
+        r["secure"] = (r["secure"] + " " + row["hw_secure"]).strip()
+        extra = list(PORTS[port]["def"].get("hardware", {}).get("extra_blocks", []))
+        blocks = ["hw_chain"] + list(row["hw_blocks"]) + extra
+        absent = hardware_caps_absent(port)
+        r["missing"] = [c for c in row["hw_requires"] if c in absent]
+        r["trace"] = ""
+    else:
+        blocks = ["end", "boot_console"] + list(r["blocks"])
+        if r["trace"]:
+            blocks.append("trace")
+        absent = caps_absent(port)
     applicable = []
     na = []
     for b in blocks:
@@ -1006,6 +1348,7 @@ def plan(port, scenario, engine="native"):
             applicable.append(b)
     r["applicable"] = applicable
     r["na"] = na
+    r["env"] = env
     return r
 
 
@@ -1016,12 +1359,25 @@ def read(path):
         return handle.read().decode("utf-8", "replace")
 
 
-PLACEHOLDER = re.compile(r"\{([a-z][a-z_0-9]*)\}")
+PLACEHOLDER = re.compile(r"\{([A-Za-z][A-Za-z_0-9]*)\}")
+HEX8 = re.compile(r"^[0-9a-f]{8}([0-9a-f]{56})?$")
+
+
+def describe_word(check, judge):
+    parts = []
+    for key in ("eq", "ne", "ge", "lo", "hi"):
+        if check[key] is not None:
+            parts.append("%s 0x%s" % (key, judge.sub(check[key])))
+    if check["mask"]:
+        parts.append("mask 0x%s" % judge.sub(check["mask"]))
+    if check["in"] is not None:
+        parts.append("one of %s" % " ".join(check["in"]))
+    return ", ".join(parts)
 
 
 def substitute(text, var):
     """{name} placeholders from the runner's variables; a regex quantifier
-    such as {6} is not a name and stays."""
+    such as {6} starts with a digit, is not a name and stays."""
     return PLACEHOLDER.sub(lambda m: var.get(m.group(1), m.group(0)), text)
 
 
@@ -1063,6 +1419,12 @@ def conf_totals(text):
     return out
 
 
+def interleaved(text, needle):
+    """Guests sharing a board UART can splice a burst into a marker, so a
+    hardware console accepts its words with bounded fragments between them."""
+    return re.search(".{0,160}".join(re.escape(w) for w in needle.split(" ")), text, re.S) is not None
+
+
 class Judge(object):
     def __init__(self, ctx, logs):
         self.ctx = ctx
@@ -1088,6 +1450,48 @@ class Judge(object):
             self.lines.append("  [check] FAIL  %s  (%s)" % (desc, why))
         return ok
 
+    def words(self):
+        if "swd" not in self.logs:
+            raise SystemExit("no SWD evidence was given")
+        out = {}
+        for line in self.logs["swd"].splitlines():
+            key, sep, value = line.partition("=")
+            if sep:
+                out[key.strip()] = value.strip().lower()
+        return out
+
+    def run_word(self, check):
+        words = self.words()
+        desc = check["desc"]
+        if check["op"] == "advancing":
+            a = words.get(check["key"] + "@0")
+            b = words.get(check["key"] + "@1")
+            if a is None or b is None or not HEX8.match(a) or not HEX8.match(b):
+                return self.report(False, desc, "no two readings of %s" % check["key"])
+            return self.report(a != b, "%s (0x%s -> 0x%s)" % (desc, a, b), "did not move")
+        value = words.get(check["key"])
+        if value is None:
+            return self.report(False, desc, "no SWD word %s" % check["key"])
+        if value == "absent" and check.get("absent_ok"):
+            return self.report(True, "%s (symbol absent from this image)" % desc)
+        if not HEX8.match(value):
+            return self.report(False, desc, "malformed SWD word %s=%s" % (check["key"], value))
+        n = int(value, 16)
+        if check["mask"]:
+            n &= int(self.sub(check["mask"]), 16)
+        ok = True
+        if check["eq"] is not None:
+            ok = ok and n == int(self.sub(check["eq"]), 16)
+        if check["ne"] is not None:
+            ok = ok and n != int(self.sub(check["ne"]), 16)
+        if check["ge"] is not None:
+            ok = ok and n >= int(self.sub(check["ge"]), 16)
+        if check["lo"] is not None:
+            ok = ok and int(self.sub(check["lo"]), 16) <= n < int(self.sub(check["hi"]), 16)
+        if check["in"] is not None:
+            ok = ok and n in [int(x, 16) for x in check["in"]]
+        return self.report(ok, "%s (0x%s)" % (desc, value), "want %s" % describe_word(check, self))
+
     def run(self, check):
         op = check["op"]
         if op == "info":
@@ -1100,6 +1504,8 @@ class Judge(object):
                     self.lines.append("  [check] PASS  %s (%s)" % (check["desc"], option[0]["desc"]))
                     return True
             return self.report(False, check["desc"], "no option held")
+        if op in ("word", "advancing"):
+            return self.run_word(check)
         if op == "status":
             got = int(self.ctx.var.get(check["var"], "-1"))
             return self.report(got in check["accept"], check["desc"], "got status %d" % got)
@@ -1146,7 +1552,8 @@ class Judge(object):
         text = self.text(check["where"])
         if op == "expect":
             needle = self.sub(check["text"])
-            return self.report(needle in text, check["desc"], "missing: %s" % needle)
+            ok = needle in text or (self.ctx.env == "hardware" and interleaved(text, needle))
+            return self.report(ok, check["desc"], "missing: %s" % needle)
         if op == "expect_n":
             needle = self.sub(check["text"])
             n = count_text(text, needle)
@@ -1179,7 +1586,7 @@ class Judge(object):
 
 
 def judge(port, scenario, env, logs, var, engine="native"):
-    p = plan(port, scenario, engine)
+    p = plan(port, scenario, engine, env)
     ctx = Ctx(port, p["scenario"], env, p["guests"], var)
     j = Judge(ctx, logs)
     for block, why in p["na"]:
@@ -1187,9 +1594,25 @@ def judge(port, scenario, env, logs, var, engine="native"):
     for block in p["applicable"]:
         if block == "trace":
             var["trace_kind"] = p["trace"]
-        for check in block_checks(ctx, block, p["end"]):
+        if env == "hardware":
+            checks = hw_block_checks(ctx, block)
+        else:
+            checks = block_checks(ctx, block, p["end"])
+        for check in checks:
             j.run(check)
     return j
+
+
+def hardware_tiers(port):
+    """The hardware scenarios a port runs: the minimum every board runs, the
+    qualification extras that gate a merge, and the opt-in board-only set."""
+    hw = PORTS[port]["def"].get("hardware", {})
+    absent = hardware_caps_absent(port)
+    minimum = [s for s in HARDWARE_MINIMUM
+               if not any(c in absent for c in SCENARIOS[s]["hw_requires"])]
+    return {"smoke": minimum,
+            "qualification": minimum + list(hw.get("qualification", [])),
+            "optin": list(hw.get("optin", []))}
 
 
 # --------------------------------------------------------------- selftest --
@@ -1265,6 +1688,8 @@ def selftest():
                 gaps.append("%s lists unknown scenario %s" % (port, name))
         exempt = dict(m33mu.get("exempt", {}))
         for name in sorted(SCENARIOS):
+            if "emulator" not in SCENARIOS[name]["envs"]:
+                continue
             if name in run:
                 if name in exempt:
                     gaps.append("%s runs %s but still exempts it" % (port, name))
@@ -1278,6 +1703,28 @@ def selftest():
         for name in exempt:
             if name not in SCENARIOS:
                 gaps.append("%s exempts unknown scenario %s" % (port, name))
+        hw = PORTS[port]["def"].get("hardware", {})
+        absent_hw = hardware_caps_absent(port)
+        for cap in hw.get("caps_absent", {}):
+            if cap not in CAPABILITIES:
+                gaps.append("%s declares unknown hardware capability %s absent" % (port, cap))
+        for name in HARDWARE_MINIMUM:
+            if any(c in absent_hw for c in SCENARIOS[name]["hw_requires"]):
+                gaps.append("%s cannot run the minimum hardware scenario %s" % (port, name))
+        # The minimum is the contract; extras are the port's qualification
+        # and opt-in sets, never required of another port.
+        hw_run = set(hardware_tiers(port)["qualification"]) | set(hardware_tiers(port)["optin"])
+        for name in hw_run:
+            if name not in SCENARIOS or "hardware" not in SCENARIOS[name]["envs"]:
+                gaps.append("%s lists the unknown hardware scenario %s" % (port, name))
+            else:
+                try:
+                    p = plan(port, name, "native", "hardware")
+                    ctx = Ctx(port, name, "hardware", p["guests"], {"board": "X"})
+                    for block in p["applicable"]:
+                        hw_block_checks(ctx, block)
+                except SystemExit as exc:
+                    gaps.append("%s/%s (hardware): %s" % (port, name, exc))
         for name in run:
             for engine in ("native", "hsm"):
                 if engine in SCENARIOS[name]["engines"]:
@@ -1326,6 +1773,8 @@ def main():
     mode.add_argument("--asserts", action="store_true", help="the applicable blocks and their checks")
     mode.add_argument("--list", action="store_true", help="every scenario")
     mode.add_argument("--hardware-minimum", action="store_true")
+    mode.add_argument("--hardware-tier", choices=("smoke", "qualification", "optin"),
+                      help="the port's hardware scenarios of that tier")
     mode.add_argument("--selftest", action="store_true")
     mode.add_argument("--canonical", action="store_true", help="the canonical name of --scenario")
     sub = parser.add_subparsers(dest="cmd")
@@ -1334,6 +1783,7 @@ def main():
     j.add_argument("--trace-log")
     j.add_argument("--guest0-log")
     j.add_argument("--syms")
+    j.add_argument("--swd")
     j.add_argument("--var", action="append", default=[])
     args = parser.parse_args()
 
@@ -1342,6 +1792,11 @@ def main():
         return 0
     if args.hardware_minimum:
         print(" ".join(HARDWARE_MINIMUM))
+        return 0
+    if args.hardware_tier:
+        if args.port is None:
+            parser.error("--port is required")
+        print(" ".join(hardware_tiers(args.port)[args.hardware_tier]))
         return 0
     if args.selftest:
         gaps = selftest()
@@ -1355,7 +1810,7 @@ def main():
         return 0
     if args.port is None or args.scenario is None:
         parser.error("--port and --scenario are required")
-    p = plan(args.port, args.scenario, args.engine)
+    p = plan(args.port, args.scenario, args.engine, args.env)
     if args.shell:
         print(shell_plan(p))
         return 0
@@ -1366,8 +1821,10 @@ def main():
         for block in p["applicable"]:
             ctx.var["trace_kind"] = p["trace"]
             print("block %s" % block)
-            for check in block_checks(ctx, block, p["end"]):
-                print("  %s: %s" % (check["op"], check["desc"]))
+            checks = hw_block_checks(ctx, block) if args.env == "hardware" else block_checks(ctx, block, p["end"])
+            for check in checks:
+                key = " [%s]" % check["key"] if check["op"] in ("word", "advancing") else ""
+                print("  %s: %s%s" % (check["op"], check["desc"], key))
         return 0
     if args.cmd == "judge":
         var = {}
@@ -1383,6 +1840,8 @@ def main():
             logs["guest0"] = logs["log"]
         if args.syms:
             logs["syms"] = read(args.syms)
+        if args.swd:
+            logs["swd"] = read(args.swd)
         result = judge(args.port, args.scenario, args.env, logs, var, args.engine)
         print("\n".join(result.lines))
         return 1 if result.failures else 0

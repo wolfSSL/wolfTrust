@@ -33,6 +33,10 @@ PORT_NAME="STM32H563"
 CP="${STM32_CP:-$HOME/STMicroelectronics/STM32Cube/STM32CubeProgrammer/bin}"
 CLI="${STM32_CLI:-$CP/STM32_Programmer_CLI}"
 SERIAL="${H5_SERIAL:-/dev/ttyACM0}"
+# The bound ST-Link (WT_HW_PROBE); unset, CubeProgrammer's first probe.
+bind_probe H5_PROBE_SN
+SN=()
+[ -z "${H5_PROBE_SN:-}" ] || SN=("sn=$H5_PROBE_SN")
 
 # ST's NUCLEO-H563ZI ROT_Provisioning/DA sample. wolfTrust runs TZEN enabled,
 # so DA is certificate based (AN6008); a password OBK cannot regress the part.
@@ -60,8 +64,8 @@ DA_OBK="${WT_DA_OBK:-$DA_DIR/Binary/DA_Config.obk}"
 DA_PWD="${WT_DA_PWD:-$DA_DIR/Binary/password.bin}"
 DA_KEY="${WT_DA_KEY:-$DA_DIR/Keys/key_3_leaf.pem}"
 DA_CERT="${WT_DA_CERT:-$DA_DIR/Certificates/cert_leaf_chain.b64}"
-DA_CONN="-c port=SWD speed=fast ap=1 mode=Hotplug"
-DA_CONN_RST="-c port=SWD speed=fast ap=1 mode=Hotplug -hardRst"
+DA_CONN="-c port=SWD${H5_PROBE_SN:+ sn=$H5_PROBE_SN} speed=fast ap=1 mode=Hotplug"
+DA_CONN_RST="-c port=SWD${H5_PROBE_SN:+ sn=$H5_PROBE_SN} speed=fast ap=1 mode=Hotplug -hardRst"
 
 # The OEM-iRoT perimeter read from a known-good wolfTrust board. SECWM1_END
 # must span the whole boot partition, or writes past 0x08080000 are dropped.
@@ -71,7 +75,8 @@ WT_OB=(TZEN=0xB4 BOOT_UBE=0xB4 SWAP_BANK=0x0
 WRP_GUEST=0x000FFFFF; WRP_OPEN=0xFFFFFFFF
 PS_OPEN=0xED; PS_PROVISIONING=0x17
 
-WOLFBOOT=0x0C000000; WOLFTRUST=0x0C060000; GUEST0=0x080A0000; GUEST1=0x080E0000
+# The flash map of tests/target/ports/stm32h563/hw.sh, shared with the runner.
+WOLFBOOT=$HW_WOLFBOOT_ADDR; WOLFTRUST=$HW_SECURE_ADDR; GUEST0=$HW_GUEST0_ADDR; GUEST1=$HW_GUEST1_ADDR
 wb="$repo/wolfBoot/wolfboot.bin"
 wt="$repo/build/wolftrust_v1_signed.bin"
 g0="$repo/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
@@ -87,12 +92,15 @@ port_ladder() {
 EOF
 }
 
-port_usage_extra() {
+port_commands() {
   cat <<'EOF'
-  set-perimeter       set the wolfTrust TrustZone option bytes (writes)
-  set-wrp, clear-wrp  protect or release the guest flash (writes, Open only)
-  flash, verify       flash the images; reset and check the boot
-  provision-da        provision the DA OBK (writes, Provisioning only)
+set-perimeter write set the wolfTrust TrustZone option bytes
+set-wrp write protect the guest flash (Open only)
+clear-wrp write release the guest flash (Open only)
+flash write flash the images with verification
+verify read reset the board and check the boot
+provision-da write provision the DA OBK (Provisioning only)
+regress destructive full DA regression: mass-erase back to Open
 EOF
 }
 
@@ -102,7 +110,7 @@ strip() { sed -e 's/\x1b\[[0-9;]*[A-Za-z]//g'; }
 product_state() {
   local v
   for _ in 1 2 3; do
-    v="$("$CLI" -c port=SWD mode=HotPlug -ob displ 2>&1 | strip \
+    v="$("$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=HotPlug -ob displ 2>&1 | strip \
       | grep -iE "PRODUCT_STATE" | grep -oE "0x[0-9A-Fa-f]+" | head -1 || true)"
     case "$(printf '0x%02X' "$(( ${v:-0x100} ))")" in
       0xED|0x17|0x2E|0xC6|0x72|0x5C) hexstate "$v"; return 0 ;;
@@ -144,9 +152,7 @@ booted() {
     strip | grep -aqE "guest0_psa|heartbeat|TEE client"
 }
 
-flashed_images() {
-  printf '%s %s\n' "$WOLFBOOT" "$wb" "$WOLFTRUST" "$wt" "$GUEST0" "$g0" "$GUEST1" "$g1"
-}
+port_image_files() { printf '%s\n' "$wb" "$wt" "$g0" "$g1"; }
 port_image_digest() { framed_digest; }
 # The running chain hides guest flash from the debugger, so read under reset.
 images_on_device() {
@@ -156,8 +162,8 @@ images_on_device() {
     reads+=(-u "$a" "$(wc -c < "$f" | tr -d ' ')" "$wt_tmp/readback.$n.bin")
     n=$((n + 1))
   done < <(flashed_images)
-  "$CLI" -c port=SWD mode=UR "${reads[@]}" >/dev/null 2>&1 || rc=1
-  "$CLI" -c port=SWD mode=UR -rst >/dev/null 2>&1 || true
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=UR "${reads[@]}" >/dev/null 2>&1 || rc=1
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=UR -rst >/dev/null 2>&1 || true
   n=0
   while read -r a f; do
     [ "$rc" = 0 ] && cmp -s "$wt_tmp/readback.$n.bin" "$f" || rc=1
@@ -168,9 +174,9 @@ images_on_device() {
 # The 96-bit device UID (RM0481 UID_BASE): readable under reset in Open only.
 device_uid() {
   local u
-  u="$("$CLI" -c port=SWD mode=UR -r32 0x08FFF800 12 2>&1 | strip \
+  u="$("$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=UR -r32 0x08FFF800 12 2>&1 | strip \
     | awk '$1 == "0x08FFF800" { print $3 $4 $5 }')"
-  "$CLI" -c port=SWD mode=UR -rst >/dev/null 2>&1 || true
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=UR -rst >/dev/null 2>&1 || true
   case "$u" in
     ""|000000000000000000000000|ffffffffffffffffffffffff|FFFFFFFFFFFFFFFFFFFFFFFF) return 1 ;;
   esac
@@ -178,7 +184,7 @@ device_uid() {
 }
 # The perimeter and guest WRP option bytes this port sets, as NAME=value.
 ob_values() {
-  "$CLI" -c port=SWD mode=HotPlug -ob displ 2>&1 | strip \
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=HotPlug -ob displ 2>&1 | strip \
     | awk '$1 ~ /^(TZEN|BOOT_UBE|SWAP_BANK|SECWM[12]_(STRT|END)|WRPSGn1)$/ && $2 == ":" { print $1 "=" $3 }' \
     | sort || true
 }
@@ -243,29 +249,29 @@ da_refuse_sample() {
 set_perimeter() {
   echo "Setting wolfTrust OEM-iRoT perimeter: ${WT_OB[*]}"
   # TZEN first: an off-to-on flip mass-erases.
-  "$CLI" -c port=SWD mode=UR -ob TZEN=0xB4 2>&1 | strip | tail -3
-  "$CLI" -c port=SWD mode=UR -ob "${WT_OB[@]}" 2>&1 | strip | tail -4
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=UR -ob TZEN=0xB4 2>&1 | strip | tail -3
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=UR -ob "${WT_OB[@]}" 2>&1 | strip | tail -4
 }
 set_wrp() {
   [ "$(product_state || true)" = "$PS_OPEN" ] || fail "set-wrp" "WRP is settable only in Open"
   echo "Write-protecting guest flash (bank1 sectors 0x50-0x7F): WRPSGn1=$WRP_GUEST"
-  "$CLI" -c port=SWD mode=UR -ob WRPSGn1="$WRP_GUEST" 2>&1 | strip | tail -4
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=UR -ob WRPSGn1="$WRP_GUEST" 2>&1 | strip | tail -4
 }
 clear_wrp() {
   echo "Clearing guest-flash write protection: WRPSGn1=$WRP_OPEN"
-  "$CLI" -c port=SWD mode=UR -ob WRPSGn1="$WRP_OPEN" 2>&1 | strip | tail -4
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=UR -ob WRPSGn1="$WRP_OPEN" 2>&1 | strip | tail -4
 }
 flash_images() {
   local f
   rm -f "$state_dir/readback"
   for f in "$wb" "$wt" "$g0" "$g1"; do [ -s "$f" ] || fail "flash" "missing image: $f"; done
-  "$CLI" -c port=SWD mode=UR -d "$wb" "$WOLFBOOT" -d "$wt" "$WOLFTRUST" \
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=UR -d "$wb" "$WOLFBOOT" -d "$wt" "$WOLFTRUST" \
     -d "$g0" "$GUEST0" -d "$g1" "$GUEST1" --verify -hardRst 2>&1 | strip \
     | grep -iE "verified successfully|error|download" | tail -4
 }
 verify_boot() {
   uart_capture 8 "$wt_tmp/verify.log"
-  "$CLI" -c port=SWD mode=UR -rst >/dev/null 2>&1 || true
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=UR -rst >/dev/null 2>&1 || true
   sleep 7
   booted "$wt_tmp/verify.log" || fail "verify" "no wolfTrust boot markers on $SERIAL"
   pass "wolfTrust chain boots on silicon"
@@ -287,7 +293,7 @@ provision_da() {
 }
 
 port_status() {
-  "$CLI" -c port=SWD mode=HotPlug -ob displ 2>&1 | strip \
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=HotPlug -ob displ 2>&1 | strip \
     | grep -iE "PRODUCT_STATE|TZEN|BOOT_UBE|SECWM|SECBOOT|WRPSGn1" | head -20
 }
 port_discover() {
@@ -297,12 +303,12 @@ port_discover() {
 port_restore() { set_perimeter; clear_wrp; flash_images; set_wrp; verify_boot; }
 port_extra() {
   case "$1" in
-    set-perimeter) confirm; set_perimeter ;;
-    set-wrp) confirm; set_wrp ;;
-    clear-wrp) confirm; clear_wrp ;;
-    flash) confirm; flash_images ;;
+    set-perimeter) set_perimeter ;;
+    set-wrp) set_wrp ;;
+    clear-wrp) clear_wrp ;;
+    flash) flash_images ;;
     verify) verify_boot ;;
-    provision-da) confirm; provision_da ;;
+    provision-da) provision_da ;;
     *) return 1 ;;
   esac
 }
@@ -341,7 +347,7 @@ port_advance() {
   echo "ADVANCING product state $(product_state || echo '?') -> $1 (regress is the only way back)"
   uart_capture 12 "$wt_tmp/advance.log"
   # The CLI fails its post-write reconnect once debug closes; the read-back decides.
-  "$CLI" -c port=SWD mode=HotPlug -ob PRODUCT_STATE="$1" 2>&1 | strip | tail -4 || true
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=HotPlug -ob PRODUCT_STATE="$1" 2>&1 | strip | tail -4 || true
   sleep 10
   echo "now: $(product_state || da_lifecycle || true)"
 }
@@ -366,8 +372,8 @@ port_regress() {
   local after uid
   rm -f "$state_dir/readback" "$state_dir/da-provisioned"
   echo "DA certificate Full Regression -> Open (mass-erase):"
-  "$CLI" -c port=SWD mode=HotPlug -rst 2>&1 | strip | tail -1 || true
-  "$CLI" -c port=SWD per=a key="$DA_KEY" cert="$DA_CERT" pwd="$DA_PWD" \
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=HotPlug -rst 2>&1 | strip | tail -1 || true
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} per=a key="$DA_KEY" cert="$DA_CERT" pwd="$DA_PWD" \
     debugauth=1 </dev/null 2>&1 | strip | tail -4
   after="$(product_state || true)"
   echo "state after regression: ${after:-unreadable}"
@@ -427,7 +433,7 @@ port_ready() {
   fi
   CHECKED="$CHECKED, DA provisioned with the rehearsed credentials"
 }
-port_lock_plan() { echo "$CLI -c port=SWD mode=HotPlug -ob PRODUCT_STATE=$1"; }
+port_lock_plan() { echo "$CLI -c port=SWD${H5_PROBE_SN:+ sn=$H5_PROBE_SN} mode=HotPlug -ob PRODUCT_STATE=$1"; }
 port_consequence() {
   case "$1" in
     0x5C) echo "debug closes for good, no regression or mass erase, and only a wolfBoot-signed update can change the firmware." ;;
@@ -436,7 +442,7 @@ port_consequence() {
 }
 port_lock_write() {
   uart_capture 12 "$wt_tmp/lock.log"
-  "$CLI" -c port=SWD mode=HotPlug -ob PRODUCT_STATE="$1" 2>&1 | strip | tail -4 || true
+  "$CLI" -c port=SWD ${SN[@]+"${SN[@]}"} mode=HotPlug -ob PRODUCT_STATE="$1" 2>&1 | strip | tail -4 || true
   sleep 10
 }
 port_lock_verify() {

@@ -33,6 +33,7 @@ fi
 
 PORT_NAME="MCXN947"
 target_dir="$here/.."
+bind_probe MCXN947_PROBE_UID
 pyocd_target="${MCXN947_TARGET:-mcxn947vdf}"
 spsdk_venv="${MCXN947_SPSDK_VENV:-$HOME/spsdk-venv}"
 # Set here, not in a helper: the controller runs many port calls in subshells.
@@ -85,14 +86,18 @@ port_ladder() {
 0x1F oem-field-return yes no  permanent 0x0F
 EOF
 }
-port_usage_extra() {
+port_commands() {
   cat <<'EOF'
-  verify-wrp          report the guest flash fence (none on this port yet)
-  verify-pages        re-read the CMPA and CFPA pages and compare them with the last lock preview
+verify-wrp read report that this port has no guest flash fence
+verify-pages read read the PFR pages back and compare them with the lock preview
+provision-da refused this port rehearses life cycles and writes none of them
+burn refused this port rehearses life cycles and writes none of them
+set-perimeter refused wolfTrust programs the perimeter on every boot
+set-wrp refused the port has no guest flash fence yet
+clear-wrp refused the port has no guest flash fence yet
 EOF
 }
 
-lc_hex() { printf '0x%02X' $(( $1 & 0xFF )); }
 # SPSDK's fuse map name for a life cycle code (nxpfuses LIFECYCLE[7:0]).
 fuse_lc_name() {
   case "$1" in
@@ -149,21 +154,6 @@ read_page() {
     [ -f "$2" ] && [ "$(wc -c < "$2" | tr -d ' ')" = "$PFR_PAGE_SIZE" ]
 }
 page_digest() { sha256 < "$1" | cut -c1-64; }
-psa_name() {
-  case "$1" in
-    00001000) echo "ASSEMBLY_AND_TEST" ;; 00002000) echo "PSA_ROT_PROVISIONING" ;;
-    00003000) echo "SECURED" ;; 00004000) echo "NON_PSA_ROT_DEBUG" ;;
-    00005000) echo "RECOVERABLE_PSA_ROT_DEBUG" ;; 00006000) echo "DECOMMISSIONED" ;;
-    *) echo "UNKNOWN" ;;
-  esac
-}
-# The PSA life cycles wolfTrust may report while the life cycle is $1.
-expect_psa() {
-  case "$1" in
-    0x03) echo "00001000" ;; 0x07) echo "00002000" ;;
-    0x0F|0xCF) echo "00003000 00004000 00005000" ;; 0x1F) echo "00006000" ;;
-  esac
-}
 # The PSA life cycle the mock hands wolfTrust for state $1: the production
 # value, with debug closed, which only a fused part can show on its own.
 mock_psa() {
@@ -171,44 +161,13 @@ mock_psa() {
     0x07) echo 0x2000 ;; 0x0F|0xCF) echo 0x3000 ;; 0x1F) echo 0x6000 ;;
   esac
 }
-# The life cycle fused when discover ran.
-fused_lc() {
-  local w
-  w="$(sed -n 's/^LC=\(0x[0-9A-Fa-f]*\) .*/\1/p' "$state_dir/discovery" 2>/dev/null)"
-  [ -n "$w" ] && lc_hex "$w"
-}
-elf_sym() { arm-none-eabi-nm "$elf" | awk -v s="$1" '$3 == s && !f { print "0x" $1; f = 1 }'; }
-# Both launch masks as "verified refused", or failure when the image leaves one
-# out (a WT_GUEST_FLASH_WRP=1 build drops the verified mask): a bare read32 stops pyOCD.
-launch_masks() {
-  local vm rf
-  vm="$(elf_sym g_wt_launch_verified_mask)"; rf="$(elf_sym g_wt_launch_refused_mask)"
-  [ -n "$vm" ] && [ -n "$rf" ] || return 1
-  read_words "$vm" "$rf" | tr '\n' ' '; echo
-}
-# The life cycle wolfBoot handed wolfTrust: the raw handoff record while it is
-# intact, else wolfTrust's consumed copy.
-handoff_lifecycle() {
-  local magic inv lc sym
-  read -r magic inv lc < <(read_words "$HANDOFF" $((HANDOFF + 4)) $((HANDOFF + 12)) | tr '\n' ' '; echo)
-  if [ "${magic:-}" = "5742484f" ] && [ $((0x$magic ^ 0x${inv:-0})) -eq $((0xFFFFFFFF)) ]; then
-    echo "$lc"
-    return 0
-  fi
-  [ -s "$elf" ] || return 1
-  sym="$(elf_sym g_boot_lifecycle)"
-  [ -n "$sym" ] || return 1
-  read_words "$sym"
-}
 # The four images the chain flashes, as "address file" lines (physical
 # offsets; wolfBoot at 0, the BOOT partition and both guest windows), the
 # ones run_hardware.sh builds and flashes.
-flashed_images() {
-  printf '%s %s\n' \
-    0x00000000 "$wolfboot_dir/wolfboot.bin" \
-    0x00040000 "$repo/build/wolftrust_v1_signed.bin" \
-    0x00080000 "$repo/tests/firmware/baremetal-guest/build/guest0.bin" \
-    0x00100000 "$repo/tests/firmware/baremetal-guest/build/guest1.bin"
+port_image_files() {
+  printf '%s\n' "$wolfboot_dir/wolfboot.bin" "$repo/build/wolftrust_v1_signed.bin" \
+    "$repo/tests/firmware/baremetal-guest/build/guest0.bin" \
+    "$repo/tests/firmware/baremetal-guest/build/guest1.bin"
 }
 port_image_digest() { framed_digest; }
 images_on_device() {

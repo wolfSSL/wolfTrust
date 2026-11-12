@@ -194,6 +194,7 @@ with it can never be updated; a leaked one means they trust whoever holds it.
 | Variable | Meaning |
 | --- | --- |
 | `TARGET` | the port: `stm32h563` (default), `mimxrt700`, or `mcxn947` |
+| `WT_HW_PROBE` | the debug probe to bind when the host has more than one; the hardware runner reads the same name |
 | `WT_LOCK_CONFIRM=1` | allow a board write; without it `lock` only previews |
 | `WT_PRODUCTION_LOCK=1` | marks a production station; `lock` never writes without it |
 | `WT_FIXTURE_BOUND=1` | the fixture holds one part from rehearsal to lock; needed where the part's identity cannot be read |
@@ -218,14 +219,25 @@ that answers device questions through a fixed set of functions:
 | `port_image_digest`, `port_cred_fp`, `port_record_ok` | what binds a rehearsal to these images, credentials, and part |
 | `port_rehearsal_for`, `port_ready` | which rehearsals count, and the port's provisioned-first checks |
 | `port_lock_plan`, `port_lock_write`, `port_lock_verify`, `port_consequence` | the permanent write: preview, do, read back, and what it costs |
-| `port_usage_extra`, `port_extra` | device-only commands |
+| `port_commands`, `port_extra` | device-only commands: a table of name, class and summary, and their bodies |
+| `port_image_files` | the wolfBoot, Secure and guest images, flashed at the addresses of `tests/target/ports/<target>/hw.sh` |
 
 The gates, records, and prompts stay in `provisioning_ctrl.sh`, so a new port
-cannot weaken them.
+cannot weaken them. Every command a port adds carries a class: `read` runs
+without a gate, `write` needs `WT_LOCK_CONFIRM=1`, `destructive` needs it too
+and says what it destroys (the STM32H5 `regress` is a DA mass-erase; the NXP
+mock regressions rewrite RAM and are plain writes), and `refused` lets the
+port explain why a command has no form on its part. A command no port
+registers is refused by `provisioning_ctrl.sh` itself, and a port that
+implements no permanent write inherits a `port_lock_write` that refuses.
+The helpers every port shares (the PSA life cycle names, the Secure image's
+symbols, wolfBoot's handoff record, the launch masks and the flashed image
+list) live in `tests/target/provisioning/lib/provision_common.sh`.
 
 ## Testing
 
 `make test` runs `make test-provisioning`: every gate of the three ports
 against stub vendor tools, from the generic refusals to the typed acceptance.
 Nothing touches a board; the typed-acceptance cases need `expect` and skip
-without it.
+without it, unless `WT_REQUIRE_EXPECT=1` is set: then a skipped typed group
+fails. The `docker/wolftrust-ci` image installs `expect` and sets it.

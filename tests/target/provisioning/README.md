@@ -19,7 +19,8 @@ How to provision a device, generically and per port, is in
 | File | Role |
 | --- | --- |
 | `provisioning_ctrl.sh` | the only script you run: commands, rehearsal records, and every lock gate |
-| `provisioning_ctrl_<target>.sh` | a port: the device's states and how to read, mock, and write them |
+| `provisioning_ctrl_<target>.sh` | a port: the device's states, its commands and their classes, and how to read, mock, and write them |
+| `lib/provision_common.sh` | the helpers every port shares |
 | `test_provisioning_gates.sh` | offline tests of every gate against stub tools (`make test-provisioning`) |
 
 To add a port, copy a port file and implement its `port_*` functions; the

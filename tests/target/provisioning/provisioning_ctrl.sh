@@ -82,8 +82,26 @@ ports() {
 wt_tmp="$(mktemp -d "${TMPDIR:-/tmp}/wolftrust.XXXXXX")"
 trap 'rm -rf "$wt_tmp"' EXIT
 [ -f "$port_file" ] || refuse "no provisioning port for TARGET=$target (have: $(ports))"
+# shellcheck source=lib/provision_common.sh
+. "$here/lib/provision_common.sh"
+# A port that implements no permanent write refuses it instead of inheriting
+# a no-op; a port registers its device-only commands with their class.
+port_lock_write() { refuse "no $PORT_NAME lock write is implemented; nothing was changed."; }
+port_lock_verify() { refuse "no $PORT_NAME lock verification is implemented."; }
+port_commands() { :; }
+hw_profile_addresses
 # shellcheck source=provisioning_ctrl_stm32h563.sh
 . "$port_file"
+
+# The class of a port command: read (no gate), write (WT_LOCK_CONFIRM),
+# destructive (WT_LOCK_CONFIRM plus a notice of what it destroys), refused
+# (the port explains why it has no form here).
+command_class() { port_commands | awk -v c="$1" '$1 == c { print $2; exit }'; }
+command_summary() { port_commands | awk -v c="$1" '$1 == c { $1 = ""; $2 = ""; sub(/^  /, ""); print; exit }'; }
+destructive_note() {
+  [ "$(command_class "$1")" = "destructive" ] || return 0
+  echo "DESTRUCTIVE: $1: $(command_summary "$1")" >&2
+}
 
 # The port's ladder: "code name mock lock permanence from-codes" per line.
 ladder_line() {
@@ -119,7 +137,7 @@ usage: TARGET=$target $0 <command> [state]
   lock <state>        real: make the next step permanent; previews unless
                       WT_LOCK_CONFIRM=1, writes only with WT_PRODUCTION_LOCK=1
                       and a typed "I ACCEPT <state>"
-$(port_usage_extra)
+$(port_commands | awk '{ n = $1; c = $2; $1 = ""; $2 = ""; sub(/^  /, ""); printf "  %-19s %s (%s)\n", n, $0, c }')
 $PORT_NAME states (code name; mock; lock; permanence; from):
 $(port_ladder | awk '{ printf "  %-6s %-18s mock=%-3s lock=%-3s %-10s from %s\n", $1, $2, $3, $4, $5, $6 }')
 EOF
@@ -161,6 +179,7 @@ case "$cmd" in
 
   regress)
     confirm
+    destructive_note regress
     PENDING="$(cat "$state_dir/pending" 2>/dev/null || true)"
     rm -f "$state_dir/pending"
     REGRESS_EXTRA=""
@@ -242,6 +261,15 @@ case "$cmd" in
     ;;
 
   *)
-    port_extra "$cmd" "$@" || { usage >&2; exit 2; }
+    class="$(command_class "$cmd")"
+    [ -n "$class" ] ||
+      refuse "'$cmd' is not a $PORT_NAME command (have: status discover restore advance regress lock $(port_commands | awk '{ printf "%s ", $1 }'))."
+    case "$class" in
+      read|refused) ;;
+      write) confirm ;;
+      destructive) confirm; destructive_note "$cmd" ;;
+      *) refuse "port_commands classes '$cmd' as '$class'; only read, write, destructive and refused exist." ;;
+    esac
+    port_extra "$cmd" "$@" || refuse "'$cmd' did not complete."
     ;;
 esac

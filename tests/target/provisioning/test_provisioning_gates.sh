@@ -35,8 +35,8 @@ echo wb > "$R/wolfBoot/wolfboot.bin"; echo wt > "$R/build/wolftrust_v1_signed.bi
 echo g0 > "$R/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
 echo g1 > "$R/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
 echo elf > "$R/build/wolftrust.elf"
-mkdir -p "$R/build/rt700" "$R/tests/firmware/baremetal-guest/build"
-echo rwb > "$R/build/rt700/flash_wolfboot.bin"
+mkdir -p "$R/logs/mimxrt700-hw/wrpfence-native" "$R/tests/firmware/baremetal-guest/build"
+echo rwb > "$R/logs/mimxrt700-hw/wrpfence-native/flash_wolfboot.bin"
 echo rg0 > "$R/tests/firmware/baremetal-guest/build/guest0.bin"
 echo rg1 > "$R/tests/firmware/baremetal-guest/build/guest1.bin"
 SD="$T/home/st-rot-h5/Projects/NUCLEO-H563ZI/ROT_Provisioning/DA"
@@ -50,6 +50,7 @@ mkdir -p "$T/flash"
 # STM32 CLI stub: state in $T/ps, $T/wrp; logs writes to $T/writes.
 cat > "$T/bin/stcli" <<EOF
 #!/usr/bin/env bash
+echo "\$*" >> $T/stcli_calls
 ps=\$(cat $T/ps)
 args=("\$@")
 for i in "\${!args[@]}"; do
@@ -126,6 +127,12 @@ printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v python3)" > "$T/venv/bin/python
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
 subst() { sed "s/$1/$2/" "$3" > "$3.tmp" && mv "$3.tmp" "$3"; }
 have_expect=0; command -v expect >/dev/null 2>&1 && have_expect=1
+# docker/wolftrust-ci sets WT_REQUIRE_EXPECT=1 with expect installed; the
+# images pinned before it carry neither, so there a missing expect is a skip.
+typed_skip() {
+  echo "skip $1 (no expect)"
+  if [ "${WT_REQUIRE_EXPECT:-0}" = "1" ]; then failn=$((failn+1)); echo "FAIL $1 needs expect (WT_REQUIRE_EXPECT=1)"; fi
+}
 # SPSDK stubs for the MCXN947 lock preview: pfr parses a page into a YAML
 # that names its source and exports that source back (a byte-true round
 # trip); nxpfuses writes the fuse script for the named life cycle; every
@@ -194,11 +201,23 @@ check "help lists the port's states" 0 "0x72   closed" -- "${H5[@]}" help
 check "a port file refuses to run alone" 2 "not this port file" -- bash "$R/tests/target/provisioning/provisioning_ctrl_stm32h563.sh" lock 0x72
 check "the other port file too" 2 "not this port file" -- bash "$R/tests/target/provisioning/provisioning_ctrl_mimxrt700.sh" lock 0x07
 check "unknown port"         2 "no provisioning port for TARGET=nope" -- env TARGET=nope "$P" help
+check "a port probe name naming another probe than WT_HW_PROBE is refused" 2 "name different probes" -- env WT_HW_PROBE=PROBEB H5_PROBE_SN=PROBEC "${H5[@]}" status
+check "the same refusal on the RT700" 2 "name different probes" -- env WT_HW_PROBE=PROBEB RT700_PROBE_UID=PROBEC TARGET=mimxrt700 WT_PROVISION_STATE="$T/st" "$P" status
+check "another port's probe name is not this port's concern" 0 "" -- env WT_HW_PROBE=PROBEB RT700_PROBE_UID=PROBEC MCXN947_PROBE_UID=PROBED "${H5[@]}" status
+: > "$T/stcli_calls"
+env WT_HW_PROBE=PROBEB "${H5[@]}" status >/dev/null 2>&1 || true
+if grep -q . "$T/stcli_calls" && ! grep -v -- "sn=PROBEB" "$T/stcli_calls" | grep -q .; then pass=$((pass+1)); echo "ok   every CubeProgrammer call of status carried the ST-Link serial"; else failn=$((failn+1)); echo "FAIL a CubeProgrammer call ignored WT_HW_PROBE: $(grep -v -- 'sn=PROBEB' "$T/stcli_calls" | head -2)"; fi
+: > "$T/stcli_calls"
+"${H5[@]}" status >/dev/null 2>&1 || true
+if grep -q . "$T/stcli_calls" && ! grep -q -- "sn=" "$T/stcli_calls"; then pass=$((pass+1)); echo "ok   without WT_HW_PROBE no serial is bound"; else failn=$((failn+1)); echo "FAIL a serial was bound without WT_HW_PROBE"; fi
 check "unknown state"        2 "unknown state '0x99'" -- "${H5[@]}" lock 0x99
 check "no state"             2 "unknown state ''" -- "${H5[@]}" lock
 check "start state is not a lock target" 2 "open (0xED) is not a lock target" -- "${H5[@]}" lock open
 check "permanent state has no mock" 2 "locked (0x5C) has no mock" -- env WT_LOCK_CONFIRM=1 "${H5[@]}" advance locked
 check "writes need WT_LOCK_CONFIRM" 2 "writes to the board" -- "${H5[@]}" advance 0x17
+check "a port write command needs WT_LOCK_CONFIRM" 2 "writes to the board" -- "${H5[@]}" set-wrp
+check "unknown command refused centrally" 2 "is not a STM32H563 command" -- "${H5[@]}" frobnicate
+check "help lists the port's commands with their class" 0 "provision-da .*(write)" -- "${H5[@]}" help
 nowrite
 
 echo "== STM32H563"
@@ -311,7 +330,7 @@ out="$(expect -c "set timeout 300; spawn $H5X lock 0x5C; expect \"to continue: \
 rc=$?; [ $rc = 0 ] && [ "$(cat "$T/writes")" = "PRODUCT_STATE=0x5C" ] && grep -q "STM32H563 is locked (0x5C)" <<<"$out" && [ ! -e "$HS/rehearsal-0x72" ] && { pass=$((pass+1)); echo "ok   Locked (stub) consumes the Closed rehearsal it used"; } || { failn=$((failn+1)); echo "FAIL Locked consume rc=$rc writes=$(cat "$T/writes")"; echo "$out" | tail -5; }
 : > "$T/writes"; echo 0x17 > "$T/ps"
 else
-  echo "skip typed confirmation tests (no expect)"
+  typed_skip "typed confirmation tests"
   rm -f "$HS"/rehearsal-*
 fi
 check "a consumed rehearsal cannot lock again" 2 "no rehearsal for" -- env "${PROD[@]}" "${H5[@]}" lock 0x5C
@@ -324,7 +343,7 @@ ISP=(RT700_ISP="-u 0x1fc9,0x014f")
 fuse() { echo "$2" > "$T/fuse.$(($1))"; }
 edig() {
   local a f
-  for a in 0x28000000:build/rt700/flash_wolfboot.bin 0x28040000:build/wolftrust_v1_signed.bin \
+  for a in 0x28000000:logs/mimxrt700-hw/wrpfence-native/flash_wolfboot.bin 0x28040000:build/wolftrust_v1_signed.bin \
            0x28080000:tests/firmware/baremetal-guest/build/guest0.bin \
            0x28100000:tests/firmware/baremetal-guest/build/guest1.bin; do
     f="$R/${a#*:}"; printf '%s %s\n' "${a%%:*}" "$(wc -c < "$f" | tr -d ' ')"; cat "$f"
@@ -335,6 +354,11 @@ rec() { mkdir -p "$RS"; echo "state=$1 run=r id=${6:-PROBEA} image=$3 fused=$2 f
 now() { date +%s; }
 rm -f "$T"/fuse.*; fuse 0x8F 0x03; fuse 0x25 0x03
 check "help lists the port's states" 0 "in-field-locked" -- "${RT[@]}" help
+check "unknown command refused centrally" 2 "is not a MIMXRT700 command" -- "${RT[@]}" frobnicate
+: > "$T/pyocd_calls"
+env WT_HW_PROBE=PROBEB "${RT[@]}" status >/dev/null 2>&1 || true
+if grep -qE '^(cmd|reset) ' "$T/pyocd_calls" && ! grep -E '^(cmd|reset) ' "$T/pyocd_calls" | grep -v -- "-u PROBEB" | grep -q .; then pass=$((pass+1)); echo "ok   every pyocd call of status carried the MCU-Link id"; else failn=$((failn+1)); echo "FAIL a pyocd call ignored WT_HW_PROBE: $(grep -E '^(cmd|reset) ' "$T/pyocd_calls" | grep -v -- '-u PROBEB' | head -2)"; fi
+: > "$T/pyocd_calls"
 for m in 0 0x0 0x4 0x7 junk; do
   check "RT700_GUEST_MASK=$m refused" 2 "RT700_GUEST_MASK must be" -- env RT700_GUEST_MASK="$m" WT_LOCK_CONFIRM=1 "${RT[@]}" advance 0x07
 done
@@ -411,7 +435,7 @@ out="$(expect -c "set timeout 300; spawn $RTX lock 0x07; expect \"to continue: \
 rc=$?; [ $rc = 1 ] && grep -q "batch failed part way" <<<"$out" && grep -q "fuses read LC 0x00000003, RED 0x00000007" <<<"$out" && { pass=$((pass+1)); echo "ok   a burn that fails part way still reads both words back"; } || { failn=$((failn+1)); echo "FAIL partial burn rc=$rc"; echo "$out" | tail -4; }
 rm -f "$T/batchfail" "$RS/rehearsal-0x07"; fuse 0x8F 0x07; fuse 0x25 0x07; : > "$T/writes"
 else
-  echo "skip typed burn tests (no expect)"; fuse 0x8F 0x07; fuse 0x25 0x07
+  typed_skip "typed burn tests"; fuse 0x8F 0x07; fuse 0x25 0x07
 fi
 check "the next step after the burn" 2 "runs only from in-field (0x0F)" -- env "${ISP[@]}" "${RT[@]}" lock in-field-locked
 rec 0x0F 0x07 "$(edig)" armed "$(now)"
@@ -467,6 +491,7 @@ check "discover stamps the life cycle and UUID" 0 "discovery stamped" -- "${MX[@
 check "advance past oem-secure-world needs a regress" 2 "prove 'regress' from oem-secure-world" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" advance 0x0F
 check "OTP writes refused" 2 "would program OTP" -- "${MX[@]}" burn
 check "perimeter commands refused" 2 "has no MCXN947 form" -- "${MX[@]}" set-wrp
+check "unknown command refused centrally" 2 "is not a MCXN947 command" -- "${MX[@]}" frobnicate
 check "restore runs the hardware runner bound to the probe" 0 "stub runner positive probe=PROBEA" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" restore
 # Three probes and no id: every device command refuses loudly, never a
 # silent empty read.

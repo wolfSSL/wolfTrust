@@ -505,8 +505,8 @@ static int wt_fwu_backend_verify(void *ctx, uint32_t staged_size,
      * to a phrase. */
     if (header_version == NULL ||
             staged_size < WT_FWU_IMAGE_HEADER_SIZE ||
-            staged_size > g_fwu_written_end ||
-            g_fwu_written_end - staged_size >= WT_FLASH_PHRASE_SIZE) {
+            !wt_fwu_staged_extent_ok(staged_size, g_fwu_written_end,
+                                     WT_FLASH_PHRASE_SIZE)) {
         return -1;
     }
     memcpy(&magic, hdr, sizeof(magic));

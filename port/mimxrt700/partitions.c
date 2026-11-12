@@ -22,6 +22,10 @@
 #include "wolftrust/guest_verify.h"
 #include "wolftrust/partition.h"
 #include "memory_map.h"
+#if defined(WT_HANDLER_IRQ_PROBE)
+#include "wolftrust/arch.h"
+#include "wolftrust/arch/armv8m/armv8m.h"
+#endif
 
 #include <string.h>
 
@@ -430,6 +434,18 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
             }
             config->irq_mask.words[word] |= (uint32_t)1U << bit;
         }
+#if defined(WT_HANDLER_IRQ_PROBE)
+#if WT_HANDLER_IRQ_PROBE < WT_ARMV8M_SECURE_IRQS || \
+    WT_HANDLER_IRQ_PROBE >= WT_MAX_IRQ_WORDS * 32
+#error "WT_HANDLER_IRQ_PROBE must be a spare IRQ outside the Secure range"
+#endif
+        /* Test build: guest0 owns one spare IRQ to wedge its handler in. */
+        if (i == 0U) {
+            config->irq_mask.words[WT_HANDLER_IRQ_PROBE / 32] |=
+                (uint32_t)1U << (WT_HANDLER_IRQ_PROBE % 32);
+            wt_arch_route_irq_to_guest((uint32_t)WT_HANDLER_IRQ_PROBE);
+        }
+#endif
         g_bound_exec_bases[i] = 0U;
         g_bound_exec_sizes[i] = 0U;
         for (size_t executable = 0U;

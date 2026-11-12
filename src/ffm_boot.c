@@ -298,6 +298,11 @@ int wt_ffm_boot_start_sched(void)
 #endif
     }
 #endif
+#if !defined(WT_SP_LAZY_FIRST_ENTRY)
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_sched_start_all();
+    }
+#endif
     return ret;
 }
 

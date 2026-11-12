@@ -701,10 +701,25 @@ static void wt_spm_fwu_entry(void* arg)
     }
 }
 
+static int wt_spm_fwu_restore(int32_t partition_id)
+{
+    (void)partition_id;
+    if (wt_fwu_restart_disarm(&wt_fwu_flash_backend, NULL) != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
+}
+
 int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
-    return wt_spm_sched_add(runtime, partition_id, wt_spm_fwu_entry,
-                            (void*)(intptr_t)partition_id);
+    int ret;
+
+    ret = wt_spm_sched_add(runtime, partition_id, wt_spm_fwu_entry,
+                           (void*)(intptr_t)partition_id);
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_sched_set_restore(partition_id, wt_spm_fwu_restore);
+    }
+    return ret;
 }
 
 #if defined(CONFIG_VNET)

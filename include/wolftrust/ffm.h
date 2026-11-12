@@ -125,6 +125,8 @@ struct wt_ffm_runtime {
     size_t partition_count;
     size_t service_count;
     uint32_t lifecycle;
+    /* Client whose Non-secure gateway entry is in flight, 0 when idle. */
+    volatile psa_client_id_t ns_entry_caller;
 };
 
 typedef enum wt_ffm_result {
@@ -184,8 +186,10 @@ int wt_ffm_close_begin(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
 int wt_ffm_msg_complete(const wt_ffm_runtime_t* runtime, uint16_t msg_index);
 int wt_ffm_fail_partition_messages(wt_ffm_runtime_t* runtime,
                                    int32_t partition_id, psa_status_t status);
-/* Releases every connection (and any request still in flight) owned by a
- * client that terminated abnormally and can no longer close its handles. */
+/* Releases the connections of a client that terminated abnormally and can no
+ * longer close its handles. A request a service still holds keeps its
+ * connection DISCONNECTING until the service replies; returns the number of
+ * connections freed now. */
 int wt_ffm_fail_client_connections(wt_ffm_runtime_t* runtime,
                                    psa_client_id_t caller);
 /* A restarted partition keeps nothing its previous instance held: every

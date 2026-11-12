@@ -58,6 +58,16 @@ volatile uint32_t g_wt_launch_refused_mask;
  * peer's flash before the peer runs, so each guest is re-measured immediately
  * before its first dispatch. One bit per guest, cleared once re-measured. */
 volatile uint32_t g_wt_first_dispatch_pending;
+/* Consecutive slice expiries the current guest spent in Non-secure Handler
+ * mode, where it cannot be switched out; past the limit it is restarted. */
+#ifndef WT_GUEST_HANDLER_SLICE_LIMIT
+#define WT_GUEST_HANDLER_SLICE_LIMIT 50U
+#endif
+#if WT_GUEST_HANDLER_SLICE_LIMIT < 1 || WT_GUEST_HANDLER_SLICE_LIMIT > 0xFFFFFFFF
+#error "WT_GUEST_HANDLER_SLICE_LIMIT must be 1 to 0xFFFFFFFF"
+#endif
+static uint32_t g_handler_slices;
+static wt_irq_mask_t g_tick_irq_enables;
 /* WT-FFM-0052 runtime re-measurement counters (harness reads by symbol). */
 volatile uint32_t g_wt_runtime_verify_pass;
 volatile uint32_t g_wt_runtime_verify_fail;
@@ -417,6 +427,9 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
     /* Quarantined or restarted, the guest will never close its handles. */
     (void)wt_ffm_fail_client_connections(wt_ffm_boot_runtime_mut(),
                                          -(psa_client_id_t)(guest_id + 1U));
+#ifdef CONFIG_VNET
+    wt_vnet_service_reset_guest(guest_id);
+#endif
     restart_window = wt_find_restart_clear_window(config);
     if (restart_window != NULL) {
         wt_arch_zero_guest_memory(restart_window->base, restart_window->size);
@@ -458,6 +471,8 @@ static void wt_schedule_next_guest(void)
 {
     wt_guest_id_t next_guest;
     wt_scheduler_rep_t rep = WT_SCHED_REP_NS;
+
+    g_handler_slices = 0U;
 
     if (g_scheduler.guest_count == 0U) {
         wt_platform_all_guests_faulted();
@@ -597,10 +612,61 @@ void wt_monitor_start(void)
     wt_dispatch_guest(next_guest);
 }
 
+static void wt_restart_overrun(const wt_trap_frame_t* frame,
+                               wt_fault_reason_t reason)
+{
+    wt_platform_log_fault(g_scheduler.current_guest, reason, 0U,
+                          wt_arch_trap_pc(frame));
+    wt_arch_guest_abandon_handler();
+    wt_restart_guest(g_scheduler.current_guest, reason);
+    wt_schedule_next_guest();
+}
+
+/* Give back the enables the guest had, never one its manifest withholds. */
+static void wt_tick_restore_irq_enables(void)
+{
+    const wt_guest_config_t* config = wt_guest_config(g_scheduler.current_guest);
+    size_t i;
+
+    if (g_scheduler.current_rep != WT_SCHED_REP_NS || config == NULL) {
+        return;
+    }
+    for (i = 0U; i < WT_MAX_IRQ_WORDS; ++i) {
+        g_tick_irq_enables.words[i] &= config->irq_mask.words[i];
+    }
+    wt_arch_apply_irq_mask(&g_tick_irq_enables);
+}
+
+/* Secure code is never abandoned mid-call, so a limit reached inside an FF-M
+ * call is enforced at the first tick back in the guest, Handler or Thread. */
+static bool wt_handler_overrun(const wt_trap_frame_t* frame)
+{
+    if (g_scheduler.current_rep != WT_SCHED_REP_NS ||
+            g_handler_slices < WT_GUEST_HANDLER_SLICE_LIMIT) {
+        return false;
+    }
+    wt_restart_overrun(frame, WT_FAULT_HANDLER_OVERRUN);
+    return true;
+}
+
 void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
 {
     g_scheduler.monotonic_ticks++;
+    wt_arch_read_guest_irq_enables(&g_tick_irq_enables);
     wt_arch_mask_all_guest_irqs();
+    /* Secure IRQs share the tick's priority and SVC and faults sit above it,
+     * so a tick in Secure Handler mode preempted Secure code a Non-secure
+     * handler called; the Secure main thread means a Thread-mode call. */
+    if (g_scheduler.current_rep == WT_SCHED_REP_NS) {
+        if (wt_arch_trap_from_secure_main_thread()) {
+            g_handler_slices = 0U;
+        }
+        else if (g_handler_slices < WT_GUEST_HANDLER_SLICE_LIMIT &&
+                (wt_arch_trap_from_guest_handler() ||
+                 wt_arch_trap_from_secure_handler())) {
+            g_handler_slices++;
+        }
+    }
 #ifdef WT_ENGINE_HSM
     if (wt_tasklet_current() != (wt_tasklet_t *)0) {
         wt_guest_id_t tasklet_guest =
@@ -617,18 +683,39 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
             wt_arch_trap_from_secure_thread()) {
             (void)wt_tasklet_request_preempt();
         }
+        else {
+            wt_tick_restore_irq_enables();
+        }
         return;
     }
     if (wt_platform_secure_service_active()) {
+        wt_tick_restore_irq_enables();
         return;
     }
 #endif
     if (!wt_arch_trap_from_guest_thread()) {
         wt_tick_restart_backoff();
+        if (!wt_arch_trap_from_guest_handler() || !wt_handler_overrun(frame)) {
+            wt_tick_restore_irq_enables();
+        }
         return;
     }
-    wt_save_running_guest(frame);
     wt_tick_restart_backoff();
+    if (wt_handler_overrun(frame)) {
+        return;
+    }
+    /* Guests switch only in Thread mode, so the NS IRQ state stays one
+     * guest's; a guest that returned to Thread with an IRQ still active is
+     * not switched out holding it. */
+    if (g_scheduler.current_rep == WT_SCHED_REP_NS &&
+            wt_arch_guest_irq_active()) {
+        wt_restart_overrun(frame, WT_FAULT_IRQ_LEFT_ACTIVE);
+        return;
+    }
+    /* A system handler such a guest left active would hold off the peer's. */
+    wt_arch_guest_drop_handler_active();
+    g_handler_slices = 0U;
+    wt_save_running_guest(frame);
     wt_schedule_next_guest();
 }
 
@@ -655,6 +742,7 @@ void wt_monitor_on_guest_fault(const wt_trap_frame_t* frame,
      * restart below instead. */
     wt_platform_system_reset();
 #endif
+    wt_arch_guest_abandon_handler();
     wt_restart_guest(g_scheduler.current_guest, reason);
     wt_schedule_next_guest();
 }
@@ -672,6 +760,9 @@ void wt_monitor_quarantine_guest(wt_guest_id_t guest_id)
 
     (void)wt_ffm_fail_client_connections(wt_ffm_boot_runtime_mut(),
                                          -(psa_client_id_t)(guest_id + 1U));
+#ifdef CONFIG_VNET
+    wt_vnet_service_reset_guest(guest_id);
+#endif
     runtime->state = WT_GUEST_FAULTED;
     g_wt_quarantine_events++;
     g_wt_launch_refused_mask |= (uint32_t)1U << guest_id;

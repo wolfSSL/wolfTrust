@@ -211,6 +211,7 @@ case "$scenario" in
                     guest_flags="$guest_flags WT_M33MU_BKPT_GUEST=1"
                 fi ;;
   restart)      guest_flags="WT_GUEST_FAULT_PROBE=1" ;;
+  handlerneg)   guest_flags="WT_HANDLER_OVERRUN_PROBE=1" ;;
   attestneg)    guest_flags="WT_ATTEST_NEG_PROBE=1" ;;
   hsmattackneg) guest_flags="WT_HSM_ATTACK_PROBE=1" ;;
   # 0x21000 bytes of body reach sector 33 of the 64-sector update partition.
@@ -464,6 +465,20 @@ case "$scenario" in
     sau_refusals="$(grep -A1 -E -- "$refused" "$log" | grep -c "src=SAU" || true)"
     check "$([ "$sau_refusals" -eq 1 ]; echo $?)" \
         "the refusal came from the SAU"
+    ;;
+  handlerneg)
+    # guest0 parks in a Non-secure handler that never returns: the Secure
+    # tick still preempts it, and past the handler slice limit the monitor
+    # restarts it until its budget is spent, while guest1 keeps running.
+    faults=$((restart_limit + 1))
+    expect_n "guest0 relaunched through its restart budget, then quarantined" \
+        "$faults" "wolfTrust RT700 guest0: start"
+    refute_re "guest0 never got past its handler" \
+        "wolfTrust RT700 guest0: FF-M connect ok"
+    expect_n "guest1 launched once, untouched by guest0's overruns" 1 \
+        "wolfTrust RT700 guest1: start"
+    expect_n "guest1 completed the FF-M handshake" 1 \
+        "wolfTrust RT700 guest1: FF-M connect ok, done"
     ;;
   wrpfence|wrpneg)
     if [ "$scenario" = "wrpneg" ]; then

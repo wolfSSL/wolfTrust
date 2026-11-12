@@ -41,6 +41,16 @@ void wt_arch_mask_all_guest_irqs(void)
     }
 }
 
+void wt_arch_read_guest_irq_enables(wt_irq_mask_t* out)
+{
+    volatile uint32_t* iser = (volatile uint32_t*)0xE002E100u;
+    size_t i;
+
+    for (i = 0; i < WT_MAX_IRQ_WORDS; ++i) {
+        out->words[i] = iser[i];
+    }
+}
+
 void wt_arch_apply_irq_mask(const wt_irq_mask_t* mask)
 {
     volatile uint32_t* iser = (volatile uint32_t*)0xE002E100u;
@@ -126,11 +136,11 @@ void wt_arch_secure_irq_enable(uint32_t irq)
     if (irq >= WT_ARMV8M_SECURE_IRQS) {
         return;
     }
-    /* Route to Secure, drop any stale pending, lowest priority so the line
-     * never preempts the active SVC gate, then unmask. */
+    /* Route to Secure, drop any stale pending, at the Secure band priority
+     * (below the SVC gate, equal to SysTick/PendSV), then unmask. */
     WT_NVIC_ITNS[word] &= ~bit;
     WT_NVIC_ICPR[word] = bit;
-    WT_NVIC_IPR_BASE[irq] = 0xFFu;
+    WT_NVIC_IPR_BASE[irq] = (uint8_t)WT_ARMV8M_SECURE_BAND_PRIO;
     __asm volatile("dsb\nisb" ::: "memory");
     WT_NVIC_ISER[word] = bit;
 }

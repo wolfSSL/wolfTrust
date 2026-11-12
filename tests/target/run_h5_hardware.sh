@@ -42,7 +42,7 @@ set -o pipefail
 mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
-case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|gtzcneg|fpneg|sealneg|sealpivotneg|periphneg|mspovfneg|busfaultneg|nsbusfaultneg|xnneg|svcneg) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|gtzcneg|fpneg|sealneg|sealpivotneg|periphneg|mspovfneg|busfaultneg|nsbusfaultneg|xnneg|svcneg" >&2; exit 2 ;; esac
+case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|gtzcneg|fpneg|sealneg|sealpivotneg|periphneg|mspovfneg|busfaultneg|nsbusfaultneg|nsmaskneg|xnneg|svcneg) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|gtzcneg|fpneg|sealneg|sealpivotneg|periphneg|mspovfneg|busfaultneg|nsbusfaultneg|nsmaskneg|xnneg|svcneg" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -163,6 +163,7 @@ if [ "$mode" != "flash" ]; then
   [ "$scenario" = "panicneg" ] && secure_flags="WT_PANIC_NEG_PROBE=1"
   [ "$scenario" = "restart" ] && guest_flags="WT_GUEST_FAULT_PROBE=1"
   [ "$scenario" = "nsbusfaultneg" ] && guest_flags="WT_NS_BUSFAULT_PROBE=1"
+  [ "$scenario" = "nsmaskneg" ] && guest_flags="WT_NS_MASK_PROBE=1"
   [ "$scenario" = "writeonce" ] && guest_flags="WT_WRITE_ONCE_RESET_PROBE=1"
   [ "$scenario" = "hsmattackneg" ] && guest_flags="WT_HSM_ATTACK_PROBE=1"
   [ "$scenario" = "gtzcneg" ] && guest_flags="WT_MPU_BYPASS_PROBE=1"
@@ -614,6 +615,59 @@ if [ "$mode" != "build" ]; then
         check_fail "quarantine" "quarantine events 0x${quarantines:-none}, expected 1"
       fi
       expect "guest1 alive after guest0 FAULTED" "freertos_guest1: heartbeat"
+      ;;
+    nsmaskneg)
+      # guest0 raises Non-secure PRIMASK, FAULTMASK and BASEPRI and spins; the
+      # Secure tick sits above them all (AIRCR.PRIS), so guest1 keeps running
+      # and guest0 is time-sliced, never restarted.
+      state=$(read_guest0_u32 g_wt_ns_mask_state)
+      if [ "$state" = "00001003" ]; then
+        check_pass "guest0 holds PRIMASK, FAULTMASK and BASEPRI 0x10 (0x$state)"
+      else
+        check_fail "guest0 masks" "mask state 0x${state:-none}, want 0x00001003"
+      fi
+      # guest1's busy-delay heartbeat takes seconds at a shared CPU, so poll.
+      # Read it through the Secure alias: the probe's Non-secure view of guest1
+      # RAM returned a stale value on silicon.
+      hb=$("$NM" "${guest1%.bin}.elf" 2>/dev/null \
+        | awk '$3=="g_guest1_heartbeats"{print $1}')
+      hb=$(printf '%08x' $((0x${hb:-0} + 0x10000000)))
+      # A read while guest1's RAM is fenced for guest0 returns 0: retry.
+      read_hb() {
+        local v=""
+        for _ in 1 2 3 4 5; do
+          v=$(pyocd cmd -t "$PYOCD_TARGET" -c "read32 0x$hb 4" 2>/dev/null \
+            | awk -v a="$hb" 'tolower($1)==a":"{print $2}')
+          [ -n "$v" ] && [ $((0x$v)) -ne 0 ] && break
+        done
+        echo "$v"
+      }
+      spins1=$(read_guest0_u32 g_wt_ns_mask_spins)
+      beat1=$(read_hb)
+      beat2="$beat1"
+      for _ in 1 2 3 4 5 6; do
+        sleep 5
+        beat2=$(read_hb)
+        [ -n "$beat2" ] && [ $((0x$beat2)) -gt $((0x${beat1:-0})) ] && break
+      done
+      spins2=$(read_guest0_u32 g_wt_ns_mask_spins)
+      if [ -n "$beat1" ] && [ -n "$beat2" ] && \
+          [ $((0x$beat2)) -gt $((0x$beat1)) ]; then
+        check_pass "guest1 keeps running beside the masked guest0 (0x$beat1 -> 0x$beat2)"
+      else
+        check_fail "guest1 time slices" "heartbeats 0x${beat1:-none} -> 0x${beat2:-none}"
+      fi
+      if [ -n "$spins1" ] && [ -n "$spins2" ] && [ "$spins1" != "$spins2" ]; then
+        check_pass "guest0 still gets its own slices (0x$spins1 -> 0x$spins2)"
+      else
+        check_fail "guest0 time slices" "spins 0x${spins1:-none} -> 0x${spins2:-none}"
+      fi
+      restarts=$(read_secure_u32 g_wt_restart_events)
+      if [ "$restarts" = "00000000" ]; then
+        check_pass "masked guest0 was never restarted"
+      else
+        check_fail "restart events" "0x${restarts:-none}, want 0"
+      fi
       ;;
     nsbusfaultneg)
       # guest0 reads an unmapped Non-secure peripheral hole each boot: a precise

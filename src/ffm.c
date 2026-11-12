@@ -295,6 +295,20 @@ static int wt_ffm_message_from_handle(wt_ffm_runtime_t* runtime,
     return WT_FFM_SUCCESS;
 }
 
+static int wt_ffm_connection_has_message(const wt_ffm_runtime_t* runtime,
+                                         uint16_t connection_index)
+{
+    size_t i;
+
+    for (i = 0U; i < WT_FFM_MAX_MESSAGES; i++) {
+        if (runtime->messages[i].allocated != 0U &&
+                runtime->messages[i].connection_index == connection_index) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 static int wt_ffm_close_abandoned(wt_ffm_runtime_t* runtime,
                                    uint16_t connection_index)
 {
@@ -906,17 +920,14 @@ int wt_ffm_close(wt_ffm_runtime_t* runtime, psa_client_id_t caller,
     message->type = PSA_IPC_DISCONNECT;
     wt_ffm_enqueue(runtime, connection->service_index, message_index);
     ret = wt_ffm_dispatch_message(runtime, message_index);
-    if (ret != WT_FFM_SUCCESS && message->active != 0U) {
+    /* Delivered or not, the service must still see the DISCONNECT to release
+     * its per-connection state; its reply (or fault cleanup) frees the slot. */
+    if (ret != WT_FFM_SUCCESS && message->complete == 0U) {
         message->abandoned = WT_FFM_ABANDONED_CLOSE;
         return ret;
     }
-    if (ret != WT_FFM_SUCCESS) {
-        wt_ffm_dequeue_message(runtime, connection->service_index,
-                               message_index);
-    }
     wt_ffm_release_message(runtime, message_index);
-    if (ret == WT_FFM_SUCCESS)
-        wt_ffm_release_connection(runtime, connection_index);
+    wt_ffm_release_connection(runtime, connection_index);
     return ret;
 }
 
@@ -1186,10 +1197,10 @@ int wt_ffm_fail_partition_messages(wt_ffm_runtime_t* runtime,
 /* WT-FFM-0026: when a client terminates abnormally (a Non-secure guest is
  * quarantined or restarted) nothing will ever close its handles, so release
  * every connection it owns outright; otherwise each restart leaks slots until
- * every psa_connect on the system reports CONNECTION_BUSY forever. Any
- * request still in flight on such a connection is force-completed and its
- * slot released first, so a later service reply cannot land in a slot that
- * has been handed to a new client. Returns the number of connections freed. */
+ * every psa_connect on the system reports CONNECTION_BUSY forever. A queued
+ * request is released first; one a service already holds is kept, detached
+ * from the client, and its reply then disconnects and frees the connection.
+ * Returns the number of connections freed. */
 int wt_ffm_fail_client_connections(wt_ffm_runtime_t* runtime,
                                    psa_client_id_t caller)
 {
@@ -1207,6 +1218,16 @@ int wt_ffm_fail_client_connections(wt_ffm_runtime_t* runtime,
         if (message->allocated == 0U || message->caller != caller) {
             continue;
         }
+        if (message->complete == 0U && message->active != 0U) {
+            /* The service still holds this handle: keep the slot until it
+             * replies, with no output path back to the departed client. */
+            message->abandoned = WT_FFM_ABANDONED_CLOSE;
+            (void)memset(message->client_output, 0,
+                         sizeof(message->client_output));
+            runtime->connections[message->connection_index].state =
+                WT_IPC_CONNECTION_DISCONNECTING;
+            continue;
+        }
         if (message->complete == 0U && message->active == 0U) {
             wt_ffm_dequeue_message(runtime, message->service_index,
                                    (uint16_t)i);
@@ -1219,6 +1240,11 @@ int wt_ffm_fail_client_connections(wt_ffm_runtime_t* runtime,
         if (connection->allocated == 0U || connection->caller != caller) {
             continue;
         }
+        /* Released by the held message's reply instead. */
+        if (connection->state == WT_IPC_CONNECTION_DISCONNECTING &&
+                wt_ffm_connection_has_message(runtime, (uint16_t)i)) {
+            continue;
+        }
         /* Release only: the abnormal-termination path runs in the guest
          * fault handler, where dispatching a service inline to deliver a
          * cleanup disconnection is unsafe (it re-enters the scheduler and
@@ -1226,6 +1252,10 @@ int wt_ffm_fail_client_connections(wt_ffm_runtime_t* runtime,
          * reclaimed on its own next run; see the scoped deviation. */
         wt_ffm_release_connection(runtime, (uint16_t)i);
         freed++;
+    }
+    /* A gateway entry the terminated client left in flight never returns. */
+    if (runtime->ns_entry_caller == caller) {
+        runtime->ns_entry_caller = 0;
     }
     return freed;
 }

@@ -67,6 +67,8 @@ typedef struct mock_backend {
     int fail_arm;
     int fail_disarm;
     int fail_verify;
+    int check_extent;
+    uint32_t programmed_end;
 } mock_backend_t;
 
 static int mock_begin(void* ctx)
@@ -91,6 +93,7 @@ static int mock_write(void* ctx, uint32_t offset, const uint8_t* data,
         return -1;
     }
     (void)memcpy(b->image + offset, data, size);
+    b->programmed_end = offset + size;
     return 0;
 }
 
@@ -123,8 +126,12 @@ static int mock_verify(void* ctx, uint32_t staged_size,
 {
     mock_backend_t* b = (mock_backend_t*)ctx;
 
-    (void)staged_size;
     if (b->fail_verify) {
+        return -1;
+    }
+    if (b->check_extent &&
+            !wt_fwu_staged_extent_ok(staged_size, b->programmed_end,
+                                     MOCK_ALIGN)) {
         return -1;
     }
     *header_version = b->header_version;
@@ -310,6 +317,79 @@ static void test_state_machine(void)
     check(wt_fwu_install(&ctx) == PSA_ERROR_STORAGE_FAILURE &&
               ctx.state == PSA_FWU_CANDIDATE && mem.armed == 0u,
           "WT-FWU-0003 a failed arm leaves the candidate un-armed");
+}
+
+/* A restarted FWU partition loses its in-stack state machine and comes back
+ * READY, so the restart must also cancel any swap its old instance armed. */
+static void test_restart_cancels_armed_install(void)
+{
+    wt_fwu_backend_t backend;
+    mock_backend_t mem;
+    wt_fwu_service_ctx_t ctx;
+    uint8_t block[32];
+
+    (void)memset(block, 0xA5, sizeof(block));
+    mock_backend_init(&backend, &mem);
+    ctx_init(&ctx, &backend, &mem, 0u);
+    check(wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 5u) == PSA_SUCCESS &&
+              wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block,
+                           sizeof(block)) == PSA_SUCCESS &&
+              wt_fwu_finish(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS &&
+              wt_fwu_install(&ctx) == PSA_SUCCESS_REBOOT && mem.armed == 1u,
+          "WT-FWU-0002 install arms the swap before the restart");
+
+    check(wt_fwu_restart_disarm(&backend, &mem) == 0 && mem.armed == 0u,
+          "WT-FWU-0003 partition restart cancels the armed swap");
+    ctx_init(&ctx, &backend, &mem, 0u);
+    check(ctx.state == PSA_FWU_READY &&
+              wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 6u) == PSA_SUCCESS,
+          "WT-FWU-0003 restarted partition stages a new candidate unarmed");
+
+    mem.fail_disarm = 1;
+    check(wt_fwu_restart_disarm(&backend, &mem) != 0,
+          "WT-FWU-0003 a failed restart disarm fails the restart closed");
+    check(wt_fwu_restart_disarm(NULL, &mem) != 0,
+          "WT-FWU-0003 restart disarm without a backend fails closed");
+}
+
+/* A backend that tracks its padded programmed extent, as the flash ports do,
+ * must accept the logical size of a candidate with a padded final block. */
+static void test_padded_extent_verify(void)
+{
+    wt_fwu_backend_t backend;
+    mock_backend_t mem;
+    wt_fwu_service_ctx_t ctx;
+    psa_fwu_component_info_t info;
+    uint8_t block[2u * MOCK_ALIGN + 5u];
+
+    (void)memset(block, 0x5A, sizeof(block));
+    mock_backend_init(&backend, &mem);
+    backend.verify = mock_verify;
+    mem.check_extent = 1;
+    mem.header_version = 1u;
+    ctx_init(&ctx, &backend, &mem, 0u);
+    check(wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 1u) == PSA_SUCCESS &&
+              wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block,
+                           sizeof(block)) == PSA_SUCCESS &&
+              mem.programmed_end == 3u * MOCK_ALIGN,
+          "WT-FWU-0002 unaligned candidate programs a padded final unit");
+    check(wt_fwu_finish(&ctx, WT_FWU_COMPONENT_PRIMARY) == PSA_SUCCESS &&
+              wt_fwu_query(&ctx, WT_FWU_COMPONENT_PRIMARY, &info) ==
+                  PSA_SUCCESS && info.impl.staged_size == sizeof(block),
+          "WT-FWU-0002 verify accepts the logical size of a padded image");
+
+    check(wt_fwu_staged_extent_ok(3u * MOCK_ALIGN, 3u * MOCK_ALIGN,
+                                  MOCK_ALIGN) &&
+              wt_fwu_staged_extent_ok(2u * MOCK_ALIGN + 1u, 3u * MOCK_ALIGN,
+                                      MOCK_ALIGN),
+          "WT-FWU-0003 staged extent within one padding unit is covered");
+    check(!wt_fwu_staged_extent_ok(3u * MOCK_ALIGN + 1u, 3u * MOCK_ALIGN,
+                                   MOCK_ALIGN) &&
+              !wt_fwu_staged_extent_ok(2u * MOCK_ALIGN, 3u * MOCK_ALIGN,
+                                       MOCK_ALIGN) &&
+              !wt_fwu_staged_extent_ok(1u, 3u * MOCK_ALIGN, 0u),
+          "WT-FWU-0003 staged extent beyond or short of the programmed end "
+          "is refused");
 }
 
 static void test_unaligned_write(void)
@@ -742,6 +822,8 @@ int main(void)
 {
     test_state_machine();
     test_unaligned_write();
+    test_padded_extent_verify();
+    test_restart_cancels_armed_install();
     test_ipc_round_trip();
     test_wolfboot_arm_trailer();
     test_staged_header_binding();

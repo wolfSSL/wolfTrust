@@ -72,6 +72,9 @@ int vnet_switch_init(vnet_switch_t    *sw,
                      bool              unknown_unicast_flood);
 
 int  vnet_switch_open(vnet_switch_t *sw, uint32_t vm_id, vnet_info_t *info_out);
+/* Return vm_id's port to its boot state: drop its queued frames, release its
+ * FDB entries, and clear its open and MAC binding. */
+int  vnet_switch_reset_vm(vnet_switch_t *sw, uint32_t vm_id);
 int  vnet_switch_assign_mac(vnet_switch_t *sw, uint32_t vm_id,
                             const vnet_mac_t *mac);
 

@@ -55,11 +55,15 @@ static const wt_hsm_flash_config_t g_conf_nvm_cfg = {
 };
 static wt_hsm_flash_context_t g_conf_nvm_ctx;
 #endif
+/* One unit for the NOR programming, the service's final-block padding and
+ * the staged-extent check, so the three can never disagree. */
+#define WT_FWU_PROGRAM_UNIT 16u
+
 static const wt_hsm_flash_config_t g_fwu_flash_cfg = {
     .base = WT_FWU_UPDATE_FLASH_BASE_S,
     .size = WT_FWU_UPDATE_FLASH_SIZE,
     .sector_size = WT_FLASH_SECTOR_SIZE,
-    .program_unit = 16u,
+    .program_unit = WT_FWU_PROGRAM_UNIT,
 };
 static wt_hsm_flash_context_t g_fwu_flash_ctx;
 /* Last NOR driver failure, read over the debug port by the hardware harness. */
@@ -435,7 +439,7 @@ static int wt_fwu_backend_arm(void *ctx, uint32_t image_size,
 {
     uint32_t block_off = g_fwu_flash_cfg.size - g_fwu_flash_cfg.program_unit;
     const uint8_t *mapped = (const uint8_t *)(g_fwu_flash_cfg.base + block_off);
-    uint8_t block[16];
+    uint8_t block[WT_FWU_PROGRAM_UNIT];
 
     (void)ctx;
     (void)image_size;
@@ -491,7 +495,8 @@ static int wt_fwu_backend_verify(void *ctx, uint32_t staged_size,
     (void)ctx;
     if (header_version == NULL ||
             staged_size < WT_FWU_IMAGE_HEADER_SIZE ||
-            staged_size != g_fwu_written_end) {
+            !wt_fwu_staged_extent_ok(staged_size, g_fwu_written_end,
+                                     WT_FWU_PROGRAM_UNIT)) {
         return -1;
     }
     memcpy(&magic, hdr, sizeof(magic));
@@ -536,7 +541,7 @@ const wt_fwu_backend_t wt_fwu_flash_backend = {
     .disarm = wt_fwu_backend_disarm,
     /* The trailer sector is arm/disarm-owned, never staging capacity. */
     .capacity = WT_FWU_UPDATE_FLASH_SIZE - WT_FLASH_SECTOR_SIZE,
-    .align = 16u,
+    .align = WT_FWU_PROGRAM_UNIT,
     .verify = wt_fwu_backend_verify,
 };
 

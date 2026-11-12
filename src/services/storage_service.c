@@ -230,6 +230,11 @@ static psa_status_t wt_storage_service_call(wt_storage_service_ctx_t* ctx,
                 status = PSA_ERROR_NOT_SUPPORTED;
                 break;
             }
+            /* The vault request header shares the forwarded transfer budget. */
+            if (in_len - sizeof(req) > WT_FFM_TRANSFER_BYTES - sizeof(vreq)) {
+                status = PSA_ERROR_INSUFFICIENT_STORAGE;
+                break;
+            }
             vreq.flags = req.flags | ctx->vault_flags;
             status = wt_storage_vault_call(ctx, runtime, partition_id,
                                            WT_VAULT_OP_SET, &vreq,

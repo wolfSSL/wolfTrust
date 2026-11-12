@@ -130,9 +130,24 @@ extern uint32_t _ebss;
 
 void Reset_Handler(void);
 static void Default_Handler(void);
+#if defined(WT_HANDLER_OVERRUN_PROBE) || defined(WT_HANDLER_IRQ_PROBE)
+static void Overrun_Handler(void);
+#endif
+#if defined(WT_PEER_IRQ_PROBE)
+static volatile uint32_t g_peer_pendsv;
+static void Peer_PendSV_Handler(void);
+#endif
+#if defined(WT_HANDLER_IRQ_PROBE)
+#define GUEST0_VECTOR_COUNT (17u + (uint32_t)WT_HANDLER_IRQ_PROBE)
+#else
+#define GUEST0_VECTOR_COUNT 16u
+#endif
+#if defined(WT_NS_ENTRY_MASK_PROBE)
+static void EntryMask_Tick_Handler(void);
+#endif
 
 __attribute__((section(".vectors"), used))
-const uint32_t g_vectors[16] = {
+const uint32_t g_vectors[GUEST0_VECTOR_COUNT] = {
     (uint32_t)&_estack,
     (uint32_t)Reset_Handler,
     (uint32_t)Default_Handler,
@@ -145,8 +160,21 @@ const uint32_t g_vectors[16] = {
     (uint32_t)Default_Handler,
     (uint32_t)Default_Handler,
     0u,
+#if defined(WT_HANDLER_OVERRUN_PROBE)
+    (uint32_t)Overrun_Handler,
+#elif defined(WT_PEER_IRQ_PROBE)
+    (uint32_t)Peer_PendSV_Handler,
+#else
     (uint32_t)Default_Handler,
+#endif
+#if defined(WT_NS_ENTRY_MASK_PROBE)
+    (uint32_t)EntryMask_Tick_Handler,
+#else
     (uint32_t)Default_Handler,
+#endif
+#if defined(WT_HANDLER_IRQ_PROBE)
+    [16u + WT_HANDLER_IRQ_PROBE] = (uint32_t)Overrun_Handler,
+#endif
 };
 
 static void Default_Handler(void)
@@ -154,6 +182,61 @@ static void Default_Handler(void)
     for (;;) {
     }
 }
+
+#if defined(WT_HANDLER_OVERRUN_PROBE)
+/* Re-pends itself and never returns, so a leaked pend would reach guest1. */
+static void Overrun_Handler(void)
+{
+    *(volatile uint32_t*)0xE000ED04u = (1u << 28);
+    for (;;) {
+    }
+}
+#elif defined(WT_HANDLER_IRQ_PROBE)
+static void Overrun_Handler(void)
+{
+    for (;;) {
+    }
+}
+#endif
+
+#if defined(WT_PEER_IRQ_PROBE)
+static void Peer_PendSV_Handler(void)
+{
+    g_peer_pendsv++;
+}
+#endif
+
+#if defined(WT_NS_ENTRY_MASK_PROBE)
+#define GUEST0_SYST_CSR (*(volatile uint32_t*)0xE000E010u)
+#define GUEST0_SYST_RVR (*(volatile uint32_t*)0xE000E014u)
+#define GUEST0_SYST_CVR (*(volatile uint32_t*)0xE000E018u)
+#define GUEST0_ENTRY_MASK_ROUNDS 8u
+#define GUEST0_ENTRY_MASK_RELOAD 200u
+#define GUEST0_ENTRY_MASK_OK     0x4D41534Bu
+
+static volatile uint32_t g_entry_mask_ticks;
+static volatile uint32_t g_entry_mask_from_secure;
+static volatile uint32_t g_entry_mask_nested_ok;
+
+/* Comes due during an FF-M entry and makes its own entry. EXC_RETURN.S set
+ * means it preempted Secure code: held to the entry's exit, never inside. */
+static void EntryMask_Tick_Handler(void)
+{
+    uint32_t exc_return = (uint32_t)(uintptr_t)__builtin_return_address(0);
+    psa_handle_t h;
+
+    GUEST0_SYST_CSR = 0u;
+    if ((exc_return & 0x40u) != 0u) {
+        g_entry_mask_from_secure++;
+    }
+    h = psa_connect(GUEST0_SERVICE_HSM_SID, GUEST0_SERVICE_VERSION);
+    if (PSA_HANDLE_IS_VALID(h)) {
+        psa_close(h);
+        g_entry_mask_nested_ok++;
+    }
+    g_entry_mask_ticks++;
+}
+#endif
 
 static void guest0_uart_putc(char c)
 {
@@ -175,6 +258,51 @@ static void guest0_uart_puts(const char* s)
         s++;
     }
 }
+
+#if defined(WT_NS_ENTRY_MASK_PROBE)
+/* Each round arms a short Non-secure SysTick, then enters FF-M: the tick
+ * comes due mid-entry, and every round must see it taken at the entry's exit. */
+static void guest0_entry_mask_probe(volatile wt_guest0_mailbox_t* mb)
+{
+    psa_handle_t h;
+    uint32_t round;
+    uint32_t spin;
+    uint32_t outer_ok = 0u;
+
+    *(volatile uint32_t*)0xE000ED20u |= (0xFFu << 24);
+    for (round = 0u; round < GUEST0_ENTRY_MASK_ROUNDS; round++) {
+        *(volatile uint32_t*)0xE000ED04u = (1u << 25);
+        GUEST0_SYST_RVR = GUEST0_ENTRY_MASK_RELOAD;
+        GUEST0_SYST_CVR = 0u;
+        GUEST0_SYST_CSR = 7u;
+        h = psa_connect(GUEST0_SERVICE_HSM_SID, GUEST0_SERVICE_VERSION);
+        if (PSA_HANDLE_IS_VALID(h)) {
+            psa_close(h);
+            outer_ok++;
+        }
+        for (spin = 0u; spin < 1000000u && g_entry_mask_ticks <= round;
+                spin++) {
+        }
+    }
+    GUEST0_SYST_CSR = 0u;
+    if (outer_ok == GUEST0_ENTRY_MASK_ROUNDS &&
+            g_entry_mask_ticks == GUEST0_ENTRY_MASK_ROUNDS &&
+            g_entry_mask_from_secure == GUEST0_ENTRY_MASK_ROUNDS &&
+            g_entry_mask_nested_ok == GUEST0_ENTRY_MASK_ROUNDS) {
+        mb->probe = GUEST0_ENTRY_MASK_OK;
+        guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+                         ": NS entry mask ok\r\n");
+    }
+    else {
+        mb->probe = 0xBAD00000u | ((outer_ok & 0xFu) << 12) |
+                    ((g_entry_mask_ticks & 0xFu) << 8) |
+                    ((g_entry_mask_from_secure & 0xFu) << 4) |
+                    (g_entry_mask_nested_ok & 0xFu);
+        guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+                         ": NS entry mask FAIL\r\n");
+    }
+}
+#endif
 
 void Reset_Handler(void)
 {
@@ -213,6 +341,25 @@ void Reset_Handler(void)
 #if defined(WT_GUEST_FAULT_PROBE)
     /* A Non-secure read of Secure RAM faults on every launch. */
     mb->probe_read = *(volatile const uint32_t*)GUEST_FAULT_ADDR;
+#endif
+#if defined(WT_HANDLER_OVERRUN_PROBE)
+    /* Pend PendSV_NS at the lowest priority, as an RTOS does; its handler
+     * never returns, on every launch. */
+    *(volatile uint32_t*)0xE000ED20u |= (0xFFu << 16);
+    *(volatile uint32_t*)0xE000ED04u = (1u << 28);
+    __asm volatile("dsb\n isb" ::: "memory");
+#endif
+#if defined(WT_HANDLER_IRQ_PROBE)
+    /* Above guest1's PendSV, so an IRQ left active holds it off; 0x80 stays
+     * below the Secure tick even on a core without AIRCR.PRIS (M33MU). */
+    *(volatile uint8_t*)(0xE000E400u + WT_HANDLER_IRQ_PROBE) = 0x80u;
+    *(volatile uint32_t*)(0xE000E200u + 4u * (WT_HANDLER_IRQ_PROBE / 32u)) =
+        1u << (WT_HANDLER_IRQ_PROBE % 32u);
+    __asm volatile("dsb\n isb" ::: "memory");
+#endif
+
+#if defined(WT_NS_ENTRY_MASK_PROBE)
+    guest0_entry_mask_probe(mb);
 #endif
 
     fw = psa_framework_version();
@@ -272,8 +419,22 @@ void Reset_Handler(void)
     guest0_periph_probe(mb);
 #endif
 
+#if defined(WT_PEER_IRQ_PROBE)
+    *(volatile uint32_t*)0xE000ED20u |= (0xFFu << 16);
+#endif
     for (;;) {
         mb->beat++;
+#if defined(WT_PEER_IRQ_PROBE)
+        /* Wait out each PendSV: one held off by a leftover active IRQ would
+         * stop the beats for good. */
+        *(volatile uint32_t*)0xE000ED04u = (1u << 28);
+        while (g_peer_pendsv != mb->beat) {
+        }
+        if ((mb->beat & 0x3FFFFu) == 0u) {
+            guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+                             ": NS interrupt beat\r\n");
+        }
+#endif
     }
 }
 

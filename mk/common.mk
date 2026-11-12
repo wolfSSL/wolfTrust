@@ -288,6 +288,17 @@ SECURE_SRCS := \
     $(ROOT)/src/partition.c \
     $(TARGET_PARTITIONS_SRC)
 
+# The flash and entropy backends every port shares, over its flash_port.h
+# and rng_port.h drivers.
+PORT_SHARED_SRCS := \
+    $(PORT_NEUTRAL_DIR)/hsm_flash.c \
+    $(PORT_NEUTRAL_DIR)/hsm_flash_ctx.c \
+    $(PORT_NEUTRAL_DIR)/rng_entropy.c \
+    $(PORT_DIR)/flash_drv.c \
+    $(PORT_DIR)/rng_drv.c
+TARGET_EXTRA_SRCS += $(PORT_SHARED_SRCS)
+PORT_HEADERS += $(wildcard $(PORT_NEUTRAL_DIR)/*.h)
+
 WOLFHSM_SECURE_SRCS := \
     $(WOLFHSM_DIR)/src/wh_comm.c \
     $(WOLFHSM_DIR)/src/wh_message_comm.c \
@@ -443,7 +454,7 @@ WT_LTO_SECURE_EXCLUDED_OBJS := \
 WT_HASH := \#
 WT_LTO_OWNED_NAMES := $(shell awk '{sub(/$(WT_HASH).*/, "")} \
     NF == 2 && $$2 != "spm" {sub(/\*$$/, "%", $$1); print $$1}' \
-    $(ROOT)/tools/secure_owners.txt)
+    $(ROOT)/tools/secure_owners.txt $(wildcard $(PORT_DIR)/secure_owners.txt))
 WT_LTO_OWNED_OBJS := $(filter \
     $(addprefix $(BUILD_DIR)/,$(WT_LTO_OWNED_NAMES)),$(ALL_SECURE_OBJS))
 $(WT_LTO_WOLFCRYPT_EXCLUDED_OBJS): HSM_LIB_CFLAGS += -fno-lto
@@ -1565,6 +1576,10 @@ $(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUIL
 
 ifneq ($(PORT_COMMON_DIR),)
 $(BUILD_DIR)/wt_sec_%.o: $(PORT_COMMON_DIR)/%.c $(PORT_HEADERS) $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(PORT_NEUTRAL_DIR)/%.c $(PORT_HEADERS) \
 		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 endif

@@ -31,7 +31,7 @@ CFLAGS := \
     -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic
 CFLAGS += $(EXTRA_CFLAGS)
 
-SRCS := $(ROOT)/port/mimxrt700/rng_entropy.c main.c
+SRCS := $(ROOT)/port/common/rng_entropy.c $(ROOT)/port/mimxrt700/rng_drv.c main.c
 TEST_BIN := $(BUILD_DIR)/test_rt700_trng
 
 .PHONY: all run compilers sanitize valgrind clean

@@ -31,8 +31,4 @@ WT_GUEST1_FLASH_SIZE ?= 0x00040000
 WT_SECURE_LAYOUT_EXTRA_ARGS := --no-wolfhal
 
 TARGET_PLATFORM_SRC := $(PORT_DIR)/platform_mcxn947.c
-TARGET_EXTRA_SRCS := \
-    $(wildcard $(PORT_DIR)/rng_entropy.c) \
-    $(wildcard $(PORT_DIR)/rom_flash.c) \
-    $(wildcard $(PORT_DIR)/hsm_flash.c) \
-    $(wildcard $(PORT_DIR)/hsm_flash_ctx.c)
+TARGET_EXTRA_SRCS := $(PORT_DIR)/rom_flash.c

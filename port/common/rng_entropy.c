@@ -15,74 +15,65 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
+
+/* The CUSTOM_RAND_GENERATE_BLOCK entropy source every port shares: the
+ * privilege gate, the lazy init and the failure policy over the port's
+ * rng_port.h source. */
 
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
-#include <wolfHAL/error.h>
-#include <wolfHAL/rng/rng.h>
-#include <wolfHAL/rng/stm32h5_rng.h>
-#include <wolfHAL/timeout.h>
-
-#include "wolfHAL_board.h"
-
-#include "wolftrust/spm_transport.h"
-#include "wolftrust/spm_gate.h"
+#include "rng_port.h"
 #include "wolftrust/arch.h"
+#include "wolftrust/spm_gate.h"
+#include "wolftrust/spm_transport.h"
+#include "wolftrust/zeroize.h"
 
-/* Prototype matches the declaration in user_settings.h (CUSTOM_RAND_GENERATE_BLOCK). */
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
-/* Privileged half, invoked by the SVC dispatcher for confined callers. */
 int wolftrust_rng_generate_block_direct(unsigned char *output,
                                         unsigned int sz);
 
 static bool s_rng_ready;
-static uint32_t s_rng_timeout_tick;
-
-static uint32_t wt_rng_timeout_tick(void)
-{
-    return ++s_rng_timeout_tick;
-}
-
-whal_Timeout g_whalTimeout = {
-    .timeoutTicks = 1000000u,
-    .startTick = 0u,
-    .GetTick = wt_rng_timeout_tick,
-};
+/* A request the source failed may still complete later (a DMA page, a
+ * generation in flight), so the source is never asked again before reset. */
+static bool s_rng_failed;
 
 int wolftrust_rng_generate_block_direct(unsigned char *output, unsigned int sz)
 {
+    int ret = 0;
+
     if (output == NULL && sz != 0u) {
         return -1;
     }
-
-    if (!s_rng_ready) {
-        if (whal_Rng_Init(BOARD_RNG_DEV) != WHAL_SUCCESS) {
-            return -1;
+    if (s_rng_failed) {
+        ret = -1;
+    }
+    if (ret == 0 && !s_rng_ready) {
+        if (wt_port_rng_init() != 0) {
+            ret = -1;
         }
-        s_rng_ready = true;
+        else {
+            s_rng_ready = true;
+        }
     }
-
-    if (sz == 0u) {
-        return 0;
+    if (ret == 0 && sz != 0u && wt_port_rng_fill(output, sz) != 0) {
+        s_rng_failed = true;
+        ret = -1;
     }
-
-    if (whal_Rng_Generate(BOARD_RNG_DEV, output, (size_t)sz) == WHAL_SUCCESS) {
-        return 0;
+    if (ret != 0 && output != NULL && sz != 0u) {
+        wt_forceZero(output, sz);
     }
-
-    return -1;
+    return ret;
 }
 
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
 {
-    /* A confined keystore partition cannot touch the RNG peripheral or its
-     * clock; the SVC dispatcher runs the direct half privileged. */
+    /* A confined keystore partition cannot touch the entropy source; the SVC
+     * dispatcher runs the direct half privileged. */
     if (wt_arch_thread_unprivileged()) {
         wt_spm_call_t call;
 

@@ -34,9 +34,6 @@ TARGET_CFLAGS := -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING
 
 TARGET_PLATFORM_SRC := $(PORT_DIR)/platform_stm32h563.c
 TARGET_EXTRA_SRCS := \
-    $(wildcard $(PORT_DIR)/rng_entropy.c) \
-    $(wildcard $(PORT_DIR)/hsm_flash.c) \
-    $(wildcard $(PORT_DIR)/hsm_flash_ctx.c) \
     $(PORT_DIR)/silicon_rev.c \
     $(PORT_DIR)/silicon_guard.c \
     $(WOLFHAL_DIR)/src/reg.c \

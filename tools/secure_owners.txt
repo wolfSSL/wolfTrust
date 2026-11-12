@@ -44,6 +44,8 @@ wt_sec_ffm_gateway.o                   spm
 wt_sec_ffm_nsc.o                       spm
 wt_sec_guest_context_armv8m.o          spm
 wt_sec_hsm_flash.o                     spm
+wt_sec_flash_drv.o                     spm
+wt_sec_rng_drv.o                       spm
 wt_sec_silicon_guard.o                 spm
 wt_sec_silicon_rev.o                   spm
 wt_sec_xspi_nor.o                      spm

@@ -62,6 +62,9 @@
  * the first 2 MiB of XSPI0, above the wolfBoot update and swap partitions. */
 #define WT_FLASH_SECTOR_SIZE       0x00001000u
 #define WT_FLASH_PAGE_SIZE         0x00000100u
+/* 16-byte program units; wolfBoot keeps its trailer in the last sector. */
+#define WT_FLASH_PROGRAM_UNIT      0x00000010u
+#define WT_FWU_TRAILER_SIZE        WT_FLASH_SECTOR_SIZE
 #define WT_HSM_NVM_FLASH_BASE_NS   0x281E0000u
 #define WT_HSM_NVM_FLASH_BASE_S    0x381E0000u
 #define WT_HSM_NVM_FLASH_SIZE      0x00002000u

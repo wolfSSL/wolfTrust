@@ -128,6 +128,9 @@ A port supplies:
   blocks larger than the MPU granule defines `WT_GUEST_WINDOW_GRANULE`, and
   one whose guests use different consoles defines
   `WT_GUEST0_CONSOLE_BASE` and `WT_GUEST1_CONSOLE_BASE`);
+- `flash_drv.c` and `rng_drv.c`, the device primitives behind the shared
+  store, FWU and entropy backends (see Persistent flash and Entropy below),
+  with `WT_FLASH_PROGRAM_UNIT` and `WT_FWU_TRAILER_SIZE` in `memory_map.h`;
 - attribution read-back for every Secure peripheral the SPM uses, panicking
   at boot on a mismatch; and
 - owner lines for every object it adds, in `tools/secure_owners.txt` or in
@@ -173,20 +176,65 @@ declaration.
 
 ### Persistent flash
 
-Implement `include/wolftrust/port_nvm.h`:
+`include/wolftrust/port_nvm.h` (`g_wt_hsm_flash_cb`, `wt_hsm_flash_context`,
+`wt_hsm_flash_config`, `wt_hsm_flash_format`) and the FWU staging backend are
+implemented once, in `port/common/hsm_flash.c`, over the device primitives a
+port supplies in `port/<soc>/flash_drv.c` (`port/common/flash_port.h`):
 
 ```c
-extern const whFlashCb g_wt_hsm_flash_cb;
-void* wt_hsm_flash_context(void);
-const void* wt_hsm_flash_config(void);
-int wt_hsm_flash_format(void);
+int  wt_port_flash_read(uintptr_t s_addr, uint8_t* dst, uint32_t size);
+int  wt_port_flash_program(uintptr_t s_addr, const uint8_t* src, uint32_t size);
+int  wt_port_flash_erase(uintptr_t s_addr, uint32_t size);
+int  wt_port_flash_blank_check(uintptr_t s_addr, uint32_t size);
+void wt_port_flash_quiesce(void);
+int  wt_port_flash_probe_tamper(uintptr_t ns_addr);   /* WT_REMEASURE_PROBE */
 ```
 
-Both crypto engines use this object store. The implementation must preserve
-the wolfHSM NVM flash-log semantics, distinguish foreign or corrupt media,
-honor checked object flags, and erase only the dedicated vault region when
-lifecycle policy allows reformat. See [Crypto Engines](Crypto-Engines.md) for
-the engine boundary above the common store.
+The shared backend owns every policy: the context a confined partition can
+write holds no geometry, so each primitive is called with a privileged
+thread and a range already checked against the immutable config its
+context's identity names. Programs are aligned to
+`WT_FLASH_PROGRAM_UNIT` and erases to `WT_FLASH_SECTOR_SIZE`; reads and
+blank checks may cover any byte span inside the checked region. FWU staging
+is sequential from offset 0 with an erase high-water mark, so a candidate
+of any sector count erases each sector once, and the last
+`WT_FWU_TRAILER_SIZE` bytes belong to arm and disarm alone. The wolfHSM
+store unit is 16, so the program unit must divide 16. Both crypto engines
+use this store; see [Crypto Engines](Crypto-Engines.md) for the engine
+boundary above it.
+
+| Primitive | On success | On failure |
+| --- | --- | --- |
+| `read` | `dst` filled | `WH_ERROR_ABORTED` and `dst` zeroed; never halts |
+| `program`, `erase` | the range changed | `WH_ERROR_ABORTED` (device), `WH_ERROR_NOTBLANK` (a unit programmed twice); the range may be partly changed and the backend treats it as dirty; interrupt state restored on every return; staged plaintext wiped |
+| `blank_check` | `WH_ERROR_OK` | `WH_ERROR_NOTBLANK`, or `WH_ERROR_ABORTED` for a device fault |
+| `quiesce` | controller relocked, device idle | bounded: a wedged controller still returns, so the reset that follows can happen |
+
+Whether a read fault is contained depends on the device, and a port claims
+only what it implements:
+
+| Port | Read-fault containment |
+| --- | --- |
+| STM32H563 | An ECC double error inside the read raises the NMI; the handler marks the window and the read returns `ABORTED` with zeroed data. |
+| MIMXRT700 | A volatile copy through the XIP alias; the NOR's behaviour on a faulting phrase is not established. |
+| MCXN947 | A volatile copy through the Secure alias; the ROM verifies erases and blank checks, and the behaviour of a mapped read of an erased or faulting phrase is not established. |
+
+`tests/host/port_flash` links the production backend and each port's
+`flash_drv.c` against a model of the device beneath it and runs the store,
+staging, conformance sync, gate and failure paths for every registered port.
+
+### Entropy
+
+The `CUSTOM_RAND_GENERATE_BLOCK` source is implemented once, in
+`port/common/rng_entropy.c`, over the port's `port/<soc>/rng_drv.c`
+(`port/common/rng_port.h`): `wt_port_rng_init` runs once and is retried
+after a failure; `wt_port_rng_fill` delivers the whole request or fails,
+after which the shared source zeroes the caller's buffer and refuses every
+later request until reset, since a failed request may still complete (a
+late DMA page on the MCXN947 lands in the driver's reserved static page,
+never in reused memory). A fill never serves a word an earlier request saw.
+`tests/host/h5_rng`, `rt700_trng` and `mcxn947_rng` prove this on each
+driver over a model of its device.
 
 ### Entropy
 

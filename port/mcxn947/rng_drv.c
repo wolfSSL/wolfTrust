@@ -1,4 +1,4 @@
-/* rng_entropy.c
+/* rng_drv.c
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,29 +18,21 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
+/* The MCXN947 ELS random request behind the shared entropy callback. */
+
 #include <stddef.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "mcxn947_regs.h"
-
-#include "wolftrust/spm_transport.h"
-#include "wolftrust/spm_gate.h"
-#include "wolftrust/arch.h"
-
-int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
-int wolftrust_rng_generate_block_direct(unsigned char *output,
-                                        unsigned int sz);
+#include "rng_port.h"
 
 #define WT_ELS_SPINS      0x00200000u
 #define WT_ELS_PAGE_WORDS 16u
 #define WT_ELS_CANARY     0xC3A55A3Cu
 
-static bool s_rng_ready;
 /* A request that outlives its deadline may still complete by DMA, so the page
- * is static rather than stack and the engine is never asked again. */
-static bool s_rng_failed;
+ * is static rather than stack; the shared callback never asks again. */
 static uint32_t s_els_page[WT_ELS_PAGE_WORDS]
     __attribute__((aligned(WT_ELS_RND_ALIGN)));
 /* Read over the debug port by the hardware runner. */
@@ -67,7 +59,7 @@ static int wt_els_wait_idle(void)
     return 0;
 }
 
-static int wt_els_init(void)
+int wt_port_rng_init(void)
 {
     WT_ELS_CTRL = WT_ELS_CTRL_EN;
     /* An error an earlier boot stage left latched would refuse every request. */
@@ -107,14 +99,13 @@ static int wt_els_rnd_page(volatile uint32_t *page)
             ret = -1;
         }
         if (ret != 0) {
-            s_rng_failed = true;
             WT_ELS_ERR_STATUS_CLR = WT_ELS_ERR_STATUS_CLR_ALL;
         }
     }
     return ret;
 }
 
-static int wt_els_fill(unsigned char *output, unsigned int sz)
+int wt_port_rng_fill(unsigned char *out, unsigned int sz)
 {
     volatile uint32_t* page = s_els_page;
     unsigned int done = 0u;
@@ -129,7 +120,7 @@ static int wt_els_fill(unsigned char *output, unsigned int sz)
             if (chunk > (unsigned int)sizeof(s_els_page)) {
                 chunk = (unsigned int)sizeof(s_els_page);
             }
-            (void)memcpy(output + done, s_els_page, chunk);
+            (void)memcpy(out + done, s_els_page, chunk);
             done += chunk;
         }
     }
@@ -137,40 +128,4 @@ static int wt_els_fill(unsigned char *output, unsigned int sz)
         page[i] = 0u;
     }
     return ret;
-}
-
-int wolftrust_rng_generate_block_direct(unsigned char *output, unsigned int sz)
-{
-    if ((output == NULL && sz != 0u) || s_rng_failed) {
-        return -1;
-    }
-    if (!s_rng_ready) {
-        if (wt_els_init() != 0) {
-            return -1;
-        }
-        s_rng_ready = true;
-    }
-    if (sz == 0u) {
-        return 0;
-    }
-    return wt_els_fill(output, sz);
-}
-
-int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
-{
-    /* A confined keystore partition cannot touch the ELS; the SVC
-     * dispatcher runs the direct half privileged. */
-    if (wt_arch_thread_unprivileged()) {
-        wt_spm_call_t call;
-
-        (void)memset(&call, 0, sizeof(call));
-        call.op = WT_SPM_OP_KEYSTORE_ENTROPY;
-        call.buffer = output;
-        call.num_bytes = sz;
-        if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS) {
-            return -1;
-        }
-        return call.ret_int;
-    }
-    return wolftrust_rng_generate_block_direct(output, sz);
 }

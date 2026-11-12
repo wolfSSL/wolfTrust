@@ -4,6 +4,7 @@
 # only, no ISA flags, so a host compiler accepts it. Included right after
 # mk/target-<soc>.mk, which gives every input its default.
 ARCH ?= armv8m
+PORT_NEUTRAL_DIR := $(ROOT)/port/common
 PORT_COMMON_DIR := $(ROOT)/port/common/$(ARCH)
 WT_ISOLATION_LEVEL ?= 3
 WT_LD_RAM_CODE_BAND ?= 0
@@ -21,11 +22,16 @@ $(foreach v,$(WT_LAYOUT_INPUTS),$(if $(strip $($(v))),,$(error \
 
 # Layout inputs reach the compiler through these variables only, so the
 # stamp, the tools and the firmware can never see different values.
+ifneq ($(filter -D -U,$(WT_EXTRA_CFLAGS)),)
+$(error write WT_EXTRA_CFLAGS defines as -DNAME[=value]: a split -D could \
+    carry a layout input that must be a make variable)
+endif
 WT_LAYOUT_EXTRA_DEFS := $(filter $(foreach \
-    v,$(WT_LAYOUT_INPUTS) $(WT_LAYOUT_OPTIONAL_INPUTS),-D$(v) -D$(v)=%),\
+    v,$(WT_LAYOUT_INPUTS) $(WT_LAYOUT_OPTIONAL_INPUTS),-D$(v) -D$(v)=% -U$(v)),\
     $(WT_EXTRA_CFLAGS))
 ifneq ($(WT_LAYOUT_EXTRA_DEFS),)
-$(error set $(patsubst -D%,%,$(firstword $(WT_LAYOUT_EXTRA_DEFS))) as a make \
+$(error set $(patsubst -U%,%,$(patsubst -D%,%,$(firstword \
+    $(WT_LAYOUT_EXTRA_DEFS)))) as a make \
     variable, not as a WT_EXTRA_CFLAGS define)
 endif
 
@@ -45,7 +51,8 @@ WT_LAYOUT_DEFS := \
     -DWT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE)
 WT_LAYOUT_DEFS += $(foreach v,$(WT_LAYOUT_OPTIONAL_INPUTS),\
     $(if $(strip $($(v))),-D$(v)=$($(v))))
-WT_LAYOUT_INCLUDE_DIRS := $(ROOT)/include $(PORT_DIR) $(PORT_COMMON_DIR)
+WT_LAYOUT_INCLUDE_DIRS := $(ROOT)/include $(PORT_DIR) $(PORT_COMMON_DIR) \
+    $(PORT_NEUTRAL_DIR)
 WT_LAYOUT_CFLAGS := $(strip $(WT_LAYOUT_DEFS) \
     $(addprefix -I,$(WT_LAYOUT_INCLUDE_DIRS)))
 # The same configuration for a consumer outside this directory.

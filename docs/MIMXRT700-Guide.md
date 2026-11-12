@@ -80,8 +80,8 @@ only `port/mimxrt700/` and one build fragment:
 | `mimxrt798_regs.h` | Register bases for CLKCTL, SYSCON, IOPCTL, LPUART0, XSPI0, TRNG, the AHBSC fabric controllers, and their GLIKEY unlock state machines. |
 | `platform_mimxrt700.c` | Every `wt_platform_*` operation: clocks, the SAU table, the Secure MPU whitelist, enabling AHBSC secure checking behind its GLIKEY unlock, staging of the RAM code band, the boot-handoff region, fault logging, panic, and reset. |
 | `xspi_nor.c/.h` | The XSPI0 octal-DTR NOR program and erase driver: bounded target-group IP commands on its own LUT sequences, run from the RAM code band with interrupts masked, flushing the XSPI read cache afterwards. |
-| `hsm_flash.c/.h` | The `port_nvm.h` backend for the wolfHSM store: reads through the Secure XIP alias, program and erase through `xspi_nor.c`. |
-| `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the on-die TRNG, preserving the unprivileged-to-privileged trap. |
+| `flash_drv.c` | The `flash_port.h` primitives for the shared store and FWU backend (`port/common/hsm_flash.c`): reads through the Secure XIP alias, program and erase through `xspi_nor.c`. |
+| `rng_drv.c` | The `rng_port.h` entropy source over the on-die TRNG; the shared `port/common/rng_entropy.c` keeps the unprivileged-to-privileged trap and the failure latch. |
 | `mk/target-mimxrt700.mk` | `WT_CPU`, the flash and RAM defaults, `WT_LD_RAM_CODE_BAND := 1` (the shared `port/common/armv8m/secure.ld.in` then places the SG veneers, the `cmse_nonsecure_entry` bodies, and the NOR driver in the RAM code band, loaded from flash and executed from SRAM), and the source lists. |
 
 The only edit outside the port allow-list is a neutral seam: an `#ifndef` guard

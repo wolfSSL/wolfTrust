@@ -78,8 +78,8 @@ Armv8-M isolation level 3 layer in `port/common/armv8m/` unchanged, and adds
 | `mcxn947_regs.h` | Register bases for SYSCON, the FMU, the ELS, LPUART4, the TRDC and the AHBSC, the boot ROM and its API tree, and the ELS command interface. |
 | `platform_mcxn947.c` | Every `wt_platform_*` operation: the SAU table, the Secure MPU whitelist (eight regions, one of them the boot ROM for the flash API), the boot-handoff region, fault logging, panic, and reset. |
 | `rom_flash.c/.h` | Internal flash program and erase through the boot ROM's API tree, called directly with a local definition of the driver interface layout (no vendor SDK): one 16-byte phrase is programmed at most once per erase, each program is issued from its 128-byte page base behind all-ones padding as the ROM requires, every erase is verified by the ROM, and the code-bus cache is cleared after each change. |
-| `hsm_flash.c/.h`, `hsm_flash_ctx.c` | The `port_nvm.h` backend for the wolfHSM store and the FWU staging backend: reads through the Secure alias, program and erase through `rom_flash.c`. |
-| `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the ELS `RND_REQ` command, preserving the unprivileged-to-privileged trap. |
+| `flash_drv.c` | The `flash_port.h` primitives for the shared store and FWU backend (`port/common/hsm_flash.c`): reads through the Secure alias, program, erase and blank checks through `rom_flash.c`, with only the update partition and the stores writable. |
+| `rng_drv.c` | The `rng_port.h` entropy source over the ELS `RND_REQ` command; the shared `port/common/rng_entropy.c` keeps the unprivileged-to-privileged trap and the failure latch. |
 | `secure_owners.txt` | The port's objects in the post-link owner map, appended to `tools/secure_owners.txt` by the link. |
 | `mk/target-mcxn947.mk` | `WT_CPU`, the flash and RAM defaults, and the source lists; the shared `port/common/armv8m/secure.ld.in` links the image with the SG veneers in its second 1 KiB, as on the STM32H5. |
 
@@ -156,7 +156,7 @@ is scheduling policy, not a boundary. The SAU window is the boundary, and
   wolfHSM store runs with `WOLFHSM_CFG_FLASH_UNIT_SIZE` 16 (the wolfTrust
   runner setting all ports share), so every journal unit is one phrase and
   no unit shares a phrase with another written at a different time;
-  `rom_flash.c` refuses to program a non-blank phrase and `hsm_flash.c`
+  `rom_flash.c` refuses to program a non-blank phrase and the shared backend
   refuses any program that is not phrase-aligned. `tests/host/mcxn947_flash`
   runs the real driver and the wolfHSM store over a model of this flash and
   its ROM and proves it: 643 page-based ROM programs across three partition

@@ -1,4 +1,4 @@
-/* hsm_flash_ctx.c
+/* mcxn947_mock.h
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -15,14 +15,18 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "hsm_flash.h"
+/* Force-included ahead of port/mcxn947/flash_drv.c: reads through the Secure
+ * alias come from the flash array. */
+#ifndef WT_TEST_MCXN947_MOCK_H
+#define WT_TEST_MCXN947_MOCK_H
 
-wt_hsm_flash_context_t g_hsm_flash_ctx;
+#include <stdint.h>
 
-/* Gate-path forensics (SWD-readable), counted in the vault's own thread. */
-volatile uint32_t g_wt_flash_gate_aborts __attribute__((used));
-volatile uint32_t g_wt_flash_gate_abort_info __attribute__((used));
+uint8_t wt_mock_flash_rd8(uintptr_t address);
+
+#define WT_FLASH_RD8(address) (wt_mock_flash_rd8(address))
+
+#endif /* WT_TEST_MCXN947_MOCK_H */

@@ -28,8 +28,9 @@
 #define WOLFTRUST_PORT_ARMV8M_MEMORY_MAP_CHECK_H
 
 #if !defined(WT_FLASH_NS_BASE) || !defined(WT_FLASH_S_ALIAS_BASE) || \
-    !defined(WT_FLASH_SIZE) || !defined(WT_FLASH_SECTOR_SIZE)
-#error "memory_map.h must define the flash aliases, size and sector size"
+    !defined(WT_FLASH_SIZE) || !defined(WT_FLASH_SECTOR_SIZE) || \
+    !defined(WT_FLASH_PROGRAM_UNIT) || !defined(WT_FWU_TRAILER_SIZE)
+#error "memory_map.h must define the flash aliases, size, sector size, program unit and FWU trailer"
 #endif
 #if !defined(WT_NSC_BASE) || !defined(WT_NSC_END) || \
     !defined(WT_L3_SPM_PERIPHERAL_BASE) || !defined(WT_GUEST_UART_BASE) || \
@@ -84,6 +85,19 @@
 #error "a Secure store's Secure and Non-secure aliases disagree"
 #endif
 
+/* The two stores and the update partition are disjoint and inside flash. */
+#if (WT_HSM_NVM_FLASH_BASE_S < WT_CONF_NVM_FLASH_BASE_S + WT_CONF_NVM_FLASH_SIZE && \
+     WT_CONF_NVM_FLASH_BASE_S < WT_HSM_NVM_FLASH_BASE_S + WT_HSM_NVM_FLASH_SIZE) || \
+    (WT_FWU_UPDATE_FLASH_BASE_S < WT_HSM_NVM_FLASH_BASE_S + WT_HSM_NVM_FLASH_SIZE && \
+     WT_HSM_NVM_FLASH_BASE_S < WT_FWU_UPDATE_FLASH_BASE_S + WT_FWU_UPDATE_FLASH_SIZE) || \
+    (WT_FWU_UPDATE_FLASH_BASE_S < WT_CONF_NVM_FLASH_BASE_S + WT_CONF_NVM_FLASH_SIZE && \
+     WT_CONF_NVM_FLASH_BASE_S < WT_FWU_UPDATE_FLASH_BASE_S + WT_FWU_UPDATE_FLASH_SIZE)
+#error "the wolfHSM store, the conformance store and the update partition overlap"
+#endif
+#if WT_FWU_UPDATE_FLASH_BASE_S + WT_FWU_UPDATE_FLASH_SIZE > WT_FLASH_S_ALIAS_BASE + WT_FLASH_SIZE
+#error "the update partition lies past the end of flash"
+#endif
+
 /* Erase geometry: every store and the update partition are whole sectors. */
 #if (WT_HSM_NVM_FLASH_BASE_S % WT_FLASH_SECTOR_SIZE) != 0u || \
     (WT_HSM_NVM_FLASH_SIZE % WT_FLASH_SECTOR_SIZE) != 0u || \
@@ -95,6 +109,11 @@
 #endif
 #if WT_HSM_NVM_FLASH_SIZE < 2u * WT_FLASH_SECTOR_SIZE
 #error "the wolfHSM store needs two mirrored sectors"
+#endif
+#if (WT_FLASH_SECTOR_SIZE % WT_FLASH_PROGRAM_UNIT) != 0u || \
+    (WT_FWU_TRAILER_SIZE % WT_FLASH_SECTOR_SIZE) != 0u || \
+    WT_FWU_TRAILER_SIZE >= WT_FWU_UPDATE_FLASH_SIZE
+#error "the program unit must divide the sector and the FWU trailer be whole sectors"
 #endif
 
 /* Guest RAM: ordered, inside the guest stack window, on the filter's granule. */

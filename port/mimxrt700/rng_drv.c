@@ -1,4 +1,4 @@
-/* rng_entropy.c
+/* rng_drv.c
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,24 +18,16 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
+/* The MIMXRT700 TRNG behind the shared entropy callback. */
+
 #include <stddef.h>
-#include <stdbool.h>
 #include <stdint.h>
 #include <string.h>
 
 #include "mimxrt798_regs.h"
-
-#include "wolftrust/spm_transport.h"
-#include "wolftrust/spm_gate.h"
-#include "wolftrust/arch.h"
-
-int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
-int wolftrust_rng_generate_block_direct(unsigned char *output,
-                                        unsigned int sz);
+#include "rng_port.h"
 
 #define WT_TRNG_ENT_SPINS 0x00200000u
-
-static bool s_rng_ready;
 
 /* A latched ERR voids the source even while an older page is still valid. */
 static int wt_trng_wait_page(void)
@@ -55,7 +47,7 @@ static int wt_trng_wait_page(void)
     return 0;
 }
 
-static int wt_trng_init(void)
+int wt_port_rng_init(void)
 {
     /* Leave the ROM's ring-oscillator tuning in place; a generation is
      * requested by dropping PRGM and waiting for the entropy-valid flag. */
@@ -66,7 +58,7 @@ static int wt_trng_init(void)
 /* Every page is read whole: reading its last word starts the next
  * generation, so words a request does not use are dropped, never served to
  * a later request. */
-static int wt_trng_fill(unsigned char *output, unsigned int sz)
+int wt_port_rng_fill(unsigned char *out, unsigned int sz)
 {
     uint32_t page[WT_TRNG_ENT_COUNT];
     volatile uint32_t* wipe = page;
@@ -85,7 +77,7 @@ static int wt_trng_fill(unsigned char *output, unsigned int sz)
             if (chunk > (unsigned int)sizeof(page)) {
                 chunk = (unsigned int)sizeof(page);
             }
-            (void)memcpy(output + done, page, chunk);
+            (void)memcpy(out + done, page, chunk);
             done += chunk;
         }
     }
@@ -93,40 +85,4 @@ static int wt_trng_fill(unsigned char *output, unsigned int sz)
         wipe[i] = 0u;
     }
     return ret;
-}
-
-int wolftrust_rng_generate_block_direct(unsigned char *output, unsigned int sz)
-{
-    if (output == NULL && sz != 0u) {
-        return -1;
-    }
-    if (!s_rng_ready) {
-        if (wt_trng_init() != 0) {
-            return -1;
-        }
-        s_rng_ready = true;
-    }
-    if (sz == 0u) {
-        return 0;
-    }
-    return wt_trng_fill(output, sz);
-}
-
-int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz)
-{
-    /* A confined keystore partition cannot touch the TRNG; the SVC
-     * dispatcher runs the direct half privileged. */
-    if (wt_arch_thread_unprivileged()) {
-        wt_spm_call_t call;
-
-        (void)memset(&call, 0, sizeof(call));
-        call.op = WT_SPM_OP_KEYSTORE_ENTROPY;
-        call.buffer = output;
-        call.num_bytes = sz;
-        if (wt_spm_sp_call(&call) != WT_FFM_SUCCESS) {
-            return -1;
-        }
-        return call.ret_int;
-    }
-    return wolftrust_rng_generate_block_direct(output, sz);
 }

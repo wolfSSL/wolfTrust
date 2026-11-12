@@ -67,6 +67,9 @@
 #define WT_FLASH_PAGE_SIZE         0x00000080u
 #define WT_FLASH_PHRASE_SIZE       0x00000010u
 #define WT_FLASH_BANK_SIZE         0x00100000u
+#define WT_FLASH_PROGRAM_UNIT      WT_FLASH_PHRASE_SIZE
+/* Write-once wolfBoot keeps a trailer copy in each of the last two sectors. */
+#define WT_FWU_TRAILER_SIZE        (2u * WT_FLASH_SECTOR_SIZE)
 #define WT_HSM_NVM_FLASH_BASE_NS   0x001E0000u
 #define WT_HSM_NVM_FLASH_BASE_S    0x101E0000u
 #define WT_HSM_NVM_FLASH_SIZE      0x00004000u

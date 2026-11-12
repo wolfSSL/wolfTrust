@@ -15,6 +15,7 @@ tests/host/ipc/build/
 tests/host/spm/build/
 tests/host/build/
 tests/host/*/build/
+tests/host/*/build-*/
 tests/host/vnet/test_vnet
 tests/host/wolfcose/test_wolfcose_integration
 tests/fuzz/build/

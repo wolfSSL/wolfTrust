@@ -31,7 +31,7 @@ CFLAGS := \
     -std=c99 -O0 -g -Wall -Wextra -pedantic -fno-pie
 CFLAGS += $(EXTRA_CFLAGS)
 
-ALL_OBJS := $(BUILD_DIR)/wt_rng_entropy.o $(BUILD_DIR)/main.o
+ALL_OBJS := $(BUILD_DIR)/wt_rng_entropy.o $(BUILD_DIR)/wt_rng_drv.o $(BUILD_DIR)/main.o
 TEST_BIN := $(BUILD_DIR)/test_mcxn947_rng
 # The driver latches failure, so each case runs in its own process.
 CASES := default locked error dropped stale
@@ -42,6 +42,9 @@ all: $(TEST_BIN)
 
 $(BUILD_DIR):
 	mkdir -p $@
+
+$(BUILD_DIR)/wt_rng_entropy.o: $(ROOT)/port/common/rng_entropy.c mock_els.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_%.o: $(ROOT)/port/mcxn947/%.c mock_els.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<

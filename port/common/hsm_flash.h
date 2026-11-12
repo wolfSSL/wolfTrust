@@ -15,17 +15,15 @@
  * GNU General Public License for more details.
  *
  * You should have received a copy of the GNU General Public License
- * along with this program; if not, write to the Free Software
- * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef WOLFTRUST_STM32H563_HSM_FLASH_H
-#define WOLFTRUST_STM32H563_HSM_FLASH_H
-
-#include "wolftrust/port_nvm.h"  /* g_wt_hsm_flash_cb + context/config contract */
+#ifndef WOLFTRUST_PORT_HSM_FLASH_H
+#define WOLFTRUST_PORT_HSM_FLASH_H
 
 #include <stdbool.h>
 #include <stdint.h>
+#include "wolftrust/port_nvm.h"
 
 typedef struct wt_hsm_flash_config {
     uintptr_t base;
@@ -35,10 +33,6 @@ typedef struct wt_hsm_flash_config {
 } wt_hsm_flash_config_t;
 
 typedef struct wt_hsm_flash_context {
-    uintptr_t base;
-    uint32_t size;
-    uint32_t sector_size;
-    uint32_t program_unit;
     bool write_locked;
 } wt_hsm_flash_context_t;
 
@@ -49,18 +43,19 @@ extern volatile uint32_t g_wt_flash_gate_aborts;
 extern volatile uint32_t g_wt_flash_gate_abort_info;
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
-/* Privileged survive-reset NVM sync for the conformance DRIVER partition
- * (P5 K2): store==0 loads the reserved flash sector into buf, store!=0 erases
- * that sector and programs buf back. len must be a multiple of the 16-byte
- * program unit. Returns 0 on success, -1 on failure. */
+/* Privileged survive-reset NVM sync for the conformance DRIVER partition:
+ * store==0 loads the reserved flash sector into buf, store!=0 erases that
+ * sector and programs buf back. len is a multiple of the program unit.
+ * Returns 0 on success, -1 on failure. */
 int wt_conf_nvm_flash_sync(uint8_t *buf, uint32_t len, int store);
 #endif
 
 #if defined(WT_REMEASURE_PROBE)
-/* Test-only (P6-S5): corrupt the first sector at secure_base so an on-demand
- * re-measurement of that window fails its pinned digest. The caller must drop
- * the secure MPU around this, since flash maps privileged-RO. */
+/* Test-only: tamper with guest 0's first sector so an on-demand
+ * re-measurement of that window fails its pinned digest. secure_base must be
+ * that sector's Secure-alias address; the caller drops the Secure MPU around
+ * this, since flash maps privileged-RO. */
 int wt_hsm_flash_remeasure_tamper(uintptr_t secure_base);
 #endif
 
-#endif /* WOLFTRUST_STM32H563_HSM_FLASH_H */
+#endif /* WOLFTRUST_PORT_HSM_FLASH_H */

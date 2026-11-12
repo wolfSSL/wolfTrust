@@ -34,8 +34,4 @@ WT_LD_RAM_CODE_BAND := 1
 WT_SECURE_LAYOUT_EXTRA_ARGS := --no-wolfhal
 
 TARGET_PLATFORM_SRC := $(PORT_DIR)/platform_mimxrt700.c
-TARGET_EXTRA_SRCS := \
-    $(wildcard $(PORT_DIR)/rng_entropy.c) \
-    $(wildcard $(PORT_DIR)/hsm_flash.c) \
-    $(wildcard $(PORT_DIR)/hsm_flash_ctx.c) \
-    $(wildcard $(PORT_DIR)/xspi_nor.c)
+TARGET_EXTRA_SRCS := $(PORT_DIR)/xspi_nor.c

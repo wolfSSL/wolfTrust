@@ -69,6 +69,9 @@
  * wh_nvm_flash uses two mirrored partitions, so reserve two sectors.
  */
 #define WT_FLASH_SECTOR_SIZE       0x00002000u
+/* Quad-word programs; wolfBoot keeps its trailer in the last sector. */
+#define WT_FLASH_PROGRAM_UNIT      0x00000010u
+#define WT_FWU_TRAILER_SIZE        WT_FLASH_SECTOR_SIZE
 #define WT_HSM_NVM_FLASH_BASE_NS   0x081FC000u
 #define WT_HSM_NVM_FLASH_BASE_S    0x0C1FC000u
 #define WT_HSM_NVM_FLASH_SIZE      0x00004000u

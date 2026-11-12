@@ -1010,10 +1010,10 @@ void wt_arch_zero_guest_memory(uintptr_t base, size_t size)
     while (offset < size) {
         ptr[offset++] = 0U;
     }
-    if (base == WT_GUEST0_RAM_BASE && size >= WT_GUEST_RAM_SIZE) {
+    if (base == WT_GUEST0_RAM_BASE && size >= WT_GUEST0_RAM_SIZE) {
         wt_virtual_systick_reset(0u);
     }
-    else if (base == WT_GUEST1_RAM_BASE && size >= WT_GUEST_RAM_SIZE) {
+    else if (base == WT_GUEST1_RAM_BASE && size >= WT_GUEST1_RAM_SIZE) {
         wt_virtual_systick_reset(1u);
     }
 }

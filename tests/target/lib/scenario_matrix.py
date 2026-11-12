@@ -247,7 +247,9 @@ def routing_gaps():
 
 # Sources every port takes from port/common/<arch>/ and may not carry itself.
 SHARED_PORT_SOURCES = ("partitions.c", "l3_port.h", "secure.ld", "hsm_flash.c",
-                       "hsm_flash.h", "hsm_flash_ctx.c", "rng_entropy.c")
+                       "hsm_flash.h", "hsm_flash_ctx.c", "rng_entropy.c",
+                       "platform_armv8m.c", "platform_port.h", "fabric_sau.c",
+                       "fabric_sau.h")
 
 
 def registry_gaps():

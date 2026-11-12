@@ -45,7 +45,7 @@ UNIT_SUITES := domain manifest lifecycle monitor guest_verify rollback sp_recove
     vault_service storage_service ps_service keystore_ipc negatives qcbor_shim \
     fwu_service runtime_verify psa_ffm_client psa_storage_client vnet_relay \
     psa_headers nvm_boot conf_nvm_sync fwu_restore spm_start layout_config \
-    manifest_render port_flash h5_rng
+    manifest_render port_flash h5_rng fabric_sau
 
 .PHONY: all test test-compilers test-sanitize test-valgrind print-suites clean
 

@@ -70,7 +70,8 @@ ifeq ($(WT_ISOLATION_LEVEL),3)
 # linker fragments and the platform hooks. A port's memory_map.h supplies
 # WT_RAM_S_BASE, from which every band is placed.
 PORT_HEADERS += $(wildcard $(PORT_COMMON_DIR)/*.h)
-TARGET_EXTRA_SRCS += $(PORT_COMMON_DIR)/platform_l3.c
+TARGET_EXTRA_SRCS += $(PORT_COMMON_DIR)/platform_l3.c \
+    $(PORT_COMMON_DIR)/platform_armv8m.c $(PORT_COMMON_DIR)/fabric_sau.c
 # The guest and capability tables, parameterised by the port's memory_map.h.
 TARGET_PARTITIONS_SRC := $(PORT_COMMON_DIR)/partitions.c
 WT_RAM_S_ORIGIN := $(shell sed -n \

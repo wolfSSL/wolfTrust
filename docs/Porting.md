@@ -57,10 +57,10 @@ handlers, the virtual SysTick, NVIC routing, table-driven SAU and MPU
 programming, the SVC trap decoder, the CMSE checks, and the five NS veneers),
 `src/arch/common/` supplies the architecture-neutral gate, scheduler, SP-side
 PSA API and NS gateway bodies on top of them, and
-`port/common/armv8m/` supplies the isolation level 3 layout and hooks every
-Armv8-M port shares, and `port/stm32h563/platform_stm32h563.c` implements the
-remaining `wt_platform_*` operations together with the SoC's SAU and MPU
-region tables.
+`port/common/armv8m/` supplies the isolation level 3 layout, the platform
+skeleton and the SAU guest-window backend every Armv8-M port shares, and
+`port/<soc>/platform_<soc>.c` supplies the port's hooks together with the
+SoC's SAU and MPU region tables.
 
 A port declares what its hardware can do through the capability bits in
 `include/wolftrust/partition.h`; the core refuses a manifest that assumes a
@@ -235,6 +235,28 @@ late DMA page on the MCXN947 lands in the driver's reserved static page,
 never in reused memory). A fill never serves a word an earlier request saw.
 `tests/host/h5_rng`, `rt700_trng` and `mcxn947_rng` prove this on each
 driver over a model of its device.
+
+### Platform hooks
+
+`port/common/armv8m/platform_armv8m.c` owns `wt_platform_init` and every
+neutral `wt_platform_*` operation (fault logging, panic, the bounded reset
+through `wt_port_flash_quiesce`, the per-dispatch guest windows, the
+conformance interrupt source, the probes). A port supplies the hooks of
+`port/common/armv8m/platform_port.h`, which that header documents with
+their order and guarantees:
+
+| Hook | Runs | Owes |
+| --- | --- | --- |
+| `wt_port_boot_init` | first | clocks, any RAM code band staged through the alias it is written by, the fabric rules the tables assume; no guest RAM touched |
+| `wt_port_fabric_init` | after the gateway and vector table | the fabric filter programmed and read back (nonzero refuses the boot) |
+| `wt_port_sau_regions`, `wt_port_mpu_s_regions` | before the arch layer | const tables |
+| `wt_port_late_init` | after guest RAM is cleared | console clocks and pins, fabric checking that must follow the clear, silicon checks (nonzero refuses) |
+| `wt_port_fabric_windows` | every dispatch | the SAU backend (`fabric_sau.c`) or the port's own curtain |
+| `wt_port_conf_irq_set` | conformance builds, on the DRIVER partition's request | the PAL interrupt raised from its peripheral (STM32H563: LPUART1 TXE), or `wt_platform_conf_irq_pend` where no peripheral drives it |
+
+The shared SAU backend refuses, by a panic, a window that is misaligned,
+overflows, overlaps an open one, exceeds the SAU's regions or does not read
+back; `tests/host/fabric_sau` proves each refusal over a model of the SAU.
 
 ### Entropy
 

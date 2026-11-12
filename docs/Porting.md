@@ -117,8 +117,17 @@ A port supplies:
   RAM, and set `WT_LD_RAM_CODE_BAND := 1` in `mk/target-<soc>.mk` so the
   shared linker script (`port/common/armv8m/secure.ld.in`) places the NSC
   gateway and the flash program code there;
-- `l3_port.h`, naming a Secure peripheral only the SPM drives as
-  `WT_L3_SPM_PERIPHERAL_BASE`;
+- in `memory_map.h`, a Secure peripheral only the SPM drives as
+  `WT_L3_SPM_PERIPHERAL_BASE`, the guests' console window
+  (`WT_GUEST_UART_BASE`, `WT_GUEST_UART_SIZE`), the NSC window
+  (`WT_NSC_BASE`, `WT_NSC_END`) and the flash geometry, then
+  `#include "../common/armv8m/memory_map_check.h"` last, which refuses a map
+  whose guest windows, stores or RAM overlap or miss their alignment;
+- nothing for the guest tables: `port/common/armv8m/partitions.c` builds
+  them from `memory_map.h` (a port whose fabric filter attributes memory in
+  blocks larger than the MPU granule defines `WT_GUEST_WINDOW_GRANULE`, and
+  one whose guests use different consoles defines
+  `WT_GUEST0_CONSOLE_BASE` and `WT_GUEST1_CONSOLE_BASE`);
 - attribution read-back for every Secure peripheral the SPM uses, panicking
   at boot on a mismatch; and
 - owner lines for every object it adds, in `tools/secure_owners.txt` or in

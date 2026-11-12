@@ -65,7 +65,7 @@ static const wt_armv8m_sau_region_t g_sau_regions[] = {
     { WT_GUEST0_FLASH_BASE,
       WT_GUEST1_FLASH_BASE + WT_GUEST1_FLASH_SIZE - 1u, false },
     { WT_RAM_NS_BASE, WT_RAM_NS_BASE + 0x0009FFFFu, false },
-    { WT_FLASH_NSC_BASE, WT_FLASH_NSC_END, true },
+    { WT_NSC_BASE, WT_NSC_END, true },
     { 0x40000000u, 0x4FFFFFFFu, false },
 };
 

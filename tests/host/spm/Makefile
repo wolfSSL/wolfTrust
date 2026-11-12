@@ -45,7 +45,7 @@ PRODUCTION_TEST := $(BUILD_DIR)/test_production_manifest
 PRODUCTION_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
     $(ROOT)/src/spm.c $(ROOT)/src/ffm.c $(ROOT)/src/ipc.c \
     $(ROOT)/src/ffm_domain.c \
-    $(ROOT)/port/stm32h563/partitions.c \
+    $(ROOT)/port/common/armv8m/partitions.c \
     $(ROOT)/src/partition.c \
     $(PRODUCTION_C) production_main.c
 

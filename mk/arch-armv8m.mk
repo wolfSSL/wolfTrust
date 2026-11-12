@@ -71,6 +71,8 @@ ifeq ($(WT_ISOLATION_LEVEL),3)
 # WT_RAM_S_BASE, from which every band is placed.
 PORT_HEADERS += $(wildcard $(PORT_COMMON_DIR)/*.h)
 TARGET_EXTRA_SRCS += $(PORT_COMMON_DIR)/platform_l3.c
+# The guest and capability tables, parameterised by the port's memory_map.h.
+TARGET_PARTITIONS_SRC := $(PORT_COMMON_DIR)/partitions.c
 WT_RAM_S_ORIGIN := $(shell sed -n \
     's/^\#define WT_RAM_S_BASE[[:space:]]*\(0x[0-9A-Fa-f]*\)u.*/\1/p' \
     $(PORT_DIR)/memory_map.h)

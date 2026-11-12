@@ -76,11 +76,9 @@ only `port/mimxrt700/` and one build fragment:
 
 | File | Responsibility |
 | --- | --- |
-| `memory_map.h` | The bit-28 Secure-alias map: XSPI0 NOR windows, Secure and guest RAM, the boot-handoff address, and the RAM code band; the per-partition bands are offsets from `WT_RAM_S_BASE` in `port/common/armv8m/l3_layout.h`. |
-| `l3_port.h` | The level 3 layer's one board input: the TRNG as the Secure peripheral only the SPM drives. |
+| `memory_map.h` | The bit-28 Secure-alias map: XSPI0 NOR windows, Secure and guest RAM, the guests' console window, the boot-handoff address, the RAM code band, and the TRNG as the Secure peripheral only the SPM drives; the per-partition bands are offsets from `WT_RAM_S_BASE` in `port/common/armv8m/l3_layout.h`, and `memory_map_check.h` refuses an inconsistent map. |
 | `mimxrt798_regs.h` | Register bases for CLKCTL, SYSCON, IOPCTL, LPUART0, XSPI0, TRNG, the AHBSC fabric controllers, and their GLIKEY unlock state machines. |
 | `platform_mimxrt700.c` | Every `wt_platform_*` operation: clocks, the SAU table, the Secure MPU whitelist, enabling AHBSC secure checking behind its GLIKEY unlock, staging of the RAM code band, the boot-handoff region, fault logging, panic, and reset. |
-| `partitions.c` | The guest and capability tables, the profile capability bitmap (the fabric filter is claimed on the per-dispatch SAU window, not on the AHBSC SRAM rules), and the pinned guest-measurement slot. |
 | `xspi_nor.c/.h` | The XSPI0 octal-DTR NOR program and erase driver: bounded target-group IP commands on its own LUT sequences, run from the RAM code band with interrupts masked, flushing the XSPI read cache afterwards. |
 | `hsm_flash.c/.h` | The `port_nvm.h` backend for the wolfHSM store: reads through the Secure XIP alias, program and erase through `xspi_nor.c`. |
 | `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the on-die TRNG, preserving the unprivileged-to-privileged trap. |

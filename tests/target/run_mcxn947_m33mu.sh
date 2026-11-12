@@ -94,7 +94,7 @@ log="$repo/build/mcxn947_m33mu_$scenario.log"
 # patch adds the EdgeLock RND_REQ register model the SPM seeds its DRBG from.
 M33MU_REF=87f693a3cbc4c1315ed3676cef962c092eb2f7be
 
-# The guests' manifest restart budget (port/mcxn947/partitions.c): sauneg
+# The guests' manifest restart budget (port/common/armv8m/partitions.c): sauneg
 # relaunches guest0 this many times before quarantining it.
 restart_limit=3
 # Where guest0's probe stores: inside guest1's RAM window (GUEST_PROBE_ADDR in

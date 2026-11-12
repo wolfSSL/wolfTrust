@@ -76,7 +76,7 @@ periph_probe_addr=0x40054000
 restart_probe_addr=0x30031000
 handoff_addr=0x30030000
 syscon_lc_state=0x50000980
-# The guests' manifest restart budget (port/mcxn947/partitions.c).
+# The guests' manifest restart budget (port/common/armv8m/partitions.c).
 restart_limit=3
 baremetal_dir="$repo/tests/firmware/mcxn947-baremetal"
 psa_dir="$repo/tests/firmware/psa-guest"

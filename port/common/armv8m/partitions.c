@@ -22,7 +22,10 @@
 #include "wolftrust/guest_verify.h"
 #include "wolftrust/partition.h"
 #include "memory_map.h"
-#include "mcxn947_regs.h"
+#if defined(WT_HANDLER_IRQ_PROBE)
+#include "wolftrust/arch.h"
+#include "wolftrust/arch/armv8m/armv8m.h"
+#endif
 
 #include <string.h>
 
@@ -32,13 +35,21 @@
 #define WT_GUEST_MEAS_SLOT_MAGIC_LEN 16u
 #define WT_GUEST_MEAS_SLOT_UNPATCHED 0xFFFFFFFFu
 
-/* Enforcement the port provides (WT-PORT-0008): the fabric filter is the
- * per-dispatch SAU window, as on the MIMXRT700, isolating CPU0's guests only;
- * CPU1, DMA and other bus masters are not fenced (no TRDC/AHBSC rules yet). */
-#define WT_MCXN947_PORT_CAPABILITIES \
+/* Enforcement every Armv8-M port provides (WT-PORT-0008): the fabric filter
+ * is the per-dispatch SAU window (plus GTZC on the STM32H5); a port that
+ * provides more or less says so in its memory_map.h. */
+#ifndef WT_PORT_CAPABILITIES
+#define WT_PORT_CAPABILITIES \
     (WT_PORT_CAPABILITY_VECTOR_READ_ALIAS | \
      WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING | \
      WT_PORT_CAPABILITY_TZ_FILTER)
+#endif
+/* A writable guest window must own whole attribution blocks of the fabric
+ * filter (512-byte GTZC blocks on the STM32H5, the 32-byte MPU granule
+ * elsewhere), or the curtain would hand a neighbour's bytes to the guest. */
+#ifndef WT_GUEST_WINDOW_GRANULE
+#define WT_GUEST_WINDOW_GRANULE 32u
+#endif
 #if defined(__ARM_EABI__)
 #define WT_GUEST_MEAS_SECTION \
     __attribute__((section(".wt_guest_meas"), used, aligned(4)))
@@ -96,14 +107,17 @@ const wt_guest_measurement_t* wt_platform_guest_measurements(size_t* count)
 #define WT_TIMESLICE_MS 2U
 #endif
 
-#ifndef WT_SHARED_UART
-#define WT_SHARED_UART 0
+/* Each guest's console window; a port whose guests use different UARTs
+ * defines the per-guest bases in its memory_map.h. */
+#ifndef WT_GUEST0_CONSOLE_BASE
+#define WT_GUEST0_CONSOLE_BASE WT_GUEST_UART_BASE
 #endif
-
-/* Both guests share LPUART4 (LP_FLEXCOMM4), the FRDM board's debug console. */
-#define WT_USART_REGION_SIZE 0x00001000U
-#define WT_GUEST0_USART_BASE WT_LPUART4_BASE_NS
-#define WT_GUEST1_USART_BASE WT_LPUART4_BASE_NS
+#ifndef WT_GUEST1_CONSOLE_BASE
+#define WT_GUEST1_CONSOLE_BASE WT_GUEST_UART_BASE
+#endif
+#ifndef WT_GUEST_CONSOLE_SIZE
+#define WT_GUEST_CONSOLE_SIZE WT_GUEST_UART_SIZE
+#endif
 /* Initial restore runs from a Secure exception and returns to a Non-secure
  * Thread/MSP frame; ES stays set because the exception was taken to Secure
  * state (clearing it trips INVPC on Armv8-M silicon). */
@@ -115,14 +129,14 @@ static wt_guest_config_t g_partition_configs[] = {
         .name = "guest-a",
         .vector_table = WT_GUEST0_FLASH_BASE,
         .initial_psp_ns = 0x00000000U,
-        .initial_msp_ns = WT_GUEST0_RAM_BASE + WT_GUEST_RAM_SIZE,
+        .initial_msp_ns = WT_GUEST0_RAM_BASE + WT_GUEST0_RAM_SIZE,
         .irq_mask = {
             .words = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}
         },
         .memory_windows = {
             {WT_GUEST0_FLASH_BASE, WT_GUEST0_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC, WT_RESOURCE_SHARE_NONE},
-            {WT_GUEST0_RAM_BASE, WT_GUEST_RAM_SIZE,
+            {WT_GUEST0_RAM_BASE, WT_GUEST0_RAM_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR,
              WT_RESOURCE_SHARE_NONE}
         },
@@ -130,9 +144,9 @@ static wt_guest_config_t g_partition_configs[] = {
         .memory_regions = {
             {WT_GUEST0_FLASH_BASE, WT_GUEST0_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
-            {WT_GUEST0_RAM_BASE, WT_GUEST_RAM_SIZE,
+            {WT_GUEST0_RAM_BASE, WT_GUEST0_RAM_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
-            {WT_GUEST0_USART_BASE, WT_USART_REGION_SIZE,
+            {WT_GUEST0_CONSOLE_BASE, WT_GUEST_CONSOLE_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE},
             /* NSC window: NS guests must be able to fetch the SG veneers.
              * Per ARMv8-M, NSC fetches succeed when SAU marks them NSC AND
@@ -149,8 +163,8 @@ static wt_guest_config_t g_partition_configs[] = {
         .initial_state = WT_GUEST_READY,
         .timeslice_ms = WT_TIMESLICE_MS,
         .port = {
-            .required_capabilities = WT_MCXN947_PORT_CAPABILITIES,
-            .provided_capabilities = WT_MCXN947_PORT_CAPABILITIES,
+            .required_capabilities = WT_PORT_CAPABILITIES,
+            .provided_capabilities = WT_PORT_CAPABILITIES,
             .vector_read_address =
                 WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE)
         }
@@ -161,14 +175,14 @@ static wt_guest_config_t g_partition_configs[] = {
         .name = "guest-b",
         .vector_table = WT_GUEST1_FLASH_BASE,
         .initial_psp_ns = 0x00000000U,
-        .initial_msp_ns = WT_GUEST1_RAM_BASE + WT_GUEST_RAM_SIZE,
+        .initial_msp_ns = WT_GUEST1_RAM_BASE + WT_GUEST1_RAM_SIZE,
         .irq_mask = {
             .words = {0U, 0U, 0U, 0U, 0U, 0U, 0U, 0U}
         },
         .memory_windows = {
             {WT_GUEST1_FLASH_BASE, WT_GUEST1_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC, WT_RESOURCE_SHARE_NONE},
-            {WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE,
+            {WT_GUEST1_RAM_BASE, WT_GUEST1_RAM_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_RESTART_CLEAR,
              WT_RESOURCE_SHARE_NONE}
         },
@@ -176,9 +190,9 @@ static wt_guest_config_t g_partition_configs[] = {
         .memory_regions = {
             {WT_GUEST1_FLASH_BASE, WT_GUEST1_FLASH_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC},
-            {WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE,
+            {WT_GUEST1_RAM_BASE, WT_GUEST1_RAM_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE},
-            {WT_GUEST1_USART_BASE, WT_USART_REGION_SIZE,
+            {WT_GUEST1_CONSOLE_BASE, WT_GUEST_CONSOLE_SIZE,
              WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_DEVICE},
             /* NSC window: see guest-a above. */
             {WT_NSC_BASE, (WT_NSC_END - WT_NSC_BASE + 1U),
@@ -193,8 +207,8 @@ static wt_guest_config_t g_partition_configs[] = {
         .initial_state = WT_GUEST_READY,
         .timeslice_ms = WT_TIMESLICE_MS,
         .port = {
-            .required_capabilities = WT_MCXN947_PORT_CAPABILITIES,
-            .provided_capabilities = WT_MCXN947_PORT_CAPABILITIES,
+            .required_capabilities = WT_PORT_CAPABILITIES,
+            .provided_capabilities = WT_PORT_CAPABILITIES,
             .vector_read_address =
                 WT_FLASH_TO_S_ALIAS(WT_GUEST1_FLASH_BASE)
         }
@@ -375,15 +389,21 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
 
             if ((manifest_resource->attributes & WT_MEM_ATTR_DEVICE) != 0U) {
                 uintptr_t usart_base = (config->guest_id == 0U) ?
-                    WT_GUEST0_USART_BASE : WT_GUEST1_USART_BASE;
+                    WT_GUEST0_CONSOLE_BASE : WT_GUEST1_CONSOLE_BASE;
 
                 if (manifest_resource->base != usart_base ||
-                        manifest_resource->size != WT_USART_REGION_SIZE) {
+                        manifest_resource->size != WT_GUEST_CONSOLE_SIZE) {
                     return -1;
                 }
             }
             else {
                 if (window_count >= config->memory_window_count) {
+                    return -1;
+                }
+                if ((manifest_resource->attributes & WT_MEM_ATTR_WRITE) != 0U &&
+                        ((manifest_resource->base % WT_GUEST_WINDOW_GRANULE) != 0U ||
+                         ((manifest_resource->base + manifest_resource->size) %
+                              WT_GUEST_WINDOW_GRANULE) != 0U)) {
                     return -1;
                 }
                 config->memory_windows[window_count] = *manifest_resource;
@@ -431,6 +451,18 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
             }
             config->irq_mask.words[word] |= (uint32_t)1U << bit;
         }
+#if defined(WT_HANDLER_IRQ_PROBE)
+#if WT_HANDLER_IRQ_PROBE < WT_ARMV8M_SECURE_IRQS || \
+    WT_HANDLER_IRQ_PROBE >= WT_MAX_IRQ_WORDS * 32
+#error "WT_HANDLER_IRQ_PROBE must be a spare IRQ outside the Secure range"
+#endif
+        /* Test build: guest0 owns one spare IRQ to wedge its handler in. */
+        if (i == 0U) {
+            config->irq_mask.words[WT_HANDLER_IRQ_PROBE / 32] |=
+                (uint32_t)1U << (WT_HANDLER_IRQ_PROBE % 32);
+            wt_arch_route_irq_to_guest((uint32_t)WT_HANDLER_IRQ_PROBE);
+        }
+#endif
         g_bound_exec_bases[i] = 0U;
         g_bound_exec_sizes[i] = 0U;
         for (size_t executable = 0U;
@@ -484,7 +516,7 @@ void wt_partition_reset_runtime(const wt_guest_config_t* config,
     /* Reset PC is the guest's reset-handler pointer at vector[1]; the slot
      * already carries the Thumb bit. wt_jump_to_ns strips it before BXNS.
      * Read via the Secure alias of the flash: a Secure-side read of the NS
-     * alias may return zero, so vector_read_address is the 0x1... alias. */
+     * alias may return zero, so vector_read_address is the Secure alias. */
     runtime->context->pc = wt_guest_reset_handler(config);
     if (config->guest_id >=
             sizeof(g_bound_exec_bases) / sizeof(g_bound_exec_bases[0]) ||

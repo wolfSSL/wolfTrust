@@ -22,6 +22,7 @@
 #define WOLFTRUST_MCXN947_REGS_H
 
 #include <stdint.h>
+#include "memory_map.h"
 
 /* Secure-alias peripheral bases (MCXN947 cm33_core0, NS alias = base -
  * 0x10000000). */
@@ -32,6 +33,9 @@
 #define WT_SYSCON_BASE_S         0x50000000u
 #define WT_FMU0_BASE_S           0x50043000u
 #define WT_ELS_BASE_S            0x50054000u
+#if WT_L3_SPM_PERIPHERAL_BASE != WT_ELS_BASE_S
+#error "memory_map.h names a different SPM-only peripheral than WT_ELS_BASE_S"
+#endif
 #define WT_ELS_BASE_NS           0x40054000u
 #define WT_LPUART4_BASE_S        0x500B4000u
 #define WT_LPUART4_BASE_NS       0x400B4000u

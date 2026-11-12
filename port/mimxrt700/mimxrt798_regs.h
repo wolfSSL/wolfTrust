@@ -22,6 +22,7 @@
 #define WOLFTRUST_MIMXRT798_REGS_H
 
 #include <stdint.h>
+#include "memory_map.h"
 
 /* Secure-alias peripheral bases (MIMXRT798S cm33_core0, NS alias = base -
  * 0x10000000). */
@@ -46,6 +47,9 @@
 #define WT_XSPI0_BASE_S          0x50184000u
 #define WT_XSPI1_BASE_S          0x50185000u
 #define WT_TRNG_BASE_S           0x50187000u
+#if WT_L3_SPM_PERIPHERAL_BASE != WT_TRNG_BASE_S
+#error "memory_map.h names a different SPM-only peripheral than WT_TRNG_BASE_S"
+#endif
 #define WT_ELS_BASE_S            0x50190000u
 #define WT_PUF_BASE_S            0x50194000u
 #define WT_AHBSC3_BASE_S         0x50220000u

@@ -154,7 +154,7 @@ l3_layout_load() {
         fail "could not read the layout configuration of port/$2"
     vars="$(python3 "$1/tools/l3_layout_args.py" --shell \
         --cc "${L3_CPP:-arm-none-eabi-gcc}" --cflags "$cflags" \
-        -I "$1/lib/wolfhal" "$1/port/$2/memory_map.h")" ||
+        "$1/port/$2/memory_map.h")" ||
         fail "could not read the level 3 layout of port/$2"
     eval "$vars"
 }

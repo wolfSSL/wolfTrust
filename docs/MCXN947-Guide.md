@@ -74,11 +74,9 @@ Armv8-M isolation level 3 layer in `port/common/armv8m/` unchanged, and adds
 
 | File | Responsibility |
 | --- | --- |
-| `memory_map.h` | The bit-28 Secure-alias map: flash windows, Secure and guest RAM, the boot-handoff address, and the port-sized level 3 bands (`WT_L3_SPM_RAM_SIZE`, `WT_SP_HSM_DATA_SIZE`) from `port/common/armv8m/l3_layout.h`. |
-| `l3_port.h` | The level 3 layer's one board input: the ELS as the Secure peripheral only the SPM drives. |
+| `memory_map.h` | The bit-28 Secure-alias map: flash windows, Secure and guest RAM, the guests' console window, the boot-handoff address, the ELS as the Secure peripheral only the SPM drives, and the port-sized level 3 bands (`WT_L3_SPM_RAM_SIZE`, `WT_SP_HSM_DATA_SIZE`) from `port/common/armv8m/l3_layout.h`; `memory_map_check.h` refuses an inconsistent map. |
 | `mcxn947_regs.h` | Register bases for SYSCON, the FMU, the ELS, LPUART4, the TRDC and the AHBSC, the boot ROM and its API tree, and the ELS command interface. |
 | `platform_mcxn947.c` | Every `wt_platform_*` operation: the SAU table, the Secure MPU whitelist (eight regions, one of them the boot ROM for the flash API), the boot-handoff region, fault logging, panic, and reset. |
-| `partitions.c` | The guest and capability tables, the profile capability bitmap (the fabric filter is claimed on the per-dispatch SAU window, as on the MIMXRT700), and the pinned guest-measurement slot. |
 | `rom_flash.c/.h` | Internal flash program and erase through the boot ROM's API tree, called directly with a local definition of the driver interface layout (no vendor SDK): one 16-byte phrase is programmed at most once per erase, each program is issued from its 128-byte page base behind all-ones padding as the ROM requires, every erase is verified by the ROM, and the code-bus cache is cleared after each change. |
 | `hsm_flash.c/.h`, `hsm_flash_ctx.c` | The `port_nvm.h` backend for the wolfHSM store and the FWU staging backend: reads through the Secure alias, program and erase through `rom_flash.c`. |
 | `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the ELS `RND_REQ` command, preserving the unprivileged-to-privileged trap. |

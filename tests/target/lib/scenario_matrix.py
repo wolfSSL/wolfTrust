@@ -245,10 +245,15 @@ def routing_gaps():
     return gaps
 
 
+# Sources every port takes from port/common/<arch>/ and may not carry itself.
+SHARED_PORT_SOURCES = ("partitions.c", "l3_port.h", "secure.ld")
+
+
 def registry_gaps():
     """A registered port has its build fragment, its guide and its shared
-    architecture layer, a unique CI label and runner arm, a usable image,
-    known engines, and a smoke set drawn from its full tier."""
+    architecture layer, no copy of a shared source, a unique CI label and
+    runner arm, a usable image, known engines, and a smoke set drawn from its
+    full tier."""
     gaps = []
     labels = {}
     arms = {}
@@ -260,6 +265,12 @@ def registry_gaps():
         for rel, what in needed:
             if not os.path.exists(os.path.join(REPO_ROOT, rel)):
                 gaps.append("%s: missing %s %s" % (port, what, rel))
+        # The build compiles a port's own copy of a shared source before the
+        # shared one, so a leftover copy would silently replace it.
+        for shared in SHARED_PORT_SOURCES:
+            if os.path.exists(os.path.join(REPO_ROOT, "port", port, shared)):
+                gaps.append("%s: port/%s/%s shadows port/common/%s/%s" %
+                            (port, port, shared, data["arch"], shared))
         for field, table in (("label", labels), ("arm", arms)):
             value = PORTS[port][field]
             if not value:

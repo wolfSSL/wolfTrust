@@ -41,6 +41,8 @@
 #define WT_FLASH_NS_BASE         0x28000000u
 #define WT_FLASH_S_ALIAS_BASE    0x38000000u
 #define WT_FLASH_ALIAS_SIZE      0x04000000u
+/* The EVK's 64 MiB octal NOR fills the XSPI0 alias. */
+#define WT_FLASH_SIZE            WT_FLASH_ALIAS_SIZE
 #define WT_FLASH_TO_S_ALIAS(address) \
     ((address) - WT_FLASH_NS_BASE + WT_FLASH_S_ALIAS_BASE)
 #ifndef WT_GUEST0_FLASH_BASE
@@ -115,5 +117,11 @@
 #ifndef WT_PLATFORM_CORE_CLOCK_HZ
 #define WT_PLATFORM_CORE_CLOCK_HZ 237500000u
 #endif
+
+/* A Secure peripheral only the SPM drives (the TRNG, WT_TRNG_BASE_S), probed
+ * by the periphsp negative. */
+#define WT_L3_SPM_PERIPHERAL_BASE 0x50187000u
+
+#include "../common/armv8m/memory_map_check.h"
 
 #endif

@@ -11,7 +11,6 @@ windows a guest build links into. Every mode reads the macros the C code and
 the linker script are placed by instead of a copied address list."""
 
 import argparse
-import os
 import re
 import shlex
 import subprocess
@@ -48,9 +47,6 @@ EXPRESSION = re.compile(r"^[0-9a-fA-FxX+\-*() ]+$")
 
 def evaluate(cc, header, macros, includes, optional=(), cflags=()):
     probe = '#include "%s"\n' % header
-    port_header = os.path.join(os.path.dirname(header), "l3_port.h")
-    if "WT_L3_SPM_PERIPHERAL_BASE" in macros:
-        probe += '#include "%s"\n' % port_header
     probe += "".join("%d=%s\n" % (index, name)
                      for index, name in enumerate(macros))
     command = [cc, "-E", "-P", "-x", "c"] + list(cflags)

@@ -120,7 +120,7 @@ log="$repo/build/rt700_m33mu_$scenario.log"
 
 M33MU_REF=f3c03675260264cdec815adebe4b020bb6fe57b8
 
-# The guests' manifest restart budget (port/mimxrt700/partitions.c): ahbscneg
+# The guests' manifest restart budget (port/common/armv8m/partitions.c): ahbscneg
 # relaunches guest0 this many times before quarantining it.
 restart_limit=3
 # Where guest0's probe stores: inside guest1's RAM window (GUEST_PROBE_ADDR in

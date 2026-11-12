@@ -7,4 +7,3 @@
 1 tests/target/provisioning/provisioning_ctrl.sh
 3 tests/target/run_suite.sh
 2 tools/ci-static-analysis-build.sh
-1 tools/measure/patch_guest_digests.py

@@ -19,8 +19,7 @@
  */
 
 /* Isolation level 3 platform hooks shared by every Armv8-M port. The layout
- * comes from l3_layout.h through the port's memory_map.h; the port's
- * l3_port.h supplies the few board inputs. */
+ * comes from l3_layout.h and the board inputs from the port's memory_map.h. */
 
 #include "wolftrust/platform.h"
 #include "wolftrust/priv_stack.h"
@@ -29,7 +28,6 @@
 #include <stdint.h>
 
 #include "memory_map.h"
-#include "l3_port.h"
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 #include "psa_manifest/pid.h"

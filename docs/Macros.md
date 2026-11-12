@@ -13,7 +13,7 @@ selected values into C preprocessor defines. Defaults below come from
 | `TOOLPREFIX` | Cross-tool prefix; default `arm-none-eabi-`. | The prefixed GCC, objcopy, nm, and size tools must be available. |
 | `BUILD_DIR` | Secure build output directory; default `build`. | Must be writable. |
 | `WT_LTO` | Enable Secure-image link-time optimization; default `1`. | Set to `0` for diagnostics or a non-LTO size comparison. The GNU Arm compiler must support `-flto=auto`. |
-| `WT_ENGINE` | Secure crypto engine: `native` (default) dispatches wolfCrypt directly behind the SERVICE_HSM door with explicitly vault-backed keys stored as `SENSITIVE` and `NONEXPORTABLE` NVM objects; `hsm` links the wolfHSM server as a key-management add-on (server-keystore semantics and an external-HSM offload path). Legacy `WT_ENGINE_HSM=0/1` maps onto the selector. | Both engines share the identical FF-M surface (5 veneers, SIDs, manifest, and L3 bands) and run every applicable CI scenario. Guest builds must use the same engine as the Secure image. See [Crypto Engines](Crypto-Engines.md). |
+| `WT_ENGINE` | Secure crypto engine: `native` (default) dispatches wolfCrypt directly behind the SERVICE_HSM door with explicitly vault-backed keys stored as `SENSITIVE` and `NONEXPORTABLE` NVM objects; `hsm` links the wolfHSM server as a key-management add-on (server-keystore semantics and an external-HSM offload path). Legacy `WT_ENGINE_HSM=0/1` maps onto the selector. | Both engines share the identical FF-M surface (5 veneers, SIDs, manifest, and L3 bands) and run every applicable CI scenario. `TARGET=stm32l562` builds `native` only. Guest builds must use the same engine as the Secure image. See [Crypto Engines](Crypto-Engines.md). |
 
 ## Core target configuration
 
@@ -31,7 +31,7 @@ selected values into C preprocessor defines. Defaults below come from
 
 | Define | Description | Requirement |
 | --- | --- | --- |
-| `WT_GUEST_FLASH_WRP` | When `1`, verify full hardware write protection of each guest window before launch (STM32 WRP groups, or MIMXRT700 locked XSPI flash region descriptors); default `0`. | Set to `1` for hardened images: provision STM32H563 WRP after flashing, or boot the MIMXRT700 fenced wolfBoot. M33MU models the MIMXRT700 descriptors but not STM32 WRP. |
+| `WT_GUEST_FLASH_WRP` | When `1`, verify full hardware write protection of each guest window before launch (STM32H563 WRP groups, STM32L562 `WRPxA`/`WRPxB` page areas, or MIMXRT700 locked XSPI flash region descriptors); default `0`. | Set to `1` for hardened images: provision STM32H563 WRP after flashing, arm the STM32L562 `WRP2A` fence (`provisioning_ctrl.sh set-wrp`), or boot the MIMXRT700 fenced wolfBoot. M33MU models the MIMXRT700 descriptors but not STM32 WRP. |
 | `WT_ENGINE_HSM` | Legacy engine selector; unset by default. `0` maps to `WT_ENGINE=native` and `1` maps to `WT_ENGINE=hsm` when the public selector is not supplied. The build also derives this internal value from `WT_ENGINE`. | Prefer `WT_ENGINE` for new builds and do not supply conflicting selectors. The guest and Secure image must select the same engine. |
 | `WT_ATTEST_COSE` | Must remain `1` in the current STM32H563 reference build; default `1`. The `0` configuration does not compile because the reset path still references attestation-gated handoff variables. | Requires the wolfCOSE submodule and the configured attestation key backend. |
 | `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `1`. | Requires compatible Armv8-M assembly sources and toolchain. |
@@ -45,7 +45,7 @@ selected values into C preprocessor defines. Defaults below come from
 | --- | --- | --- |
 | `WT_SECURE_FLASH_BASE` | Secure image link base; standalone default `0x0C000000`. | Must match the bootloader slot and linker layout. |
 | `WT_SECURE_FLASH_SIZE` | Available Secure image bytes; standalone default `0x00020000`. | Must cover the linked image without overlapping another flash region. |
-| `WT_SECURE_IMAGE_HEADER_SIZE` | Bytes reserved before linked code; default `0` (`0x400` for `TARGET=mimxrt700`, wolfBoot's RT700 header). | Set to match the header layout of an image signed for wolfBoot. |
+| `WT_SECURE_IMAGE_HEADER_SIZE` | Bytes reserved before linked code; default `0` (`0x400` for `TARGET=mimxrt700` and `TARGET=stm32l562`, wolfBoot's image header on those ports). | Set to match the header layout of an image signed for wolfBoot. |
 | `WT_GUEST0_FLASH_BASE` | Guest 0 flash base; standalone default `0x08020000`. | Must match the guest link address and manifest executable window. |
 | `WT_GUEST1_FLASH_BASE` | Guest 1 flash base; standalone default `0x08040000`. | Must match the guest link address and manifest executable window. |
 | `WT_GUEST0_FLASH_SIZE` | Guest 0 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |

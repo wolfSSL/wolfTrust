@@ -33,6 +33,10 @@ operations and volatile keys remain local to the Non-secure guest. The native
 wire is a separate explicit interface for vault-backed key operations. Secure
 services such as attestation use that vault backend directly.
 
+A port may build only one engine. The STM32L562 builds the native engine
+only: the wolfHSM engine's per-guest server bands and stacks do not fit its
+256 KiB of SRAM beside two guests, so `WT_ENGINE=hsm` stops that build.
+
 ## One service seam
 
 `SERVICE_HSM` keeps its existing name and SID in both builds. The service

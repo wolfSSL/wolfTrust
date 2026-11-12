@@ -19,3 +19,4 @@
 - [[STM32H5 Guide]]
 - [[MIMXRT700 Guide]]
 - [[MCXN947 Guide]]
+- [[STM32L562 Guide]]

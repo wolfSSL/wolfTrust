@@ -86,10 +86,10 @@ case "$scenario" in
     timeout_s="${RT700_M33MU_TIMEOUT:-180}" ;;
   confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec)
     guest_dir="tests/firmware/psa-guest"
-    guest1_dir="tests/firmware/mimxrt700-baremetal"
+    guest1_dir="tests/firmware/baremetal-guest"
     timeout_s="${RT700_M33MU_TIMEOUT:-900}" ;;
   *)
-    guest_dir="tests/firmware/mimxrt700-baremetal"
+    guest_dir="tests/firmware/baremetal-guest"
     guest1_dir="$guest_dir"
     timeout_s="${RT700_M33MU_TIMEOUT:-60}" ;;
 esac
@@ -124,7 +124,7 @@ M33MU_REF=f3c03675260264cdec815adebe4b020bb6fe57b8
 # relaunches guest0 this many times before quarantining it.
 restart_limit=3
 # Where guest0's probe stores: inside guest1's RAM window (GUEST_PROBE_ADDR in
-# tests/firmware/mimxrt700-baremetal/Makefile).
+# tests/firmware/baremetal-guest/Makefile).
 probe_addr=0x20170000
 # Where guest0's restart probe reads: Secure RAM (GUEST_FAULT_ADDR there).
 fault_addr=0x30188000
@@ -200,7 +200,7 @@ make -s TARGET=mimxrt700 secure-image TOOLPREFIX=arm-none-eabi-
 
 guest_flags=""
 case "$scenario" in
-  ahbscneg)     guest_flags="WT_AHBSC_PROBE=1" ;;
+  ahbscneg)     guest_flags="WT_ISO_PROBE=1" ;;
   periphneg)    guest_flags="WT_PERIPH_NEG_PROBE=1" ;;
   # The secure probe fires inside a partition; guest0 ends the run on its
   # breakpoint once its lifecycle is done, as the H5 level 3 runs do.

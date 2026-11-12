@@ -233,7 +233,7 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
     -Wno-unused-parameter -Wno-type-limits \
     -ffunction-sections -fdata-sections -mno-unaligned-access \
     $(CONF_INCS) \
-    -I. -Imanifest -Iboards/$(TARGET) \
+    -I. -Imanifest -I$(ROOT)/tests/firmware/boards/$(TARGET) \
     -I$(ROOT)/include \
     -I$(WOLFSSL_DIR) \
     -I$(WOLFHSM_DIR) \

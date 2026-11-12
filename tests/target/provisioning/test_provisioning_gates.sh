@@ -35,10 +35,10 @@ echo wb > "$R/wolfBoot/wolfboot.bin"; echo wt > "$R/build/wolftrust_v1_signed.bi
 echo g0 > "$R/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
 echo g1 > "$R/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
 echo elf > "$R/build/wolftrust.elf"
-mkdir -p "$R/build/rt700" "$R/tests/firmware/mimxrt700-baremetal/build"
+mkdir -p "$R/build/rt700" "$R/tests/firmware/baremetal-guest/build"
 echo rwb > "$R/build/rt700/flash_wolfboot.bin"
-echo rg0 > "$R/tests/firmware/mimxrt700-baremetal/build/guest0.bin"
-echo rg1 > "$R/tests/firmware/mimxrt700-baremetal/build/guest1.bin"
+echo rg0 > "$R/tests/firmware/baremetal-guest/build/guest0.bin"
+echo rg1 > "$R/tests/firmware/baremetal-guest/build/guest1.bin"
 SD="$T/home/st-rot-h5/Projects/NUCLEO-H563ZI/ROT_Provisioning/DA"
 mkdir -p "$SD/Binary" "$SD/Keys" "$SD/Certificates" "$T/prodda"
 echo sobk > "$SD/Binary/DA_Config.obk"; echo spwd > "$SD/Binary/password.bin"
@@ -325,8 +325,8 @@ fuse() { echo "$2" > "$T/fuse.$(($1))"; }
 edig() {
   local a f
   for a in 0x28000000:build/rt700/flash_wolfboot.bin 0x28040000:build/wolftrust_v1_signed.bin \
-           0x28080000:tests/firmware/mimxrt700-baremetal/build/guest0.bin \
-           0x28100000:tests/firmware/mimxrt700-baremetal/build/guest1.bin; do
+           0x28080000:tests/firmware/baremetal-guest/build/guest0.bin \
+           0x28100000:tests/firmware/baremetal-guest/build/guest1.bin; do
     f="$R/${a#*:}"; printf '%s %s\n' "${a%%:*}" "$(wc -c < "$f" | tr -d ' ')"; cat "$f"
   done | sha | cut -c1-64
 }
@@ -368,7 +368,7 @@ fuse 0x8F 0x03; fuse 0x25 0x03
 check "unrehearsed"          2 "no rehearsal for develop2" -- env "${ISP[@]}" "${RT[@]}" lock develop2
 rec 0x07 0x03 0000 armed "$(now)"
 check "rehearsed other images" 2 "no rehearsal for" -- env "${ISP[@]}" "${RT[@]}" lock 0x07
-G="$R/tests/firmware/mimxrt700-baremetal/build"
+G="$R/tests/firmware/baremetal-guest/build"
 rec 0x07 0x03 "$(edig)" armed "$(now)"
 printf 'rg0\nr' > "$G/guest0.bin"; printf 'g1\n' > "$G/guest1.bin"
 check "bytes moved between images" 2 "no rehearsal for" -- env "${ISP[@]}" "${RT[@]}" lock 0x07
@@ -421,17 +421,17 @@ nowrite
 echo "== MCXN947"
 MX=(env TARGET=mcxn947 MCXN947_SPSDK_VENV="$T/venv" MCXN947_PROBE_UID=PROBEA MCXN947_WOLFBOOT_DIR="$R/wolfBoot" WT_PROVISION_STATE="$T/st" PATH="$T/venv/bin:$PATH" "$P")
 MS="$T/st/mcxn947"
-mkdir -p "$R/tests/firmware/mcxn947-baremetal/build"
-echo mg0 > "$R/tests/firmware/mcxn947-baremetal/build/guest0.bin"
-echo mg1 > "$R/tests/firmware/mcxn947-baremetal/build/guest1.bin"
+mkdir -p "$R/tests/firmware/baremetal-guest/build"
+echo mg0 > "$R/tests/firmware/baremetal-guest/build/guest0.bin"
+echo mg1 > "$R/tests/firmware/baremetal-guest/build/guest1.bin"
 # restore runs the hardware runner; here a stub that reports the probe it got.
 printf '#!/bin/sh\necho "stub runner $1 probe=${MCXN947_PROBE_UID:-none}"\n' > "$R/tests/target/run_mcxn947_hardware.sh"
 chmod +x "$R/tests/target/run_mcxn947_hardware.sh"
 mdig() {
   local a f
   for a in 0x00000000:wolfBoot/wolfboot.bin 0x00040000:build/wolftrust_v1_signed.bin \
-           0x00080000:tests/firmware/mcxn947-baremetal/build/guest0.bin \
-           0x00100000:tests/firmware/mcxn947-baremetal/build/guest1.bin; do
+           0x00080000:tests/firmware/baremetal-guest/build/guest0.bin \
+           0x00100000:tests/firmware/baremetal-guest/build/guest1.bin; do
     f="$R/${a#*:}"; printf '%s %s\n' "${a%%:*}" "$(wc -c < "$f" | tr -d ' ')"; cat "$f"
   done | sha | cut -c1-64
 }

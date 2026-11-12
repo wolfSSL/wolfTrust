@@ -70,7 +70,7 @@ flash_sector=0x2000
 guest0_ram=0x20000000
 guest1_ram=0x20018000
 probe_addr=0x20028000
-# What guest0's negatives touch (tests/firmware/mcxn947-baremetal/Makefile):
+# What guest0's negatives touch (tests/firmware/baremetal-guest/Makefile):
 # the SPM's ELS through its NS alias, and Secure RAM for the restart probe.
 periph_probe_addr=0x40054000
 restart_probe_addr=0x30031000
@@ -78,7 +78,7 @@ handoff_addr=0x30030000
 syscon_lc_state=0x50000980
 # The guests' manifest restart budget (port/common/armv8m/partitions.c).
 restart_limit=3
-baremetal_dir="$repo/tests/firmware/mcxn947-baremetal"
+baremetal_dir="$repo/tests/firmware/baremetal-guest"
 psa_dir="$repo/tests/firmware/psa-guest"
 
 # shellcheck source=lib/mcxn947_wolfboot.sh disable=SC1091
@@ -343,7 +343,7 @@ elf_sym() {
 sym_word() { word_at "$(elf_sym "$1")" 0; }
 
 # Each bare-metal guest records its progress at the base of its own RAM
-# window (tests/firmware/mcxn947-baremetal/guest0.c).
+# window (tests/firmware/baremetal-guest/guest0.c).
 check_guest() {
     local id="$1" base="$2" sig fw st uart
     sig="$(word_at "$base" 0)"
@@ -468,7 +468,7 @@ positive)
     log "PASS: hardware/mcxn947/$scenario"
     ;;
 sauneg)
-    run_chain "$baremetal_dir" "WT_SAU_PROBE=1"
+    run_chain "$baremetal_dir" "WT_ISO_PROBE=1"
     check_guest0_quarantined "$probe_addr"
     peer="$(word_at "$probe_addr" 0)"
     check "$([ "$peer" != "deadbeef" ]; echo $?)" \

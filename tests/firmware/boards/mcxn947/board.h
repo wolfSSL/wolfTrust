@@ -18,16 +18,20 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* MCXN947 (FRDM-MCXN947, CPU0) board seams for the portable PSA guest: the
- * console is LPUART4 through its Non-secure alias, configured by the first
- * loader, so the guest keeps the transmitter on, polls TDRE and writes DATA. */
+/* MCXN947 (FRDM-MCXN947, CPU0) board seams for the shared Non-secure
+ * guests: the console is LPUART4 through its Non-secure alias, configured by
+ * the first loader, so the guest keeps the transmitter on, polls TDRE and
+ * writes DATA. */
 
-#ifndef WOLFTRUST_PSA_GUEST_BOARD_H
-#define WOLFTRUST_PSA_GUEST_BOARD_H
+#ifndef WOLFTRUST_GUEST_BOARD_H
+#define WOLFTRUST_GUEST_BOARD_H
 
 #include <stdint.h>
 
+#define GUEST_BOARD_NAME     "MCXN947"
+
 #define GUEST_UART_BASE      0x400B4000u
+#define GUEST_UART_VERID     (*(volatile uint32_t*)(GUEST_UART_BASE + 0x00u))
 #define GUEST_UART_STAT      (*(volatile uint32_t*)(GUEST_UART_BASE + 0x14u))
 #define GUEST_UART_CTRL      (*(volatile uint32_t*)(GUEST_UART_BASE + 0x18u))
 #define GUEST_UART_DATA      (*(volatile uint32_t*)(GUEST_UART_BASE + 0x1Cu))
@@ -52,7 +56,16 @@ static inline void guest_board_uart_putc(char c)
     }
 }
 
+/* A console identity for the mailbox: the LPUART's VERID register. */
+static inline uint32_t guest_board_console_id(void)
+{
+    return GUEST_UART_VERID;
+}
+
 /* Secure RAM the restart probe reads (WT_RAM_S_BASE in port/mcxn947). */
 #define GUEST_SECURE_RAM_ADDR 0x30031000u
 
-#endif /* WOLFTRUST_PSA_GUEST_BOARD_H */
+/* The SPM's ELS through its Non-secure alias (periphneg). */
+#define GUEST_PERIPH_NS_ADDR  0x40054000u
+
+#endif /* WOLFTRUST_GUEST_BOARD_H */

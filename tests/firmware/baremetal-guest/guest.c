@@ -18,16 +18,17 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Bare-metal Non-secure bring-up guest for the MIMXRT700 compute Cortex-M33.
- * wolfBoot authenticates the wolfTrust Secure image, which launches this guest
- * in the Non-secure state; the guest drives the WolfTrust_FFM_* veneers to
- * prove the Secure runtime booted and services a Non-secure PSA client.
- * Progress lands in an SWD-readable mailbox at the base of guest RAM and, best
- * effort, on LPUART0 (the EVK MCU-Link console the first loader already set up). */
+/* Bare-metal Non-secure bring-up guest for every Armv8-M port. wolfBoot
+ * authenticates the wolfTrust Secure image, which launches this guest in the
+ * Non-secure state; the guest drives the WolfTrust_FFM_* veneers to prove the
+ * Secure runtime booted and services a Non-secure PSA client. Progress lands
+ * in a debugger-readable mailbox at the base of guest RAM and, best effort,
+ * on the board's console (tests/firmware/boards/<soc>/board.h). */
 
 #include <stddef.h>
 #include <stdint.h>
 
+#include "board.h"
 #include "psa/client.h"
 
 /* SERVICE_HSM from the platform manifest (manifest/base.json). */
@@ -40,20 +41,11 @@
 #error "GUEST_NAME must name the guest"
 #endif
 
-/* SWD-readable status words at the base of the guest RAM window. */
+/* Debugger-readable status words at the base of the guest RAM window. */
 #define GUEST0_SIGNATURE         0x47543030u   /* debugger tag, "guest0 ran" */
 #define GUEST0_STATUS_RUNNING    0x00000000u
 #define GUEST0_STATUS_DONE       0x600D600Du
 #define GUEST0_STATUS_FAIL       0xBAD00000u
-
-/* LPUART0 through its Non-secure alias. The first loader configured the clock,
- * pins, and baud, so the guest only polls TDRE and writes DATA. */
-#define GUEST0_LPUART0_BASE      0x40110000u
-#define GUEST0_LPUART0_VERID     (*(volatile uint32_t*)(GUEST0_LPUART0_BASE + 0x00u))
-#define GUEST0_LPUART0_STAT      (*(volatile uint32_t*)(GUEST0_LPUART0_BASE + 0x14u))
-#define GUEST0_LPUART0_DATA      (*(volatile uint32_t*)(GUEST0_LPUART0_BASE + 0x1Cu))
-#define GUEST0_LPUART0_STAT_TDRE 0x00800000u
-#define GUEST0_UART_TX_POLL_LIMIT 100000u
 
 typedef struct wt_guest0_mailbox {
     uint32_t signature;
@@ -74,23 +66,51 @@ volatile wt_guest0_mailbox_t g_guest0_mailbox;
 #if defined(WT_PERIPH_NEG_PROBE)
 static void guest0_uart_puts(const char* s);
 
-/* A privileged guest switches off its own MPU and reads the SPM's TRNG through
- * the Non-secure alias. The SAU must fault the read; returning at all leaks. */
+#define GUEST0_PERIPH_BLOCKED      2u
+#define GUEST0_PERIPH_LEAKED       3u
+#define GUEST0_PERIPH_INCONCLUSIVE 4u
+
+#if defined(GUEST_BOARD_PERIPH_PROBE)
+/* The board's own probe (board.c) returns one of the verdicts above. */
+int guest_board_periph_probe(void);
+#endif
+
+/* A privileged guest switches off its own MPU and reaches the SPM's
+ * peripheral through the Non-secure alias. Without a board probe the read
+ * itself must fault: returning at all leaks. */
 static void guest0_periph_probe(volatile wt_guest0_mailbox_t* mb)
 {
+    uint32_t verdict;
+
     *(volatile uint32_t*)0xE000ED94u = 0u;
     __asm volatile("dsb\n isb" ::: "memory");
     mb->probe = 1u;
     __asm volatile("dsb" ::: "memory");
-    mb->probe_read = *(volatile const uint32_t*)GUEST_PERIPH_ADDR;
-    mb->probe = 3u;
-    guest0_uart_puts("wolfTrust RT700 " GUEST_NAME ": periph probe LEAKED\r\n");
+#if defined(GUEST_BOARD_PERIPH_PROBE)
+    verdict = (uint32_t)guest_board_periph_probe();
+#else
+    mb->probe_read = *(volatile const uint32_t*)GUEST_PERIPH_NS_ADDR;
+    verdict = GUEST0_PERIPH_LEAKED;
+#endif
+    mb->probe = verdict;
+    if (verdict == GUEST0_PERIPH_BLOCKED) {
+        guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME
+                         ": periph probe blocked\r\n");
+    }
+    else if (verdict == GUEST0_PERIPH_INCONCLUSIVE) {
+        guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME
+                         ": periph probe INCONCLUSIVE\r\n");
+    }
+    else {
+        guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME
+                         ": periph probe LEAKED\r\n");
+    }
 }
 #endif
 
-#if defined(WT_AHBSC_PROBE)
-/* Isolation probe: GUEST_PROBE_ADDR is the peer guest's RAM, Secure to the SAU
- * while this guest runs. A privileged guest can switch off the Non-secure MPU
+#if defined(WT_ISO_PROBE)
+/* Isolation probe: GUEST_ISO_PROBE_ADDR is the peer guest's RAM, Secure to
+ * the fabric while this guest runs. A privileged guest can switch off the Non-secure MPU
  * wolfTrust programs for it, so attribution alone must stop the store. Latch:
  * 1 attempted (the store faulted), 2 blocked, 3 leaked. */
 #define GUEST0_MPU_CTRL          (*(volatile uint32_t*)0xE000ED94u)
@@ -98,9 +118,9 @@ static void guest0_periph_probe(volatile wt_guest0_mailbox_t* mb)
 #define GUEST0_PROBE_BLOCKED     2u
 #define GUEST0_PROBE_LEAKED      3u
 
-static void guest0_fabric_probe(volatile wt_guest0_mailbox_t* mb)
+static void guest0_iso_probe(volatile wt_guest0_mailbox_t* mb)
 {
-    volatile uint32_t* target = (volatile uint32_t*)GUEST_PROBE_ADDR;
+    volatile uint32_t* target = (volatile uint32_t*)GUEST_ISO_PROBE_ADDR;
     uint32_t readback;
 
     GUEST0_MPU_CTRL = 0u;
@@ -238,23 +258,10 @@ static void EntryMask_Tick_Handler(void)
 }
 #endif
 
-static void guest0_uart_putc(char c)
-{
-    uint32_t t = GUEST0_UART_TX_POLL_LIMIT;
-
-    while (((GUEST0_LPUART0_STAT & GUEST0_LPUART0_STAT_TDRE) == 0u) &&
-           (t > 0u)) {
-        t--;
-    }
-    if (t != 0u) {
-        GUEST0_LPUART0_DATA = (uint32_t)(uint8_t)c;
-    }
-}
-
 static void guest0_uart_puts(const char* s)
 {
     while (*s != '\0') {
-        guest0_uart_putc(*s);
+        guest_board_uart_putc(*s);
         s++;
     }
 }
@@ -290,7 +297,7 @@ static void guest0_entry_mask_probe(volatile wt_guest0_mailbox_t* mb)
             g_entry_mask_from_secure == GUEST0_ENTRY_MASK_ROUNDS &&
             g_entry_mask_nested_ok == GUEST0_ENTRY_MASK_ROUNDS) {
         mb->probe = GUEST0_ENTRY_MASK_OK;
-        guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+        guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME
                          ": NS entry mask ok\r\n");
     }
     else {
@@ -298,7 +305,7 @@ static void guest0_entry_mask_probe(volatile wt_guest0_mailbox_t* mb)
                     ((g_entry_mask_ticks & 0xFu) << 8) |
                     ((g_entry_mask_from_secure & 0xFu) << 4) |
                     (g_entry_mask_nested_ok & 0xFu);
-        guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+        guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME
                          ": NS entry mask FAIL\r\n");
     }
 }
@@ -331,16 +338,17 @@ void Reset_Handler(void)
     mb->hsm_version = 0u;
     mb->hsm_handle = 0;
     mb->status = GUEST0_STATUS_RUNNING;
-    mb->console = GUEST0_LPUART0_VERID;
+    mb->console = guest_board_console_id();
     mb->probe = 0u;
     mb->probe_read = 0u;
     mb->beat = 0u;
 
-    guest0_uart_puts("wolfTrust RT700 " GUEST_NAME ": start\r\n");
+    guest_board_uart_init();
+    guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME ": start\r\n");
 
 #if defined(WT_GUEST_FAULT_PROBE)
     /* A Non-secure read of Secure RAM faults on every launch. */
-    mb->probe_read = *(volatile const uint32_t*)GUEST_FAULT_ADDR;
+    mb->probe_read = *(volatile const uint32_t*)GUEST_SECURE_RAM_ADDR;
 #endif
 #if defined(WT_HANDLER_OVERRUN_PROBE)
     /* Pend PendSV_NS at the lowest priority, as an RTOS does; its handler
@@ -394,12 +402,12 @@ void Reset_Handler(void)
 
     if (ok != 0) {
         mb->status = GUEST0_STATUS_DONE;
-        guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+        guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME
                          ": FF-M connect ok, done\r\n");
     }
     else {
         mb->status = GUEST0_STATUS_FAIL;
-        guest0_uart_puts("wolfTrust RT700 " GUEST_NAME ": FAIL\r\n");
+        guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME ": FAIL\r\n");
     }
 
     /* Touch a second service so the storage SP wakes: the crossdomain and
@@ -408,12 +416,12 @@ void Reset_Handler(void)
     handle = psa_connect(GUEST0_SERVICE_ITS_SID, GUEST0_SERVICE_VERSION);
     if (PSA_HANDLE_IS_VALID(handle)) {
         psa_close(handle);
-        guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+        guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME
                          ": storage connect ok\r\n");
     }
 
-#if defined(WT_AHBSC_PROBE)
-    guest0_fabric_probe(mb);
+#if defined(WT_ISO_PROBE)
+    guest0_iso_probe(mb);
 #endif
 #if defined(WT_PERIPH_NEG_PROBE)
     guest0_periph_probe(mb);
@@ -431,7 +439,7 @@ void Reset_Handler(void)
         while (g_peer_pendsv != mb->beat) {
         }
         if ((mb->beat & 0x3FFFFu) == 0u) {
-            guest0_uart_puts("wolfTrust RT700 " GUEST_NAME
+            guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME
                              ": NS interrupt beat\r\n");
         }
 #endif

@@ -18,16 +18,20 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* MIMXRT700 (MIMXRT798S compute Cortex-M33) board seams for the portable PSA
- * guest: the console is LPUART0 through its Non-secure alias, configured by
- * the first loader, so the guest only polls TDRE and writes DATA. */
+/* MIMXRT700 (MIMXRT798S compute Cortex-M33) board seams for the shared
+ * Non-secure guests: the console is LPUART0 through its Non-secure alias,
+ * configured by the first loader, so the guest only polls TDRE and writes
+ * DATA. */
 
-#ifndef WOLFTRUST_PSA_GUEST_BOARD_H
-#define WOLFTRUST_PSA_GUEST_BOARD_H
+#ifndef WOLFTRUST_GUEST_BOARD_H
+#define WOLFTRUST_GUEST_BOARD_H
 
 #include <stdint.h>
 
+#define GUEST_BOARD_NAME     "RT700"
+
 #define GUEST_UART_BASE      0x40110000u
+#define GUEST_UART_VERID     (*(volatile uint32_t*)(GUEST_UART_BASE + 0x00u))
 #define GUEST_UART_STAT      (*(volatile uint32_t*)(GUEST_UART_BASE + 0x14u))
 #define GUEST_UART_DATA      (*(volatile uint32_t*)(GUEST_UART_BASE + 0x1Cu))
 #define GUEST_UART_STAT_TDRE 0x00800000u
@@ -49,7 +53,16 @@ static inline void guest_board_uart_putc(char c)
     }
 }
 
+/* A console identity for the mailbox: the LPUART's VERID register. */
+static inline uint32_t guest_board_console_id(void)
+{
+    return GUEST_UART_VERID;
+}
+
 /* Secure RAM the restart probe reads (WT_RAM_S_BASE in port/mimxrt700). */
 #define GUEST_SECURE_RAM_ADDR 0x30188000u
 
-#endif /* WOLFTRUST_PSA_GUEST_BOARD_H */
+/* The SPM's TRNG through its Non-secure alias (periphneg). */
+#define GUEST_PERIPH_NS_ADDR  0x40187000u
+
+#endif /* WOLFTRUST_GUEST_BOARD_H */

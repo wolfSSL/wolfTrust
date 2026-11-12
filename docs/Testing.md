@@ -280,8 +280,9 @@ tests/target/run_rt700_m33mu.sh ahbscneg
 ```
 
 `positive` boots the whole chain: wolfBoot verifies the wolfTrust image, and
-both bare-metal guests launch, reach the SPM through the SG veneers, and
-finish. `ahbscneg` adds the CPU isolation negative: guest 0 stores into
+both bare-metal guests (`tests/firmware/baremetal-guest`, with the board seams
+from `tests/firmware/boards/mimxrt700`) launch, reach the SPM through the SG
+veneers, and finish. `ahbscneg` adds the CPU isolation negative: guest 0 stores into
 guest 1's RAM window, which the per-dispatch SAU window keeps Secure, so the
 SAU refuses the store; the monitor contains the fault, relaunches guest 0
 through its restart budget, quarantines it, and guest 1 keeps running. The

@@ -271,8 +271,9 @@ The full chain build and flash performs:
    and a boot header (`nxpimage`);
 2. build the wolfTrust Secure image and its CMSE import library with the
    target's default `WT_SECURE_IMAGE_HEADER_SIZE=0x400`;
-3. build the bare-metal guest for both guest windows, linked against the
-   Secure image's CMSE import library so the `WolfTrust_FFM_*` veneers resolve;
+3. build the shared bare-metal guest (`tests/firmware/baremetal-guest`,
+   `TARGET=mimxrt700`) for both guest windows, linked against the Secure
+   image's CMSE import library so the `WolfTrust_FFM_*` veneers resolve;
 4. patch both guest measurement records into the unsigned `wolftrust.bin`
    (`tools/measure/patch_guest_digests.py`);
 5. sign `wolftrust.bin` with the wolfBoot key tools (`IMAGE_HEADER_SIZE=1024`);

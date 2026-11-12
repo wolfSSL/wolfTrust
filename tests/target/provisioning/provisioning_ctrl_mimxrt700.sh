@@ -193,8 +193,8 @@ flashed_images() {
   printf '%s %s\n' \
     0x28000000 "${RT700_WORK:-$repo/build/rt700}/flash_wolfboot.bin" \
     0x28040000 "$repo/build/wolftrust_v1_signed.bin" \
-    0x28080000 "$repo/tests/firmware/mimxrt700-baremetal/build/guest0.bin" \
-    0x28100000 "$repo/tests/firmware/mimxrt700-baremetal/build/guest1.bin"
+    0x28080000 "$repo/tests/firmware/baremetal-guest/build/guest0.bin" \
+    0x28100000 "$repo/tests/firmware/baremetal-guest/build/guest1.bin"
 }
 port_image_digest() { framed_digest; }
 images_on_device() {

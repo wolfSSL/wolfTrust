@@ -56,7 +56,7 @@ guest0_flash_addr=0x28080000
 guest1_flash_addr=0x28100000
 hsm_nvm_addr=0x281E0000
 hsm_nvm_size=0x2000
-guest_build="$repo/tests/firmware/mimxrt700-baremetal/build"
+guest_build="$repo/tests/firmware/baremetal-guest/build"
 
 # shellcheck source=lib/rt700_fence.sh disable=SC1091
 . "$here/lib/rt700_fence.sh"
@@ -243,9 +243,9 @@ run_chain() {
     make -s -C "$repo" TARGET=mimxrt700 secure-image TOOLPREFIX=arm-none-eabi-
 
     stage "build the Non-secure guests ${guest_flags:-(no probes)}"
-    make -s -C "$repo/tests/firmware/mimxrt700-baremetal" clean
+    make -s -C "$repo/tests/firmware/baremetal-guest" clean
     # shellcheck disable=SC2086
-    make -s -C "$repo/tests/firmware/mimxrt700-baremetal" TARGET=mimxrt700 $guest_flags
+    make -s -C "$repo/tests/firmware/baremetal-guest" TARGET=mimxrt700 $guest_flags
 
     stage "pin both guest measurements, then wolfBoot-sign wolfTrust"
     python3 "$repo/tools/measure/patch_guest_digests.py" "$repo/build/wolftrust.bin" \
@@ -372,7 +372,7 @@ romsmoke)
     ;;
 positive|ahbscneg|nsentrymask)
     guest_flags=""
-    [ "$scenario" = "ahbscneg" ] && guest_flags="WT_AHBSC_PROBE=1"
+    [ "$scenario" = "ahbscneg" ] && guest_flags="WT_ISO_PROBE=1"
     [ "$scenario" = "nsentrymask" ] && guest_flags="WT_NS_ENTRY_MASK_PROBE=1"
     run_chain "$guest_flags"
 

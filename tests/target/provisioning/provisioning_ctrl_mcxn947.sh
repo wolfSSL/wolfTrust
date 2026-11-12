@@ -207,8 +207,8 @@ flashed_images() {
   printf '%s %s\n' \
     0x00000000 "$wolfboot_dir/wolfboot.bin" \
     0x00040000 "$repo/build/wolftrust_v1_signed.bin" \
-    0x00080000 "$repo/tests/firmware/mcxn947-baremetal/build/guest0.bin" \
-    0x00100000 "$repo/tests/firmware/mcxn947-baremetal/build/guest1.bin"
+    0x00080000 "$repo/tests/firmware/baremetal-guest/build/guest0.bin" \
+    0x00100000 "$repo/tests/firmware/baremetal-guest/build/guest1.bin"
 }
 port_image_digest() { framed_digest; }
 images_on_device() {

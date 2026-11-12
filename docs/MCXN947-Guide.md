@@ -228,8 +228,9 @@ patch), then:
 
 1. builds the wolfTrust Secure image and its CMSE import library with the
    port's default `WT_SECURE_IMAGE_HEADER_SIZE=0x400`;
-2. builds the bare-metal guest for both guest windows, linked against the
-   Secure image's CMSE import library;
+2. builds the shared bare-metal guest (`tests/firmware/baremetal-guest`,
+   `TARGET=mcxn947`) for both guest windows, linked against the Secure
+   image's CMSE import library;
 3. patches both guest measurement records into the unsigned `wolftrust.bin`
    (`tools/measure/patch_guest_digests.py`);
 4. signs `wolftrust.bin` with the wolfBoot key tools (`IMAGE_HEADER_SIZE=1024`,

@@ -174,6 +174,26 @@ isolation, domain isolation, memory protection, interrupt isolation, and
 restart. The validator rejects a domain whose requirements exceed the port's
 declaration.
 
+### Test guests
+
+Every port builds the same Non-secure test guests, and its registry entry
+(`m33mu.guests`) names the kinds it runs: the STM32H563 runs its Zephyr and
+FreeRTOS pair, so its bare-metal board seam (the GPDMA probe in `board.c`)
+builds but no scenario runs it yet. `tests/firmware/baremetal-guest`
+is the bare-metal lifecycle guest with the isolation, peripheral, fault,
+handler and entry-mask probes, and `tests/firmware/psa-guest` is the PSA
+client and conformance guest; both are built with `TARGET=<soc>` and take
+the board from `tests/firmware/boards/<soc>/`:
+
+| File | Supplies |
+| --- | --- |
+| `board.h` | `GUEST_BOARD_NAME` (the console banner), `guest_board_uart_init`, `guest_board_uart_putc`, `guest_board_console_id`, `GUEST_SECURE_RAM_ADDR` (the restart probe's Secure read), `GUEST_PERIPH_NS_ADDR` (the SPM peripheral's Non-secure alias) and, when the board runs its own peripheral probe, `GUEST_BOARD_PERIPH_PROBE` |
+| `board.mk` | `GUEST_ISO_PROBE_ADDR` (a word inside guest 1's RAM window) and `GUEST_BOARD_SRCS` (a `board.c` with the board's probe, if any) |
+
+The probe flags are the same on every port: `WT_ISO_PROBE=1` stores into the
+peer guest's window with the MPU off, `WT_PERIPH_NEG_PROBE=1` reaches the
+SPM's peripheral, `WT_GUEST_FAULT_PROBE=1` reads Secure RAM on every launch.
+
 ### Persistent flash
 
 `include/wolftrust/port_nvm.h` (`g_wt_hsm_flash_cb`, `wt_hsm_flash_context`,

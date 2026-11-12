@@ -49,7 +49,7 @@
 #endif
 /* i052/i053 need a valid NSPE base so only the range end is invalid. */
 #if NSPE_MMIO_0_START < WT_GUEST0_RAM_BASE || \
-    NSPE_MMIO_0_END >= (WT_GUEST0_RAM_BASE + WT_GUEST_RAM_SIZE)
+    NSPE_MMIO_0_END >= (WT_GUEST0_RAM_BASE + WT_GUEST0_RAM_SIZE)
 #error "pal_config NSPE MMIO must lie inside guest0's RAM window"
 #endif
 

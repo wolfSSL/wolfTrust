@@ -18,8 +18,8 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef WOLFTRUST_STM32H563_CONF_NVM_H
-#define WOLFTRUST_STM32H563_CONF_NVM_H
+#ifndef WOLFTRUST_CONF_NVM_H
+#define WOLFTRUST_CONF_NVM_H
 
 #include <stdint.h>
 
@@ -36,4 +36,4 @@ int wt_conf_nvm_sync(uint8_t *buf, uint32_t len, int store);
  * poke via SVC; the interrupt itself is delivered through the real vector. */
 int wt_conf_irq_set(int on);
 
-#endif /* WOLFTRUST_STM32H563_CONF_NVM_H */
+#endif /* WOLFTRUST_CONF_NVM_H */

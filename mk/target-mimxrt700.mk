@@ -4,7 +4,6 @@
 WT_CPU ?= cortex-m33
 PORT_DIR := $(ROOT)/port/mimxrt700
 PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
-TARGET_CONF_DIR := $(PORT_DIR)/conformance
 
 # WT_CONFORMANCE=1 swaps in the manifest that also hosts Arm's test partitions.
 ifeq ($(CONFIG_VNET),y)

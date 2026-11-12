@@ -40,17 +40,21 @@ static uint8_t g_drv_nvm_prev[WT_CONF_DRV_NVM_SIZE];
 static uint8_t g_drv_nvm_ready;
 static uint8_t g_drv_wd_enabled;
 
+/* Reload the persisted contents; a blank sector reads back 0xFF. A failed
+ * read leaves the shadow unloaded, so no access acts on fabricated data. */
 static int wt_conf_drv_nvm_init(void)
 {
+    int ret = 0;
+
     if (g_drv_nvm_ready == 0u) {
-        /* Reload the persisted contents; a blank sector reads back 0xFF, the
-         * same power-on state the RAM store used to fabricate. */
         if (wt_conf_nvm_sync(g_drv_nvm, sizeof(g_drv_nvm), 0) != 0) {
-            (void)memset(g_drv_nvm, 0xFF, sizeof(g_drv_nvm));
+            ret = -1;
         }
-        g_drv_nvm_ready = 1u;
+        else {
+            g_drv_nvm_ready = 1u;
+        }
     }
-    return 0;
+    return ret;
 }
 
 #if defined(WT_CONF_NVM_HOST_TEST)
@@ -82,7 +86,9 @@ int pal_print(uint8_t c)
 int pal_nvmem_write(addr_t base, uint32_t offset, void* buffer, int size)
 {
     (void)base;
-    (void)wt_conf_drv_nvm_init();
+    if (wt_conf_drv_nvm_init() != 0) {
+        return 0;
+    }
     /* Wrap-safe: offset + size overflows size_t on a 32-bit target, so
      * compare each side against the array bound without adding them. */
     if (buffer == NULL || size < 0 ||
@@ -105,7 +111,9 @@ int pal_nvmem_write(addr_t base, uint32_t offset, void* buffer, int size)
 int pal_nvmem_read(addr_t base, uint32_t offset, void* buffer, int size)
 {
     (void)base;
-    (void)wt_conf_drv_nvm_init();
+    if (wt_conf_drv_nvm_init() != 0) {
+        return 0;
+    }
     /* Wrap-safe: offset + size overflows size_t on a 32-bit target, so
      * compare each side against the array bound without adding them. */
     if (buffer == NULL || size < 0 ||

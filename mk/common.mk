@@ -467,6 +467,8 @@ SECURE_CFLAGS += -DWT_CONF_DIAG_TRAP=$(WT_CONF_DIAG_TRAP)
 UPSTREAM_DIR := $(BUILD_DIR)/upstream/psa-arch-tests/api-tests
 UPSTREAM_STAMP := $(BUILD_DIR)/.psa-arch-tests.stamp
 CONF_GEN_STAMP := $(MANIFEST_DIR)/.conformance-gen.stamp
+# One PAL for every port; its addresses come from the port's memory_map.h.
+TARGET_CONF_DIR := $(ROOT)/tests/conformance/pal
 # VERBOSITY=9: SP-side val prints route over IPC to the DRIVER UART partition,
 # which does not run until P3b; below-ALWAYS prints short-circuit instead of
 # deadlocking on a service nobody serves.

@@ -18,24 +18,31 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Arm psa-arch-tests PAL target configuration for wolfTrust on STM32H563.
- * P3a supplies the compile surface the partition sources include; the driver
- * plane (P3b) binds the UART/WD/NVMEM values to real secure devices and the
- * isolation MMIO windows (P4) to enforced regions. */
+/* Arm psa-arch-tests PAL target configuration for wolfTrust. Every address
+ * comes from the port's memory_map.h, so the one PAL serves every port: the
+ * device bases are reported only, the NVMEM window is the conformance flash
+ * sector, the NSPE window is the top of guest0's RAM (reserved by the guest
+ * linker scripts), and the partition MMIO holes are the level 3 layout's. */
 
 #ifndef _PAL_CONFIG_H_
 #define _PAL_CONFIG_H_
 
+#include "memory_map.h"
+
+#ifndef WT_GUEST0_RAM_SIZE
+#define WT_GUEST0_RAM_SIZE WT_GUEST_RAM_SIZE
+#endif
+
 #define PLATFORM_PSA_ISOLATION_LEVEL 3
 
 #define UART_NUM                               1
-#define UART_0_BASE                            0x44002400
+#define UART_0_BASE                            WT_CONF_UART_BASE
 #define UART_0_SIZE                            0x3FF
 #define UART_0_INTR_ID                         0xFF
 #define UART_0_PERMISSION                      TYPE_READ_WRITE
 
 #define WATCHDOG_NUM                           1
-#define WATCHDOG_0_BASE                        0x40003000
+#define WATCHDOG_0_BASE                        WT_CONF_WDG_BASE
 #define WATCHDOG_0_SIZE                        0x3FF
 #define WATCHDOG_0_INTR_ID                     0xFF
 #define WATCHDOG_0_PERMISSION                  TYPE_READ_WRITE
@@ -46,27 +53,26 @@
 #define WATCHDOG_0_TIMEOUT_IN_MICRO_SEC_CRYPTO 0x1312D00
 
 #define NVMEM_NUM                              1
-#define NVMEM_0_START                          0x0C07FC00
-#define NVMEM_0_END                            0x0C07FFFF
+#define NVMEM_0_START                          WT_CONF_NVM_FLASH_BASE_S
+#define NVMEM_0_END                            (WT_CONF_NVM_FLASH_BASE_S + 0x3FFu)
 #define NVMEM_0_PERMISSION                     TYPE_READ_WRITE
 
 #define NSPE_MMIO_NUM                          1
-#define NSPE_MMIO_0_START                      0x20038F00
-#define NSPE_MMIO_0_END                        0x20038F1F
+#define NSPE_MMIO_0_START                      (WT_GUEST0_RAM_BASE + WT_GUEST0_RAM_SIZE - 0x20u)
+#define NSPE_MMIO_0_END                        (WT_GUEST0_RAM_BASE + WT_GUEST0_RAM_SIZE - 0x1u)
 #define NSPE_MMIO_0_PERMISSION                 TYPE_READ_WRITE
 
 /* Per-partition pseudo-MMIO holes carved from the top of the shared CONFDATA
- * window, above the conformance .data/.bss fill. MUST match the
- * WT_CONF_*_MMIO_* constants in port/stm32h563/memory_map.h (an #error
- * cross-check in conf_nvm_sync.c enforces it). */
+ * window, above the conformance .data/.bss fill (an #error cross-check in
+ * conf_nvm_sync.c keeps them equal to the level 3 layout's). */
 #define SERVER_PARTITION_MMIO_NUM              1
-#define SERVER_PARTITION_MMIO_0_START          0x30095C00
-#define SERVER_PARTITION_MMIO_0_END            0x30095D00
+#define SERVER_PARTITION_MMIO_0_START          WT_CONF_SERVER_MMIO_BASE
+#define SERVER_PARTITION_MMIO_0_END            (WT_CONF_SERVER_MMIO_BASE + WT_CONF_SERVER_MMIO_SIZE)
 #define SERVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define DRIVER_PARTITION_MMIO_NUM              1
-#define DRIVER_PARTITION_MMIO_0_START          0x30095E00
-#define DRIVER_PARTITION_MMIO_0_END            0x30095F00
+#define DRIVER_PARTITION_MMIO_0_START          WT_CONF_DRV_MMIO_BASE
+#define DRIVER_PARTITION_MMIO_0_END            (WT_CONF_DRV_MMIO_BASE + WT_CONF_DRV_MMIO_SIZE)
 #define DRIVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define PLATFORM_WD_BASE                        WATCHDOG_0_BASE

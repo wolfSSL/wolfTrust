@@ -67,6 +67,10 @@
 #define WT_CONF_NVM_FLASH_BASE_NS  0x281E8000u
 #define WT_CONF_NVM_FLASH_BASE_S   0x381E8000u
 #define WT_CONF_NVM_FLASH_SIZE     0x00001000u
+/* Conformance PAL device bases (Secure LPUART0 and WWDT0); the PAL only
+ * reports them, nothing is driven through them. */
+#define WT_CONF_UART_BASE          0x50110000u
+#define WT_CONF_WDG_BASE           0x5000E000u
 
 /* Non-secure guest RAM: two 256 KiB windows inside the compute-domain SRAM
  * partitions (AHBSC rule granularity, not the 512 B GTZC blocks of the H5). */

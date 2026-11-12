@@ -74,6 +74,10 @@
 #define WT_CONF_NVM_FLASH_BASE_NS  0x001E4000u
 #define WT_CONF_NVM_FLASH_BASE_S   0x101E4000u
 #define WT_CONF_NVM_FLASH_SIZE     0x00002000u
+/* Conformance PAL device bases (Secure LPUART4 and WWDT0); the PAL only
+ * reports them, nothing is driven through them. */
+#define WT_CONF_UART_BASE          0x500B4000u
+#define WT_CONF_WDG_BASE           0x50016000u
 
 /* Non-secure guest RAM: two 96 KiB windows at the bottom of RAMA-H. Their
  * Secure alias holds the first loader's RAM, dead after the jump, which

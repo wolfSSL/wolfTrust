@@ -15,7 +15,7 @@
  * limitations under the License.
 **/
 
-/* Crypto test configuration for the wolfTrust STM32H563 guest, derived from
+/* Crypto test configuration for the wolfTrust conformance guest, derived from
  * the Arm pal_crypto_config.h template. The enabled set mirrors exactly what
  * the guest wolfPSA/wolfCrypt build compiles in (module/wolfhsm-client
  * user_settings.h): SHA-256, HMAC, HKDF, PBKDF2, TLS-1.2 PRF, AES

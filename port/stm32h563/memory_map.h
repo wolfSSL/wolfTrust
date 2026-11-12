@@ -75,6 +75,10 @@
 #define WT_CONF_NVM_FLASH_BASE_NS  0x081FA000u
 #define WT_CONF_NVM_FLASH_BASE_S   0x0C1FA000u
 #define WT_CONF_NVM_FLASH_SIZE     0x00002000u
+/* Conformance PAL device bases (Secure USART3 and IWDG); the PAL only
+ * reports them, nothing is driven through them. */
+#define WT_CONF_UART_BASE          0x44002400u
+#define WT_CONF_WDG_BASE           0x40003000u
 
 #define WT_RAM_NS_BASE           0x20000000u
 /* Where a guest exception frame may legitimately be stacked. */

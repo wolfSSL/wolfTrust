@@ -210,7 +210,7 @@ endif
 CONF_INCS := $(CONF_SUITE_INCS) -I$(CONF_GEN) \
     -I$(CONF_U)/val/common -I$(CONF_U)/val/nspe -I$(CONF_U)/val/spe \
     -I$(CONF_U)/platform/targets/common/nspe \
-    -I$(ROOT)/port/$(TARGET)/conformance
+    -I$(ROOT)/tests/conformance/pal -I$(ROOT)/port/$(TARGET)
 endif
 
 SHARED_SRCS := guest_libc.c $(WOLFCRYPT_SRCS) $(WOLFPSA_SRCS) $(WOLFCOSE_SRCS) \

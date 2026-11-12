@@ -25,7 +25,8 @@ MEMORY {
   RAM   (rwx): ORIGIN = GUEST_RAM_ORIGIN, LENGTH = GUEST_RAM_LENGTH
 }
 
-_estack = ORIGIN(RAM) + LENGTH(RAM);
+/* The top 32 bytes are the conformance NSPE MMIO window (pal_config.h). */
+_estack = ORIGIN(RAM) + LENGTH(RAM) - 0x20;
 
 SECTIONS {
   .shared ORIGIN(RAM) (NOLOAD) : {

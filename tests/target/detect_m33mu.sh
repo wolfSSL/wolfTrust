@@ -9,6 +9,11 @@ set -u
 if [ "${WT_TARGET_SCENARIOS:-0}" = "1" ]; then
     exit 0
 fi
+# A port whose emulator carries a model patch builds its pinned M33MU itself.
+if [ -n "${1:-}" ] &&
+   grep -qE '^M33MU_PATCH="[^"]+"' "$(dirname "$0")/ports/$1/m33mu.sh" 2>/dev/null; then
+    exit 0
+fi
 if [ -n "${M33MU:-}" ] && [ -x "${M33MU:-}" ]; then
     exit 0
 fi

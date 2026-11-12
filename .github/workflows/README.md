@@ -22,7 +22,7 @@ An accepted upload queues analysis; results appear after Coverity processes it.
 | Tier | Trigger | Purpose |
 |------|---------|---------|
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
-| **M33MU smoke** | every PR | STM32H563 on both crypto engines: `positive gtzcneg crossdomain bothpsa confboot devcrypto` |
+| **M33MU smoke** | every PR | STM32H563 on both crypto engines: `positive guestisoneg crossdomain bothpsa confboot devcrypto` |
 | **M33MU full** | PR labels `ci:all`, `ci:m33mu`, `ci:h5`, `ci:rt700`, `ci:mcxn947`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
 
 The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
@@ -65,7 +65,7 @@ test-target` also reads. The table below is a representative slice:
 | `stm32h563_vaultrecover_<engine>` | `vaultrecover` | #95 foreign pool reformatted |
 | `stm32h563_vaultrecoversec_<engine>` | `vaultrecoversec` | #95 SECURED never wipes |
 | `mimxrt700_positive_<engine>` | `positive` | MIMXRT700 chain under the RT700 model, both guests finish |
-| `mimxrt700_ahbscneg_<engine>` | `ahbscneg` | guest0's store into guest1's RAM refused by the SAU, contained |
+| `mimxrt700_guestisoneg_<engine>` | `guestisoneg` | guest0's store into guest1's RAM refused by the SAU, contained |
 | `mimxrt700_restart_authneg_<engine>` | `restart authneg` | guest0's launch-time SecureFault spends its restart budget and quarantines it; a tampered guest0 is refused at launch; guest1 runs on |
 | `mimxrt700_crossdomain_keystoreneg_<engine>` | `crossdomain keystoreneg` | unprivileged SP reads of SPM RAM and the keystore band MemManage-fault, guests ride it out |
 | `mimxrt700_spfaultneg_panicneg_<engine>` | `spfaultneg panicneg` | the relay's undefined instruction and the storage SP's programmer-error close UsageFault once, the SPM restarts the SP in place, both guests finish |
@@ -77,13 +77,12 @@ test-target` also reads. The table below is a representative slice:
 | `mimxrt700_devcrypto_vaultrecover_vaultrecoversec_<engine>` | `devcrypto vaultrecover vaultrecoversec` | PSA Crypto conformance on wolfPSA; a foreign vault pool self-heals in development and fails closed when SECURED |
 | `mimxrt700_rollbackneg_remeasureneg_manifestneg_spbudgetneg_<engine>` | `rollbackneg remeasureneg manifestneg spbudgetneg` | shared Secure-verdict table: rollback refusal, re-measure tamper, corrupted manifest, restart budget |
 | `mcxn947_positive_<engine>` | `positive` | MCXN947 chain under the MCXN947 model (internal flash, ROM flash API, EdgeLock entropy), both guests finish |
-| `mcxn947_sauneg_<engine>` | `sauneg` | guest0's store into guest1's RAM refused by the SAU, contained |
+| `mcxn947_guestisoneg_<engine>` | `guestisoneg` | guest0's store into guest1's RAM refused by the SAU, contained |
 | `mcxn947_<group>_<engine>` | as the MIMXRT700 groups above | the same scenario groups on the MCXN947 model; `tests/target/lib/scenario_matrix.py` is the list |
 
 An unlabeled PR runs only the STM32H563 smoke tier; MIMXRT700, MCXN947, and
-the full matrix need a `ci:` label. To run a single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>` (the
-RT700 checks use `tests/target/run_rt700_m33mu.sh <key>`, the MCXN947 checks
-`tests/target/run_mcxn947_m33mu.sh <key>`); to run a port's
+the full matrix need a `ci:` label. To run a single scenario locally, use
+`tests/target/run_target.sh <port> <key>`; to run a port's
 full matrix on a PR, add its `ci:` label; off-PR against a branch,
 `workflow_dispatch` on `m33mu.yml` with the `port` input.
 

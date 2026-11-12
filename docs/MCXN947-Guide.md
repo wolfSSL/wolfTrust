@@ -29,7 +29,7 @@ the part; this port rehearses life cycles and writes none of them.
   (`make TARGET=mcxn947 secure-image`) on both crypto engines and both
   manifests, with the port split, veneer, owner map, and layout checks green.
 - **Validated in emulation:** the chain under M33MU's MCXN947 model
-  (`tests/target/run_mcxn947_m33mu.sh`, see Testing): wolfBoot verifies the
+  (`tests/target/run_target.sh mcxn947`, see Testing): wolfBoot verifies the
   Secure image, both bare-metal guests launch and complete their PSA calls
   through the veneers (`positive`, both engines), the isolation negative
   (`sauneg`) shows a guest's store into the other guest's RAM refused by the
@@ -211,8 +211,8 @@ is scheduling policy, not a boundary. The SAU window is the boundary, and
 ```sh
 make TARGET=mcxn947 secure-image
 make test-target TARGET=mcxn947
-tests/target/run_mcxn947_m33mu.sh positive
-tests/target/run_mcxn947_m33mu.sh sauneg
+tests/target/run_target.sh mcxn947 positive
+tests/target/run_target.sh mcxn947 guestisoneg
 ```
 
 The runner builds its pinned emulator (upstream M33MU plus
@@ -221,7 +221,7 @@ model behind its `AHBCLKCTRL2` gate, programs flash from a page base by
 clearing bits as the ROM does, makes the ROM executable so an API call leaves
 no stale `IACCVIOL` in `CFSR`, and reflects the OEM_OPEN life cycle into
 SYSCON) and its pinned
-wolfBoot (`tests/target/lib/mcxn947_wolfboot.sh`: the wolfSSL/wolfBoot#948
+wolfBoot (`tests/target/ports/mcxn947/m33mu.sh`: the wolfSSL/wolfBoot#948
 branch at its fork ref until it merges, built from
 `config/examples/mcxn-tz-wolftrust.config` with the carried life cycle
 patch), then:

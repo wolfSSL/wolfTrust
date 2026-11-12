@@ -111,20 +111,29 @@ WT_ENGINE=native make test-target
 WT_ENGINE=hsm make test-target
 ```
 
-It runs the port's smoke tier (STM32H563: `positive`, `gtzcneg`,
+It runs the port's smoke tier (STM32H563: `positive`, `guestisoneg`,
 `crossdomain`, `bothpsa`, `confboot`, `devcrypto`; `WT_TIER=full` runs every
 scenario). Detection accepts `m33mu` on
-`PATH` or a path in `M33MU`. If the emulator is unavailable,
-the target reports a skip rather than a pass.
+`PATH` or a path in `M33MU`; a port whose emulator carries a model patch
+(`M33MU_PATCH` in its profile) builds its pinned emulator instead. If the
+emulator is unavailable, the target reports a skip rather than a pass.
 
 Additional focused runs use:
 
 ```sh
-WT_ENGINE=native tests/target/run_m33mu_scenario.sh positive
-WT_ENGINE=hsm tests/target/run_m33mu_scenario.sh positive
+WT_ENGINE=native tests/target/run_target.sh stm32h563 positive
+WT_ENGINE=hsm tests/target/run_target.sh stm32h563 positive
 ```
 
-The runner's usage output is the authoritative scenario list. It includes
+One runner serves every port: `tests/target/run_target.sh <port> <scenario>`
+builds the chain the port's profile (`tests/target/ports/<port>/m33mu.sh`)
+describes and hands the boot log to the judge in
+`tests/target/lib/scenarios.py`, which holds every scenario's assertions as
+data and decides which apply to the port from its guest kinds and the
+capabilities `port/<port>/port.json` declares absent (each absence names
+its reason and is reported as N/A). `tests/scripts/test_scenario_asserts.py`
+mutates every check in `make test` and requires the judge to refuse it.
+`scenarios.py --list` is the authoritative scenario list. It includes
 authenticated-boot failure, rollback, runtime remeasurement, Secure Partition
 recovery, key and vault isolation, storage recovery, attestation negatives,
 firmware update, manifest rejection, GTZC behavior, and VNET paths.
@@ -275,14 +284,15 @@ an emulator gate that mirrors its hardware runner:
 
 ```sh
 make test-target TARGET=mimxrt700
-tests/target/run_rt700_m33mu.sh positive
-tests/target/run_rt700_m33mu.sh ahbscneg
+tests/target/run_target.sh mimxrt700 positive
+tests/target/run_target.sh mimxrt700 guestisoneg
 ```
 
 `positive` boots the whole chain: wolfBoot verifies the wolfTrust image, and
 both bare-metal guests (`tests/firmware/baremetal-guest`, with the board seams
 from `tests/firmware/boards/mimxrt700`) launch, reach the SPM through the SG
-veneers, and finish. `ahbscneg` adds the CPU isolation negative: guest 0 stores into
+veneers, and finish. `guestisoneg` (the former `ahbscneg`, which still selects
+it) adds the CPU isolation negative: guest 0 stores into
 guest 1's RAM window, which the per-dispatch SAU window keeps Secure, so the
 SAU refuses the store; the monitor contains the fault, relaunches guest 0
 through its restart budget, quarantines it, and guest 1 keeps running. The
@@ -386,8 +396,8 @@ which only seeds the OTP fuses with the Develop life cycle an EVK ships in, so
 wolfBoot's life cycle read matches the board; it goes once M33MU seeds it. The
 cached emulator is keyed on that patch. Its Secure AHBSC SRAM rules apply to
 CPU0 as documented, which is stricter than the EVK measured.
-wolfBoot is `RT700_WOLFBOOT_REF` (`tests/target/lib/rt700_wolfboot.sh`, shared
-with the hardware runner) built from `config/examples/imx-rt700-tz.config`
+wolfBoot is the pin in `tests/target/ports/mimxrt700/m33mu.sh`, staged by
+`tests/target/lib/wolfboot_stage.sh` (the hardware runner shares the recipe) built from `config/examples/imx-rt700-tz.config`
 plus `tests/target/wolfboot-imxrt700-lifecycle.patch` (the RT700 HAL's OTP life
 cycle read, which the attestation service needs) and
 `tests/target/wolfboot-imxrt700-guest-fence.patch` (the XSPI guest fence,
@@ -419,18 +429,18 @@ with the same scenario names:
 
 ```sh
 make test-target TARGET=mcxn947
-tests/target/run_mcxn947_m33mu.sh positive
-tests/target/run_mcxn947_m33mu.sh sauneg
+tests/target/run_target.sh mcxn947 positive
+tests/target/run_target.sh mcxn947 guestisoneg
 ```
 
-`sauneg` is the MIMXRT700's `ahbscneg` on this part: guest 0 stores into
+`guestisoneg` (the former `sauneg`, which still selects it): guest 0 stores into
 guest 1's RAM window, which the per-dispatch SAU window keeps Secure, the
 SAU refuses the store, and the monitor contains it. Every other scenario is
 the MIMXRT700 one run on the MCXN947 model, with the port's own band, stack,
 and SPM peripheral addresses read from `port/mcxn947/memory_map.h`; the
 scenarios the port runs, and the level 3 scenarios it still exempts, are in
 `tests/target/lib/scenario_matrix.py`. The runner builds its own pinned
-emulator and wolfBoot first stage (`tests/target/lib/mcxn947_wolfboot.sh`:
+emulator and wolfBoot first stage (`tests/target/ports/mcxn947/m33mu.sh`:
 the wolfSSL/wolfBoot#948 branch at its fork ref until it merges, from
 `config/examples/mcxn-tz-wolftrust.config` plus
 `tests/target/wolfboot-mcxn947-lifecycle.patch`, the life cycle read the
@@ -603,7 +613,7 @@ nightly schedule and manual dispatch run the 600-second soak instead.
 The `M33MU` workflow (wolfBoot plus both guest lifecycles, then a `select` job
 that picks each port's tier and one matrix job that runs exactly those scenario
 groups) is tiered. Every pull request runs
-the STM32H563 smoke tier on both crypto engines (`positive`, `gtzcneg`,
+the STM32H563 smoke tier on both crypto engines (`positive`, `guestisoneg`,
 `crossdomain`, `bothpsa`, `confboot`, `devcrypto`). MIMXRT700 and MCXN947 run
 on a pull request only with their own label (`ci:rt700`, `ci:mcxn947`),
 `ci:all`, or `ci:m33mu`. The full matrix runs on a push to `main`, on the
@@ -622,7 +632,7 @@ workflow:
 gh workflow run m33mu.yml --ref <branch> -f port=mimxrt700
 ```
 
-To run a single scenario locally, use `tests/target/run_m33mu_scenario.sh <key>`
+To run a single scenario locally, use `tests/target/run_target.sh <port> <key>`
 (for example `positive` or `crossdomain`).
 
 The GitHub-hosted workflows do not establish a physical-board result. Hardware

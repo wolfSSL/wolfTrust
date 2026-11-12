@@ -152,6 +152,23 @@ that tracks it; `scenario_matrix.py --selftest`, run in CI, fails on a
 missing scenario, an exemption without a reason, or an exemption for a
 scenario the port already runs.
 
+The emulator scenarios themselves are one table (`tests/target/lib/scenarios.py`)
+run by one runner (`tests/target/run_target.sh <port> <scenario>`) over the
+port's profile (`tests/target/ports/<port>/m33mu.sh`: emulator pin and patch,
+first-stage recipe, image offsets, signing geometry). The port's registry
+entry says how the table applies to it: `m33mu.guests` names the guest pair
+per role (bare-metal, PSA, Zephyr, FreeRTOS, wolfIP), `caps_absent` names the
+capabilities the port lacks with a reason (every scenario that needs one is
+then exempt, and every assertion block that needs one is reported N/A),
+`faults_by_design` names the scenarios whose guest or partition faults on
+purpose so the emulator must not stop on the fault, `ends` names the
+scenarios whose run the port ends at the partition's deliberate fault
+instead of the guest's clean breakpoint, `guest_flags` adds the port's own
+guest build flags to a scenario (the FWU stream probe's sizes), and `exempt`
+names any other scenario the port does not run with its reason. `scenarios.py
+--selftest` fails a port that neither runs nor exempts a scenario, lists a
+port-private name, or names a scenario in its profile outside a case label.
+
 ### Guest and capability tables
 
 Implement the declarations in `include/wolftrust/partition.h`:

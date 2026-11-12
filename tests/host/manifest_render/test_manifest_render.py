@@ -28,7 +28,7 @@ GENERATE = ROOT / "tools" / "manifest" / "generate.py"
 TEMPLATE = ROOT / "manifest" / "base.json"
 INTEGER = re.compile(r"\b(0[xX][0-9a-fA-F]+|[0-9]+)[uUlL]*\b")
 
-# The STM32H563 emulator layout (tests/target/run_m33mu_scenario.sh), under
+# The STM32H563 emulator layout (tests/target/ports/stm32h563/m33mu.sh), under
 # which the H5 manifests were committed with the guests relocated behind
 # wolfBoot; the Secure image itself now renders at its real link base too.
 H5_RUNNER = ("WT_SECURE_FLASH_BASE=0x0C060000", "WT_SECURE_FLASH_SIZE=0x00040000",

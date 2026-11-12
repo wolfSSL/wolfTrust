@@ -18,10 +18,10 @@
   },
   "m33mu": {
     "arm": "rt700-m33mu",
-    "smoke": ["positive", "ahbscneg", "crossdomain", "bothpsa", "confboot", "devcrypto"],
+    "smoke": ["positive", "guestisoneg", "crossdomain", "bothpsa", "confboot", "devcrypto"],
     "groups": [
       ["positive", "RT700 positive lifecycle (SAU guest windows)"],
-      ["ahbscneg", "RT700 cross-guest store faults and is contained"],
+      ["guestisoneg", "RT700 cross-guest store faults and is contained"],
       ["restart authneg handlerneg", "RT700 guest restart budget, launch refusal, handler overrun"],
       ["rollbackneg remeasureneg manifestneg spbudgetneg", "RT700 secure verdict negatives"],
       ["crossdomain keystoreneg", "RT700 SP domain isolation negatives"],
@@ -44,6 +44,15 @@
       ["sealneg sealhaltneg sealpivotneg", "RT700 stack seal containment and halt (L3)"],
       ["mspovfneg xnneg svcneg", "RT700 SPM stack, execute-never and SVC misuse (L3)"]
     ],
-    "l3_exempt": {}
+    "l3_exempt": {},
+    "guests": {"lifecycle": ["baremetal", "baremetal"], "psa": ["psa", "psa"], "conformance": ["psa", "baremetal"], "vnet": ["vnet", "vnet"]},
+    "guest_end": {},
+    "timeouts": {"psa": 180, "conformance": 900},
+    "guest_flags": {"fwustage": "WT_FWU_PROBE_STREAM_BYTES=0x21000u WT_FWU_PROBE_SEQUENTIAL=1"},
+    "boot_marker": "wolfBoot HAL init: MIMXRT798S",
+    "periph_probe": "faults",
+    "caps_absent": {"dma_probe": "the M33MU RT700 model has no DMA; the NS eDMA copies out of Secure memory are the EVK run's to show", "idcode": "no silicon revision gate on this port", "bootupdate": "the RT700 emulator chain does not stage a wolfBoot update candidate yet", "vnet": "no wolfIP network guests for this port", "idle_scheduler": "the single-guest idle backoff scenario is not wired for this port", "busfault": "M33MU at the pinned ref does not vector a precise data BusFault"},
+    "faults_by_design": {"periphneg": "the bare-metal probe's NS read of the TRNG faults on every launch and the monitor contains it", "crossdomain": "the storage SP's probe faults on its first wake while both guests finish; the trace boot names the fault", "keystoreneg": "the storage SP's probe faults on its first wake while both guests finish; the trace boot names the fault", "periphspneg": "the storage SP's probe faults on its first wake while the PSA guest finishes"},
+    "exempt": {}
   }
 }

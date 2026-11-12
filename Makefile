@@ -42,6 +42,8 @@ all: $(ARCH_DEFAULT_GOALS)
 
 test:
 	@python3 tests/target/lib/scenario_matrix.py --selftest
+	@python3 tests/target/lib/scenarios.py --selftest
+	@python3 tests/scripts/test_scenario_asserts.py
 	@tools/check-port-only-diff.sh --selftest
 	@tools/check-no-port-names.sh
 	@python3 tests/scripts/test_m33mu_console.py
@@ -87,17 +89,11 @@ WT_TIER ?= smoke
 WT_SCENARIOS = $(shell python3 tests/target/lib/scenario_matrix.py \
     --port $(TARGET) --tier $(WT_TIER) --engine $(WT_ENGINE) --flat)
 test-target:
-ifeq ($(TARGET),mimxrt700)
-	@tests/target/run_suite.sh rt700-m33mu $(WT_SCENARIOS)
-else ifeq ($(TARGET),mcxn947)
-	@tests/target/run_suite.sh mcxn947-m33mu $(WT_SCENARIOS)
-else
-	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
-		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \
+	@if ! tests/target/detect_m33mu.sh $(TARGET) >/dev/null 2>&1; then \
+		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh $(TARGET) 2>&1))"; \
 	else \
-		tests/target/run_suite.sh m33mu $(WT_SCENARIOS); \
+		tests/target/run_suite.sh $(TARGET) $(WT_SCENARIOS); \
 	fi
-endif
 
 # Real hardware suite, the on-silicon counterpart of test-target: STM32H563 on a
 # Nucleo-H563ZI (detect_h5.sh; container toolchain via WT_H5_DOCKER_IMAGE), or
@@ -138,10 +134,10 @@ test-manifest-ingest: fetch-psa-ff-tests
 # test-target via tests/target/detect_m33mu.sh. CI runs the same target suite
 # through the confboot leg of the wolfboot-wolftrust-m33mu-scenarios matrix.
 test-conformance: fetch-psa-ff-tests test-manifest-ingest
-	@if tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
+	@if tests/target/detect_m33mu.sh $(TARGET) >/dev/null 2>&1; then \
 		mkdir -p logs; \
 		echo "RUN: conformance/target (full FF-M IPC suite on M33MU)"; \
-		if tests/target/run_m33mu_scenario.sh confboot \
+		if tests/target/run_target.sh stm32h563 confboot \
 				> logs/conformance-target.log 2>&1; then \
 			grep -F '  [check] ' logs/conformance-target.log || true; \
 			echo "PASS: conformance/target"; \
@@ -159,7 +155,7 @@ test-conformance: fetch-psa-ff-tests test-manifest-ingest
 			BUILD_DIR=$(abspath $(BUILD_DIR))/psa-ff-upstream \
 			PSA_ARCH_TESTS_DIR=$(abspath $(BUILD_DIR))/upstream/psa-arch-tests; \
 		echo "WARNING: host-only conformance subset (20 client-side IPC/policy tests) — NOT emulator/hardware evidence."; \
-		echo "WARNING: isolation, panic-reset, IRQ, and cross-domain tests need M33MU ($$(tests/target/detect_m33mu.sh 2>&1))."; \
+		echo "WARNING: isolation, panic-reset, IRQ, and cross-domain tests need M33MU ($$(tests/target/detect_m33mu.sh $(TARGET) 2>&1))."; \
 		echo "WARNING: run the full 85/4 suite with an emulator, or: make test-target."; \
 		echo "PASS: conformance/host-subset (partial — see warnings above)"; \
 	fi
@@ -270,8 +266,8 @@ test-vnet: test-vnet-host
 # SERVICE_VNET (CONFIG_VNET=y). Auto-detect-or-skip like test-target, so it
 # never silently passes; runs inside the wolfboot-ci-m33mu container.
 test-vnet-target:
-	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
-		echo "SKIP: wolfIP vnet target scenario ($$(tests/target/detect_m33mu.sh 2>&1))"; \
+	@if ! tests/target/detect_m33mu.sh $(TARGET) >/dev/null 2>&1; then \
+		echo "SKIP: wolfIP vnet target scenario ($$(tests/target/detect_m33mu.sh $(TARGET) 2>&1))"; \
 	else \
 		tests/target/run_suite.sh m33mu vnet; \
 	fi

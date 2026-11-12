@@ -1,29 +1,33 @@
 #!/usr/bin/env bash
-# Run target scenarios through one emulator runner and report them the way
-# `make test-target` always has: RUN/PASS/FAIL per scenario, the tagged
-# "  [check] " lines, the log path, and PASS/FAIL: target/all at the end.
+# Run target scenarios for one port through the shared emulator runner and
+# report them the way `make test-target` always has: RUN/PASS/FAIL per
+# scenario, the tagged "  [check] " lines, the log path, and PASS/FAIL:
+# target/all at the end.
 #
-#   tests/target/run_suite.sh m33mu       <scenario>...   -> run_m33mu_scenario.sh
-#   tests/target/run_suite.sh qemu-a      <scenario>...   -> run_qemu_a_scenario.sh
-#   tests/target/run_suite.sh rt700-m33mu <scenario>...   -> run_rt700_m33mu.sh
-#   tests/target/run_suite.sh mcxn947-m33mu <scenario>... -> run_mcxn947_m33mu.sh
+#   tests/target/run_suite.sh <port> <scenario>...
 #   WT_SUITE_LOG_DIR   where target-<scenario>.log lands (default logs)
+#
+# A port's former runner arm (port.json m33mu.arm) still selects it.
 set -u
 
-usage() { echo "usage: $0 m33mu|qemu-a|rt700-m33mu|mcxn947-m33mu <scenario>..." >&2; exit 2; }
+repo="$(cd "$(dirname "$0")/../.." && pwd)"
+matrix="$repo/tests/target/lib/scenario_matrix.py"
+ports="$(python3 "$matrix" --list-ports)"
+usage() { echo "usage: $0 <$(echo "$ports" | tr ' ' '|')> <scenario>..." >&2; exit 2; }
 
-model="${1:-}"
-case "$model" in
-  m33mu)         runner=run_m33mu_scenario.sh ;;
-  qemu-a)        runner=run_qemu_a_scenario.sh ;;
-  rt700-m33mu)   runner=run_rt700_m33mu.sh ;;
-  mcxn947-m33mu) runner=run_mcxn947_m33mu.sh ;;
+port="${1:-}"
+for p in $ports; do
+  if [ "$(python3 "$matrix" --port "$p" --arm)" = "$port" ]; then
+    port="$p"
+  fi
+done
+case " $ports " in
+  *" $port "*) ;;
   *) usage ;;
 esac
 shift
 [ $# -ge 1 ] || usage
 
-repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo" || exit 2
 logdir="${WT_SUITE_LOG_DIR:-logs}"
 mkdir -p "$logdir"
@@ -31,7 +35,7 @@ mkdir -p "$logdir"
 rc=0
 for s in "$@"; do
   echo "RUN: target/$s"
-  if "tests/target/$runner" "$s" > "$logdir/target-$s.log" 2>&1; then
+  if tests/target/run_target.sh "$port" "$s" > "$logdir/target-$s.log" 2>&1; then
     grep -F '  [check] ' "$logdir/target-$s.log" || true
     echo "PASS: target/$s"
   else

@@ -15,9 +15,9 @@ Read the current state first and keep a development board recoverable.
   Secure image cross-build (`make TARGET=mimxrt700 secure-image`) with the port
   split, veneer, and manifest checks green.
 - **Validated in emulation:** the wolfTrust chain under M33MU's RT700 model
-  (`tests/target/run_rt700_m33mu.sh`, see Testing). wolfBoot verifies the
+  (`tests/target/run_target.sh mimxrt700`, see Testing). wolfBoot verifies the
   Secure image and both bare-metal guests launch and complete their PSA calls
-  through the veneers (`positive`); the isolation negative (`ahbscneg`) shows a
+  through the veneers (`positive`); the isolation negative (`guestisoneg`) shows a
   guest's store into the other guest's RAM refused by the SAU, contained by the
   monitor, and the offender quarantined after its restart budget while the peer
   keeps running.
@@ -252,14 +252,14 @@ Running `discover` again clears both it and any earlier `regress` stamp.
 
 The hardware runner (`tests/target/run_rt700_hardware.sh`) drives image
 assembly and flashing so the addresses stay paired; its emulator sibling
-(`tests/target/run_rt700_m33mu.sh`) runs the same chain and scenario names
+(`tests/target/run_target.sh mimxrt700`) runs the same chain and scenario names
 under M33MU. The `romsmoke` scenario proves the BootROM XIP path; the
 `positive` scenario is the wolfTrust chain; `ahbscneg` adds the guest
 isolation negative; `wrpfence`, `wrpoff`, and `wrpneg` cover the guest flash
 fence. `make test-hardware TARGET=mimxrt700` runs that set through
 `tests/target/run_rt700_suite.sh` on the probe host and skips without a board.
 Both runners build the wolfBoot first stage from one pinned upstream commit
-plus the carried patches (`tests/target/lib/rt700_wolfboot.sh`) unless
+plus the carried patches (`tests/target/ports/mimxrt700/m33mu.sh`) unless
 `RT700_WOLFBOOT_DIR` names a prebuilt tree. The emulator runner then carries the STM32H563 scenario
 matrix (restart and launch refusal, SP fault recovery, the Secure-verdict
 negatives, every isolation level 3 negative, the PSA guest's lifecycle and

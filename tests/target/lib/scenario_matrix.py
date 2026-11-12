@@ -206,6 +206,53 @@ PORTS = {
         ),
         "l3_exempt": {},
     },
+    "stm32l562": {
+        "label": "ci:l5",
+        "label_only": True,
+        "arm": "stm32l562-m33mu",
+        "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25",
+        "smoke": ("positive", "gtzcneg", "crossdomain", "bothpsa", "confboot",
+                  "devcrypto"),
+        "groups": (
+            ("positive", "STM32L562 positive lifecycle (GTZC guest curtain)"),
+            ("gtzcneg", "STM32L562 cross-guest store stopped by the GTZC curtain"),
+            ("restart authneg", "STM32L562 guest restart budget and launch refusal"),
+            ("wrpoff", "STM32L562 fence-required build launches no guest"),
+            ("rollbackneg remeasureneg manifestneg spbudgetneg",
+             "STM32L562 secure verdict negatives"),
+            ("crossdomain keystoreneg", "STM32L562 SP domain isolation negatives"),
+            ("spfaultneg panicneg", "STM32L562 SP fault and panic recovery"),
+            ("fpneg", "STM32L562 FP isolation (partition FP faults, contained)"),
+            ("sealbootneg", "STM32L562 damaged main-stack seal refuses to boot"),
+            ("bothpsa bothiso", "STM32L562 both-guest PSA lifecycle and isolation"),
+            ("attestneg fwustage",
+             "STM32L562 attestation negatives and FWU staging"),
+            ("confboot", "STM32L562 FF-M IPC conformance (85/4)"),
+            ("devstorage devattest devattestqcbor",
+             "STM32L562 dev_apis storage and attestation conformance"),
+            ("devcrypto vaultrecover vaultrecoversec",
+             "STM32L562 dev_apis crypto conformance and vault recovery"),
+            ("periphneg", "STM32L562 NS read of the SPM's RNG refused by the SAU"),
+            ("deputyneg", "STM32L562 keystore-flash privileged deputy refused (L3)"),
+            ("bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6",
+             "STM32L562 partition band-to-band isolation negatives (L3)"),
+            ("restartneg1 restartneg2 restartneg3",
+             "STM32L562 partitions restart on a reset band (L3)"),
+            ("periphspneg manifestneg2 manifestneg3",
+             "STM32L562 SPM peripheral and manifest level negatives (L3)"),
+            ("sealneg sealhaltneg sealpivotneg",
+             "STM32L562 stack seal containment and halt (L3)"),
+            ("mspovfneg xnneg svcneg",
+             "STM32L562 SPM stack, execute-never and SVC misuse (L3)"),
+        ),
+        "engines": ("native",),
+        "l3_exempt": {
+            "hsmpinneg": "wolfHSM engine only; STM32L562 builds the native "
+                         "engine (its bands do not fit 256 KiB of SRAM)",
+            "hsmfaultneg": "wolfHSM engine only; STM32L562 builds the native "
+                           "engine (its bands do not fit 256 KiB of SRAM)",
+        },
+    },
 }
 
 
@@ -216,9 +263,10 @@ def group_name(port, scenario):
     return scenario
 
 
-def engines_for(scenarios, engine):
+def engines_for(scenarios, engine, port_engines=ENGINES):
     engines = ("hsm",) if all(s in HSM_ONLY for s in scenarios) else ENGINES
-    return [e for e in engines if engine is None or e == engine]
+    return [e for e in engines
+            if e in port_engines and (engine is None or e == engine)]
 
 
 def entry(port, tier, engine, key, name):
@@ -235,12 +283,14 @@ def entries(port, tier, engine):
     out = []
     if tier == "smoke":
         for scenario in port_def["smoke"]:
-            for eng in engines_for([scenario], engine):
+            for eng in engines_for([scenario], engine,
+                                   port_def.get("engines", ENGINES)):
                 out.append(entry(port, tier, eng, scenario,
                                  group_name(port, scenario)))
     else:
         for key, name in port_def["groups"]:
-            for eng in engines_for(key.split(), engine):
+            for eng in engines_for(key.split(), engine,
+                                   port_def.get("engines", ENGINES)):
                 out.append(entry(port, tier, eng, key, name))
     return out
 
@@ -274,19 +324,23 @@ SELFTEST = (
     ("pull_request", "ci:h5", "", "stm32h563:full"),
     ("pull_request", "ci:mcxn947", "", "mcxn947:full stm32h563:smoke"),
     ("pull_request", "ci:all", "",
-     "mcxn947:full mimxrt700:full stm32h563:full"),
+     "mcxn947:full mimxrt700:full stm32h563:full stm32l562:full"),
     ("pull_request", "ci:m33mu", "",
-     "mcxn947:full mimxrt700:full stm32h563:full"),
+     "mcxn947:full mimxrt700:full stm32h563:full stm32l562:full"),
     ("pull_request", "ci:h5 ci:rt700", "", "mimxrt700:full stm32h563:full"),
-    ("push", "", "", "mcxn947:full mimxrt700:full stm32h563:full"),
-    ("schedule", "", "", "mcxn947:full mimxrt700:full stm32h563:full"),
+    ("push", "", "",
+     "mcxn947:full mimxrt700:full stm32h563:full stm32l562:full"),
+    ("schedule", "", "",
+     "mcxn947:full mimxrt700:full stm32h563:full stm32l562:full"),
     ("workflow_dispatch", "", "",
-     "mcxn947:full mimxrt700:full stm32h563:full"),
+     "mcxn947:full mimxrt700:full stm32h563:full stm32l562:full"),
     ("workflow_dispatch", "", "all",
-     "mcxn947:full mimxrt700:full stm32h563:full"),
+     "mcxn947:full mimxrt700:full stm32h563:full stm32l562:full"),
     ("workflow_dispatch", "", "mimxrt700", "mimxrt700:full"),
     ("workflow_dispatch", "", "stm32h563", "stm32h563:full"),
     ("workflow_dispatch", "", "mcxn947", "mcxn947:full"),
+    ("pull_request", "ci:l5", "", "stm32h563:smoke stm32l562:full"),
+    ("workflow_dispatch", "", "stm32l562", "stm32l562:full"),
 )
 
 

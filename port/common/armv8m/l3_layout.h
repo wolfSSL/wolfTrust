@@ -96,7 +96,7 @@
 /* CONFIG_VNET and WT_CONFORMANCE are exclusive, so the VNET stack reuses the
  * conformance data window. */
 #define WT_SP_VNET_STACK_BASE    WT_CONF_SP_DATA_BASE
-#define WT_SP_VNET_STACK_SIZE    WT_SP_SECURE_STACK_SIZE
+#define WT_SP_VNET_STACK_SIZE    WT_CONF_SP_DATA_SIZE
 
 /* The top of the SPM RAM window, directly below the keystore. */
 #define WT_VNET_DATA_SIZE        0x00005000u

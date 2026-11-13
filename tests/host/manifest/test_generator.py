@@ -249,20 +249,45 @@ class GeneratorTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
-            domain = [d for d in manifest["domains"] if d["id"] == 1][0]
-            stack = "PARTITION_ALPHA=0x{:X}:0x{:X}".format(
-                domain["stack_base"], domain["stack_size"])
+            domains = {d["id"]: d for d in manifest["domains"]}
+            stacks = {}
+            for part in manifest["partitions"]:
+                domain = domains[part["domain_id"]]
+                stacks[part["name"]] = "{}=0x{:X}:0x{:X}".format(
+                    part["name"], domain["stack_base"], domain["stack_size"])
+            alpha = domains[1]
             moved = "PARTITION_ALPHA=0x{:X}:0x{:X}".format(
-                domain["stack_base"] + 0x100, domain["stack_size"])
-            self.assertEqual(self.run_generator(
-                FIXTURE, root / "ok", extra=("--stack", stack)).returncode, 0)
-            result = self.run_generator(FIXTURE, root / "moved",
-                                        extra=("--stack", moved))
-            self.assertNotEqual(result.returncode, 0)
-            self.assertIn("PARTITION_ALPHA stack", result.stderr)
-            self.assertFalse((root / "moved").exists())
-            print("PASS: WT-FFM-0011 a manifest stack off the linked layout "
-                  "stops generation")
+                alpha["stack_base"] + 0x100, alpha["stack_size"])
+
+            def run(name, *items):
+                extra = []
+                for item in items:
+                    extra += ["--stack", item]
+                return self.run_generator(FIXTURE, root / name,
+                                          extra=tuple(extra))
+
+            self.assertEqual(run("ok", *stacks.values()).returncode, 0)
+            optional = run("optional", *stacks.values(),
+                           "PARTITION_OPTIONAL=0x20000000:0x400")
+            self.assertEqual(optional.returncode, 0, optional.stderr)
+            cases = (
+                ("moved", (moved, stacks["PARTITION_BETA"]),
+                 "PARTITION_ALPHA stack"),
+                ("missing", (stacks["PARTITION_ALPHA"],),
+                 "PARTITION_BETA has no layout stack"),
+                ("duplicate", (stacks["PARTITION_ALPHA"],
+                               stacks["PARTITION_ALPHA"],
+                               stacks["PARTITION_BETA"]),
+                 "PARTITION_ALPHA has more than one layout stack"),
+            )
+            for name, items, message in cases:
+                result = run(name, *items)
+                self.assertNotEqual(result.returncode, 0, name)
+                self.assertIn(message, result.stderr)
+                self.assertFalse((root / name).exists())
+            print("PASS: WT-FFM-0011 a manifest stack off the linked layout, "
+                  "a partition with no layout stack, and a duplicate mapping "
+                  "stop generation")
 
     def test_sfn_zero_signal_is_accepted(self):
         with tempfile.TemporaryDirectory() as temporary:

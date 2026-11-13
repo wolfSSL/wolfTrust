@@ -1075,20 +1075,31 @@ def exclude_partitions(manifest, names):
 
 def check_stacks(manifest, stacks):
     """Each NAME=BASE:SIZE names where the linked layout put that partition's
-    stack; a manifest that disagrees would confine it to the wrong RAM."""
-    domains = {domain["id"]: domain for domain in manifest["domains"]}
+    stack; a manifest that disagrees would confine it to the wrong RAM. With
+    any mapping given, every partition must have exactly one; a mapping for a
+    partition this manifest leaves out (an optional service) is allowed."""
+    if not stacks:
+        return
+    layout = {}
     for item in stacks:
         name, _, extent = item.partition("=")
         base, _, size = extent.partition(":")
-        for part in manifest["partitions"]:
-            domain = domains.get(part["domain_id"])
-            if part["name"] != name or domain is None:
-                continue
-            if (domain["stack_base"], domain["stack_size"]) != (
-                    int(base, 0), int(size, 0)):
-                policy_error("{} stack 0x{:08X}+0x{:X} is not the layout's "
-                             "{}+{}".format(name, domain["stack_base"],
-                                            domain["stack_size"], base, size))
+        if name in layout:
+            policy_error("{} has more than one layout stack".format(name))
+        layout[name] = (int(base, 0), int(size, 0))
+    domains = {domain["id"]: domain for domain in manifest["domains"]}
+    for part in manifest["partitions"]:
+        name = part["name"]
+        domain = domains.get(part["domain_id"])
+        if name not in layout:
+            policy_error("{} has no layout stack".format(name))
+        if domain is None:
+            continue
+        if (domain["stack_base"], domain["stack_size"]) != layout[name]:
+            policy_error("{} stack 0x{:08X}+0x{:X} is not the layout's "
+                         "0x{:08X}+0x{:X}".format(
+                             name, domain["stack_base"], domain["stack_size"],
+                             layout[name][0], layout[name][1]))
 
 
 def main():

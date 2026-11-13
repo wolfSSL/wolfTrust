@@ -86,6 +86,11 @@ TARGET_LDFLAGS += -Wl,-L$(PORT_COMMON_DIR) \
 WT_L3_LINK_ARGS = $(or $(strip $(shell python3 $(ROOT)/tools/l3_layout_args.py \
     --link --cc $(TOOLPREFIX)gcc $(PORT_DIR)/memory_map.h)),$(error \
     cannot read the level 3 band placement from $(PORT_DIR)/memory_map.h))
+# Partition stacks the generator checks the manifest against; constants
+# only, so the host preprocessor serves host-only manifest builds too.
+WT_L3_MANIFEST_ARGS = $(or $(strip $(shell python3 $(ROOT)/tools/l3_layout_args.py \
+    --stacks --cc cc $(PORT_DIR)/memory_map.h)),$(error \
+    cannot read the level 3 partition stacks from $(PORT_DIR)/memory_map.h))
 # Post-link band check inputs, read from the port's memory_map.h at link time;
 # an unreadable layout stops the link rather than checking the default bands.
 WT_L3_BAND_ARGS = $(shell python3 $(ROOT)/tools/l3_layout_args.py \

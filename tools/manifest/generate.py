@@ -1073,6 +1073,24 @@ def exclude_partitions(manifest, names):
                                if domain["id"] != part["domain_id"]]
 
 
+def check_stacks(manifest, stacks):
+    """Each NAME=BASE:SIZE names where the linked layout put that partition's
+    stack; a manifest that disagrees would confine it to the wrong RAM."""
+    domains = {domain["id"]: domain for domain in manifest["domains"]}
+    for item in stacks:
+        name, _, extent = item.partition("=")
+        base, _, size = extent.partition(":")
+        for part in manifest["partitions"]:
+            domain = domains.get(part["domain_id"])
+            if part["name"] != name or domain is None:
+                continue
+            if (domain["stack_base"], domain["stack_size"]) != (
+                    int(base, 0), int(size, 0)):
+                policy_error("{} stack 0x{:08X}+0x{:X} is not the layout's "
+                             "{}+{}".format(name, domain["stack_base"],
+                                            domain["stack_size"], base, size))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
@@ -1103,6 +1121,9 @@ def main():
     parser.add_argument("--exclude-partition", action="append", default=[],
                         metavar="NAME",
                         help="leave this partition and its domain out")
+    parser.add_argument("--stack", action="append", default=[],
+                        metavar="NAME=BASE:SIZE",
+                        help="the layout's stack for partition NAME")
     args = parser.parse_args()
     platform_values = (args.platform_capabilities, args.platform_max_domains,
                        args.platform_max_memory_resources,
@@ -1141,6 +1162,7 @@ def main():
         validate_policy(manifest, args.supported_features, word_max,
                         args.supported_framework_version, args.mpu_granule,
                         platform, ffm_limits)
+        check_stacks(manifest, args.stack)
         source = generate_source(manifest, hashlib.sha256(input_bytes).digest(),
                                  platform, args.platform_header)
         args.output.mkdir(parents=True, exist_ok=True)

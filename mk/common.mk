@@ -1444,7 +1444,7 @@ MANIFEST_GEN_ARGS := --supported-features 0x1 \
 
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.
-MANIFEST_MODE := MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=$(strip $(MANIFEST_GEN_ARGS))
+MANIFEST_MODE = MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=$(strip $(MANIFEST_GEN_ARGS) $(WT_L3_MANIFEST_ARGS))
 
 $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		FORCE | $(MANIFEST_DIR)
@@ -1454,7 +1454,7 @@ $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		:; \
 	else \
 		python3 $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
-			$(MANIFEST_DIR) $(MANIFEST_GEN_ARGS) \
+			$(MANIFEST_DIR) $(MANIFEST_GEN_ARGS) $(WT_L3_MANIFEST_ARGS) \
 			&& printf '%s\n' '$(MANIFEST_MODE)' > "$@"; \
 	fi
 
@@ -1463,7 +1463,7 @@ $(MANIFEST_GEN_C) $(MANIFEST_GEN_H): $(MANIFEST_STAMP)
 # tests/host/manifest_ports generates every port manifest with these arguments.
 .PHONY: print-manifest-gen-args
 print-manifest-gen-args:
-	@echo $(MANIFEST_GEN_ARGS)
+	@echo $(MANIFEST_GEN_ARGS) $(WT_L3_MANIFEST_ARGS)
 
 $(MANIFEST_OBJ): $(MANIFEST_GEN_C) $(MANIFEST_GEN_H) \
 		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)

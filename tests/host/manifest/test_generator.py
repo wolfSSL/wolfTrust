@@ -245,6 +245,25 @@ class GeneratorTest(unittest.TestCase):
                 self.assertIn(message, result.stderr)
                 self.assertFalse(output.exists())
 
+    def test_partition_stack_off_the_layout_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            domain = [d for d in manifest["domains"] if d["id"] == 1][0]
+            stack = "PARTITION_ALPHA=0x{:X}:0x{:X}".format(
+                domain["stack_base"], domain["stack_size"])
+            moved = "PARTITION_ALPHA=0x{:X}:0x{:X}".format(
+                domain["stack_base"] + 0x100, domain["stack_size"])
+            self.assertEqual(self.run_generator(
+                FIXTURE, root / "ok", extra=("--stack", stack)).returncode, 0)
+            result = self.run_generator(FIXTURE, root / "moved",
+                                        extra=("--stack", moved))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("PARTITION_ALPHA stack", result.stderr)
+            self.assertFalse((root / "moved").exists())
+            print("PASS: WT-FFM-0011 a manifest stack off the linked layout "
+                  "stops generation")
+
     def test_sfn_zero_signal_is_accepted(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

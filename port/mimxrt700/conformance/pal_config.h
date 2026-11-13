@@ -60,13 +60,13 @@
  * WT_CONF_*_MMIO_* constants in port/mimxrt700/memory_map.h (an #error
  * cross-check in conf_nvm_sync.c enforces it). */
 #define SERVER_PARTITION_MMIO_NUM              1
-#define SERVER_PARTITION_MMIO_0_START          0x301F5C00
-#define SERVER_PARTITION_MMIO_0_END            0x301F5D00
+#define SERVER_PARTITION_MMIO_0_START          0x301F3C00
+#define SERVER_PARTITION_MMIO_0_END            0x301F3D00
 #define SERVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define DRIVER_PARTITION_MMIO_NUM              1
-#define DRIVER_PARTITION_MMIO_0_START          0x301F5E00
-#define DRIVER_PARTITION_MMIO_0_END            0x301F5F00
+#define DRIVER_PARTITION_MMIO_0_START          0x301F3E00
+#define DRIVER_PARTITION_MMIO_0_END            0x301F3F00
 #define DRIVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define PLATFORM_WD_BASE                        WATCHDOG_0_BASE

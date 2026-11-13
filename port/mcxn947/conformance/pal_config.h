@@ -60,13 +60,13 @@
  * WT_CONF_*_MMIO_* constants in port/mcxn947/memory_map.h (an #error
  * cross-check in conf_nvm_sync.c enforces it). */
 #define SERVER_PARTITION_MMIO_NUM              1
-#define SERVER_PARTITION_MMIO_0_START          0x3005DC00
-#define SERVER_PARTITION_MMIO_0_END            0x3005DD00
+#define SERVER_PARTITION_MMIO_0_START          0x3005BC00
+#define SERVER_PARTITION_MMIO_0_END            0x3005BD00
 #define SERVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define DRIVER_PARTITION_MMIO_NUM              1
-#define DRIVER_PARTITION_MMIO_0_START          0x3005DE00
-#define DRIVER_PARTITION_MMIO_0_END            0x3005DF00
+#define DRIVER_PARTITION_MMIO_0_START          0x3005BE00
+#define DRIVER_PARTITION_MMIO_0_END            0x3005BF00
 #define DRIVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define PLATFORM_WD_BASE                        WATCHDOG_0_BASE

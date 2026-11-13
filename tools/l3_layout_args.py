@@ -27,7 +27,22 @@ SHELL_MACROS = BAND_MACROS + (
     "WT_L3_SPM_PERIPHERAL_BASE",
 )
 LINK_MACROS = (
-    "WT_KEYSTORE_BASE", "WT_SP_HSM_DATA_SIZE", "WT_SP_FWU_STACK_BASE",
+    "WT_KEYSTORE_BASE", "WT_SP_HSM_DATA_SIZE", "WT_SP_PS_STACK_BASE",
+)
+# Each partition's stack in the layout, matched against the manifest.
+STACK_MACROS = (
+    ("PARTITION_PS", "WT_SP_PS_STACK_BASE", "WT_SP_PS_STACK_SIZE"),
+    ("PARTITION_ITS", "WT_SP_ITS_STACK_BASE", "WT_SP_ITS_STACK_SIZE"),
+    ("PARTITION_VAULT", "WT_SP_VAULT_STACK_BASE", "WT_SP_VAULT_STACK_SIZE"),
+    ("PARTITION_HSM", "WT_SP_CRYPTO_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
+    ("PARTITION_ATTEST", "WT_SP_ATTEST_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
+    ("SERVER_PARTITION", "WT_SP_FF_SERVER_STACK_BASE",
+     "WT_SP_SECURE_STACK_SIZE"),
+    ("DRIVER_PARTITION", "WT_SP_FF_DRIVER_STACK_BASE",
+     "WT_SP_SECURE_STACK_SIZE"),
+    ("CLIENT_PARTITION", "WT_SP_FF_CLIENT_STACK_BASE",
+     "WT_SP_SECURE_STACK_SIZE"),
+    ("PARTITION_FWU", "WT_SP_FWU_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
 )
 INTEGER = re.compile(r"\b(0[xX][0-9a-fA-F]+|[0-9]+)[uUlL]*\b")
 EXPRESSION = re.compile(r"^[0-9a-fA-FxX+\-*() ]+$")
@@ -103,9 +118,14 @@ def link_args(v):
     pairs = (
         ("WT_L3_KEYSTORE_ORIGIN", v["WT_KEYSTORE_BASE"]),
         ("WT_L3_HSM_DATA_LENGTH", v["WT_SP_HSM_DATA_SIZE"]),
-        ("WT_L3_STACKS_ORIGIN", v["WT_SP_FWU_STACK_BASE"]),
+        ("WT_L3_STACKS_ORIGIN", v["WT_SP_PS_STACK_BASE"]),
     )
     return " ".join("-Wl,--defsym=%s=0x%08X" % pair for pair in pairs)
+
+
+def stack_args(v):
+    return " ".join("--stack %s=0x%08X:0x%X" % (name, v[base], v[size])
+                    for name, base, size in STACK_MACROS)
 
 
 def main():
@@ -116,10 +136,17 @@ def main():
                         help="print the scenario checks' layout variables")
     parser.add_argument("--link", action="store_true",
                         help="print the linker symbols placing the bands")
+    parser.add_argument("--stacks", action="store_true",
+                        help="print the generator's partition stack checks")
     parser.add_argument("memory_map")
     args = parser.parse_args()
 
-    if args.link:
+    if args.stacks:
+        macros = sorted(set(name for _, base, size in STACK_MACROS
+                            for name in (base, size)))
+        print(stack_args(evaluate(args.cc, args.memory_map, tuple(macros),
+                                  args.includes)))
+    elif args.link:
         print(link_args(evaluate(args.cc, args.memory_map, LINK_MACROS,
                                  args.includes)))
     elif args.shell:

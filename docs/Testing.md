@@ -122,7 +122,8 @@ scenario) on the `full` build profile. `WT_PROFILE=default` runs the lean
 default image instead: the one-guest `positive`, `restartidle` and the level 3
 scenarios (see [Build profiles](Macros.md#build-profiles)). Each scenario's
 profiles are recorded in `tests/target/lib/scenario_matrix.py`; the two-guest,
-conformance and update scenarios run only on `full`. Detection accepts `m33mu` on
+conformance and update scenarios (`fwustage`, `bootupdate`) run only on
+`full`, and `crossdomain` checks the update backend's gate pin only there. Detection accepts `m33mu` on
 `PATH` or a path in `M33MU`. If the emulator is unavailable,
 the target reports a skip rather than a pass.
 

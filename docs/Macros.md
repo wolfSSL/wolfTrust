@@ -13,7 +13,7 @@ below turns one feature back on. CI builds and runs both profiles:
 | Profile | Options | Used for |
 | --- | --- | --- |
 | `default` | none | The shipping image; the level 3 scenarios and the one-guest lifecycle run on it. |
-| `full` | `WT_MAX_GUESTS=2` | Every add-on on; the two-guest scenarios and the level 3 scenarios run on it. |
+| `full` | `WT_MAX_GUESTS=2 WT_FWU=1` | Every add-on on; the two-guest, update and level 3 scenarios run on it. |
 
 `tests/target/lib/profile.sh` holds the profile flags. A target run picks one
 with `WT_PROFILE` (`make test-target WT_PROFILE=default`).
@@ -42,6 +42,30 @@ with `WT_PROFILE` (`make test-target WT_PROFILE=default`).
   | STM32L562, native | +2,426 bytes | +580 bytes |
 
 - Enable: `make WT_MAX_GUESTS=2 secure-image`
+
+### `WT_FWU`: PSA Firmware Update
+
+- Default `0`. `1` builds `SERVICE_FWU` (PSA Firmware Update staging into the
+  wolfBoot update partition); any other value stops the build.
+- `1` adds back the update partition and its manifest domain, its 8 KiB stack
+  band at the top of the level 3 layout, the port's staging backend (the
+  privileged flash ops the update partition reaches through the SVC gate),
+  the active-version and rollback-floor queries that backend serves, and on
+  the MIMXRT700 the update partition as a NOR write window. `0` leaves all of
+  these out: the generator drops `PARTITION_FWU` from the manifest
+  (`--exclude-partition`), so `SERVICE_FWU_SID` and `PARTITION_FWU_ID` do not
+  exist and a connect to SID `0x1005` is refused like any unknown service.
+  Anti-rollback enforcement at boot stays in every image.
+  `WT_BOOTUPDATE_PROBE=1` needs `WT_FWU=1`.
+- Cost, same toolchain and measures as above, with one guest:
+
+  | Image | Flash | Static RAM | Reserved stack band |
+  | --- | ---: | ---: | ---: |
+  | STM32H563, native | +3,232 bytes | +36 bytes | +8,192 bytes |
+  | STM32H563, `WT_ENGINE=hsm` | +3,264 bytes | +36 bytes | +8,192 bytes |
+  | STM32L562, native | +3,296 bytes | +40 bytes | +8,192 bytes |
+
+- Enable: `make WT_FWU=1 secure-image`
 
 ## Build selection
 

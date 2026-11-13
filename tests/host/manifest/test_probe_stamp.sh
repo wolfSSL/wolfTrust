@@ -115,6 +115,16 @@ else st=1; fi
 check $st "WT_SHA256_FAST=2 stops the build"
 gen
 
+for target in stm32h563 mimxrt700 mcxn947; do
+    deps=$(cd "$root" && make -pq TARGET=$target BUILD_DIR="$build" "$stamp" \
+        2>/dev/null | grep "^$build/wt_sec_wolftrust_manifest_generated.o:" || true)
+    case "$deps" in
+        *port/$target/platform_caps.h*) st=0 ;;
+        *) st=1 ;;
+    esac
+    check $st "$target: the generated manifest object rebuilds on platform_caps.h"
+done
+
 echo "probe build stamp tests: $checks checks, $failures failures"
 if [ "$failures" -eq 0 ]; then
     echo "PASS: probe_build_stamp"

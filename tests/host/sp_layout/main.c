@@ -82,8 +82,13 @@ WT_STATIC_ASSERT(WT_KEYSTORE_BASE + WT_KEYSTORE_SIZE == WT_SP_PS_STACK_BASE,
 /* The update stack tops the layout, so WT_FWU moves no other stack. */
 WT_STATIC_ASSERT(WT_SP_FWU_STACK_BASE == WT_SP_SECURE_RAM_END,
                "FWU stack does not sit above the SP stacks");
-WT_STATIC_ASSERT(WT_L3_RAM_END == WT_SP_SECURE_RAM_END + WT_SP_FWU_STACK_SIZE,
-               "the layout does not end at the FWU stack");
+#if defined(WT_FWU)
+WT_STATIC_ASSERT(WT_L3_RAM_END == WT_SP_SECURE_RAM_END + WT_SP_SECURE_STACK_SIZE,
+               "WT_FWU=1 does not reserve the FWU stack band");
+#else
+WT_STATIC_ASSERT(WT_L3_RAM_END == WT_SP_SECURE_RAM_END,
+               "WT_FWU=0 still reserves the FWU stack band");
+#endif
 WT_STATIC_ASSERT((WT_SP_VAULT_DATA_BASE & 0x1FU) == 0U &&
                    (WT_SP_ATTEST_DATA_BASE & 0x1FU) == 0U &&
                    (WT_SP_HSM_DATA_BASE & 0x1FU) == 0U,

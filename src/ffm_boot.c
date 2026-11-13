@@ -32,6 +32,16 @@
 #endif
 #include "psa_manifest/pid.h"
 
+/* The manifest carries the update partition exactly when WT_FWU builds it;
+ * the conformance manifest never does. */
+#if defined(PARTITION_FWU_ID) && !defined(WT_FWU)
+#error "the manifest declares PARTITION_FWU but WT_FWU is off"
+#endif
+#if defined(WT_FWU) && !defined(PARTITION_FWU_ID) && \
+    !(defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1))
+#error "WT_FWU=1 but the manifest has no PARTITION_FWU"
+#endif
+
 static wt_ffm_runtime_t g_ffm_runtime;
 
 /* WT-FFM-0012: the SPM validates every external memory reference before

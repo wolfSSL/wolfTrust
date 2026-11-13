@@ -40,5 +40,7 @@
   /* Conformance partition data; CONFIG_VNET builds use it as the VNET stack. */
   CONFDATA (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 32K, LENGTH = 12K
   SPSTACKS (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 44K, LENGTH = 40K
-  /* SERVICE_FWU stack, last so no other stack depends on it. */
-  FWUSTACK (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 84K, LENGTH = 8K
+  /* SERVICE_FWU stack, last so dropping it moves nothing; zero length
+   * outside WT_FWU builds. */
+  FWUSTACK (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 84K,
+                 LENGTH = WT_FWU_STACK_LENGTH

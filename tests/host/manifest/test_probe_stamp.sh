@@ -87,6 +87,21 @@ gen
 if cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
 check $st "dropping WT_MAX_GUESTS restores the default stamp"
 
+if grep -q '^WT_FWU=0$' "$build/default.stamp"; then st=0; else st=1; fi
+check $st "default stamp records the image without the update service"
+gen WT_FWU=1
+if grep -q '^WT_FWU=1$' "$stamp" &&
+   ! cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
+check $st "WT_FWU=1 invalidates the stamp"
+gen
+if cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
+check $st "dropping WT_FWU restores the default stamp"
+if (cd "$root" && make -s BUILD_DIR="$build" WT_BOOTUPDATE_PROBE=1 \
+        "$stamp" >/dev/null 2>"$build/bootupdate.err"); then st=1;
+elif grep -q 'build it with WT_FWU=1' "$build/bootupdate.err"; then st=0;
+else st=1; fi
+check $st "WT_BOOTUPDATE_PROBE=1 without WT_FWU=1 stops the build"
+
 echo "probe build stamp tests: $checks checks, $failures failures"
 if [ "$failures" -eq 0 ]; then
     echo "PASS: probe_build_stamp"

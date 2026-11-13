@@ -98,8 +98,10 @@ static const wt_hsm_flash_config_t g_hsm_flash_cfg = {
  * privileged read/program/erase to any address. Geometry is resolved instead
  * from the immutable .rodata config keyed by the context identity, and an
  * unknown context is refused. */
+#if defined(WT_FWU)
 static const wt_hsm_flash_config_t g_fwu_flash_cfg;
 static wt_hsm_flash_context_t g_fwu_flash_ctx;
+#endif
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 static const wt_hsm_flash_config_t g_conf_nvm_cfg;
 static wt_hsm_flash_context_t g_conf_nvm_ctx;
@@ -114,9 +116,11 @@ static const wt_hsm_flash_config_t *wt_flash_geometry(const void *context)
     if (context == (const void *)&g_hsm_flash_ctx) {
         return &g_hsm_flash_cfg;
     }
+#if defined(WT_FWU)
     if (context == (const void *)&g_fwu_flash_ctx) {
         return &g_fwu_flash_cfg;
     }
+#endif
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     if (context == (const void *)&g_conf_nvm_ctx) {
         return &g_conf_nvm_cfg;
@@ -702,6 +706,7 @@ int wt_hsm_flash_format(void)
     return wt_hsm_flash_erase(&g_hsm_flash_ctx, 0u, g_hsm_flash_cfg.size);
 }
 
+#if defined(WT_FWU)
 /* SERVICE_FWU staging into the wolfBoot update partition (WT-FWU-0002). The
  * unprivileged FWU SP crosses the privileged SVC gate to erase each target
  * sector lazily, program the candidate, and verify each block in secure flash.
@@ -884,6 +889,7 @@ const wt_fwu_backend_t wt_fwu_flash_backend = {
     .align = 16u,
     .verify = wt_fwu_backend_verify,
 };
+#endif
 
 #if defined(WT_REMEASURE_PROBE)
 int wt_hsm_flash_remeasure_tamper(uintptr_t secure_base)

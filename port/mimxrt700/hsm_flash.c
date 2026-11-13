@@ -55,6 +55,7 @@ static const wt_hsm_flash_config_t g_conf_nvm_cfg = {
 };
 static wt_hsm_flash_context_t g_conf_nvm_ctx;
 #endif
+#if defined(WT_FWU)
 /* One unit for the NOR programming, the service's final-block padding and
  * the staged-extent check, so the three can never disagree. */
 #define WT_FWU_PROGRAM_UNIT 16u
@@ -66,6 +67,7 @@ static const wt_hsm_flash_config_t g_fwu_flash_cfg = {
     .program_unit = WT_FWU_PROGRAM_UNIT,
 };
 static wt_hsm_flash_context_t g_fwu_flash_ctx;
+#endif
 /* Last NOR driver failure, read over the debug port by the hardware harness. */
 volatile int32_t g_wt_nor_last_error __attribute__((used));
 
@@ -81,9 +83,11 @@ static const wt_hsm_flash_config_t *wt_hsm_flash_cfg_of(const void *context)
         return &g_conf_nvm_cfg;
     }
 #endif
+#if defined(WT_FWU)
     if (context == (const void *)&g_fwu_flash_ctx) {
         return &g_fwu_flash_cfg;
     }
+#endif
     return NULL;
 }
 
@@ -363,6 +367,7 @@ int wt_hsm_flash_format(void)
     return wt_hsm_flash_erase(&g_hsm_flash_ctx, 0u, g_hsm_flash_cfg.size);
 }
 
+#if defined(WT_FWU)
 /* SERVICE_FWU staging into the wolfBoot update partition: the FWU partition
  * erases each target sector lazily, programs the candidate through the NOR
  * driver, and verifies every block against the Secure alias (the driver
@@ -544,6 +549,7 @@ const wt_fwu_backend_t wt_fwu_flash_backend = {
     .align = WT_FWU_PROGRAM_UNIT,
     .verify = wt_fwu_backend_verify,
 };
+#endif
 
 #if defined(WT_REMEASURE_PROBE)
 int wt_hsm_flash_remeasure_tamper(uintptr_t secure_base)

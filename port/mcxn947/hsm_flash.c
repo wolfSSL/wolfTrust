@@ -55,6 +55,7 @@ static const wt_hsm_flash_config_t g_conf_nvm_cfg = {
 };
 static wt_hsm_flash_context_t g_conf_nvm_ctx;
 #endif
+#if defined(WT_FWU)
 static const wt_hsm_flash_config_t g_fwu_flash_cfg = {
     .base = WT_FWU_UPDATE_FLASH_BASE_S,
     .size = WT_FWU_UPDATE_FLASH_SIZE,
@@ -62,6 +63,7 @@ static const wt_hsm_flash_config_t g_fwu_flash_cfg = {
     .program_unit = WT_FLASH_PHRASE_SIZE,
 };
 static wt_hsm_flash_context_t g_fwu_flash_ctx;
+#endif
 #if defined(WT_REMEASURE_PROBE)
 static const wt_hsm_flash_config_t g_remeasure_probe_cfg = {
     .base = WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE),
@@ -86,9 +88,11 @@ static const wt_hsm_flash_config_t *wt_hsm_flash_cfg_of(const void *context)
         return &g_conf_nvm_cfg;
     }
 #endif
+#if defined(WT_FWU)
     if (context == (const void *)&g_fwu_flash_ctx) {
         return &g_fwu_flash_cfg;
     }
+#endif
 #if defined(WT_REMEASURE_PROBE)
     if (context == (const void *)&g_remeasure_probe_ctx) {
         return &g_remeasure_probe_cfg;
@@ -373,6 +377,7 @@ int wt_hsm_flash_format(void)
     return wt_hsm_flash_erase(&g_hsm_flash_ctx, 0u, g_hsm_flash_cfg.size);
 }
 
+#if defined(WT_FWU)
 /* SERVICE_FWU staging into the wolfBoot update partition, contiguous from
  * offset 0 with each sector erased lazily; arm() programs wolfBoot's update
  * trigger in the trailer, and the swapped image still faces launch verify. */
@@ -554,6 +559,7 @@ const wt_fwu_backend_t wt_fwu_flash_backend = {
     .align = WT_FLASH_PHRASE_SIZE,
     .verify = wt_fwu_backend_verify,
 };
+#endif
 
 #if defined(WT_REMEASURE_PROBE)
 /* Probe-only tamper of guest0's first sector: erase it and program a zero

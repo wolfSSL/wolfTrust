@@ -111,6 +111,14 @@ WT_HANDLER_IRQ_PROBE ?= 0
 WT_REMEASURE_PROBE ?= 0
 WT_BOOTUPDATE_PROBE ?= 0
 WT_CONFORMANCE ?= 0
+# PSA Firmware Update partition (SERVICE_FWU) and its 8 KiB stack band.
+WT_FWU ?= 0
+ifneq ($(words $(WT_FWU))/$(filter 0 1,$(WT_FWU)),1/$(WT_FWU))
+$(error unsupported WT_FWU='$(WT_FWU)' (want 0 or 1))
+endif
+ifeq ($(WT_BOOTUPDATE_PROBE)/$(WT_FWU),1/0)
+$(error WT_BOOTUPDATE_PROBE=1 drives the update service; build it with WT_FWU=1)
+endif
 
 # Virtual-Ethernet (VNET) subsystem. Off until Wave 2 lands a working
 # core. Host-side unit tests under tests/host/vnet/ build regardless;
@@ -244,6 +252,15 @@ endif
 ifeq ($(WT_BOOTUPDATE_PROBE),1)
 SECURE_CFLAGS += -DWT_BOOTUPDATE_PROBE=1
 endif
+ifeq ($(WT_FWU),1)
+SECURE_CFLAGS += -DWT_FWU=1
+WT_FWU_STACK_LENGTH := 0x2000
+MANIFEST_EXCLUDE :=
+else
+WT_FWU_STACK_LENGTH := 0
+# The conformance manifest never carries the update partition.
+MANIFEST_EXCLUDE := $(if $(filter 1,$(WT_CONFORMANCE)),,--exclude-partition PARTITION_FWU)
+endif
 # Hardware guest-flash write protection: refuse to launch a guest whose image
 # sectors are not WRP-protected, so a peer Non-secure guest cannot reprogram a
 # suspended guest's flash. Silicon only (the M33MU model has no flash WRP).
@@ -362,8 +379,11 @@ WT_SECURE_EXTRA_SRCS := \
     $(ROOT)/src/services/hsm_relay_service.c \
     $(ROOT)/src/services/nvm_client.c \
     $(ROOT)/src/services/storage_service.c \
-    $(ROOT)/src/services/fwu_service.c \
     $(ROOT)/src/services/vault_service.c
+
+ifeq ($(WT_FWU),1)
+WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/fwu_service.c
+endif
 
 # Engine split: wt_hsm.c drives the wolfHSM server (hsm engine only); the
 # native engine dispatches wolfCrypt directly behind the same SERVICE_HSM
@@ -1444,7 +1464,7 @@ MANIFEST_GEN_ARGS := --supported-features 0x1 \
 
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.
-MANIFEST_MODE = MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=$(strip $(MANIFEST_GEN_ARGS) $(WT_L3_MANIFEST_ARGS))
+MANIFEST_MODE = MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) WT_FWU=$(WT_FWU) GEN_OPTS=$(strip $(MANIFEST_GEN_ARGS) $(MANIFEST_EXCLUDE) $(WT_L3_MANIFEST_ARGS))
 
 $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		FORCE | $(MANIFEST_DIR)
@@ -1454,8 +1474,8 @@ $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		:; \
 	else \
 		python3 $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
-			$(MANIFEST_DIR) $(MANIFEST_GEN_ARGS) $(WT_L3_MANIFEST_ARGS) \
-			&& printf '%s\n' '$(MANIFEST_MODE)' > "$@"; \
+			$(MANIFEST_DIR) $(MANIFEST_GEN_ARGS) $(MANIFEST_EXCLUDE) \
+			$(WT_L3_MANIFEST_ARGS) && printf '%s\n' '$(MANIFEST_MODE)' > "$@"; \
 	fi
 
 $(MANIFEST_GEN_C) $(MANIFEST_GEN_H): $(MANIFEST_STAMP)
@@ -1463,7 +1483,7 @@ $(MANIFEST_GEN_C) $(MANIFEST_GEN_H): $(MANIFEST_STAMP)
 # tests/host/manifest_ports generates every port manifest with these arguments.
 .PHONY: print-manifest-gen-args
 print-manifest-gen-args:
-	@echo $(MANIFEST_GEN_ARGS) $(WT_L3_MANIFEST_ARGS)
+	@echo $(MANIFEST_GEN_ARGS) $(MANIFEST_EXCLUDE) $(WT_L3_MANIFEST_ARGS)
 
 $(MANIFEST_OBJ): $(MANIFEST_GEN_C) $(MANIFEST_GEN_H) \
 		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
@@ -1518,6 +1538,7 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_SVC_NEG_PROBE=$(WT_SVC_NEG_PROBE)' \
 		'WT_REMEASURE_PROBE=$(WT_REMEASURE_PROBE)' \
 		'WT_BOOTUPDATE_PROBE=$(WT_BOOTUPDATE_PROBE)' \
+		'WT_FWU=$(WT_FWU)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_SPM_STACK_SIZE=$(WT_SPM_STACK_SIZE)' \
@@ -1633,6 +1654,7 @@ $(SECURE_ELF) $(SECURE_MAP) $(ARCH_LINK_OUTPUTS) &: $(ALL_SECURE_OBJS) $(SECURE_
 	$(CC) $(SECURE_CFLAGS) \
 		$(TARGET_LDFLAGS) \
 		-Wl,--defsym=WT_VNET_DATA_LENGTH=$(WT_VNET_DATA_LENGTH) \
+		-Wl,--defsym=WT_FWU_STACK_LENGTH=$(WT_FWU_STACK_LENGTH) \
 		-Wl,--defsym=WT_SPM_STACK_SIZE=$(WT_SPM_STACK_SIZE) \
 		-Wl,-T$(SECURE_LD) \
 		-Wl,--gc-sections -Wl,-Map=$(SECURE_MAP),--cref \

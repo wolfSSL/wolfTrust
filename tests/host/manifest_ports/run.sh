@@ -30,27 +30,35 @@ for manifest in "$root"/port/*/manifest*.json; do
     port_dir=$(dirname "$manifest")
     port=$(basename "$port_dir")
     variant=$(basename "$manifest" .json)
-    out="$build/$port-$variant"
-    args=$("$make" -s --no-print-directory -C "$root" TARGET="$port" \
-        print-manifest-gen-args)
+    # The default profile leaves the update partition out; full keeps it.
+    case "$variant" in
+        manifest-conformance) profiles="conformance:WT_CONFORMANCE=1" ;;
+        *) profiles="default:WT_FWU=0 full:WT_FWU=1" ;;
+    esac
+    for entry in $profiles; do
+        profile=${entry%%:*}
+        out="$build/$port-$variant-$profile"
+        args=$("$make" -s --no-print-directory -C "$root" TARGET="$port" \
+            "${entry#*:}" print-manifest-gen-args)
 
-    rm -rf "$out"
-    # shellcheck disable=SC2086
-    python3 "$root/tools/manifest/generate.py" "$manifest" "$out" $args
-    # shellcheck disable=SC2086
-    ${CC:-cc} $CFLAGS -I"$out" -I"$port_dir" \
-        -DWT_TEST_MANIFEST="\"$port/$variant.json\"" $LDFLAGS \
-        -o "$out/test_manifest_port" \
-        "$root/src/domain.c" "$root/src/manifest.c" "$root/src/spm.c" \
-        "$root/src/partition.c" "$root/src/ffm.c" "$root/src/ipc.c" \
-        "$root/src/ffm_domain.c" "$port_dir/partitions.c" \
-        "$out/wolftrust_manifest_generated.c" main.c
-    ${RUNNER:-} "$out/test_manifest_port"
-    count=$((count + 1))
+        rm -rf "$out"
+        # shellcheck disable=SC2086
+        python3 "$root/tools/manifest/generate.py" "$manifest" "$out" $args
+        # shellcheck disable=SC2086
+        ${CC:-cc} $CFLAGS -I"$out" -I"$port_dir" \
+            -DWT_TEST_MANIFEST="\"$port/$variant.json ($profile)\"" $LDFLAGS \
+            -o "$out/test_manifest_port" \
+            "$root/src/domain.c" "$root/src/manifest.c" "$root/src/spm.c" \
+            "$root/src/partition.c" "$root/src/ffm.c" "$root/src/ipc.c" \
+            "$root/src/ffm_domain.c" "$port_dir/partitions.c" \
+            "$out/wolftrust_manifest_generated.c" main.c
+        ${RUNNER:-} "$out/test_manifest_port"
+        count=$((count + 1))
+    done
 done
 
 if [ "$count" -eq 0 ]; then
     echo "FAIL: no port manifests found"
     exit 1
 fi
-echo "PASS: WT-PORT-0009 $count port manifests pass the boot-time validator and port binding"
+echo "PASS: WT-PORT-0009 $count port manifest builds (default, full and conformance) pass the boot-time validator and port binding"

@@ -201,6 +201,10 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
  * links no ASN.1; the hsm engine's wolfHSM server stores keys as DER. */
 #ifdef WT_ENGINE_NATIVE
 #define NO_ASN
+/* Native AES is GCM only, which runs the block cipher forward for both seal
+ * and unseal, so the inverse key schedule and decrypt tables are dead code. */
+#define NO_AES_DECRYPT
+#define HAVE_AESGCM_DECRYPT
 #endif
 
 /* -------------------------------------------------------------------------

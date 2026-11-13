@@ -1,8 +1,8 @@
 # Services
 
 The STM32H563 manifest describes connection-based FF-M 1.0 IPC services. The
-default image contains six Secure services; `CONFIG_VNET=y` selects a
-manifest with a seventh service.
+default image contains five Secure services. `WT_FWU=1` adds the update
+service, and `CONFIG_VNET=y` selects a manifest with the network service.
 
 ## Service registry
 

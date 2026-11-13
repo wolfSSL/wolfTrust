@@ -1,71 +1,118 @@
 # Macros
 
-The STM32H563 build is configured through GNU Make variables. The build turns
+The Secure build is configured through GNU Make variables. The build turns
 selected values into C preprocessor defines. Defaults below come from
-`mk/target-stm32h563.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk`.
+`mk/target-<soc>.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk`.
 
 ## Build profiles
 
-`make` with no options builds the lean default image: isolation level 3, one
-guest, and only the services every level 3 deployment needs. Each add-on
-below turns one feature back on. CI builds and runs both profiles:
+`make` with no options builds the lean default image. It runs at isolation
+level 3 with one Non-secure image and the PSA services a TF-M level 3 build
+ships: Crypto, Internal Trusted Storage, Protected Storage, and Initial
+Attestation. The manifest is checked at build time. Each add-on below turns one feature back on with one Make variable.
+None of them changes the isolation level.
 
-| Profile | Options | Used for |
-| --- | --- | --- |
-| `default` | none | The shipping image; the level 3 scenarios and the one-guest lifecycle run on it. |
-| `full` | `WT_MAX_GUESTS=2 WT_FWU=1` | Every add-on on; the two-guest, update and level 3 scenarios run on it. |
+Costs are over the default image, built with Arm GNU 15.2.1 in
+`ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO and read with
+`arm-none-eabi-size`: flash is `text + data` and static RAM is `data + bss`.
+The default native images are 81,884 bytes of flash and 27,368 bytes of RAM
+on the STM32H563, and 81,424 and 27,528 bytes on the STM32L562.
+
+| Option | Brings back | STM32H563 flash / RAM | STM32L562 flash / RAM | Enable |
+| --- | --- | ---: | ---: | --- |
+| [`WT_MAX_GUESTS=2`](#wt_max_guests-a-second-guest) | A second Non-secure image and the scheduling that shares the core between two | +2,424 / +584 | +2,392 / +580 | `make WT_MAX_GUESTS=2 secure-image` |
+| [`WT_FWU=1`](#wt_fwu-psa-firmware-update) | The PSA Firmware Update service and its 8 KiB stack band | +3,232 / +36 | +3,296 / +40 | `make WT_FWU=1 secure-image` |
+| [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator | +3,296 / 0 | +3,264 / 0 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
+| [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +28,444 / +22,348 | not supported | `make WT_ENGINE=hsm secure-image` |
+| `full` profile | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1` together | +8,984 / +616 | +9,080 / +620 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 secure-image` |
+
+The RAM figures leave out the 8 KiB FWU stack band, which the
+level 3 layout reserves only when `WT_FWU=1`. The engine is a separate axis:
+CI runs both engines on both profiles where the port supports them.
 
 `tests/target/lib/profile.sh` holds the profile flags. A target run picks one
-with `WT_PROFILE` (`make test-target WT_PROFILE=default`).
+with `WT_PROFILE` (`make test-target WT_PROFILE=default`). Hardware runners
+default to `full`.
 
 ## Add-on options
 
 ### `WT_MAX_GUESTS`: a second guest
 
 - Default `1`. `2` builds a second Non-secure guest (guest-b) beside the
-  first; any other value stops the build.
+  first. Any other value stops the build.
 - `2` adds back what only two guests need: the virtual SysTick that time
   shares SysTick_NS between the guests, the SAU, Non-secure MPU and IRQ
   reprogramming on every guest switch, the full context save and reschedule
-  on each Secure tick, the re-measurement of a guest right before its first
-  dispatch (a peer could have rewritten it), and with the wolfHSM engine a
-  second server tasklet and its 10 KiB stack. One guest keeps the restart
-  policy, launch verification, the Secure tick and the Secure Partition
-  scheduler.
-- Cost, Arm GNU 15.2.1 (`ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`), flash
-  is `text + data` and static RAM is `data + bss`:
-
-  | Image | Flash | Static RAM |
-  | --- | ---: | ---: |
-  | STM32H563, native | +2,426 bytes | +580 bytes |
-  | STM32H563, `WT_ENGINE=hsm` | +2,778 bytes | +17,384 bytes |
-  | STM32L562, native | +2,426 bytes | +580 bytes |
-
+  on each Secure tick, and the re-measurement of a guest right before its
+  first dispatch (a peer could have rewritten it). With the wolfHSM engine it
+  also adds a second server tasklet and its 10 KiB stack. One guest keeps the
+  restart policy, launch verification, the Secure tick and the Secure
+  Partition scheduler.
+- Cost: STM32H563 native +2,424 bytes flash and +584 bytes RAM, wolfHSM
+  +2,744 and +17,388; STM32L562 native +2,392 and +580.
 - Enable: `make WT_MAX_GUESTS=2 secure-image`
+- CI: the cross-compile job builds the `full` profile for every port and
+  engine and checks that `WT_MAX_GUESTS=3` stops the build. The M33MU `full`
+  profile runs the two-guest scenarios (`bothpsa`, `bothiso`, `gtzcneg`,
+  `restart` and the rest). `tests/host/monitor` builds both guest counts.
 
 ### `WT_FWU`: PSA Firmware Update
 
 - Default `0`. `1` builds `SERVICE_FWU` (PSA Firmware Update staging into the
-  wolfBoot update partition); any other value stops the build.
+  wolfBoot update partition). Any other value stops the build.
 - `1` adds back the update partition and its manifest domain, its 8 KiB stack
   band at the top of the level 3 layout, the port's staging backend (the
   privileged flash ops the update partition reaches through the SVC gate),
   the active-version and rollback-floor queries that backend serves, and on
   the MIMXRT700 the update partition as a NOR write window. `0` leaves all of
-  these out: the generator drops `PARTITION_FWU` from the manifest
+  these out. The generator drops `PARTITION_FWU` from the manifest
   (`--exclude-partition`), so `SERVICE_FWU_SID` and `PARTITION_FWU_ID` do not
   exist and a connect to SID `0x1005` is refused like any unknown service.
   Anti-rollback enforcement at boot stays in every image.
   `WT_BOOTUPDATE_PROBE=1` needs `WT_FWU=1`.
-- Cost, same toolchain and measures as above, with one guest:
-
-  | Image | Flash | Static RAM | Reserved stack band |
-  | --- | ---: | ---: | ---: |
-  | STM32H563, native | +3,232 bytes | +36 bytes | +8,192 bytes |
-  | STM32H563, `WT_ENGINE=hsm` | +3,264 bytes | +36 bytes | +8,192 bytes |
-  | STM32L562, native | +3,296 bytes | +40 bytes | +8,192 bytes |
-
+- Cost: STM32H563 native +3,232 bytes flash and +36 bytes RAM, wolfHSM
+  +3,232 and +36; STM32L562 native +3,296 and +40. Each also reserves the
+  8,192-byte stack band.
 - Enable: `make WT_FWU=1 secure-image`
+- CI: the cross-compile `full` profile build for every port and engine. The
+  M33MU `full` profile runs `fwustage` and `bootupdate`. `tests/host/sp_layout`,
+  `tests/host/rt700_xspi`, `tests/host/fwu_service` and
+  `tests/host/manifest_ports` (default and full manifests) cover the layout,
+  the NOR window, the service and the excluded manifest.
+
+### `WT_MANIFEST_RUNTIME_CHECK`: boot-time manifest check
+
+- Default `0`. The manifest generator validates the manifest at build time
+  against the port's platform capabilities (`port/<soc>/platform_caps.h`,
+  passed from `mk/target-<soc>.mk`) and the FF-M runtime limits, and the
+  generated C asserts the port binding at compile time. Any manifest the
+  boot-time checks would reject fails the build, so the default image does
+  not repeat them.
+- `1` links the boot-time validator back in: `wt_spm_init()` runs
+  `wt_manifest_validate()`, `wt_partitions_bind_manifest()` runs
+  `wt_partition_validate_port_binding()`, and the monitor runs
+  `wt_partition_validate_profile()` for each guest.
+- Cost: flash only, RAM does not change. STM32H563 +3,296 bytes native and
+  wolfHSM; STM32L562 native +3,264.
+- Enable: `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image`
+- CI: the cross-compile job builds every port and engine with it and checks
+  that only the opt-in image links `wt_manifest_validate`. The `manifestneg`
+  and `manifestneg2` scenarios corrupt the manifest at boot, so they force it
+  on, and the M33MU `full` profile runs every scenario with it.
+  `tests/host/manifest_ports` runs the validator over every port manifest.
+
+### `WT_ENGINE=hsm`: the wolfHSM engine
+
+- Default `native`, which runs wolfCrypt directly behind `SERVICE_HSM`.
+  `hsm` links the wolfHSM server instead, with server-keystore semantics and
+  an external-HSM offload path. The FF-M surface does not change.
+- Cost: STM32H563 +28,444 bytes flash and +22,348 bytes RAM over the native
+  default. The STM32L562 builds the native engine only; its 256 KiB of SRAM
+  does not hold the wolfHSM bands.
+- Enable: `make WT_ENGINE=hsm secure-image` (guests must use the same
+  engine).
+- CI: every cross-compile and M33MU tier runs both engines on the ports that
+  support them. See [Crypto Engines](Crypto-Engines.md).
 
 ## Build selection
 
@@ -101,34 +148,6 @@ with `WT_PROFILE` (`make test-target WT_PROFILE=default`).
 | `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `1`. | Requires a compatible GNU Arm toolchain. |
 | `WT_WOLFCRYPT_STM32_HASH` | STM32 HASH acceleration selector; default `0`. | Must remain `0`: the Makefile rejects other values because wolfHSM SHA state is not compatible with the peripheral representation. |
 | `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | Use only for conformance builds; the default production manifest is selected at `0`. |
-
-## Boot-time manifest check (`WT_MANIFEST_RUNTIME_CHECK`)
-
-Default `0`. The manifest generator validates the manifest at build time
-against the port's platform capabilities (`port/<soc>/platform_caps.h`, passed
-from `mk/target-<soc>.mk`) and the FF-M runtime limits, and the generated C
-asserts the port binding at compile time. Any manifest the boot-time checks
-would reject fails the build, so the default image does not repeat them.
-
-`1` links the boot-time validator back in: `wt_spm_init()` runs
-`wt_manifest_validate()`, `wt_partitions_bind_manifest()` runs
-`wt_partition_validate_port_binding()`, and the monitor runs
-`wt_partition_validate_profile()` for each guest. The `manifestneg` and
-`manifestneg2` scenarios corrupt the manifest at boot, so they force it on.
-
-Measured cost of `1` over the default, Secure image flash (`text` + `data`),
-Arm GNU 15.2.1 in the pinned CI container with LTO. RAM does not change.
-
-| Target | `native` engine | `hsm` engine |
-| --- | --- | --- |
-| STM32H563 | +3,360 B | +3,392 B |
-| STM32L562 | +3,264 B | not supported |
-| MIMXRT700 | +3,392 B | +3,328 B |
-| MCX N947 | +3,392 B | +3,392 B |
-
-```sh
-make WT_MANIFEST_RUNTIME_CHECK=1 secure-image
-```
 
 ## Image layout
 

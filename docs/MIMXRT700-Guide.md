@@ -254,6 +254,9 @@ Running `discover` again clears both it and any earlier `regress` stamp.
 
 ## Build, flash, and verify
 
+The hardware runner builds the `full` profile unless `WT_PROFILE=default`
+is set, so its scenarios launch two guests and include Firmware Update.
+
 The hardware runner (`tests/target/run_rt700_hardware.sh`) drives image
 assembly and flashing so the addresses stay paired; its emulator sibling
 (`tests/target/run_rt700_m33mu.sh`) runs the same chain and scenario names

@@ -13,9 +13,12 @@ algorithm or feature is enabled in every build.
 
 The following table records local builds, not published reference figures.
 The wolfTrust rows use the STM32H563 reference manifest with
-`isolation_profile` set to 3 and include Internal Trusted Storage, Protected
-Storage, Firmware Update, vault services, and COSE attestation. The TF-M rows
-are the standard Small, Medium, and Large profiles built for AN521.
+`isolation_profile` set to 3 and include two guests, Internal Trusted
+Storage, Protected Storage, Firmware Update, vault services, and COSE
+attestation. That is the configuration the `full` profile builds today; the
+lean default image leaves the second guest and Firmware Update out (see
+[Build profiles](Macros.md#build-profiles)). The TF-M rows are the standard
+Small, Medium, and Large profiles built for AN521.
 
 | Secure image | Profile and enabled services | Flash | Static RAM |
 | --- | --- | ---: | ---: |
@@ -24,6 +27,12 @@ are the standard Small, Medium, and Large profiles built for AN521.
 | TF-M Small | Level 1; Crypto, Internal Trusted Storage, Initial Attestation; Protected Storage and Firmware Update off | 50,968 bytes | 14,296 bytes |
 | TF-M Medium | Level 2; Crypto, Internal Trusted Storage, Protected Storage, Initial Attestation; Firmware Update off | 67,332 bytes | 42,468 bytes |
 | TF-M Large | Level 3; Crypto, Internal Trusted Storage, Protected Storage, Initial Attestation; Firmware Update off | 115,460 bytes | 45,756 bytes |
+
+On one board with one compiler (STM32L562E-DK, Arm GNU 15.2.1), the TF-M
+v2.3.1 level 3 `tfm_s` image is 79,680 bytes of flash and 45,728 bytes of
+static RAM. The wolfTrust native default image for the same board, also at
+level 3 with one Non-secure image, is 81,424 bytes of flash and 27,528 bytes
+of static RAM.
 
 In these builds, native wolfTrust uses about 25% less flash than TF-M Large
 and less static RAM than TF-M Medium while also including firmware update.

@@ -234,12 +234,9 @@ The Secure image and both guest images must use the same engine. See
 
 ## Measured Secure-image cost
 
-These Secure-image measurements were reproduced on 2026-09-18 from the source
-tree containing this page. The pinned dependency revisions and versions are
-listed in
-[TF-M Compatibility](TF-M-Compatibility.md). The builds ran on
-`wolf-prec5560` with `arm-none-eabi-gcc` 13.2.1, `-Os`, and the repository
-defaults other than the engine and output directory:
+These Secure-image measurements were taken on 2026-11-13 with Arm GNU 15.2.1
+in `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`, LTO on, and the repository
+defaults other than the engine, the profile and the output directory:
 
 ```sh
 make BUILD_DIR=build_size_native WT_ENGINE=native secure-image
@@ -248,34 +245,34 @@ arm-none-eabi-size build_size_native/wolftrust.elf \
     build_size_hsm/wolftrust.elf
 ```
 
-Flash is `text + data`; static RAM is `data + bss`. Both images use the
-STM32H563 reference manifest with `isolation_profile` set to 3 and include two
-guests, ITS, Protected Storage, firmware update, vault services, and COSE
-attestation. The wolfHSM image also contains two per-guest wolfHSM tasklet
-stacks configured at 10 KiB each. wolfBoot and Non-secure guest images are not
-included.
+Flash is `text + data`; static RAM is `data + bss`. The images use the
+STM32H563 reference manifest at isolation level 3. The default profile has
+one guest, ITS, Protected Storage, vault services and COSE attestation. The
+`full` profile adds `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1`.
+wolfBoot and Non-secure guest images are not included.
 
-| Engine | `text` | `data` | `bss` | Flash | Static RAM |
+| Engine and profile | `text` | `data` | `bss` | Flash | Static RAM |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Native | 86,140 bytes | 708 bytes | 26,545 bytes | 86,848 bytes | 27,253 bytes |
-| wolfHSM | 105,712 bytes | 720 bytes | 58,353 bytes | 106,432 bytes | 59,073 bytes |
-| wolfHSM overhead | 19,572 bytes | 12 bytes | 31,808 bytes | 19,584 bytes | 31,820 bytes |
+| Native, default | 81,500 bytes | 384 bytes | 26,984 bytes | 81,884 bytes | 27,368 bytes |
+| wolfHSM, default | 109,936 bytes | 392 bytes | 49,324 bytes | 110,328 bytes | 49,716 bytes |
+| wolfHSM overhead, default | 28,436 bytes | 8 bytes | 22,340 bytes | 28,444 bytes | 22,348 bytes |
+| Native, `full` | 90,148 bytes | 720 bytes | 27,264 bytes | 90,868 bytes | 27,984 bytes |
+| wolfHSM, `full` | 118,936 bytes | 728 bytes | 66,408 bytes | 119,664 bytes | 67,136 bytes |
 
 ### Stack contribution
 
-The wolfHSM engine adds one server tasklet stack slot per guest. With
-`WT_MAX_GUESTS=2` (the `full` profile; the default image has one guest and one
-slot):
+The wolfHSM engine adds one server tasklet stack slot per guest. The default
+image has one guest and one 10,496-byte slot (10,240-byte stack plus a
+256-byte underflow guard); the other 11,852 bytes of the default static-RAM
+difference are server, protocol, crypto, and context state. With
+`WT_MAX_GUESTS=2` (the `full` profile):
 
 ```text
 2 * (10,240-byte stack + 256-byte underflow guard) = 20,992 bytes
 ```
 
-The stack payload is therefore 20,480 bytes and the guards add 512 bytes. The
-linked wolfHSM image reports `g_co_stack_slots` as `0x5200` bytes, matching the
-calculation. A one-guest build allocates one 10,496-byte slot. The remaining
-10,828 bytes of the 31,820-byte static-RAM difference are server, protocol,
-crypto, and per-guest context state.
+The linked two-guest wolfHSM image reports `g_co_stack_slots` as `0x5200`
+bytes, matching the calculation.
 
 `WT_CO_STACK_SIZE` defaults to 10,240 bytes. The positive, Crypto-validation,
 and FF-M conformance M33MU workloads also passed with an 8 KiB configured stack

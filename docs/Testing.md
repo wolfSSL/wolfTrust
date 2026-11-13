@@ -37,8 +37,9 @@ isolation, vault and storage services, attestation and COSE integration,
 firmware update, runtime remeasurement, linked Secure layout, VNET, public PSA
 headers, boot-handoff record consumption, and negative paths.
 The manifest_ports suite generates every `port/*/manifest*.json` with that
-port's build arguments and runs it through the boot-time validator, the port
-binding, and FF-M activation, since default images validate the manifest only
+port's build arguments, for the default profile (update partition left out)
+and the `full` profile, and runs each through the boot-time validator, the
+port binding, and FF-M activation, since default images validate the manifest only
 at build time. `tests/host/manifest/test_generator.py` checks that each
 manifest the boot-time checks reject also fails generation.
 The monitor suite checks bounded guest recovery, idle backoff, and terminal

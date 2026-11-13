@@ -19,7 +19,7 @@ contain Armv8-M-specific types and assumptions.
 | Layer | Role |
 | --- | --- |
 | wolfBoot | Performs the BL2 secure-boot role, authenticates wolfTrust, passes the measured-boot handoff, and swaps authenticated update images. |
-| wolfTrust | Configures isolation, validates the manifest and guest images, schedules guests and Secure Partitions, implements FF-M IPC, and manages lifecycle and recovery. |
+| wolfTrust | Configures isolation, validates the manifest at build time and the guest images at boot, schedules guests and Secure Partitions, implements FF-M IPC, and manages lifecycle and recovery. |
 | wolfPSA | Implements PSA Crypto entry points over wolfCrypt for the Non-secure reference guests. |
 | wolfCrypt | Supplies cryptographic implementations used by guest wolfPSA and Secure services. The native engine dispatches it directly. |
 | wolfHSM | Optional crypto engine providing the client/server key-management model and external-HSM integration path. Both engines use its NVM object-store subset. |

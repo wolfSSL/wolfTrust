@@ -19,6 +19,7 @@
  */
 
 #include "wolftrust/spm.h"
+#include "wolftrust_manifest_generated.h"
 
 #include <stddef.h>
 
@@ -70,10 +71,9 @@ int wt_spm_init(wt_spm_t* spm,
     return ret;
 }
 
-int wt_spm_init_generated(wt_spm_t* spm,
-                          const wt_system_manifest_t* manifest,
-                          uint32_t supported_features)
+int wt_spm_init_generated(wt_spm_t* spm, uint32_t supported_features)
 {
+    const wt_system_manifest_t* manifest = wt_generated_manifest_get();
     int ret;
 
     ret = wt_spm_begin(spm, manifest, supported_features);

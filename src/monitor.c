@@ -554,8 +554,7 @@ void wt_monitor_init(void)
                              WT_MANIFEST_FEATURE_IPC,
                              wt_partitions_profile_capabilities());
 #else
-    spm_result = wt_spm_init_generated(&g_spm, wt_generated_manifest_get(),
-                                       WT_MANIFEST_FEATURE_IPC);
+    spm_result = wt_spm_init_generated(&g_spm, WT_MANIFEST_FEATURE_IPC);
 #endif
     if (spm_result != WT_SPM_VALID) {
         wt_platform_panic();

@@ -97,16 +97,13 @@ static void wt_test_generated_manifest_binds_without_validator(void)
     wt_system_manifest_t invalid = *manifest;
     wt_spm_t spm;
 
-    EXPECT_RESULT(wt_spm_init_generated(&spm, manifest, supported_features),
+    EXPECT_RESULT(wt_spm_init_generated(&spm, supported_features),
                   WT_SPM_VALID);
     EXPECT_RESULT(wt_spm_ready(&spm), true);
     EXPECT_RESULT(wt_spm_manifest(&spm) == manifest, true);
     EXPECT_RESULT(wt_spm_validation_result(&spm), WT_MANIFEST_VALID);
 
-    EXPECT_RESULT(wt_spm_init_generated(&spm, NULL, supported_features),
-                  WT_SPM_ERROR_ARGUMENT);
-    EXPECT_RESULT(wt_spm_ready(&spm), false);
-    EXPECT_RESULT(wt_spm_init_generated(NULL, manifest, supported_features),
+    EXPECT_RESULT(wt_spm_init_generated(NULL, supported_features),
                   WT_SPM_ERROR_ARGUMENT);
 
     /* The public initializer keeps validating in a default build. */

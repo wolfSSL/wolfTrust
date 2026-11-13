@@ -74,11 +74,20 @@ int wt_spm_init(wt_spm_t* spm,
 int wt_spm_init_generated(wt_spm_t* spm, uint32_t supported_features)
 {
     const wt_system_manifest_t* manifest = wt_generated_manifest_get();
+    int result = WT_MANIFEST_VALID;
     int ret;
 
     ret = wt_spm_begin(spm, manifest, supported_features);
+    /* The generator fixed the manifest; the caller's feature set still has to
+     * be one the runtime validator would accept for it. */
+    if ((ret == WT_SPM_VALID) &&
+        (((supported_features & ~WT_MANIFEST_FEATURE_MASK) != 0U) ||
+         ((supported_features & WT_MANIFEST_FEATURE_IPC) == 0U) ||
+         ((manifest->features & ~supported_features) != 0U))) {
+        result = WT_MANIFEST_ERROR_FEATURE;
+    }
     if (ret == WT_SPM_VALID) {
-        ret = wt_spm_finish(spm, manifest, WT_MANIFEST_VALID);
+        ret = wt_spm_finish(spm, manifest, result);
     }
     return ret;
 }

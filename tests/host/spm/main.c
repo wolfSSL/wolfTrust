@@ -92,7 +92,8 @@ static void wt_test_null_context(void)
 
 static void wt_test_generated_manifest_binds_without_validator(void)
 {
-    const uint32_t supported_features = WT_MANIFEST_FEATURE_IPC;
+    const uint32_t supported_features = WT_MANIFEST_FEATURE_IPC |
+                                        WT_MANIFEST_FEATURE_STATELESS;
     const wt_system_manifest_t* manifest = wt_generated_manifest_get();
     wt_system_manifest_t invalid = *manifest;
     wt_spm_t spm;
@@ -105,6 +106,20 @@ static void wt_test_generated_manifest_binds_without_validator(void)
 
     EXPECT_RESULT(wt_spm_init_generated(NULL, supported_features),
                   WT_SPM_ERROR_ARGUMENT);
+
+    /* The feature set must still satisfy the generated manifest. */
+    EXPECT_RESULT(wt_spm_init_generated(&spm, 0U), WT_SPM_ERROR_VALIDATION);
+    EXPECT_RESULT(wt_spm_validation_result(&spm), WT_MANIFEST_ERROR_FEATURE);
+    EXPECT_RESULT(wt_spm_ready(&spm), false);
+    EXPECT_RESULT(wt_spm_init_generated(&spm,
+                      manifest->features | (1U << 31)),
+                  WT_SPM_ERROR_VALIDATION);
+    EXPECT_RESULT(wt_spm_ready(&spm), false);
+    if ((manifest->features & ~WT_MANIFEST_FEATURE_IPC) != 0U) {
+        EXPECT_RESULT(wt_spm_init_generated(&spm, WT_MANIFEST_FEATURE_IPC),
+                      WT_SPM_ERROR_VALIDATION);
+        EXPECT_RESULT(wt_spm_ready(&spm), false);
+    }
 
     /* The public initializer keeps validating in a default build. */
     invalid.format_version++;

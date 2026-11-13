@@ -20,10 +20,6 @@
 
 #include "wolftrust/manifest.h"
 
-#define WT_MANIFEST_FEATURE_MASK \
-    (WT_MANIFEST_FEATURE_IPC | WT_MANIFEST_FEATURE_SFN | \
-     WT_MANIFEST_FEATURE_STATELESS | WT_MANIFEST_FEATURE_MM_IOVEC)
-
 static int wt_manifest_name_valid(const char* name)
 {
     size_t i;

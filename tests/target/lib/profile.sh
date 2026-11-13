@@ -24,12 +24,12 @@
 
 # The add-on variables a profile owns, cleared before a profile is applied so
 # the caller's environment never leaks into a run.
-SCENARIO_PROFILE_VARS="WT_MAX_GUESTS WT_MANIFEST_RUNTIME_CHECK WT_FWU"
+SCENARIO_PROFILE_VARS="WT_MAX_GUESTS WT_MANIFEST_RUNTIME_CHECK WT_FWU WT_SHA256_FAST"
 
 scenario_profile_flags() {
     case "$1" in
         default) echo "" ;;
-        full)    echo "WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1" ;;
+        full)    echo "WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1" ;;
         *)
             echo "unknown build profile '$1' (want default or full)" >&2
             return 1

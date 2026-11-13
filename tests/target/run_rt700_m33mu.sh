@@ -20,7 +20,9 @@
 # restarts it in place while both guests finish; fpneg proves only that the
 # relay's FP instruction takes a NOCP UsageFault. restart spends guest0's
 # restart budget on a launch-time fault; authneg refuses a tampered guest0 at
-# launch. guest1 runs on through all of them.
+# launch. guest1 runs on through all of them. restartidle is restart on the
+# one-guest default image: once guest0's budget is spent no guest is left, and
+# the platform halts on BKPT 0x7d.
 #
 # bothpsa, bothiso, attestneg, hsmattackneg, and fwustage run the portable
 # PSA test guest (tests/firmware/psa-guest) in both windows: the H5 guest's
@@ -132,6 +134,9 @@ fault_addr=0x30188000
 # shellcheck source=lib/scenario.sh disable=SC1091
 . "$here/lib/scenario.sh"
 l3_layout_load "$repo" mimxrt700
+profile="$(scenario_profile mimxrt700 "$scenario")" || exit 2
+guests="$(scenario_profile_guests "$profile")"
+if [ "$guests" -gt 1 ]; then guest_ids="guest0 guest1"; else guest_ids="guest0"; fi
 
 # Port markers the shared verdict assertions match against.
 # shellcheck disable=SC2034  # matched inside lib/scenario.sh
@@ -187,7 +192,9 @@ export WT_SECURE_IMAGE_HEADER_SIZE=0x400
 rm -rf build
 mkdir -p build
 
-secure_flags="$(scenario_secure_flags "$scenario")"
+scenario_profile_reset
+# shellcheck disable=SC2046
+secure_flags="$(echo $(scenario_profile_flags "$profile") $(scenario_secure_flags "$scenario"))"
 # Exported, not passed once: the guest build below re-enters the secure
 # Makefile for the CMSE implib, and a build-mode mismatch there would relink
 # the image and drop the wolftrust.bin this runner goes on to patch and sign.
@@ -195,7 +202,7 @@ if [ -n "$secure_flags" ]; then
   # shellcheck disable=SC2086,SC2163
   export $secure_flags
 fi
-stage "build wolfTrust secure image + CMSE import library ${secure_flags:-(production)}"
+stage "build wolfTrust secure image + CMSE import library, $profile profile ${secure_flags:-(production)}"
 make -s TARGET=mimxrt700 secure-image TOOLPREFIX=arm-none-eabi-
 
 guest_flags=""
@@ -207,10 +214,10 @@ case "$scenario" in
   deputyneg|hsmpinneg|hsmfaultneg|bandneg[1-6]|restartneg[1-3]|periphspneg|sealneg|sealpivotneg|svcneg)
                 guest_flags="WT_M33MU_EXPECT_BKPT=1"
                 # guest0's own tasklet faults, so the peer ends the run.
-                if [ "$scenario" = "hsmfaultneg" ]; then
+                if [ "$scenario" = "hsmfaultneg" ] && [ "$guests" -gt 1 ]; then
                     guest_flags="$guest_flags WT_M33MU_BKPT_GUEST=1"
                 fi ;;
-  restart)      guest_flags="WT_GUEST_FAULT_PROBE=1" ;;
+  restart|restartidle) guest_flags="WT_GUEST_FAULT_PROBE=1" ;;
   handlerneg)   guest_flags="WT_HANDLER_OVERRUN_PROBE=1" ;;
   attestneg)    guest_flags="WT_ATTEST_NEG_PROBE=1" ;;
   hsmattackneg) guest_flags="WT_HSM_ATTACK_PROBE=1" ;;
@@ -301,6 +308,10 @@ esac
 
 expect "wolfBoot brought up the SoC" "wolfBoot HAL init: MIMXRT798S"
 expect "wolfBoot verified the wolfTrust image signature" "Verifying signature...done"
+if [ "$guests" -eq 1 ]; then
+  refute_re "one-guest image never started guest1" \
+      'wolfTrust RT700 guest1: start|guest1: alive'
+fi
 if [ "$end" = "idle" ]; then
   refute_re "wolfTrust never panicked (bkpt 0x7e)" '\[BKPT\] imm=0x7e'
   refute_re "the monitor never lost every guest (bkpt 0x7d)" '\[BKPT\] imm=0x7d'
@@ -334,7 +345,7 @@ conf_totals() {
 # nothing faulted where nothing should have.
 case "$scenario" in
   positive|crossdomain|keystoreneg|spfaultneg|panicneg)
-    for guest in guest0 guest1; do
+    for guest in $guest_ids; do
         expect_n "$guest launched exactly once (no fault, no relaunch)" 1 \
             "wolfTrust RT700 $guest: start"
         expect_n "$guest reached the SPM through the SG veneers and finished" 1 \
@@ -345,7 +356,8 @@ case "$scenario" in
     # that its wall-clock exit drops, so each probe is shown by a second boot
     # that stops at the first delivered fault.
     if [ "$scenario" = "positive" ] || [ "$scenario" = "spfaultneg" ]; then
-        expect_n "both guests reached the storage service" 2 ": storage connect ok"
+        expect_n "every guest reached the storage service" "$guests" \
+            ": storage connect ok"
     elif [ "$scenario" = "panicneg" ]; then
         # The panic unblocks the client it was serving with an error; the
         # restarted SP serves the other guest.
@@ -382,13 +394,15 @@ case "$scenario" in
     ;;
   deputyneg|hsmpinneg|hsmfaultneg|bandneg[1-6]|restartneg[1-3]|periphspneg|sealneg|sealpivotneg|svcneg)
     expect_n "guest0 launched exactly once" 1 "guest0: alive"
-    if [ "$scenario" = "hsmfaultneg" ]; then
+    if [ "$scenario" = "hsmfaultneg" ] && [ "$guests" -gt 1 ]; then
         expect "guest1 ran its whole PSA lifecycle to the end breakpoint" \
             "guest1: done"
     else
         expect "guest0 ran its whole PSA lifecycle to the end breakpoint" \
             "guest0: done"
-        expect "guest1 ran beside the partition under test" "guest1: alive"
+        if [ "$guests" -gt 1 ]; then
+            expect "guest1 ran beside the partition under test" "guest1: alive"
+        fi
     fi
     case "$scenario" in
       deputyneg)
@@ -417,14 +431,18 @@ case "$scenario" in
             "guest0: wolfTrust attestation: COSE_Sign1 verified"
         ;;
       hsmfaultneg)
-        expect "the other guest kept being served" \
-            "guest1: psa_hash_compute(SHA-256) KAT verified" ;;
+        if [ "$guests" -gt 1 ]; then
+            expect "the other guest kept being served" \
+                "guest1: psa_hash_compute(SHA-256) KAT verified"
+        fi ;;
       svcneg)
         # The stateless ITS client reports the unblocked call as an error.
         expect_re "the pinned ITS client was unblocked with an error" \
             'guest[01]: psa_its_set failed st=-1(32|45)'
-        expect "the restarted ITS partition served the other guest" \
-            "wolfTrust ITS set/get verified"
+        if [ "$guests" -gt 1 ]; then
+            expect "the restarted ITS partition served the other guest" \
+                "wolfTrust ITS set/get verified"
+        fi
         expect "sealed storage path unaffected" \
             "guest0: wolfTrust PS sealed set/get verified" ;;
       periphspneg)
@@ -445,16 +463,18 @@ case "$scenario" in
         "[USGFLT] CFSR=0x00080000"
     refute_re "no HardFault escalation" '\[HARDFLT\]'
     ;;
-  restart)
+  restart|restartidle)
     faults=$((restart_limit + 1))
     expect_n "guest0 relaunched through its restart budget, then quarantined" \
         "$faults" "wolfTrust RT700 guest0: start"
     refute_re "guest0 never got past its launch-time fault" \
         "wolfTrust RT700 guest0: FF-M connect ok"
-    expect_n "guest1 launched once, untouched by guest0's faults" 1 \
-        "wolfTrust RT700 guest1: start"
-    expect_n "guest1 completed the FF-M handshake" 1 \
-        "wolfTrust RT700 guest1: FF-M connect ok, done"
+    if [ "$guests" -gt 1 ]; then
+        expect_n "guest1 launched once, untouched by guest0's faults" 1 \
+            "wolfTrust RT700 guest1: start"
+        expect_n "guest1 completed the FF-M handshake" 1 \
+            "wolfTrust RT700 guest1: FF-M connect ok, done"
+    fi
     stage "boot again with the protection-unit trace, stopping at the first fault"
     log="$repo/build/rt700_m33mu_${scenario}_trace.log"
     M33MU_PROT_TRACE=1 boot_chain 0 "$log" --quit-on-faults

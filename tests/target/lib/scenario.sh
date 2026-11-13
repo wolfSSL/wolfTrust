@@ -20,6 +20,16 @@ expect_n()  { local n; n="$(count "$3")"; \
 expect_n_re() { local n; n="$(count_re "$3")"; \
                 check "$([ "$n" -eq "$2" ]; echo $?)" "$1 ($n)"; }
 
+# shellcheck source=profile.sh disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/profile.sh"
+
+# The profile scenario $2 of port $1 builds with: WT_PROFILE when the matrix
+# registers it there, otherwise its only profile, otherwise full.
+scenario_profile() {
+    python3 "$(dirname "${BASH_SOURCE[0]}")/scenario_matrix.py" \
+        --port "$1" --profile-of "$2"
+}
+
 # Secure-image build flags per scenario ("" = the production image).
 scenario_secure_flags() {
     case "$1" in
@@ -64,7 +74,7 @@ scenario_secure_flags() {
 # end; "bkpt:0xNN" ends on a Secure verdict breakpoint the emulator exits on.
 scenario_end() {
     case "$1" in
-        rollbackneg|spbudgetneg) echo "bkpt:0x7d" ;;
+        rollbackneg|spbudgetneg|restartidle) echo "bkpt:0x7d" ;;
         manifestneg|manifestneg2|manifestneg3|sealbootneg) echo "bkpt:0x7e" ;;
         sealhaltneg)             echo "bkpt:0x6e" ;;
         remeasureneg)            echo "bkpt:0x6c" ;;
@@ -110,6 +120,12 @@ scenario_assert_verdict() {
                 "[BKPT] imm=0x7e"
             refute_re "no guest scheduled after the refused boot" \
                 "$GUEST_STARTED_RE"
+            ;;
+        restartidle)
+            expect "the only guest's spent restart budget halted the platform" \
+                "[BKPT] imm=0x7d"
+            refute_re "the faulting guest never completed a lifecycle" \
+                "$GUEST_DONE_RE"
             ;;
         spbudgetneg)
             expect "restart budget exhaustion escalated to platform recovery" \

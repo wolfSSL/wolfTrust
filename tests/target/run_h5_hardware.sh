@@ -122,7 +122,6 @@ if [ "$mode" != "flash" ]; then
   export WT_GUEST_RAM_SIZE=0x00010000
   export WT_GUEST1_RAM_BASE=0x20010000
   export WT_ZEPHYR_DTC_OVERLAY_FILE=boards/wolfboot-stm32h563.overlay
-  export WT_MAX_GUESTS=2
   export ZEPHYR_BOARD=nucleo_h563zi/stm32h563xx/ns
   WOLFBOOT_REF=d85fa9dbdf6c36f47b7e96eba5c9df750ad3c963
 
@@ -193,6 +192,14 @@ if [ "$mode" != "flash" ]; then
   # and boots the same image the board already runs green.
   [ "$scenario" = "vaultrecover" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0 WT_VAULT_FOREIGN_PROBE=1"; guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"; }
   [ "$scenario" = "vaultrecoversec" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1"; guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"; }
+
+  # The hardware suite asserts both guests, so it builds the full profile
+  # unless WT_PROFILE asks for another; the profile goes ahead of the probe.
+  # shellcheck source=lib/profile.sh disable=SC1091
+  . "$repo/tests/target/lib/profile.sh"
+  scenario_profile_reset
+  # shellcheck disable=SC2046,SC2086
+  secure_flags="$(echo $(scenario_profile_flags "${WT_PROFILE:-full}") $secure_flags)"
 
   stage "building wolfTrust secure image ($scenario)"
   {

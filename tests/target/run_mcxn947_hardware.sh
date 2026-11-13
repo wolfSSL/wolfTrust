@@ -83,6 +83,8 @@ psa_dir="$repo/tests/firmware/psa-guest"
 
 # shellcheck source=lib/mcxn947_wolfboot.sh disable=SC1091
 . "$here/lib/mcxn947_wolfboot.sh"
+# shellcheck source=lib/profile.sh disable=SC1091
+. "$here/lib/profile.sh"
 
 # One run at a time owns the board; a suite batch takes the same lock once
 # for all of its scenarios and says so.
@@ -261,6 +263,14 @@ run_chain() {
     # boot base + 0x400 and is signed with a matching header. Exported so the
     # secure image and the guest CMSE import library agree.
     export WT_SECURE_IMAGE_HEADER_SIZE=0x400
+    # The hardware suites assert both guests, so they build the full
+    # profile unless WT_PROFILE asks for another.
+    profile_flags="$(scenario_profile_flags "${WT_PROFILE:-full}")"
+    scenario_profile_reset
+    if [ -n "$profile_flags" ]; then
+        # shellcheck disable=SC2086,SC2163
+        export $profile_flags
+    fi
     rm -rf "$repo/build" "$evidence"
     mkdir -p "$evidence"
 

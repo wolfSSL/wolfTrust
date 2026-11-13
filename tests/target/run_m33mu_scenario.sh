@@ -101,10 +101,6 @@ export WT_GUEST0_FLASH_SIZE=0x00040000
 export WT_GUEST_RAM_SIZE=0x00010000
 export WT_GUEST1_RAM_BASE=0x20010000
 export WT_ZEPHYR_DTC_OVERLAY_FILE=boards/wolfboot-stm32h563.overlay
-export WT_MAX_GUESTS=2
-if [ "$scenario" = "restartidle" ]; then
-  export WT_MAX_GUESTS=1
-fi
 export ZEPHYR_BOARD=nucleo_h563zi/stm32h563xx/ns
 WOLFBOOT_REF=d85fa9dbdf6c36f47b7e96eba5c9df750ad3c963
 M33MU_REF=f3c03675260264cdec815adebe4b020bb6fe57b8
@@ -164,7 +160,12 @@ cd "$repo"
 # shellcheck source=lib/scenario.sh disable=SC1091
 . "$repo/tests/target/lib/scenario.sh"
 l3_layout_load "$repo" stm32h563
-secure_flags="$(scenario_secure_flags "$scenario")"
+# The build profile goes ahead of the scenario's probe flags.
+profile="$(scenario_profile stm32h563 "$scenario")"
+guests="$(scenario_profile_guests "$profile")"
+scenario_profile_reset
+secure_flags="$(scenario_profile_flags "$profile") $(scenario_secure_flags "$scenario")"
+echo "Build profile: $profile ($guests guest(s)); secure flags: $secure_flags"
 # shellcheck disable=SC2086
 env $secure_flags make build/wolftrust.bin build/secure_cmse_implib.o
 # Stash the pre-patch image and matching elf: the guest build below can relink
@@ -412,6 +413,11 @@ expect_flat() { if grep -Fq "$2" "$guest0_log"; then check_pass "$1"; \
                 else check_fail "$1" "missing: $2"; fi; }
 refute_re()  { if grep -Eq "$2" "$log"; then check_fail "$1" "unexpected: $2"; \
                else check_pass "$1"; fi; }
+# guest1's own markers; a one-guest image is checked never to start it.
+expect_peer() { if [ "$guests" -gt 1 ]; then expect "$1" "$2"; fi; }
+if [ "$guests" -eq 1 ]; then
+  refute_re "one-guest image never started guest1" 'freertos_guest1:|vnet-guest1'
+fi
 
 case "$scenario" in
   positive|deputyneg|hsmpinneg|periphneg|bandneg[1-6]|restartneg[1-3])
@@ -467,15 +473,15 @@ case "$scenario" in
       "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
     expect_flat "attestation fields verify=0 lifecycle=0x1000 measurement=ok cose=ES256" \
       "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256"
-    expect "guest1 FF-M SHA-256 KAT through SERVICE_CRYPTO (P7-S3)" \
+    expect_peer "guest1 FF-M SHA-256 KAT through SERVICE_CRYPTO (P7-S3)" \
       "freertos_guest1: ffm sha256 ok"
-    expect "guest1 vault-backed RNG through the SPM (WT-FFM-0054)" \
+    expect_peer "guest1 vault-backed RNG through the SPM (WT-FFM-0054)" \
       "freertos_guest1: ffm rng ok"
-    expect "guest1 wolfPSA front-end initialized" \
+    expect_peer "guest1 wolfPSA front-end initialized" \
       "freertos_guest1: psa_crypto_init st=0"
-    expect "guest1 psa_generate_random seeded through the FF-M RNG hook" \
+    expect_peer "guest1 psa_generate_random seeded through the FF-M RNG hook" \
       "freertos_guest1: psa rng ok"
-    expect "guest1 psa_hash_compute KAT (PSA API parity)" \
+    expect_peer "guest1 psa_hash_compute KAT (PSA API parity)" \
       "freertos_guest1: psa hash ok"
     expect "[EXPECT BKPT] Success clean exit" "[EXPECT BKPT] Success"
     echo "PASS: target/$scenario"
@@ -779,9 +785,9 @@ case "$scenario" in
       "wolfTrust ITS set/get verified"
     expect "restarted relay serves the mediated SHA KAT" \
       "psa_hash_compute(SHA-256) KAT verified"
-    expect "unrelated guest booted and ran through the SP fault" \
+    expect_peer "unrelated guest booted and ran through the SP fault" \
       "freertos_guest1: alive"
-    expect "restarted relay serves the other-OS client too" \
+    expect_peer "restarted relay serves the other-OS client too" \
       "freertos_guest1: ffm sha256 ok"
     expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
     echo "PASS: target/spfaultneg"
@@ -791,7 +797,7 @@ case "$scenario" in
     # A guest0 HSM tasklet fault must not turn its post-fault stack-canary
     # check into a platform panic. Guest1 must keep running.
     scenario_assert_l3 "$scenario"
-    expect "other guest remains functional" "freertos_guest1: ffm sha256 ok"
+    expect_peer "other guest remains functional" "freertos_guest1: ffm sha256 ok"
     expect "full chain exits cleanly" "[EXPECT BKPT] Success"
     echo "PASS: target/hsmfaultneg"
     ;;
@@ -816,7 +822,7 @@ case "$scenario" in
       "psa_connect(SERVICE_ITS) failed rc=0 handle=-145"
     expect "sealed storage path unaffected" \
       "wolfTrust PS sealed set/get verified"
-    expect "unrelated guest booted and ran through the panic" \
+    expect_peer "unrelated guest booted and ran through the panic" \
       "freertos_guest1: alive"
     expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
     echo "PASS: target/panicneg"
@@ -999,7 +1005,7 @@ case "$scenario" in
     # resumed on the panic trap, so it alone takes a contained UsageFault and
     # restarts; the platform must not halt (no BKPT 0x6e or 0x7e).
     scenario_assert_l3 "$scenario"
-    expect "unrelated guest kept running" "freertos_guest1: alive"
+    expect_peer "unrelated guest kept running" "freertos_guest1: alive"
     expect "run reached the clean scenario end" "[EXPECT BKPT] Success"
     echo "PASS: target/sealneg"
     ;;
@@ -1008,7 +1014,7 @@ case "$scenario" in
     # The partition's blocking wait is stacked on its stack top, over the seal
     # words; the SPM must still contain the fault to that partition.
     scenario_assert_l3 "$scenario"
-    expect "unrelated guest kept running" "freertos_guest1: alive"
+    expect_peer "unrelated guest kept running" "freertos_guest1: alive"
     expect "run reached the clean scenario end" "[EXPECT BKPT] Success"
     echo "PASS: target/sealpivotneg"
     ;;
@@ -1031,9 +1037,9 @@ case "$scenario" in
       "wolfTrust key-ops sign/verify verified"
     expect "restarted relay serves the mediated SHA KAT" \
       "psa_hash_compute(SHA-256) KAT verified"
-    expect "unrelated guest booted and ran through the SP fault" \
+    expect_peer "unrelated guest booted and ran through the SP fault" \
       "freertos_guest1: alive"
-    expect "restarted relay serves the other-OS client too" \
+    expect_peer "restarted relay serves the other-OS client too" \
       "freertos_guest1: ffm sha256 ok"
     expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
     echo "PASS: target/busfaultneg"
@@ -1050,7 +1056,7 @@ case "$scenario" in
       "psa_connect(SERVICE_ITS) failed rc=0 handle=-145"
     expect "sealed storage path unaffected" \
       "wolfTrust PS sealed set/get verified"
-    expect "unrelated guest booted and ran through the panic" \
+    expect_peer "unrelated guest booted and ran through the panic" \
       "freertos_guest1: alive"
     expect "full lifecycle completed after recovery" "[EXPECT BKPT] Success"
     echo "PASS: target/svcneg"

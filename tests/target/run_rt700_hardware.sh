@@ -60,6 +60,8 @@ guest_build="$repo/tests/firmware/mimxrt700-baremetal/build"
 
 # shellcheck source=lib/rt700_fence.sh disable=SC1091
 . "$here/lib/rt700_fence.sh"
+# shellcheck source=lib/profile.sh disable=SC1091
+. "$here/lib/profile.sh"
 # shellcheck source=lib/rt700_wolfboot.sh disable=SC1091
 . "$here/lib/rt700_wolfboot.sh"
 case "$scenario" in
@@ -236,6 +238,14 @@ run_chain() {
     # secure image and the guest CMSE import library agree (mirrors the H5 runner).
     export WT_SECURE_IMAGE_HEADER_SIZE=0x400
     export WT_ATTEST_COSE=0
+    # The hardware suites assert both guests, so they build the full
+    # profile unless WT_PROFILE asks for another.
+    profile_flags="$(scenario_profile_flags "${WT_PROFILE:-full}")"
+    scenario_profile_reset
+    if [ -n "$profile_flags" ]; then
+        # shellcheck disable=SC2086,SC2163
+        export $profile_flags
+    fi
     rm -rf "$repo/build"
     mkdir -p "$work"
 

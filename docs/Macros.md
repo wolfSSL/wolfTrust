@@ -16,7 +16,8 @@ Costs are over the default image, built with Arm GNU 15.2.1 in
 `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO and read with
 `arm-none-eabi-size`: flash is `text + data` and static RAM is `data + bss`.
 The default native images are 78,844 bytes of flash and 27,368 bytes of RAM
-on the STM32H563, and 78,384 and 27,528 bytes on the STM32L562.
+on the STM32H563, and 78,384 and 27,528 bytes on the STM32L562 (measured on
+the STM32L562 port, which is under review and not yet in this tree).
 
 | Option | Brings back | STM32H563 flash / RAM | STM32L562 flash / RAM | Enable |
 | --- | --- | ---: | ---: | --- |

@@ -46,9 +46,12 @@ Flash      = text + data
 Static RAM = data + bss
 ```
 
-- wolfTrust: `make TARGET=stm32l562 secure-image` with the repository
-  defaults (native engine, LTO, one guest), built in
-  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`.
+- wolfTrust: the STM32L562 port, which is under review and not yet in this
+  tree, merged with these sources and built with its defaults (native engine,
+  LTO, one guest): `make TARGET=stm32l562 secure-image` in
+  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. The same defaults give 78,844
+  bytes of flash and 27,368 bytes of static RAM for `TARGET=stm32h563` in this
+  tree.
 - wolfBoot: `config/examples/stm32l5-tz-wolftrust.config` (ECC256, SHA256,
   `WOLFBOOT_SECURE_APP=1`).
 - TF-M: v2.3.1, platform `stm/stm32l562e_dk`, `TFM_ISOLATION_LEVEL=3`,

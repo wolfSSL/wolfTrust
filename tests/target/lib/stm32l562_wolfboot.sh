@@ -1,10 +1,10 @@
 # shellcheck shell=sh
-# The pinned STM32L562 wolfBoot first stage the STM32L562 runner boots: the
-# secure-application handoff branch (pinned at its fork ref until it merges;
-# bump STM32L562_WOLFBOOT_REPO/REF to upstream then), built from the
-# stm32l5-tz-wolftrust config. Sourced; needs $here (tests/target).
-STM32L562_WOLFBOOT_REPO=https://github.com/aidangarske/wolfBoot.git
-STM32L562_WOLFBOOT_REF=998e8edea554af3b5410c3fa90dd7ad555545e4a
+# The pinned STM32L562 wolfBoot first stage the STM32L562 runner boots:
+# upstream wolfBoot at the merge of the STM32L5 secure-application handoff,
+# built from the stm32l5-tz-wolftrust config. Sourced; needs $here
+# (tests/target).
+STM32L562_WOLFBOOT_REPO=https://github.com/wolfSSL/wolfBoot.git
+STM32L562_WOLFBOOT_REF=8c1f19e71d67b3762b4e735b3decc60d1264951c
 STM32L562_WOLFBOOT_CONFIG=config/examples/stm32l5-tz-wolftrust.config
 
 # What a cached tree must match: the ref, the config and the make overrides

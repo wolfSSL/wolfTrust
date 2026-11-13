@@ -62,8 +62,9 @@ neither substitutes for the other.
 
 ### First-stage loader (wolfBoot)
 
-The port pins `aidangarske/wolfBoot` branch `stm32l5-wolftrust-handoff`
-(`tests/target/lib/stm32l562_wolfboot.sh`) until it merges upstream:
+The port pins upstream wolfBoot at `8c1f19e7`, the merge of the STM32L5
+secure-application handoff (`tests/target/lib/stm32l562_wolfboot.sh`), which
+adds:
 
 | Addition | Purpose |
 | --- | --- |
@@ -114,7 +115,7 @@ leaves no room for an update slot (FWU is not in that manifest).
 
 | Image or region | Production | Conformance |
 | --- | ---: | ---: |
-| wolfBoot (48 KiB, its empty NSC at `0x0C00B000`) | `0x0C000000` | `0x0C000000` |
+| wolfBoot (48 KiB, no NSC) | `0x0C000000` | `0x0C000000` |
 | wolfTrust Secure slot | `0x0C00C000` (128 KiB) | `0x0C00C000` (160 KiB) |
 | wolfHSM NVM store (two mirrored 8 KiB sectors) | `0x0C038000` | `0x0C038000` |
 | Conformance NVM store (one sector) | `0x0C03C000` | `0x0C03C000` |
@@ -554,8 +555,7 @@ put the fence back. No RDP level and no `BOOT_LOCK` were written.
   240 KiB guest window leave no room; FWU is not in the conformance manifest.
 - **RDP write.** A validated RDP advance on the part does not exist; the
   lock flow rehearses and previews only.
-- **Upstream pins.** The wolfBoot pin moves to wolfSSL/wolfBoot once the
-  `stm32l5-wolftrust-handoff` branch merges; the emulator patch goes once
+- **Upstream pins.** The emulator patch goes once
   M33MU's STM32L552 model enforces the GTZC, the watermarks and the TZSC,
   powers up with TZEN set, and clears its flash status write-1-to-clear.
 

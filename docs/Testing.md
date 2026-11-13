@@ -488,8 +488,8 @@ only, so the wolfHSM-only `hsmpinneg` and `hsmfaultneg` are exempt in
 `tests/target/lib/scenario_matrix.py` and `hsmattackneg` does not run; the
 matrix lists the other 46. The runner builds
 its own pinned emulator and wolfBoot first stage
-(`tests/target/lib/stm32l562_wolfboot.sh`: the `stm32l5-wolftrust-handoff`
-branch at its fork ref until it merges, from
+(`tests/target/lib/stm32l562_wolfboot.sh`: upstream wolfBoot at the merge of
+the STM32L5 secure-application handoff, from
 `config/examples/stm32l5-tz-wolftrust.config`, rebuilt with the larger slot
 for the conformance scenarios) and checks that the pinned wolfBoot's
 `hal/stm32l5_lifecycle.h` is the copy `tests/host/stm32l562_lifecycle` tests.

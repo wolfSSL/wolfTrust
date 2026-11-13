@@ -11,104 +11,51 @@ algorithm or feature is enabled in every build.
 
 ## Measured Secure-image footprint
 
-The following table records local builds, not published reference figures.
-The wolfTrust rows use the STM32H563 reference manifest with
-`isolation_profile` set to 3 and include two guests, Internal Trusted
-Storage, Protected Storage, Firmware Update, vault services, and COSE
-attestation. That is the configuration the `full` profile builds today; the
-lean default image leaves the second guest and Firmware Update out (see
-[Build profiles](Macros.md#build-profiles)). The TF-M rows are the standard
-Small, Medium, and Large profiles built for AN521.
+Both projects were built for the same board (STM32L562E-DK) at isolation
+level 3 with the same compiler (Arm GNU 15.2.1), each with its own size
+options. These are local builds, not published reference figures.
 
-| Secure image | Profile and enabled services | Flash | Static RAM |
-| --- | --- | ---: | ---: |
-| wolfTrust native | wolfTrust profile 3; Crypto, Internal Trusted Storage, Protected Storage, Firmware Update, vault, COSE attestation | 86,848 bytes | 27,253 bytes |
-| wolfTrust wolfHSM | Same services plus the wolfHSM server | 106,432 bytes | 59,073 bytes |
-| TF-M Small | Level 1; Crypto, Internal Trusted Storage, Initial Attestation; Protected Storage and Firmware Update off | 50,968 bytes | 14,296 bytes |
-| TF-M Medium | Level 2; Crypto, Internal Trusted Storage, Protected Storage, Initial Attestation; Firmware Update off | 67,332 bytes | 42,468 bytes |
-| TF-M Large | Level 3; Crypto, Internal Trusted Storage, Protected Storage, Initial Attestation; Firmware Update off | 115,460 bytes | 45,756 bytes |
+| Image | Flash | Static RAM |
+| --- | ---: | ---: |
+| wolfTrust Secure runtime, native default | 78,384 bytes | 27,528 bytes |
+| TF-M v2.3.1 `tfm_s`, level 3 | 79,680 bytes | 45,728 bytes |
+| wolfBoot, STM32L5 secure application handoff | 27,216 bytes | 2,104 bytes |
+| TF-M BL2 (MCUboot, EC-P256) | 38,744 bytes | 27,408 bytes |
+| Chain: wolfBoot + wolfTrust | 105,600 bytes | |
+| Chain: BL2 + TF-M | 118,424 bytes | |
 
-On one board with one compiler (STM32L562E-DK, Arm GNU 15.2.1), the TF-M
-v2.3.1 level 3 `tfm_s` image is 79,680 bytes of flash and 45,728 bytes of
-static RAM. The wolfTrust native default image for the same board, also at
-level 3 with one Non-secure image, is 78,384 bytes of flash and 27,528 bytes
-of static RAM: 1,296 bytes less flash and 18,200 bytes less static RAM.
+The wolfTrust runtime is 1,296 bytes smaller in flash and 18,200 bytes
+smaller in static RAM; the boot chain is 12,824 bytes smaller in flash. The
+bootloader's RAM is reused by the runtime, so the RAM figures are not summed.
 
-In these builds, native wolfTrust uses about 25% less flash than TF-M Large
-and less static RAM than TF-M Medium while also including firmware update.
-The wolfHSM engine remains smaller in flash than TF-M Large but uses more
-static RAM because it adds per-guest server state and stacks. These results do
-not imply that the projects, platforms, or enabled feature sets are identical.
+Both images carry Crypto, Internal Trusted Storage, Protected Storage and
+Initial Attestation with one Non-secure image; TF-M also builds its platform
+service, and neither builds Firmware Update. They differ in how level 3 is applied: TF-M's
+STM32L5 port runs the PSA RoT partitions (Crypto, ITS, attestation,
+platform) privileged (`tfm_hal_isolation.c`), while wolfTrust runs every
+Secure Partition unprivileged with its own MPU regions. Each wolfTrust
+feature the default leaves out comes back with one Make variable; see
+[Build profiles](Macros.md#build-profiles) for each one's cost.
 
 ### Methodology
 
-All five images were built on `wolf-prec5560` with
-`arm-none-eabi-gcc (15:13.2.rel1-2) 13.2.1 20231009`. Footprint was read from
-the linked Secure ELF with `arm-none-eabi-size` and calculated as:
+Footprint is read from the linked Secure ELF with `arm-none-eabi-size`:
 
 ```text
 Flash      = text + data
 Static RAM = data + bss
 ```
 
-The wolfTrust rows were reproduced on 2026-09-18 from the source tree
-containing this page with the exact dependency set below.
-
-| Component | Pinned revision | Git description |
-| --- | --- | --- |
-| wolfCOSE | `f907071b10127f3ae2dd7719749a91b039ff04a1` | `v2.0.0` |
-| wolfHSM | `a0323156606282448f00473a3fcb7aaa69361921` | `wolfHSM-v1.4.0-171-ga032315` |
-| wolfIP | `146de4b6362c3a076787e27332f50daa0a445cf5` | `v1.0-91-g146de4b` |
-| wolfPSA | `1b9ec29706bc63f785682ad688350195a33b22e8` | `v5.9.1-129-g1b9ec29` |
-| wolfSSL | `22e505bcfad8ce21067ee4232128728543767a95` | `v5.9.1-stable-1088-g22e505bcf` |
-| wolfHAL | `2bc2938b0bbcc977177153a7f38393710702bf70` | No reachable tag |
-
-The wolfTrust images used `-Os` and the following commands; all other build
-variables retained their repository defaults:
-
-```sh
-git submodule update --init --recursive
-make BUILD_DIR=build_size_native WT_ENGINE=native secure-image
-make BUILD_DIR=build_size_hsm WT_ENGINE=hsm secure-image
-arm-none-eabi-size build_size_native/wolftrust.elf \
-    build_size_hsm/wolftrust.elf
-```
-
-The measured wolfTrust files were the two `wolftrust.elf` outputs. Their raw
-`text`, `data`, and `bss` values are recorded in
-[Crypto Engines](Crypto-Engines.md).
-
-The TF-M source was the `TF-Mv2.1.1-LTS` tag at commit
-`02bf279913439a07082dd581df033f370a8fbb92`. The following commands reproduce
-the AN521 GNU Arm builds with BL2 enabled and no regression tests:
-
-```sh
-for profile in small medium large; do
-    cmake -S . -B "build_${profile}" \
-        -DTFM_PLATFORM=arm/mps2/an521 \
-        -DTFM_TOOLCHAIN_FILE=toolchain_GNUARM.cmake \
-        -DTFM_PROFILE="profile_${profile}" \
-        -DCMAKE_BUILD_TYPE=MinSizeRel \
-        -DBL2=ON
-    cmake --build "build_${profile}" --parallel
-done
-arm-none-eabi-size build_small/bin/tfm_s.elf \
-    build_medium/bin/tfm_s.elf \
-    build_large/bin/tfm_s.elf
-```
-
-The measured TF-M file in each case was `tfm_s.elf`.
-
-Only the Secure runtime ELF is counted. wolfBoot and Non-secure wolfTrust
-guests are excluded; TF-M BL2 and its Non-secure application are likewise
-excluded. Although the TF-M configurations had `BL2=ON`, the separate BL2
-image is not part of `tfm_s.elf` and therefore is not in the table.
-
-The TF-M builds target AN521 while wolfTrust targets STM32H563, and their
-profiles do not enable the same services. Treat the table as a reproducible
-local build comparison, not a platform-normalized benchmark. See
-[Crypto Engines](Crypto-Engines.md) for the measured cost within wolfTrust,
-where the platform and feature set are held constant.
+- wolfTrust: `make TARGET=stm32l562 secure-image` with the repository
+  defaults (native engine, LTO, one guest), built in
+  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`.
+- wolfBoot: `config/examples/stm32l5-tz-wolftrust.config` (ECC256, SHA256,
+  `WOLFBOOT_SECURE_APP=1`).
+- TF-M: v2.3.1, platform `stm/stm32l562e_dk`, `TFM_ISOLATION_LEVEL=3`,
+  `CMAKE_BUILD_TYPE=MinSizeRel`, the TF-PSA-Crypto Medium profile
+  (`crypto_config_profile_medium.h`) with asymmetric encryption off,
+  `TFM_PARTITION_FIRMWARE_UPDATE=OFF`, SPM and partition logging off,
+  `CRYPTO_HW_ACCELERATOR=OFF`, BL2 with EC-P256 signatures.
 
 ## Compatibility register
 

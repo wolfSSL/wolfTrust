@@ -44,6 +44,9 @@ static wt_scheduler_state_t g_scheduler;
 static wt_spm_t g_spm;
 #if defined(WT_MANIFEST_NEG_PROBE) && \
     ((WT_MANIFEST_NEG_PROBE == 1) || (WT_MANIFEST_NEG_PROBE == 2))
+#if !WT_MANIFEST_RUNTIME_CHECK
+#error "WT_MANIFEST_NEG_PROBE 1 and 2 need WT_MANIFEST_RUNTIME_CHECK=1"
+#endif
 static wt_system_manifest_t g_wt_manifest_neg_probe;
 #endif
 /* Restart-engine event counters: non-static so the hardware harness can read
@@ -552,6 +555,7 @@ void wt_monitor_init(void)
     if (wt_partitions_bind_manifest(wt_spm_manifest(&g_spm)) != 0) {
         wt_platform_panic();
     }
+#if WT_MANIFEST_RUNTIME_CHECK
     for (i = 0; i < count; ++i) {
         if (wt_partition_validate_profile(
                 wt_partitions_profile_capabilities(),
@@ -560,6 +564,7 @@ void wt_monitor_init(void)
             wt_platform_panic();
         }
     }
+#endif
     if (wt_ffm_boot_init(wt_spm_manifest(&g_spm)) != WT_FFM_SUCCESS) {
         wt_platform_panic();
     }

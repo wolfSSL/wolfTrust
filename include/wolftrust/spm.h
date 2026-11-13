@@ -45,7 +45,8 @@ typedef enum wt_spm_result {
     WT_SPM_ERROR_VALIDATION = -401
 } wt_spm_result_t;
 
-/* Validate the generated manifest before the SPM exposes a ready state. */
+/* Validate the generated manifest before the SPM exposes a ready state; the
+ * validator runs here only with WT_MANIFEST_RUNTIME_CHECK, else at build. */
 int wt_spm_init(wt_spm_t* spm,
                 const wt_system_manifest_t* manifest,
                 uint32_t supported_features,

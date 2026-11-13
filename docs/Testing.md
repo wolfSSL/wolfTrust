@@ -36,6 +36,11 @@ vectors, Secure Partition layout and recovery, crypto-engine relay and key
 isolation, vault and storage services, attestation and COSE integration,
 firmware update, runtime remeasurement, linked Secure layout, VNET, public PSA
 headers, boot-handoff record consumption, and negative paths.
+The manifest_ports suite generates every `port/*/manifest*.json` with that
+port's build arguments and runs it through the boot-time validator, the port
+binding, and FF-M activation, since default images validate the manifest only
+at build time. `tests/host/manifest/test_generator.py` checks that each
+manifest the boot-time checks reject also fails generation.
 The monitor suite checks bounded guest recovery, idle backoff, and terminal
 lifecycle decisions against the production scheduler with simulated architecture
 operations.
@@ -192,7 +197,9 @@ faults; its restarted instance faults again if either value survived.
 
 `manifestneg` removes a required feature, `manifestneg2` declares isolation
 level 2, and `manifestneg3` composes a partition table that reaches another
-partition's band. Each must halt the boot before anything is scheduled.
+partition's band. Each must halt the boot before anything is scheduled. The
+first two corrupt the manifest after the build validated it, so they build
+with `WT_MANIFEST_RUNTIME_CHECK=1`; `manifestneg3` runs on the default image.
 
 Each numbered probe variant is its own matrix row; CI packs each family
 into one job.

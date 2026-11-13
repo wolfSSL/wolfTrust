@@ -43,7 +43,14 @@ int wt_spm_init(wt_spm_t* spm,
         return WT_SPM_ERROR_ARGUMENT;
     }
 
+#if WT_MANIFEST_RUNTIME_CHECK
     result = wt_manifest_validate(manifest, supported_features, platform);
+#else
+    /* tools/manifest/generate.py refused the build for anything the
+     * runtime validator would reject, against the same platform limits. */
+    (void)platform;
+    result = WT_MANIFEST_VALID;
+#endif
     spm->validation_result = result;
     if (result != WT_MANIFEST_VALID) {
         spm->state = WT_SPM_STATE_FAILED;

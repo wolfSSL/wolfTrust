@@ -21,8 +21,9 @@ ROOT := ../../..
 CC ?= cc
 BUILD_DIR ?= build
 
+# These tests drive the boot-time validator, which default images leave out.
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
-    -I$(ROOT)/include $(EXTRA_CFLAGS)
+    -DWT_MANIFEST_RUNTIME_CHECK=1 -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
 
 SPM_TEST := $(BUILD_DIR)/test_spm

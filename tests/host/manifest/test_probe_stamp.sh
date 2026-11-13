@@ -38,11 +38,13 @@ if grep -q '^WT_FP_NEG_PROBE=0$' "$stamp" &&
    grep -q '^WT_MSP_OVF_PROBE=0$' "$stamp" &&
    grep -q '^WT_BUSFAULT_NEG_PROBE=0$' "$stamp" &&
    grep -q '^WT_XN_NEG_PROBE=0$' "$stamp" &&
-   grep -q '^WT_SVC_NEG_PROBE=0$' "$stamp"; then st=0; else st=1; fi
+   grep -q '^WT_SVC_NEG_PROBE=0$' "$stamp" &&
+   grep -q '^WT_MANIFEST_RUNTIME_CHECK=0$' "$stamp"; then st=0; else st=1; fi
 check $st "default stamp records every probe off"
 
 for probe in WT_FP_NEG_PROBE WT_SEAL_NEG_PROBE WT_MSP_OVF_PROBE \
-        WT_BUSFAULT_NEG_PROBE WT_XN_NEG_PROBE WT_SVC_NEG_PROBE; do
+        WT_BUSFAULT_NEG_PROBE WT_XN_NEG_PROBE WT_SVC_NEG_PROBE \
+        WT_MANIFEST_RUNTIME_CHECK; do
     gen "$probe=1"
     if grep -q "^$probe=1\$" "$stamp" &&
        ! cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
@@ -57,6 +59,15 @@ for probe in WT_FP_NEG_PROBE WT_SEAL_NEG_PROBE WT_MSP_OVF_PROBE \
     if cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
     check $st "dropping $probe restores the default stamp"
 done
+
+for probe in 1 2; do
+    gen WT_MANIFEST_NEG_PROBE=$probe
+    if grep -q '^WT_MANIFEST_RUNTIME_CHECK=1$' "$stamp"; then st=0; else st=1; fi
+    check $st "WT_MANIFEST_NEG_PROBE=$probe forces the boot-time manifest check"
+done
+gen WT_MANIFEST_NEG_PROBE=3
+if grep -q '^WT_MANIFEST_RUNTIME_CHECK=0$' "$stamp"; then st=0; else st=1; fi
+check $st "WT_MANIFEST_NEG_PROBE=3 keeps the default build-time check"
 
 gen WT_VNET_TIMEOUT_TICKS=100
 if grep -q '^WT_VNET_TIMEOUT_TICKS=100$' "$stamp" &&

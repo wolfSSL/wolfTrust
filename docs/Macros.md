@@ -39,6 +39,34 @@ selected values into C preprocessor defines. Defaults below come from
 | `WT_WOLFCRYPT_STM32_HASH` | STM32 HASH acceleration selector; default `0`. | Must remain `0`: the Makefile rejects other values because wolfHSM SHA state is not compatible with the peripheral representation. |
 | `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | Use only for conformance builds; the default production manifest is selected at `0`. |
 
+## Boot-time manifest check (`WT_MANIFEST_RUNTIME_CHECK`)
+
+Default `0`. The manifest generator validates the manifest at build time
+against the port's platform capabilities (`port/<soc>/platform_caps.h`, passed
+from `mk/target-<soc>.mk`) and the FF-M runtime limits, and the generated C
+asserts the port binding at compile time. Any manifest the boot-time checks
+would reject fails the build, so the default image does not repeat them.
+
+`1` links the boot-time validator back in: `wt_spm_init()` runs
+`wt_manifest_validate()`, `wt_partitions_bind_manifest()` runs
+`wt_partition_validate_port_binding()`, and the monitor runs
+`wt_partition_validate_profile()` for each guest. The `manifestneg` and
+`manifestneg2` scenarios corrupt the manifest at boot, so they force it on.
+
+Measured cost of `1` over the default, Secure image flash (`text` + `data`),
+Arm GNU 15.2.1 in the pinned CI container with LTO. RAM does not change.
+
+| Target | `native` engine | `hsm` engine |
+| --- | --- | --- |
+| STM32H563 | +3,360 B | +3,392 B |
+| STM32L562 | +3,264 B | not supported |
+| MIMXRT700 | +3,392 B | +3,328 B |
+| MCX N947 | +3,392 B | +3,392 B |
+
+```sh
+make WT_MANIFEST_RUNTIME_CHECK=1 secure-image
+```
+
 ## Image layout
 
 | Define | Description | Requirement |
@@ -90,8 +118,10 @@ command-line option.
 reference manifest sets it to numeric value `3`
 (`WT_ISOLATION_PROFILE_LEVEL_3`). The manifest also requests feature
 mask `1`, which is `WT_MANIFEST_FEATURE_IPC`. The Makefile
-invokes the generator with supported framework `0x0100` and supported
-features `0x1`, so an unsupported manifest request fails generation.
+invokes the generator with supported features `0x1`, the framework version,
+partition limit, and service limit read from `include/psa/client.h` and
+`include/wolftrust/ffm.h`, and the port's `WT_PLATFORM_*` capabilities, so an
+unsupported manifest request fails generation.
 
 See [Building](Building.md) for command examples and [Security Model](Security-Model.md) for the runtime
 meaning of these settings.

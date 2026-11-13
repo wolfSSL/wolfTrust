@@ -26,6 +26,11 @@
 
 #include "wolftrust/domain.h"
 
+/* 1 re-validates the generated manifest at boot; the build already did. */
+#ifndef WT_MANIFEST_RUNTIME_CHECK
+#define WT_MANIFEST_RUNTIME_CHECK 0
+#endif
+
 #define WT_MANIFEST_FORMAT_VERSION 1U
 #define WT_MANIFEST_DIGEST_SIZE 32U
 #define WT_MANIFEST_NAME_MAX 63U

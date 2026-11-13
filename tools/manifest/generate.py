@@ -226,6 +226,11 @@ def ranges_overlap(first_base, first_size, second_base, second_size):
 MEMORY_ATTR_MASK = 0x3F
 INTERRUPT_ATTR_SHARED = 0x01
 CAPABILITY_MASK = 0x7F
+CAPABILITY_DOMAIN_ISOLATION = 0x08
+CAPABILITY_MEMORY_PROTECTION = 0x10
+PORT_NS_DOMAIN_PROGRAMMING = 0x02
+PORT_TZ_FILTER = 0x04
+PORT_CAPABILITY_MASK = 0x07
 FEATURE_MASK = 0x0F
 RESERVED_SIGNALS = 0x0F
 MAX_PARTITIONS = 32
@@ -236,7 +241,9 @@ MAX_NAME = 63
 
 
 def policy_range_end(base, size, word_max, description):
-    if size == 0 or base + size > word_max + 1:
+    # wt_range_end refuses size > UINTPTR_MAX - base, so the exclusive end
+    # may not wrap to zero even when it would be the first byte past memory.
+    if size == 0 or base + size > word_max:
         policy_error(description + " is outside target address space")
     return base + size
 
@@ -254,6 +261,7 @@ def policy_generated_symbols(manifest):
     symbols = set()
     reserved = []
     raw_names = set()
+    partition_names = {partition["name"] for partition in manifest["partitions"]}
 
     def add(symbol):
         if symbol in symbols:
@@ -285,6 +293,9 @@ def policy_generated_symbols(manifest):
                 add(service_prefix + "_HANDLE")
                 reserve(service["name"] + "_HANDLE")
         for interrupt in partition["interrupts"]:
+            if interrupt["signal_name"] in partition_names:
+                policy_error("interrupt signal name is a partition name: " +
+                             interrupt["signal_name"])
             raw_names.add(interrupt["signal_name"])
             add("WT_GENERATED_" + interrupt["signal_name"] + "_SIGNAL")
 
@@ -292,12 +303,64 @@ def policy_generated_symbols(manifest):
         policy_error("generated symbol is duplicated")
 
 
+def validate_platform(manifest, platform):
+    """Mirror the checks src/manifest.c makes against immutable port data."""
+    capabilities = platform["capabilities"]
+    port = platform["port_capabilities"]
+    profile = manifest["profile_capabilities"]
+    if capabilities & ~CAPABILITY_MASK:
+        policy_error("platform capability mask is invalid")
+    if port & ~PORT_CAPABILITY_MASK:
+        policy_error("port capability mask is invalid")
+    if (profile["capabilities"] & ~capabilities or
+            profile["max_domains"] > platform["max_domains"] or
+            profile["max_memory_resources_per_domain"] >
+                platform["max_memory_resources_per_domain"] or
+            profile["max_interrupts_per_domain"] >
+                platform["max_interrupts_per_domain"]):
+        policy_error("profile capabilities exceed the platform")
+    # wt_partition_validate_profile, against the port's provided capabilities.
+    if (capabilities & CAPABILITY_MEMORY_PROTECTION and
+            not port & (PORT_NS_DOMAIN_PROGRAMMING | PORT_TZ_FILTER)):
+        policy_error("memory protection needs Non-secure domain programming "
+                     "or a TrustZone filter")
+    if capabilities & CAPABILITY_DOMAIN_ISOLATION and not port & PORT_TZ_FILTER:
+        policy_error("domain isolation needs a TrustZone filter")
+    # wt_partition_validate_port_binding, for every Non-secure guest domain.
+    guests = [domain for domain in manifest["domains"]
+              if domain["domain_class"] == 2]
+    if guests and not port & PORT_NS_DOMAIN_PROGRAMMING:
+        policy_error("guest MPU regions need Non-secure domain programming")
+    if (any(memory["attributes"] & 0x02 for domain in guests
+            for memory in domain["memory_resources"]) and
+            not port & PORT_TZ_FILTER):
+        policy_error("a writable guest window needs a TrustZone filter")
+
+
+def validate_ffm_runtime(manifest, ffm_limits):
+    """Mirror the activation checks wt_ffm_init makes on every boot."""
+    partitions = manifest["partitions"]
+    if ffm_limits.get("ipc_only") and any(
+            partition["model"] != 0 for partition in partitions):
+        policy_error("the FF-M runtime schedules IPC partitions only")
+    if (ffm_limits.get("max_partitions") is not None and
+            len(partitions) > ffm_limits["max_partitions"]):
+        policy_error("partition count exceeds the FF-M runtime")
+    if (ffm_limits.get("max_services") is not None and
+            sum(len(partition["services"]) for partition in partitions) >
+                ffm_limits["max_services"]):
+        policy_error("service count exceeds the FF-M runtime")
+
+
 def validate_policy(manifest, supported_features, word_max,
-                    supported_framework=0x101, mpu_granule=32):
+                    supported_framework=0x101, mpu_granule=32,
+                    platform=None, ffm_limits=None):
     features = manifest["features"]
     if features & ~FEATURE_MASK or features & 1 == 0:
         policy_error("invalid required feature set")
-    if supported_features & ~FEATURE_MASK or features & ~supported_features:
+    if supported_features & ~FEATURE_MASK or supported_features & 1 == 0:
+        policy_error("the build must support the IPC feature")
+    if features & ~supported_features:
         policy_error("manifest requests unsupported features")
     if manifest["format_version"] != 1:
         policy_error("unsupported manifest format")
@@ -336,6 +399,9 @@ def validate_policy(manifest, supported_features, word_max,
         policy_error("partition count exceeds limits")
     if not domains or len(domains) > capabilities["max_domains"]:
         policy_error("domain count exceeds profile capability")
+    if platform is not None:
+        validate_platform(manifest, platform)
+    validate_ffm_runtime(manifest, ffm_limits or {})
 
     domain_ids = set()
     spm_count = 0
@@ -403,6 +469,8 @@ def validate_policy(manifest, supported_features, word_max,
             policy_error("memory protection capability is unavailable")
         if interrupts and not capabilities["capabilities"] & 0x20:
             policy_error("interrupt isolation capability is unavailable")
+        if interrupts and domain_class == 2:
+            policy_error("a Non-secure application cannot own interrupts")
 
         for memory in memories:
             policy_range_end(memory["base"], memory["size"], word_max,
@@ -776,10 +844,67 @@ def emit_partition(lines, partition, index):
     return c_struct(fields)
 
 
-def generate_source(manifest, digest):
+def platform_asserts(manifest, platform):
+    """Bind the platform values this manifest was checked against to the
+    port's own macros, and repeat the port binding checks for the compiler."""
+    guests = [domain for domain in manifest["domains"]
+              if domain["domain_class"] == 2]
+    writable = any(memory["attributes"] & 0x02 for domain in guests
+                   for memory in domain["memory_resources"])
+    checks = [
+        ("WT_PLATFORM_CAPABILITIES == {}U".format(platform["capabilities"]),
+         "platform capabilities differ from the manifest generator input"),
+        ("WT_PLATFORM_MAX_DOMAINS == {}U".format(platform["max_domains"]),
+         "platform domain limit differs from the manifest generator input"),
+        ("WT_PLATFORM_MAX_MEMORY_RESOURCES == {}U".format(
+            platform["max_memory_resources_per_domain"]),
+         "platform memory limit differs from the manifest generator input"),
+        ("WT_PLATFORM_MAX_INTERRUPTS == {}U".format(
+            platform["max_interrupts_per_domain"]),
+         "platform interrupt limit differs from the manifest generator input"),
+        ("WT_PLATFORM_PORT_CAPABILITIES == {}U".format(
+            platform["port_capabilities"]),
+         "port capabilities differ from the manifest generator input"),
+        ("(WT_PLATFORM_PORT_CAPABILITIES & ~WT_PORT_CAPABILITY_ALL) == 0U",
+         "port capability mask is invalid"),
+        ("(WT_PLATFORM_CAPABILITIES & WT_CAPABILITY_MEMORY_PROTECTION) == "
+         "0U ||\n    (WT_PLATFORM_PORT_CAPABILITIES &\n"
+         "     (WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING |\n"
+         "      WT_PORT_CAPABILITY_TZ_FILTER)) != 0U",
+         "memory protection needs NS domain programming or a TZ filter"),
+        ("(WT_PLATFORM_CAPABILITIES & WT_CAPABILITY_DOMAIN_ISOLATION) == "
+         "0U ||\n    (WT_PLATFORM_PORT_CAPABILITIES & "
+         "WT_PORT_CAPABILITY_TZ_FILTER) != 0U",
+         "domain isolation needs a TZ filter"),
+    ]
+    if guests:
+        checks.append((
+            "(WT_PLATFORM_PORT_CAPABILITIES &\n"
+            "     WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING) != 0U",
+            "guest MPU regions need NS domain programming"))
+    if writable:
+        checks.append((
+            "(WT_PLATFORM_PORT_CAPABILITIES & WT_PORT_CAPABILITY_TZ_FILTER) "
+            "!= 0U",
+            "a writable guest window needs a TZ filter"))
+    lines = []
+    for condition, message in checks:
+        lines.append("WT_STATIC_ASSERT({},\n    \"{}\");".format(
+            condition, message))
+    lines.append("")
+    return lines
+
+
+def generate_source(manifest, digest, platform=None, platform_header=None):
     lines = [FILE_HEADER.format(name="wolftrust_manifest_generated.c"),
              "/* Normalized manifest SHA-256: {} */".format(digest.hex()),
-             "#include \"wolftrust_manifest_generated.h\"", ""]
+             "#include \"wolftrust_manifest_generated.h\""]
+    if platform_header is not None:
+        lines.extend(("#include \"{}\"".format(platform_header),
+                      "#include \"wolftrust/static_assert.h\"", ""))
+        lines.extend(platform_asserts(manifest, platform))
+    else:
+        lines.append("")
     digest_values = ["0x{:02x}U".format(value) for value in digest]
     emit_array(lines, "uint8_t wt_generated_digest[32]", digest_values)
     domain_values = [emit_domain(lines, domain, index)
@@ -935,7 +1060,45 @@ def main():
     parser.add_argument("--mpu-granule", default="32",
                         type=lambda value: int(value, 0))
     parser.add_argument("--address-bits", choices=("32", "64"), default="32")
+    parser.add_argument("--platform-capabilities",
+                        type=lambda value: int(value, 0))
+    parser.add_argument("--platform-max-domains",
+                        type=lambda value: int(value, 0))
+    parser.add_argument("--platform-max-memory-resources",
+                        type=lambda value: int(value, 0))
+    parser.add_argument("--platform-max-interrupts",
+                        type=lambda value: int(value, 0))
+    parser.add_argument("--port-capabilities",
+                        type=lambda value: int(value, 0))
+    parser.add_argument("--platform-header")
+    parser.add_argument("--ffm-max-partitions",
+                        type=lambda value: int(value, 0))
+    parser.add_argument("--ffm-max-services",
+                        type=lambda value: int(value, 0))
+    parser.add_argument("--ffm-ipc-only", action="store_true")
     args = parser.parse_args()
+    platform_values = (args.platform_capabilities, args.platform_max_domains,
+                       args.platform_max_memory_resources,
+                       args.platform_max_interrupts, args.port_capabilities)
+    platform = None
+    if any(value is not None for value in platform_values):
+        if any(value is None for value in platform_values):
+            parser.error("the platform options must be given together")
+        platform = {
+            "capabilities": args.platform_capabilities,
+            "max_domains": args.platform_max_domains,
+            "max_memory_resources_per_domain":
+                args.platform_max_memory_resources,
+            "max_interrupts_per_domain": args.platform_max_interrupts,
+            "port_capabilities": args.port_capabilities,
+        }
+    if args.platform_header is not None and platform is None:
+        parser.error("--platform-header needs the platform options")
+    ffm_limits = {
+        "max_partitions": args.ffm_max_partitions,
+        "max_services": args.ffm_max_services,
+        "ipc_only": args.ffm_ipc_only,
+    }
 
     try:
         input_bytes = args.input.read_bytes()
@@ -944,8 +1107,10 @@ def main():
         word_max = (1 << int(args.address_bits)) - 1
         validate(manifest, MANIFEST_SCHEMA, "manifest", word_max)
         validate_policy(manifest, args.supported_features, word_max,
-                        args.supported_framework_version, args.mpu_granule)
-        source = generate_source(manifest, hashlib.sha256(input_bytes).digest())
+                        args.supported_framework_version, args.mpu_granule,
+                        platform, ffm_limits)
+        source = generate_source(manifest, hashlib.sha256(input_bytes).digest(),
+                                 platform, args.platform_header)
         args.output.mkdir(parents=True, exist_ok=True)
         psa_manifest = args.output / "psa_manifest"
         psa_manifest.mkdir(parents=True, exist_ok=True)

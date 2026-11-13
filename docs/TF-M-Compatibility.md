@@ -124,7 +124,7 @@ where the platform and feature set are held constant.
 | Difference | Classification | Reason and impact |
 | --- | --- | --- |
 | wolfTrust exposes the FF-M Non-secure client API through one five-function CMSE gateway. | Implementation detail | The gateway exports framework version, service version, connect, call, and close; Secure Partition entry points are a separate manifest concern. |
-| Only connection-based IPC services are enabled. | Scoped | The production manifest requests only `WT_MANIFEST_FEATURE_IPC`. SFN, stateless services, and memory-mapped I/O vectors are rejected by the runtime. |
+| Only connection-based IPC services are enabled. | Scoped | The production manifest requests only `WT_MANIFEST_FEATURE_IPC`. SFN, stateless services, and memory-mapped I/O vectors are rejected when the manifest is generated, and the runtime refuses SFN partitions at activation. |
 | IPC uses fixed copied buffers. | Scoped safety bound | Calls are limited to four vectors and a 1024-byte transfer budget. Services apply smaller bounds. Applications must chunk larger data. |
 | A Non-secure connect, call, or close cannot remain pending after the scheduler reaches quiescence for that dispatch. | Scoped deviation | An incomplete message becomes a client error. If already claimed, the service retains its message until reply or partition fault; late output is discarded. A late call reply releases the message, but the connection remains in error until the client requests close. If close was already requested, the late reply allows deferred disconnection to proceed. Shipped Non-secure-facing services reply within the dispatch; Secure Partition callers use the begin/finish path when scheduling another partition is required. |
 | Secure services are linked in one image. | Scoped isolation difference | Service writable state is isolated by unprivileged threads and Secure MPU domains, but executable text is shared rather than separately linked. |
@@ -148,9 +148,9 @@ where the platform and feature set are held constant.
 ## Isolation-profile interpretation
 
 The STM32H563 manifest sets `isolation_profile` to
-`WT_ISOLATION_PROFILE_LEVEL_3` and declares the capabilities checked
-by the manifest validator. Only level 3 is implemented, so the generator and
-the validator refuse levels 1 and 2. The manifest declares its Non-secure guests
+`WT_ISOLATION_PROFILE_LEVEL_3` and declares the capabilities the manifest
+generator checks against the port's own. Only level 3 is implemented, so the
+generator and the optional boot-time validator refuse levels 1 and 2. The manifest declares its Non-secure guests
 privileged, matching the runtime, which initializes `CONTROL_NS.nPRIV` to zero.
 It declares every Secure Partition unprivileged, and the generator and the
 validator refuse a privileged one. TrustZone protects Secure state, GTZC isolates peer

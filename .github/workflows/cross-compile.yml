@@ -100,6 +100,32 @@ jobs:
         run: make TARGET=stm32h563 WT_ENGINE=hsm secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_hsm
       - name: Build the native-engine secure image (WT_ENGINE=native)
         run: make TARGET=stm32h563 WT_ENGINE=native secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_native
+      - name: Build every port with the boot-time manifest check (WT_MANIFEST_RUNTIME_CHECK=1)
+        run: |
+          for target in stm32h563 mimxrt700 mcxn947; do
+            for engine in native hsm; do
+              make TARGET=$target WT_ENGINE=$engine WT_MANIFEST_RUNTIME_CHECK=1 \
+                secure-image TOOLPREFIX=arm-none-eabi- \
+                BUILD_DIR=build_rtcheck_${target}_$engine
+              grep -qx 'WT_MANIFEST_RUNTIME_CHECK=1' \
+                build_rtcheck_${target}_$engine/secure_build_mode.stamp
+            done
+          done
+      - name: Verify only the opt-in image links the boot-time manifest validator
+        run: |
+          for check in 0 1; do
+            make TARGET=stm32h563 WT_LTO=0 WT_MANIFEST_RUNTIME_CHECK=$check \
+              secure-image TOOLPREFIX=arm-none-eabi- \
+              BUILD_DIR=build_rtcheck_nolto_$check
+            if arm-none-eabi-nm build_rtcheck_nolto_$check/wolftrust.elf \
+                | grep -q ' wt_manifest_validate$'; then
+              linked=1
+            else
+              linked=0
+            fi
+            test "$linked" = "$check" || \
+              { echo "WT_MANIFEST_RUNTIME_CHECK=$check linked=$linked" >&2; exit 1; }
+          done
       - name: Build the MIMXRT700 secure image (both engines, default layout)
         run: |
           for engine in native hsm; do

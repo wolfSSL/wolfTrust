@@ -49,7 +49,8 @@ preserve the public manifest, service, IPC, and PSA API contracts. See
    containing the Secure image measurement, lifecycle, and active image
    version.
 2. wolfTrust configures the target's TrustZone, GTZC, Secure MPU, interrupt,
-   and memory policies; validates and binds the generated manifest; registers
+   and memory policies; binds the generated manifest, which the build has
+   already validated against the port's capabilities; registers
    the FF-M services; seeds each guest context; and performs an initial
    signed-record, image-size, manifest-version, digest, and optional WRP check.
 3. wolfTrust consumes the measured-boot handoff, initializes the selected

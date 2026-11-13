@@ -94,6 +94,16 @@ WT_BUSFAULT_NEG_PROBE ?= 0
 WT_SVC_NEG_PROBE ?= 0
 WT_VNET_NEG_PROBE ?= 0
 WT_MANIFEST_NEG_PROBE ?= 0
+# The generator refuses at build time every manifest the boot-time validator
+# would; 1 also re-runs that validator and the port binding checks at boot.
+WT_MANIFEST_RUNTIME_CHECK ?= 0
+# Manifest negatives 1 and 2 corrupt the manifest at boot, after the build.
+ifneq ($(filter 1 2,$(WT_MANIFEST_NEG_PROBE)),)
+override WT_MANIFEST_RUNTIME_CHECK := 1
+endif
+ifeq ($(filter 0 1,$(WT_MANIFEST_RUNTIME_CHECK)),)
+$(error WT_MANIFEST_RUNTIME_CHECK must be 0 or 1)
+endif
 WT_HANDLER_IRQ_PROBE ?= 0
 WT_REMEASURE_PROBE ?= 0
 WT_BOOTUPDATE_PROBE ?= 0
@@ -218,6 +228,9 @@ SECURE_CFLAGS += -DWT_VNET_NEG_PROBE=1
 endif
 ifneq ($(filter 1 2 3,$(WT_MANIFEST_NEG_PROBE)),)
 SECURE_CFLAGS += -DWT_MANIFEST_NEG_PROBE=$(WT_MANIFEST_NEG_PROBE)
+endif
+ifeq ($(WT_MANIFEST_RUNTIME_CHECK),1)
+SECURE_CFLAGS += -DWT_MANIFEST_RUNTIME_CHECK=1
 endif
 ifneq ($(filter-out 0,$(WT_HANDLER_IRQ_PROBE)),)
 SECURE_CFLAGS += -DWT_HANDLER_IRQ_PROBE=$(WT_HANDLER_IRQ_PROBE)
@@ -1397,9 +1410,35 @@ $(BUILD_DIR):
 $(MANIFEST_DIR):
 	@mkdir -p $@
 
+# The generator checks the manifest against the port's platform limits and the
+# FF-M runtime's compiled limits, read from the headers that size it.
+wt_header_value = $(strip $(shell sed -n -E 's/^.define $(1)[[:space:]]+(0x[0-9A-Fa-f]+|[0-9]+)U.*/\1/p' $(2)))
+WT_FFM_MAX_PARTITIONS_VALUE := $(call wt_header_value,WT_FFM_MAX_PARTITIONS,$(ROOT)/include/wolftrust/ffm.h)
+WT_FFM_MAX_SERVICES_VALUE := $(call wt_header_value,WT_FFM_MAX_SERVICES,$(ROOT)/include/wolftrust/ffm.h)
+WT_PSA_FRAMEWORK_VERSION_VALUE := $(call wt_header_value,PSA_FRAMEWORK_VERSION,$(ROOT)/include/psa/client.h)
+ifeq ($(words $(WT_FFM_MAX_PARTITIONS_VALUE) $(WT_FFM_MAX_SERVICES_VALUE) $(WT_PSA_FRAMEWORK_VERSION_VALUE)),3)
+else
+$(error cannot read the FF-M runtime limits for the manifest generator)
+endif
+ifeq ($(words $(WT_PLATFORM_CAPABILITIES) $(WT_PLATFORM_MAX_DOMAINS) $(WT_PLATFORM_MAX_MEMORY_RESOURCES) $(WT_PLATFORM_MAX_INTERRUPTS) $(WT_PLATFORM_PORT_CAPABILITIES)),5)
+else
+$(error mk/target-$(TARGET).mk must set the WT_PLATFORM_* capabilities)
+endif
+MANIFEST_GEN_ARGS := --supported-features 0x1 \
+    --supported-framework-version $(WT_PSA_FRAMEWORK_VERSION_VALUE) \
+    --address-bits 32 \
+    --platform-capabilities $(WT_PLATFORM_CAPABILITIES) \
+    --platform-max-domains $(WT_PLATFORM_MAX_DOMAINS) \
+    --platform-max-memory-resources $(WT_PLATFORM_MAX_MEMORY_RESOURCES) \
+    --platform-max-interrupts $(WT_PLATFORM_MAX_INTERRUPTS) \
+    --port-capabilities $(WT_PLATFORM_PORT_CAPABILITIES) \
+    --platform-header platform_caps.h \
+    --ffm-max-partitions $(WT_FFM_MAX_PARTITIONS_VALUE) \
+    --ffm-max-services $(WT_FFM_MAX_SERVICES_VALUE) --ffm-ipc-only
+
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.
-MANIFEST_MODE := MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --supported-framework-version 0x100 --address-bits 32
+MANIFEST_MODE := MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=$(strip $(MANIFEST_GEN_ARGS))
 
 $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		FORCE | $(MANIFEST_DIR)
@@ -1409,12 +1448,16 @@ $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		:; \
 	else \
 		python3 $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
-			$(MANIFEST_DIR) --supported-features 0x1 \
-			--supported-framework-version 0x100 --address-bits 32 \
+			$(MANIFEST_DIR) $(MANIFEST_GEN_ARGS) \
 			&& printf '%s\n' '$(MANIFEST_MODE)' > "$@"; \
 	fi
 
 $(MANIFEST_GEN_C) $(MANIFEST_GEN_H): $(MANIFEST_STAMP)
+
+# tests/host/manifest_ports generates every port manifest with these arguments.
+.PHONY: print-manifest-gen-args
+print-manifest-gen-args:
+	@echo $(MANIFEST_GEN_ARGS)
 
 $(MANIFEST_OBJ): $(MANIFEST_GEN_C) $(MANIFEST_GEN_H) \
 		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
@@ -1459,6 +1502,7 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_PANIC_NEG_PROBE=$(WT_PANIC_NEG_PROBE)' \
 		'WT_VNET_NEG_PROBE=$(WT_VNET_NEG_PROBE)' \
 		'WT_MANIFEST_NEG_PROBE=$(WT_MANIFEST_NEG_PROBE)' \
+		'WT_MANIFEST_RUNTIME_CHECK=$(WT_MANIFEST_RUNTIME_CHECK)' \
 		'WT_HANDLER_IRQ_PROBE=$(WT_HANDLER_IRQ_PROBE)' \
 		'WT_FP_NEG_PROBE=$(WT_FP_NEG_PROBE)' \
 		'WT_SEAL_NEG_PROBE=$(WT_SEAL_NEG_PROBE)' \

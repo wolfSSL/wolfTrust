@@ -24,7 +24,6 @@
 #include "wolftrust/spm_gate.h"
 #include "wolftrust/arch.h"
 
-#include "wolftrust/services/attestation_cose.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
 
@@ -252,15 +251,6 @@ static int wt_attest_signer_public_key(uint8_t* publicKey,
         (void)memset(publicKey, 0, publicKeyCapacity);
     }
     return ret;
-}
-
-static int wt_attest_hsm_sign(void* context, const uint8_t* digest,
-    size_t digestSize, uint8_t* signature, size_t signatureCapacity,
-    size_t* signatureSize)
-{
-    (void)context;
-    return wt_attest_signer_sign(digest, digestSize, signature,
-                                 signatureCapacity, signatureSize);
 }
 
 static int wt_attest_prepare(void)
@@ -523,7 +513,6 @@ int wt_initial_attest_get_token_size(size_t challengeSize,
     WOLFCOSE_EAT_PSA_CLAIMS claims;
     WOLFCOSE_EAT_PSA_COMPONENT components[1u + WT_MAX_GUESTS];
     wt_guest_measurement_t records[WT_MAX_GUESTS];
-    wt_attest_cose_signer_t signer;
     size_t payloadSize = 0u;
     int ret;
 
@@ -555,9 +544,11 @@ int wt_initial_attest_get_token_size(size_t challengeSize,
         }
     }
     if (ret == WT_ATTEST_SUCCESS) {
-        (void)memset(&signer, 0, sizeof(signer));
-        signer.sign = wt_attest_hsm_sign;
-        ret = wt_attest_cose_sign1_size(&signer, payloadSize, 0u, tokenSize);
+        if (wc_CoseSign1_SignSize_ex(NULL, WOLFCOSE_ALG_ES256, 0u,
+                payloadSize, 0u, 0u, tokenSize) != WOLFCOSE_SUCCESS) {
+            *tokenSize = 0u;
+            ret = WT_ATTEST_ERROR_CRYPTO;
+        }
     }
 
     wt_attest_force_zero(challenge, sizeof(challenge));

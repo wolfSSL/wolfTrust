@@ -115,6 +115,23 @@ else st=1; fi
 check $st "WT_SHA256_FAST=2 stops the build"
 gen
 
+for value in 2 "0 1"; do
+    if (cd "$root" && make -s BUILD_DIR="$build" \
+            WT_MANIFEST_RUNTIME_CHECK="$value" "$stamp" >/dev/null \
+            2>"$build/rtcheck.err"); then st=1;
+    elif grep -q 'unsupported WT_MANIFEST_RUNTIME_CHECK' "$build/rtcheck.err"; then st=0;
+    else st=1; fi
+    check $st "WT_MANIFEST_RUNTIME_CHECK='$value' stops the build"
+done
+for value in lean "default full"; do
+    if (cd "$root" && WT_TARGET_SCENARIOS=1 make -s WT_PROFILE="$value" \
+            test-target >/dev/null 2>"$build/profile.err"); then st=1;
+    elif grep -q 'unsupported WT_PROFILE' "$build/profile.err"; then st=0;
+    else st=1; fi
+    check $st "make test-target WT_PROFILE='$value' fails"
+done
+gen
+
 for target in stm32h563 mimxrt700 mcxn947; do
     deps=$(cd "$root" && make -pq TARGET=$target BUILD_DIR="$build" "$stamp" \
         2>/dev/null | grep "^$build/wt_sec_wolftrust_manifest_generated.o:" || true)

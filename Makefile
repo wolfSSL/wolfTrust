@@ -87,6 +87,9 @@ WT_SCENARIOS = $(shell python3 tests/target/lib/scenario_matrix.py \
     --port $(TARGET) --tier $(WT_TIER) --engine $(WT_ENGINE) \
     --profile $(WT_PROFILE) --flat)
 test-target:
+	@case "$(WT_PROFILE)" in default|full) ;; *) \
+		echo "unsupported WT_PROFILE='$(WT_PROFILE)' (want default or full)" >&2; \
+		exit 2 ;; esac
 ifeq ($(TARGET),mimxrt700)
 	@WT_PROFILE=$(WT_PROFILE) tests/target/run_suite.sh rt700-m33mu $(WT_SCENARIOS)
 else ifeq ($(TARGET),mcxn947)

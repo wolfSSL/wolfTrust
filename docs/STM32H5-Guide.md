@@ -148,8 +148,8 @@ WT_GUEST_FLASH_WRP=1 \
     tests/target/run_h5_hardware.sh flash positive
 ```
 
-The hardware runner builds the `full` profile unless `WT_PROFILE=default`
-is set, so its scenarios launch two guests and include Firmware Update.
+The hardware runner builds the `full` profile, so its scenarios launch two
+guests and include Firmware Update; it refuses any other `WT_PROFILE`.
 
 The suite:
 

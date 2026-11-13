@@ -33,7 +33,7 @@ CI runs both engines on both profiles where the port supports them.
 
 `tests/target/lib/profile.sh` holds the profile flags. A target run picks one
 with `WT_PROFILE` (`make test-target WT_PROFILE=default`). Hardware runners
-default to `full`.
+build `full` only, because their checks assert both guests.
 
 ## Add-on options
 

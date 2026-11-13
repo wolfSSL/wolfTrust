@@ -43,6 +43,9 @@ mode="${1:-all}"
 scenario="${2:-positive}"
 case "$mode" in build|flash|all) ;; *) echo "usage: $0 build|flash|all [scenario]" >&2; exit 2 ;; esac
 case "$scenario" in positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|gtzcneg|fpneg|sealneg|sealpivotneg|periphneg|mspovfneg|busfaultneg|nsbusfaultneg|nsmaskneg|xnneg|svcneg) ;; *) echo "usage: $0 $mode positive|restart|crossdomain|keystoreneg|panicneg|confboot|devstorage|devcrypto|devattest|devattestqcbor|vaultrecover|vaultrecoversec|authneg|writeonce|hsmattackneg|bootupdate|vnet|vnetneg|gtzcneg|fpneg|sealneg|sealpivotneg|periphneg|mspovfneg|busfaultneg|nsbusfaultneg|nsmaskneg|xnneg|svcneg" >&2; exit 2 ;; esac
+# The hardware suite builds, flashes and asserts both guests, so only the full
+# profile runs on silicon.
+case "${WT_PROFILE:-full}" in full) ;; *) echo "FAIL: WT_PROFILE=$WT_PROFILE is not supported on hardware (the suite asserts both guests; use WT_PROFILE=full)" >&2; exit 2 ;; esac
 
 repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo"
@@ -193,13 +196,12 @@ if [ "$mode" != "flash" ]; then
   [ "$scenario" = "vaultrecover" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0 WT_VAULT_FOREIGN_PROBE=1"; guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"; }
   [ "$scenario" = "vaultrecoversec" ] && { secure_flags="WT_CONFORMANCE=1 WT_CONF_DIAG_TRAP=0 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1"; guest_flags="WT_RUN_CONFORMANCE=1 WT_CONF_SUITE=crypto"; }
 
-  # The hardware suite asserts both guests, so it builds the full profile
-  # unless WT_PROFILE asks for another; the profile goes ahead of the probe.
+  # The full profile goes ahead of the probe flags.
   # shellcheck source=lib/profile.sh disable=SC1091
   . "$repo/tests/target/lib/profile.sh"
   scenario_profile_reset
   # shellcheck disable=SC2046,SC2086
-  secure_flags="$(echo $(scenario_profile_flags "${WT_PROFILE:-full}") $secure_flags)"
+  secure_flags="$(echo $(scenario_profile_flags full) $secure_flags)"
 
   stage "building wolfTrust secure image ($scenario)"
   {

@@ -462,6 +462,75 @@ separately through `TARGET=mcxn947 tests/target/provisioning/provisioning_ctrl.s
 and writes no fuse; see the MCXN947 Guide. Hardware test commands write flash
 and reset the board.
 
+## STM32L562 emulator scenarios
+
+M33MU's STM32L552 model stands in for the STM32L562 (`--cpu stm32l552`; the
+L562 adds crypto blocks the port leaves Secure and unused). The runner pins
+an M33MU whose STM32L552 model enforces the GTZC MPCBBs, the
+flash watermarks and the TZSC, powers up with `TZEN=1` and RDP level 0, and
+clears its flash status registers write-1-to-clear, so the STM32L562 port has
+the same emulator gate as the other ports, with the same scenario names:
+
+```sh
+make test-target TARGET=stm32l562
+tests/target/run_stm32l562_m33mu.sh positive
+tests/target/run_stm32l562_m33mu.sh gtzcneg
+```
+
+`gtzcneg` is the STM32H563's scenario on this part: guest 0 stores into
+guest 1's RAM window, which the per-dispatch GTZC curtain keeps Secure, and
+the store is either faulted and contained by the monitor or discarded, the
+peer never seeing it; on a fault, a second boot under M33MU's protection
+trace shows the GTZC MPCBB refused it. Every other scenario is the shared one run on the
+STM32L552 model with the port's own band, stack, and SPM peripheral addresses
+read from `port/stm32l562/memory_map.h`. The port builds the native engine
+only, so the wolfHSM-only `hsmpinneg` and `hsmfaultneg` are exempt in
+`tests/target/lib/scenario_matrix.py` and `hsmattackneg` does not run; the
+matrix lists the other 46. The runner builds
+its own pinned emulator and wolfBoot first stage
+(`tests/target/lib/stm32l562_wolfboot.sh`: upstream wolfBoot at the merge of
+the STM32L5 secure-application handoff, from
+`config/examples/stm32l5-tz-wolftrust.config`, rebuilt with the larger slot
+for the conformance scenarios) and checks that the pinned wolfBoot's
+`hal/stm32l5_lifecycle.h` is the copy `tests/host/stm32l562_lifecycle` tests.
+`STM32L562_WOLFBOOT_DIR` reuses a tree the library built. The factory image
+offsets are flash offsets: wolfBoot at 0, the signed Secure image at `0xC000`,
+the guests at `0x60000` and `0x70000` (`0x40000` and `0x7C000` in the
+conformance layout).
+
+## STM32L562 hardware
+
+`make test-hardware TARGET=stm32l562` runs
+`tests/target/run_stm32l562_suite.sh` on the host that owns the
+STM32L562E-DK's ST-LINK: `positive`, `gtzcneg`, `periphneg`, `restart`,
+`psa`, `wrpoff` and `wrpfence` by default (`WT_STM32L562_SCENARIOS` overrides
+the list; the native engine only), each built, programmed over an erased
+flash (image bytes only, never `0xFF` over the stores), read back, and
+asserted over the debug port and the console
+(`tests/target/run_stm32l562_hardware.sh`; the STM32L562 Guide lists what each
+scenario asserts). The probe is STM32CubeProgrammer, or OpenOCD where
+CubeProgrammer is not installed (`tests/target/lib/stm32l562_probe.sh`,
+`STM32L562_PROBE_TOOL` forces one); every call is bound to the DK's ST-LINK.
+`wrpfence` is the one scenario that writes option bytes (`WRP2A`, reversible
+at RDP level 0) and always releases them; it passes only on a WRPERR
+rejection of a debugger erase, which needs the OpenOCD backend (the default
+list skips it on CubeProgrammer). A passing `positive` records the hardware
+run `boot-lock` requires. The suite's logs (`logs/stm32l562-suite/`)
+and the runner's retained evidence (`logs/stm32l562-hw/<scenario>-native/`)
+live outside `build/`, and one batch at a time owns the board through
+`logs/stm32l562-hw.lock`; `tests/target/test_stm32l562_suite_evidence.sh`
+checks both under `make test`, along with the suite's skip without a board,
+the runner's refusal of a failed flash or a part outside the production
+perimeter, both backends' erase-then-program sequence, and the OpenOCD option
+register decoding and field writes. Without a probe tool, the ST-LINK, its
+console, the Arm toolchain, or `flock`, `tests/target/detect_stm32l562.sh`
+reports why and the suite skips. All seven scenarios pass on an
+STM32L562E-DK driven through OpenOCD from an arm64 host. The RDP ladder is
+driven separately through
+`TARGET=stm32l562 tests/target/provisioning/provisioning_ctrl.sh` and writes
+no RDP level; see the STM32L562 Guide. Hardware test commands write flash and
+reset the board.
+
 ## MIMXRT700 hardware
 
 `make test-hardware TARGET=mimxrt700` runs `tests/target/run_rt700_suite.sh`
@@ -587,7 +656,9 @@ The workflows under `.github/workflows/` separately run:
 - the MIMXRT700 chain under M33MU's RT700 model (the `RT700` scenario matrix);
   and
 - the MCXN947 chain under M33MU's MCXN947 model (the `MCXN947` scenario
-  matrix).
+  matrix); and
+- the STM32L562 chain under M33MU's STM32L552 model (the `STM32L562`
+  scenario matrix, native engine only).
 
 ### Trigger routing
 
@@ -600,11 +671,12 @@ The `M33MU` workflow (wolfBoot plus both guest lifecycles, then a `select` job
 that picks each port's tier and one matrix job that runs exactly those scenario
 groups) is tiered. Every pull request runs
 the STM32H563 smoke tier on both crypto engines (`positive`, `gtzcneg`,
-`crossdomain`, `bothpsa`, `confboot`, `devcrypto`). MIMXRT700 and MCXN947 run
-on a pull request only with their own label (`ci:rt700`, `ci:mcxn947`),
-`ci:all`, or `ci:m33mu`. The full matrix runs on a push to `main`, on the
-nightly schedule, on manual dispatch (with a `port` input), and on a pull
-request that carries the `ci:h5`, `ci:rt700`, `ci:mcxn947`, `ci:all`, or
+`crossdomain`, `bothpsa`, `confboot`, `devcrypto`). MIMXRT700, MCXN947 and
+STM32L562 run on a pull request only with their own label (`ci:rt700`,
+`ci:mcxn947`, `ci:l5`), `ci:all`, or `ci:m33mu`; STM32L562 runs the native
+engine only. The full matrix runs on a push to `main`, on the nightly
+schedule, on manual dispatch (with a `port` input), and on a pull request that
+carries the `ci:h5`, `ci:rt700`, `ci:mcxn947`, `ci:l5`, `ci:all`, or
 `ci:m33mu` label. The scenario groups per port and tier
 are in `tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>`
 runs the same smoke tier locally and `WT_TIER=full` every scenario.

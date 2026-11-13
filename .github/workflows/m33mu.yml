@@ -1,9 +1,10 @@
 name: M33MU
 
 on:
-  # Pull requests run the STM32H563 smoke tier; MIMXRT700 and MCXN947 run on a
-  # PR only with their label, ci:all, or ci:m33mu. Those labels, ci:h5, pushes
-  # to main, the nightly schedule, and manual dispatch run a port's full matrix.
+  # Pull requests run the STM32H563 smoke tier; MIMXRT700, MCXN947 and
+  # STM32L562 run on a PR only with their label, ci:all, or ci:m33mu. Those
+  # labels, ci:h5, pushes to main, the nightly schedule, and manual dispatch
+  # run a port's full matrix.
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   push:
@@ -13,7 +14,7 @@ on:
       port:
         description: Port whose full matrix to run
         type: choice
-        options: [all, stm32h563, mimxrt700, mcxn947]
+        options: [all, stm32h563, mimxrt700, mcxn947, stm32l562]
         default: all
   workflow_call:
 
@@ -278,9 +279,10 @@ jobs:
           fi
 
   # Label-selected, the wolfProvider way: one select job reads the ci:* labels
-  # (ci:h5, ci:rt700 or ci:mcxn947 for that port's full matrix when only that port
-  # changed, ci:all or ci:m33mu for everything after a core change, no label
-  # for the STM32H563 smoke tier), the event, and the dispatch input, then one
+  # (ci:h5, ci:rt700, ci:mcxn947 or ci:l5 for that port's full matrix when
+  # only that port changed, ci:all or ci:m33mu for everything after a core
+  # change, no label for the STM32H563 smoke tier), the event, and the dispatch
+  # input, then one
   # matrix job runs exactly those scenario groups, so nothing shows up skipped.
   select:
     name: m33mu_select
@@ -326,7 +328,8 @@ jobs:
 
       # The RT700 and MCXN947 wolfBoot first stages build against the
       # MCUXpresso SDK, staged the way wolfBoot's own imxrt700 emulator
-      # workflow stages it, one board per port.
+      # workflow stages it, one board per port. The STM32L562 needs no SDK:
+      # its runner builds the pinned wolfBoot and M33MU from the container.
       - uses: actions/checkout@v4
         if: matrix.port == 'mimxrt700' || matrix.port == 'mcxn947'
         with:

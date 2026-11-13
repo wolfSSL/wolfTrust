@@ -7,10 +7,9 @@ common runtime provides interprocess communication (IPC) through the Arm
 Platform Security Architecture (PSA) Firmware Framework for M (FF-M), manifest
 policy, lifecycle management, scheduling, fault recovery, and PSA services.
 
-The only currently supported and validated reference implementation combines
-the Armv8-M adapter with the STM32H563 Cortex-M33 port. Support for additional
-Cortex-M ports is an intended extension point. Such ports may reuse the common
-runtime and, where applicable, the Armv8-M layer. Cortex-A support is an
+The reference implementation combines the Armv8-M adapter with the STM32H563
+Cortex-M33 port. The other Cortex-M ports listed under [Ports](#ports) reuse
+the common runtime and the Armv8-M layer. Cortex-A support is an
 architectural goal, not a current capability. It will require a new adapter and
 changes to current internal execution and protection contracts; the design goal
 is to preserve the public manifest, service, IPC, and PSA API contracts.
@@ -88,12 +87,13 @@ current reference port, not a requirement imposed on every intended port.
 
 ## Ports
 
-wolfTrust currently supports three ports; each guide covers the board, the
+wolfTrust currently supports four ports; each guide covers the board, the
 first-stage loader contract, and the runners:
 
 - STM32H563 (NUCLEO-H563ZI): [STM32H5 Guide](docs/STM32H5-Guide.md)
 - NXP MIMXRT700 (MIMXRT700-EVK): [MIMXRT700 Guide](docs/MIMXRT700-Guide.md)
 - NXP MCXN947 (FRDM-MCXN947): [MCXN947 Guide](docs/MCXN947-Guide.md)
+- ST STM32L562 (STM32L562E-DK, native engine only): [STM32L562 Guide](docs/STM32L562-Guide.md)
 
 All build with `TARGET=<port>` (`stm32h563` is the default) and run the
 same scenario set under the M33MU emulator with `make test-target
@@ -139,15 +139,17 @@ make test
 make test-target
 make test-target TARGET=mimxrt700
 make test-target TARGET=mcxn947
+make test-target TARGET=stm32l562
 make test-conformance
 WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 make test-hardware
 make test-hardware TARGET=mcxn947
+make test-hardware TARGET=stm32l562
 ```
 
 `make test-target` runs the port's smoke tier under M33MU (`WT_TIER=full` for
 every scenario): the STM32H563 default skips explicitly when M33MU is
-unavailable, and `TARGET=mimxrt700` or `TARGET=mcxn947` builds its pinned
-emulator and wolfBoot first stage itself.
+unavailable, and `TARGET=mimxrt700`, `TARGET=mcxn947` or `TARGET=stm32l562`
+builds its pinned emulator and wolfBoot first stage itself.
 `make test-conformance` instead runs its 20-test host subset and warns that it
 is not full emulator or hardware evidence. `make test-hardware` skips when
 board detection fails; on hosts without `lsusb`, a missing ST-Link can instead
@@ -176,6 +178,8 @@ documentation source:
 - [Project Structure](docs/Project-Structure.md)
 - [STM32H5 Guide](docs/STM32H5-Guide.md)
 - [MIMXRT700 Guide](docs/MIMXRT700-Guide.md)
+- [MCXN947 Guide](docs/MCXN947-Guide.md)
+- [STM32L562 Guide](docs/STM32L562-Guide.md)
 
 The source tree is authoritative:
 

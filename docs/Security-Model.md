@@ -86,8 +86,8 @@ controls are scheduling policy rather than adversarial boundaries. Guest RAM
 windows are non-overlapping and hardware-isolated by GTZC.
 
 Guest flash windows are non-overlapping but share one Non-secure attribution
-window and remain mutually readable. Hardware write protection (STM32 WRP or
-the MIMXRT700 guest fence) plus `WT_GUEST_FLASH_WRP=1` protects
+window and remain mutually readable. Hardware write protection (STM32H563 or
+STM32L562 WRP, or the MIMXRT700 guest fence) plus `WT_GUEST_FLASH_WRP=1` protects
 their integrity, not confidentiality. A hostile guest can also reach peripherals
 left Non-secure by the boot chain; manifest resource lists do not independently
 enforce peripheral ownership in the current port.
@@ -351,11 +351,13 @@ again after a restart, wolfTrust:
 
 When `WT_GUEST_FLASH_WRP=1`, launch also reads the port's guest flash
 protection and refuses the guest unless it covers the full window: the STM32
-WRP register on the STM32H563, and the locked XSPI flash region descriptors on
+WRP register on the STM32H563, the `WRPxA`/`WRPxB` page areas of the guest
+windows' bank on the STM32L562, and the locked XSPI flash region descriptors on
 the MIMXRT700. This option is disabled in the generic default build because
 M33MU does not model STM32 WRP; enable it for hardened images, provisioning the
-option bytes as described in [STM32H5 Guide](STM32H5-Guide.md) or booting the
-fenced wolfBoot described in [MIMXRT700 Guide](MIMXRT700-Guide.md).
+option bytes as described in [STM32H5 Guide](STM32H5-Guide.md) or
+[STM32L562 Guide](STM32L562-Guide.md), or booting the fenced wolfBoot
+described in [MIMXRT700 Guide](MIMXRT700-Guide.md).
 
 ## Static memory
 

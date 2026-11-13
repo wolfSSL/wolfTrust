@@ -34,6 +34,8 @@ endif
 UNIT_SUITES := domain manifest lifecycle monitor guest_verify rollback sp_recovery \
     fabric_windows periph irq_claim rt700_trng rt700_xspi rt700_lifecycle \
     mcxn947_flash mcxn947_lifecycle mcxn947_rng \
+    stm32l562_flash stm32l562_layout stm32l562_lifecycle stm32l562_rng \
+    stm32l562_gtzc stm32l562_wrp \
     ipc ffm spm \
     vnet wolfhsm_loopback wolfhsm_relay native_wire native_wire_client \
     keystore_isolation \

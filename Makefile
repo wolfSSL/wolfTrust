@@ -44,8 +44,9 @@ test:
 	@$(MAKE) --no-print-directory -C tests/host test
 	@$(MAKE) --no-print-directory test-provisioning
 	@tests/target/test_mcxn947_suite_evidence.sh
+	@tests/target/test_stm32l562_suite_evidence.sh
 
-# Production lock gates of both provisioning backends, against stub tools.
+# Production lock gates of every provisioning port, against stub tools.
 test-provisioning:
 	@mkdir -p $(BUILD_DIR)
 	@tests/target/provisioning/test_provisioning_gates.sh > $(BUILD_DIR)/provisioning-gates.log 2>&1 \
@@ -72,9 +73,9 @@ c99-check:
 		EXTRA_CFLAGS="$(C99_CFLAGS)"
 
 # FF-M target scenarios for one port under the M33MU emulator, separate from
-# `make test` (host-only). TARGET picks the port (stm32h563 by default,
-# mimxrt700 or mcxn947 for the NXP chains, whose runners build their own
-# pinned emulator and wolfBoot first stage); WT_TIER=smoke (default) runs the per-PR set,
+# `make test` (host-only). TARGET picks the port (stm32h563 by default;
+# mimxrt700, mcxn947 and stm32l562, whose runners build their own pinned
+# emulator and wolfBoot first stage); WT_TIER=smoke (default) runs the per-PR set,
 # WT_TIER=full every scenario, both from tests/target/lib/scenario_matrix.py.
 # The STM32H563 path auto-detects an M33MU (or WT_TARGET_SCENARIOS=1) and skips
 # explicitly otherwise so it never silently passes. Runs inside the
@@ -87,6 +88,8 @@ ifeq ($(TARGET),mimxrt700)
 	@tests/target/run_suite.sh rt700-m33mu $(WT_SCENARIOS)
 else ifeq ($(TARGET),mcxn947)
 	@tests/target/run_suite.sh mcxn947-m33mu $(WT_SCENARIOS)
+else ifeq ($(TARGET),stm32l562)
+	@tests/target/run_suite.sh stm32l562-m33mu $(WT_SCENARIOS)
 else
 	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
 		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \
@@ -96,14 +99,17 @@ else
 endif
 
 # Real hardware suite, the on-silicon counterpart of test-target: STM32H563 on a
-# Nucleo-H563ZI (detect_h5.sh; container toolchain via WT_H5_DOCKER_IMAGE), or
-# TARGET=mimxrt700 on the EVK from its probe host (detect_rt700.sh). Skips
-# without a board so it never silently passes.
+# Nucleo-H563ZI (detect_h5.sh; container toolchain via WT_H5_DOCKER_IMAGE),
+# TARGET=mimxrt700 on the EVK from its probe host (detect_rt700.sh), mcxn947 on
+# the FRDM board (detect_mcxn947.sh) or stm32l562 on the STM32L562E-DK
+# (detect_stm32l562.sh). Skips without a board so it never silently passes.
 test-hardware:
 ifeq ($(TARGET),mimxrt700)
 	@tests/target/run_rt700_suite.sh
 else ifeq ($(TARGET),mcxn947)
 	@tests/target/run_mcxn947_suite.sh
+else ifeq ($(TARGET),stm32l562)
+	@tests/target/run_stm32l562_suite.sh
 else
 	@tests/target/run_h5_suite.sh
 endif

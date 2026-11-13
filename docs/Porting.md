@@ -4,10 +4,13 @@ wolfTrust separates reusable policy and services from architecture, device,
 and board-specific execution. The fully silicon-validated build tuple is
 `armv8m-stm32h563`. A second Armv8-M tuple, `armv8m-mimxrt700` (external
 octal-NOR execute-in-place), is in hardware bring-up and reuses the
-architecture adapter unchanged, as does a third, `armv8m-mcxn947` (internal
-ECC flash through the boot ROM's flash API, emulator-validated); see the
-[STM32H5 Guide](STM32H5-Guide.md), [MIMXRT700 Guide](MIMXRT700-Guide.md), and
-[MCXN947 Guide](MCXN947-Guide.md) for the worked examples. Support for
+architecture adapter unchanged, as do a third, `armv8m-mcxn947` (internal
+ECC flash through the boot ROM's flash API, emulator-validated), and a fourth,
+`armv8m-stm32l562` (internal dual-bank flash and the GTZC on 256 KiB of SRAM,
+native engine only, emulator-validated); see the
+[STM32H5 Guide](STM32H5-Guide.md), [MIMXRT700 Guide](MIMXRT700-Guide.md),
+[MCXN947 Guide](MCXN947-Guide.md), and [STM32L562 Guide](STM32L562-Guide.md)
+for the worked examples. Support for
 additional Cortex-M ports is an intended extension point. Such ports may reuse
 common policy and service code and an existing architecture adapter when their
 execution and protection models match.

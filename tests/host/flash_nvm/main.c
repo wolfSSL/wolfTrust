@@ -41,6 +41,8 @@ void wt_conf_drv_nvm_test_reset(void);
 static uint8_t g_flash[FLASH_SZ];
 static int g_flash_powered;
 static int g_fail_store;
+/* Knob: the next load of the persisted sector fails (an ECC or read error) */
+static int g_load_fails;
 
 static void flash_power_on(void)
 {
@@ -63,6 +65,10 @@ int wt_conf_nvm_sync(uint8_t *buf, uint32_t len, int store)
         return -1;
     }
     if (store == 0) {
+        if (g_load_fails != 0) {
+            g_load_fails = 0;
+            return -1;
+        }
         (void)memcpy(buf, g_flash, len);
         return 0;
     }
@@ -160,6 +166,27 @@ int main(void)
     check(pal_nvmem_read(0u, 0u, readback, 4) == 1, "read after blank power-on");
     check(readback[0] == 0xFFu && readback[3] == 0xFFu,
           "blank sector reads erased 0xFF");
+
+#if defined(WT_CONF_NVM_LOAD_FAIL_CLOSED)
+    /* A failed load is an error, never a blank store, and the write that
+     * follows it must not persist a fabricated shadow over the real one. */
+    (void)memcpy(boot, "KEEP", 4);
+    check(pal_nvmem_write(0u, 0u, boot, 4) == 1, "a field is persisted");
+    wt_conf_drv_nvm_test_reset();
+    g_load_fails = 1;
+    (void)memset(readback, 0, sizeof(readback));
+    check(pal_nvmem_read(0u, 0u, readback, 4) == 0 && readback[0] == 0u,
+          "a failed load fails the read");
+    wt_conf_drv_nvm_test_reset();
+    g_load_fails = 1;
+    (void)memcpy(data, "OTHERFLD", 8);
+    check(pal_nvmem_write(0u, 16u, data, 8) == 0 &&
+          memcmp(g_flash, "KEEP", 4) == 0,
+          "a failed load fails the write and leaves the store intact");
+    check(pal_nvmem_read(0u, 0u, readback, 4) == 1 &&
+          memcmp(readback, "KEEP", 4) == 0,
+          "the next good load reads the persisted field");
+#endif
 
     if (g_failures == 0) {
         printf("PASS: flash_nvm survive-reset NVM\n");

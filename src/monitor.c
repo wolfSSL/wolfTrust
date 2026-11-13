@@ -549,10 +549,13 @@ void wt_monitor_init(void)
     spm_result = wt_spm_init(&g_spm, &g_wt_manifest_neg_probe,
                              WT_MANIFEST_FEATURE_IPC,
                              wt_partitions_profile_capabilities());
-#else
+#elif WT_MANIFEST_RUNTIME_CHECK
     spm_result = wt_spm_init(&g_spm, wt_generated_manifest_get(),
                              WT_MANIFEST_FEATURE_IPC,
                              wt_partitions_profile_capabilities());
+#else
+    spm_result = wt_spm_init_generated(&g_spm, wt_generated_manifest_get(),
+                                       WT_MANIFEST_FEATURE_IPC);
 #endif
     if (spm_result != WT_SPM_VALID) {
         wt_platform_panic();

@@ -22,13 +22,9 @@
 
 #include <stddef.h>
 
-int wt_spm_init(wt_spm_t* spm,
-                const wt_system_manifest_t* manifest,
-                uint32_t supported_features,
-                const wt_profile_capabilities_t* platform)
+static int wt_spm_begin(wt_spm_t* spm, const wt_system_manifest_t* manifest,
+                        uint32_t supported_features)
 {
-    int result;
-
     if (spm == NULL) {
         return WT_SPM_ERROR_ARGUMENT;
     }
@@ -42,15 +38,12 @@ int wt_spm_init(wt_spm_t* spm,
         spm->state = WT_SPM_STATE_FAILED;
         return WT_SPM_ERROR_ARGUMENT;
     }
+    return WT_SPM_VALID;
+}
 
-#if WT_MANIFEST_RUNTIME_CHECK
-    result = wt_manifest_validate(manifest, supported_features, platform);
-#else
-    /* tools/manifest/generate.py refused the build for anything the
-     * runtime validator would reject, against the same platform limits. */
-    (void)platform;
-    result = WT_MANIFEST_VALID;
-#endif
+static int wt_spm_finish(wt_spm_t* spm, const wt_system_manifest_t* manifest,
+                         int result)
+{
     spm->validation_result = result;
     if (result != WT_MANIFEST_VALID) {
         spm->state = WT_SPM_STATE_FAILED;
@@ -60,6 +53,34 @@ int wt_spm_init(wt_spm_t* spm,
     spm->manifest = manifest;
     spm->state = WT_SPM_STATE_READY;
     return WT_SPM_VALID;
+}
+
+int wt_spm_init(wt_spm_t* spm,
+                const wt_system_manifest_t* manifest,
+                uint32_t supported_features,
+                const wt_profile_capabilities_t* platform)
+{
+    int ret;
+
+    ret = wt_spm_begin(spm, manifest, supported_features);
+    if (ret == WT_SPM_VALID) {
+        ret = wt_spm_finish(spm, manifest, wt_manifest_validate(manifest,
+                            supported_features, platform));
+    }
+    return ret;
+}
+
+int wt_spm_init_generated(wt_spm_t* spm,
+                          const wt_system_manifest_t* manifest,
+                          uint32_t supported_features)
+{
+    int ret;
+
+    ret = wt_spm_begin(spm, manifest, supported_features);
+    if (ret == WT_SPM_VALID) {
+        ret = wt_spm_finish(spm, manifest, WT_MANIFEST_VALID);
+    }
+    return ret;
 }
 
 bool wt_spm_ready(const wt_spm_t* spm)

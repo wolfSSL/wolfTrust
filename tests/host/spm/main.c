@@ -90,11 +90,39 @@ static void wt_test_null_context(void)
     EXPECT_RESULT(wt_spm_validation_result(NULL), WT_MANIFEST_ERROR_ARGUMENT);
 }
 
+static void wt_test_generated_manifest_binds_without_validator(void)
+{
+    const uint32_t supported_features = WT_MANIFEST_FEATURE_IPC;
+    const wt_system_manifest_t* manifest = wt_generated_manifest_get();
+    wt_system_manifest_t invalid = *manifest;
+    wt_spm_t spm;
+
+    EXPECT_RESULT(wt_spm_init_generated(&spm, manifest, supported_features),
+                  WT_SPM_VALID);
+    EXPECT_RESULT(wt_spm_ready(&spm), true);
+    EXPECT_RESULT(wt_spm_manifest(&spm) == manifest, true);
+    EXPECT_RESULT(wt_spm_validation_result(&spm), WT_MANIFEST_VALID);
+
+    EXPECT_RESULT(wt_spm_init_generated(&spm, NULL, supported_features),
+                  WT_SPM_ERROR_ARGUMENT);
+    EXPECT_RESULT(wt_spm_ready(&spm), false);
+    EXPECT_RESULT(wt_spm_init_generated(NULL, manifest, supported_features),
+                  WT_SPM_ERROR_ARGUMENT);
+
+    /* The public initializer keeps validating in a default build. */
+    invalid.format_version++;
+    EXPECT_RESULT(wt_spm_init(&spm, &invalid, supported_features,
+                              manifest->profile_capabilities),
+                  WT_SPM_ERROR_VALIDATION);
+    EXPECT_RESULT(wt_spm_ready(&spm), false);
+}
+
 int main(void)
 {
     wt_test_valid_generated_manifest();
     wt_test_invalid_manifest_fails_closed();
     wt_test_null_context();
+    wt_test_generated_manifest_binds_without_validator();
 
     if (g_failures != 0U) {
         (void)fprintf(stderr, "%u of %u SPM checks failed\n",

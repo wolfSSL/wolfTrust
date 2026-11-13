@@ -21,9 +21,10 @@ ROOT := ../../..
 CC ?= cc
 BUILD_DIR ?= build
 
-# These tests drive the boot-time validator, which default images leave out.
+# Built with the default WT_MANIFEST_RUNTIME_CHECK=0: wt_spm_init() must still
+# validate, and only wt_spm_init_generated() binds without it.
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
-    -DWT_MANIFEST_RUNTIME_CHECK=1 -I$(ROOT)/include $(EXTRA_CFLAGS)
+    -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
 
 SPM_TEST := $(BUILD_DIR)/test_spm

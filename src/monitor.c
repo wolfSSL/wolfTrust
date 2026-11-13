@@ -56,11 +56,13 @@ volatile uint32_t g_wt_quarantine_events;
 /* WT-FFM-0049 launch-verification outcome, one bit per guest. */
 volatile uint32_t g_wt_launch_verified_mask;
 volatile uint32_t g_wt_launch_refused_mask;
+#if WT_MAX_GUESTS > 1
 /* WT-SYS-0002: guests still awaiting their pre-first-dispatch re-measurement.
  * Boot verifies every guest up front, but a guest scheduled first can tamper a
  * peer's flash before the peer runs, so each guest is re-measured immediately
  * before its first dispatch. One bit per guest, cleared once re-measured. */
 volatile uint32_t g_wt_first_dispatch_pending;
+#endif
 /* Consecutive slice expiries the current guest spent in Non-secure Handler
  * mode, where it cannot be switched out; past the limit it is restarted. */
 #ifndef WT_GUEST_HANDLER_SLICE_LIMIT
@@ -335,6 +337,7 @@ static void wt_dispatch_guest(wt_guest_id_t guest_id)
         wt_platform_panic();
     }
 
+#if WT_MAX_GUESTS > 1
     /* WT-SYS-0002: re-measure a guest immediately before its first dispatch,
      * so a peer that tampered its flash after boot verification but before it
      * ran cannot launch an unverified image. On mismatch fault the guest and
@@ -347,6 +350,7 @@ static void wt_dispatch_guest(wt_guest_id_t guest_id)
             wt_schedule_next_guest();
         }
     }
+#endif
 
     /* Stop the departing guest's SysTick before replacing its memory
      * protection; a short residual period can otherwise fault in the
@@ -380,14 +384,18 @@ static void wt_dispatch_hsm_tasklet(wt_guest_id_t guest_id)
         wt_platform_panic();
     }
 
+#if WT_MAX_GUESTS > 1
     wt_apply_partition(guest_id);
+#endif
     g_scheduler.current_guest = guest_id;
     g_scheduler.current_rep = WT_SCHED_REP_HSM;
     wt_arch_start_secure_timer(config->timeslice_ms);
+#if WT_MAX_GUESTS > 1
     /* The tasklet completes back into this guest's NS thread via BXNS, not an
      * exception return, so its NS bank must be reinstated here or it resumes
      * on the previous guest's CONTROL_NS/MSP_NS. */
     wt_arch_restore_guest_bank(runtime->context);
+#endif
     (void)wt_tasklet_resume(tasklet);
 }
 #endif
@@ -598,10 +606,12 @@ void wt_monitor_init(void)
             g_wt_quarantine_events++;
         }
     }
+#if WT_MAX_GUESTS > 1
     /* Arm the pre-first-dispatch re-measurement for every guest; a faulted
      * guest is never dispatched, so its bit simply never fires. */
     g_wt_first_dispatch_pending = (count >= 32U) ? 0xFFFFFFFFu :
                                   (((uint32_t)1U << count) - 1U);
+#endif
 }
 
 void wt_monitor_start(void)
@@ -709,6 +719,7 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
     if (wt_handler_overrun(frame)) {
         return;
     }
+#if WT_MAX_GUESTS > 1
     /* Guests switch only in Thread mode, so the NS IRQ state stays one
      * guest's; a guest that returned to Thread with an IRQ still active is
      * not switched out holding it. */
@@ -719,7 +730,19 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
     }
     /* A system handler such a guest left active would hold off the peer's. */
     wt_arch_guest_drop_handler_active();
+#endif
     g_handler_slices = 0U;
+#if WT_MAX_GUESTS == 1
+    /* No peer to switch to: a running guest keeps the CPU. One quarantined
+     * since the last tick still leaves through the scheduler. */
+    if (g_scheduler.current_rep == WT_SCHED_REP_NS &&
+            wt_guest_runtime(g_scheduler.current_guest) != NULL &&
+            wt_guest_runtime(g_scheduler.current_guest)->state ==
+                WT_GUEST_RUNNING) {
+        wt_tick_restore_irq_enables();
+        return;
+    }
+#endif
     wt_save_running_guest(frame);
     wt_schedule_next_guest();
 }

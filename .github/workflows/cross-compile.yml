@@ -126,6 +126,22 @@ jobs:
             test "$linked" = "$check" || \
               { echo "WT_MANIFEST_RUNTIME_CHECK=$check linked=$linked" >&2; exit 1; }
           done
+      - name: Build every port's full-profile secure image (both engines)
+        run: |
+          flags="$(. tests/target/lib/profile.sh; scenario_profile_flags full)"
+          for target in stm32h563 mimxrt700 mcxn947; do
+            for engine in native hsm; do
+              # shellcheck disable=SC2086
+              make TARGET=$target WT_ENGINE=$engine $flags secure-image \
+                TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_full_${target}_$engine
+            done
+          done
+          if make WT_MAX_GUESTS=3 BUILD_DIR=build-guests-3 secure-image \
+              TOOLPREFIX=arm-none-eabi- 2> guests.err; then
+            echo 'FAIL: WT_MAX_GUESTS=3 built' >&2
+            exit 1
+          fi
+          grep -q 'unsupported WT_MAX_GUESTS' guests.err
       - name: Build the MIMXRT700 secure image (both engines, default layout)
         run: |
           for engine in native hsm; do

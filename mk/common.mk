@@ -21,7 +21,10 @@ BUILD_MODE_STAMP := $(BUILD_DIR)/secure_build_mode.stamp
 WOLFHSM_CFG_H := $(BUILD_DIR)/wolfhsm_cfg.h
 
 WT_TIMESLICE_MS ?= 2
-WT_MAX_GUESTS ?= 2
+WT_MAX_GUESTS ?= 1
+ifneq ($(words $(WT_MAX_GUESTS))/$(filter 1 2,$(WT_MAX_GUESTS)),1/$(WT_MAX_GUESTS))
+$(error unsupported WT_MAX_GUESTS='$(WT_MAX_GUESTS)' (want 1 or 2))
+endif
 # Per-tasklet coroutine stack. 10K measured with >=2K headroom: the M33MU
 # deep set (positive, devcrypto 78-test ECC, confboot 85/4) runs clean at
 # 8K with no PSPLIM overflow, so peak use is under 8K. The old 24K predated

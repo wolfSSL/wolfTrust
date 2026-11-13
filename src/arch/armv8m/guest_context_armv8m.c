@@ -74,7 +74,9 @@ static wt_guest_context_t g_return_context __attribute__((used));
 static uint32_t g_live_r4_r11[8] __attribute__((used));
 static uintptr_t g_live_exc_return __attribute__((used));
 static uint32_t g_systick_reload;
+#if WT_MAX_GUESTS > 1
 static uint64_t g_secure_wall_cycles;
+#endif
 static uintptr_t g_secure_entry_sp __attribute__((used));
 extern uint32_t _estack;
 /* Abandoned guest IRQs still active; only an exception return retires one. */
@@ -87,6 +89,7 @@ static volatile uint32_t g_active_guest;
 static void (*g_secure_thread_resume_entry)(void)
     __attribute__((noreturn, used));
 
+#if WT_MAX_GUESTS > 1
 typedef struct wt_virtual_systick {
     uint32_t csr;
     uint32_t rvr;
@@ -109,6 +112,11 @@ static volatile uint32_t g_arriving_systick_rvr;
 static volatile uint32_t g_arriving_systick_inject;
 
 #define WT_SYST_LATCH_MAX_POLLS 100000U
+#define WT_ASM_ARM_ARRIVING_SYSTICK "bl wt_virtual_systick_arm_arriving \n"
+#else
+/* One guest owns SysTick_NS outright: no virtual timer to save or replay. */
+#define WT_ASM_ARM_ARRIVING_SYSTICK ""
+#endif
 
 /* Secure FP is unsupported: retire any FP context the loader left active,
  * deny CP10/CP11 in both worlds, lock the FP stacking policy against
@@ -413,7 +421,7 @@ static void wt_exception_return_ns_msp(void)
         "msr control_ns, r1             \n"
         /* NS bank is now consistent: arm/inject the guest's SysTick here,
          * never earlier in the dispatch window. */
-        "bl wt_virtual_systick_arm_arriving \n"
+        WT_ASM_ARM_ARRIVING_SYSTICK
         "ldr r0, =g_return_context      \n"
         "ldmia r0, {r4-r11}             \n"
         "ldr lr, [r0, #" WT_ASM_STR(WT_GUEST_CONTEXT_EXC_RETURN_OFFSET) "] \n"
@@ -467,7 +475,7 @@ static void wt_jump_to_ns(uint32_t msp_ns __attribute__((unused)),
          * doesn't inherit a stale value from the previous guest. */
         "msr psplim_ns, r2  \n"
         "msr msplim_ns, r2  \n"
-        "bl wt_virtual_systick_arm_arriving \n"
+        WT_ASM_ARM_ARRIVING_SYSTICK
         "isb 0xF            \n"
         "bxns r4            \n"
     );
@@ -498,7 +506,9 @@ static const wt_trap_frame_t* wt_guest_frame_checked(
 
 static void wt_secure_systick_dispatch(const wt_trap_frame_t* frame)
 {
+#if WT_MAX_GUESTS > 1
     g_secure_wall_cycles += g_systick_reload;
+#endif
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     wt_spm_sched_hang_probe();
 #endif
@@ -576,6 +586,7 @@ static void wt_arm_secure_timer(void)
                   WT_SYST_CSR_ENABLE;
 }
 
+#if WT_MAX_GUESTS > 1
 static uint32_t wt_virtual_systick_period(const wt_virtual_systick_t* systick)
 {
     return (systick->rvr & 0x00FFFFFFu) + 1u;
@@ -637,6 +648,13 @@ static void wt_virtual_systick_save_departing(void)
     WT_SYST_NS_CSR = 0u;
     WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTCLR;
 }
+#else
+static void wt_virtual_systick_save_departing(void)
+{
+    WT_SYST_NS_CSR = 0u;
+    WT_SCB_ICSR_NS = WT_SCB_ICSR_PENDSTCLR;
+}
+#endif
 
 void wt_arch_wait_for_interrupt(void)
 {
@@ -650,6 +668,7 @@ void wt_arch_wait_for_interrupt(void)
                    :: "r"(primask) : "memory");
 }
 
+#if WT_MAX_GUESTS > 1
 static void wt_virtual_systick_account_elapsed(wt_virtual_systick_t* systick)
 {
     uint64_t elapsed;
@@ -831,6 +850,15 @@ static void wt_virtual_systick_reset(wt_guest_id_t guest_id)
     systick->coalesced_ticks = 0u;
     systick->max_owed_ticks = 0u;
 }
+#else
+static void wt_virtual_systick_reset(wt_guest_id_t guest_id)
+{
+    if (g_active_guest == guest_id) {
+        wt_virtual_systick_save_departing();
+        g_active_guest = UINT32_MAX;
+    }
+}
+#endif
 
 void wt_arch_guest_context_prepare(wt_guest_id_t guest_id,
                                       const wt_guest_context_t* context)
@@ -846,11 +874,20 @@ void wt_arch_guest_context_prepare(wt_guest_id_t guest_id,
     WT_SCB_VTOR_S = WT_FLASH_IMAGE_BASE;
     wt_dsb();
     wt_isb();
+#if WT_MAX_GUESTS > 1
     wt_virtual_systick_save_departing();
+#else
+    /* The one guest keeps its own timer; a fresh launch starts it stopped. */
+    if (g_active_guest != guest_id) {
+        wt_virtual_systick_save_departing();
+    }
+#endif
 
     WT_SCB_VTOR_NS = (uint32_t)context->vector_table_ns;
     g_active_guest = guest_id;
+#if WT_MAX_GUESTS > 1
     wt_virtual_systick_restore_arriving(guest_id);
+#endif
 }
 
 uintptr_t wt_arch_trap_pc(const wt_trap_frame_t* frame)
@@ -1013,9 +1050,11 @@ void wt_arch_zero_guest_memory(uintptr_t base, size_t size)
     if (base == WT_GUEST0_RAM_BASE && size >= WT_GUEST_RAM_SIZE) {
         wt_virtual_systick_reset(0u);
     }
+#if WT_MAX_GUESTS > 1
     else if (base == WT_GUEST1_RAM_BASE && size >= WT_GUEST_RAM_SIZE) {
         wt_virtual_systick_reset(1u);
     }
+#endif
 }
 
 uintptr_t wt_arch_read_fault_address(void)
@@ -1043,6 +1082,7 @@ bool wt_arch_guest_context_ready(const wt_guest_context_t* context)
  * not the exception-return path, so nothing else reinstates its NS bank — the
  * previous guest's CONTROL_NS/MSP_NS would leak in and the thread resumes on
  * the wrong stack. Mirrors wt_exception_return_ns_msp (MSPLIM_NS stays 0). */
+#if WT_MAX_GUESTS > 1
 void wt_arch_restore_guest_bank(const wt_guest_context_t* context)
 {
     uint32_t zero = 0u;
@@ -1059,6 +1099,7 @@ void wt_arch_restore_guest_bank(const wt_guest_context_t* context)
           "r"(context->psplim_ns), "r"(zero), "r"(context->control_ns));
     wt_restore_guest_masks(context);
 }
+#endif
 
 uint32_t wt_arch_active_guest_id(void)
 {

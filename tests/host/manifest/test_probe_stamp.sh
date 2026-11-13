@@ -77,6 +77,16 @@ gen
 if cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
 check $st "dropping WT_VNET_TIMEOUT_TICKS restores the default stamp"
 
+if grep -q '^WT_MAX_GUESTS=1$' "$build/default.stamp"; then st=0; else st=1; fi
+check $st "default stamp records the one-guest image"
+gen WT_MAX_GUESTS=2
+if grep -q '^WT_MAX_GUESTS=2$' "$stamp" &&
+   ! cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
+check $st "WT_MAX_GUESTS=2 invalidates the stamp"
+gen
+if cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
+check $st "dropping WT_MAX_GUESTS restores the default stamp"
+
 echo "probe build stamp tests: $checks checks, $failures failures"
 if [ "$failures" -eq 0 ]; then
     echo "PASS: probe_build_stamp"

@@ -137,8 +137,9 @@ PORTS = {
             ("restartidle", "One-guest restart budget and idle backoff"),
             ("crossdomain keystoreneg periphspneg",
              "SP domain and SPM peripheral isolation, one guest (L3)"),
-            ("deputyneg hsmpinneg hsmfaultneg",
-             "Keystore deputy, wolfHSM pin and tasklet fault, one guest (L3)"),
+            ("deputyneg", "Keystore deputy refused, one guest (L3)"),
+            ("hsmpinneg hsmfaultneg",
+             "wolfHSM pin and tasklet fault, one guest (L3)"),
             ("bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6",
              "Partition band-to-band isolation, one guest (L3)"),
             ("restartneg1 restartneg2 restartneg3",
@@ -453,7 +454,7 @@ def selftest():
     for port in sorted(PORTS):
         for tier in ("smoke", "full"):
             for e in entries(port, tier, None):
-                if e["engine"] == "native" and all(
+                if e["engine"] == "native" and any(
                         s in HSM_ONLY for s in e["key"].split()):
                     return "native job for the hsm-only %s" % e["key"]
                 if e["engine"] not in ENGINES or e["image"] == "":

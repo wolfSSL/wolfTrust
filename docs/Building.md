@@ -44,8 +44,9 @@ variable, alone or together:
 make WT_MAX_GUESTS=2 secure-image              # a second Non-secure guest
 make WT_FWU=1 secure-image                     # PSA Firmware Update
 make WT_MANIFEST_RUNTIME_CHECK=1 secure-image  # boot-time manifest check
+make WT_SHA256_FAST=1 secure-image             # unrolled SHA-256 transform
 make WT_ENGINE=hsm secure-image                # the wolfHSM engine
-make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 secure-image  # full profile
+make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image  # full profile
 ```
 
 [Macros](Macros.md#build-profiles) lists what each add-on brings back and its

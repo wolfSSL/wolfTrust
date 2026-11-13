@@ -15,16 +15,17 @@ None of them changes the isolation level.
 Costs are over the default image, built with Arm GNU 15.2.1 in
 `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO and read with
 `arm-none-eabi-size`: flash is `text + data` and static RAM is `data + bss`.
-The default native images are 81,884 bytes of flash and 27,368 bytes of RAM
-on the STM32H563, and 81,424 and 27,528 bytes on the STM32L562.
+The default native images are 78,844 bytes of flash and 27,368 bytes of RAM
+on the STM32H563, and 78,384 and 27,528 bytes on the STM32L562.
 
 | Option | Brings back | STM32H563 flash / RAM | STM32L562 flash / RAM | Enable |
 | --- | --- | ---: | ---: | --- |
-| [`WT_MAX_GUESTS=2`](#wt_max_guests-a-second-guest) | A second Non-secure image and the scheduling that shares the core between two | +2,424 / +584 | +2,392 / +580 | `make WT_MAX_GUESTS=2 secure-image` |
+| [`WT_MAX_GUESTS=2`](#wt_max_guests-a-second-guest) | A second Non-secure image and the scheduling that shares the core between two | +2,392 / +584 | +2,392 / +580 | `make WT_MAX_GUESTS=2 secure-image` |
 | [`WT_FWU=1`](#wt_fwu-psa-firmware-update) | The PSA Firmware Update service and its 8 KiB stack band | +3,232 / +36 | +3,296 / +40 | `make WT_FWU=1 secure-image` |
-| [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator | +3,296 / 0 | +3,264 / 0 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
-| [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +28,444 / +22,348 | not supported | `make WT_ENGINE=hsm secure-image` |
-| `full` profile | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1` together | +8,984 / +616 | +9,080 / +620 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 secure-image` |
+| [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator | +3,264 / 0 | +3,264 / 0 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
+| [`WT_SHA256_FAST=1`](#wt_sha256_fast-unrolled-sha-256) | The unrolled Thumb-2 SHA-256 transform, faster hashing for boot and guest measurement | +1,472 / 0 | +1,472 / 0 | `make WT_SHA256_FAST=1 secure-image` |
+| [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +29,820 / +22,348 | not supported | `make WT_ENGINE=hsm secure-image` |
+| `full` profile | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` together | +10,456 / +616 | +10,520 / +620 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image` |
 
 The RAM figures leave out the 8 KiB FWU stack band, which the
 level 3 layout reserves only when `WT_FWU=1`. The engine is a separate axis:
@@ -48,7 +49,7 @@ default to `full`.
   also adds a second server tasklet and its 10 KiB stack. One guest keeps the
   restart policy, launch verification, the Secure tick and the Secure
   Partition scheduler.
-- Cost: STM32H563 native +2,424 bytes flash and +584 bytes RAM, wolfHSM
+- Cost: STM32H563 native +2,392 bytes flash and +584 bytes RAM, wolfHSM
   +2,744 and +17,388; STM32L562 native +2,392 and +580.
 - Enable: `make WT_MAX_GUESTS=2 secure-image`
 - CI: the cross-compile job builds the `full` profile for every port and
@@ -71,7 +72,7 @@ default to `full`.
   Anti-rollback enforcement at boot stays in every image.
   `WT_BOOTUPDATE_PROBE=1` needs `WT_FWU=1`.
 - Cost: STM32H563 native +3,232 bytes flash and +36 bytes RAM, wolfHSM
-  +3,232 and +36; STM32L562 native +3,296 and +40. Each also reserves the
+  +3,200 and +36; STM32L562 native +3,296 and +40. Each also reserves the
   8,192-byte stack band.
 - Enable: `make WT_FWU=1 secure-image`
 - CI: the cross-compile `full` profile build for every port and engine. The
@@ -92,8 +93,8 @@ default to `full`.
   `wt_manifest_validate()`, `wt_partitions_bind_manifest()` runs
   `wt_partition_validate_port_binding()`, and the monitor runs
   `wt_partition_validate_profile()` for each guest.
-- Cost: flash only, RAM does not change. STM32H563 +3,296 bytes native and
-  wolfHSM; STM32L562 native +3,264.
+- Cost: flash only, RAM does not change. STM32H563 +3,264 bytes native and
+  +3,296 wolfHSM; STM32L562 native +3,264.
 - Enable: `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image`
 - CI: the cross-compile job builds every port and engine with it and checks
   that only the opt-in image links `wt_manifest_validate`. The `manifestneg`
@@ -101,13 +102,29 @@ default to `full`.
   on, and the M33MU `full` profile runs every scenario with it.
   `tests/host/manifest_ports` runs the validator over every port manifest.
 
+### `WT_SHA256_FAST`: unrolled SHA-256
+
+- Default `0`, which builds wolfCrypt's looped Thumb-2 SHA-256 transform
+  (`WOLFSSL_ARMASM_SHA256_SMALL`), the counterpart of TF-M's
+  `MBEDTLS_SHA256_SMALLER` in its Medium crypto profile. `1` builds the fully
+  unrolled transform, which hashes faster. Any other value stops the build.
+- SHA-256 runs at boot over each guest image (launch verification), in every
+  attestation token and in the PSA hash service, so `1` shortens those paths;
+  nothing else changes.
+- Cost: flash only, +1,472 bytes on every port and engine.
+- Enable: `make WT_SHA256_FAST=1 secure-image`
+- CI: the `full` profile sets it, so the cross-compile job builds it for every
+  port and engine and the M33MU `full` profile runs every scenario on the
+  unrolled transform; the `default` profile runs them on the looped one.
+
 ### `WT_ENGINE=hsm`: the wolfHSM engine
 
 - Default `native`, which runs wolfCrypt directly behind `SERVICE_HSM`.
   `hsm` links the wolfHSM server instead, with server-keystore semantics and
   an external-HSM offload path. The FF-M surface does not change.
-- Cost: STM32H563 +28,444 bytes flash and +22,348 bytes RAM over the native
-  default. The STM32L562 builds the native engine only; its 256 KiB of SRAM
+- Cost: STM32H563 +29,820 bytes flash and +22,348 bytes RAM over the native
+  default. Part of it is AES block decryption, which the wolfHSM server
+  serves to clients and the native engine leaves out. The STM32L562 builds the native engine only; its 256 KiB of SRAM
   does not hold the wolfHSM bands.
 - Enable: `make WT_ENGINE=hsm secure-image` (guests must use the same
   engine).
@@ -145,7 +162,7 @@ default to `full`.
 | `WT_ENGINE_HSM` | Legacy engine selector; unset by default. `0` maps to `WT_ENGINE=native` and `1` maps to `WT_ENGINE=hsm` when the public selector is not supplied. The build also derives this internal value from `WT_ENGINE`. | Prefer `WT_ENGINE` for new builds and do not supply conflicting selectors. The guest and Secure image must select the same engine. |
 | `WT_ATTEST_COSE` | Must remain `1` in the current STM32H563 reference build; default `1`. The `0` configuration does not compile because the reset path still references attestation-gated handoff variables. | Requires the wolfCOSE submodule and the configured attestation key backend. |
 | `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `1`. | Requires compatible Armv8-M assembly sources and toolchain. |
-| `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `1`. | Requires a compatible GNU Arm toolchain. |
+| `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `1`. | Requires a compatible GNU Arm toolchain. [`WT_SHA256_FAST`](#wt_sha256_fast-unrolled-sha-256) picks the SHA-256 transform it builds. |
 | `WT_WOLFCRYPT_STM32_HASH` | STM32 HASH acceleration selector; default `0`. | Must remain `0`: the Makefile rejects other values because wolfHSM SHA state is not compatible with the peripheral representation. |
 | `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | Use only for conformance builds; the default production manifest is selected at `0`. |
 
@@ -190,6 +207,8 @@ command-line option.
 | `WOLFSSL_NO_MALLOC` | Rejects accidental dynamic allocation paths. | Fixed for the Secure image; Secure code must use static or stack storage. |
 | `HAVE_ECC` | Enables the configured ECC implementation. | The reference image uses P-256 operations. |
 | `HAVE_AESGCM` | Enables AES-GCM. | Required by Protected Storage sealing. |
+| `NO_ASN` | Native engine only: drops wolfCrypt ASN.1. | The native engine signs, verifies and imports keys in raw form; the wolfHSM server keeps ASN for its DER keystore. |
+| `NO_AES_DECRYPT`, `HAVE_AESGCM_DECRYPT` | Native engine only: drop the AES inverse key schedule and decrypt tables but keep `wc_AesGcmDecrypt`. | Native AES is GCM only, which runs the block cipher forward for both seal and unseal. |
 | `HAVE_HKDF` | Enables HKDF. | Required by linked wolfHSM/wolfCrypt code paths. |
 | `HAVE_HASHDRBG` | Enables the HashDRBG. | Requires the target `CUSTOM_RAND_GENERATE_BLOCK` entropy callback. |
 | `NO_RSA` | Excludes RSA from the Secure profile. | Fixed for the reference image. |

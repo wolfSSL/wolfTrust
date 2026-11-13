@@ -31,8 +31,8 @@ Small, Medium, and Large profiles built for AN521.
 On one board with one compiler (STM32L562E-DK, Arm GNU 15.2.1), the TF-M
 v2.3.1 level 3 `tfm_s` image is 79,680 bytes of flash and 45,728 bytes of
 static RAM. The wolfTrust native default image for the same board, also at
-level 3 with one Non-secure image, is 81,424 bytes of flash and 27,528 bytes
-of static RAM.
+level 3 with one Non-secure image, is 78,384 bytes of flash and 27,528 bytes
+of static RAM: 1,296 bytes less flash and 18,200 bytes less static RAM.
 
 In these builds, native wolfTrust uses about 25% less flash than TF-M Large
 and less static RAM than TF-M Medium while also including firmware update.

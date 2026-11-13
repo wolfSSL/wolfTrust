@@ -97,7 +97,7 @@ Examples:
 
 ```sh
 make WT_TIMESLICE_MS=5
-make WT_MAX_GUESTS=1
+make WT_MAX_GUESTS=2
 make BUILD_DIR=build-wrp WT_GUEST_FLASH_WRP=1
 make CONFIG_VNET=y
 ```
@@ -125,9 +125,12 @@ make BUILD_DIR=build-no-lto WT_LTO=0 size-report
 Record the LTO setting with published size results. The locally measured TF-M
 v2.1.1 comparison builds did not use LTO.
 
-Changing guest count, addresses, or sizes also requires matching manifest,
-guest linker, emulator-load, flash, and measurement-record settings. See
-[Macros](Macros.md) for the supported values and constraints.
+The default image runs one guest; `WT_MAX_GUESTS=2` adds the second guest the
+reference two-guest demos use (their firmware Makefiles pass it). Changing
+guest addresses or sizes also requires matching manifest, guest linker,
+emulator-load, flash, and measurement-record settings. See
+[Macros](Macros.md) for the supported values, the build profiles, and what
+each add-on costs.
 
 ## Reference guests
 

@@ -49,7 +49,10 @@ The `select` job fans out into one check per scenario group and engine,
 rendered wolfBoot-style as `M33MU / <device>_<scenario>_<engine>` (for
 example `M33MU / stm32h563_confboot_native`). The scenario groups per port
 and tier live in `tests/target/lib/scenario_matrix.py`, which `make
-test-target` also reads. The table below is a representative slice:
+test-target` also reads. Every group also runs on a build profile: jobs on
+the lean `default` image carry `_default` before the engine (for example
+`stm32h563_positive_default_native`), jobs without it build the `full`
+profile. The table below is a representative slice:
 
 | Check name | Scenario key | What it proves |
 |------------|--------------|----------------|

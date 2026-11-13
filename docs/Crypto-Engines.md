@@ -263,8 +263,9 @@ included.
 
 ### Stack contribution
 
-With the default `WT_MAX_GUESTS=2`, the wolfHSM engine adds one server tasklet
-stack slot per guest:
+The wolfHSM engine adds one server tasklet stack slot per guest. With
+`WT_MAX_GUESTS=2` (the `full` profile; the default image has one guest and one
+slot):
 
 ```text
 2 * (10,240-byte stack + 256-byte underflow guard) = 20,992 bytes

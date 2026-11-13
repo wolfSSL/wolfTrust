@@ -4,6 +4,45 @@ The STM32H563 build is configured through GNU Make variables. The build turns
 selected values into C preprocessor defines. Defaults below come from
 `mk/target-stm32h563.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk`.
 
+## Build profiles
+
+`make` with no options builds the lean default image: isolation level 3, one
+guest, and only the services every level 3 deployment needs. Each add-on
+below turns one feature back on. CI builds and runs both profiles:
+
+| Profile | Options | Used for |
+| --- | --- | --- |
+| `default` | none | The shipping image; the level 3 scenarios and the one-guest lifecycle run on it. |
+| `full` | `WT_MAX_GUESTS=2` | Every add-on on; the two-guest scenarios and the level 3 scenarios run on it. |
+
+`tests/target/lib/profile.sh` holds the profile flags. A target run picks one
+with `WT_PROFILE` (`make test-target WT_PROFILE=default`).
+
+## Add-on options
+
+### `WT_MAX_GUESTS`: a second guest
+
+- Default `1`. `2` builds a second Non-secure guest (guest-b) beside the
+  first; any other value stops the build.
+- `2` adds back what only two guests need: the virtual SysTick that time
+  shares SysTick_NS between the guests, the SAU, Non-secure MPU and IRQ
+  reprogramming on every guest switch, the full context save and reschedule
+  on each Secure tick, the re-measurement of a guest right before its first
+  dispatch (a peer could have rewritten it), and with the wolfHSM engine a
+  second server tasklet and its 10 KiB stack. One guest keeps the restart
+  policy, launch verification, the Secure tick and the Secure Partition
+  scheduler.
+- Cost, Arm GNU 15.2.1 (`ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`), flash
+  is `text + data` and static RAM is `data + bss`:
+
+  | Image | Flash | Static RAM |
+  | --- | ---: | ---: |
+  | STM32H563, native | +2,426 bytes | +580 bytes |
+  | STM32H563, `WT_ENGINE=hsm` | +2,778 bytes | +17,384 bytes |
+  | STM32L562, native | +2,426 bytes | +580 bytes |
+
+- Enable: `make WT_MAX_GUESTS=2 secure-image`
+
 ## Build selection
 
 | Define | Description | Requirement |
@@ -19,7 +58,7 @@ selected values into C preprocessor defines. Defaults below come from
 
 | Define | Description | Requirement |
 | --- | --- | --- |
-| `WT_MAX_GUESTS` | Selects one or two compiled STM32H563 guest contexts; default `2`. | The current port supports only `1` or `2`. Larger values require extending the partition tables and matching manifest, linker, emulator, flash, and measurement configuration. |
+| `WT_MAX_GUESTS` | Compiled guest contexts; default `1`, `2` adds guest-b (see [`WT_MAX_GUESTS`](#wt_max_guests-a-second-guest)). | Only `1` or `2`; any other value stops the build. The manifest keeps guest-b's domain declared either way. |
 | `WT_TIMESLICE_MS` | Guest scheduler interval in milliseconds; default `2`. | Must be nonzero and supported by the target timer. |
 | `WT_GUEST_HANDLER_SLICE_LIMIT` | Consecutive slice expiries a guest may spend in a Non-secure handler before it is restarted (Secure calls made from that handler count); default `50`. A C define, not a Make variable: set it with `WT_EXTRA_CFLAGS=-DWT_GUEST_HANDLER_SLICE_LIMIT=<n>`. | Must be 1 to `0xFFFFFFFF` (other values fail the build); size it above the longest legitimate guest interrupt handler. |
 | `WT_CO_STACK_SIZE` | Default fixed coroutine stack size in bytes, including each per-guest wolfHSM server tasklet in the hsm engine; default `10240` (measured: the deep M33MU workloads pass at 8K with PSPLIM overflow detection armed, so 10K carries at least 2K margin). With two guests, the hsm-only server slots total 20,480 stack bytes plus 512 guard bytes. Manifest-sized Secure Partition stacks use their declared sizes instead. | Size from measured stack high-water marks and keep at least the scheduler minimum. |

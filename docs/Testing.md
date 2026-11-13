@@ -118,7 +118,11 @@ WT_ENGINE=hsm make test-target
 
 It runs the port's smoke tier (STM32H563: `positive`, `gtzcneg`,
 `crossdomain`, `bothpsa`, `confboot`, `devcrypto`; `WT_TIER=full` runs every
-scenario). Detection accepts `m33mu` on
+scenario) on the `full` build profile. `WT_PROFILE=default` runs the lean
+default image instead: the one-guest `positive`, `restartidle` and the level 3
+scenarios (see [Build profiles](Macros.md#build-profiles)). Each scenario's
+profiles are recorded in `tests/target/lib/scenario_matrix.py`; the two-guest,
+conformance and update scenarios run only on `full`. Detection accepts `m33mu` on
 `PATH` or a path in `M33MU`. If the emulator is unavailable,
 the target reports a skip rather than a pass.
 
@@ -134,9 +138,9 @@ authenticated-boot failure, rollback, runtime remeasurement, Secure Partition
 recovery, key and vault isolation, storage recovery, attestation negatives,
 firmware update, manifest rejection, GTZC behavior, and VNET paths.
 
-`restartidle` runs the STM32H563 recovery check with `WT_MAX_GUESTS=1`. It
-requires every allowed relaunch and the final terminal verdict. The full tier
-runs it with both crypto engines.
+`restartidle` runs the recovery check on the one-guest default image. It
+requires every allowed relaunch and the final terminal verdict (BKPT 0x7d,
+no guest left). The full tier runs it with both crypto engines on every port.
 It also runs `tests/target/test_systick_idle.sh`, which executes the production
 Armv8-M timer code with modeled Non-secure timer registers and real Secure
 SysTick interrupts. The check covers timer configuration and pending-tick
@@ -612,9 +616,12 @@ on a pull request only with their own label (`ci:rt700`, `ci:mcxn947`),
 `ci:all`, or `ci:m33mu`. The full matrix runs on a push to `main`, on the
 nightly schedule, on manual dispatch (with a `port` input), and on a pull
 request that carries the `ci:h5`, `ci:rt700`, `ci:mcxn947`, `ci:all`, or
-`ci:m33mu` label. The scenario groups per port and tier
-are in `tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>`
-runs the same smoke tier locally and `WT_TIER=full` every scenario.
+`ci:m33mu` label. Every tier runs on both build profiles: the level 3 bar
+(`l3_gaps()` in the matrix selftest) must hold on `default` and on `full`.
+The scenario groups per port, tier and profile are in
+`tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>` runs
+the same smoke tier locally, `WT_TIER=full` every scenario, and
+`WT_PROFILE=default` the lean image's set.
 
 ### Running M33MU off a pull request
 

@@ -88,6 +88,14 @@ key-vault domain and temporary plaintext key buffers are zeroized after use.
 The attestation IAK is a separate fixed vault object used only by the
 attestation path.
 
+The native engine builds wolfCrypt with `NO_ASN` and does not compile
+`asn.c`. Its key operations use only raw forms (P-256 scalars, X9.63 public
+points, and fixed-width `r || s` signatures), which a `NO_ASN` wolfCrypt signs
+and verifies directly, so ASN.1 would be dead code. The wolfHSM engine keeps
+ASN because its server stores keys as DER. Attestation signs only through
+wolfCOSE's external signer, so both engines build wolfCOSE with
+`WOLFCOSE_NO_LOCAL_SIGN`.
+
 ### Native request format
 
 One request is a 24-byte `wt_crypto_wire_req_t` followed by an optional

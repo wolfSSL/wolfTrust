@@ -53,6 +53,7 @@
 #define NO_PWDBASED
 #define NO_PKCS7
 #define NO_ASN_TIME
+#define NO_ASN
 
 #define WOLFSSL_USE_ALIGN
 #define WOLFSSL_IGNORE_FILE_WARN

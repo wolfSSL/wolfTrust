@@ -197,6 +197,12 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
 #define NO_CODING       /* base-64 encode/decode not needed                */
 #define NO_ASN_TIME     /* no RTC on secure side                           */
 
+/* The native engine signs and verifies raw r||s and imports raw keys, so it
+ * links no ASN.1; the hsm engine's wolfHSM server stores keys as DER. */
+#ifdef WT_ENGINE_NATIVE
+#define NO_ASN
+#endif
+
 /* -------------------------------------------------------------------------
  * Explicitly keep side-channel hardening ON (WC_NO_HARDEN is left
  * undefined).  The constant-time ECC ladder costs a few extra cycles but

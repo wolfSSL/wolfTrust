@@ -21,11 +21,11 @@ the STM32L562 port, which is under review and not yet in this tree).
 
 | Option | Brings back | STM32H563 flash / RAM | STM32L562 flash / RAM | Enable |
 | --- | --- | ---: | ---: | --- |
-| [`WT_MAX_GUESTS=2`](#wt_max_guests-a-second-guest) | A second Non-secure image and the scheduling that shares the core between two | +2,392 / +584 | +2,392 / +580 | `make WT_MAX_GUESTS=2 secure-image` |
-| [`WT_FWU=1`](#wt_fwu-psa-firmware-update) | The PSA Firmware Update service and its 8 KiB stack band | +3,232 / +36 | +3,296 / +40 | `make WT_FWU=1 secure-image` |
-| [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator | +3,264 / 0 | +3,264 / 0 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
-| [`WT_SHA256_FAST=1`](#wt_sha256_fast-unrolled-sha-256) | The unrolled Thumb-2 SHA-256 transform, faster hashing for boot and guest measurement | +1,472 / 0 | +1,472 / 0 | `make WT_SHA256_FAST=1 secure-image` |
-| [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +29,820 / +22,348 | not supported | `make WT_ENGINE=hsm secure-image` |
+| [`WT_MAX_GUESTS=2`](#wt_max_guests-a-second-guest) | A second Non-secure image and the scheduling that shares the core between two | +2,392 / +584 | +2,360 / +580 | `make WT_MAX_GUESTS=2 secure-image` |
+| [`WT_FWU=1`](#wt_fwu-psa-firmware-update) | The PSA Firmware Update service and its 8 KiB stack band | +3,200 / +36 | +3,296 / +40 | `make WT_FWU=1 secure-image` |
+| [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator | +3,264 / 0 | +3,232 / 0 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
+| [`WT_SHA256_FAST=1`](#wt_sha256_fast-unrolled-sha-256) | The unrolled Thumb-2 SHA-256 transform, faster hashing for boot and guest measurement | +1,472 / 0 | +1,440 / 0 | `make WT_SHA256_FAST=1 secure-image` |
+| [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +29,788 / +22,348 | not supported | `make WT_ENGINE=hsm secure-image` |
 | `full` profile | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` together | +10,456 / +616 | +10,520 / +620 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image` |
 
 The RAM figures leave out the 8 KiB FWU stack band, which the
@@ -51,7 +51,7 @@ build `full` only, because their checks assert both guests.
   restart policy, launch verification, the Secure tick and the Secure
   Partition scheduler.
 - Cost: STM32H563 native +2,392 bytes flash and +584 bytes RAM, wolfHSM
-  +2,744 and +17,388; STM32L562 native +2,392 and +580.
+  +2,776 and +17,388; STM32L562 native +2,360 and +580.
 - Enable: `make WT_MAX_GUESTS=2 secure-image`
 - CI: the cross-compile job builds the `full` profile for every port and
   engine and checks that `WT_MAX_GUESTS=3` stops the build. The M33MU `full`
@@ -72,8 +72,8 @@ build `full` only, because their checks assert both guests.
   exist and a connect to SID `0x1005` is refused like any unknown service.
   Anti-rollback enforcement at boot stays in every image.
   `WT_BOOTUPDATE_PROBE=1` needs `WT_FWU=1`.
-- Cost: STM32H563 native +3,232 bytes flash and +36 bytes RAM, wolfHSM
-  +3,200 and +36; STM32L562 native +3,296 and +40. Each also reserves the
+- Cost: STM32H563 native +3,200 bytes flash and +36 bytes RAM, wolfHSM
+  +3,232 and +36; STM32L562 native +3,296 and +40. Each also reserves the
   8,192-byte stack band.
 - Enable: `make WT_FWU=1 secure-image`
 - CI: the cross-compile `full` profile build for every port and engine. The
@@ -95,7 +95,7 @@ build `full` only, because their checks assert both guests.
   `wt_partition_validate_port_binding()`, and the monitor runs
   `wt_partition_validate_profile()` for each guest.
 - Cost: flash only, RAM does not change. STM32H563 +3,264 bytes native and
-  +3,296 wolfHSM; STM32L562 native +3,264.
+  +3,328 wolfHSM; STM32L562 native +3,232.
 - Enable: `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image`
 - CI: the cross-compile job builds every port and engine with it and checks
   that only the opt-in image links `wt_manifest_validate`. The `manifestneg`
@@ -112,7 +112,8 @@ build `full` only, because their checks assert both guests.
 - SHA-256 runs at boot over each guest image (launch verification), in every
   attestation token and in the PSA hash service, so `1` shortens those paths;
   nothing else changes.
-- Cost: flash only, +1,472 bytes on every port and engine.
+- Cost: flash only. STM32H563 +1,472 bytes on both engines; STM32L562
+  native +1,440.
 - Enable: `make WT_SHA256_FAST=1 secure-image`
 - CI: the `full` profile sets it, so the cross-compile job builds it for every
   port and engine and the M33MU `full` profile runs every scenario on the
@@ -123,7 +124,7 @@ build `full` only, because their checks assert both guests.
 - Default `native`, which runs wolfCrypt directly behind `SERVICE_HSM`.
   `hsm` links the wolfHSM server instead, with server-keystore semantics and
   an external-HSM offload path. The FF-M surface does not change.
-- Cost: STM32H563 +29,820 bytes flash and +22,348 bytes RAM over the native
+- Cost: STM32H563 +29,788 bytes flash and +22,348 bytes RAM over the native
   default. Part of it is AES block decryption, which the wolfHSM server
   serves to clients and the native engine leaves out. The STM32L562 builds the native engine only; its 256 KiB of SRAM
   does not hold the wolfHSM bands.

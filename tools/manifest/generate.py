@@ -1049,6 +1049,30 @@ def generate_partition_header(partition):
     return file_name, "\n".join(lines)
 
 
+def exclude_partitions(manifest, names):
+    """Drop each named partition and its Secure Partition domain, so an
+    add-on left out of the build leaves no domain, SID or PID behind."""
+    for name in names:
+        matches = [part for part in manifest["partitions"]
+                   if part["name"] == name]
+        if len(matches) != 1:
+            policy_error("excluded partition {} is not in the manifest".format(
+                name))
+        part = matches[0]
+        if any(other["domain_id"] == part["domain_id"]
+               for other in manifest["partitions"] if other is not part):
+            policy_error("excluded partition {} shares its domain".format(
+                name))
+        sids = {service["sid"] for service in part["services"]}
+        if any(sids.intersection(other["dependencies"])
+               for other in manifest["partitions"] if other is not part):
+            policy_error("a partition depends on excluded {}".format(name))
+        manifest["partitions"] = [other for other in manifest["partitions"]
+                                  if other is not part]
+        manifest["domains"] = [domain for domain in manifest["domains"]
+                               if domain["id"] != part["domain_id"]]
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input", type=Path)
@@ -1076,6 +1100,9 @@ def main():
     parser.add_argument("--ffm-max-services",
                         type=lambda value: int(value, 0))
     parser.add_argument("--ffm-ipc-only", action="store_true")
+    parser.add_argument("--exclude-partition", action="append", default=[],
+                        metavar="NAME",
+                        help="leave this partition and its domain out")
     args = parser.parse_args()
     platform_values = (args.platform_capabilities, args.platform_max_domains,
                        args.platform_max_memory_resources,
@@ -1106,6 +1133,11 @@ def main():
                               object_pairs_hook=reject_duplicate_keys)
         word_max = (1 << int(args.address_bits)) - 1
         validate(manifest, MANIFEST_SCHEMA, "manifest", word_max)
+        if args.exclude_partition:
+            exclude_partitions(manifest, args.exclude_partition)
+            # The digest covers the manifest the image is built from.
+            input_bytes = json.dumps(manifest, sort_keys=True,
+                                     separators=(",", ":")).encode("utf-8")
         validate_policy(manifest, args.supported_features, word_max,
                         args.supported_framework_version, args.mpu_granule,
                         platform, ffm_limits)

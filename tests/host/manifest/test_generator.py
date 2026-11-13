@@ -38,11 +38,12 @@ H5_MANIFEST = ROOT / "port" / "stm32h563" / "manifest.json"
 
 
 class GeneratorTest(unittest.TestCase):
-    def run_generator(self, source, output, supported_features="0x5"):
+    def run_generator(self, source, output, supported_features="0x5",
+                      extra=()):
         return subprocess.run(
             [sys.executable, str(GENERATOR), str(source), str(output),
              "--supported-features", supported_features,
-             "--address-bits", "32"],
+             "--address-bits", "32"] + list(extra),
             check=False, capture_output=True, text=True)
 
     def compile_generated(self, output, executable):
@@ -194,6 +195,55 @@ class GeneratorTest(unittest.TestCase):
             self.assertIn("#define SERVICE_BETA_SIGNAL 16U", beta)
             self.assertIn("#define BETA_IRQ_SIGNAL 32U", beta)
             print("PASS: WT-FFM-0004 generated PSA headers")
+
+    def test_excluded_partition_leaves_no_symbols(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "leaf.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["partitions"][0]["dependencies"] = []
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+            full = root / "full"
+            lean = root / "lean"
+            self.assertEqual(self.run_generator(source, full).returncode, 0)
+            result = self.run_generator(
+                source, lean, extra=("--exclude-partition", "PARTITION_BETA"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            pid = (lean / "psa_manifest" / "pid.h").read_text(encoding="utf-8")
+            sid = (lean / "psa_manifest" / "sid.h").read_text(encoding="utf-8")
+            self.assertIn("#define PARTITION_ALPHA_ID 1", pid)
+            self.assertNotIn("PARTITION_BETA", pid)
+            self.assertNotIn("SERVICE_BETA", sid)
+            self.assertFalse((lean / "psa_manifest" /
+                              "partition_beta.h").exists())
+            del manifest["partitions"][1]
+            manifest["domains"] = [domain for domain in manifest["domains"]
+                                   if domain["id"] != 2]
+            digest = hashlib.sha256(json.dumps(
+                manifest, sort_keys=True,
+                separators=(",", ":")).encode("utf-8")).hexdigest()
+            lean_c = (lean / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            full_c = (full / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            self.assertIn("SHA-256: " + digest, lean_c)
+            self.assertNotIn("SHA-256: " + digest, full_c)
+            print("PASS: WT-FFM-0004 excluded partition leaves no domain, "
+                  "SID or PID and the digest covers the filtered manifest")
+
+    def test_excluding_a_dependency_or_unknown_partition_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for name, message in (
+                    ("PARTITION_BETA", "depends on excluded PARTITION_BETA"),
+                    ("PARTITION_GAMMA",
+                     "PARTITION_GAMMA is not in the manifest")):
+                output = root / name
+                result = self.run_generator(
+                    FIXTURE, output, extra=("--exclude-partition", name))
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(output.exists())
 
     def test_sfn_zero_signal_is_accepted(self):
         with tempfile.TemporaryDirectory() as temporary:

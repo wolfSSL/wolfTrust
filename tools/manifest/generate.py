@@ -1093,11 +1093,17 @@ def check_stacks(manifest, stacks):
         return
     layout = {}
     for item in stacks:
-        name, _, extent = item.partition("=")
-        base, _, size = extent.partition(":")
+        name, equals, extent = item.partition("=")
+        base, colon, size = extent.partition(":")
+        try:
+            value = (int(base, 0), int(size, 0))
+        except ValueError:
+            value = None
+        if not name or not equals or not colon or value is None:
+            policy_error("--stack {!r} is not NAME=BASE:SIZE".format(item))
         if name in layout:
             policy_error("{} has more than one layout stack".format(name))
-        layout[name] = (int(base, 0), int(size, 0))
+        layout[name] = value
     domains = {domain["id"]: domain for domain in manifest["domains"]}
     for part in manifest["partitions"]:
         name = part["name"]

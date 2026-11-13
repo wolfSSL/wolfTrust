@@ -293,6 +293,16 @@ class GeneratorTest(unittest.TestCase):
                                stacks["PARTITION_BETA"]),
                  "PARTITION_ALPHA has more than one layout stack"),
             )
+            for index, item in enumerate(("PARTITION_ALPHA",
+                                          "PARTITION_ALPHA=0x7800",
+                                          "=0x7800:0x400",
+                                          "PARTITION_ALPHA=base:0x400",
+                                          "PARTITION_ALPHA=0x7800:size")):
+                result = run("malformed%d" % index, item,
+                             stacks["PARTITION_BETA"])
+                self.assertNotEqual(result.returncode, 0, item)
+                self.assertIn("is not NAME=BASE:SIZE", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
             for name, items, message in cases:
                 result = run(name, *items)
                 self.assertNotEqual(result.returncode, 0, name)

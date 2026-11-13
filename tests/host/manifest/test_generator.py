@@ -216,6 +216,19 @@ class GeneratorTest(unittest.TestCase):
             self.assertNotIn("SERVICE_BETA", sid)
             self.assertFalse((lean / "psa_manifest" /
                               "partition_beta.h").exists())
+            reused = root / "reused"
+            self.assertEqual(self.run_generator(source, reused).returncode, 0)
+            self.assertTrue((reused / "psa_manifest" /
+                             "partition_beta.h").exists())
+            keep = reused / "psa_manifest" / "local.h"
+            keep.write_text("/* not generated */\n", encoding="utf-8")
+            result = self.run_generator(
+                source, reused,
+                extra=("--exclude-partition", "PARTITION_BETA"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertFalse((reused / "psa_manifest" /
+                              "partition_beta.h").exists())
+            self.assertTrue(keep.exists())
             del manifest["partitions"][1]
             manifest["domains"] = [domain for domain in manifest["domains"]
                                    if domain["id"] != 2]

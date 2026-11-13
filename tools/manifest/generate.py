@@ -1032,6 +1032,17 @@ def generate_sid_header(manifest):
     return "\n".join(lines)
 
 
+def remove_stale_headers(directory, keep):
+    """Drop headers an earlier run wrote for partitions this manifest leaves
+    out (an --exclude-partition build reusing the directory)."""
+    for path in directory.glob("*.h"):
+        if path.name in keep:
+            continue
+        banner = FILE_HEADER.format(name=path.name)
+        if path.read_text(encoding="utf-8").startswith(banner):
+            path.unlink()
+
+
 def generate_partition_header(partition):
     file_name = partition["name"].lower() + ".h"
     guard = generated_guard(partition["name"])
@@ -1187,8 +1198,10 @@ def main():
             generate_pid_header(manifest), encoding="utf-8")
         (psa_manifest / "sid.h").write_text(
             generate_sid_header(manifest), encoding="utf-8")
-        for file_name, content in (generate_partition_header(partition)
-                                   for partition in manifest["partitions"]):
+        headers = dict(generate_partition_header(partition)
+                       for partition in manifest["partitions"])
+        remove_stale_headers(psa_manifest, set(headers) | {"pid.h", "sid.h"})
+        for file_name, content in headers.items():
             (psa_manifest / file_name).write_text(content, encoding="utf-8")
     except (ManifestError, UnicodeDecodeError, json.JSONDecodeError,
             OSError) as error:

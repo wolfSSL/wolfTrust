@@ -25,27 +25,36 @@ build=$2
 make=${MAKE:-make}
 count=0
 
+# shellcheck source=../../target/lib/profile.sh disable=SC1091
+. "$root/tests/target/lib/profile.sh"
+
 mkdir -p "$build"
 for manifest in "$root"/port/*/manifest*.json; do
     port_dir=$(dirname "$manifest")
     port=$(basename "$port_dir")
     variant=$(basename "$manifest" .json)
-    # The default profile leaves the update partition out; full keeps it.
     case "$variant" in
-        manifest-conformance) profiles="conformance:WT_CONFORMANCE=1" ;;
-        *) profiles="default:WT_FWU=0 full:WT_FWU=1" ;;
+        manifest-conformance) profiles="conformance" ;;
+        *) profiles="default full" ;;
     esac
-    for entry in $profiles; do
-        profile=${entry%%:*}
+    for profile in $profiles; do
         out="$build/$port-$variant-$profile"
+        if [ "$profile" = conformance ]; then
+            flags="WT_CONFORMANCE=1"
+            guests=1
+        else
+            flags=$(scenario_profile_flags "$profile")
+            guests=$(scenario_profile_guests "$profile")
+        fi
+        # shellcheck disable=SC2086
         args=$("$make" -s --no-print-directory -C "$root" TARGET="$port" \
-            "${entry#*:}" print-manifest-gen-args)
+            $flags print-manifest-gen-args)
 
         rm -rf "$out"
         # shellcheck disable=SC2086
         python3 "$root/tools/manifest/generate.py" "$manifest" "$out" $args
         # shellcheck disable=SC2086
-        ${CC:-cc} $CFLAGS -I"$out" -I"$port_dir" \
+        ${CC:-cc} $CFLAGS -DWT_MAX_GUESTS="$guests" -I"$out" -I"$port_dir" \
             -DWT_TEST_MANIFEST="\"$port/$variant.json ($profile)\"" $LDFLAGS \
             -o "$out/test_manifest_port" \
             "$root/src/domain.c" "$root/src/manifest.c" "$root/src/spm.c" \

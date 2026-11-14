@@ -253,9 +253,9 @@ wolfBoot and Non-secure guest images are not included.
 
 | Engine and profile | `text` | `data` | `bss` | Flash | Static RAM |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Native, default | 78,460 bytes | 384 bytes | 26,984 bytes | 78,844 bytes | 27,368 bytes |
-| wolfHSM, default | 108,240 bytes | 392 bytes | 49,324 bytes | 108,632 bytes | 49,716 bytes |
-| wolfHSM overhead, default | 29,780 bytes | 8 bytes | 22,340 bytes | 29,788 bytes | 22,348 bytes |
+| Native, default | 78,492 bytes | 384 bytes | 26,984 bytes | 78,876 bytes | 27,368 bytes |
+| wolfHSM, default | 108,304 bytes | 392 bytes | 49,324 bytes | 108,696 bytes | 49,716 bytes |
+| wolfHSM overhead, default | 29,812 bytes | 8 bytes | 22,340 bytes | 29,820 bytes | 22,348 bytes |
 | Native, `full` | 88,580 bytes | 720 bytes | 27,264 bytes | 89,300 bytes | 27,984 bytes |
 | wolfHSM, `full` | 118,712 bytes | 728 bytes | 66,408 bytes | 119,440 bytes | 67,136 bytes |
 

@@ -17,15 +17,15 @@ options. These are local builds, not published reference figures.
 
 | Image | Flash | Static RAM |
 | --- | ---: | ---: |
-| wolfTrust Secure runtime, native default | 78,384 bytes | 27,528 bytes |
+| wolfTrust Secure runtime, native default | 78,416 bytes | 27,528 bytes |
 | TF-M v2.3.1 `tfm_s`, level 3 | 79,680 bytes | 45,728 bytes |
 | wolfBoot, STM32L5 secure application handoff | 27,216 bytes | 2,104 bytes |
 | TF-M BL2 (MCUboot, EC-P256) | 38,744 bytes | 27,408 bytes |
-| Chain: wolfBoot + wolfTrust | 105,600 bytes | |
+| Chain: wolfBoot + wolfTrust | 105,632 bytes | |
 | Chain: BL2 + TF-M | 118,424 bytes | |
 
-The wolfTrust runtime is 1,296 bytes smaller in flash and 18,200 bytes
-smaller in static RAM; the boot chain is 12,824 bytes smaller in flash. The
+The wolfTrust runtime is 1,264 bytes smaller in flash and 18,200 bytes
+smaller in static RAM; the boot chain is 12,792 bytes smaller in flash. The
 bootloader's RAM is reused by the runtime, so the RAM figures are not summed.
 The cross-compile workflow fails if any port's lean native default image grows
 past TF-M's 79,680 bytes.
@@ -51,7 +51,7 @@ Static RAM = data + bss
 - wolfTrust: the STM32L562 port, which is under review and not yet in this
   tree, merged with these sources and built with its defaults (native engine,
   LTO, one guest): `make TARGET=stm32l562 secure-image` in
-  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. The same defaults give 78,844
+  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. The same defaults give 78,876
   bytes of flash and 27,368 bytes of static RAM for `TARGET=stm32h563` in this
   tree.
 - wolfBoot: `config/examples/stm32l5-tz-wolftrust.config` (ECC256, SHA256,

@@ -27,6 +27,8 @@ options. These are local builds, not published reference figures.
 The wolfTrust runtime is 1,296 bytes smaller in flash and 18,200 bytes
 smaller in static RAM; the boot chain is 12,824 bytes smaller in flash. The
 bootloader's RAM is reused by the runtime, so the RAM figures are not summed.
+The cross-compile workflow fails if any port's lean native default image grows
+past TF-M's 79,680 bytes.
 
 Both images carry Crypto, Internal Trusted Storage, Protected Storage and
 Initial Attestation with one Non-secure image; TF-M also builds its platform

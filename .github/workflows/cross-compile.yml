@@ -126,6 +126,20 @@ jobs:
             test "$linked" = "$check" || \
               { echo "WT_MANIFEST_RUNTIME_CHECK=$check linked=$linked" >&2; exit 1; }
           done
+      # TF-M v2.3.1 level 3 tfm_s on the STM32L562E-DK is 79,680 bytes of
+      # flash; the lean default must stay below it (docs/TF-M-Compatibility.md).
+      - name: Check the lean default footprint against TF-M level 3
+        run: |
+          budget=79680
+          for target in stm32h563 mimxrt700 mcxn947; do
+            make TARGET=$target WT_ENGINE=native secure-image \
+              TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_budget_$target
+            flash=$(arm-none-eabi-size build_budget_$target/wolftrust.elf \
+              | awk 'NR == 2 { print $1 + $2 }')
+            echo "$target native default flash: $flash bytes (budget $budget)"
+            test "$flash" -le "$budget" || \
+              { echo "FAIL: $target lean default exceeds the TF-M level 3 budget" >&2; exit 1; }
+          done
       - name: Build every port's full-profile secure image (both engines)
         run: |
           flags="$(. tests/target/lib/profile.sh; scenario_profile_flags full)"

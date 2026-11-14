@@ -75,6 +75,8 @@ bool wt_arch_trap_from_secure_main_thread(void);
 void wt_arch_guest_abandon_handler(void);
 /* True while a Non-secure IRQ is active and not queued for retirement. */
 bool wt_arch_guest_irq_active(void);
+/* True while an abandoned Non-secure IRQ still waits for its retiring exit. */
+bool wt_arch_guest_retire_pending(void);
 /* Clear the Non-secure system-handler active bits before a guest switch. */
 void wt_arch_guest_drop_handler_active(void);
 void wt_arch_return_to_secure_thread(

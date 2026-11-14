@@ -736,8 +736,10 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
     g_handler_slices = 0U;
 #if WT_MAX_GUESTS == 1
     /* No peer to switch to: a running guest keeps the CPU. One quarantined
-     * since the last tick still leaves through the scheduler. */
+     * since the last tick, or one with an abandoned IRQ still to retire (one
+     * retires per exit), still leaves through the scheduler. */
     if (g_scheduler.current_rep == WT_SCHED_REP_NS &&
+            !wt_arch_guest_retire_pending() &&
             wt_guest_runtime(g_scheduler.current_guest) != NULL &&
             wt_guest_runtime(g_scheduler.current_guest)->state ==
                 WT_GUEST_RUNNING) {

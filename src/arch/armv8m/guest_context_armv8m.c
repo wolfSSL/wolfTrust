@@ -303,6 +303,18 @@ bool wt_arch_guest_irq_active(void)
     return false;
 }
 
+bool wt_arch_guest_retire_pending(void)
+{
+    size_t i;
+
+    for (i = 0; i < WT_MAX_IRQ_WORDS; ++i) {
+        if ((g_retire_irqs[i] & WT_NVIC_IABR_NS[i]) != 0u) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /* Runs at the retired IRQ's IPSR; its exception return deactivates it. */
 __attribute__((naked, used)) static void wt_retire_irq_stub(void)
 {

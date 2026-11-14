@@ -46,6 +46,7 @@ static bool g_trap_thread;
 static bool g_trap_secure_handler;
 static bool g_trap_secure_thread;
 static bool g_ns_active;
+static bool g_retire_pending;
 static unsigned int g_handler_drops;
 static uint32_t g_enables_applied;
 static wt_ffm_runtime_t g_ffm;
@@ -90,6 +91,7 @@ static void setup(size_t count, uint32_t delay)
     g_trap_secure_handler = false;
     g_trap_secure_thread = false;
     g_ns_active = false;
+    g_retire_pending = false;
     g_handler_drops = 0U;
     g_enables_applied = 0U;
     (void)memset(&g_ffm, 0, sizeof(g_ffm));
@@ -163,6 +165,7 @@ void wt_arch_set_guest_irq_pending(uint32_t irq, bool asserted)
 #endif
 void wt_arch_guest_abandon_handler(void) { g_abandoned++; }
 bool wt_arch_guest_irq_active(void) { return g_ns_active; }
+bool wt_arch_guest_retire_pending(void) { return g_retire_pending; }
 void wt_arch_guest_drop_handler_active(void) { g_handler_drops++; }
 void wt_arch_mask_all_guest_irqs(void) {}
 void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* mask) { (void)mask; }
@@ -294,6 +297,12 @@ static void test_one_guest_ticks(void)
     check(tick() == 0 && g_abandoned == 0U &&
           g_runtime[0].state == WT_GUEST_RUNNING,
           "one guest: an active IRQ is no switch hazard without a peer");
+
+    setup(1U, 2U);
+    g_trap_thread = true;
+    g_retire_pending = true;
+    check(tick() == DISPATCHED && g_runtime[0].state == WT_GUEST_RUNNING,
+          "one guest: an abandoned IRQ still to retire re-dispatches the guest");
 
     setup(1U, 2U);
     g_trap_handler = true;

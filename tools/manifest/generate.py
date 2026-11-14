@@ -1062,26 +1062,32 @@ def generate_partition_header(partition):
 
 def exclude_partitions(manifest, names):
     """Drop each named partition and its Secure Partition domain, so an
-    add-on left out of the build leaves no domain, SID or PID behind."""
+    add-on left out of the build leaves no domain, SID or PID behind. Only
+    the partitions that remain are checked, so flag order never matters."""
+    excluded = []
     for name in names:
         matches = [part for part in manifest["partitions"]
                    if part["name"] == name]
         if len(matches) != 1:
             policy_error("excluded partition {} is not in the manifest".format(
                 name))
-        part = matches[0]
-        if any(other["domain_id"] == part["domain_id"]
-               for other in manifest["partitions"] if other is not part):
+        if not any(part is matches[0] for part in excluded):
+            excluded.append(matches[0])
+    survivors = [part for part in manifest["partitions"]
+                 if not any(part is gone for gone in excluded)]
+    for part in excluded:
+        if any(other["domain_id"] == part["domain_id"] for other in survivors):
             policy_error("excluded partition {} shares its domain".format(
-                name))
+                part["name"]))
         sids = {service["sid"] for service in part["services"]}
         if any(sids.intersection(other["dependencies"])
-               for other in manifest["partitions"] if other is not part):
-            policy_error("a partition depends on excluded {}".format(name))
-        manifest["partitions"] = [other for other in manifest["partitions"]
-                                  if other is not part]
-        manifest["domains"] = [domain for domain in manifest["domains"]
-                               if domain["id"] != part["domain_id"]]
+               for other in survivors):
+            policy_error("a partition depends on excluded {}".format(
+                part["name"]))
+    removed = {part["domain_id"] for part in excluded}
+    manifest["partitions"] = survivors
+    manifest["domains"] = [domain for domain in manifest["domains"]
+                           if domain["id"] not in removed]
 
 
 def check_stacks(manifest, stacks):

@@ -258,6 +258,29 @@ class GeneratorTest(unittest.TestCase):
                 self.assertIn(message, result.stderr)
                 self.assertFalse(output.exists())
 
+    def test_partition_exclusions_ignore_flag_order(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            pairs = (("PARTITION_ALPHA", "PARTITION_BETA"),
+                     ("PARTITION_BETA", "PARTITION_ALPHA"))
+            results = []
+            for index, (first, second) in enumerate(pairs):
+                results.append(self.run_generator(
+                    FIXTURE, root / ("both%d" % index),
+                    extra=("--exclude-partition", first,
+                           "--exclude-partition", second)))
+            self.assertEqual(results[0].returncode, results[1].returncode)
+            self.assertEqual(results[0].stderr, results[1].stderr)
+            for result in results:
+                self.assertNotIn("depends on excluded", result.stderr)
+            alone = self.run_generator(
+                FIXTURE, root / "beta",
+                extra=("--exclude-partition", "PARTITION_BETA"))
+            self.assertNotEqual(alone.returncode, 0)
+            self.assertIn("depends on excluded PARTITION_BETA", alone.stderr)
+            print("PASS: WT-FFM-0004 combined partition exclusions do not "
+                  "depend on flag order")
+
     def test_partition_stack_off_the_layout_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -35,6 +35,23 @@ reference is the mutable `main` branch, not a pinned workspace.
 make
 ```
 
+This builds the lean default image: isolation level 3, one Non-secure image,
+Crypto, Internal Trusted Storage, Protected Storage and Initial Attestation,
+with the manifest checked at build time. Turn an add-on back on with its Make
+variable, alone or together:
+
+```sh
+make WT_MAX_GUESTS=2 secure-image              # a second Non-secure guest
+make WT_FWU=1 secure-image                     # PSA Firmware Update
+make WT_MANIFEST_RUNTIME_CHECK=1 secure-image  # boot-time manifest check
+make WT_SHA256_FAST=1 secure-image             # unrolled SHA-256 transform
+make WT_ENGINE=hsm secure-image                # the wolfHSM engine
+make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image  # full profile
+```
+
+[Macros](Macros.md#build-profiles) lists what each add-on brings back and its
+measured cost.
+
 The default uses the native crypto engine. Keep separate output directories
 when comparing or retaining both engine builds:
 
@@ -90,6 +107,10 @@ make WT_CONFORMANCE=1
 The generator is constrained to FF-M framework version `0x0100`,
 feature mask `0x1` (connection-based IPC), and 32-bit addresses.
 Unsupported capabilities or an invalid resource layout stop the build.
+The generator also checks the manifest against the port's
+`platform_caps.h` limits and each partition stack against the linked level 3
+layout. Without `WT_FWU=1` it leaves the update partition out
+(`--exclude-partition PARTITION_FWU`).
 
 ## Build controls
 
@@ -97,7 +118,7 @@ Examples:
 
 ```sh
 make WT_TIMESLICE_MS=5
-make WT_MAX_GUESTS=1
+make WT_MAX_GUESTS=2
 make BUILD_DIR=build-wrp WT_GUEST_FLASH_WRP=1
 make CONFIG_VNET=y
 ```
@@ -125,14 +146,19 @@ make BUILD_DIR=build-no-lto WT_LTO=0 size-report
 Record the LTO setting with published size results. The locally measured TF-M
 v2.1.1 comparison builds did not use LTO.
 
-Changing guest count, addresses, or sizes also requires matching manifest,
-guest linker, emulator-load, flash, and measurement-record settings. See
-[Macros](Macros.md) for the supported values and constraints.
+The default image runs one guest; `WT_MAX_GUESTS=2` adds the second guest the
+reference two-guest demos use (the target runners pass it through the `full`
+profile). Changing
+guest addresses or sizes also requires matching manifest, guest linker,
+emulator-load, flash, and measurement-record settings. See
+[Macros](Macros.md) for the supported values, the build profiles, and what
+each add-on costs.
 
 ## Reference guests
 
 Set up the pinned Zephyr workspace, then build the Zephyr PSA guest and the
-FreeRTOS PSA guest together:
+FreeRTOS PSA guest together. The second guest runs only on a Secure image
+built with `WT_MAX_GUESTS=2`:
 
 ```sh
 make -C tests/firmware/zephyr-stm32h5 clone

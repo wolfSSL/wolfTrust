@@ -100,6 +100,74 @@ jobs:
         run: make TARGET=stm32h563 WT_ENGINE=hsm secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_hsm
       - name: Build the native-engine secure image (WT_ENGINE=native)
         run: make TARGET=stm32h563 WT_ENGINE=native secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_native
+      - name: Build every port with the boot-time manifest check (WT_MANIFEST_RUNTIME_CHECK=1)
+        run: |
+          for target in stm32h563 mimxrt700 mcxn947; do
+            for engine in native hsm; do
+              make TARGET=$target WT_ENGINE=$engine WT_MANIFEST_RUNTIME_CHECK=1 \
+                secure-image TOOLPREFIX=arm-none-eabi- \
+                BUILD_DIR=build_rtcheck_${target}_$engine
+              grep -qx 'WT_MANIFEST_RUNTIME_CHECK=1' \
+                build_rtcheck_${target}_$engine/secure_build_mode.stamp
+            done
+          done
+      - name: Verify only the opt-in image links the boot-time manifest validator
+        run: |
+          for check in 0 1; do
+            make TARGET=stm32h563 WT_LTO=0 WT_MANIFEST_RUNTIME_CHECK=$check \
+              secure-image TOOLPREFIX=arm-none-eabi- \
+              BUILD_DIR=build_rtcheck_nolto_$check
+            if arm-none-eabi-nm build_rtcheck_nolto_$check/wolftrust.elf \
+                | grep -q ' wt_manifest_validate$'; then
+              linked=1
+            else
+              linked=0
+            fi
+            test "$linked" = "$check" || \
+              { echo "WT_MANIFEST_RUNTIME_CHECK=$check linked=$linked" >&2; exit 1; }
+          done
+      # TF-M v2.3.1 level 3 tfm_s on the STM32L562E-DK is 79,680 bytes of
+      # flash; the lean default must stay below it (docs/TF-M-Compatibility.md).
+      - name: Check the lean default footprint against TF-M level 3
+        run: |
+          budget=79680
+          for target in stm32h563 mimxrt700 mcxn947; do
+            make TARGET=$target WT_ENGINE=native secure-image \
+              TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_budget_$target
+            flash=$(arm-none-eabi-size build_budget_$target/wolftrust.elf \
+              | awk 'NR == 2 { print $1 + $2 }')
+            echo "$target native default flash: $flash bytes (budget $budget)"
+            test "$flash" -le "$budget" || \
+              { echo "FAIL: $target lean default exceeds the TF-M level 3 budget" >&2; exit 1; }
+          done
+      - name: Build every port's full-profile secure image (both engines)
+        run: |
+          flags="$(. tests/target/lib/profile.sh; scenario_profile_flags full)"
+          for target in stm32h563 mimxrt700 mcxn947; do
+            for engine in native hsm; do
+              # shellcheck disable=SC2086
+              make TARGET=$target WT_ENGINE=$engine $flags secure-image \
+                TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_full_${target}_$engine
+            done
+          done
+          if make WT_MAX_GUESTS=3 BUILD_DIR=build-guests-3 secure-image \
+              TOOLPREFIX=arm-none-eabi- 2> guests.err; then
+            echo 'FAIL: WT_MAX_GUESTS=3 built' >&2
+            exit 1
+          fi
+          grep -q 'unsupported WT_MAX_GUESTS' guests.err
+      - name: Build every add-on alone for every port (both engines)
+        run: |
+          for flag in WT_MAX_GUESTS=2 WT_FWU=1 WT_SHA256_FAST=1; do
+            for target in stm32h563 mimxrt700 mcxn947; do
+              for engine in native hsm; do
+                dir=build_addon_${target}_${engine}_${flag%%=*}
+                make TARGET=$target WT_ENGINE=$engine $flag secure-image \
+                  TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
+                grep -qx "$flag" $dir/secure_build_mode.stamp
+              done
+            done
+          done
       - name: Build the MIMXRT700 secure image (both engines, default layout)
         run: |
           for engine in native hsm; do

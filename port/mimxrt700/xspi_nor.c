@@ -89,10 +89,13 @@ typedef struct wt_xspi_nor_window {
 } wt_xspi_nor_window_t;
 
 /* The only NOR ranges this path may program or erase; the wolfBoot swap area
- * and the reserved sectors between them stay closed. */
+ * and the reserved sectors between them stay closed, and so does the update
+ * partition when the image has no update service. */
 static const wt_xspi_nor_window_t g_wt_xspi_nor_writable[] = {
+#if defined(WT_FWU)
     { WT_FWU_UPDATE_FLASH_BASE_S - WT_FLASH_S_ALIAS_BASE + WT_FLASH_NS_BASE,
       WT_FWU_UPDATE_FLASH_SIZE },
+#endif
     { WT_HSM_NVM_FLASH_BASE_NS, WT_HSM_NVM_FLASH_SIZE },
     { WT_CONF_NVM_FLASH_BASE_NS, WT_CONF_NVM_FLASH_SIZE },
 };

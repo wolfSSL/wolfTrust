@@ -26,6 +26,10 @@ ARCH_CFLAGS += -DWT_XN_NEG_PROBE=1
 endif
 WT_WOLFCRYPT_SP_ASM ?= 1
 WT_WOLFCRYPT_ARMASM ?= 1
+WT_SHA256_FAST ?= 0
+ifneq ($(words $(WT_SHA256_FAST))/$(filter 0 1,$(WT_SHA256_FAST)),1/$(WT_SHA256_FAST))
+$(error unsupported WT_SHA256_FAST='$(WT_SHA256_FAST)' (want 0 or 1))
+endif
 
 ARCH_HSM_DEFS :=
 ifeq ($(WT_WOLFCRYPT_SP_ASM),1)
@@ -36,6 +40,9 @@ ifeq ($(WT_WOLFCRYPT_ARMASM),1)
 ARCH_HSM_DEFS += -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO \
     -DWOLFSSL_ARMASM_INLINE -DWOLFSSL_ARMASM_NO_NEON \
     -DWOLFSSL_ARMASM_THUMB2
+ifeq ($(WT_SHA256_FAST),0)
+ARCH_HSM_DEFS += -DWOLFSSL_ARMASM_SHA256_SMALL
+endif
 endif
 
 ARCH_WOLFCRYPT_SP_SRCS := $(WOLFSSL_DIR)/wolfcrypt/src/sp_cortexm.c
@@ -86,6 +93,11 @@ TARGET_LDFLAGS += -Wl,-L$(PORT_COMMON_DIR) \
 WT_L3_LINK_ARGS = $(or $(strip $(shell python3 $(ROOT)/tools/l3_layout_args.py \
     --link --cc $(TOOLPREFIX)gcc $(PORT_DIR)/memory_map.h)),$(error \
     cannot read the level 3 band placement from $(PORT_DIR)/memory_map.h))
+# Partition stacks the generator checks the manifest against; constants
+# only, so the host preprocessor serves host-only manifest builds too.
+WT_L3_MANIFEST_ARGS = $(or $(strip $(shell python3 $(ROOT)/tools/l3_layout_args.py \
+    --stacks --cc cc $(PORT_DIR)/memory_map.h)),$(error \
+    cannot read the level 3 partition stacks from $(PORT_DIR)/memory_map.h))
 # Post-link band check inputs, read from the port's memory_map.h at link time;
 # an unreadable layout stops the link rather than checking the default bands.
 WT_L3_BAND_ARGS = $(shell python3 $(ROOT)/tools/l3_layout_args.py \

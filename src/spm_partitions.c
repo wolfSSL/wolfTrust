@@ -67,9 +67,11 @@
 #include "psa_manifest/pid.h"
 #include "psa_manifest/sid.h"
 
+#if defined(PARTITION_FWU_ID)
 /* Port flash staging backend (WT-FWU-0002), driven by the FWU partition
  * through the gate's privileged backend ops. */
 extern const wt_fwu_backend_t wt_fwu_flash_backend;
+#endif
 
 #if defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)
 /* A keystore service the prober does not own must be refused at the gate;
@@ -504,12 +506,14 @@ static void wt_spm_its_entry(void* arg)
          * reaching either privileged backend from here would be a privilege
          * escape, so trap hard (unexpected extra fault fails the scenario)
          * instead of continuing to the expected MPU probe below. */
+#if defined(PARTITION_FWU_ID)
         (void)memset(&pin, 0, sizeof(pin));
         pin.op = WT_SPM_OP_FWU_BACKEND;
         pin.call_type = WT_SPM_FWU_BEGIN;
         if (wt_arch_sp_trap(&pin) != WT_FFM_ERROR_ARGUMENT) {
             wt_arch_sp_fault_probe(1u);
         }
+#endif
         (void)memset(&pin, 0, sizeof(pin));
         pin.op = WT_SPM_OP_KEYSTORE_FLASH;
         pin.call_type = WT_SPM_KS_FLASH_ERASE;
@@ -567,6 +571,7 @@ int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
                             (void*)(intptr_t)partition_id);
 }
 
+#if defined(PARTITION_FWU_ID)
 /* Confined FWU staging backend: each op traps to the privileged SVC
  * dispatcher (WT_SPM_OP_FWU_BACKEND), which pins the caller to the FWU
  * partition and runs the port flash backend in handler mode. */
@@ -721,6 +726,7 @@ int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     }
     return ret;
 }
+#endif
 
 #if defined(CONFIG_VNET)
 /* The virtual network partition (WT-FFM-0056): an UNPRIVILEGED scheduled

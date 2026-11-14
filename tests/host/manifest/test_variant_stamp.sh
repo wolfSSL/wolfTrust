@@ -34,6 +34,12 @@ mkdir -p "$build"
 gen
 if grep -q PARTITION_VNET "$header"; then st=1; else st=0; fi
 check $st "default manifest carries no VNET partition"
+if grep -q PARTITION_FWU "$header"; then st=1; else st=0; fi
+check $st "default manifest leaves the update partition out (WT_FWU=0)"
+
+gen WT_FWU=1
+if grep -q PARTITION_FWU "$header"; then st=0; else st=1; fi
+check $st "WT_FWU=1 regenerates with the update partition"
 
 gen CONFIG_VNET=y
 if grep -q PARTITION_VNET "$header"; then st=0; else st=1; fi
@@ -44,7 +50,7 @@ if grep -q SERVER_PARTITION "$header"; then st=0; else st=1; fi
 check $st "WT_CONFORMANCE=1 regenerates with the test partitions"
 
 gen
-if grep -q "PARTITION_VNET\|SERVER_PARTITION" "$header"; then st=1; else st=0; fi
+if grep -q "PARTITION_VNET\|SERVER_PARTITION\|PARTITION_FWU" "$header"; then st=1; else st=0; fi
 check $st "returning to the default drops the variant partitions"
 
 echo "manifest variant stamp tests: $checks checks, $failures failures"

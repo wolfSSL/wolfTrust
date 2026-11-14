@@ -31,7 +31,7 @@ else
 SUBMAKE_FLAGS := --no-print-directory -s
 endif
 
-UNIT_SUITES := domain manifest lifecycle monitor guest_verify rollback sp_recovery \
+UNIT_SUITES := domain manifest manifest_ports lifecycle monitor guest_verify rollback sp_recovery \
     fabric_windows periph irq_claim rt700_trng rt700_xspi rt700_lifecycle \
     mcxn947_flash mcxn947_lifecycle mcxn947_rng \
     ipc ffm spm \

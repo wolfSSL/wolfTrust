@@ -60,13 +60,13 @@
  * WT_CONF_*_MMIO_* constants in port/stm32h563/memory_map.h (an #error
  * cross-check in conf_nvm_sync.c enforces it). */
 #define SERVER_PARTITION_MMIO_NUM              1
-#define SERVER_PARTITION_MMIO_0_START          0x30095C00
-#define SERVER_PARTITION_MMIO_0_END            0x30095D00
+#define SERVER_PARTITION_MMIO_0_START          0x30093C00
+#define SERVER_PARTITION_MMIO_0_END            0x30093D00
 #define SERVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define DRIVER_PARTITION_MMIO_NUM              1
-#define DRIVER_PARTITION_MMIO_0_START          0x30095E00
-#define DRIVER_PARTITION_MMIO_0_END            0x30095F00
+#define DRIVER_PARTITION_MMIO_0_START          0x30093E00
+#define DRIVER_PARTITION_MMIO_0_END            0x30093F00
 #define DRIVER_PARTITION_MMIO_0_PERMISSION     TYPE_READ_WRITE
 
 #define PLATFORM_WD_BASE                        WATCHDOG_0_BASE

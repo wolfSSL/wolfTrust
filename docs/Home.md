@@ -23,7 +23,7 @@ flowchart TB
 
     subgraph APP[Application domains]
         GA[Cortex-M client A<br/>Zephyr, FreeRTOS, or bare metal]
-        GB[Cortex-M client B<br/>Zephyr, FreeRTOS, or bare metal]
+        GB[Optional Cortex-M client B<br/>Zephyr, FreeRTOS, or bare metal]
     end
 
     subgraph PORT[Architecture and target ports]
@@ -40,7 +40,7 @@ flowchart TB
             CR["Selected crypto engine<br/>native or wolfHSM"]
             ST["Internal Trusted Storage (ITS),<br/>Protected Storage, and vault"]
             AT[Initial Attestation]
-            FW[Firmware Update]
+            FW[Optional Firmware Update]
             VN[Optional virtual networking]
         end
         SPM --> CR
@@ -94,7 +94,7 @@ port's five CMSE gateway veneers.
 | Caller-bound IPC | wolfTrust derives the PSA client identity from the active application domain, copies vector descriptors, checks every range, and enforces manifest access policy. |
 | Port-defined isolation | Each port declares and enforces the protection capabilities required by its manifest. The STM32H563 reference uses TrustZone, the Secure MPU, and GTZC MPCBB attribution; its exact limits are documented in [Security Model](Security-Model.md). |
 | PSA cryptography | Zephyr and FreeRTOS reference guests call wolfPSA's PSA Crypto API. The default native engine runs wolfCrypt in each guest and obtains DRBG seeds from the Secure vault; the optional wolfHSM engine routes supported operations to per-guest Secure server namespaces. |
-| Secure services | Connection-based services provide the selected crypto engine, attestation, Internal Trusted Storage (ITS), Protected Storage, firmware update, and an optional Secure virtual Ethernet switch. The optional bare-metal networking guests run wolfIP outside the Secure image. |
+| Secure services | Connection-based services provide the selected crypto engine, attestation, Internal Trusted Storage (ITS), Protected Storage, and two add-ons: firmware update (`WT_FWU=1`) and a Secure virtual Ethernet switch (`CONFIG_VNET=y`). The optional bare-metal networking guests run wolfIP outside the Secure image. |
 | Fault containment | A guest fault either restarts the guest within policy limits or leaves it quarantined. A Secure Partition fault releases synchronization state before failing affected calls. Restart paths scrub declared private writable memory before rearming; forbidden, exhausted, or failed recovery escalates to the port's fail-closed path. |
 | Static Secure memory | The Secure image is built with `WOLFSSL_NO_MALLOC` and `NO_WOLFSSL_MEMORY`; service buffers, stacks, and state are statically allocated. |
 

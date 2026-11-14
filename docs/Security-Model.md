@@ -121,9 +121,9 @@ token state and holds no key material, obtaining every signature and the IAK
 public key from `SERVICE_HSM`'s attestation door. Each door client is
 confined to its door: the crypto partition's other vault requests and any
 Secure Partition's call on `SERVICE_HSM`'s ordinary crypto wire return
-`PSA_ERROR_NOT_PERMITTED`. The manifest generator and
-the runtime domain validator both refuse a level 3 manifest that shares a
-writable resource between partitions, so the split cannot regress silently.
+`PSA_ERROR_NOT_PERMITTED`. The manifest generator refuses a level 3 manifest
+that shares a writable resource between partitions, so the split cannot regress
+silently; `WT_MANIFEST_RUNTIME_CHECK=1` repeats that check at boot.
 The keystore door hands the crypto partition the key objects it asks for.
 That is an IPC contract between two partitions, not shared memory.
 
@@ -340,8 +340,9 @@ At boot, after initial guest-image validation and before any guest executes,
 wolfTrust checks the persistent Secure-image and recorded-guest version floors.
 Versions that pass the rollback check advance those floors.
 
-During initial validation, immediately before a guest's first dispatch, and
-again after a restart, wolfTrust:
+During initial validation and again after a restart (and, with
+`WT_MAX_GUESTS=2`, immediately before each guest's first dispatch, because the
+other guest may have run in between), wolfTrust:
 
 - locates the guest's signed record;
 - rejects an empty or out-of-window image size;

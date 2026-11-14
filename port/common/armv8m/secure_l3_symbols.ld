@@ -23,7 +23,7 @@
 _estack = ORIGIN(RAM) + LENGTH(RAM);
 /* Secure main stack: MSPLIM_S is set to _sstack at reset. */
 _sstack = _estack - WT_SPM_STACK_SIZE;
-_wt_part_stacks_base = ORIGIN(FWUSTACK);
+_wt_part_stacks_base = ORIGIN(PSSTACK);
 _wt_part_stacks_limit = ORIGIN(VAULTSTACK) + LENGTH(VAULTSTACK);
 _wt_sp_stacks_base = ORIGIN(SPSTACKS);
-_wt_sp_stacks_limit = ORIGIN(SPSTACKS) + LENGTH(SPSTACKS);
+_wt_sp_stacks_limit = ORIGIN(FWUSTACK) + LENGTH(FWUSTACK);

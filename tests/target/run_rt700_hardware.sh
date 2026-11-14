@@ -60,6 +60,8 @@ guest_build="$repo/tests/firmware/mimxrt700-baremetal/build"
 
 # shellcheck source=lib/rt700_fence.sh disable=SC1091
 . "$here/lib/rt700_fence.sh"
+# shellcheck source=lib/profile.sh disable=SC1091
+. "$here/lib/profile.sh"
 # shellcheck source=lib/rt700_wolfboot.sh disable=SC1091
 . "$here/lib/rt700_wolfboot.sh"
 case "$scenario" in
@@ -71,6 +73,12 @@ esac
 log() { printf '%s\n' "$*"; }
 stage() { printf '  ... %s\n' "$*"; }
 fail() { log "FAIL: $*"; exit 1; }
+# The hardware suites build, flash and assert both guests, so only the full
+# profile runs on silicon.
+case "${WT_PROFILE:-full}" in
+    full) ;;
+    *) fail "WT_PROFILE=$WT_PROFILE is not supported on hardware (the suite asserts both guests; use WT_PROFILE=full)" ;;
+esac
 check() {
     if [ "$1" -eq 0 ]; then log "  [check] PASS  $2"; else log "  [check] FAIL  $2"; fail "$2"; fi
 }
@@ -236,6 +244,12 @@ run_chain() {
     # secure image and the guest CMSE import library agree (mirrors the H5 runner).
     export WT_SECURE_IMAGE_HEADER_SIZE=0x400
     export WT_ATTEST_COSE=0
+    profile_flags="$(scenario_profile_flags full)"
+    scenario_profile_reset
+    if [ -n "$profile_flags" ]; then
+        # shellcheck disable=SC2086,SC2163
+        export $profile_flags
+    fi
     rm -rf "$repo/build"
     mkdir -p "$work"
 

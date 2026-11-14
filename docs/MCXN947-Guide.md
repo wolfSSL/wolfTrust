@@ -276,6 +276,9 @@ tests/target/run_mcxn947_hardware.sh positive
 WT_ENGINE=hsm tests/target/run_mcxn947_hardware.sh positive
 ```
 
+The hardware runner builds the `full` profile, so its scenarios launch two
+guests and include Firmware Update; it refuses any other `WT_PROFILE`.
+
 `tests/target/run_mcxn947_hardware.sh` runs on the host that owns the
 board's MCU-Link (`MCXN947_PROBE_UID` picks one of several probes; the
 console is the MCU-Link VCOM, `MCXN947_CONSOLE`). For each scenario it

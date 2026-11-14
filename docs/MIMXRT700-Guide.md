@@ -147,8 +147,8 @@ run time by three mechanisms the port programs before any guest launches:
   NXP's TrustZone setup does, without claiming isolation from those rules.
 
 A port declares what it actually enforces through the capability bitmap in
-`partitions.c`, and the manifest validator refuses a domain that requires a
-capability the port does not provide: a writable Non-secure guest window is
+`platform_caps.h`, and the manifest generator refuses, at build time, a domain
+that requires a capability the port does not provide: a writable Non-secure guest window is
 refused unless the port claims the fabric filter. This port claims it on the
 strength of the per-dispatch SAU window. The AHBSC SRAM rules do not gate CPU0
 on this silicon (a Non-secure store into a closed guest window landed with them
@@ -253,6 +253,9 @@ The stamp lives under `WT_PROVISION_STATE/mimxrt700` (default `~/.cache/wolftrus
 Running `discover` again clears both it and any earlier `regress` stamp.
 
 ## Build, flash, and verify
+
+The hardware runner builds the `full` profile, so its scenarios launch two
+guests and include Firmware Update; it refuses any other `WT_PROFILE`.
 
 The hardware runner (`tests/target/run_rt700_hardware.sh`) drives image
 assembly and flashing so the addresses stay paired; its emulator sibling

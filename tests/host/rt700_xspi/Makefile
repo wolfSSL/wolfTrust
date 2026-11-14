@@ -32,19 +32,25 @@ CFLAGS += $(EXTRA_CFLAGS)
 
 SRCS := $(ROOT)/port/mimxrt700/xspi_nor.c main.c
 TEST_BIN := $(BUILD_DIR)/test_rt700_xspi
+TEST_LEAN := $(BUILD_DIR)/test_rt700_xspi_lean
 
 .PHONY: all run compilers sanitize valgrind clean
 
-all: $(TEST_BIN)
+all: $(TEST_BIN) $(TEST_LEAN)
 
 $(BUILD_DIR):
 	mkdir -p $@
 
 $(TEST_BIN): $(SRCS) mock_xspi_regs.h | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(SRCS)
+	$(CC) $(CFLAGS) -DWT_FWU=1 $(EXTRA_LDFLAGS) -o $@ $(SRCS)
 
-run: $(TEST_BIN)
+# The lean image runs only the closed-window checks.
+$(TEST_LEAN): $(SRCS) mock_xspi_regs.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -Wno-unused-function $(EXTRA_LDFLAGS) -o $@ $(SRCS)
+
+run: $(TEST_BIN) $(TEST_LEAN)
 	$(TEST_BIN)
+	$(TEST_LEAN)
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
@@ -56,9 +62,11 @@ sanitize:
 		EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
 		EXTRA_LDFLAGS="-fsanitize=address,undefined"
 
-valgrind: clean $(TEST_BIN)
+valgrind: clean $(TEST_BIN) $(TEST_LEAN)
 	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
 		$(TEST_BIN)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(TEST_LEAN)
 
 clean:
 	rm -rf $(BUILD_DIR)

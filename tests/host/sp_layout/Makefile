@@ -30,10 +30,11 @@ CFLAGS := \
 CFLAGS += $(EXTRA_CFLAGS)
 
 TEST_BIN := $(BUILD_DIR)/test_sp_layout
+TEST_FWU := $(BUILD_DIR)/test_sp_layout_fwu
 
 .PHONY: all run compilers sanitize valgrind clean
 
-all: $(TEST_BIN)
+all: $(TEST_BIN) $(TEST_FWU)
 
 $(BUILD_DIR):
 	mkdir -p $@
@@ -41,8 +42,12 @@ $(BUILD_DIR):
 $(TEST_BIN): main.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ main.c
 
-run: $(TEST_BIN)
+$(TEST_FWU): main.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -DWT_FWU=1 $(EXTRA_LDFLAGS) -o $@ main.c
+
+run: $(TEST_BIN) $(TEST_FWU)
 	$(TEST_BIN)
+	$(TEST_FWU)
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
@@ -54,9 +59,11 @@ sanitize:
 		EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
 		EXTRA_LDFLAGS="-fsanitize=address,undefined"
 
-valgrind: clean $(TEST_BIN)
+valgrind: clean $(TEST_BIN) $(TEST_FWU)
 	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
 		$(TEST_BIN)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(TEST_FWU)
 
 clean:
 	rm -rf $(BUILD_DIR)

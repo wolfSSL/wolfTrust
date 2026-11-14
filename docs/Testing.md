@@ -36,6 +36,12 @@ vectors, Secure Partition layout and recovery, crypto-engine relay and key
 isolation, vault and storage services, attestation and COSE integration,
 firmware update, runtime remeasurement, linked Secure layout, VNET, public PSA
 headers, boot-handoff record consumption, and negative paths.
+The manifest_ports suite generates every `port/*/manifest*.json` with that
+port's build arguments, for the default profile (update partition left out)
+and the `full` profile, and runs each through the boot-time validator, the
+port binding, and FF-M activation, since default images validate the manifest only
+at build time. `tests/host/manifest/test_generator.py` checks that each
+manifest the boot-time checks reject also fails generation.
 The monitor suite checks bounded guest recovery, idle backoff, and terminal
 lifecycle decisions against the production scheduler with simulated architecture
 operations.
@@ -113,7 +119,12 @@ WT_ENGINE=hsm make test-target
 
 It runs the port's smoke tier (STM32H563: `positive`, `gtzcneg`,
 `crossdomain`, `bothpsa`, `confboot`, `devcrypto`; `WT_TIER=full` runs every
-scenario). Detection accepts `m33mu` on
+scenario) on the `full` build profile. `WT_PROFILE=default` runs the lean
+default image instead: the one-guest `positive`, `restartidle` and the level 3
+scenarios (see [Build profiles](Macros.md#build-profiles)). Each scenario's
+profiles are recorded in `tests/target/lib/scenario_matrix.py`; the two-guest,
+conformance and update scenarios (`fwustage`, `bootupdate`) run only on
+`full`, and `crossdomain` checks the update backend's gate pin only there. Detection accepts `m33mu` on
 `PATH` or a path in `M33MU`. If the emulator is unavailable,
 the target reports a skip rather than a pass.
 
@@ -129,9 +140,9 @@ authenticated-boot failure, rollback, runtime remeasurement, Secure Partition
 recovery, key and vault isolation, storage recovery, attestation negatives,
 firmware update, manifest rejection, GTZC behavior, and VNET paths.
 
-`restartidle` runs the STM32H563 recovery check with `WT_MAX_GUESTS=1`. It
-requires every allowed relaunch and the final terminal verdict. The full tier
-runs it with both crypto engines.
+`restartidle` runs the recovery check on the one-guest default image. It
+requires every allowed relaunch and the final terminal verdict (BKPT 0x7d,
+no guest left). The full tier runs it with both crypto engines on every port.
 It also runs `tests/target/test_systick_idle.sh`, which executes the production
 Armv8-M timer code with modeled Non-secure timer registers and real Secure
 SysTick interrupts. The check covers timer configuration and pending-tick
@@ -192,7 +203,9 @@ faults; its restarted instance faults again if either value survived.
 
 `manifestneg` removes a required feature, `manifestneg2` declares isolation
 level 2, and `manifestneg3` composes a partition table that reaches another
-partition's band. Each must halt the boot before anything is scheduled.
+partition's band. Each must halt the boot before anything is scheduled. The
+first two corrupt the manifest after the build validated it, so they build
+with `WT_MANIFEST_RUNTIME_CHECK=1`; `manifestneg3` runs on the default image.
 
 Each numbered probe variant is its own matrix row; CI packs each family
 into one job.
@@ -605,9 +618,12 @@ on a pull request only with their own label (`ci:rt700`, `ci:mcxn947`),
 `ci:all`, or `ci:m33mu`. The full matrix runs on a push to `main`, on the
 nightly schedule, on manual dispatch (with a `port` input), and on a pull
 request that carries the `ci:h5`, `ci:rt700`, `ci:mcxn947`, `ci:all`, or
-`ci:m33mu` label. The scenario groups per port and tier
-are in `tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>`
-runs the same smoke tier locally and `WT_TIER=full` every scenario.
+`ci:m33mu` label. Every tier runs on both build profiles: the level 3 bar
+(`l3_gaps()` in the matrix selftest) must hold on `default` and on `full`.
+The scenario groups per port, tier and profile are in
+`tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>` runs
+the same smoke tier locally, `WT_TIER=full` every scenario, and
+`WT_PROFILE=default` the lean image's set.
 
 ### Running M33MU off a pull request
 

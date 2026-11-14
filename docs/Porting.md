@@ -62,10 +62,13 @@ Armv8-M port shares, and `port/stm32h563/platform_stm32h563.c` implements the
 remaining `wt_platform_*` operations together with the SoC's SAU and MPU
 region tables.
 
-A port declares what its hardware can do through the capability bits in
-`include/wolftrust/partition.h`; the core refuses a manifest that assumes a
-capability the port does not provide, so an A-profile port that has no
-Non-secure MPU says so instead of faking it.
+A port declares what its hardware can do in `port/<soc>/platform_caps.h`,
+using the capability bits in `include/wolftrust/domain.h` and
+`include/wolftrust/partition.h`, and repeats those values as the
+`WT_PLATFORM_*` variables in `mk/target-<soc>.mk`. The manifest generator
+refuses, at build time, a manifest that assumes a capability the port does not
+provide, and the generated manifest fails to compile if the two copies differ.
+An A-profile port that has no Non-secure MPU says so instead of faking it.
 
 ## MCU and board contract
 

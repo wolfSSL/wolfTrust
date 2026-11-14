@@ -77,11 +77,8 @@
 #define WT_SP_ITS_STACK_BASE     (WT_SP_PS_STACK_BASE + WT_SP_PS_STACK_SIZE)
 #define WT_SP_ITS_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
 
-#define WT_SP_PS_STACK_BASE      (WT_SP_FWU_STACK_BASE + WT_SP_FWU_STACK_SIZE)
+#define WT_SP_PS_STACK_BASE      (WT_KEYSTORE_BASE + WT_KEYSTORE_SIZE)
 #define WT_SP_PS_STACK_SIZE      WT_SP_SECURE_STACK_SIZE
-
-#define WT_SP_FWU_STACK_BASE     (WT_KEYSTORE_BASE + WT_KEYSTORE_SIZE)
-#define WT_SP_FWU_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
 
 /* Keystore envelope: the vault, attestation and crypto partitions each own
  * one private writable band, so no two partitions share a writable byte. */
@@ -99,7 +96,7 @@
 /* CONFIG_VNET and WT_CONFORMANCE are exclusive, so the VNET stack reuses the
  * conformance data window. */
 #define WT_SP_VNET_STACK_BASE    WT_CONF_SP_DATA_BASE
-#define WT_SP_VNET_STACK_SIZE    WT_SP_SECURE_STACK_SIZE
+#define WT_SP_VNET_STACK_SIZE    WT_CONF_SP_DATA_SIZE
 
 /* The top of the SPM RAM window, directly below the keystore. */
 #define WT_VNET_DATA_SIZE        0x00005000u
@@ -112,7 +109,17 @@
 #define WT_CONF_DRV_MMIO_BASE    (WT_CONF_SP_DATA_BASE + 0x00002E00u)
 #define WT_CONF_DRV_MMIO_SIZE    0x00000100u
 
-#if (WT_SP_SECURE_RAM_END - WT_RAM_S_BASE) > WT_RAM_S_SIZE
+/* The update partition's stack tops the layout, so dropping it (WT_FWU=0)
+ * frees its band without moving any other partition's stack. */
+#define WT_SP_FWU_STACK_BASE     WT_SP_SECURE_RAM_END
+#if defined(WT_FWU)
+#define WT_SP_FWU_STACK_SIZE     WT_SP_SECURE_STACK_SIZE
+#else
+#define WT_SP_FWU_STACK_SIZE     0x00000000u
+#endif
+#define WT_L3_RAM_END            (WT_SP_FWU_STACK_BASE + WT_SP_FWU_STACK_SIZE)
+
+#if (WT_L3_RAM_END - WT_RAM_S_BASE) > WT_RAM_S_SIZE
 #error "the level 3 secure RAM layout does not fit WT_RAM_S_SIZE"
 #endif
 

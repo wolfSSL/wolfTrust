@@ -184,6 +184,7 @@ static int wt_nvm_rollback_store(const wt_rollback_table_t* table)
     return (rc == WH_ERROR_OK) ? 0 : -1;
 }
 
+#if defined(WT_FWU)
 static uint32_t g_active_image_version;
 /* The floor the boot enforcement settled on; the staging gate serves it from
  * here so no later request reads the vault's store with privilege. */
@@ -194,6 +195,7 @@ uint32_t wt_hsm_active_image_version(void)
 {
     return g_active_image_version;
 }
+#endif
 
 int wt_hsm_rollback_enforce(uint32_t image_version)
 {
@@ -206,19 +208,22 @@ int wt_hsm_rollback_enforce(uint32_t image_version)
     int changed = 0;
     int loaded;
 
-    g_active_image_version = image_version;
     guest_count = wt_monitor_state()->guest_count;
-
+#if defined(WT_FWU)
+    g_active_image_version = image_version;
     g_image_floor_valid = 0;
+#endif
     loaded = wt_nvm_rollback_load(&table);
     if (loaded < 0) {
         /* An unreadable floor cannot prove anything: fail closed. */
         refused_platform = 1;
     }
+#if defined(WT_FWU)
     else {
         g_image_floor = table.image_floor;
         g_image_floor_valid = 1;
     }
+#endif
 
 #if defined(WT_ROLLBACK_PROBE)
     /* Negative test: force the locked lifecycle (the emulator chain boots in
@@ -253,7 +258,9 @@ int wt_hsm_rollback_enforce(uint32_t image_version)
     }
 
     changed = wt_rollback_advance(image_version, &table.image_floor);
+#if defined(WT_FWU)
     g_image_floor = table.image_floor;
+#endif
     for (i = 0U; records != NULL && i < record_count; i++) {
         uint32_t guest = records[i].guest_id;
 
@@ -289,6 +296,7 @@ int wt_hsm_rollback_enforce(uint32_t image_version)
     return WT_ROLLBACK_OK;
 }
 
+#if defined(WT_FWU)
 int wt_hsm_rollback_image_floor(uint32_t* floor)
 {
     if (floor == NULL) {
@@ -302,3 +310,4 @@ int wt_hsm_rollback_image_floor(uint32_t* floor)
     *floor = wt_nvm_reformat_allowed() ? 0U : g_image_floor;
     return 0;
 }
+#endif

@@ -135,7 +135,7 @@
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 268763136,
-      "stack_base": 805699584,
+      "stack_base": 805691392,
       "stack_size": 8192,
       "memory_resources": [
         {
@@ -145,7 +145,7 @@
           "share_id": 0
         },
         {
-          "base": 805699584,
+          "base": 805691392,
           "size": 8192,
           "attributes": 19,
           "share_id": 0
@@ -176,7 +176,7 @@
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 268767232,
-      "stack_base": 805691392,
+      "stack_base": 805683200,
       "stack_size": 8192,
       "memory_resources": [
         {
@@ -186,7 +186,7 @@
           "share_id": 0
         },
         {
-          "base": 805691392,
+          "base": 805683200,
           "size": 8192,
           "attributes": 19,
           "share_id": 0
@@ -217,7 +217,7 @@
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 268783616,
-      "stack_base": 805662720,
+      "stack_base": 805654528,
       "stack_size": 16384,
       "memory_resources": [
         {
@@ -227,7 +227,7 @@
           "share_id": 0
         },
         {
-          "base": 805662720,
+          "base": 805654528,
           "size": 16384,
           "attributes": 19,
           "share_id": 0
@@ -258,7 +258,7 @@
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 268787712,
-      "stack_base": 805654528,
+      "stack_base": 805646336,
       "stack_size": 8192,
       "memory_resources": [
         {
@@ -268,7 +268,7 @@
           "share_id": 0
         },
         {
-          "base": 805654528,
+          "base": 805646336,
           "size": 8192,
           "attributes": 19,
           "share_id": 0
@@ -293,7 +293,7 @@
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 268791808,
-      "stack_base": 805646336,
+      "stack_base": 805638144,
       "stack_size": 8192,
       "memory_resources": [
         {
@@ -303,7 +303,7 @@
           "share_id": 0
         },
         {
-          "base": 805646336,
+          "base": 805638144,
           "size": 8192,
           "attributes": 19,
           "share_id": 0
@@ -328,7 +328,7 @@
       "privilege_state": 1,
       "initial_lifecycle": 0,
       "entry_point": 268795904,
-      "stack_base": 805638144,
+      "stack_base": 805724160,
       "stack_size": 8192,
       "memory_resources": [
         {
@@ -338,7 +338,7 @@
           "share_id": 0
         },
         {
-          "base": 805638144,
+          "base": 805724160,
           "size": 8192,
           "attributes": 19,
           "share_id": 0

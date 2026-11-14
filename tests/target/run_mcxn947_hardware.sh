@@ -83,6 +83,8 @@ psa_dir="$repo/tests/firmware/psa-guest"
 
 # shellcheck source=lib/mcxn947_wolfboot.sh disable=SC1091
 . "$here/lib/mcxn947_wolfboot.sh"
+# shellcheck source=lib/profile.sh disable=SC1091
+. "$here/lib/profile.sh"
 
 # One run at a time owns the board; a suite batch takes the same lock once
 # for all of its scenarios and says so.
@@ -95,6 +97,12 @@ fi
 log() { printf '%s\n' "$*"; }
 stage() { printf '  ... %s\n' "$*"; }
 fail() { log "FAIL: $*"; exit 1; }
+# The hardware suites build, flash and assert both guests, so only the full
+# profile runs on silicon.
+case "${WT_PROFILE:-full}" in
+    full) ;;
+    *) fail "WT_PROFILE=$WT_PROFILE is not supported on hardware (the suite asserts both guests; use WT_PROFILE=full)" ;;
+esac
 check() {
     if [ "$1" -eq 0 ]; then log "  [check] PASS  $2"; else log "  [check] FAIL  $2"; fail "$2"; fi
 }
@@ -261,6 +269,12 @@ run_chain() {
     # boot base + 0x400 and is signed with a matching header. Exported so the
     # secure image and the guest CMSE import library agree.
     export WT_SECURE_IMAGE_HEADER_SIZE=0x400
+    profile_flags="$(scenario_profile_flags full)"
+    scenario_profile_reset
+    if [ -n "$profile_flags" ]; then
+        # shellcheck disable=SC2086,SC2163
+        export $profile_flags
+    fi
     rm -rf "$repo/build" "$evidence"
     mkdir -p "$evidence"
 

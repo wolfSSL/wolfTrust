@@ -8,9 +8,9 @@ memory-protection, interrupt, storage, entropy, and boot mechanisms needed to
 enforce that policy.
 
 The only currently supported and validated reference implementation combines
-the Armv8-M adapter with the STM32H563 port. Its configuration runs two
-Non-secure guests on one Cortex-M33 and exposes Secure services only through
-FF-M IPC. These are current reference-port choices. The common policy and
+the Armv8-M adapter with the STM32H563 port. Its default configuration runs
+one Non-secure guest on one Cortex-M33 (two with `WT_MAX_GUESTS=2`, as the
+`full` build profile does) and exposes Secure services only through FF-M IPC. These are current reference-port choices. The common policy and
 service design is intended for reuse, but current internal contracts still
 contain Armv8-M-specific types and assumptions.
 
@@ -19,7 +19,7 @@ contain Armv8-M-specific types and assumptions.
 | Layer | Role |
 | --- | --- |
 | wolfBoot | Performs the BL2 secure-boot role, authenticates wolfTrust, passes the measured-boot handoff, and swaps authenticated update images. |
-| wolfTrust | Configures isolation, validates the manifest and guest images, schedules guests and Secure Partitions, implements FF-M IPC, and manages lifecycle and recovery. |
+| wolfTrust | Configures isolation, validates the manifest at build time and the guest images at boot, schedules guests and Secure Partitions, implements FF-M IPC, and manages lifecycle and recovery. |
 | wolfPSA | Implements PSA Crypto entry points over wolfCrypt for the Non-secure reference guests. |
 | wolfCrypt | Supplies cryptographic implementations used by guest wolfPSA and Secure services. The native engine dispatches it directly. |
 | wolfHSM | Optional crypto engine providing the client/server key-management model and external-HSM integration path. Both engines use its NVM object-store subset. |
@@ -49,7 +49,8 @@ preserve the public manifest, service, IPC, and PSA API contracts. See
    containing the Secure image measurement, lifecycle, and active image
    version.
 2. wolfTrust configures the target's TrustZone, GTZC, Secure MPU, interrupt,
-   and memory policies; validates and binds the generated manifest; registers
+   and memory policies; binds the generated manifest, which the build has
+   already validated against the port's capabilities; registers
    the FF-M services; seeds each guest context; and performs an initial
    signed-record, image-size, manifest-version, digest, and optional WRP check.
 3. wolfTrust consumes the measured-boot handoff, initializes the selected
@@ -59,10 +60,11 @@ preserve the public manifest, service, IPC, and PSA API contracts. See
    entry point to its first wait, and drains partition-to-partition IPC until
    all are idle. A partition that faults, or stops anywhere but `psa_wait`,
    refuses boot.
-5. Immediately before an accepted guest's first dispatch, the monitor repeats
-   its signed-record, image-size, manifest-version, digest, and optional WRP
-   checks, then installs that guest's active GTZC, Non-secure MPU, and interrupt
-   policy.
+5. Before an accepted guest's first dispatch, the monitor installs that
+   guest's active GTZC, Non-secure MPU, and interrupt policy. With two guests
+   (`WT_MAX_GUESTS=2`) it first repeats its signed-record, image-size,
+   manifest-version, digest, and optional WRP checks, because the other guest
+   may have run in between.
 6. The monitor begins time-sliced Non-secure execution.
 
 The image assembly and signing order matters: guest records are patched into

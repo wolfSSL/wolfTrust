@@ -53,8 +53,8 @@ build `full` only, because their checks assert both guests.
 - Cost: STM32H563 native +2,392 bytes flash and +584 bytes RAM, wolfHSM
   +2,776 and +17,388; STM32L562 native +2,360 and +580.
 - Enable: `make WT_MAX_GUESTS=2 secure-image`
-- CI: the cross-compile job builds the `full` profile for every port and
-  engine and checks that `WT_MAX_GUESTS=3` stops the build. The M33MU `full`
+- CI: the cross-compile job builds it alone and in the `full` profile for
+  every port and engine, and checks that `WT_MAX_GUESTS=3` stops the build. The M33MU `full`
   profile runs the two-guest scenarios (`bothpsa`, `bothiso`, `gtzcneg`,
   `restart` and the rest). `tests/host/monitor` builds both guest counts.
 
@@ -76,8 +76,9 @@ build `full` only, because their checks assert both guests.
   +3,232 and +36; STM32L562 native +3,296 and +40. Each also reserves the
   8,192-byte stack band.
 - Enable: `make WT_FWU=1 secure-image`
-- CI: the cross-compile `full` profile build for every port and engine. The
-  M33MU `full` profile runs `fwustage` and `bootupdate`. `tests/host/sp_layout`,
+- CI: the cross-compile job builds it alone and in the `full` profile for
+  every port and engine. The M33MU `full` profile runs `fwustage` and
+  `bootupdate`. `tests/host/sp_layout`,
   `tests/host/rt700_xspi`, `tests/host/fwu_service` and
   `tests/host/manifest_ports` (default and full manifests) cover the layout,
   the NOR window, the service and the excluded manifest.
@@ -115,9 +116,9 @@ build `full` only, because their checks assert both guests.
 - Cost: flash only. STM32H563 +1,472 bytes on both engines; STM32L562
   native +1,440.
 - Enable: `make WT_SHA256_FAST=1 secure-image`
-- CI: the `full` profile sets it, so the cross-compile job builds it for every
-  port and engine and the M33MU `full` profile runs every scenario on the
-  unrolled transform; the `default` profile runs them on the looped one.
+- CI: the cross-compile job builds it alone and in the `full` profile for
+  every port and engine, the M33MU `full` profile runs every scenario on the
+  unrolled transform, and the `default` profile runs them on the looped one.
 
 ### `WT_ENGINE=hsm`: the wolfHSM engine
 

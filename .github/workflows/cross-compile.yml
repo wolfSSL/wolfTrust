@@ -156,6 +156,18 @@ jobs:
             exit 1
           fi
           grep -q 'unsupported WT_MAX_GUESTS' guests.err
+      - name: Build every add-on alone for every port (both engines)
+        run: |
+          for flag in WT_MAX_GUESTS=2 WT_FWU=1 WT_SHA256_FAST=1; do
+            for target in stm32h563 mimxrt700 mcxn947; do
+              for engine in native hsm; do
+                dir=build_addon_${target}_${engine}_${flag%%=*}
+                make TARGET=$target WT_ENGINE=$engine $flag secure-image \
+                  TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
+                grep -qx "$flag" $dir/secure_build_mode.stamp
+              done
+            done
+          done
       - name: Build the MIMXRT700 secure image (both engines, default layout)
         run: |
           for engine in native hsm; do

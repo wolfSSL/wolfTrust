@@ -111,9 +111,8 @@ WT_ENGINE=native make test-target
 WT_ENGINE=hsm make test-target
 ```
 
-It runs the port's smoke tier (STM32H563: `positive`, `guestisoneg`,
-`crossdomain`, `bothpsa`, `confboot`, `devcrypto`; `WT_TIER=full` runs every
-scenario). Detection accepts `m33mu` on
+It runs the port's smoke tier from its `port.json` (listed in
+[Ports](Ports.md)); `WT_TIER=full` runs every scenario. Detection accepts `m33mu` on
 `PATH` or a path in `M33MU`; a port whose emulator carries a model patch
 (`M33MU_PATCH` in its profile) builds its pinned emulator instead. If the
 emulator is unavailable, the target reports a skip rather than a pass.
@@ -277,180 +276,62 @@ Validation of the engine split completed under both engines with:
 The engine dimension changes crypto dispatch, not what M33MU proves. Emulator
 results still do not establish STM32 attribution or physical flash behavior.
 
-## MIMXRT700 emulator scenarios
+### Scenario catalogue
 
-M33MU also models the i.MX RT700 (`--cpu imxrt700`), so the MIMXRT700 port has
-an emulator gate that mirrors its hardware runner:
+Every port runs the same scenario names; its `port.json` lists the ones it
+runs and exempts the rest with a reason. Beyond the families above:
 
-```sh
-make test-target TARGET=mimxrt700
-tests/target/run_target.sh mimxrt700 positive
-tests/target/run_target.sh mimxrt700 guestisoneg
-```
+- `positive` boots the whole chain: wolfBoot verifies the Secure image, and
+  both guests launch, reach the SPM through the SG veneers, and finish.
+- `guestisoneg` (the former `gtzcneg`, `ahbscneg` and `sauneg`, which still
+  select it): guest 0 stores into guest 1's RAM window, the port's isolation
+  refuses the store, the monitor relaunches guest 0 through its restart
+  budget and quarantines it, and guest 1 keeps running.
+- `restart` makes guest 0 read Secure RAM on every launch until it is
+  quarantined. `authneg` flips one byte of guest 0's image after its digest
+  was pinned, so launch verification refuses guest 0 while guest 1 runs.
+  `handlerneg` parks guest 0 in a Non-secure handler that never returns; the
+  Secure tick still preempts it and the monitor restarts it.
+- `rollbackneg`, `remeasureneg`, `manifestneg` and `spbudgetneg` end on the
+  verdict breakpoint their probe emits: a downgraded boot is refused, an
+  image tampered after launch verification is caught by the re-measure before
+  dispatch, a corrupted manifest halts boot, and restart-budget exhaustion
+  escalates to the fail-closed platform recovery.
+- `crossdomain` and `keystoreneg`: an unprivileged storage partition's read
+  of SPM-private RAM, or of the shared keystore band, faults at the port's
+  band address and the guests ride it out. `spfaultneg` and `panicneg`: a
+  partition that faults, or that the SPM must panic, is restarted in place
+  once and serves the guests that follow.
+- `periphneg` has guest 0 switch off its own MPU and read the SPM's entropy
+  peripheral through the Non-secure alias; a port with a DMA probe also runs
+  Non-secure DMA copies out of Secure memory. Nothing may be read or changed.
+- The PSA test guest (`tests/firmware/psa-guest/`) runs `bothpsa` (the client
+  lifecycle from both guests in one boot: SHA-256 KAT, ITS and PS, key-ops
+  with a cross-key refusal, RNG, AES-CTR, and an attestation token verified
+  against the IAK and wolfBoot's measurement), `bothiso` (a forged handle, an
+  oversized vector, a vector in the peer window and an unknown SID refused),
+  `attestneg`, and `fwustage` (a candidate staged through SERVICE_FWU, armed,
+  and restored READY).
+- The remaining level 3 negatives (`deputyneg`, `hsmpinneg`, `hsmfaultneg`,
+  `periphspneg`) run the PSA guest in both windows, and guest 0 ends the run
+  on its breakpoint once its lifecycle is done; `manifestneg2`,
+  `manifestneg3` and `sealhaltneg` end on their verdict breakpoint, and
+  `mspovfneg` and `xnneg` at the SPM fault.
+- `confboot` hosts Arm's unmodified FF-M IPC suite against the conformance
+  image and expects 85 passed, 4 skipped, 0 failed. `devstorage`,
+  `devcrypto`, `devattest` and `devattestqcbor` run the dev_apis suites.
+  `vaultrecover` proves a foreign vault pool self-heals on a development
+  device, and `vaultrecoversec` that SECURED refuses it gracefully.
+- `wrpfence` and `wrpoff` build with `WT_GUEST_FLASH_WRP=1`: behind a first
+  stage that arms the guest flash fence both guests launch, and behind one
+  that does not, neither may enter its domain.
 
-`positive` boots the whole chain: wolfBoot verifies the wolfTrust image, and
-both bare-metal guests (`tests/firmware/baremetal-guest`, with the board seams
-from `tests/firmware/boards/mimxrt700`) launch, reach the SPM through the SG
-veneers, and finish. `guestisoneg` (the former `ahbscneg`, which still selects
-it) adds the CPU isolation negative: guest 0 stores into
-guest 1's RAM window, which the per-dispatch SAU window keeps Secure, so the
-SAU refuses the store; the monitor contains the fault, relaunches guest 0
-through its restart budget, quarantines it, and guest 1 keeps running. The
-runner asserts every step from the emulator log (the guest console lines and
-M33MU's protection-unit trace), never from a debugger.
-
-The runner also carries the shared Secure-verdict negatives from
-`tests/target/lib/scenarios.py`, the per-scenario table every port draws its
-Secure-image probe flags from. Each one ends on
-the verdict breakpoint its probe emits, asserted port-independently:
-`rollbackneg` (a downgraded boot is refused fail-closed and no guest enters a
-domain), `remeasureneg` (guest 0 measures clean at launch verification, its
-image is then tampered in flash, and the on-demand re-measure before dispatch
-must catch it and quarantine the domain), `manifestneg` (a corrupted manifest
-halts boot before anything is scheduled), and `spbudgetneg` (restart-budget
-exhaustion escalates to the fail-closed platform recovery). `crossdomain` and `keystoreneg` prove the
-Secure Partition MPU domains: an unprivileged storage-SP read of SPM-private
-RAM, or of the shared keystore band, MemManage-faults at the port's band
-address (shown by a second traced boot), the SP's wake never serves the
-guests' storage connect, and the guests' own lifecycle rides it out.
-`spfaultneg` and `panicneg` prove Secure Partition recovery: the crypto relay
-runs an undefined instruction on its first entry, or the storage SP closes an
-error-status handle, which the SPM must panic it for. Either way the SP
-UsageFaults exactly once, the SPM restarts it in place, the restarted SP
-serves the guests that follow, and both guests finish with no escalation.
-`fpneg` proves containment only on M33MU: the relay's FP instruction takes
-the NOCP UsageFault and M33MU ends the run there. The STM32H563 hardware run
-also checks partition restart and guest survival.
-`restart` makes guest 0 read Secure RAM on every launch: the SAU refuses it,
-the monitor relaunches guest 0 through its restart budget and quarantines it,
-and guest 1 runs on. `authneg` flips one byte of guest 0's image after its
-digest was pinned, so launch verification refuses guest 0 while guest 1 boots
-and runs normally. `handlerneg` parks guest 0 in a Non-secure handler that
-never returns: the Secure tick still preempts it and the monitor restarts it
-past the handler slice limit while guest 1 runs on.
-
-The remaining scenarios run the portable PSA test guest
-(`tests/firmware/psa-guest/`) in both Non-secure windows. It is the STM32H563
-Zephyr guest's client lifecycle with no operating system underneath: wolfPSA
-over the SPM-mediated client for the PSA Crypto API, the OS-neutral FF-M,
-storage, and attestation clients, and the wolfCOSE verifier for the token. A
-port supplies a linker window and a console (`boards/<target>/`), nothing
-else. `bothpsa` runs the whole lifecycle from both guests in one boot: the
-mediated SHA-256 KAT, ITS and sealed PS set/get, volatile P-256 key-ops with
-a cross-key refusal, RNG, AES-CTR, and an attestation token verified against
-the IAK public key and wolfBoot's measurement of the signed Secure image.
-`bothiso` proves the SPM rejects a forged handle, an oversized vector, a
-vector inside the peer guest's window, and an unknown SID from both guests.
-`attestneg` adds the attestation negatives (invalid requests refused with
-the statuses Arm's tests expect; tampered and misattributed tokens fail the
-guest verify). `fwustage` stages a candidate into the wolfBoot update
-partition through SERVICE_FWU, arms it, and proves reject/clean restore
-READY. `hsmattackneg` (hsm engine only, it drives the raw wolfHSM client
-wire) proves a forged client id cannot reach the IAK and an NVM-group packet
-never reaches the server.
-
-The isolation level 3 negatives run as they do on the STM32H563, through the
-same checks in `tests/target/lib/scenarios.py`; the band, partition stack and
-SPM peripheral addresses they match come from `port/mimxrt700/memory_map.h`
-through `tools/l3_layout_args.py`. `deputyneg`, `hsmpinneg`, `hsmfaultneg`,
-`bandneg1` to `bandneg6`, `restartneg1` to `restartneg3`, `periphspneg`,
-`sealneg`, `sealpivotneg`, and `svcneg` run the PSA guest in both windows,
-and guest 0 ends the run on its breakpoint once its lifecycle is done.
-`manifestneg2`, `manifestneg3`, and `sealhaltneg` end on their Secure verdict
-breakpoint, and `mspovfneg` and `xnneg` at the SPM fault. The MIMXRT700 flash
-context holds no geometry a partition can write, so `deputyneg` forges
-out-of-range offsets and misaligned lengths instead, and each must be refused
-against the const flash configuration. `periphneg` is the CPU leg of the
-STM32H563 scenario: guest 0 switches off its own MPU and reads the SPM's TRNG
-through the Non-secure alias, the SAU refuses the read on every launch, and
-guest 0 is quarantined while guest 1 runs on. The M33MU RT700 model has no
-DMA, so the Non-secure eDMA copies out of Secure memory are left to the EVK.
-
-The conformance scenarios are the same drop-in proof the STM32H563 gives:
-`confboot` hosts Arm's unmodified psa-arch-tests FF-M IPC suite in the PSA
-guest against the conformance Secure image (`WT_CONFORMANCE=1`, the manifest
-that adds Arm's server, driver, and client partitions) and expects the same
-85 passed, 4 heap tests skipped, 0 failed; `devstorage`, `devcrypto`,
-`devattest`, and `devattestqcbor` run the dev_apis storage, crypto, and
-initial-attestation suites; `vaultrecover` proves a foreign vault pool
-self-heals on a development device (the crypto suite passes after the
-reformat), and `vaultrecoversec` forces the SECURED lifecycle and proves the
-refusal is graceful on the emulator: no fault, and the guest still starts
-(the vault-not-wiped and attestation-degraded counters are hardware-runner
-evidence, read over the debug port as on the STM32H563). The conformance
-manifest is `manifest/conformance.json` rendered over the shared template
-under the port's layout; the PAL bindings (console, watchdog, the
-flash-backed NVMEM boot flag, and the isolation MMIO windows) are the shared
-`tests/conformance/pal/`, which takes every address from the port's
-`memory_map.h`; the val framework, its PAL, and the test lists are the
-upstream sources the Secure build fetches and generates.
-
-`wrpfence` and `wrpoff` build wolfTrust with `WT_GUEST_FLASH_WRP=1`: behind a
-wolfBoot that arms the XSPI guest fence both guests launch, and behind one that
-does not, neither may enter its domain (see the MIMXRT700 Guide's Guest flash
-write protection).
-
-The runner builds its own pinned emulator and wolfBoot first stage. The
-emulator is upstream M33MU at `M33MU_REF` plus `tests/target/m33mu-imxrt700.patch`,
-which only seeds the OTP fuses with the Develop life cycle an EVK ships in, so
-wolfBoot's life cycle read matches the board; it goes once M33MU seeds it. The
-cached emulator is keyed on that patch. Its Secure AHBSC SRAM rules apply to
-CPU0 as documented, which is stricter than the EVK measured.
-wolfBoot is the pin in `tests/target/ports/mimxrt700/m33mu.sh`, staged by
-`tests/target/lib/wolfboot_stage.sh` (the hardware runner shares the recipe) built from `config/examples/imx-rt700-tz.config`
-plus `tests/target/wolfboot-imxrt700-lifecycle.patch` (the RT700 HAL's OTP life
-cycle read, which the attestation service needs) and
-`tests/target/wolfboot-imxrt700-guest-fence.patch` (the XSPI guest fence,
-armed only when its bounds are passed), linked at the NOR base, the same offset
-the wolfBoot emulator tests use, so
-building it needs the MCUXpresso SDK or DFP like any RT700 wolfBoot build;
-set `RT700_WOLFBOOT_DIR` to reuse an existing one (the runner stops if that
-tree was not built from the pin with the same patches, link offset, and guest
-fence, rather than replace it). `WT_ENGINE` selects the
-crypto engine as for any build. A console boot ends on the emulator's
-wall-clock budget because the guests idle once done, which M33MU reports as
-exit status 127; a Secure-verdict boot stops on its breakpoint with status 0,
-as does a traced boot at its first delivered fault; any other status fails
-the run.
-
-These are emulator results. They prove the SAU attribution and the monitor's
-containment on a faithful core model; the silicon `guestisoneg` run on the EVK is
-recorded separately.
-
-## MCXN947 emulator scenarios
-
-M33MU also models the MCXN947 (`--cpu mcxn947`: internal flash, the boot ROM
-flash API tree, and, with `tests/target/m33mu-mcxn947.patch`, the ELS
-`RND_REQ` register model behind its real clock gate, the ROM's page-based
-bit-clearing flash program, an executable ROM, the OEM_OPEN life cycle in
-SYSCON, and the post-indexed `LDRSH` (immediate) decode the conformance
-client needs), so the MCXN947 port has the same emulator gate as the MIMXRT700,
-with the same scenario names:
-
-```sh
-make test-target TARGET=mcxn947
-tests/target/run_target.sh mcxn947 positive
-tests/target/run_target.sh mcxn947 guestisoneg
-```
-
-`guestisoneg` (the former `sauneg`, which still selects it): guest 0 stores into
-guest 1's RAM window, which the per-dispatch SAU window keeps Secure, the
-SAU refuses the store, and the monitor contains it. Every other scenario is
-the MIMXRT700 one run on the MCXN947 model, with the port's own band, stack,
-and SPM peripheral addresses read from `port/mcxn947/memory_map.h`; the
-scenarios the port runs, and the level 3 scenarios it still exempts, are in
-`tests/target/lib/scenario_matrix.py`. The runner builds its own pinned
-emulator and wolfBoot first stage (`tests/target/ports/mcxn947/m33mu.sh`:
-the wolfSSL/wolfBoot#948 branch at its fork ref until it merges, from
-`config/examples/mcxn-tz-wolftrust.config` plus
-`tests/target/wolfboot-mcxn947-lifecycle.patch`, the life cycle read the
-attestation service needs); building it needs the MCUXpresso SDK as any MCXN
-wolfBoot build does. `MCXN947_WOLFBOOT_DIR` reuses a tree the library built.
-The flash image offsets are physical: wolfBoot at 0, the signed Secure image
-at `0x40000`, the guests at `0x80000` and `0x100000`.
-
-These are emulator results; the board's are in the next section, recorded
-separately.
+A console boot ends on the emulator's wall-clock budget once the guests idle
+(exit status 127); a verdict or traced boot stops on its breakpoint with
+status 0; any other status fails the run. A port whose emulator or first
+stage needs a carried patch builds its own pinned copy, and its guide lists
+what each patch models. Emulator results are recorded separately from the
+board's.
 
 ## Hardware
 
@@ -494,60 +375,26 @@ reads, and no option byte, fuse or life-cycle state is written by the runner
 `tests/target/test_hw_runner.sh` checks the hook contract, those rules, the
 evidence paths and the board lock for every port under `make test`.
 
-### STM32H563
+### Bare-metal guest mailbox
 
-The Nucleo's profile flashes through STM32CubeProgrammer (`STM32_CLI`) on the
-bound ST-Link, parks the core with pyOCD to blank wolfBoot's trailer and swap
-sectors, the vault and (for conformance) the boot flag before a single boot,
-captures the VCP (`WT_HW_CONSOLE`, default `/dev/ttyACM0`) and reads the
-guests' latches through both the Non-secure address and its Secure alias
-(the GTZC curtain marks the idle guest's blocks Secure). Its preflight
-requires TrustZone on, product state Open and `WRPSGn1` clear on the guest
-sectors, and refuses anything else with the `provisioning_ctrl.sh` command
-that repairs it. The hardened guest-flash policy is proven by `wrpoff` on an
-unprotected fixture (the Secure image refuses both guests without the fence)
-and by `set-wrp` rehearsals in provisioning, never by the runner writing WRP.
-The qualification extras are `confboot` (the unmodified Arm IPC suite on
-silicon, panic resets through real `SYSRESETREQ`) and `nsmaskneg` (guest 0
-raises every Non-secure mask; the Secure tick still slices guest 1 through
-`AIRCR.PRIS`); the opt-in set covers the dev_apis suites, vault recovery,
-`writeonce`, `bootupdate`, the wolfIP guests and the partition negatives.
-`periphneg` on this board has the Zephyr guest read and clear the SPM's RNG
-through its Non-secure alias and run Non-secure GPDMA copies out of the
-Secure image and Secure SRAM; nothing may be read or changed. The build runs
-in the published container when the host that owns the board has no
-toolchain: `build` in the container, then `flash` on the host, sharing the
-mounted checkout.
+The bare-metal guest records its progress in a mailbox at the base of its
+own Non-secure RAM window and echoes it on the console; the runner reads it
+over SWD. Each guide gives the port's addresses and console.
 
-### MIMXRT700
+| Mailbox word | Offset | Pass value |
+| --- | ---: | ---: |
+| signature | `+0x00` | `0x47543030` |
+| step | `+0x04` | `0x00000005` |
+| `psa_framework_version()` | `+0x08` | `0x00000100` |
+| `psa_connect(SERVICE_HSM)` handle | `+0x10` | > 0, distinct per guest |
+| status | `+0x14` | `0x600D600D` |
+| console `VERID` as the guest reads it | `+0x18` | non-zero |
+| isolation probe latch (`guestisoneg`) | `+0x1C` | `1` faulted or `2` blocked; `3` leaked |
+| isolation probe read-back (`guestisoneg`) | `+0x20` | not the stored sentinel |
 
-The EVK's profile wraps wolfBoot with the EVK FCB and a plain MBI
-(`nxpimage`), flashes every image with pyOCD on the bound MCU-Link with the
-core parked, resets the board through the pi4 line and observes over SWD
-only (the EVK run captures no console, so console blocks are N/A). Its
-qualification extras are `wrpfence`, `wrpneg` (wolfBoot's flash-protect
-selftest sees the silicon refuse an erase inside the guest fence),
-`nsentrymask` (a Non-secure SysTick comes due inside an FF-M entry and its
-handler connects too; the Secure entry mask holds it until the outer entry
-returns, which M33MU cannot model) and `handlerirqneg` (guest 0 parks in a
-Non-secure external IRQ handler on every launch; after its restarts that IRQ
-must read inactive and guest 1's PendSV must keep firing), plus `romsmoke`
-(the BootROM boots an XIP image from XSPI0). Without the probe, console,
-pyOCD pack or SPSDK, `tests/target/detect_rt700.sh` reports why and the suite
-skips.
-
-### MCXN947
-
-The FRDM's profile programs the chain in one pyOCD session on the board's
-bound MCU-Link (the pack resets the chip on every connect, so the park and
-every step that depends on it share the session), erases the update, swap
-and NVM sectors so every run starts from a blank vault, clears the mailboxes
-and launch masks a warm reset keeps, captures the MCU-Link VCOM and adds its
-own Secure-side words: the ROM flash API status, the wolfHSM backend's last
-error, the ELS refusal counter, the vault's first phrase, an erased phrase
-reading as `0xFF`, the consumed handoff and the life cycle wolfBoot handed
-over. The two guests share one LPUART, so their console lines interleave;
-the assertions are the mailboxes and the monitor's counters.
+`0x600D600D` in both mailboxes proves the chain booted and the Secure runtime
+served both Non-secure clients through the veneers; `0xBAD00000` records a
+failed check at the `step` reached.
 
 Hardware test commands write flash and reset the board. Review the board
 guide before running them.
@@ -563,11 +410,8 @@ The workflows under `.github/workflows/` separately run:
 - the core/port split guard and the docs guard (no internal-ledger or
   home-directory references in the published docs);
 - fuzz targets;
-- selected and nightly M33MU scenarios; and
-- the MIMXRT700 chain under M33MU's RT700 model (the `RT700` scenario matrix);
-  and
-- the MCXN947 chain under M33MU's MCXN947 model (the `MCXN947` scenario
-  matrix).
+- selected and nightly M33MU scenarios for every registered port, each under
+  its own pinned emulator image ([Ports](Ports.md)).
 
 ### Trigger routing
 
@@ -578,16 +422,14 @@ nightly schedule and manual dispatch run the 600-second soak instead.
 
 The `M33MU` workflow (wolfBoot plus both guest lifecycles, then a `select` job
 that picks each port's tier and one matrix job that runs exactly those scenario
-groups) is tiered. Every pull request runs
-the STM32H563 smoke tier on both crypto engines (`positive`, `guestisoneg`,
-`crossdomain`, `bothpsa`, `confboot`, `devcrypto`). MIMXRT700 and MCXN947 run
-on a pull request only with their own label (`ci:rt700`, `ci:mcxn947`),
-`ci:all`, or `ci:m33mu`. The full matrix runs on a push to `main`, on the
-nightly schedule, on manual dispatch (with a `port` input), and on a pull
-request that carries the `ci:h5`, `ci:rt700`, `ci:mcxn947`, `ci:all`, or
-`ci:m33mu` label. The scenario groups per port and tier
-are in `tests/target/lib/scenario_matrix.py`; `make test-target TARGET=<port>`
-runs the same smoke tier locally and `WT_TIER=full` every scenario.
+groups) is tiered. Every pull request runs the smoke tier on both crypto
+engines for each port whose CI label is optional; a port marked label only in
+[Ports](Ports.md) runs on a pull request only with its own label, `ci:all`, or
+`ci:m33mu`. The full matrix runs on a push to `main`, on the nightly schedule,
+on manual dispatch (with a `port` input), and on a pull request that carries
+the port's label, `ci:all`, or `ci:m33mu`. The scenario groups per port and
+tier are in its `port.json`; `make test-target TARGET=<port>` runs the same
+smoke tier locally and `WT_TIER=full` every scenario.
 
 ### Running M33MU off a pull request
 
@@ -602,7 +444,7 @@ To run a single scenario locally, use `tests/target/run_target.sh <port> <key>`
 (for example `positive` or `crossdomain`).
 
 The GitHub-hosted workflows do not establish a physical-board result. Hardware
-output must come from the STM32H563 runner attached to a board.
+output must come from the hardware runner attached to a board.
 
 ## Interpreting failures
 

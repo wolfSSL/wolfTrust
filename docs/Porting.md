@@ -9,16 +9,9 @@ Armv8-M: reuse by a Cortex-A port is a design goal, not a claim.
 gates; this page is the human guide.
 
 wolfTrust separates reusable policy and services from architecture, device,
-and board-specific execution. The fully silicon-validated build tuple is
-`armv8m-stm32h563`. A second Armv8-M tuple, `armv8m-mimxrt700` (external
-octal-NOR execute-in-place), is in hardware bring-up and reuses the
-architecture adapter unchanged, as does a third, `armv8m-mcxn947` (internal
-ECC flash through the boot ROM's flash API, emulator-validated); see the
-[STM32H5 Guide](STM32H5-Guide.md), [MIMXRT700 Guide](MIMXRT700-Guide.md), and
-[MCXN947 Guide](MCXN947-Guide.md) for the worked examples. Support for
-additional Cortex-M ports is an intended extension point. Such ports may reuse
-common policy and service code and an existing architecture adapter when their
-execution and protection models match.
+and board-specific execution. The registered ports, each with its guide and
+its validation status, are in [Ports](Ports.md); every one reuses the Armv8-M
+architecture adapter unchanged.
 
 Cortex-A support is an architectural goal, not a current capability. It will
 require a new adapter and changes to current internal execution and protection
@@ -382,7 +375,12 @@ A port is its own files and nothing else:
 | `tests/target/ports/<soc>/m33mu.sh`, `hw.sh` | the emulator and hardware profiles |
 | `tests/target/provisioning/provisioning_ctrl_<soc>.sh` | the provisioning backend: states, commands with their class, reads, mocks and the one permanent write |
 | `tests/host/port_flash/models/<soc>.*` | the flash model the contract suite runs the port's driver over |
-| `docs/<SOC>-Guide.md` | the board guide |
+| `tests/host/<soc>_<name>/`, `tests/firmware/<soc>-<name>/` | the port's own host suites (an RNG or chip-driver model) and any port-only firmware |
+| `docs/<SOC>-Guide.md` | the board guide, from `tools/new-port/templates/Guide.md` |
+
+`docs/Ports.md` and the issue template's port list are generated
+(`tools/gen-port-docs.py`), so a port PR carries their regenerated copies and
+no other shared file.
 
 `tools/new-port/new-port.sh <soc> --from <port>` scaffolds every file from
 the closest registered port with a stub on every value the reference manual
@@ -393,22 +391,22 @@ first; `src/arch/common/` stays untouched.
 
 ### Bring-up ladder
 
-Each step has one command and one last line that proves it:
+Run the gates in order; each one's last line is its evidence, and a skip is
+never a pass.
 
-1. registry: `tools/new-port/new-port.sh <soc> --check` ends with
-   `0 stub(s) open, registry ok`;
-2. build: `make TARGET=<soc> secure-image TOOLPREFIX=arm-none-eabi-` on both
-   engines and with `WT_CONFORMANCE=1`, each ending in the layout check's
-   `PASS` lines;
-3. host: `make test` green, including `tests/host/port_flash` over the port's
-   model and `docs/Ports.md is current`;
-4. layout: `tools/check-layout-rebuild.sh <soc>` prints `PASS: layout rebuild (<soc>)`;
-5. emulator: `make test-target TARGET=<soc>` then `WT_TIER=full` on both
-   engines, `PASS: target/all`;
-6. silicon: `make test-hardware TARGET=<soc>` prints `PASS: hardware/all` for
-   the eight, with the evidence under `logs/<soc>-hw/`;
-7. provisioning: `status` exits 0 with the part's state and identity and
-   `discover` with its `PASS` lines; nothing is written.
+| Gate | Command | Passes when |
+| --- | --- | --- |
+| G0 registry | `tools/new-port/new-port.sh <soc> --check` | `0 stub(s) open, registry ok` |
+| G1 build | `make TARGET=<soc> secure-image TOOLPREFIX=arm-none-eabi-` with `WT_ENGINE=native`, `WT_ENGINE=hsm`, then `WT_CONFORMANCE=1` | every link ends with the layout check's `PASS` lines |
+| G2 host | `make test`, which runs `tests/host/port_flash` over the port's model and its own suites | every suite passes and `docs/Ports.md is current` |
+| G3 layout | `TOOLPREFIX=arm-none-eabi- tools/check-layout-rebuild.sh <soc>` | `PASS: layout rebuild (<soc>)` |
+| G4 emulator smoke | `make test-target TARGET=<soc>` inside the port's CI image | `PASS: target/all` |
+| G5 emulator full | `WT_TIER=full make test-target TARGET=<soc>` on both engines | `PASS: target/all` twice |
+| G6 hardware minimum | `make test-hardware TARGET=<soc>` on the probe host | `PASS: hardware/all`, evidence under `logs/<soc>-hw/` |
+| G7 provisioning | `TARGET=<soc> tests/target/provisioning/provisioning_ctrl.sh status`, then `discover` | both exit 0 and nothing is written |
+
+G6 is the eight scenarios every board runs, which a port cannot exempt;
+extras go in `port.json` as `hardware.qualification` or `hardware.optin`.
 
 A port is done when every step's last line is in the PR, the emulator and
 silicon evidence are recorded apart, and `tools/check-port-only-diff.sh
@@ -427,8 +425,6 @@ a `lock` step behind the typed acceptance, or refused outright by the port.
 - An IDAU can override an SAU Non-secure-callable region (the MIMXRT700
   honours NSC only in the Code region): an INVEP SecureFault with a correct
   SG instruction means the veneers live in the wrong region.
-- Programming a fabric filter is not evidence that it governs the guest
-  windows; only the `guestisoneg` negative on silicon is.
 - A warm reset keeps SRAM: clear the mailboxes and launch masks before a
   boot, or the last run answers for this one.
 - A board keeps its vault and wolfBoot trailers across runs: blank them from
@@ -444,20 +440,15 @@ a `lock` step behind the typed acceptance, or refused outright by the port.
   hard core-to-architecture leaks (arch or port headers, CMSE, inline
   assembly, retired names, M-profile or A-profile register vocabulary in
   core code, and `wt_arch_*` definitions inside a port).
-- Run `tools/check-port-only-diff.sh <base> <arch> <soc>` on a port change
-  and confirm it touches nothing outside `src/arch/common/`,
-  `src/arch/<arch>/`, `include/wolftrust/arch/<arch>/`,
-  `port/common/<arch>/`, `port/<soc>/`, the
-  two build fragments, tests, docs, and workflows.
+- Run `tools/check-port-only-diff.sh --thin <soc> <base-ref>` on a port
+  change; it refuses any path outside the table above.
 - Run `tools/check-docs-no-internal-links.sh`; `docs/` is published to the
   wiki and must not reference internal ledgers or developer paths.
 - Cross-build the Secure image with warnings enabled.
 - On the current Armv8-M port, inspect `nm` output and confirm only the five
   FF-M veneers are Non-secure-callable.
-- On silicon, prove a Non-secure call reaches the Secure side. An IDAU can
-  override an SAU Non-secure-callable region (the MIMXRT700 honours NSC only in
-  the Code region), which shows up as an INVEP SecureFault despite a correct SG
-  instruction.
+- On silicon, prove a Non-secure call reaches the Secure side (see the IDAU
+  pitfall above).
 - Budget the Secure MPU regions against the part's `MPU_TYPE.DREGION`; the
   whitelist, any executable RAM (for example code that must run while the boot
   NOR is busy), and Secure Partition domains share them.
@@ -468,10 +459,8 @@ a `lock` step behind the typed acceptance, or refused outright by the port.
   guest disables its own Non-secure MPU and stores into another guest's RAM,
   and the store must not land. Programming the fabric rules is not evidence
   that they govern those addresses.
-- Run `python3 tests/target/lib/scenario_matrix.py --selftest` and
-  `python3 tests/target/lib/scenarios.py --selftest`, then every
-  `L3_REQUIRED` scenario the port does not exempt and the eight hardware
-  scenarios every board runs.
+- Run every `L3_REQUIRED` scenario the port does not exempt and the eight
+  hardware scenarios every board runs.
 - Test invalid manifests, memory overlap, pointer ranges, stale handles,
   cross-owner access, and unsupported capabilities.
 - Run authenticated boot, guest tamper, rollback, restart, Secure Partition

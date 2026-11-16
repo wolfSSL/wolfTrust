@@ -62,8 +62,11 @@ for from in $(python3 "$tmp/tests/target/lib/scenario_matrix.py" --list-ports); 
         dst="$tmp/${src#"$repo/"}"; dst="${dst//$from/$soc}"
         [ -e "$dst" ] || { echo "FAIL: $soc lacks $(basename "$dst"), the companion of $(basename "$src")"; fails=$((fails + 1)); }
     done
-    grep -q "NEW_PORT_STUB $soc" "$tmp/docs/$(tr '[:lower:]' '[:upper:]' <<<"$soc")-Guide.md" ||
-        { echo "FAIL: $soc guide carries no stub"; fails=$((fails + 1)); }
+    up="$(tr '[:lower:]' '[:upper:]' <<<"$soc")"
+    guide="$tmp/docs/$up-Guide.md"
+    [ "$(sed -e "s/<soc>/$soc/g" -e "s/<SOC>/$up/g" "$repo/tools/new-port/templates/Guide.md")" = "$(cat "$guide")" ] &&
+        [ "$(grep -c "^NEW_PORT_STUB $soc:" "$guide")" -eq "$(grep -c '^## ' "$guide")" ] ||
+        { echo "FAIL: $soc guide is not the template with a stub per section"; fails=$((fails + 1)); }
     python3 -I - "$tmp/port/$soc/port.json" "$soc" <<'PY' || { echo "FAIL: $soc registry keeps the source board's CI SDK, hardware tiers or reasons"; fails=$((fails + 1)); }
 import json, sys
 d = json.load(open(sys.argv[1]))

@@ -164,6 +164,17 @@ The runner:
 4. boots once while capturing the VCP, reads the latches over SWD into
    `logs/stm32h563-hw/<scenario>-<engine>/`, and judges the evidence.
 
+It reads each guest latch through both the Non-secure address and its Secure
+alias, because the GTZC curtain marks the idle guest's blocks Secure. The
+hardened guest flash policy is proven by `wrpoff` on an unprotected fixture
+(the Secure image refuses both guests without the fence) and by `set-wrp`
+rehearsals in provisioning, never by the runner writing WRP. `periphneg` on
+this board also runs Non-secure GPDMA copies out of the Secure image and
+Secure SRAM. The qualification extras are `confboot` (the Arm IPC suite on
+silicon, panic resets through a real `SYSRESETREQ`) and `nsmaskneg` (guest 0
+raises every Non-secure mask, and the Secure tick still slices guest 1
+through `AIRCR.PRIS`, which M33MU does not model).
+
 The detector checks the board/programmer path, not every required host tool.
 It reports a skip when the CLI or serial VCP is absent and, when `lsusb` is
 available, when no ST-Link is detected. Without `lsusb`, a missing probe
@@ -207,6 +218,9 @@ The STM32H5 has three quirks, all seen on the board:
   read-back, not by the CLI's exit status.
 - **Provisioning does not run the wolfTrust chain**, even after a reset. The
   boot proof in a rehearsal therefore comes from the closed states.
+
+Port variables: `STM32_CLI` (the STM32CubeProgrammer CLI) and `H5_SERIAL`
+(the board UART).
 
 ### Stage 1: prepare the production chain
 

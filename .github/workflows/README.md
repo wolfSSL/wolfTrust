@@ -1,13 +1,13 @@
 # wolfTrust CI
 
 CI has a fast per-PR host lane, the tiered M33MU emulator matrix, and static
-analysis. M33MU runs the STM32H563 smoke set on every pull request and the
-full matrix on labels, main pushes, and nightly. MIMXRT700 runs on a pull
-request only when labelled.
+analysis. M33MU runs each port's smoke set on every pull request, except a
+port marked label only in [docs/Ports.md](../../docs/Ports.md), and the full
+matrix on labels, main pushes, and nightly.
 
 `codeql.yml` runs C security queries. `coverity.yml` runs on Sundays at
 00:00 UTC or by manual dispatch. Both build the host suites and secure images
-for STM32H563, MIMXRT700, and MCXN947 with both crypto engines.
+for every registered port with both crypto engines.
 
 Coverity scans wolfTrust runtime, ports, tests, and generated policy code.
 `tools/ci-coverity-filter.py` removes dependency source units before upload
@@ -22,8 +22,8 @@ An accepted upload queues analysis; results appear after Coverity processes it.
 | Tier | Trigger | Purpose |
 |------|---------|---------|
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
-| **M33MU smoke** | every PR | STM32H563 on both crypto engines: `positive guestisoneg crossdomain bothpsa confboot devcrypto` |
-| **M33MU full** | PR labels `ci:all`, `ci:m33mu`, `ci:h5`, `ci:rt700`, `ci:mcxn947`; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
+| **M33MU smoke** | every PR | each port not marked label only, on both crypto engines (its smoke tier in `port.json`) |
+| **M33MU full** | PR labels `ci:all`, `ci:m33mu` or a port's own label; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
 
 The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
 `pr-osp-select.yml` is: a `select` job checks the routing table
@@ -33,10 +33,8 @@ groups it picked, so a job that is not selected never appears as skipped.
 
 | Label | Effect |
 |-------|--------|
-| (no label) | the STM32H563 smoke tier on both engines; no MIMXRT700 or MCXN947 jobs |
-| `ci:h5` | the STM32H563 full matrix (the change touched only that port) |
-| `ci:rt700` | the MIMXRT700 full matrix (the change touched only that port) |
-| `ci:mcxn947` | the MCXN947 full matrix (the change touched only that port) |
+| (no label) | the smoke tier of each port not marked label only, on both engines |
+| a port's own label | that port's full matrix (the change touched only that port) |
 | `ci:all` / `ci:m33mu` | every scenario of every port (a core change) |
 
 A label keeps applying on later pushes to the PR. Pushes to
@@ -63,8 +61,7 @@ test-target` also reads. The table below is a representative slice:
 
 The registered ports, their labels and images are in [docs/Ports.md](../../docs/Ports.md).
 
-An unlabeled PR runs only the STM32H563 smoke tier; MIMXRT700, MCXN947, and
-the full matrix need a `ci:` label. To run a single scenario locally, use
+To run a single scenario locally, use
 `tests/target/run_target.sh <port> <key>`; to run a port's
 full matrix on a PR, add its `ci:` label; off-PR against a branch,
 `workflow_dispatch` on `m33mu.yml` with the `port` input.

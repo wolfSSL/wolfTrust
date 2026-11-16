@@ -219,12 +219,13 @@ The runner builds its pinned emulator (upstream M33MU plus
 `tests/target/m33mu-mcxn947.patch`, which adds the ELS `RND_REQ` register
 model behind its `AHBCLKCTRL2` gate, programs flash from a page base by
 clearing bits as the ROM does, makes the ROM executable so an API call leaves
-no stale `IACCVIOL` in `CFSR`, and reflects the OEM_OPEN life cycle into
-SYSCON) and its pinned
+no stale `IACCVIOL` in `CFSR`, reflects the OEM_OPEN life cycle into SYSCON,
+and decodes the post-indexed `LDRSH` (immediate) the conformance client needs)
+and its pinned
 wolfBoot (`tests/target/ports/mcxn947/m33mu.sh`: the wolfSSL/wolfBoot#948
 branch at its fork ref until it merges, built from
 `config/examples/mcxn-tz-wolftrust.config` with the carried life cycle
-patch), then:
+patch, which needs the MCUXpresso SDK), then:
 
 1. builds the wolfTrust Secure image and its CMSE import library with the
    port's default `WT_SECURE_IMAGE_HEADER_SIZE=0x400`;
@@ -243,24 +244,10 @@ prebuilt emulator carrying the patch.
 
 ### Bring-up markers
 
-Each guest records progress in a mailbox at the base of its own Non-secure RAM
-window (`0x20000000` for guest 0, `0x20018000` for guest 1) and echoes it on
-LPUART4 (`0x400B4000`):
-
-| Mailbox word | Offset | Pass value |
-| --- | ---: | ---: |
-| signature | `+0x00` | `0x47543030` |
-| step | `+0x04` | `0x00000005` |
-| `psa_framework_version()` | `+0x08` | `0x00000100` |
-| `psa_connect(SERVICE_HSM)` handle | `+0x10` | > 0, distinct per guest |
-| status | `+0x14` | `0x600D600D` |
-| LPUART4 `VERID` as the guest reads it | `+0x18` | non-zero |
-| isolation probe latch (`guestisoneg`) | `+0x1C` | `1` faulted or `2` blocked; `3` leaked |
-| isolation probe read-back (`guestisoneg`) | `+0x20` | not the stored sentinel |
-
-A `status` of `0x600D600D` in both mailboxes proves the wolfBoot to wolfTrust
-to Non-secure-guest chain booted and that the Secure runtime serviced both
-Non-secure PSA clients through the veneers. In `guestisoneg`, guest 0 disables its
+Each guest keeps the [bare-metal guest mailbox](Testing.md#bare-metal-guest-mailbox)
+at the base of its own Non-secure RAM window (`0x20000000` for guest 0,
+`0x20018000` for guest 1) and echoes it on LPUART4 (`0x400B4000`). In
+`guestisoneg`, guest 0 disables its
 own Non-secure MPU and stores a sentinel into guest 1's RAM; the runner
 asserts from M33MU's protection-unit trace that the store faulted, refused by
 the SAU with the peer window Secure at dispatch.
@@ -342,6 +329,14 @@ tests/target/provisioning/provisioning_ctrl.sh discover
 WT_LOCK_CONFIRM=1 tests/target/provisioning/provisioning_ctrl.sh advance 0x07
 WT_LOCK_CONFIRM=1 tests/target/provisioning/provisioning_ctrl.sh regress
 ```
+
+Port variables: `MCXN947_PROBE_UID` (the board's MCU-Link unique id, required
+when the host has more than one probe), `MCXN947_SPSDK_VENV` (the SPSDK
+environment), `MCXN947_PYOCD` (the pyOCD executable, which the hardware runner
+and detector read too), `MCXN947_GUEST_MASK` (the guests a rehearsal must
+launch), `MCXN947_TARGET` (the pyOCD target name), `MCXN947_WOLFBOOT_DIR` (the
+wolfBoot tree the runner flashed) and `MCXN947_ISP` (the blhost ISP connection
+the lock preview names).
 
 What differs from the MIMXRT700:
 

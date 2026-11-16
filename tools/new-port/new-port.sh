@@ -76,7 +76,6 @@ fi
 [ ! -e "port/$soc" ] || { echo "port/$soc exists; use --check" >&2; exit 2; }
 from_upper="$(printf '%s' "$from" | tr 'a-z' 'A-Z')"
 from_display="$(python3 tests/target/lib/scenario_matrix.py --port "$from" --get display)"
-from_guide="$(python3 tests/target/lib/scenario_matrix.py --port "$from" --get guide)"
 
 copy() {
   local src="$1" dst="$2"
@@ -112,11 +111,9 @@ done
 for src in "tests/host/port_flash/models/$from"*; do
   copy "$src" "tests/host/port_flash/models/$(basename "$src" | sed -e "s/$from/$soc/g")"
 done
-copy "$from_guide" "docs/$upper-Guide.md"
-# A guide claim stands only after this board showed it.
-sed -i.bak "1a\\
-NEW_PORT_STUB $soc: every claim below was copied from the $from guide; keep one only after this board showed it, then delete this line.
-" "docs/$upper-Guide.md" && rm -f "docs/$upper-Guide.md.bak"
+# The guide starts from the template so no claim of the source port carries over.
+sed -e "s/<soc>/$soc/g" -e "s/<SOC>/$upper/g" "$here/templates/Guide.md" > "docs/$upper-Guide.md"
+echo "  docs/$upper-Guide.md"
 for f in "port/$soc"/*.[ch] "tests/firmware/boards/$soc"/*.[ch] "tests/host/port_flash/models/$soc"*.[ch]; do
   stub_c "$f"
 done

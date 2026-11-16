@@ -27,15 +27,11 @@ port claims a security property it does not have.
 
 ## Forbidden paths
 
-A port PR changes only these: `port/<soc>/`, `mk/target-<soc>.mk`,
-`tests/firmware/boards/<soc>/`, `tests/target/ports/<soc>/`,
-`tests/target/provisioning/provisioning_ctrl_<soc>.sh`,
-`tests/host/port_flash/models/<soc>.*`, its own host suites, `docs/<SOC>-Guide.md`,
-and the generated `docs/Ports.md`. `tools/check-port-only-diff.sh --thin <soc>
-<base-ref>` refuses anything else. If a shared file seems to need a change, stop and
-report what the contract lacks; do not edit `src/`, `include/`,
-`port/common/`, `mk/common.mk`, `mk/arch-*.mk`, `tests/target/lib/`,
-`tests/target/run_*.sh` or a workflow.
+A port PR changes only the paths in the "Add a target" table of
+[docs/Porting.md](../../docs/Porting.md#add-a-target);
+`tools/check-port-only-diff.sh --thin <soc> <base-ref>` refuses anything else.
+If a shared file seems to need a change, stop and report what the contract
+lacks.
 
 ## Files to create
 
@@ -47,28 +43,14 @@ refusal. Pick
 `--from` by flash and fabric: `stm32h563` (internal flash, GTZC, option-byte
 WRP, ST-Link), `mimxrt700` (external XSPI NOR, AHBSC, XSPI fence, MCU-Link),
 `mcxn947` (internal flash through the boot ROM API, SAU windows, MCU-Link).
+The board guide starts from `tools/new-port/templates/Guide.md`, never from
+another port's guide.
 
 ## Gates
 
-Run each gate in order; its last line is the evidence. Do not report a gate
-passed on a skip.
-
-| Gate | Command | Passes when |
-| --- | --- | --- |
-| G0 registry | `tools/new-port/new-port.sh <soc> --check` | `0 stub(s) open, registry ok` |
-| G1 build | `make TARGET=<soc> secure-image TOOLPREFIX=arm-none-eabi-` for `WT_ENGINE=native` and `hsm`, then `WT_CONFORMANCE=1` | every link ends with the layout check's `PASS` lines |
-| G2 host | `make -C tests/host/port_flash clean run`, the port's RNG model suite, `make test` | `PASS` for every suite, `docs/Ports.md is current` |
-| G3 layout | `TOOLPREFIX=arm-none-eabi- tools/check-layout-rebuild.sh <soc>` | `PASS: layout rebuild (<soc>)` |
-| G4 emulator smoke | `make test-target TARGET=<soc>` (inside the port's CI image) | `PASS: target/all` |
-| G5 emulator full | `WT_TIER=full make test-target TARGET=<soc>` on both engines | `PASS: target/all` twice |
-| G6 hardware minimum | `make test-hardware TARGET=<soc>` on the probe host | `PASS: hardware/all` with `logs/<soc>-hw/*/result.json` |
-| G7 provisioning | `TARGET=<soc> tests/target/provisioning/provisioning_ctrl.sh status` then `discover` | both exit 0: `status` prints the part's state and identity, `discover` its `PASS` lines; no write |
-
-Evidence per gate: the command's log (keep it under `logs/`), the gate's
-last line, and for G4 to G6 the `logs/target-*.log` or evidence directories.
-G6 is the contract every board meets (the eight scenarios in
-`docs/Porting.md`); a port cannot exempt one of them. Extras go in the
-registry as `hardware.qualification` or `hardware.optin`.
+Run gates G0 to G7 of the [bring-up ladder](../../docs/Porting.md#bring-up-ladder)
+in order. Keep each command's log under `logs/` with its last line, and do not
+report a gate passed on a skip.
 
 ## Stop and ask
 

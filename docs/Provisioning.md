@@ -11,15 +11,11 @@ One script does this on every port, with the same commands:
 TARGET=<port> tests/target/provisioning/provisioning_ctrl.sh <command> [state]
 ```
 
-`TARGET` is `stm32h563` (the default), `mimxrt700`, or `mcxn947`. `help` lists
+`TARGET` is a registered port from [Ports](Ports.md) (`stm32h563` by default). `help` lists
 the commands and the port's states. Only the state codes and a few device
 commands differ between ports. This page covers the shared flow; each port
-guide covers its states, quirks, and a walkthrough with real output:
-
-- [STM32H5 Guide: Provisioning and product state](STM32H5-Guide.md#provisioning-and-product-state)
-- [MIMXRT700 Guide: Provisioning and life cycle](MIMXRT700-Guide.md#provisioning-and-life-cycle)
-- [MCXN947 Guide: Provisioning and life cycle](MCXN947-Guide.md#provisioning-and-life-cycle)
-  (rehearsal and lock preview only: this port writes no life cycle)
+guide, linked from [Ports](Ports.md), covers its states, quirks, and a
+walkthrough with real output.
 
 > **Production locks are permanent.** `lock` is for a production station and a
 > part you intend to ship, never a development board. Every step before it is
@@ -177,23 +173,17 @@ software then only changes through wolfBoot's signed update path
 Back these up before the first lock. A lost signing key means the parts locked
 with it can never be updated; a leaked one means they trust whoever holds it.
 
-## PSA life cycle by port
+## PSA life cycle
 
-| PSA life cycle | STM32H5 product state | MIMXRT700 life cycle | MCXN947 life cycle |
-| --- | --- | --- | --- |
-| `0x1000` ASSEMBLY_AND_TEST | open `0xED` | develop `0x03` | oem-open `0x03` |
-| `0x2000` PSA_ROT_PROVISIONING | provisioning `0x17` | develop2 `0x07` | oem-secure-world `0x07` |
-| `0x4000` NON_PSA_ROT_DEBUG | tz-closed `0xC6` | in-field, only Non-secure debug open | oem-closed, only Non-secure debug open |
-| `0x5000` RECOVERABLE_PSA_ROT_DEBUG | closed, Secure debug open | in-field, Secure debug open | oem-closed, Secure debug open |
-| `0x3000` SECURED | closed `0x72`, locked `0x5C` | in-field `0x0F`, in-field-locked `0xCF` | oem-closed `0x0F`, oem-locked `0xCF` |
-| `0x6000` DECOMMISSIONED | none | in-field-return `0x1F` | oem-field-return `0x1F` |
-| `0x0000` UNKNOWN | any other value | copies disagree, or an NXP-internal state | copies disagree, or an NXP-internal state |
+Each guide maps its product or life-cycle states to the PSA life cycle
+wolfTrust reports. A value outside that table, or redundant copies that
+disagree, reports `0x0000` UNKNOWN.
 
 ## Environment
 
 | Variable | Meaning |
 | --- | --- |
-| `TARGET` | the port: `stm32h563` (default), `mimxrt700`, or `mcxn947` |
+| `TARGET` | the port (`stm32h563` by default) |
 | `WT_HW_PROBE` | the debug probe to bind when the host has more than one; the hardware runner reads the same name |
 | `WT_LOCK_CONFIRM=1` | allow a board write; without it `lock` only previews |
 | `WT_PRODUCTION_LOCK=1` | marks a production station; `lock` never writes without it |
@@ -201,9 +191,7 @@ with it can never be updated; a leaked one means they trust whoever holds it.
 | `WT_PROVISION_STATE` | where rehearsal records live (default `~/.cache/wolftrust`, one folder per port) |
 | `WT_REHEARSAL_MAX_AGE` | seconds a rehearsal stays valid (default `3600`) |
 | `WT_DA_OBK`, `WT_DA_KEY`, `WT_DA_CERT`, `WT_DA_PWD` | STM32H5 Debug Authentication inputs; a production lock requires all four, none of them ST's sample |
-| `STM32_CLI`, `H5_SERIAL` | STM32H5: STM32CubeProgrammer CLI and the board UART |
-| `RT700_ISP`, `RT700_SPSDK_VENV`, `RT700_GUEST_MASK` | MIMXRT700: blhost ISP connection, SPSDK environment, guests a rehearsal must launch |
-| `MCXN947_PROBE_UID`, `MCXN947_SPSDK_VENV`, `MCXN947_PYOCD`, `MCXN947_GUEST_MASK`, `MCXN947_TARGET`, `MCXN947_WOLFBOOT_DIR`, `MCXN947_ISP` | MCXN947: the board's MCU-Link unique id (required when the host has more than one probe), the SPSDK environment, the pyOCD executable (the hardware runner and detector read it too), guests a rehearsal must launch, the pyOCD target name, the wolfBoot tree the runner flashed, and the blhost ISP connection the lock preview names |
+| port variables | the probe, tools and console a port's backend reads, listed in its guide |
 
 ## Adding a port
 

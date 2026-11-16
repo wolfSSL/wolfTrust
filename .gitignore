@@ -27,5 +27,7 @@ tests/fuzz/timeout-*
 # Tool-specific files
 .claude/
 .codex
+/AGENTS.local.md
+/CLAUDE.local.md
 /logs/
 /SESSION_WRAPUP.md

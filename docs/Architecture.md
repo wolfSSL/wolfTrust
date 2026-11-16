@@ -168,13 +168,12 @@ consecutive slices, counting Secure calls it makes from that handler, is
 restarted under its policy, and its Non-secure system handler activations are
 cleared. Armv8-M keeps an external interrupt's active bit read-only, so an
 external IRQ the guest abandoned is retired by an exception return on the next
-exit to a guest that does not hold `FAULTMASK_NS`; until then it can hold off
-Non-secure interrupts of equal or lower priority. A
-guest fault clears the same handler state, masks its interrupts and applies the
-restart policy. If restart is allowed, wolfTrust
-clears restart-marked RAM and restores a clean context after a bounded delay; if
-the budget is exhausted, the guest remains faulted. Runtime remeasurement can
-also quarantine a guest without entering it.
+exit to a guest whose `FAULTMASK_NS` is clear; until then it can hold off
+Non-secure interrupts of equal or lower priority. A guest fault clears the
+same handler state, masks its interrupts and applies the restart policy. If
+restart is allowed, wolfTrust clears restart-marked RAM and restores a clean
+context after a bounded delay; if the budget is exhausted, the guest remains
+faulted. Runtime remeasurement can also quarantine a guest without entering it.
 
 When no guest is runnable but recovery is pending, the monitor idles in
 Secure Thread mode so Secure SysTick can finish the backoff. It halts only

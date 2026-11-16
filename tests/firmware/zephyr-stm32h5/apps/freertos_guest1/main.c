@@ -38,7 +38,7 @@
 
 #include "psa/client.h"
 
-/* SERVICE_HSM (port/stm32h563/manifest.json): the single mediated door to
+/* SERVICE_HSM (manifest/base.json): the single mediated door to
  * the secure crypto engine — the same path guest0 uses. */
 #define WT_SERVICE_HSM_SID 4102u
 

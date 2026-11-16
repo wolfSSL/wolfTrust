@@ -338,18 +338,13 @@ static void test_restart_cancels_armed_install(void)
               wt_fwu_install(&ctx) == PSA_SUCCESS_REBOOT && mem.armed == 1u,
           "WT-FWU-0002 install arms the swap before the restart");
 
-    check(wt_fwu_restart_disarm(&backend, &mem) == 0 && mem.armed == 0u,
-          "WT-FWU-0003 partition restart cancels the armed swap");
+    /* The restart hook itself is driven in tests/host/fwu_restore. */
+    check(backend.disarm(&mem) == 0 && mem.armed == 0u,
+          "WT-FWU-0003 the backend disarm cancels the armed swap");
     ctx_init(&ctx, &backend, &mem, 0u);
     check(ctx.state == PSA_FWU_READY &&
               wt_fwu_start(&ctx, WT_FWU_COMPONENT_PRIMARY, 6u) == PSA_SUCCESS,
           "WT-FWU-0003 restarted partition stages a new candidate unarmed");
-
-    mem.fail_disarm = 1;
-    check(wt_fwu_restart_disarm(&backend, &mem) != 0,
-          "WT-FWU-0003 a failed restart disarm fails the restart closed");
-    check(wt_fwu_restart_disarm(NULL, &mem) != 0,
-          "WT-FWU-0003 restart disarm without a backend fails closed");
 }
 
 /* A backend that tracks its padded programmed extent, as the flash ports do,

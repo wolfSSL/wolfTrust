@@ -25,6 +25,7 @@
 #include <stdint.h>
 #include <wolfHAL/platform/st/stm32h563xx.h>
 #include "wolftrust/arch/armv8m/core_regs.h"
+#include "memory_map.h"
 
 #define WT_LPUART1_BASE          0x44002400u
 #define WT_LPUART1_CR1           (*(volatile uint32_t*)(WT_LPUART1_BASE + 0x00u))
@@ -37,6 +38,9 @@
 
 #define WT_USART3_BASE_NS        0x40004800u
 #define WT_RNG_BASE_S            0x520C0800u
+#if WT_L3_SPM_PERIPHERAL_BASE != WT_RNG_BASE_S
+#error "memory_map.h names a different SPM-only peripheral than WT_RNG_BASE_S"
+#endif
 #define WT_USART_CR1(base)       (*(volatile uint32_t*)((base) + 0x00u))
 #define WT_USART_BRR(base)       (*(volatile uint32_t*)((base) + 0x0Cu))
 #define WT_USART_ISR(base)       (*(volatile uint32_t*)((base) + 0x1Cu))

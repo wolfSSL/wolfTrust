@@ -19,6 +19,8 @@ jobs:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Trust the checked-out workspace
         run: |
@@ -33,6 +35,15 @@ jobs:
 
       - name: Enforce the core/port split (strict)
         run: WT_SPLIT_STRICT=1 tools/check-core-port-split.sh
+
+      - name: Check the port registry and keep port names out of shared files
+        run: |
+          python3 tests/target/lib/scenario_matrix.py --selftest
+          tools/check-no-port-names.sh
+
+      - name: Audit a new port against the thin-port allow-list
+        if: github.event_name == 'pull_request'
+        run: tools/check-port-only-diff.sh --new-ports "origin/${{ github.base_ref }}"
 
       - name: Keep internal ledger references out of the public docs
         run: tools/check-docs-no-internal-links.sh

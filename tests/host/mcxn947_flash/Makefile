@@ -18,10 +18,12 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 ROOT := ../../..
+TARGET := mcxn947
 WOLFHSM := $(ROOT)/lib/wolfHSM
 
 CC ?= cc
 BUILD_DIR ?= build
+include $(ROOT)/tests/host/layout.mk
 # The port's unit (16, the phrase) is the default run; `run` repeats the
 # suite with wolfHSM's 8-byte default to show the hazard it would carry.
 WT_FLASH_UNIT ?= 16
@@ -30,8 +32,7 @@ CFLAGS := \
     -DWOLFHSM_CFG_NO_CRYPTO \
     -DWOLFHSM_CFG_NO_SYS_TIME \
     -DWOLFHSM_CFG_FLASH_UNIT_SIZE=$(WT_FLASH_UNIT) \
-    -I$(ROOT)/include \
-    -I$(ROOT)/port/mcxn947 \
+    $(WT_LAYOUT_CFLAGS) \
     -I$(WOLFHSM) \
     -include mock_rom_api.h \
     -std=c99 -O0 -g -Wall -Wextra -pedantic

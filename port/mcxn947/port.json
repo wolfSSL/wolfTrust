@@ -1,0 +1,75 @@
+{
+  "name": "mcxn947",
+  "display": "MCXN947",
+  "board": "FRDM-MCXN947",
+  "arch": "armv8m",
+  "guide": "docs/MCXN947-Guide.md",
+  "ci": {
+    "label": "ci:mcxn947",
+    "label_only": true,
+    "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25",
+    "mcuxsdk_board": "frdmmcxn947"
+  },
+  "build": {
+    "engines": ["native", "hsm"],
+    "attest_cose": 0,
+    "variants": ["conformance"],
+    "vectors": "10040400"
+  },
+  "m33mu": {
+    "arm": "mcxn947-m33mu",
+    "smoke": ["positive", "guestisoneg", "crossdomain", "bothpsa", "confboot", "devcrypto"],
+    "groups": [
+      ["positive", "MCXN947 positive lifecycle (SAU guest windows)"],
+      ["guestisoneg", "MCXN947 cross-guest store faults and is contained"],
+      ["restart authneg", "MCXN947 guest restart budget and launch refusal"],
+      ["wrpoff", "MCXN947 fence-required build launches no guest"],
+      ["rollbackneg remeasureneg manifestneg spbudgetneg", "MCXN947 secure verdict negatives"],
+      ["crossdomain keystoreneg", "MCXN947 SP domain isolation negatives"],
+      ["spfaultneg panicneg", "MCXN947 SP fault and panic recovery"],
+      ["fpneg", "MCXN947 FP isolation (partition FP faults, contained)"],
+      ["sealbootneg", "MCXN947 damaged main-stack seal refuses to boot"],
+      ["bothpsa bothiso", "MCXN947 both-guest PSA lifecycle and isolation"],
+      ["attestneg fwustage", "MCXN947 attestation negatives and FWU staging"],
+      ["hsmattackneg", "MCXN947 wolfHSM cross-namespace + NVM relay negatives"],
+      ["confboot", "MCXN947 FF-M IPC conformance (85/4)"],
+      ["devstorage devattest devattestqcbor", "MCXN947 dev_apis storage and attestation conformance"],
+      ["devcrypto vaultrecover vaultrecoversec", "MCXN947 dev_apis crypto conformance and vault recovery"],
+      ["periphneg", "MCXN947 NS read of the SPM's ELS refused by the SAU"],
+      ["deputyneg", "MCXN947 keystore-flash privileged deputy refused (L3)"],
+      ["hsmpinneg hsmfaultneg", "MCXN947 wolfHSM pointer pin and tasklet fault containment (L3)"],
+      ["bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6", "MCXN947 partition band-to-band isolation negatives (L3)"],
+      ["restartneg1 restartneg2 restartneg3", "MCXN947 partitions restart on a reset band (L3)"],
+      ["periphspneg manifestneg2 manifestneg3", "MCXN947 SPM peripheral and manifest level negatives (L3)"],
+      ["sealneg sealhaltneg sealpivotneg", "MCXN947 stack seal containment and halt (L3)"],
+      ["mspovfneg xnneg svcneg", "MCXN947 SPM stack, execute-never and SVC misuse (L3)"]
+    ],
+    "l3_exempt": {},
+    "guests": {"hwpsa": ["psa", "psa"], "lifecycle": ["baremetal", "baremetal"], "psa": ["psa", "psa"], "conformance": ["psa", "baremetal"], "vnet": ["vnet", "vnet"]},
+    "guest_end": {},
+    "timeouts": {"psa": 180, "conformance": 900},
+    "guest_flags": {"fwustage": "WT_FWU_PROBE_STREAM_BYTES=0x21000u WT_FWU_PROBE_SEQUENTIAL=1 WT_FWU_PROBE_TAIL_BYTES=27u"},
+    "boot_marker": "",
+    "periph_probe": "faults",
+    "caps_absent": {"dma_probe": "the M33MU MCXN947 model has no DMA; the NS eDMA copies out of Secure memory are the FRDM run's to show", "idcode": "no silicon revision gate on this port", "bootupdate": "the MCXN947 emulator chain does not stage a wolfBoot update candidate yet", "vnet": "no wolfIP network guests for this port", "idle_scheduler": "the single-guest idle backoff scenario is not wired for this port", "busfault": "M33MU at the pinned ref does not vector a precise data BusFault", "guest_fence": "the MCXN947 first stage arms no guest flash fence (wrpoff proves the refusal)", "handler_overrun": "the Non-secure handler overrun scenario is not wired for this port"},
+    "faults_by_design": {"periphneg": "the bare-metal probe's NS read of the ELS faults on every launch and the monitor contains it", "crossdomain": "the storage SP's probe faults on its first wake while both guests finish; the trace boot names the fault", "keystoreneg": "the storage SP's probe faults on its first wake while both guests finish; the trace boot names the fault", "periphspneg": "the storage SP's probe faults on its first wake while the PSA guest finishes"},
+    "exempt": {}
+  },
+  "hardware": {
+      "qualification": [],
+      "optin": [],
+      "caps_absent": {
+          "rom_xip": "the FRDM boots through wolfBoot in internal flash; there is no XIP ROM smoke image",
+          "ns_handler_probes": "the NS entry-mask and parked-IRQ probes are not run on this board",
+          "pris": "the Non-secure mask negatives are the Nucleo's (AIRCR.PRIS probe in the Zephyr guest)",
+          "ns_bus_hole": "no unmapped Non-secure peripheral hole is probed on this part",
+          "write_once": "the WRITE_ONCE reset probe lives in the Zephyr PSA guest",
+          "boot_header_swd": "the FRDM chain does not stage a wolfBoot update candidate yet"
+      },
+      "iso_probe": "faults",
+      "extra_blocks": [
+          "mcxn_secure_side"
+      ],
+      "fixture": "FRDM-MCXN947 with its MCU-Link bound by unique id; OEM_OPEN life cycle"
+  }
+}

@@ -157,10 +157,6 @@ int wt_fwu_wolfboot_arm_trailer(uint8_t* block, uint32_t len);
 int wt_fwu_staged_extent_ok(uint32_t staged_size, uint32_t programmed_end,
                             uint32_t align);
 
-/* Restart hook: a restarted partition rebuilds its state machine READY, so
- * clear any swap trigger its previous instance armed. 0 on success. */
-int wt_fwu_restart_disarm(const wt_fwu_backend_t* backend, void* backend_ctx);
-
 /* SERVICE_FWU's dispatch loop: wait, get, service one message through the
  * state machine, reply. Architecture-neutral: the host test drives real
  * wt_ffm round trips with a RAM backend; the target runs the same code as a

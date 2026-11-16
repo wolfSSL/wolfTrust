@@ -351,6 +351,10 @@ void Reset_Handler(void)
     g_test_context.pend_ns = 0U;
     wt_restore_guest_pending(&g_test_context);
     check(g_test_icsr == WT_SCB_ICSR_PENDSVCLR);
+    /* The tasklet resume path gives the pends back like the full restore. */
+    g_test_context.pend_ns = WT_SCB_ICSR_PENDSVSET;
+    wt_arch_restore_guest_bank(&g_test_context);
+    check(g_test_icsr == WT_SCB_ICSR_PENDSVSET);
     g_test_icsr = 0U;
     g_test_iabr[2] = 0U;
 

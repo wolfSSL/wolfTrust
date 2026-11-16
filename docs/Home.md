@@ -116,6 +116,4 @@ port's five CMSE gateway veneers.
 | [Testing](Testing.md) | Host, M33MU, and STM32H563 validation |
 | [Provisioning](Provisioning.md) | Rehearse, validate, then lock: the production life cycle flow for every port |
 | [Project Structure](Project-Structure.md) | Repository layout |
-| [STM32H5 Guide](STM32H5-Guide.md) | STM32H563 provisioning, flashing, WRP, and recovery safety |
-| [MIMXRT700 Guide](MIMXRT700-Guide.md) | MIMXRT700 provisioning, flashing, XSPI guest fence, and recovery safety |
-| [MCXN947 Guide](MCXN947-Guide.md) | MCXN947 internal flash, ELS entropy, emulator runner, life cycle rehearsal, and open items |
+| [Ports](Ports.md) | Every registered port with its board guide, CI, emulator and hardware tiers (generated) |

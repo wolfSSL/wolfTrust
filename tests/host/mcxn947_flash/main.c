@@ -364,8 +364,9 @@ static void test_driver(void)
           "a program crossing a page boundary takes one ROM call per page");
 }
 
-/* The port backend's rules (port/mcxn947/hsm_flash.c) over the real driver:
- * a 16-byte program unit, sector erases, reads through the alias. */
+/* The store callbacks the raw backend below shares: reads through the
+ * alias, one sector per partition. The production backend's own rules run
+ * in tests/host/port_flash. */
 static int port_init(void *context, const void *config)
 {
     (void)context;
@@ -409,47 +410,6 @@ static int port_read(void *context, uint32_t offset, uint32_t size,
     return WH_ERROR_OK;
 }
 
-static int port_result(int rc)
-{
-    if (rc == WT_ROM_FLASH_OK) {
-        return WH_ERROR_OK;
-    }
-    if (rc == WT_ROM_FLASH_ERR_NOTBLANK) {
-        return WH_ERROR_NOTBLANK;
-    }
-    if (rc == WT_ROM_FLASH_ERR_ARGS) {
-        return WH_ERROR_BADARGS;
-    }
-    return WH_ERROR_ABORTED;
-}
-
-static int port_program(void *context, uint32_t offset, uint32_t size,
-                        const uint8_t *data)
-{
-    (void)context;
-    if (!port_range_ok(offset, size) || (offset % PHRASE) != 0u ||
-            (size % PHRASE) != 0u) {
-        return WH_ERROR_BADARGS;
-    }
-    if (size == 0u) {
-        return WH_ERROR_OK;
-    }
-    return port_result(wt_rom_flash_program(NVM_OFF + offset, data, size));
-}
-
-static int port_erase(void *context, uint32_t offset, uint32_t size)
-{
-    (void)context;
-    if (!port_range_ok(offset, size) || (offset % SECTOR) != 0u ||
-            (size % SECTOR) != 0u) {
-        return WH_ERROR_BADARGS;
-    }
-    if (size == 0u) {
-        return WH_ERROR_OK;
-    }
-    return port_result(wt_rom_flash_erase(NVM_OFF + offset, size));
-}
-
 static int port_verify(void *context, uint32_t offset, uint32_t size,
                        const uint8_t *data)
 {
@@ -460,34 +420,6 @@ static int port_verify(void *context, uint32_t offset, uint32_t size,
     return (memcmp(g_flash + NVM_OFF + offset, data, size) == 0) ?
            WH_ERROR_OK : WH_ERROR_NOTVERIFIED;
 }
-
-static int port_blank_check(void *context, uint32_t offset, uint32_t size)
-{
-    int rc;
-
-    (void)context;
-    if (!port_range_ok(offset, size)) {
-        return WH_ERROR_BADARGS;
-    }
-    rc = wt_rom_flash_blank(NVM_OFF + offset, size);
-    if (rc == WT_ROM_FLASH_ERR_NOTBLANK) {
-        return WH_ERROR_NOTBLANK;
-    }
-    return (rc == WT_ROM_FLASH_OK) ? WH_ERROR_OK : WH_ERROR_BADARGS;
-}
-
-static const whFlashCb g_port_cb = {
-    .Init = port_init,
-    .Cleanup = port_cleanup,
-    .PartitionSize = port_partition_size,
-    .WriteLock = port_lock,
-    .WriteUnlock = port_lock,
-    .Read = port_read,
-    .Program = port_program,
-    .Erase = port_erase,
-    .Verify = port_verify,
-    .BlankCheck = port_blank_check,
-};
 
 /* A backend that programs whatever unit it is handed, as a port that took
  * the wolfHSM unit for the flash's own would. */
@@ -651,35 +583,17 @@ static void test_store(void)
     model_reset();
     g_program_calls = 0u;
     g_erase_calls = 0u;
+    ret = nvm_lifecycle(&g_raw_cb, &compactions);
 #if WOLFHSM_CFG_FLASH_UNIT_SIZE == 16
-    ret = nvm_lifecycle(&g_port_cb, &compactions);
+    /* The unit, not a backend guard, is what keeps every program whole: a
+     * backend with no phrase rule stays clean at 16 bytes. */
     check(ret == WH_ERROR_OK,
           "16-byte units: three fill/read/destroy rounds and a reopen");
-    check(compactions >= 1u,
-          "16-byte units: the store compacted into its other partition");
-    check(g_program_calls > 100u,
-          "16-byte units: the lifecycle programmed many phrases");
-    printf("  programs=%u compactions=%u double=%u\n",
-           (unsigned)g_program_calls, (unsigned)compactions,
+    printf("  compactions=%u double=%u\n", (unsigned)compactions,
            (unsigned)g_double_programs);
     check(g_double_programs == 0u,
-          "16-byte units: no phrase was programmed twice between erases");
-    check(g_unaligned_programs == 0u,
-          "16-byte units: every ROM program started on a page base");
-    /* The unit, not the port's guard, is what keeps every program whole:
-     * a backend with no phrase rule stays clean at 16 bytes. */
-    model_reset();
-    ret = nvm_lifecycle(&g_raw_cb, &compactions);
-    check(ret == WH_ERROR_OK && g_double_programs == 0u,
           "16-byte units: the raw backend never writes a phrase twice");
 #else
-    ret = nvm_open(&g_port_cb);
-    check(ret != WH_ERROR_OK,
-          "8-byte units: the port backend refuses the sub-phrase unit");
-    check(g_program_calls == 0u && g_double_programs == 0u,
-          "8-byte units: nothing reached the ROM through the port backend");
-    model_reset();
-    ret = nvm_lifecycle(&g_raw_cb, &compactions);
     check(ret == WH_ERROR_OK,
           "8-byte units: the raw backend completes the same lifecycle");
     printf("  compactions=%u double=%u first=0x%08X\n",

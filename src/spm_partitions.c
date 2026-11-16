@@ -701,10 +701,13 @@ static void wt_spm_fwu_entry(void* arg)
     }
 }
 
+/* A restarted partition rebuilds its state machine READY, so clear any swap
+ * trigger its previous instance armed. */
 static int wt_spm_fwu_restore(int32_t partition_id)
 {
     (void)partition_id;
-    if (wt_fwu_restart_disarm(&wt_fwu_flash_backend, NULL) != 0) {
+    if (wt_fwu_flash_backend.disarm == NULL ||
+            wt_fwu_flash_backend.disarm(NULL) != 0) {
         return WT_FFM_ERROR_STATE;
     }
     return WT_FFM_SUCCESS;

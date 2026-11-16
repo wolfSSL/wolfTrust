@@ -67,7 +67,6 @@ volatile uint32_t g_wt_first_dispatch_pending;
 #error "WT_GUEST_HANDLER_SLICE_LIMIT must be 1 to 0xFFFFFFFF"
 #endif
 static uint32_t g_handler_slices;
-static wt_irq_mask_t g_tick_irq_enables;
 /* WT-FFM-0052 runtime re-measurement counters (harness reads by symbol). */
 volatile uint32_t g_wt_runtime_verify_pass;
 volatile uint32_t g_wt_runtime_verify_fail;
@@ -623,7 +622,7 @@ static void wt_restart_overrun(const wt_trap_frame_t* frame,
 }
 
 /* Give back the enables the guest had, never one its manifest withholds. */
-static void wt_tick_restore_irq_enables(void)
+static void wt_tick_restore_irq_enables(wt_irq_mask_t* enables)
 {
     const wt_guest_config_t* config = wt_guest_config(g_scheduler.current_guest);
     size_t i;
@@ -632,9 +631,9 @@ static void wt_tick_restore_irq_enables(void)
         return;
     }
     for (i = 0U; i < WT_MAX_IRQ_WORDS; ++i) {
-        g_tick_irq_enables.words[i] &= config->irq_mask.words[i];
+        enables->words[i] &= config->irq_mask.words[i];
     }
-    wt_arch_apply_irq_mask(&g_tick_irq_enables);
+    wt_arch_apply_irq_mask(enables);
 }
 
 /* Secure code is never abandoned mid-call, so a limit reached inside an FF-M
@@ -651,8 +650,10 @@ static bool wt_handler_overrun(const wt_trap_frame_t* frame)
 
 void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
 {
+    wt_irq_mask_t enables;
+
     g_scheduler.monotonic_ticks++;
-    wt_arch_read_guest_irq_enables(&g_tick_irq_enables);
+    wt_arch_read_guest_irq_enables(&enables);
     wt_arch_mask_all_guest_irqs();
     /* Secure IRQs share the tick's priority and SVC and faults sit above it,
      * so a tick in Secure Handler mode preempted Secure code a Non-secure
@@ -684,19 +685,19 @@ void wt_monitor_on_secure_timer(const wt_trap_frame_t* frame)
             (void)wt_tasklet_request_preempt();
         }
         else {
-            wt_tick_restore_irq_enables();
+            wt_tick_restore_irq_enables(&enables);
         }
         return;
     }
     if (wt_platform_secure_service_active()) {
-        wt_tick_restore_irq_enables();
+        wt_tick_restore_irq_enables(&enables);
         return;
     }
 #endif
     if (!wt_arch_trap_from_guest_thread()) {
         wt_tick_restart_backoff();
         if (!wt_arch_trap_from_guest_handler() || !wt_handler_overrun(frame)) {
-            wt_tick_restore_irq_enables();
+            wt_tick_restore_irq_enables(&enables);
         }
         return;
     }

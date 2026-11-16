@@ -20,14 +20,18 @@
 
 """The M33MU scenario matrix per port and tier.
 
-Each port's scenario groups live here once. The M33MU workflow's plan job
-reads the whole run with --ci-plan (the event, the PR labels, and the dispatch
-input pick each port's tier), and `make test-target` reads one port's
-scenario list with --flat, so a scenario is registered in exactly one place.
+Each port registers itself in port/<soc>/port.json and this module is the one
+reader of that registry. The M33MU workflow's plan job reads the whole run
+with --ci-plan (the event, the PR labels, and the dispatch input pick each
+port's tier), `make test-target` reads one port's scenario list with --flat,
+and the cross-build jobs read --build-plan, so a port is registered in
+exactly one place.
 
-    GITHUB_EVENT_NAME=pull_request PR_LABELS="ci:rt700" scenario_matrix.py --ci-plan
-    scenario_matrix.py --port mimxrt700 --tier smoke --json
-    scenario_matrix.py --port stm32h563 --tier full --engine native --flat
+    GITHUB_EVENT_NAME=pull_request PR_LABELS="ci:<port>" scenario_matrix.py --ci-plan
+    scenario_matrix.py --port <port> --tier smoke --json
+    scenario_matrix.py --port <port> --tier full --engine native --flat
+    scenario_matrix.py --port <port> --get ci.mcuxsdk_board
+    scenario_matrix.py --build-plan
 """
 
 import argparse
@@ -53,160 +57,47 @@ L3_REQUIRED = frozenset((
     "mspovfneg", "xnneg", "svcneg",
 ))
 
-# smoke: the per-PR set (one job per scenario and engine). groups: the full
-# tier, packed so each job builds the emulator and wolfBoot once.
-# label_only: an unlabeled pull request runs none of this port.
-PORTS = {
-    "stm32h563": {
-        "label": "ci:h5",
-        "arm": "m33mu",
-        "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15",
-        "smoke": ("positive", "gtzcneg", "crossdomain", "bothpsa", "confboot",
-                  "devcrypto"),
-        "groups": (
-            ("positive", "Positive lifecycle"),
-            ("bothpsa", "Both-OS PSA parity (Zephyr + FreeRTOS)"),
-            ("bothiso", "Both-OS FF-M isolation negatives"),
-            ("restart restartidle", "Guest restart recovery and idle backoff"),
-            ("crossdomain", "Cross-domain isolation (L3)"),
-            ("keystoreneg", "Keystore-band isolation (L3)"),
-            ("deputyneg", "Keystore-flash privileged-deputy refused (L3)"),
-            ("hsmpinneg", "wolfHSM server pointers pinned before the pump (L3)"),
-            ("bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6",
-             "Partition band-to-band isolation negatives (L3)"),
-            ("restartneg1 restartneg2 restartneg3",
-             "Partitions restart on a reset band (L3)"),
-            ("spfaultneg", "Graceful SP fault recovery"),
-            ("hsmfaultneg", "HSM tasklet fault containment"),
-            ("panicneg", "Secure-caller misuse panic"),
-            ("confboot", "FF-M IPC conformance (85/4)"),
-            ("devstorage", "dev_apis Storage (s001-s017)"),
-            ("devcrypto", "dev_apis Crypto (c001-c080)"),
-            ("devattest", "dev_apis Initial Attestation (a001, shim)"),
-            ("devattestqcbor", "dev_apis Initial Attestation (a001, QCBOR)"),
-            ("attestneg", "Attestation negatives (IPC + tamper)"),
-            ("hsmattackneg", "wolfHSM cross-namespace + NVM relay negatives"),
-            ("authneg", "Authenticated launch fail-closed"),
-            ("rollbackneg", "Anti-rollback downgrade refused"),
-            ("vaultrecover", "Vault recovery self-heal"),
-            ("vaultrecoversec", "Vault recovery fail-closed"),
-            ("fwustage", "PSA Firmware Update staging"),
-            ("remeasureneg", "Runtime re-measurement quarantine"),
-            ("bootupdate", "Full boot-and-update swap gate"),
-            ("vnet", "wolfIP virtual network (mediated ping)"),
-            ("vnetneg", "Confined VNET isolation negatives"),
-            ("manifestneg", "Corrupted-manifest activation refused"),
-            ("manifestneg2", "Level 2 manifest refused at boot"),
-            ("manifestneg3", "Overlapping partition tables refused at boot"),
-            ("gtzcneg", "NS MPU bypass cannot reach peer guest RAM"),
-            ("periphneg", "NS peripheral and DMA access to Secure resources"),
-            ("periphspneg", "Partition read of an SPM peripheral faults (L3)"),
-            ("spbudgetneg", "SP restart-budget exhaustion escalates"),
-            ("revneg", "Engineering-sample silicon refused"),
-            ("fpneg", "FP isolation (partition FP faults, contained)"),
-            ("sealneg", "Stack seal damage faults only its partition"),
-            ("sealhaltneg", "Stack seal damage at dispatch halts"),
-            ("sealbootneg", "Damaged main-stack seal refuses to boot"),
-            ("sealpivotneg", "Blocking wait stacked on the seal stays contained"),
-            ("mspovfneg", "SPM main-stack overflow halts fail-closed"),
-            ("xnneg", "Privileged execution from SPM RAM denied"),
-            ("svcneg", "Partition guest-return SVC panics only that partition"),
-        ),
-        "l3_exempt": {},
-    },
-    "mimxrt700": {
-        "label": "ci:rt700",
-        "label_only": True,
-        "arm": "rt700-m33mu",
-        "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25",
-        "smoke": ("positive", "ahbscneg", "crossdomain", "bothpsa", "confboot",
-                  "devcrypto"),
-        "groups": (
-            ("positive", "RT700 positive lifecycle (SAU guest windows)"),
-            ("ahbscneg", "RT700 cross-guest store faults and is contained"),
-            ("restart authneg handlerneg",
-             "RT700 guest restart budget, launch refusal, handler overrun"),
-            ("rollbackneg remeasureneg manifestneg spbudgetneg",
-             "RT700 secure verdict negatives"),
-            ("crossdomain keystoreneg", "RT700 SP domain isolation negatives"),
-            ("spfaultneg panicneg", "RT700 SP fault and panic recovery"),
-            ("fpneg", "RT700 FP isolation (partition FP faults, contained)"),
-            ("sealbootneg", "RT700 damaged main-stack seal refuses to boot"),
-            ("wrpfence wrpoff wrpneg",
-             "RT700 XSPI guest fence: launches, refuses unfenced, blocks erase"),
-            ("bothpsa bothiso", "RT700 both-guest PSA lifecycle and isolation"),
-            ("attestneg fwustage",
-             "RT700 attestation negatives and FWU staging"),
-            ("hsmattackneg",
-             "RT700 wolfHSM cross-namespace + NVM relay negatives"),
-            ("confboot", "RT700 FF-M IPC conformance (85/4)"),
-            ("devstorage devattest devattestqcbor",
-             "RT700 dev_apis storage and attestation conformance"),
-            ("devcrypto vaultrecover vaultrecoversec",
-             "RT700 dev_apis crypto conformance and vault recovery"),
-            ("periphneg", "RT700 NS read of the SPM's TRNG refused by the SAU"),
-            ("deputyneg", "RT700 keystore-flash privileged deputy refused (L3)"),
-            ("hsmpinneg hsmfaultneg",
-             "RT700 wolfHSM pointer pin and tasklet fault containment (L3)"),
-            ("bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6",
-             "RT700 partition band-to-band isolation negatives (L3)"),
-            ("restartneg1 restartneg2 restartneg3",
-             "RT700 partitions restart on a reset band (L3)"),
-            ("periphspneg manifestneg2 manifestneg3",
-             "RT700 SPM peripheral and manifest level negatives (L3)"),
-            ("sealneg sealhaltneg sealpivotneg",
-             "RT700 stack seal containment and halt (L3)"),
-            ("mspovfneg xnneg svcneg",
-             "RT700 SPM stack, execute-never and SVC misuse (L3)"),
-        ),
-        "l3_exempt": {},
-    },
-    "mcxn947": {
-        "label": "ci:mcxn947",
-        "label_only": True,
-        "arm": "mcxn947-m33mu",
-        "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25",
-        "smoke": ("positive", "sauneg", "crossdomain", "bothpsa", "confboot",
-                  "devcrypto"),
-        "groups": (
-            ("positive", "MCXN947 positive lifecycle (SAU guest windows)"),
-            ("sauneg", "MCXN947 cross-guest store faults and is contained"),
-            ("restart authneg", "MCXN947 guest restart budget and launch refusal"),
-            ("wrpoff", "MCXN947 fence-required build launches no guest"),
-            ("rollbackneg remeasureneg manifestneg spbudgetneg",
-             "MCXN947 secure verdict negatives"),
-            ("crossdomain keystoreneg", "MCXN947 SP domain isolation negatives"),
-            ("spfaultneg panicneg", "MCXN947 SP fault and panic recovery"),
-            ("fpneg", "MCXN947 FP isolation (partition FP faults, contained)"),
-            ("sealbootneg", "MCXN947 damaged main-stack seal refuses to boot"),
-            ("bothpsa bothiso", "MCXN947 both-guest PSA lifecycle and isolation"),
-            ("attestneg fwustage",
-             "MCXN947 attestation negatives and FWU staging"),
-            ("hsmattackneg",
-             "MCXN947 wolfHSM cross-namespace + NVM relay negatives"),
-            ("confboot", "MCXN947 FF-M IPC conformance (85/4)"),
-            ("devstorage devattest devattestqcbor",
-             "MCXN947 dev_apis storage and attestation conformance"),
-            ("devcrypto vaultrecover vaultrecoversec",
-             "MCXN947 dev_apis crypto conformance and vault recovery"),
-            ("periphneg", "MCXN947 NS read of the SPM's ELS refused by the SAU"),
-            ("deputyneg", "MCXN947 keystore-flash privileged deputy refused (L3)"),
-            ("hsmpinneg hsmfaultneg",
-             "MCXN947 wolfHSM pointer pin and tasklet fault containment (L3)"),
-            ("bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6",
-             "MCXN947 partition band-to-band isolation negatives (L3)"),
-            ("restartneg1 restartneg2 restartneg3",
-             "MCXN947 partitions restart on a reset band (L3)"),
-            ("periphspneg manifestneg2 manifestneg3",
-             "MCXN947 SPM peripheral and manifest level negatives (L3)"),
-            ("sealneg sealhaltneg sealpivotneg",
-             "MCXN947 stack seal containment and halt (L3)"),
-            ("mspovfneg xnneg svcneg",
-             "MCXN947 SPM stack, execute-never and SVC misuse (L3)"),
-        ),
-        "l3_exempt": {},
-    },
-}
+PORT_ROOT = os.path.normpath(os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "port"))
+REPO_ROOT = os.path.dirname(PORT_ROOT)
+REQUIRED_KEYS = ("name", "display", "board", "arch", "guide", "ci", "build",
+                 "m33mu")
+
+
+def load_ports(root=PORT_ROOT):
+    """Every port/<soc>/port.json, keyed by port name; a port directory with
+    no registry entry is an error, so nothing exists unregistered.
+    smoke: the per-PR set (one job per scenario and engine). groups: the full
+    tier, packed so each job builds the emulator and wolfBoot once.
+    label_only: an unlabeled pull request runs none of this port."""
+    ports = {}
+    for name in sorted(os.listdir(root)):
+        if name == "common" or not os.path.isdir(os.path.join(root, name)):
+            continue
+        path = os.path.join(root, name, "port.json")
+        if not os.path.isfile(path):
+            raise SystemExit("port/%s has no port.json" % name)
+        with open(path) as handle:
+            data = json.load(handle)
+        missing = [key for key in REQUIRED_KEYS if key not in data]
+        if missing or data["name"] != name:
+            raise SystemExit("port/%s/port.json: name mismatch or missing %s" %
+                             (name, " ".join(missing)))
+        m33mu = data["m33mu"]
+        ports[name] = {
+            "label": data["ci"]["label"],
+            "label_only": bool(data["ci"].get("label_only", False)),
+            "image": data["ci"]["image"],
+            "arm": m33mu["arm"],
+            "smoke": tuple(m33mu["smoke"]),
+            "groups": tuple((key, text) for key, text in m33mu["groups"]),
+            "l3_exempt": dict(m33mu.get("l3_exempt", {})),
+            "def": data,
+        }
+    return ports
+
+
+PORTS = load_ports()
 
 
 def group_name(port, scenario):
@@ -227,7 +118,8 @@ def entry(port, tier, engine, key, name):
     job = "_".join([port] + key.split() + [engine])
     return {"port": port, "tier": tier, "engine": engine, "key": key,
             "name": name, "job": job, "image": port_def["image"],
-            "arm": port_def["arm"]}
+            "arm": port_def["arm"],
+            "mcuxsdk_board": port_def["def"]["ci"].get("mcuxsdk_board", "")}
 
 
 def entries(port, tier, engine):
@@ -251,6 +143,10 @@ def ci_plan(event, labels, port_input):
     port runs only when labelled; a push, the schedule, or a dispatch gets the
     full tier of the selected ports."""
     out = []
+    if (event == "workflow_dispatch" and port_input not in ("", "all") and
+            port_input not in PORTS):
+        raise SystemExit("unknown port %r; registered: %s" %
+                         (port_input, " ".join(sorted(PORTS))))
     for port in sorted(PORTS):
         label = PORTS[port]["label"]
         if event == "pull_request":
@@ -268,26 +164,136 @@ def ci_plan(event, labels, port_input):
     return out
 
 
-SELFTEST = (
-    ("pull_request", "", "", "stm32h563:smoke"),
-    ("pull_request", "ci:rt700", "", "mimxrt700:full stm32h563:smoke"),
-    ("pull_request", "ci:h5", "", "stm32h563:full"),
-    ("pull_request", "ci:mcxn947", "", "mcxn947:full stm32h563:smoke"),
-    ("pull_request", "ci:all", "",
-     "mcxn947:full mimxrt700:full stm32h563:full"),
-    ("pull_request", "ci:m33mu", "",
-     "mcxn947:full mimxrt700:full stm32h563:full"),
-    ("pull_request", "ci:h5 ci:rt700", "", "mimxrt700:full stm32h563:full"),
-    ("push", "", "", "mcxn947:full mimxrt700:full stm32h563:full"),
-    ("schedule", "", "", "mcxn947:full mimxrt700:full stm32h563:full"),
-    ("workflow_dispatch", "", "",
-     "mcxn947:full mimxrt700:full stm32h563:full"),
-    ("workflow_dispatch", "", "all",
-     "mcxn947:full mimxrt700:full stm32h563:full"),
-    ("workflow_dispatch", "", "mimxrt700", "mimxrt700:full"),
-    ("workflow_dispatch", "", "stm32h563", "stm32h563:full"),
-    ("workflow_dispatch", "", "mcxn947", "mcxn947:full"),
-)
+def build_plan():
+    """Every secure-image cross-build: the port, the engine, the attestation
+    setting its default build uses, the variants it also builds, and the
+    .vectors address its default layout must keep ("" when unchecked)."""
+    out = []
+    for port in sorted(PORTS):
+        build = PORTS[port]["def"]["build"]
+        for engine in build["engines"]:
+            out.append({"port": port, "engine": engine,
+                        "attest_cose": build["attest_cose"],
+                        "variants": list(build.get("variants", [])),
+                        "vectors": build.get("vectors", "")})
+    return out
+
+
+def get_field(port, dotted):
+    """One registry value by dotted path, for shell consumers."""
+    value = PORTS[port]["def"]
+    for key in dotted.split("."):
+        if not isinstance(value, dict) or key not in value:
+            raise SystemExit("%s has no field %s" % (port, dotted))
+        value = value[key]
+    if isinstance(value, bool):
+        return "1" if value else "0"
+    if isinstance(value, list):
+        return " ".join(str(v) for v in value)
+    return str(value)
+
+
+def plan_tiers(event, labels, port_input):
+    tiers = {}
+    for e in ci_plan(event, labels, port_input):
+        tiers.setdefault(e["port"], set()).add(e["tier"])
+    for port, seen in tiers.items():
+        if len(seen) != 1:
+            raise SystemExit("%s runs two tiers in one plan" % port)
+    return dict((p, next(iter(s))) for p, s in tiers.items())
+
+
+def routing_gaps():
+    """The routing rule as properties over the registry: an unlabeled pull
+    request runs every always-on port at smoke; a port's label runs that port
+    full and the rest as unlabeled; ci:all, ci:m33mu, a push, the schedule and
+    a dispatch with no port run every port full; a dispatch names one port;
+    an unknown dispatch port is refused."""
+    ports = sorted(PORTS)
+    always = dict((p, "smoke") for p in ports if not PORTS[p]["label_only"])
+    everything = dict((p, "full") for p in ports)
+    checks = [("pull_request", [], "", always)]
+    for port in ports:
+        want = dict(always)
+        want[port] = "full"
+        checks.append(("pull_request", [PORTS[port]["label"]], "", want))
+    if len(ports) > 1:
+        want = dict(always)
+        want[ports[0]] = "full"
+        want[ports[1]] = "full"
+        checks.append(("pull_request",
+                       [PORTS[ports[0]]["label"], PORTS[ports[1]]["label"]],
+                       "", want))
+    for labels in (["ci:all"], ["ci:m33mu"]):
+        checks.append(("pull_request", labels, "", everything))
+    for event in ("push", "schedule"):
+        checks.append((event, [], "", everything))
+    for port_input in ("", "all"):
+        checks.append(("workflow_dispatch", [], port_input, everything))
+    for port in ports:
+        checks.append(("workflow_dispatch", [], port, {port: "full"}))
+    gaps = []
+    for event, labels, port_input, want in checks:
+        got = plan_tiers(event, labels, port_input)
+        if got != want:
+            gaps.append("ci_plan(%s, %r, %r) = %r, expected %r" %
+                        (event, labels, port_input, got, want))
+    try:
+        ci_plan("workflow_dispatch", [], "__no_such_port__")
+        gaps.append("an unknown dispatch port was accepted")
+    except SystemExit:
+        pass
+    return gaps
+
+
+# Sources every port takes from port/common/<arch>/ and may not carry itself.
+SHARED_PORT_SOURCES = ("partitions.c", "l3_port.h", "secure.ld", "hsm_flash.c",
+                       "hsm_flash.h", "hsm_flash_ctx.c", "rng_entropy.c",
+                       "platform_armv8m.c", "platform_port.h", "fabric_sau.c",
+                       "fabric_sau.h")
+
+
+def registry_gaps():
+    """A registered port has its build fragment, its guide and its shared
+    architecture layer, no copy of a shared source, a unique CI label and
+    runner arm, a usable image, known engines, and a smoke set drawn from its
+    full tier."""
+    gaps = []
+    labels = {}
+    arms = {}
+    for port in sorted(PORTS):
+        data = PORTS[port]["def"]
+        needed = (("mk/target-%s.mk" % port, "build fragment"),
+                  (data["guide"], "guide"),
+                  ("port/common/%s" % data["arch"], "shared architecture layer"))
+        for rel, what in needed:
+            if not os.path.exists(os.path.join(REPO_ROOT, rel)):
+                gaps.append("%s: missing %s %s" % (port, what, rel))
+        # The build compiles a port's own copy of a shared source before the
+        # shared one, so a leftover copy would silently replace it.
+        for shared in SHARED_PORT_SOURCES:
+            if os.path.exists(os.path.join(REPO_ROOT, "port", port, shared)):
+                gaps.append("%s: port/%s/%s shadows port/common/%s/%s" %
+                            (port, port, shared, data["arch"], shared))
+        for field, table in (("label", labels), ("arm", arms)):
+            value = PORTS[port][field]
+            if not value:
+                gaps.append("%s: empty %s" % (port, field))
+            elif value in table:
+                gaps.append("%s and %s share %s %s" %
+                            (table[value], port, field, value))
+            table[value] = port
+        if not PORTS[port]["image"]:
+            gaps.append("%s: empty image" % port)
+        full = set(flat(port, "full", None))
+        for scenario in PORTS[port]["smoke"]:
+            if scenario not in full:
+                gaps.append("%s: smoke scenario %s is not in the full tier" %
+                            (port, scenario))
+        engines = data["build"].get("engines", [])
+        if not engines or any(e not in ENGINES for e in engines):
+            gaps.append("%s: bad engines %r" % (port, engines))
+    return gaps
 
 
 def l3_gaps(port):
@@ -311,26 +317,19 @@ def l3_gaps(port):
 
 
 def selftest():
-    """The routing table above, the engine rule and the level 3 bar, run by
-    the select job."""
-    for event, labels, port_input, expect in SELFTEST:
-        got = " ".join(sorted(set(e["port"] + ":" + e["tier"] for e in
-                                  ci_plan(event, labels.split(), port_input))))
-        if got != expect:
-            return "ci_plan(%s, %r, %r) = %s, expected %s" % (
-                event, labels, port_input, got, expect)
+    """The registry, the routing properties, the engine rule and the level 3
+    bar, run by the select job and by make test."""
+    gaps = registry_gaps() + routing_gaps()
     for port in sorted(PORTS):
         for tier in ("smoke", "full"):
             for e in entries(port, tier, None):
                 if e["engine"] == "native" and all(
                         s in HSM_ONLY for s in e["key"].split()):
-                    return "native job for the hsm-only %s" % e["key"]
+                    gaps.append("native job for the hsm-only %s" % e["key"])
                 if e["engine"] not in ENGINES or e["image"] == "":
-                    return "bad entry %r" % e
-        gaps = l3_gaps(port)
-        if gaps:
-            return "; ".join(gaps)
-    return None
+                    gaps.append("bad entry %r" % e)
+        gaps.extend(l3_gaps(port))
+    return "; ".join(gaps) if gaps else None
 
 
 def flat(port, tier, engine):
@@ -362,12 +361,19 @@ def main():
     mode.add_argument("--ci-plan", action="store_true",
                       help="the whole run's include list from GITHUB_EVENT_NAME, "
                            "PR_LABELS, and PORT_INPUT")
+    mode.add_argument("--build-plan", action="store_true",
+                      help="every port's secure-image cross-builds")
+    mode.add_argument("--get", metavar="FIELD",
+                      help="one registry value of --port by dotted path")
     mode.add_argument("--selftest", action="store_true",
-                      help="check the event/label routing table")
+                      help="check the registry and the event/label routing")
     args = parser.parse_args()
 
     if args.list_ports:
         print(" ".join(sorted(PORTS)))
+        return 0
+    if args.build_plan:
+        print(json.dumps(build_plan()))
         return 0
     if args.selftest:
         failure = selftest()
@@ -385,6 +391,8 @@ def main():
         parser.error("--port is required")
     if args.image:
         print(PORTS[args.port]["image"])
+    elif args.get:
+        print(get_field(args.port, args.get))
     elif args.arm:
         print(PORTS[args.port]["arm"])
     elif args.flat:

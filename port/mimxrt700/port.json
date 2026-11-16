@@ -1,0 +1,78 @@
+{
+  "name": "mimxrt700",
+  "display": "MIMXRT700",
+  "board": "MIMXRT700-EVK",
+  "arch": "armv8m",
+  "guide": "docs/MIMXRT700-Guide.md",
+  "ci": {
+    "label": "ci:rt700",
+    "label_only": true,
+    "image": "ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25",
+    "mcuxsdk_board": "mimxrt700evk"
+  },
+  "build": {
+    "engines": ["native", "hsm"],
+    "attest_cose": 0,
+    "variants": ["conformance"],
+    "vectors": "38040400"
+  },
+  "m33mu": {
+    "arm": "rt700-m33mu",
+    "smoke": ["positive", "guestisoneg", "crossdomain", "bothpsa", "confboot", "devcrypto"],
+    "groups": [
+      ["positive", "RT700 positive lifecycle (SAU guest windows)"],
+      ["guestisoneg", "RT700 cross-guest store faults and is contained"],
+      ["restart authneg handlerneg", "RT700 guest restart budget, launch refusal, handler overrun"],
+      ["rollbackneg remeasureneg manifestneg spbudgetneg", "RT700 secure verdict negatives"],
+      ["crossdomain keystoreneg", "RT700 SP domain isolation negatives"],
+      ["spfaultneg panicneg", "RT700 SP fault and panic recovery"],
+      ["fpneg", "RT700 FP isolation (partition FP faults, contained)"],
+      ["sealbootneg", "RT700 damaged main-stack seal refuses to boot"],
+      ["wrpfence wrpoff wrpneg", "RT700 XSPI guest fence: launches, refuses unfenced, blocks erase"],
+      ["bothpsa bothiso", "RT700 both-guest PSA lifecycle and isolation"],
+      ["attestneg fwustage", "RT700 attestation negatives and FWU staging"],
+      ["hsmattackneg", "RT700 wolfHSM cross-namespace + NVM relay negatives"],
+      ["confboot", "RT700 FF-M IPC conformance (85/4)"],
+      ["devstorage devattest devattestqcbor", "RT700 dev_apis storage and attestation conformance"],
+      ["devcrypto vaultrecover vaultrecoversec", "RT700 dev_apis crypto conformance and vault recovery"],
+      ["periphneg", "RT700 NS read of the SPM's TRNG refused by the SAU"],
+      ["deputyneg", "RT700 keystore-flash privileged deputy refused (L3)"],
+      ["hsmpinneg hsmfaultneg", "RT700 wolfHSM pointer pin and tasklet fault containment (L3)"],
+      ["bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6", "RT700 partition band-to-band isolation negatives (L3)"],
+      ["restartneg1 restartneg2 restartneg3", "RT700 partitions restart on a reset band (L3)"],
+      ["periphspneg manifestneg2 manifestneg3", "RT700 SPM peripheral and manifest level negatives (L3)"],
+      ["sealneg sealhaltneg sealpivotneg", "RT700 stack seal containment and halt (L3)"],
+      ["mspovfneg xnneg svcneg", "RT700 SPM stack, execute-never and SVC misuse (L3)"]
+    ],
+    "l3_exempt": {},
+    "guests": {"hwpsa": ["psa", "psa"], "lifecycle": ["baremetal", "baremetal"], "psa": ["psa", "psa"], "conformance": ["psa", "baremetal"], "vnet": ["vnet", "vnet"]},
+    "guest_end": {},
+    "timeouts": {"psa": 180, "conformance": 900},
+    "guest_flags": {"fwustage": "WT_FWU_PROBE_STREAM_BYTES=0x21000u WT_FWU_PROBE_SEQUENTIAL=1"},
+    "boot_marker": "wolfBoot HAL init: MIMXRT798S",
+    "periph_probe": "faults",
+    "caps_absent": {"dma_probe": "the M33MU RT700 model has no DMA; the NS eDMA copies out of Secure memory are the EVK run's to show", "idcode": "no silicon revision gate on this port", "bootupdate": "the RT700 emulator chain does not stage a wolfBoot update candidate yet", "vnet": "no wolfIP network guests for this port", "idle_scheduler": "the single-guest idle backoff scenario is not wired for this port", "busfault": "M33MU at the pinned ref does not vector a precise data BusFault"},
+    "faults_by_design": {"periphneg": "the bare-metal probe's NS read of the TRNG faults on every launch and the monitor contains it", "crossdomain": "the storage SP's probe faults on its first wake while both guests finish; the trace boot names the fault", "keystoreneg": "the storage SP's probe faults on its first wake while both guests finish; the trace boot names the fault", "periphspneg": "the storage SP's probe faults on its first wake while the PSA guest finishes"},
+    "exempt": {}
+  },
+  "hardware": {
+      "qualification": [
+          "wrpfence",
+          "wrpneg",
+          "nsentrymask",
+          "handlerirqneg",
+          "romsmoke"
+      ],
+      "optin": [],
+      "caps_absent": {
+          "hw_console": "the EVK runner observes the chain over SWD only; its console is not captured",
+          "pris": "the Non-secure mask negatives are the Nucleo's (AIRCR.PRIS probe in the Zephyr guest)",
+          "ns_bus_hole": "no unmapped Non-secure peripheral hole is probed on this part",
+          "write_once": "the WRITE_ONCE reset probe lives in the Zephyr PSA guest",
+          "boot_header_swd": "the EVK chain does not stage a wolfBoot update candidate yet"
+      },
+      "iso_probe": "blocked",
+      "extra_blocks": [],
+      "fixture": "EVK with the MCU-Link bound by serial and the pi4 reset line; XSPI0 NOR holds the chain"
+  }
+}

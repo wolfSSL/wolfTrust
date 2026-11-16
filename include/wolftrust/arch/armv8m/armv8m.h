@@ -72,6 +72,13 @@ void wt_armv8m_sau_init(const wt_armv8m_sau_region_t* regions, size_t count);
 void wt_armv8m_sau_program_region(uint32_t rnr, uint32_t base,
                                   uint32_t limit_inclusive, bool nsc,
                                   bool enable);
+/* Implemented SAU regions; whether region rnr holds exactly this programming
+ * (an enabled region's bounds and NSC bit, or disabled); the barrier after a
+ * batch of region edits. */
+uint32_t wt_armv8m_sau_region_count(void);
+int wt_armv8m_sau_region_is(uint32_t rnr, uint32_t base,
+                            uint32_t limit_inclusive, bool nsc, bool enabled);
+void wt_armv8m_sau_sync(void);
 /* PRIVDEFENA off; wt_arch_restore_spm_domain() replays this table. */
 void wt_armv8m_mpu_s_init(const wt_armv8m_mpu_region_t* whitelist,
                           size_t count);

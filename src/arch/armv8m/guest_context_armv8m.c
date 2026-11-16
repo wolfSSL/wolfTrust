@@ -924,8 +924,6 @@ void wt_arch_guest_context_capture(wt_guest_context_t* context,
     context->frame_stacked = true;
 }
 
-/* A preempted guest may hold Non-secure PRIMASK, BASEPRI or FAULTMASK; the
- * banks are shared, so each guest resumes with its own. */
 /* Drop a Secure FF-M entry mask a guest restarted mid-entry left; never on
  * the tasklet resume path, where the guest's own entry is still in flight. */
 static void wt_drop_secure_entry_mask(void)
@@ -933,6 +931,8 @@ static void wt_drop_secure_entry_mask(void)
     __asm volatile("msr basepri, %0" : : "r"(0u) : "memory");
 }
 
+/* A preempted guest may hold Non-secure PRIMASK, BASEPRI or FAULTMASK; the
+ * banks are shared, so each guest resumes with its own. */
 static void wt_restore_guest_masks(const wt_guest_context_t* context)
 {
     __asm volatile(
@@ -1010,10 +1010,10 @@ void wt_arch_zero_guest_memory(uintptr_t base, size_t size)
     while (offset < size) {
         ptr[offset++] = 0U;
     }
-    if (base == WT_GUEST0_RAM_BASE && size >= WT_GUEST_RAM_SIZE) {
+    if (base == WT_GUEST0_RAM_BASE && size >= WT_GUEST0_RAM_SIZE) {
         wt_virtual_systick_reset(0u);
     }
-    else if (base == WT_GUEST1_RAM_BASE && size >= WT_GUEST_RAM_SIZE) {
+    else if (base == WT_GUEST1_RAM_BASE && size >= WT_GUEST1_RAM_SIZE) {
         wt_virtual_systick_reset(1u);
     }
 }
@@ -1058,6 +1058,7 @@ void wt_arch_restore_guest_bank(const wt_guest_context_t* context)
         : "r"(context->psp_ns), "r"(context->msp_ns),
           "r"(context->psplim_ns), "r"(zero), "r"(context->control_ns));
     wt_restore_guest_masks(context);
+    wt_restore_guest_pending(context);
 }
 
 uint32_t wt_arch_active_guest_id(void)

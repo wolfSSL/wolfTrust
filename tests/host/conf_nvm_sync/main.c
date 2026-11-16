@@ -71,6 +71,11 @@ int main(void)
           "rejected transport never reports a sync that did not run");
     check(wt_conf_nvm_sync(buf, sizeof(buf), 0) != 0,
           "rejected transport never reports a reload that did not run");
+    check(wt_conf_irq_set(1) != 0,
+          "rejected transport never reports an interrupt poke that did not run");
+    g_transport_ret = WT_FFM_SUCCESS;
+    check(wt_conf_irq_set(1) == 0,
+          "delivered interrupt poke reports the device result");
 
     if (g_failures == 0) {
         printf("PASS: conf_nvm_sync transport status\n");

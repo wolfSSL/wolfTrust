@@ -9,6 +9,8 @@
 FROM debian:sid-slim
 
 ENV DEBIAN_FRONTEND=noninteractive
+# The provisioning gate test's typed cases need expect, installed below.
+ENV WT_REQUIRE_EXPECT=1
 
 # One apt-get install. Anything added here ships in the image; do not add
 # per-workflow installs.
@@ -18,5 +20,5 @@ RUN apt-get update \
         clang clang-19 clang-21 libclang-rt-21-dev \
         valgrind \
         autoconf automake libtool libtool-bin pkg-config m4 \
-        make git ca-certificates python3 \
+        make git ca-certificates python3 expect \
     && rm -rf /var/lib/apt/lists/*

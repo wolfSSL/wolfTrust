@@ -1,0 +1,188 @@
+/* secure.ld.in
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+/* The one Armv8-M secure image linker script, preprocessed into
+ * $(BUILD_DIR)/secure.ld. Every address is a --defsym from the port's
+ * memory_map.h (never a C include: the u suffixes are not linker syntax).
+ * WT_LD_RAM_CODE_BAND=1 is the XIP-from-NOR shape: the NSC gateway and the
+ * flash program/erase code run from a RAM band (WT_RAMFUNC_* in
+ * memory_map.h), copied from flash by the port before the MPU maps it. */
+
+ENTRY(Reset_Handler)
+
+MEMORY {
+  FLASH (rx) : ORIGIN = (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE),
+               LENGTH = (WT_SECURE_FLASH_SIZE - WT_SECURE_IMAGE_HEADER_SIZE)
+  INCLUDE secure_l3_memory.ld
+#if WT_LD_RAM_CODE_BAND
+  RAMFUNC (rx): ORIGIN = WT_RAMFUNC_ORIGIN, LENGTH = WT_RAMFUNC_LENGTH
+#endif
+}
+
+INCLUDE secure_l3_symbols.ld
+_sidata = LOADADDR(.data);
+
+SECTIONS {
+  .vectors (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE) : {
+    KEEP(*(.vectors))
+  } > FLASH
+
+#if !WT_LD_RAM_CODE_BAND
+  /* Linker-synthesized SG veneers (--cmse-implib) in the image's second
+   * 1 KiB, the SAU NSC window; the explicit address keeps the section placed
+   * even with no .gnu.sgstubs input. */
+  .gnu.sgstubs (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE + 0x400) : {
+    *(.gnu.sgstubs)
+    *(.gnu.sgstubs*)
+    . = ALIGN(32);
+  } > FLASH
+
+  .nsc ALIGN(32) : {
+    KEEP(*(.nsc*))
+  } > FLASH
+#endif
+
+  .text (WT_SECURE_FLASH_ORIGIN + WT_SECURE_IMAGE_HEADER_SIZE + 0x800) : {
+    _s_secure_text = .;
+#if WT_LD_RAM_CODE_BAND
+    *(EXCLUDE_FILE(*wt_sec_ffm_nsc.o) .text*)
+#else
+    *(.text*)
+#endif
+    *(.glue_7)
+    *(.glue_7t)
+    . = ALIGN(32);
+    _e_secure_text = .;
+  } > FLASH
+
+  /* Constant data is readable, never executable (WT-FFM-0010): the SP thread
+   * MPU tables grant [flash, _e_secure_text) RX and the rest of the image
+   * window read-only XN, so no partition can execute from constant data. */
+  .rodata (READONLY) : {
+    . = ALIGN(4);
+    KEEP(*(.wt_guest_meas))
+    /* wolfCrypt globals that are never written after link stay read-only so
+     * the crypto partition sees them without owning writable state. */
+    *(.data.always_prefetch* .bss.always_prefetch*)
+    *(.data.sha256DrbgDisabled* .bss.sha256DrbgDisabled*)
+    *(.rodata*)
+    *(.ARM.extab* .gnu.linkonce.armextab.*)
+    *(.ARM.exidx* .gnu.linkonce.armexidx.*)
+    *(.eh_frame)
+  } > FLASH
+
+  ASSERT(WT_SECURE_IMAGE_HEADER_SIZE < WT_SECURE_FLASH_SIZE,
+         "secure image header consumes secure flash region")
+  ASSERT(. <= (WT_SECURE_FLASH_ORIGIN + WT_SECURE_FLASH_SIZE),
+         "secure image overflows secure flash region")
+#if !WT_LD_RAM_CODE_BAND
+  ASSERT(SIZEOF(.gnu.sgstubs) + SIZEOF(.nsc) <= 0x400, "NSC window overflow")
+#endif
+
+  /* Conformance partition .data/.bss, claimed before the general rules so it
+   * lands in CONFDATA (empty outside conformance builds); the server and
+   * driver bands stay contiguous MPU carves the gate denies to other SPs. */
+  .conf_data : {
+    . = ALIGN(4);
+    _sconfdata = .;
+    EXCLUDE_FILE(*conf_sec_test_supp_*.o *conf_sec_driver_partition.o *conf_sec_pal_driver_intf.o) *conf_sec_*.o(.data .data.*)
+    . = ALIGN(32);
+    _s_conf_server_data = .;
+    *conf_sec_test_supp_*.o(.data .data.* .bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_conf_server_data = .;
+    _s_conf_driver_data = .;
+    *conf_sec_driver_partition.o(.data .data.* .bss .bss.* COMMON)
+    *conf_sec_pal_driver_intf.o(.data .data.* .bss .bss.* COMMON)
+    . = ALIGN(32);
+    _e_conf_driver_data = .;
+    _econfdata = .;
+  } > CONFDATA AT > FLASH
+  _siconfdata = LOADADDR(.conf_data);
+
+  .conf_bss (NOLOAD) : {
+    . = ALIGN(4);
+    _sconfbss = .;
+    EXCLUDE_FILE(*conf_sec_test_supp_*.o *conf_sec_driver_partition.o *conf_sec_pal_driver_intf.o) *conf_sec_*.o(.bss .bss.* COMMON)
+    . = ALIGN(4);
+    _econfbss = .;
+  } > CONFDATA
+
+  INCLUDE secure_l3_bands.ld
+
+#if WT_LD_RAM_CODE_BAND
+  /* Linker-synthesized SG veneers (--cmse-implib) open the RAM code band: the
+   * first 1 KiB is the SAU NSC window, padded so nothing but veneers is
+   * Non-secure callable. The dot assignment keeps the section address
+   * assigned even when no input object carries .gnu.sgstubs content. */
+  .gnu.sgstubs ORIGIN(RAMFUNC) : {
+    *(.gnu.sgstubs)
+    *(.gnu.sgstubs*)
+    . = ALIGN(32);
+  } > RAMFUNC AT > FLASH
+
+  /* Load addresses chain off the veneers so one copy stages the whole band. */
+  .nsc (ADDR(.gnu.sgstubs) + SIZEOF(.gnu.sgstubs)) :
+      AT(LOADADDR(.gnu.sgstubs) + SIZEOF(.gnu.sgstubs)) {
+    KEEP(*(.nsc*))
+    . = 0x400 - SIZEOF(.gnu.sgstubs);
+  } > RAMFUNC
+
+  /* The cmse_nonsecure_entry bodies sit beside their veneers so the SG
+   * veneer's B.W reaches them; then the flash program/erase code. */
+  .ramfunc (ADDR(.nsc) + SIZEOF(.nsc)) : AT(LOADADDR(.nsc) + SIZEOF(.nsc)) {
+    *wt_sec_ffm_nsc.o(.text .text.*)
+    *(.ramfunc .ramfunc.*)
+    . = ALIGN(4);
+  } > RAMFUNC
+  _siramfunc = LOADADDR(.gnu.sgstubs);
+  _sramfunc = ADDR(.gnu.sgstubs);
+  _eramfunc = ADDR(.ramfunc) + SIZEOF(.ramfunc);
+
+  ASSERT(SIZEOF(.gnu.sgstubs) + SIZEOF(.nsc) == 0x400, "NSC window overflow")
+  ASSERT(LOADADDR(.ramfunc) - LOADADDR(.gnu.sgstubs) ==
+         ADDR(.ramfunc) - ADDR(.gnu.sgstubs),
+         "RAM code band load and execution layouts differ")
+
+  .data : AT(LOADADDR(.ramfunc) + SIZEOF(.ramfunc)) {
+    _sdata = .;
+    *(.data*)
+    _edata = .;
+  } > RAM
+#else
+  .data : {
+    _sdata = .;
+    *(.data*)
+    _edata = .;
+  } > RAM AT > FLASH
+#endif
+  ASSERT(LOADADDR(.data) + SIZEOF(.data) <=
+         (WT_SECURE_FLASH_ORIGIN + WT_SECURE_FLASH_SIZE),
+         "secure image load image overflows secure flash region")
+
+  .bss (NOLOAD) : {
+    _sbss = .;
+    *(.bss*)
+    *(COMMON)
+    _ebss = .;
+  } > RAM
+
+  INCLUDE secure_l3_tail.ld
+}

@@ -13,12 +13,12 @@ the part; this port rehearses life cycles and writes none of them.
   (wolfSSL/wolfBoot#948: signed boot with ECC256/SHA-256, update swap and
   rollback over the write-once trailer, and the measured Secure-application
   handoff to `0x30030000`), and the wolfTrust chain behind it on the
-  FRDM-MCXN947 (`tests/target/run_mcxn947_hardware.sh`, see
+  FRDM-MCXN947 (`tests/target/run_hardware.sh mcxn947`, see
   [Build and verify on the board](#build-and-verify-on-the-frdm-mcxn947)):
   wolfBoot verifies the Secure image, the SPM consumes the handoff, creates
   the wolfHSM vault in the ROM-programmed NVM, and launches both guests on
   both crypto engines (`positive`); the SAU refuses a guest's store into its
-  peer's RAM (`sauneg`) and its read of the SPM's ELS (`periphneg`), and a
+  peer's RAM (`guestisoneg`) and its read of the SPM's ELS (`periphneg`), and a
   guest faulting at launch spends its restart budget and is quarantined
   (`restart`), the peer running on throughout; the portable PSA client runs
   its crypto, ITS, sealed PS, key-ops, FF-M negative and SHA-256 KAT stages
@@ -29,10 +29,10 @@ the part; this port rehearses life cycles and writes none of them.
   (`make TARGET=mcxn947 secure-image`) on both crypto engines and both
   manifests, with the port split, veneer, owner map, and layout checks green.
 - **Validated in emulation:** the chain under M33MU's MCXN947 model
-  (`tests/target/run_mcxn947_m33mu.sh`, see Testing): wolfBoot verifies the
+  (`tests/target/run_target.sh mcxn947`, see Testing): wolfBoot verifies the
   Secure image, both bare-metal guests launch and complete their PSA calls
   through the veneers (`positive`, both engines), the isolation negative
-  (`sauneg`) shows a guest's store into the other guest's RAM refused by the
+  (`guestisoneg`) shows a guest's store into the other guest's RAM refused by the
   SAU, contained by the monitor, and the offender quarantined after its
   restart budget while the peer keeps running, and every other scenario the
   matrix lists for this port (`tests/target/lib/scenario_matrix.py`: the
@@ -74,18 +74,14 @@ Armv8-M isolation level 3 layer in `port/common/armv8m/` unchanged, and adds
 
 | File | Responsibility |
 | --- | --- |
-| `memory_map.h` | The bit-28 Secure-alias map: flash windows, Secure and guest RAM, the boot-handoff address, and the port-sized level 3 bands (`WT_L3_SPM_RAM_SIZE`, `WT_SP_HSM_DATA_SIZE`) from `port/common/armv8m/l3_layout.h`. |
-| `l3_port.h` | The level 3 layer's one board input: the ELS as the Secure peripheral only the SPM drives. |
+| `memory_map.h` | The bit-28 Secure-alias map: flash windows, Secure and guest RAM, the guests' console window, the boot-handoff address, the ELS as the Secure peripheral only the SPM drives, and the port-sized level 3 bands (`WT_L3_SPM_RAM_SIZE`, `WT_SP_HSM_DATA_SIZE`) from `port/common/armv8m/l3_layout.h`; `memory_map_check.h` refuses an inconsistent map. |
 | `mcxn947_regs.h` | Register bases for SYSCON, the FMU, the ELS, LPUART4, the TRDC and the AHBSC, the boot ROM and its API tree, and the ELS command interface. |
-| `platform_mcxn947.c` | Every `wt_platform_*` operation: the SAU table, the Secure MPU whitelist (eight regions, one of them the boot ROM for the flash API), the boot-handoff region, fault logging, panic, and reset. |
-| `partitions.c` | The guest and capability tables, the profile capability bitmap (the fabric filter is claimed on the per-dispatch SAU window, as on the MIMXRT700), and the pinned guest-measurement slot. |
+| `platform_mcxn947.c` | The port's hooks for the shared Armv8-M platform (`port/common/armv8m/platform_armv8m.c`): the SAU table and the Secure MPU whitelist (eight regions, one of them the boot ROM for the flash API); the per-dispatch guest windows are the shared SAU backend (`fabric_sau.c`). |
 | `rom_flash.c/.h` | Internal flash program and erase through the boot ROM's API tree, called directly with a local definition of the driver interface layout (no vendor SDK): one 16-byte phrase is programmed at most once per erase, each program is issued from its 128-byte page base behind all-ones padding as the ROM requires, every erase is verified by the ROM, and the code-bus cache is cleared after each change. |
-| `hsm_flash.c/.h`, `hsm_flash_ctx.c` | The `port_nvm.h` backend for the wolfHSM store and the FWU staging backend: reads through the Secure alias, program and erase through `rom_flash.c`. |
-| `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the ELS `RND_REQ` command, preserving the unprivileged-to-privileged trap. |
-| `secure.ld` | The port's Secure linker script, which INCLUDEs the shared level 3 regions, band sections, and layout ASSERTs; the SG veneers sit in the image's second 1 KiB, as on the STM32H5. |
+| `flash_drv.c` | The `flash_port.h` primitives for the shared store and FWU backend (`port/common/hsm_flash.c`): reads through the Secure alias, program, erase and blank checks through `rom_flash.c`, with only the update partition and the stores writable. |
+| `rng_drv.c` | The `rng_port.h` entropy source over the ELS `RND_REQ` command; the shared `port/common/rng_entropy.c` keeps the unprivileged-to-privileged trap and the failure latch. |
 | `secure_owners.txt` | The port's objects in the post-link owner map, appended to `tools/secure_owners.txt` by the link. |
-| `manifest.json`, `manifest-conformance.json`, `conformance/` | The service partitions and their resources; the conformance manifest and PAL bindings host Arm's test partitions. |
-| `mk/target-mcxn947.mk` | `WT_CPU`, the flash and RAM defaults, the linker `--defsym` set, and the source lists. |
+| `mk/target-mcxn947.mk` | `WT_CPU`, the flash and RAM defaults, and the source lists; the shared `port/common/armv8m/secure.ld.in` links the image with the SG veneers in its second 1 KiB, as on the STM32H5. |
 
 ## Reference flash and RAM layout
 
@@ -151,7 +147,7 @@ run time by what the port programs before any guest launches:
 As on the other ports, the manifest declares the guests unprivileged but the
 runtime launches them with `CONTROL_NS.nPRIV` clear; a guest's Non-secure MPU
 is scheduling policy, not a boundary. The SAU window is the boundary, and
-`sauneg` shows it under M33MU.
+`guestisoneg` shows it under M33MU.
 
 ## Silicon constraints for this port
 
@@ -160,7 +156,7 @@ is scheduling policy, not a boundary. The SAU window is the boundary, and
   wolfHSM store runs with `WOLFHSM_CFG_FLASH_UNIT_SIZE` 16 (the wolfTrust
   runner setting all ports share), so every journal unit is one phrase and
   no unit shares a phrase with another written at a different time;
-  `rom_flash.c` refuses to program a non-blank phrase and `hsm_flash.c`
+  `rom_flash.c` refuses to program a non-blank phrase and the shared backend
   refuses any program that is not phrase-aligned. `tests/host/mcxn947_flash`
   runs the real driver and the wolfHSM store over a model of this flash and
   its ROM and proves it: 643 page-based ROM programs across three partition
@@ -215,25 +211,27 @@ is scheduling policy, not a boundary. The SAU window is the boundary, and
 ```sh
 make TARGET=mcxn947 secure-image
 make test-target TARGET=mcxn947
-tests/target/run_mcxn947_m33mu.sh positive
-tests/target/run_mcxn947_m33mu.sh sauneg
+tests/target/run_target.sh mcxn947 positive
+tests/target/run_target.sh mcxn947 guestisoneg
 ```
 
 The runner builds its pinned emulator (upstream M33MU plus
 `tests/target/m33mu-mcxn947.patch`, which adds the ELS `RND_REQ` register
 model behind its `AHBCLKCTRL2` gate, programs flash from a page base by
 clearing bits as the ROM does, makes the ROM executable so an API call leaves
-no stale `IACCVIOL` in `CFSR`, and reflects the OEM_OPEN life cycle into
-SYSCON) and its pinned
-wolfBoot (`tests/target/lib/mcxn947_wolfboot.sh`: the wolfSSL/wolfBoot#948
+no stale `IACCVIOL` in `CFSR`, reflects the OEM_OPEN life cycle into SYSCON,
+and decodes the post-indexed `LDRSH` (immediate) the conformance client needs)
+and its pinned
+wolfBoot (`tests/target/ports/mcxn947/m33mu.sh`: the wolfSSL/wolfBoot#948
 branch at its fork ref until it merges, built from
 `config/examples/mcxn-tz-wolftrust.config` with the carried life cycle
-patch), then:
+patch, which needs the MCUXpresso SDK), then:
 
 1. builds the wolfTrust Secure image and its CMSE import library with the
    port's default `WT_SECURE_IMAGE_HEADER_SIZE=0x400`;
-2. builds the bare-metal guest for both guest windows, linked against the
-   Secure image's CMSE import library;
+2. builds the shared bare-metal guest (`tests/firmware/baremetal-guest`,
+   `TARGET=mcxn947`) for both guest windows, linked against the Secure
+   image's CMSE import library;
 3. patches both guest measurement records into the unsigned `wolftrust.bin`
    (`tools/measure/patch_guest_digests.py`);
 4. signs `wolftrust.bin` with the wolfBoot key tools (`IMAGE_HEADER_SIZE=1024`,
@@ -246,24 +244,10 @@ prebuilt emulator carrying the patch.
 
 ### Bring-up markers
 
-Each guest records progress in a mailbox at the base of its own Non-secure RAM
-window (`0x20000000` for guest 0, `0x20018000` for guest 1) and echoes it on
-LPUART4 (`0x400B4000`):
-
-| Mailbox word | Offset | Pass value |
-| --- | ---: | ---: |
-| signature | `+0x00` | `0x47543030` |
-| step | `+0x04` | `0x00000005` |
-| `psa_framework_version()` | `+0x08` | `0x00000100` |
-| `psa_connect(SERVICE_HSM)` handle | `+0x10` | > 0, distinct per guest |
-| status | `+0x14` | `0x600D600D` |
-| LPUART4 `VERID` as the guest reads it | `+0x18` | non-zero |
-| isolation probe latch (`sauneg`) | `+0x1C` | `1` faulted or `2` blocked; `3` leaked |
-| isolation probe read-back (`sauneg`) | `+0x20` | not the stored sentinel |
-
-A `status` of `0x600D600D` in both mailboxes proves the wolfBoot to wolfTrust
-to Non-secure-guest chain booted and that the Secure runtime serviced both
-Non-secure PSA clients through the veneers. In `sauneg`, guest 0 disables its
+Each guest keeps the [bare-metal guest mailbox](Testing.md#bare-metal-guest-mailbox)
+at the base of its own Non-secure RAM window (`0x20000000` for guest 0,
+`0x20018000` for guest 1) and echoes it on LPUART4 (`0x400B4000`). In
+`guestisoneg`, guest 0 disables its
 own Non-secure MPU and stores a sentinel into guest 1's RAM; the runner
 asserts from M33MU's protection-unit trace that the store faulted, refused by
 the SAU with the peer window Secure at dispatch.
@@ -271,15 +255,15 @@ the SAU with the peer window Secure at dispatch.
 ## Build and verify on the FRDM-MCXN947
 
 ```sh
-make test-hardware TARGET=mcxn947            # positive sauneg periphneg restart psa wrpoff
-tests/target/run_mcxn947_hardware.sh positive
-WT_ENGINE=hsm tests/target/run_mcxn947_hardware.sh positive
+make test-hardware TARGET=mcxn947            # positive guestisoneg periphneg restart psa wrpoff crossdomain authneg
+tests/target/run_hardware.sh mcxn947 positive
+WT_ENGINE=hsm tests/target/run_hardware.sh mcxn947 positive
 ```
 
-`tests/target/run_mcxn947_hardware.sh` runs on the host that owns the
-board's MCU-Link (`MCXN947_PROBE_UID` picks one of several probes; the
-console is the MCU-Link VCOM, `MCXN947_CONSOLE`). For each scenario it
-takes the board lock (`logs/mcxn947-hw.lock`, shared with the suite), then
+`tests/target/run_hardware.sh mcxn947 <scenario>` runs on the host that owns
+the board's MCU-Link (`WT_HW_PROBE` picks one of several probes; the console
+is the MCU-Link VCOM, `WT_HW_CONSOLE`). For each scenario it takes the board
+lock (`logs/mcxn947-hw.lock`, shared with the suite), then
 builds the Secure image and the guests, pins the guest measurements, signs
 the image with the pinned wolfBoot's key, flashes wolfBoot, the signed image
 and both guests at their physical offsets with pyOCD, erases the update,
@@ -305,7 +289,7 @@ compares it, and asserts the result over SWD:
 Each run's console capture, image readbacks and an SWD dump of every word
 the checks read are kept under `logs/mcxn947-hw/<scenario>-<engine>/`
 (`console.log`, `readback-*.bin`, `swd.txt`), the suite's per-scenario logs
-under `logs/mcxn947-suite/`: outside `build/`, which every run cleans before
+under `logs/mcxn947-hw-suite/`: outside `build/`, which every run cleans before
 it builds, and never overwritten by another scenario or engine.
 
 Three board facts the runner encodes: the device pack resets the chip on
@@ -346,6 +330,14 @@ WT_LOCK_CONFIRM=1 tests/target/provisioning/provisioning_ctrl.sh advance 0x07
 WT_LOCK_CONFIRM=1 tests/target/provisioning/provisioning_ctrl.sh regress
 ```
 
+Port variables: `MCXN947_PROBE_UID` (the board's MCU-Link unique id, required
+when the host has more than one probe), `MCXN947_SPSDK_VENV` (the SPSDK
+environment), `MCXN947_PYOCD` (the pyOCD executable, which the hardware runner
+and detector read too), `MCXN947_GUEST_MASK` (the guests a rehearsal must
+launch), `MCXN947_TARGET` (the pyOCD target name), `MCXN947_WOLFBOOT_DIR` (the
+wolfBoot tree the runner flashed) and `MCXN947_ISP` (the blhost ISP connection
+the lock preview names).
+
 What differs from the MIMXRT700:
 
 - **Every device command is bound to one probe.** The host that owns the
@@ -356,7 +348,7 @@ What differs from the MIMXRT700:
   rehearsal record carries it, and `lock` accepts only a rehearsal made
   through the same probe.
 - **`restore` is the hardware runner.** It runs
-  `tests/target/run_mcxn947_hardware.sh positive` on that probe, so the
+  `tests/target/run_hardware.sh mcxn947 positive` on that probe, so the
   images a rehearsal binds are the ones the runner built, flashed and read
   back.
 - **The mock lock is in the handoff record.** The MCXN947 has no life cycle

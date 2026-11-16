@@ -15,7 +15,9 @@ checks=0
 failures=0
 
 gen() {
-    (cd "$root" && make -s BUILD_DIR="$build" "$@" "$stamp" >/dev/null)
+    (cd "$root" && env -u MAKEFLAGS -u MFLAGS -u MAKELEVEL \
+        make -s BUILD_DIR="$build" WT_LAYOUT_CPP="${CC:-cc}" "$@" \
+        "$stamp" >/dev/null)
 }
 
 check() {

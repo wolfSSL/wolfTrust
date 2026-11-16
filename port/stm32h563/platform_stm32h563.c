@@ -18,13 +18,17 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "wolftrust/platform.h"
-#include "wolftrust/arch.h"
-#include "wolftrust/guest_verify.h"
-#include "wolftrust/monitor.h"
-#include "wolftrust/arch/armv8m/context.h"
+/* STM32H563 port of the shared Armv8-M platform: clocks and console pins,
+ * the GTZC fabric filter and its read-back, the WRP fence read-back, the
+ * SAU and Secure MPU tables and the hooks platform_port.h names. The
+ * per-dispatch guest RAM windows are the GTZC block curtain. */
+
 #include "wolftrust/arch/armv8m/armv8m.h"
+#include "wolftrust/arch/armv8m/core_regs.h"
 #include "wolftrust/fabric_windows.h"
+#include "wolftrust/guest_verify.h"
+#include "wolftrust/platform.h"
+#include "platform_port.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -37,35 +41,11 @@
 #include "silicon_rev.h"
 #include "stm32h563_regs.h"
 
-#include "wolftrust/ffm_gateway.h"
-#include "wolftrust/spm_transport.h"
-#include "wolftrust/ffm.h"
-#include "wolftrust/ffm_boot.h"
-#include "wolftrust/ffm_domain.h"
-#include "psa_manifest/pid.h"
-
-void* memcpy(void* destination, const void* source, size_t size);
-void* memset(void* destination, int value, size_t size);
-
-#ifdef WT_ENGINE_HSM
-#include "wolftrust/services/hsm.h"
-#include "wolftrust/boot_handoff.h"
-#include "wolftrust/services/initial_attestation.h"
-#include <string.h>
-#include "wolftrust/arch/armv8m/cmse.h"
-#include "wolftrust/sched/tasklet.h"
-#include "wolfhsm/wh_error.h"
-
-#endif /* WT_ENGINE_HSM */
-
-static volatile uint32_t g_secure_service_depth;
-static volatile uint32_t g_hsm_wait_skip_count;
-
 static const wt_armv8m_sau_region_t g_sau_regions[] = {
     { WT_GUEST0_FLASH_BASE,
       WT_GUEST1_FLASH_BASE + WT_GUEST1_FLASH_SIZE - 1u, false },
-    { WT_RAM_NS_BASE, WT_RAM_NS_BASE + 0x0009FFFFu, false },
-    { WT_FLASH_NSC_BASE, WT_FLASH_NSC_END, true },
+    { WT_RAM_NS_BASE, WT_GUEST1_RAM_BASE + WT_GUEST1_RAM_SIZE - 1u, false },
+    { WT_NSC_BASE, WT_NSC_END, true },
     { 0x40000000u, 0x4FFFFFFFu, false },
 };
 
@@ -88,12 +68,8 @@ static const wt_armv8m_mpu_region_t g_mpu_s_whitelist[] = {
       WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
       WT_MPU_RLAR_ATTRIDX_NOCACHE },
 
-    /* Region 2: secure RAM RW-NX (.data/.bss/MSP_S + coroutine stacks). */
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+    /* Region 2: secure RAM RW-NX from the boot handoff record up. */
     { WT_BOOT_HANDOFF_ADDRESS,
-#else
-    { WT_RAM_S_BASE,
-#endif
       WT_RAM_S_BASE + WT_RAM_S_SIZE - 1u,
       WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RW | WT_MPU_RBAR_SH_INNER,
       WT_MPU_RLAR_ATTRIDX_NORMAL },
@@ -137,11 +113,6 @@ static const wt_armv8m_mpu_region_t g_mpu_s_whitelist[] = {
       WT_MPU_RBAR_XN | WT_MPU_RBAR_AP_RO | WT_MPU_RBAR_SH_INNER,
       WT_MPU_RLAR_ATTRIDX_NORMAL },
 };
-
-#ifdef WT_ENGINE_HSM
-static void wt_secure_service_enter(void);
-static void wt_secure_service_exit(void);
-#endif
 
 static void wt_rcc_enable_clock(uintptr_t base,
                                 const whal_Stm32h5_Rcc_PeriphClk* clk)
@@ -205,7 +176,7 @@ static int wt_gtzc_attribution_ok(size_t nsWords)
 static int wt_gtzc_init(void)
 {
     size_t i;
-    size_t nsWords = (WT_GUEST1_RAM_BASE + WT_GUEST_RAM_SIZE -
+    size_t nsWords = (WT_GUEST1_RAM_BASE + WT_GUEST1_RAM_SIZE -
                       WT_RAM_NS_BASE) / (512u * 32u);
 
     WT_RCC_AHB1ENR |= WT_RCC_AHB1ENR_GTZC1EN;
@@ -394,45 +365,6 @@ static void wt_uart_gpio_init(void)
     wt_configure_uart_gpio_pin(WT_GPIOD_BASE_S, 9u, 7u);
 }
 
-void wt_platform_init(void)
-{
-    static const whal_Stm32h5_Rcc_PeriphClk uart_clocks[] = {
-        {WHAL_STM32H563_USART2_CLOCK},
-        {WHAL_STM32H563_USART3_CLOCK},
-    };
-    static const whal_Stm32h5_Rcc_PeriphClk rng_clock =
-        {WHAL_STM32H563_RNG_CLOCK};
-
-    wt_clock_init();
-    /* Arm the FF-M NS-window checks before any NS guest can reach the
-     * WolfTrust_FFM_* veneers; the core fails closed until this runs. */
-    wt_ffm_gateway_install();
-    /* The signed wolfBoot handoff reserves the manifest header at the slot
-     * base; the Secure vector table begins at the image base after it. */
-    WT_SCB_VTOR_S = WT_FLASH_IMAGE_BASE;
-    if (wt_gtzc_init() != 0) {
-        wt_platform_panic();
-    }
-    wt_armv8m_sau_init(g_sau_regions,
-                       sizeof(g_sau_regions) / sizeof(g_sau_regions[0]));
-    wt_armv8m_mpu_s_init(g_mpu_s_whitelist,
-                         sizeof(g_mpu_s_whitelist) /
-                         sizeof(g_mpu_s_whitelist[0]));
-    wt_arch_init();
-    /* Enable USART2/USART3 clocks in both security views before guests run. */
-    for (size_t i = 0u; i < sizeof(uart_clocks) / sizeof(uart_clocks[0]); ++i) {
-        wt_rcc_enable_clock(WT_RCC_BASE_S, &uart_clocks[i]);
-        wt_rcc_enable_clock(WT_RCC_BASE_NS, &uart_clocks[i]);
-    }
-    wt_rcc_enable_clock(WT_RCC_BASE_S, &rng_clock);
-    wt_uart_gpio_init();
-    wt_h563_silicon_guard();
-    wt_arch_zero_guest_memory(WT_GUEST0_RAM_BASE, WT_GUEST_RAM_SIZE);
-    wt_arch_zero_guest_memory(WT_GUEST1_RAM_BASE, WT_GUEST_RAM_SIZE);
-    g_secure_service_depth = 0u;
-    g_hsm_wait_skip_count = 0u;
-}
-
 /* GTZC curtain (cross-guest isolation): NS guest kernels run privileged, so
  * the per-guest NS MPU alone cannot stop a hostile guest from reprogramming
  * MPU_NS and reaching the peer's RAM. Every dispatch closes the whole shared
@@ -441,7 +373,7 @@ void wt_platform_init(void)
  * guest's declared writable windows. */
 static void wt_gtzc_close_all(void)
 {
-    uintptr_t extent_end = WT_GUEST1_RAM_BASE + WT_GUEST_RAM_SIZE;
+    uintptr_t extent_end = WT_GUEST1_RAM_BASE + WT_GUEST1_RAM_SIZE;
     size_t nsWords = (extent_end - WT_RAM_NS_BASE) / (512u * 32u);
     size_t i;
 
@@ -467,232 +399,73 @@ static void wt_gtzc_commit(void)
     wt_isb();
 }
 
-void wt_platform_program_memory_windows(const wt_memory_window_t* windows,
-                                        size_t count)
+static const wt_fabric_windows_t g_gtzc_fabric = {
+    WT_RAM_NS_BASE,
+    WT_GUEST1_RAM_BASE + WT_GUEST1_RAM_SIZE,
+    wt_gtzc_close_all,
+    wt_gtzc_open_window,
+    wt_gtzc_commit
+};
+
+void wt_port_boot_init(void)
 {
-    static const wt_fabric_windows_t fabric = {
-        WT_RAM_NS_BASE,
-        WT_GUEST1_RAM_BASE + WT_GUEST_RAM_SIZE,
-        wt_gtzc_close_all,
-        wt_gtzc_open_window,
-        wt_gtzc_commit
+    wt_clock_init();
+}
+
+int wt_port_fabric_init(void)
+{
+    return wt_gtzc_init();
+}
+
+/* Console clocks in both security views, their pins, and the silicon guard. */
+int wt_port_late_init(void)
+{
+    static const whal_Stm32h5_Rcc_PeriphClk uart_clocks[] = {
+        {WHAL_STM32H563_USART2_CLOCK},
+        {WHAL_STM32H563_USART3_CLOCK},
     };
+    static const whal_Stm32h5_Rcc_PeriphClk rng_clock =
+        {WHAL_STM32H563_RNG_CLOCK};
+    size_t i;
 
-    wt_fabric_apply_windows(&fabric, windows, count);
+    for (i = 0u; i < sizeof(uart_clocks) / sizeof(uart_clocks[0]); ++i) {
+        wt_rcc_enable_clock(WT_RCC_BASE_S, &uart_clocks[i]);
+        wt_rcc_enable_clock(WT_RCC_BASE_NS, &uart_clocks[i]);
+    }
+    wt_rcc_enable_clock(WT_RCC_BASE_S, &rng_clock);
+    wt_uart_gpio_init();
+    wt_h563_silicon_guard();
+    return 0;
 }
 
-void wt_platform_log_fault(wt_guest_id_t guest_id,
-                           wt_fault_reason_t reason,
-                           uintptr_t fault_address,
-                           uintptr_t pc)
+const wt_armv8m_sau_region_t* wt_port_sau_regions(size_t* count)
 {
-    (void)guest_id;
-    (void)reason;
-    wt_armv8m_note_fault(fault_address, pc);
+    *count = sizeof(g_sau_regions) / sizeof(g_sau_regions[0]);
+    return g_sau_regions;
 }
 
-void wt_platform_all_guests_faulted(void)
+const wt_armv8m_mpu_region_t* wt_port_mpu_s_regions(size_t* count)
 {
-    __asm volatile("bkpt #0x7D");
-    for (;;) {
-        __asm volatile("wfi");
-    }
+    *count = sizeof(g_mpu_s_whitelist) / sizeof(g_mpu_s_whitelist[0]);
+    return g_mpu_s_whitelist;
 }
 
-void wt_platform_panic(void)
+const wt_fabric_windows_t* wt_port_fabric_windows(void)
 {
-    __asm volatile("bkpt #0x7E");
-    for (;;) {
-    }
-}
-
-#ifdef WT_LAUNCH_DEBUG
-/* Temporary launch-verify triage: one distinct BKPT per failure reason so the
- * emulator log names the guest and error. Never built into production. */
-void wt_platform_launch_debug(int code, uint32_t guest)
-{
-    unsigned int index = (unsigned int)(-700 - code);
-
-    if (index > 5u) {
-        index = 6u;
-    }
-    switch (index + (guest * 8u)) {
-        case 0u:  __asm volatile("bkpt #0x50"); break;
-        case 1u:  __asm volatile("bkpt #0x51"); break;
-        case 2u:  __asm volatile("bkpt #0x52"); break;
-        case 3u:  __asm volatile("bkpt #0x53"); break;
-        case 4u:  __asm volatile("bkpt #0x54"); break;
-        case 5u:  __asm volatile("bkpt #0x55"); break;
-        case 8u:  __asm volatile("bkpt #0x58"); break;
-        case 9u:  __asm volatile("bkpt #0x59"); break;
-        case 10u: __asm volatile("bkpt #0x5A"); break;
-        case 11u: __asm volatile("bkpt #0x5B"); break;
-        case 12u: __asm volatile("bkpt #0x5C"); break;
-        case 13u: __asm volatile("bkpt #0x5D"); break;
-        default:  __asm volatile("bkpt #0x5F"); break;
-    }
-}
-#endif
-
-void wt_platform_system_reset(void)
-{
-    uint32_t spins = 0u;
-
-    /* A flash program issued just before this reset - the conformance boot
-     * flag val resumes from, an anti-rollback arming store - must physically
-     * land before SYSRESETREQ, or the reset can cut it short and the value is
-     * lost (on silicon the panic test then re-runs into a reboot loop; the
-     * emulator programs flash instantly and never sees it). Wait for the flash
-     * controller to go idle, bounded so a wedged controller still resets. */
-    while ((WT_FLASH_SR & (WT_FLASH_SR_BSY | WT_FLASH_SR_DBNE)) != 0u &&
-            spins < 0x00200000u) {
-        spins++;
-    }
-    /* Drop the Secure stack limits first: the next boot starts wolfBoot on
-     * its own stack below MSPLIM_S, and a core that carried the limit over
-     * the reset would fault its first push. */
-    __asm volatile("movs r0, #0\n msr msplim, r0\n msr psplim, r0" ::: "r0");
-    wt_dsb();
-    WT_SCB_AIRCR_S = WT_SCB_AIRCR_SYSRESETREQ;
-    wt_dsb();
-    for (;;) {
-    }
+    return &g_gtzc_fabric;
 }
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
-/* PAL interrupt source (P4.2c): LPUART1 with TXEIE raises its NVIC line as
- * soon as the transmitter is enabled (TXE idles high), giving the DRIVER
- * partition a real peripheral interrupt to receive and acknowledge. */
-void wt_conf_uart_irq_set(int on)
+/* LPUART1 with TXEIE raises its line as soon as the transmitter is enabled
+ * (TXE idles high): a real peripheral interrupt for the DRIVER partition. */
+void wt_port_conf_irq_set(int on)
 {
     if (on != 0) {
         WT_LPUART1_CR1 |= WT_LPUART1_CR1_UE | WT_LPUART1_CR1_TE |
                           WT_LPUART1_CR1_TXEIE;
-    } else {
+    }
+    else {
         WT_LPUART1_CR1 &= ~WT_LPUART1_CR1_TXEIE;
-        wt_arch_secure_irq_disable(WT_LPUART1_IRQ);
-    }
-}
-
-void LPUART1_IRQHandler(void)
-{
-    wt_spm_conf_irq(WT_LPUART1_IRQ);
-}
-#endif
-
-#if defined(WT_REMEASURE_PROBE)
-/* P6-S5: prove on-demand runtime re-measurement (WT-FFM-0052) on target. After
- * boot init and launch verification, an untampered re-measure of guest0 must
- * pass; a post-launch in-flash tamper (the secure MPU maps flash
- * privileged-RO, so it is dropped for the single program) must then be caught
- * and quarantine the guest. bkpt #0x6C fires only when both are correct. */
-extern int wt_hsm_flash_remeasure_tamper(uintptr_t secure_base);
-
-void wt_platform_remeasure_probe(void)
-{
-    const wt_guest_config_t *configs;
-    size_t cfg_count;
-    const wt_memory_window_t *window = NULL;
-    uint32_t mpu_ctrl;
-    size_t i;
-    int r1;
-    int r2;
-
-    configs = wt_partitions_config_table(&cfg_count);
-    if (configs != NULL && cfg_count > 0u) {
-        for (i = 0u; i < configs[0].memory_window_count; i++) {
-            if ((configs[0].memory_windows[i].attributes &
-                    WT_MEM_ATTR_EXEC) != 0u) {
-                window = &configs[0].memory_windows[i];
-                break;
-            }
-        }
-    }
-    if (window != NULL) {
-        r1 = wt_runtime_verify_guest(0u);
-        mpu_ctrl = WT_MPU_S_CTRL;
-        WT_MPU_S_CTRL = 0u;
-        wt_dsb();
-        wt_isb();
-        (void)wt_hsm_flash_remeasure_tamper(WT_FLASH_TO_S_ALIAS(window->base));
-        WT_MPU_S_CTRL = mpu_ctrl;
-        wt_dsb();
-        wt_isb();
-        r2 = wt_runtime_verify_guest(0u);
-        /* WT_GUEST_VERIFY_OK == 0: a pass then a fail-closed is the only
-         * correct outcome. */
-        if (r1 == 0 && r2 != 0) {
-            __asm volatile("bkpt #0x6C");
-        }
-    }
-    for (;;) {
-        __asm volatile("wfi");
     }
 }
 #endif
-
-#if defined(WT_BOOTUPDATE_PROBE)
-/* P6-S6: full boot-and-update gate. On the pre-update image (version 1) arm
- * wolfBoot's real update trigger for the v2 candidate pre-staged in the UPDATE
- * partition, then reboot so wolfBoot swaps it in; the swapped-in v2 (version 2)
- * skips the arm, so the swap terminates instead of looping. The secure MPU
- * maps flash privileged-RO, so it is dropped for the single trailer program
- * (as in the S5 re-measure probe). */
-#include "wolftrust/services/fwu_service.h"
-extern const wt_fwu_backend_t wt_fwu_flash_backend;
-
-void wt_platform_bootupdate_probe(uint32_t running_version)
-{
-    uint32_t mpu_ctrl;
-    int armed = -1;
-
-    if (running_version != 1u) {
-        return;
-    }
-    if (wt_fwu_flash_backend.begin != NULL &&
-            wt_fwu_flash_backend.begin(NULL) == 0 &&
-            wt_fwu_flash_backend.arm != NULL) {
-        mpu_ctrl = WT_MPU_S_CTRL;
-        WT_MPU_S_CTRL = 0u;
-        wt_dsb();
-        wt_isb();
-        armed = wt_fwu_flash_backend.arm(NULL, 0u, 2u);
-        WT_MPU_S_CTRL = mpu_ctrl;
-        wt_dsb();
-        wt_isb();
-    }
-    if (armed == 0) {
-        wt_platform_system_reset();
-    }
-    /* Arm failed: fall through to a normal boot so the miss is observable
-     * (the token's v2 measurement will be absent) instead of a reboot loop. */
-}
-#endif
-
-#ifdef WT_ENGINE_HSM
-
-static void wt_secure_service_enter(void)
-{
-    g_secure_service_depth++;
-}
-
-static void wt_secure_service_exit(void)
-{
-    if (g_secure_service_depth == 0u) {
-        wt_platform_panic();
-    }
-    g_secure_service_depth--;
-}
-
-bool wt_platform_secure_service_active(void)
-{
-    return g_secure_service_depth != 0u;
-}
-
-void wt_platform_note_hsm_wait_skip(wt_guest_id_t guest_id)
-{
-    (void)guest_id;
-    g_hsm_wait_skip_count++;
-}
-
-#endif /* WT_ENGINE_HSM */

@@ -84,8 +84,6 @@ WT_DEPUTY_NEG_PROBE ?= 0
 WT_HSM_PIN_NEG_PROBE ?= 0
 WT_LAUNCH_DEBUG ?= 0
 WT_ROLLBACK_PROBE ?= 0
-# A probe that faults a partition on its first entry must also join the
-# WT_SP_LAZY_FIRST_ENTRY list in include/wolftrust/spm_sched.h.
 WT_SP_FAULT_PROBE ?= 0
 WT_HSM_FAULT_PROBE ?= 0
 WT_SP_FAULT_ALWAYS_PROBE ?= 0
@@ -140,7 +138,7 @@ endif
 
 SECURE_CFLAGS := $(CPU_FLAGS) -std=c99 -ffreestanding -fno-builtin -nostdlib -Os -g \
     -ffunction-sections -fdata-sections -Wall -Wextra \
-    -I$(ROOT)/include -I$(PORT_DIR) \
+    $(WT_LAYOUT_CFLAGS) \
     -DWT_TIMESLICE_MS=$(WT_TIMESLICE_MS) \
     -DWT_MAX_GUESTS=$(WT_MAX_GUESTS) \
     -DWT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE) \
@@ -228,6 +226,18 @@ endif
 ifeq ($(WT_BOOTUPDATE_PROBE),1)
 SECURE_CFLAGS += -DWT_BOOTUPDATE_PROBE=1
 endif
+# A probe that faults a partition on its first entry keeps that entry lazy
+# (src/ffm_boot.c), so the fault lands on a client's in-flight request. Only
+# the values that emit a probe macro above count.
+ifneq ($(strip \
+    $(filter 1,$(WT_SP_FAULT_PROBE) $(WT_SP_FAULT_ALWAYS_PROBE) \
+        $(WT_BUSFAULT_NEG_PROBE) $(WT_PANIC_NEG_PROBE) $(WT_SVC_NEG_PROBE) \
+        $(WT_FFM_NEGATIVE_PROBE) $(WT_KEYSTORE_NEG_PROBE) \
+        $(WT_PERIPH_SP_NEG_PROBE) $(WT_VNET_NEG_PROBE) $(WT_XN_NEG_PROBE) \
+        $(WT_FP_NEG_PROBE)) \
+    $(filter 1 2 3 4,$(WT_SEAL_NEG_PROBE))),)
+SECURE_CFLAGS += -DWT_SP_LAZY_FIRST_ENTRY=1
+endif
 # Hardware guest-flash write protection: refuse to launch a guest whose image
 # sectors are not WRP-protected, so a peer Non-secure guest cannot reprogram a
 # suspended guest's flash. Silicon only (the M33MU model has no flash WRP).
@@ -277,6 +287,17 @@ SECURE_SRCS := \
     $(ROOT)/src/spm_partitions.c \
     $(ROOT)/src/partition.c \
     $(TARGET_PARTITIONS_SRC)
+
+# The flash and entropy backends every port shares, over its flash_port.h
+# and rng_port.h drivers.
+PORT_SHARED_SRCS := \
+    $(PORT_NEUTRAL_DIR)/hsm_flash.c \
+    $(PORT_NEUTRAL_DIR)/hsm_flash_ctx.c \
+    $(PORT_NEUTRAL_DIR)/rng_entropy.c \
+    $(PORT_DIR)/flash_drv.c \
+    $(PORT_DIR)/rng_drv.c
+TARGET_EXTRA_SRCS += $(PORT_SHARED_SRCS)
+PORT_HEADERS += $(wildcard $(PORT_NEUTRAL_DIR)/*.h)
 
 WOLFHSM_SECURE_SRCS := \
     $(WOLFHSM_DIR)/src/wh_comm.c \
@@ -433,7 +454,7 @@ WT_LTO_SECURE_EXCLUDED_OBJS := \
 WT_HASH := \#
 WT_LTO_OWNED_NAMES := $(shell awk '{sub(/$(WT_HASH).*/, "")} \
     NF == 2 && $$2 != "spm" {sub(/\*$$/, "%", $$1); print $$1}' \
-    $(ROOT)/tools/secure_owners.txt)
+    $(ROOT)/tools/secure_owners.txt $(wildcard $(PORT_DIR)/secure_owners.txt))
 WT_LTO_OWNED_OBJS := $(filter \
     $(addprefix $(BUILD_DIR)/,$(WT_LTO_OWNED_NAMES)),$(ALL_SECURE_OBJS))
 $(WT_LTO_WOLFCRYPT_EXCLUDED_OBJS): HSM_LIB_CFLAGS += -fno-lto
@@ -457,6 +478,8 @@ SECURE_CFLAGS += -DWT_CONF_DIAG_TRAP=$(WT_CONF_DIAG_TRAP)
 UPSTREAM_DIR := $(BUILD_DIR)/upstream/psa-arch-tests/api-tests
 UPSTREAM_STAMP := $(BUILD_DIR)/.psa-arch-tests.stamp
 CONF_GEN_STAMP := $(MANIFEST_DIR)/.conformance-gen.stamp
+# One PAL for every port; its addresses come from the port's memory_map.h.
+TARGET_CONF_DIR := $(ROOT)/tests/conformance/pal
 # VERBOSITY=9: SP-side val prints route over IPC to the DRIVER UART partition,
 # which does not run until P3b; below-ALWAYS prints short-circuit instead of
 # deadlocking on a service nobody serves.
@@ -1397,9 +1420,36 @@ $(BUILD_DIR):
 $(MANIFEST_DIR):
 	@mkdir -p $@
 
+# The manifest is rendered from the shared template under this build's layout
+# configuration; WT_CONFORMANCE=1 and CONFIG_VNET=y add their overlay, and
+# a port registers the variants it supports in port/<soc>/port.json.
+MANIFEST_VARIANT := base
+MANIFEST_OVERLAY :=
+ifeq ($(WT_CONFORMANCE),1)
+MANIFEST_VARIANT := conformance
+else ifeq ($(CONFIG_VNET),y)
+MANIFEST_VARIANT := vnet
+endif
+ifneq ($(MANIFEST_VARIANT),base)
+MANIFEST_OVERLAY := $(ROOT)/manifest/$(MANIFEST_VARIANT).json
+WT_PORT_VARIANTS := $(shell python3 $(ROOT)/tests/target/lib/scenario_matrix.py \
+    --port $(TARGET) --get build.variants)
+ifeq ($(filter $(MANIFEST_VARIANT),$(WT_PORT_VARIANTS)),)
+$(error TARGET=$(TARGET) registers no $(MANIFEST_VARIANT) manifest variant (port/$(TARGET)/port.json build.variants))
+endif
+endif
+MANIFEST_INPUT := $(MANIFEST_DIR)/manifest.json
+
+# FORCE: the renderer writes only on change, so a variant switch within one
+# mtime tick still re-renders on a make that compares whole seconds.
+$(MANIFEST_INPUT): $(MANIFEST_OVERLAY) $(WT_MANIFEST_RENDER_DEPS) \
+		$(BUILD_MODE_STAMP) FORCE | $(MANIFEST_DIR)
+	$(WT_MANIFEST_RENDER) $(addprefix --overlay ,$(MANIFEST_OVERLAY)) \
+		--output $@ $(WT_MANIFEST_TEMPLATE)
+
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.
-MANIFEST_MODE := MANIFEST_INPUT=$(MANIFEST_INPUT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --supported-framework-version 0x100 --address-bits 32
+MANIFEST_MODE := MANIFEST_VARIANT=$(MANIFEST_VARIANT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --supported-framework-version 0x100 --address-bits 32
 
 $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		FORCE | $(MANIFEST_DIR)
@@ -1426,18 +1476,17 @@ $(WOLFHSM_CFG_H): | $(BUILD_DIR)
 .PHONY: FORCE
 FORCE:
 
-$(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
-	@tmp="$@.tmp"; \
-	printf '%s\n' \
+# The stamp is the build's configuration fingerprint: every define and flag
+# the secure objects, the linker script and the link are produced with, so a
+# changed input regenerates every output even when mtimes tie.
+BUILD_MODE_LINES = \
 		'ARCH=$(ARCH)' \
 		'TARGET=$(TARGET)' \
-		'WT_SECURE_FLASH_BASE=$(WT_SECURE_FLASH_BASE)' \
-		'WT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE)' \
-		'WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE)' \
-		'WT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_BASE)' \
-		'WT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE)' \
-		'WT_GUEST0_FLASH_SIZE=$(WT_GUEST0_FLASH_SIZE)' \
-		'WT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE)' \
+		'WT_LAYOUT_CFLAGS=$(WT_LAYOUT_CFLAGS)' \
+		'SECURE_CFLAGS=$(SECURE_CFLAGS)' \
+		'SECURE_LD_DEFS=$(SECURE_LD_DEFS)' \
+		'TARGET_LDFLAGS=$(TARGET_LDFLAGS)' \
+		'WT_LAYOUT_LDFLAGS=$(WT_LAYOUT_LDFLAGS)' \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
 		'WT_LTO=$(WT_LTO)' \
 		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
@@ -1474,17 +1523,25 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \
 		'WT_WOLFCRYPT_ARMASM=$(WT_WOLFCRYPT_ARMASM)' \
 		'WT_WOLFCRYPT_STM32_HASH=$(WT_WOLFCRYPT_STM32_HASH)' \
-		'WT_SHARED_UART=$(WT_SHARED_UART)' \
 		'WT_TIMESLICE_MS=$(WT_TIMESLICE_MS)' \
-		'WT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ)' \
-		'WT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ)' \
 		'WT_EXTRA_CFLAGS=$(WT_EXTRA_CFLAGS)' \
-		'WT_EXTRA_LDFLAGS=$(WT_EXTRA_LDFLAGS)' > "$$tmp"; \
+		'WT_EXTRA_LDFLAGS=$(WT_EXTRA_LDFLAGS)'
+
+$(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
+	@tmp="$@.tmp"; \
+	printf '%s\n' $(BUILD_MODE_LINES) > "$$tmp"; \
 	if test -f "$@" && cmp -s "$$tmp" "$@"; then \
 		rm -f "$$tmp"; \
 	else \
 		mv "$$tmp" "$@"; \
 	fi
+
+# The resolved configuration for tools and tests outside this directory.
+.PHONY: print-layout-cflags print-build-mode
+print-layout-cflags:
+	@echo '$(WT_LAYOUT_CFLAGS_ABS)'
+print-build-mode:
+	@printf '%s\n' $(BUILD_MODE_LINES)
 
 $(BUILD_DIR)/wh_sec_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_WOLFHSM_CFLAGS) -c -o $@ $<
@@ -1501,7 +1558,8 @@ $(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/st/%.c $(WOLFHSM_CFG_
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/$(ARCH)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/common/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/common/%.c $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sched/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
@@ -1518,6 +1576,10 @@ $(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUIL
 
 ifneq ($(PORT_COMMON_DIR),)
 $(BUILD_DIR)/wt_sec_%.o: $(PORT_COMMON_DIR)/%.c $(PORT_HEADERS) $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(PORT_NEUTRAL_DIR)/%.c $(PORT_HEADERS) \
 		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 endif
@@ -1569,6 +1631,10 @@ $(BUILD_DIR)/sec_$(notdir $(TARGET_PLATFORM_SRC:.c=.o)): $(TARGET_PLATFORM_SRC) 
 $(BUILD_DIR)/sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/sec_%.o: $(PORT_COMMON_DIR)/%.c $(PORT_HEADERS) $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
 $(BUILD_DIR)/sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
@@ -1576,8 +1642,15 @@ $(BUILD_DIR)/sec_%.o: $(ROOT)/src/%.c $(MANIFEST_GEN_H) $(WOLFHSM_CFG_H) \
 		$(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
+ifneq ($(SECURE_LD_IN),)
+$(SECURE_LD): $(SECURE_LD_IN) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) -E -P -x c $(SECURE_LD_DEFS) -o $@ $<
+endif
+
+# The link reads the band placement from the port headers, so they are link
+# inputs even when no object changed.
 $(SECURE_ELF) $(SECURE_MAP) $(ARCH_LINK_OUTPUTS) &: $(ALL_SECURE_OBJS) $(SECURE_LD) \
-		$(ROOT)/tools/check_secure_layout.py \
+		$(PORT_HEADERS) $(ROOT)/tools/check_secure_layout.py \
 		$(ROOT)/tools/secure_owners.txt $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(RM) $(SECURE_BIN)
 	$(CC) $(SECURE_CFLAGS) \

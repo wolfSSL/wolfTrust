@@ -50,7 +50,7 @@
 
 #include "wolftrust/hsm_psa_transport.h"
 
-/* SERVICE_HSM from the platform manifest (port/stm32h563/manifest.json). */
+/* SERVICE_HSM from the platform manifest (manifest/base.json). */
 #define WT_SERVICE_HSM_SID     4102u
 #define WT_SERVICE_HSM_VERSION 1u
 

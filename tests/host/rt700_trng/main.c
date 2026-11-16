@@ -23,12 +23,16 @@
  * request may serve words an earlier request already saw, and a latched ERR
  * fails every request even while a page is still valid. */
 
+#define _POSIX_C_SOURCE 200809L
+
 #include "mock_trng_regs.h"
 #include "wolftrust/spm_transport.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/wait.h>
+#include <unistd.h>
 
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
 
@@ -130,6 +134,83 @@ static int words_disjoint(const unsigned char* a, size_t a_len,
     return 1;
 }
 
+static int all_zero(const unsigned char* buf, size_t len)
+{
+    size_t i;
+
+    for (i = 0u; i < len; i++) {
+        if (buf[i] != 0u) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
+/* ERR latched while a page is still valid voids it; the shared callback
+ * then zeroes the buffer and refuses every later request. */
+static void case_err_with_valid_page(void)
+{
+    unsigned char first[32];
+
+    (void)memset(first, 0xA5, sizeof(first));
+    model_reset(WT_TRNG_MCTL_ENT_VAL | WT_TRNG_MCTL_ERR);
+    check(wolftrust_rng_generate_block(first, sizeof(first)) != 0 &&
+              g_ent_reads == 0u,
+          "ERR with ENT_VAL still set fails without reading ENT");
+    check(all_zero(first, sizeof(first)), "a failed request zeroes the buffer");
+    model_reset(WT_TRNG_MCTL_ENT_VAL);
+    check(wolftrust_rng_generate_block(first, sizeof(first)) != 0 &&
+              g_ent_reads == 0u,
+          "a failed request latches: the source is not asked again");
+}
+
+/* A generation that fails its health tests mid-request fails it, and the
+ * page already copied out is wiped from the caller's buffer. */
+static void case_err_next_generation(void)
+{
+    unsigned char span[100];
+
+    (void)memset(span, 0xA5, sizeof(span));
+    model_reset(WT_TRNG_MCTL_ENT_VAL);
+    g_fail_next = 1;
+    check(wolftrust_rng_generate_block(span, sizeof(span)) != 0 &&
+              g_ent_reads == WT_TRNG_ENT_COUNT,
+          "ERR on the next generation fails a multi-page request");
+    check(all_zero(span, sizeof(span)),
+          "the first page is not left in a failed request's buffer");
+}
+
+/* A generation that never completes times out. */
+static void case_stall(void)
+{
+    unsigned char first[32];
+
+    model_reset(0u);
+    g_generating = 1;
+    g_polls_left = 0x7FFFFFFF;
+    check(wolftrust_rng_generate_block(first, sizeof(first)) != 0 &&
+              g_ent_reads == 0u, "a stalled generation times out");
+}
+
+/* The failure latch is process state, so each failing case gets its own. */
+static void run_isolated(void (*fn)(void), const char* what)
+{
+    pid_t pid = fork();
+    int status = 0;
+
+    if (pid == 0) {
+        failures = 0;
+        fn();
+        (void)fflush(stdout);
+        _exit(failures == 0 ? 0 : 1);
+    }
+    if (pid < 0 || waitpid(pid, &status, 0) < 0) {
+        check(0, what);
+        return;
+    }
+    check(WIFEXITED(status) && WEXITSTATUS(status) == 0, what);
+}
+
 int main(void)
 {
     unsigned char first[32];
@@ -140,7 +221,8 @@ int main(void)
 
     printf("RUN: unit/rt700_trng\n");
 
-    /* A health failure latched before the first page fails init. */
+    /* A health failure latched before the first page fails init, and init
+     * is retried on the next request. */
     model_reset(WT_TRNG_MCTL_PRGM | WT_TRNG_MCTL_ERR);
     rc = wolftrust_rng_generate_block(first, sizeof(first));
     check(rc != 0 && g_ent_reads == 0u,
@@ -169,25 +251,11 @@ int main(void)
               words_disjoint(span, sizeof(span), second, sizeof(second)),
           "no word repeats within or across requests");
 
-    /* ERR latched while a page is still valid voids it. */
-    model_reset(WT_TRNG_MCTL_ENT_VAL | WT_TRNG_MCTL_ERR);
-    rc = wolftrust_rng_generate_block(first, sizeof(first));
-    check(rc != 0 && g_ent_reads == 0u,
-          "ERR with ENT_VAL still set fails without reading ENT");
-
-    /* A generation that fails its health tests mid-request fails it. */
-    model_reset(WT_TRNG_MCTL_ENT_VAL);
-    g_fail_next = 1;
-    rc = wolftrust_rng_generate_block(span, sizeof(span));
-    check(rc != 0 && g_ent_reads == WT_TRNG_ENT_COUNT,
-          "ERR on the next generation fails a multi-page request");
-
-    /* A generation that never completes times out. */
-    model_reset(0u);
-    g_generating = 1;
-    g_polls_left = 0x7FFFFFFF;
-    rc = wolftrust_rng_generate_block(first, sizeof(first));
-    check(rc != 0 && g_ent_reads == 0u, "a stalled generation times out");
+    run_isolated(case_err_with_valid_page,
+                 "ERR with a valid page: refused, zeroed, latched");
+    run_isolated(case_err_next_generation,
+                 "ERR on the next generation: refused and zeroed");
+    run_isolated(case_stall, "a stalled generation times out");
 
     model_reset(WT_TRNG_MCTL_ENT_VAL);
     check(wolftrust_rng_generate_block(first, 0u) == 0,

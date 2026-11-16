@@ -16,6 +16,7 @@ ifeq ($(wildcard mk/arch-$(ARCH).mk),)
 $(error unsupported secure build architecture ARCH=$(ARCH))
 endif
 include mk/target-$(TARGET).mk
+include mk/layout.mk
 include mk/arch-$(ARCH).mk
 include mk/common.mk
 
@@ -40,10 +41,17 @@ include mk/common.mk
 all: $(ARCH_DEFAULT_GOALS)
 
 test:
+	@python3 tests/target/lib/scenario_matrix.py --selftest
+	@python3 tests/target/lib/scenarios.py --selftest
+	@python3 tests/scripts/test_scenario_asserts.py
+	@python3 tools/gen-port-docs.py --check
+	@tools/new-port/test-new-port.sh
+	@tools/check-port-only-diff.sh --selftest
+	@tools/check-no-port-names.sh
 	@python3 tests/scripts/test_m33mu_console.py
 	@$(MAKE) --no-print-directory -C tests/host test
 	@$(MAKE) --no-print-directory test-provisioning
-	@tests/target/test_mcxn947_suite_evidence.sh
+	@tests/target/test_hw_runner.sh
 
 # Production lock gates of both provisioning backends, against stub tools.
 test-provisioning:
@@ -71,42 +79,26 @@ c99-check:
 		BUILD_ROOT="$(abspath $(BUILD_DIR))/c99" \
 		EXTRA_CFLAGS="$(C99_CFLAGS)"
 
-# FF-M target scenarios for one port under the M33MU emulator, separate from
-# `make test` (host-only). TARGET picks the port (stm32h563 by default,
-# mimxrt700 or mcxn947 for the NXP chains, whose runners build their own
-# pinned emulator and wolfBoot first stage); WT_TIER=smoke (default) runs the per-PR set,
-# WT_TIER=full every scenario, both from tests/target/lib/scenario_matrix.py.
-# The STM32H563 path auto-detects an M33MU (or WT_TARGET_SCENARIOS=1) and skips
-# explicitly otherwise so it never silently passes. Runs inside the
-# wolfboot-ci-m33mu container, never bare-metal.
+# M33MU scenarios for one registered port (TARGET): WT_TIER=smoke (default) or
+# full, from its port.json. Skips, never passes, without an emulator; runs in
+# the wolfboot-ci-m33mu container, never bare-metal.
 WT_TIER ?= smoke
 WT_SCENARIOS = $(shell python3 tests/target/lib/scenario_matrix.py \
     --port $(TARGET) --tier $(WT_TIER) --engine $(WT_ENGINE) --flat)
 test-target:
-ifeq ($(TARGET),mimxrt700)
-	@tests/target/run_suite.sh rt700-m33mu $(WT_SCENARIOS)
-else ifeq ($(TARGET),mcxn947)
-	@tests/target/run_suite.sh mcxn947-m33mu $(WT_SCENARIOS)
-else
-	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
-		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh 2>&1))"; \
+	@if ! tests/target/detect_m33mu.sh $(TARGET) >/dev/null 2>&1; then \
+		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh $(TARGET) 2>&1))"; \
 	else \
-		tests/target/run_suite.sh m33mu $(WT_SCENARIOS); \
+		tests/target/run_suite.sh $(TARGET) $(WT_SCENARIOS); \
 	fi
-endif
 
-# Real hardware suite, the on-silicon counterpart of test-target: STM32H563 on a
-# Nucleo-H563ZI (detect_h5.sh; container toolchain via WT_H5_DOCKER_IMAGE), or
-# TARGET=mimxrt700 on the EVK from its probe host (detect_rt700.sh). Skips
-# without a board so it never silently passes.
+# Real hardware suite, the on-silicon counterpart of test-target, on the host
+# that owns the board's probe: WT_HW_TIER=smoke runs the eight scenarios every
+# board runs, qualification adds the port's merge-gating extras. Skips without
+# a board so it never silently passes.
+WT_HW_TIER ?= smoke
 test-hardware:
-ifeq ($(TARGET),mimxrt700)
-	@tests/target/run_rt700_suite.sh
-else ifeq ($(TARGET),mcxn947)
-	@tests/target/run_mcxn947_suite.sh
-else
-	@tests/target/run_h5_suite.sh
-endif
+	@tests/target/run_hardware_suite.sh $(TARGET) $(WT_HW_TIER)
 
 test-compilers:
 	@$(MAKE) --no-print-directory -C tests/host test-compilers
@@ -134,10 +126,10 @@ test-manifest-ingest: fetch-psa-ff-tests
 # test-target via tests/target/detect_m33mu.sh. CI runs the same target suite
 # through the confboot leg of the wolfboot-wolftrust-m33mu-scenarios matrix.
 test-conformance: fetch-psa-ff-tests test-manifest-ingest
-	@if tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
+	@if tests/target/detect_m33mu.sh $(TARGET) >/dev/null 2>&1; then \
 		mkdir -p logs; \
 		echo "RUN: conformance/target (full FF-M IPC suite on M33MU)"; \
-		if tests/target/run_m33mu_scenario.sh confboot \
+		if tests/target/run_target.sh $(TARGET) confboot \
 				> logs/conformance-target.log 2>&1; then \
 			grep -F '  [check] ' logs/conformance-target.log || true; \
 			echo "PASS: conformance/target"; \
@@ -155,7 +147,7 @@ test-conformance: fetch-psa-ff-tests test-manifest-ingest
 			BUILD_DIR=$(abspath $(BUILD_DIR))/psa-ff-upstream \
 			PSA_ARCH_TESTS_DIR=$(abspath $(BUILD_DIR))/upstream/psa-arch-tests; \
 		echo "WARNING: host-only conformance subset (20 client-side IPC/policy tests) — NOT emulator/hardware evidence."; \
-		echo "WARNING: isolation, panic-reset, IRQ, and cross-domain tests need M33MU ($$(tests/target/detect_m33mu.sh 2>&1))."; \
+		echo "WARNING: isolation, panic-reset, IRQ, and cross-domain tests need M33MU ($$(tests/target/detect_m33mu.sh $(TARGET) 2>&1))."; \
 		echo "WARNING: run the full 85/4 suite with an emulator, or: make test-target."; \
 		echo "PASS: conformance/host-subset (partial — see warnings above)"; \
 	fi
@@ -266,18 +258,17 @@ test-vnet: test-vnet-host
 # SERVICE_VNET (CONFIG_VNET=y). Auto-detect-or-skip like test-target, so it
 # never silently passes; runs inside the wolfboot-ci-m33mu container.
 test-vnet-target:
-	@if ! tests/target/detect_m33mu.sh >/dev/null 2>&1; then \
-		echo "SKIP: wolfIP vnet target scenario ($$(tests/target/detect_m33mu.sh 2>&1))"; \
+	@if ! tests/target/detect_m33mu.sh $(TARGET) >/dev/null 2>&1; then \
+		echo "SKIP: wolfIP vnet target scenario ($$(tests/target/detect_m33mu.sh $(TARGET) 2>&1))"; \
 	else \
 		tests/target/run_suite.sh m33mu vnet; \
 	fi
 
 # wolfIP virtual network end-to-end scenario on real STM32H563 silicon: the
-# on-board counterpart of test-vnet-target. Needs the ST-Link + board
-# (detect_h5.sh) and a container toolchain for the build (WT_H5_DOCKER_IMAGE);
-# skips otherwise. HARDWARE evidence — recorded separately from emulator.
+# on-board counterpart of test-vnet-target. Needs the ST-Link + board; skips
+# otherwise. HARDWARE evidence, recorded separately from the emulator.
 test-vnet-hardware:
-	@WT_H5_SCENARIOS=vnet tests/target/run_h5_suite.sh
+	@tests/target/run_hardware_suite.sh stm32h563 vnet
 
 test-wolfcose-host:
 	$(MAKE) -C tests/host/wolfcose run

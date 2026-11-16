@@ -59,23 +59,6 @@ int wt_spm_sched_validate(void);
  * A partition that faults, or stops outside psa_wait, refuses the boot. */
 int wt_spm_sched_start_all(void);
 
-/* Test images whose partitions fault on first entry keep that entry lazy, so
- * the fault lands on a client's in-flight request as the scenario asserts. */
-#if (defined(WT_SP_FAULT_PROBE) && (WT_SP_FAULT_PROBE != 0)) || \
-    (defined(WT_SP_FAULT_ALWAYS_PROBE) && (WT_SP_FAULT_ALWAYS_PROBE != 0)) || \
-    (defined(WT_BUSFAULT_NEG_PROBE) && (WT_BUSFAULT_NEG_PROBE != 0)) || \
-    (defined(WT_PANIC_NEG_PROBE) && (WT_PANIC_NEG_PROBE != 0)) || \
-    (defined(WT_SVC_NEG_PROBE) && (WT_SVC_NEG_PROBE != 0)) || \
-    (defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE != 0)) || \
-    (defined(WT_KEYSTORE_NEG_PROBE) && (WT_KEYSTORE_NEG_PROBE != 0)) || \
-    (defined(WT_PERIPH_SP_NEG_PROBE) && (WT_PERIPH_SP_NEG_PROBE != 0)) || \
-    (defined(WT_VNET_NEG_PROBE) && (WT_VNET_NEG_PROBE != 0)) || \
-    (defined(WT_XN_NEG_PROBE) && (WT_XN_NEG_PROBE != 0)) || \
-    (defined(WT_FP_NEG_PROBE) && (WT_FP_NEG_PROBE != 0)) || \
-    (defined(WT_SEAL_NEG_PROBE) && (WT_SEAL_NEG_PROBE != 0))
-#define WT_SP_LAZY_FIRST_ENTRY 1
-#endif
-
 #if (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
     (defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0))
 /* Test builds only: run a probing partition through its faults at boot. */

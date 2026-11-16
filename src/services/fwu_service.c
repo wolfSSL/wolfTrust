@@ -58,14 +58,6 @@ int wt_fwu_staged_extent_ok(uint32_t staged_size, uint32_t programmed_end,
            programmed_end - staged_size < align;
 }
 
-int wt_fwu_restart_disarm(const wt_fwu_backend_t* backend, void* backend_ctx)
-{
-    if (backend == NULL || backend->disarm == NULL) {
-        return -1;
-    }
-    return (backend->disarm(backend_ctx) == 0) ? 0 : -1;
-}
-
 psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
                           uint32_t version)
 {

@@ -28,7 +28,6 @@ Overrides:
 | `STM32_CLI` | Full path to `STM32_Programmer_CLI` |
 | `STM32_CP` | STM32CubeProgrammer binary directory |
 | `H5_SERIAL` | UART device |
-| `WT_H5_DOCKER_IMAGE` | Container image holding the build toolchain |
 | `WT_DA_DIR`, `WT_DA_OBK`, `WT_DA_KEY`, `WT_DA_CERT`, `WT_DA_PWD` | Debug Authentication material |
 
 ## Read-only preflight
@@ -63,9 +62,10 @@ The current hardware runner uses:
 | Guest 1 | `0x080E0000` |
 | WRP-covered guest region | `0x080A0000-0x080FFFFF` |
 
-These addresses come from `tests/target/run_h5_hardware.sh` and its
-exported build variables. Use that runner for image assembly and flashing so
-the build and flash addresses stay paired.
+These addresses come from `tests/target/ports/stm32h563/hw.sh` and the
+runner layout in `tests/target/ports/stm32h563/m33mu.sh`. Use
+`tests/target/run_hardware.sh stm32h563 <scenario>` for image assembly and
+flashing so the build and flash addresses stay paired.
 
 ## TrustZone perimeter
 
@@ -128,44 +128,57 @@ WRP:
 WT_LOCK_CONFIRM=1 tests/target/provisioning/provisioning_ctrl.sh clear-wrp
 ```
 
-Then flash and reapply WRP before allowing a hardened image to launch. The
-hardware runner performs that clear/program/reapply sequence automatically
-when `WT_GUEST_FLASH_WRP=1` is present.
+The hardware runner never writes option bytes: its preflight reads them and
+refuses a board whose guest sectors are write-protected, naming this command.
+Apply WRP through `set-wrp` only for a provisioning rehearsal and clear it
+before the next hardware run; `wrpoff` proves the hardened image refuses its
+guests on the unprotected fixture.
 
 ## Build, flash, and verify
 
-For a focused positive run with guest-flash enforcement, pass the flag into the
-container build and repeat it for the host-side flash run:
-
 ```sh
-docker run --rm \
-    -e WT_GUEST_FLASH_WRP=1 \
-    -v "$PWD":/workspace \
-    -w /workspace \
-    ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 \
-    bash tests/target/run_h5_hardware.sh build positive
-WT_GUEST_FLASH_WRP=1 \
-    tests/target/run_h5_hardware.sh flash positive
+make test-hardware TARGET=stm32h563                 # the eight every board runs
+make test-hardware TARGET=stm32h563 WT_HW_TIER=qualification
+tests/target/run_hardware.sh stm32h563 positive
 ```
 
-The suite:
+When the host that owns the board has no cross toolchain, build in the
+published container and flash on the host from the same checkout:
 
-1. builds the matching wolfBoot, wolfTrust, Zephyr, and FreeRTOS images;
-2. patches both guest measurement records into wolfTrust;
-3. signs wolfTrust;
-4. clears WRP if required;
-5. flashes all images with verification;
-6. restores WRP; and
-7. resets the board, captures UART, and checks expected markers.
+```sh
+docker run --rm -v "$PWD":/workspace -w /workspace \
+    ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 \
+    bash tests/target/run_hardware.sh stm32h563 positive build
+tests/target/run_hardware.sh stm32h563 positive flash
+```
 
-The current `run_h5_suite.sh` wrapper does not forward
-`WT_GUEST_FLASH_WRP` into a Docker build, so do not replace the two-stage command
-with the shorter `make test-hardware` form until that runner is fixed. Do not use
-the direct-host build path either: it adds `safe.directory '*'` to the user's
-global Git configuration. The detector checks the board/programmer path, not
-every required host tool. It reports a skip when the CLI or serial VCP is absent
-and, when `lsusb` is available, when no ST-Link is detected. Without `lsusb`, a
-missing probe appears later as a flash failure.
+The runner:
+
+1. binds the ST-Link by serial and reads the option bytes (TrustZone on,
+   product state Open, `WRPSGn1` clear), refusing any other fixture;
+2. builds the matching wolfBoot, wolfTrust, Zephyr and FreeRTOS images,
+   patches both guest measurement records into wolfTrust and signs it;
+3. blanks wolfBoot's trailer and swap sectors, flashes every image with
+   verification, parks the core and blanks the vault (and the conformance
+   boot flag);
+4. boots once while capturing the VCP, reads the latches over SWD into
+   `logs/stm32h563-hw/<scenario>-<engine>/`, and judges the evidence.
+
+It reads each guest latch through both the Non-secure address and its Secure
+alias, because the GTZC curtain marks the idle guest's blocks Secure. The
+hardened guest flash policy is proven by `wrpoff` on an unprotected fixture
+(the Secure image refuses both guests without the fence) and by `set-wrp`
+rehearsals in provisioning, never by the runner writing WRP. `periphneg` on
+this board also runs Non-secure GPDMA copies out of the Secure image and
+Secure SRAM. The qualification extras are `confboot` (the Arm IPC suite on
+silicon, panic resets through a real `SYSRESETREQ`) and `nsmaskneg` (guest 0
+raises every Non-secure mask, and the Secure tick still slices guest 1
+through `AIRCR.PRIS`, which M33MU does not model).
+
+The detector checks the board/programmer path, not every required host tool.
+It reports a skip when the CLI or serial VCP is absent and, when `lsusb` is
+available, when no ST-Link is detected. Without `lsusb`, a missing probe
+appears later as a flash failure.
 
 ## Provisioning and product state
 
@@ -205,6 +218,9 @@ The STM32H5 has three quirks, all seen on the board:
   read-back, not by the CLI's exit status.
 - **Provisioning does not run the wolfTrust chain**, even after a reset. The
   boot proof in a rehearsal therefore comes from the closed states.
+
+Port variables: `STM32_CLI` (the STM32CubeProgrammer CLI) and `H5_SERIAL`
+(the board UART).
 
 ### Stage 1: prepare the production chain
 

@@ -91,9 +91,8 @@ current reference port, not a requirement imposed on every intended port.
 wolfTrust currently supports three ports; each guide covers the board, the
 first-stage loader contract, and the runners:
 
-- STM32H563 (NUCLEO-H563ZI): [STM32H5 Guide](docs/STM32H5-Guide.md)
-- NXP MIMXRT700 (MIMXRT700-EVK): [MIMXRT700 Guide](docs/MIMXRT700-Guide.md)
-- NXP MCXN947 (FRDM-MCXN947): [MCXN947 Guide](docs/MCXN947-Guide.md)
+- every registered port, its board and guide: [Ports](docs/Ports.md)
+  (generated from `port/<soc>/port.json`)
 
 All build with `TARGET=<port>` (`stm32h563` is the default) and run the
 same scenario set under the M33MU emulator with `make test-target
@@ -140,7 +139,7 @@ make test-target
 make test-target TARGET=mimxrt700
 make test-target TARGET=mcxn947
 make test-conformance
-WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 make test-hardware
+make test-hardware TARGET=stm32h563
 make test-hardware TARGET=mcxn947
 ```
 
@@ -152,9 +151,9 @@ emulator and wolfBoot first stage itself.
 is not full emulator or hardware evidence. `make test-hardware` skips when
 board detection fails; on hosts without `lsusb`, a missing ST-Link can instead
 surface as a flash failure. The hardware target can flash and reset the
-connected board. Use the disposable build container for the published hardware
-workflow; the current direct-host build path changes the user's global Git
-`safe.directory` configuration.
+connected board. When the probe host has no cross toolchain, the published
+workflow builds in the disposable container (`build`) and flashes from the
+host (`flash`) out of the same checkout.
 
 ## Documentation
 

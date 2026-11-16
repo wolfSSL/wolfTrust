@@ -33,6 +33,7 @@ fi
 
 PORT_NAME="MCXN947"
 target_dir="$here/.."
+bind_probe MCXN947_PROBE_UID
 pyocd_target="${MCXN947_TARGET:-mcxn947vdf}"
 spsdk_venv="${MCXN947_SPSDK_VENV:-$HOME/spsdk-venv}"
 # Set here, not in a helper: the controller runs many port calls in subshells.
@@ -85,14 +86,18 @@ port_ladder() {
 0x1F oem-field-return yes no  permanent 0x0F
 EOF
 }
-port_usage_extra() {
+port_commands() {
   cat <<'EOF'
-  verify-wrp          report the guest flash fence (none on this port yet)
-  verify-pages        re-read the CMPA and CFPA pages and compare them with the last lock preview
+verify-wrp read report that this port has no guest flash fence
+verify-pages read read the PFR pages back and compare them with the lock preview
+provision-da refused this port rehearses life cycles and writes none of them
+burn refused this port rehearses life cycles and writes none of them
+set-perimeter refused wolfTrust programs the perimeter on every boot
+set-wrp refused the port has no guest flash fence yet
+clear-wrp refused the port has no guest flash fence yet
 EOF
 }
 
-lc_hex() { printf '0x%02X' $(( $1 & 0xFF )); }
 # SPSDK's fuse map name for a life cycle code (nxpfuses LIFECYCLE[7:0]).
 fuse_lc_name() {
   case "$1" in
@@ -149,21 +154,6 @@ read_page() {
     [ -f "$2" ] && [ "$(wc -c < "$2" | tr -d ' ')" = "$PFR_PAGE_SIZE" ]
 }
 page_digest() { sha256 < "$1" | cut -c1-64; }
-psa_name() {
-  case "$1" in
-    00001000) echo "ASSEMBLY_AND_TEST" ;; 00002000) echo "PSA_ROT_PROVISIONING" ;;
-    00003000) echo "SECURED" ;; 00004000) echo "NON_PSA_ROT_DEBUG" ;;
-    00005000) echo "RECOVERABLE_PSA_ROT_DEBUG" ;; 00006000) echo "DECOMMISSIONED" ;;
-    *) echo "UNKNOWN" ;;
-  esac
-}
-# The PSA life cycles wolfTrust may report while the life cycle is $1.
-expect_psa() {
-  case "$1" in
-    0x03) echo "00001000" ;; 0x07) echo "00002000" ;;
-    0x0F|0xCF) echo "00003000 00004000 00005000" ;; 0x1F) echo "00006000" ;;
-  esac
-}
 # The PSA life cycle the mock hands wolfTrust for state $1: the production
 # value, with debug closed, which only a fused part can show on its own.
 mock_psa() {
@@ -171,44 +161,13 @@ mock_psa() {
     0x07) echo 0x2000 ;; 0x0F|0xCF) echo 0x3000 ;; 0x1F) echo 0x6000 ;;
   esac
 }
-# The life cycle fused when discover ran.
-fused_lc() {
-  local w
-  w="$(sed -n 's/^LC=\(0x[0-9A-Fa-f]*\) .*/\1/p' "$state_dir/discovery" 2>/dev/null)"
-  [ -n "$w" ] && lc_hex "$w"
-}
-elf_sym() { arm-none-eabi-nm "$elf" | awk -v s="$1" '$3 == s && !f { print "0x" $1; f = 1 }'; }
-# Both launch masks as "verified refused", or failure when the image leaves one
-# out (a WT_GUEST_FLASH_WRP=1 build drops the verified mask): a bare read32 stops pyOCD.
-launch_masks() {
-  local vm rf
-  vm="$(elf_sym g_wt_launch_verified_mask)"; rf="$(elf_sym g_wt_launch_refused_mask)"
-  [ -n "$vm" ] && [ -n "$rf" ] || return 1
-  read_words "$vm" "$rf" | tr '\n' ' '; echo
-}
-# The life cycle wolfBoot handed wolfTrust: the raw handoff record while it is
-# intact, else wolfTrust's consumed copy.
-handoff_lifecycle() {
-  local magic inv lc sym
-  read -r magic inv lc < <(read_words "$HANDOFF" $((HANDOFF + 4)) $((HANDOFF + 12)) | tr '\n' ' '; echo)
-  if [ "${magic:-}" = "5742484f" ] && [ $((0x$magic ^ 0x${inv:-0})) -eq $((0xFFFFFFFF)) ]; then
-    echo "$lc"
-    return 0
-  fi
-  [ -s "$elf" ] || return 1
-  sym="$(elf_sym g_boot_lifecycle)"
-  [ -n "$sym" ] || return 1
-  read_words "$sym"
-}
 # The four images the chain flashes, as "address file" lines (physical
 # offsets; wolfBoot at 0, the BOOT partition and both guest windows), the
-# ones run_mcxn947_hardware.sh builds and flashes.
-flashed_images() {
-  printf '%s %s\n' \
-    0x00000000 "$wolfboot_dir/wolfboot.bin" \
-    0x00040000 "$repo/build/wolftrust_v1_signed.bin" \
-    0x00080000 "$repo/tests/firmware/mcxn947-baremetal/build/guest0.bin" \
-    0x00100000 "$repo/tests/firmware/mcxn947-baremetal/build/guest1.bin"
+# ones run_hardware.sh builds and flashes.
+port_image_files() {
+  printf '%s\n' "$wolfboot_dir/wolfboot.bin" "$repo/build/wolftrust_v1_signed.bin" \
+    "$repo/tests/firmware/baremetal-guest/build/guest0.bin" \
+    "$repo/tests/firmware/baremetal-guest/build/guest1.bin"
 }
 port_image_digest() { framed_digest; }
 images_on_device() {
@@ -234,7 +193,7 @@ fence_line() {
 }
 
 port_status() {
-  local lc lcd dauth hl vm rf uuid masks
+  local lc lcd dauth hl uuid
   ensure_probe
   read -r lc lcd dauth < <(read_words "$LC_STATE" "$LC_STATE_DP" "$DAUTHSTATUS" | tr '\n' ' '; echo)
   [ -n "${lc:-}" ] && [ -n "${lcd:-}" ] || fail "status" "cannot read the life cycle over SWD through probe $PROBE"
@@ -245,14 +204,7 @@ port_status() {
   echo "guest fence      $(fence_line || true)"
   echo "lock write       hard-wired off (MCXN947_LOCK_WRITE_ENABLED=$MCXN947_LOCK_WRITE_ENABLED): lock previews only"
   if hl="$(handoff_lifecycle)"; then echo "wolfTrust saw    0x$hl ($(psa_name "$hl"))"; fi
-  if [ -s "$elf" ]; then
-    if masks="$(launch_masks)"; then
-      read -r vm rf <<<"$masks"
-      echo "guest launches   verified=0x${vm:-?} refused=0x${rf:-?}"
-    else
-      echo "guest launches   launch masks not in $elf (a WT_GUEST_FLASH_WRP=1 image launches no guest)"
-    fi
-  fi
+  launch_status
 }
 port_discover() {
   local lc lcd dauth hl uuid
@@ -279,7 +231,7 @@ port_discover() {
 # The production images, through the hardware runner bound to this probe.
 port_restore() {
   ensure_probe
-  MCXN947_PROBE_UID="$PROBE" "$target_dir/run_mcxn947_hardware.sh" positive ||
+  WT_HW_PROBE="$PROBE" "$target_dir/run_hardware.sh" mcxn947 positive ||
     fail "restore" "the hardware runner did not pass; see its output"
 }
 port_extra() {
@@ -360,33 +312,10 @@ PYEOF
 # The rehearsal evidence: the life cycle wolfTrust saw, every guest launched
 # verified, the images read back, the device UUID, and the probe.
 port_booted() {
-  local hl want vm rf digest uuid
+  local digest uuid
   ensure_probe
   # advance cleared the launch masks, so both are this boot's.
-  hl="$(handoff_lifecycle)" || { echo "no boot handoff life cycle readable after the advance"; return 1; }
-  echo "wolfTrust saw 0x$hl ($(psa_name "$hl"))"
-  case " $(expect_psa "$1") " in
-    *" $hl "*) pass "wolfTrust booted with the $(state_name "$1") life cycle" ;;
-    *) echo "wolfTrust saw 0x$hl, not the life cycle of $1"; return 1 ;;
-  esac
-  # Field Return is decommissioned: wolfTrust need not launch guests there.
-  if [ "$1" != "0x1F" ]; then
-    want=$((guest_mask))
-    [ -n "$(elf_sym g_wt_launch_verified_mask)" ] && [ -n "$(elf_sym g_wt_launch_refused_mask)" ] || {
-      echo "launch masks not in $elf (a WT_GUEST_FLASH_WRP=1 image launches no guest)"
-      return 1
-    }
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-      read -r vm rf < <(launch_masks)
-      [ -n "${vm:-}" ] && [ $(((0x$vm | 0x${rf:-0}) & want)) -eq "$want" ] && break
-      sleep 1
-    done
-    [ -n "${vm:-}" ] && [ $((0x$vm)) -eq "$want" ] && [ $((0x${rf:-1})) -eq 0 ] || {
-      echo "guests did not all launch (verified=0x${vm:-?} refused=0x${rf:-?}, want $guest_mask)"
-      return 1
-    }
-    pass "guests launched (verified=0x$vm refused=0x$rf)"
-  fi
+  booted_with_guests "$1" || return 1
   digest="$(port_image_digest)" || { echo "missing a flashed image"; return 1; }
   images_on_device || { echo "the images on the part differ from the host build: flash the chain again"; return 1; }
   pass "the images on the part match the host build (${digest:0:16})"
@@ -394,7 +323,7 @@ port_booted() {
   EVIDENCE="id=$uuid image=$digest fused=$(fused_lc) fence=none probe=$PROBE"
 }
 port_regress() {
-  local fused lc lcd hl
+  local fused lc lcd
   ensure_probe
   pyocd_probe 60 reset -t "$pyocd_target" -m hw >/dev/null 2>&1 ||
     fail "regress" "hardware reset through pyocd failed"
@@ -403,17 +332,7 @@ port_regress() {
   read -r lc lcd < <(read_words "$LC_STATE" "$LC_STATE_DP" | tr '\n' ' '; echo)
   [ "$(lc_hex "0x$lc")" = "$fused" ] && [ "$(lc_hex "0x$lcd")" = "$fused" ] ||
     fail "regress" "life cycle after reset is 0x$lc/0x$lcd, not the fused $fused (run discover)"
-  pass "hardware reset reloaded the fused $(state_name "$fused") life cycle"
-  hl="$(handoff_lifecycle)" || fail "regress" "cannot read the life cycle wolfTrust saw after the reset"
-  case " $(expect_psa "$fused") " in
-    *" $hl "*) pass "wolfTrust booted $(psa_name "$hl") again" ;;
-    *) fail "regress" "wolfTrust saw 0x$hl after regress" ;;
-  esac
-  # Only a regress out of a recorded mock proves the way back for later steps.
-  if [ -n "$PENDING" ]; then
-    mkdir -p "$state_dir"
-    date -u +%FT%TZ > "$state_dir/regress-ok"
-  fi
+  regress_booted_fused "$fused"
 }
 
 port_cred_fp() { echo none; }

@@ -2,14 +2,15 @@
 
 The STM32H563 build is configured through GNU Make variables. The build turns
 selected values into C preprocessor defines. Defaults below come from
-`mk/target-stm32h563.mk`, `mk/arch-armv8m.mk`, and `mk/common.mk`.
+`mk/target-stm32h563.mk`, `mk/layout.mk`, `mk/arch-armv8m.mk`, and
+`mk/common.mk`.
 
 ## Build selection
 
 | Define | Description | Requirement |
 | --- | --- | --- |
 | `ARCH` | Architecture build selector; default `armv8m`. | Must match an `mk/arch-<arch>.mk` fragment; `armv8m` is the only architecture today. |
-| `TARGET` | Target build selector; default `stm32h563`. | Must match an `mk/target-<soc>.mk` fragment; the root Makefile includes it, the architecture fragment, and `mk/common.mk`. |
+| `TARGET` | Target build selector; default `stm32h563`. | Must match an `mk/target-<soc>.mk` fragment; the root Makefile includes it, `mk/layout.mk`, the architecture fragment, and `mk/common.mk`. |
 | `TOOLPREFIX` | Cross-tool prefix; default `arm-none-eabi-`. | The prefixed GCC, objcopy, nm, and size tools must be available. |
 | `BUILD_DIR` | Secure build output directory; default `build`. | Must be writable. |
 | `WT_LTO` | Enable Secure-image link-time optimization; default `1`. | Set to `0` for diagnostics or a non-LTO size comparison. The GNU Arm compiler must support `-flto=auto`. |
@@ -31,9 +32,9 @@ selected values into C preprocessor defines. Defaults below come from
 
 | Define | Description | Requirement |
 | --- | --- | --- |
-| `WT_GUEST_FLASH_WRP` | When `1`, verify full hardware write protection of each guest window before launch (STM32 WRP groups, or MIMXRT700 locked XSPI flash region descriptors); default `0`. | Set to `1` for hardened images: provision STM32H563 WRP after flashing, or boot the MIMXRT700 fenced wolfBoot. M33MU models the MIMXRT700 descriptors but not STM32 WRP. |
+| `WT_GUEST_FLASH_WRP` | When `1`, verify the port's hardware write protection of each guest window before launch; a port with no guest flash fence then refuses every guest. Default `0`. | Set to `1` for hardened images, after provisioning the port's fence as its guide describes. |
 | `WT_ENGINE_HSM` | Legacy engine selector; unset by default. `0` maps to `WT_ENGINE=native` and `1` maps to `WT_ENGINE=hsm` when the public selector is not supplied. The build also derives this internal value from `WT_ENGINE`. | Prefer `WT_ENGINE` for new builds and do not supply conflicting selectors. The guest and Secure image must select the same engine. |
-| `WT_ATTEST_COSE` | Must remain `1` in the current STM32H563 reference build; default `1`. The `0` configuration does not compile because the reset path still references attestation-gated handoff variables. | Requires the wolfCOSE submodule and the configured attestation key backend. |
+| `WT_ATTEST_COSE` | Build the COSE attestation token service; default `1`. CI compile-checks `0`, and builds each port with its `port.json` `attest_cose` value. | `1` requires the wolfCOSE submodule and the configured attestation key backend. |
 | `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `1`. | Requires compatible Armv8-M assembly sources and toolchain. |
 | `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `1`. | Requires a compatible GNU Arm toolchain. |
 | `WT_WOLFCRYPT_STM32_HASH` | STM32 HASH acceleration selector; default `0`. | Must remain `0`: the Makefile rejects other values because wolfHSM SHA state is not compatible with the peripheral representation. |
@@ -50,6 +51,18 @@ selected values into C preprocessor defines. Defaults below come from
 | `WT_GUEST1_FLASH_BASE` | Guest 1 flash base; standalone default `0x08040000`. | Must match the guest link address and manifest executable window. |
 | `WT_GUEST0_FLASH_SIZE` | Guest 0 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
 | `WT_GUEST1_FLASH_SIZE` | Guest 1 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
+| `WT_L3_SPM_RAM_SIZE` | SPM-private RAM band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x0004D000`). | Moves every level 3 band above it; the keystore bands, partition stacks and conformance window follow. |
+| `WT_SP_HSM_DATA_SIZE` | Crypto partition data band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x00011800`). | Must hold the engine's working set; the post-link layout check reports an overflow. |
+| `WT_LD_RAM_CODE_BAND` | `1` links the NSC gateway and the flash program code into the RAM code band; default `0` (`1` for `TARGET=mimxrt700`). | The port's `memory_map.h` must define `WT_RAMFUNC_BASE` and `WT_RAMFUNC_SIZE`. |
+
+Every layout input is a Make variable that `mk/layout.mk` resolves once into
+`WT_LAYOUT_CFLAGS` (defines and include paths only). The firmware, the
+linker script, `tools/l3_layout_args.py`, the post-link layout check, the
+guest builds and the host fixtures all read that one set, and the build-mode
+stamp records it, so changing any input regenerates every output.
+`make TARGET=<soc> print-layout-cflags` prints the resolved set and
+`print-build-mode` the stamp; a layout define passed through
+`WT_EXTRA_CFLAGS` is refused.
 
 The target runners used for authenticated boot override standalone addresses
 for the wolfBoot partition layout. Keep bootloader, Secure image, manifest,

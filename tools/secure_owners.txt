@@ -28,6 +28,8 @@ sec_fabric_windows.o                   spm
 sec_platform_stm32h563.o               spm
 sec_platform_mimxrt700.o               spm
 wt_sec_platform_l3.o                   spm
+wt_sec_platform_armv8m.o               spm
+wt_sec_fabric_sau.o                    spm
 sec_restart_policy.o                   spm
 sec_rollback.o                         spm
 sec_runtime.o                          spm
@@ -44,6 +46,8 @@ wt_sec_ffm_gateway.o                   spm
 wt_sec_ffm_nsc.o                       spm
 wt_sec_guest_context_armv8m.o          spm
 wt_sec_hsm_flash.o                     spm
+wt_sec_flash_drv.o                     spm
+wt_sec_rng_drv.o                       spm
 wt_sec_silicon_guard.o                 spm
 wt_sec_silicon_rev.o                   spm
 wt_sec_xspi_nor.o                      spm

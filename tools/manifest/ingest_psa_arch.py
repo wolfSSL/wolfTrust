@@ -3,10 +3,11 @@
 
 Reads the upstream psa-arch-tests `*_psa.json` partition manifests and either
 emits the `psa_manifest/pid.h`, `sid.h`, and per-partition signal headers the
-upstream `val`/PAL sources `#include`, or (with --base/--emit-manifest) merges
-the Arm test partitions onto a production wolfTrust manifest to produce the
-conformance system manifest the secure build compiles. Reuses the production
-generator's header emitters and validated schema so the output matches
+upstream `val`/PAL sources `#include`, or (with --base/--emit-overlay) turns
+the Arm test partitions into the conformance overlay (manifest/conformance.json)
+that tools/manifest/render.py applies to the shared template: every address
+is a memory_map.h expression, so one overlay serves every port. Reuses the
+production generator's header emitters so the output matches
 wolftrust_manifest_generated.
 """
 import argparse
@@ -27,11 +28,15 @@ VERSION_POLICY = {
     "RELAXED": 1,
 }
 
-# SP layout defaults mirror WT_SP_FF_*_STACK_BASE in port/stm32h563/memory_map.h
-SP_CODE_BASE = 0x0C012000
-SP_CODE_SIZE = 0x1000
-SP_STACK_BASE = 0x3009A000
-SP_STACK_SIZE = 0x2000
+# The conformance partitions take the code slots and stacks the shared level 3
+# layout reserves for them (port/common/armv8m/l3_layout.h), by index.
+SP_CODE_SIZE = "WT_SP_CODE_SLOT_SIZE"
+SP_STACK_SIZE = "WT_SP_SECURE_STACK_SIZE"
+CONFORMANCE_SLOTS = (
+    ("WT_SP_CODE_BASE + 2 * WT_SP_CODE_SLOT_SIZE", "WT_SP_FF_SERVER_STACK_BASE"),
+    ("WT_SP_CODE_BASE + 3 * WT_SP_CODE_SLOT_SIZE", "WT_SP_FF_DRIVER_STACK_BASE"),
+    ("WT_SP_CODE_BASE + 4 * WT_SP_CODE_SLOT_SIZE", "WT_SP_FF_CLIENT_STACK_BASE"),
+)
 MEM_ATTR_CODE = 5     # READ | EXEC
 MEM_ATTR_STACK = 19   # READ | WRITE | RESTART_CLEAR
 DOMAIN_CLASS_SP = 1
@@ -47,11 +52,11 @@ SP_RESTART_POLICY = {
     "initial_delay_ticks": 1,
 }
 
-# The upstream FF-test manifest names an IRQ only by a symbolic source; the NVIC
-# line is this port's decision (STM32H563 test UART, P4.2). The generator owns
-# the mapping so the conformance manifest stays reproducible from upstream.
+# The upstream FF-test manifest names an IRQ only by a symbolic source; the
+# port's layout configuration decides the NVIC line (WT_CONF_IRQ), so the
+# overlay carries the macro and stays reproducible from upstream.
 PLATFORM_IRQ_LINES = {
-    "FF_TEST_UART_IRQ": 63,
+    "FF_TEST_UART_IRQ": "WT_CONF_IRQ",
 }
 
 
@@ -138,9 +143,11 @@ def partition_rot_role(source):
     return role
 
 
-def sp_domain(domain_id, index, code_base, stack_base, stack_size, rot_role):
-    code = code_base + index * SP_CODE_SIZE
-    stack = stack_base + index * stack_size
+def sp_domain(domain_id, index, rot_role):
+    if index >= len(CONFORMANCE_SLOTS):
+        raise IngestError("the level 3 layout reserves {} conformance "
+                          "partition slots".format(len(CONFORMANCE_SLOTS)))
+    code, stack = CONFORMANCE_SLOTS[index]
     return {
         "id": domain_id,
         "domain_class": DOMAIN_CLASS_SP,
@@ -150,11 +157,11 @@ def sp_domain(domain_id, index, code_base, stack_base, stack_size, rot_role):
         "initial_lifecycle": 0,
         "entry_point": code,
         "stack_base": stack,
-        "stack_size": stack_size,
+        "stack_size": SP_STACK_SIZE,
         "memory_resources": [
             {"base": code, "size": SP_CODE_SIZE,
              "attributes": MEM_ATTR_CODE, "share_id": 0},
-            {"base": stack, "size": stack_size,
+            {"base": stack, "size": SP_STACK_SIZE,
              "attributes": MEM_ATTR_STACK, "share_id": 0},
         ],
         "interrupt_resources": [],
@@ -185,18 +192,16 @@ def full_service(entry):
 CONFORMANCE_EXCLUDE = {"PARTITION_FWU"}
 
 
-def emit_manifest(base_path, arm_paths, code_base, stack_base, stack_size):
+def emit_overlay(base_path, arm_paths):
+    """The conformance overlay: drop the production-only partitions, then add
+    the Arm partitions in the domain ids the drop frees."""
     manifest = json.loads(Path(base_path).read_text(encoding="utf-8"))
     excluded_domain_ids = {
         part["domain_id"] for part in manifest["partitions"]
         if part["name"] in CONFORMANCE_EXCLUDE}
-    manifest["partitions"] = [
-        part for part in manifest["partitions"]
-        if part["name"] not in CONFORMANCE_EXCLUDE]
-    manifest["domains"] = [
-        domain for domain in manifest["domains"]
-        if domain["id"] not in excluded_domain_ids]
-    next_id = max(domain["id"] for domain in manifest["domains"]) + 1
+    kept = [domain["id"] for domain in manifest["domains"]
+            if domain["id"] not in excluded_domain_ids]
+    next_id = max(kept) + 1
 
     sid_by_name = {}
     normalized = []
@@ -208,21 +213,23 @@ def emit_manifest(base_path, arm_paths, code_base, stack_base, stack_size):
         for service in part["services"]:
             sid_by_name[service["name"]] = service["sid"]
 
+    overlay = {"drop_partitions": sorted(CONFORMANCE_EXCLUDE),
+               "domains": [], "partitions": []}
     for index, part in enumerate(normalized):
         domain_id = next_id + index
-        domain = sp_domain(domain_id, index, code_base, stack_base, stack_size,
+        domain = sp_domain(domain_id, index,
                            partition_rot_role(part["_source"]))
         domain["interrupt_resources"] = [
             {"interrupt": irq["interrupt"], "attributes": 0, "share_id": 0}
             for irq in part["interrupts"]
         ]
-        manifest["domains"].append(domain)
+        overlay["domains"].append(domain)
         dependencies = []
         for name in part["_source"].get("dependencies", []):
             if name not in sid_by_name:
                 raise IngestError("unresolved dependency: {}".format(name))
             dependencies.append(sid_by_name[name])
-        manifest["partitions"].append({
+        overlay["partitions"].append({
             "name": part["name"],
             "domain_id": domain_id,
             "framework_version": 256,
@@ -232,18 +239,7 @@ def emit_manifest(base_path, arm_paths, code_base, stack_base, stack_size):
             "dependencies": dependencies,
             "interrupts": part["interrupts"],
         })
-
-    manifest["profile_capabilities"]["max_domains"] = len(manifest["domains"])
-    manifest["profile_capabilities"]["max_interrupts_per_domain"] = max(
-        [len(d.get("interrupt_resources", [])) for d in manifest["domains"]]
-        + [0])
-    partitions = manifest["partitions"]
-    manifest["limits"]["max_partitions"] = len(partitions)
-    manifest["limits"]["max_services_per_partition"] = max(
-        len(p["services"]) for p in partitions)
-    manifest["limits"]["max_dependencies_per_partition"] = max(
-        len(p["dependencies"]) for p in partitions)
-    return manifest
+    return overlay
 
 
 def main():
@@ -252,22 +248,18 @@ def main():
     parser.add_argument("--output", type=Path)
     parser.add_argument("--pid-base", type=lambda value: int(value, 0),
                         default=1)
-    parser.add_argument("--base", type=Path)
-    parser.add_argument("--emit-manifest", type=Path)
-    parser.add_argument("--sp-code-base", type=lambda value: int(value, 0),
-                        default=SP_CODE_BASE)
-    parser.add_argument("--sp-stack-base", type=lambda value: int(value, 0),
-                        default=SP_STACK_BASE)
-    parser.add_argument("--sp-stack-size", type=lambda value: int(value, 0),
-                        default=SP_STACK_SIZE)
+    parser.add_argument("--base", type=Path,
+                        help="the shared template, manifest/base.json")
+    parser.add_argument("--emit-overlay", type=Path,
+                        help="write the conformance overlay for the template")
     args = parser.parse_args()
 
-    if args.output is None and args.emit_manifest is None:
-        print("nothing to do: pass --output and/or --emit-manifest",
+    if args.output is None and args.emit_overlay is None:
+        print("nothing to do: pass --output and/or --emit-overlay",
               file=sys.stderr)
         return 2
-    if args.emit_manifest is not None and args.base is None:
-        print("--emit-manifest requires --base", file=sys.stderr)
+    if args.emit_overlay is not None and args.base is None:
+        print("--emit-overlay requires --base", file=sys.stderr)
         return 2
 
     try:
@@ -283,12 +275,10 @@ def main():
                 file_name, content = generate.generate_partition_header(
                     partition)
                 (psa_manifest / file_name).write_text(content, encoding="utf-8")
-        if args.emit_manifest is not None:
-            merged = emit_manifest(args.base, args.manifests,
-                                   args.sp_code_base, args.sp_stack_base,
-                                   args.sp_stack_size)
-            args.emit_manifest.write_text(
-                json.dumps(merged, indent=2) + "\n", encoding="utf-8")
+        if args.emit_overlay is not None:
+            overlay = emit_overlay(args.base, args.manifests)
+            args.emit_overlay.write_text(
+                json.dumps(overlay, indent=2) + "\n", encoding="utf-8")
     except (IngestError, OSError, json.JSONDecodeError) as error:
         print("manifest ingestion failed: {}".format(error), file=sys.stderr)
         return 1

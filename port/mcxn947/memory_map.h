@@ -67,6 +67,9 @@
 #define WT_FLASH_PAGE_SIZE         0x00000080u
 #define WT_FLASH_PHRASE_SIZE       0x00000010u
 #define WT_FLASH_BANK_SIZE         0x00100000u
+#define WT_FLASH_PROGRAM_UNIT      WT_FLASH_PHRASE_SIZE
+/* Write-once wolfBoot keeps a trailer copy in each of the last two sectors. */
+#define WT_FWU_TRAILER_SIZE        (2u * WT_FLASH_SECTOR_SIZE)
 #define WT_HSM_NVM_FLASH_BASE_NS   0x001E0000u
 #define WT_HSM_NVM_FLASH_BASE_S    0x101E0000u
 #define WT_HSM_NVM_FLASH_SIZE      0x00004000u
@@ -74,6 +77,10 @@
 #define WT_CONF_NVM_FLASH_BASE_NS  0x001E4000u
 #define WT_CONF_NVM_FLASH_BASE_S   0x101E4000u
 #define WT_CONF_NVM_FLASH_SIZE     0x00002000u
+/* Conformance PAL device bases (Secure LPUART4 and WWDT0); the PAL only
+ * reports them, nothing is driven through them. */
+#define WT_CONF_UART_BASE          0x500B4000u
+#define WT_CONF_WDG_BASE           0x50016000u
 
 /* Non-secure guest RAM: two 96 KiB windows at the bottom of RAMA-H. Their
  * Secure alias holds the first loader's RAM, dead after the jump, which
@@ -84,6 +91,11 @@
 #define WT_GUEST0_RAM_BASE       0x20000000u
 #define WT_GUEST1_RAM_BASE       0x20018000u
 #define WT_GUEST_RAM_SIZE        0x00018000u
+#define WT_GUEST0_RAM_SIZE       WT_GUEST_RAM_SIZE
+#define WT_GUEST1_RAM_SIZE       WT_GUEST_RAM_SIZE
+/* The guests' shared console window (LPUART4 through its Non-secure alias). */
+#define WT_GUEST_UART_BASE       0x400B4000u
+#define WT_GUEST_UART_SIZE       0x00001000u
 
 /* Secure runtime RAM: the top 220 KiB of RAMA-H through its Secure alias,
  * one 4 KiB page above the wolfBoot handoff record (56 bytes, the page is
@@ -91,8 +103,12 @@
 #define WT_RAM_S_BASE            0x30031000u
 #define WT_RAM_S_SIZE            0x00037000u
 #define WT_BOOT_HANDOFF_ADDRESS  0x30030000u
+#ifndef WT_L3_SPM_RAM_SIZE
 #define WT_L3_SPM_RAM_SIZE       0x00015800u
+#endif
+#ifndef WT_SP_HSM_DATA_SIZE
 #define WT_SP_HSM_DATA_SIZE      0x00008000u
+#endif
 
 #include "../common/armv8m/l3_layout.h"
 
@@ -100,22 +116,18 @@
 #define WT_FWU_UPDATE_FLASH_BASE_S 0x10180000u
 #define WT_FWU_UPDATE_FLASH_SIZE   0x00040000u
 
-/* The one SAU NS region spans both guests, so it must stay off the Secure
- * image, the update and swap partitions, and both NVM stores. */
-#define WT_GUEST_FLASH_NS_END (WT_GUEST1_FLASH_BASE + WT_GUEST1_FLASH_SIZE)
-#if WT_GUEST0_FLASH_BASE + WT_GUEST0_FLASH_SIZE > WT_GUEST1_FLASH_BASE || \
-    WT_GUEST0_FLASH_BASE < \
-        WT_SECURE_FLASH_BASE + WT_SECURE_FLASH_SIZE - WT_FLASH_S_ALIAS_BASE || \
-    WT_GUEST_FLASH_NS_END > WT_FWU_UPDATE_FLASH_BASE_S - WT_FLASH_S_ALIAS_BASE || \
-    WT_GUEST_FLASH_NS_END > WT_HSM_NVM_FLASH_BASE_NS || \
-    WT_GUEST_FLASH_NS_END > WT_CONF_NVM_FLASH_BASE_NS
-#error "MCXN947 guest flash overlaps the Secure image, update partition, or NVM"
-#endif
-
 #define WT_SHARED_STATUS_ADDR    0x20000000u
 
 #ifndef WT_PLATFORM_CORE_CLOCK_HZ
 #define WT_PLATFORM_CORE_CLOCK_HZ 150000000u
 #endif
+
+/* A Secure peripheral only the SPM drives (the ELS, WT_ELS_BASE_S), probed by
+ * the periphsp negative. */
+#define WT_L3_SPM_PERIPHERAL_BASE 0x50054000u
+
+/* The one SAU NS region spans both guests, so the guest flash checks below
+ * also keep it off the Secure image, the update partition and the stores. */
+#include "../common/armv8m/memory_map_check.h"
 
 #endif

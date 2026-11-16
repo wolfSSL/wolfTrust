@@ -23,10 +23,10 @@ BUILD_DIR ?= build
 
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -DWT_CONF_NVM_HOST_TEST \
-    -I$(ROOT)/include -I$(ROOT)/port/stm32h563/conformance $(EXTRA_CFLAGS)
+    -I$(ROOT)/include -I$(ROOT)/tests/conformance/pal $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
 TEST := $(BUILD_DIR)/test_flash_nvm
-SRCS := $(ROOT)/port/stm32h563/conformance/pal_driver_intf.c main.c
+SRCS := $(ROOT)/tests/conformance/pal/pal_driver_intf.c main.c
 
 .PHONY: all run compilers compiler-gcc compiler-clang sanitize valgrind \
     run-valgrind clean

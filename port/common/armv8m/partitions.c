@@ -107,17 +107,6 @@ const wt_guest_measurement_t* wt_platform_guest_measurements(size_t* count)
 #define WT_TIMESLICE_MS 2U
 #endif
 
-/* Each guest's console window; a port whose guests use different UARTs
- * defines the per-guest bases in its memory_map.h. */
-#ifndef WT_GUEST0_CONSOLE_BASE
-#define WT_GUEST0_CONSOLE_BASE WT_GUEST_UART_BASE
-#endif
-#ifndef WT_GUEST1_CONSOLE_BASE
-#define WT_GUEST1_CONSOLE_BASE WT_GUEST_UART_BASE
-#endif
-#ifndef WT_GUEST_CONSOLE_SIZE
-#define WT_GUEST_CONSOLE_SIZE WT_GUEST_UART_SIZE
-#endif
 /* Initial restore runs from a Secure exception and returns to a Non-secure
  * Thread/MSP frame; ES stays set because the exception was taken to Secure
  * state (clearing it trips INVPC on Armv8-M silicon). */

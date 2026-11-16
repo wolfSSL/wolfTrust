@@ -69,8 +69,8 @@
           "share_id": 0
         },
         {
-          "base": "WT_GUEST_UART_BASE",
-          "size": "WT_GUEST_UART_SIZE",
+          "base": "WT_GUEST0_CONSOLE_BASE",
+          "size": "WT_GUEST_CONSOLE_SIZE",
           "attributes": 43,
           "share_id": 2
         }
@@ -110,8 +110,8 @@
           "share_id": 0
         },
         {
-          "base": "WT_GUEST_UART_BASE",
-          "size": "WT_GUEST_UART_SIZE",
+          "base": "WT_GUEST1_CONSOLE_BASE",
+          "size": "WT_GUEST_CONSOLE_SIZE",
           "attributes": 43,
           "share_id": 2
         }

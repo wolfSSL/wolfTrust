@@ -59,8 +59,8 @@ WINDOW_MACROS = (
     "WT_SP_CODE_SLOT_SIZE", "WT_CONF_IRQ",
     "WT_GUEST0_FLASH_BASE", "WT_GUEST0_FLASH_SIZE", "WT_GUEST0_RAM_BASE",
     "WT_GUEST0_RAM_SIZE", "WT_GUEST1_FLASH_BASE", "WT_GUEST1_FLASH_SIZE",
-    "WT_GUEST1_RAM_BASE", "WT_GUEST1_RAM_SIZE", "WT_GUEST_UART_BASE",
-    "WT_GUEST_UART_SIZE",
+    "WT_GUEST1_RAM_BASE", "WT_GUEST1_RAM_SIZE", "WT_GUEST0_CONSOLE_BASE",
+    "WT_GUEST1_CONSOLE_BASE", "WT_GUEST_CONSOLE_SIZE",
     "WT_SP_ATTEST_STACK_BASE", "WT_SP_CRYPTO_STACK_BASE",
     "WT_SP_VAULT_STACK_BASE", "WT_SP_VAULT_STACK_SIZE", "WT_SP_ITS_STACK_BASE",
     "WT_SP_PS_STACK_BASE", "WT_SP_FWU_STACK_BASE", "WT_SP_SECURE_STACK_SIZE",
@@ -186,7 +186,8 @@ def windows(manifest, values, label, variant):
                  values["WT_GUEST%d_FLASH_SIZE" % index]),
                 (values["WT_GUEST%d_RAM_BASE" % index],
                  values["WT_GUEST%d_RAM_SIZE" % index]),
-                (values["WT_GUEST_UART_BASE"], values["WT_GUEST_UART_SIZE"])}
+                (values["WT_GUEST%d_CONSOLE_BASE" % index],
+                 values["WT_GUEST_CONSOLE_SIZE"])}
         check(mems == want and guest["entry_point"] ==
               values["WT_GUEST%d_FLASH_BASE" % index],
               "%s: guest %d windows %s, memory_map.h %s" %
@@ -266,6 +267,11 @@ def main():
                       "%s: rendered under %s differs from the committed "
                       "manifest" % (label, " ".join(settings) or "the defaults"))
                 seen.add(key)
+        # Each guest's console follows the console selection, as the bind check does.
+        for uart in range(4):
+            flags = cflags(target, "WT_SHARED_UART=%d" % uart)
+            windows(json.loads(render(flags, "base")), layout(flags),
+                    "%s/WT_SHARED_UART=%d" % (target, uart), "base")
         # A moved guest window moves only the guest's windows.
         values = layout(cflags(target))
         moved = "WT_GUEST1_FLASH_SIZE=%#x" % (values["WT_GUEST1_FLASH_SIZE"] // 2)

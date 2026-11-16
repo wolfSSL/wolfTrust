@@ -41,6 +41,17 @@
 #ifndef WT_GUEST_WINDOW_GRANULE
 #define WT_GUEST_WINDOW_GRANULE 32u
 #endif
+/* Each guest's console window, in the manifest and the bind check alike; a
+ * port whose guests use different UARTs defines the per-guest bases. */
+#ifndef WT_GUEST0_CONSOLE_BASE
+#define WT_GUEST0_CONSOLE_BASE WT_GUEST_UART_BASE
+#endif
+#ifndef WT_GUEST1_CONSOLE_BASE
+#define WT_GUEST1_CONSOLE_BASE WT_GUEST_UART_BASE
+#endif
+#ifndef WT_GUEST_CONSOLE_SIZE
+#define WT_GUEST_CONSOLE_SIZE WT_GUEST_UART_SIZE
+#endif
 
 /* The Secure image and its NSC gateway. */
 #if WT_SECURE_IMAGE_HEADER_SIZE >= WT_SECURE_FLASH_SIZE

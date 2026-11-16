@@ -57,7 +57,8 @@ for from in $(python3 "$tmp/tests/target/lib/scenario_matrix.py" --list-ports); 
     [ "$reached" -eq 1 ] || { echo "FAIL: $soc advance is not refused by the backend"; fails=$((fails + 1)); }
     grep -q '"label_only": true' "$tmp/port/$soc/port.json" ||
         { echo "FAIL: $soc is not label-only in CI"; fails=$((fails + 1)); }
-    for src in "$repo/tests/firmware/boards/$from"/* "$repo/tests/host/port_flash/models/$from"*; do
+    for src in "$repo/tests/firmware/boards/$from"/* "$repo/tests/target/ports/$from"/* \
+               "$repo/tests/host/port_flash/models/$from"*; do
         dst="$tmp/${src#"$repo/"}"; dst="${dst//$from/$soc}"
         [ -e "$dst" ] || { echo "FAIL: $soc lacks $(basename "$dst"), the companion of $(basename "$src")"; fails=$((fails + 1)); }
     done

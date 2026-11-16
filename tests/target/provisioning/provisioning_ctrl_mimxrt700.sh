@@ -67,8 +67,8 @@ HANDOFF=0x30180000
 FUSE_LC_RED=0x25
 FUSE_LC=0x8F
 
-# shellcheck source=../lib/rt700_fence.sh disable=SC1091
-. "$target_dir/lib/rt700_fence.sh"
+# shellcheck source=../ports/mimxrt700/fence.sh disable=SC1091
+. "$target_dir/ports/mimxrt700/fence.sh"
 
 port_ladder() {
   cat <<'EOF'
@@ -199,7 +199,7 @@ print("0x%08X" % r["response"][1])' 2>/dev/null
 }
 
 port_status() {
-  local lc lcr lock dauth mgc mdad hl vm rf
+  local lc lcr lock dauth mgc mdad hl
   ensure_spsdk
   read -r lc lcr lock dauth mgc mdad < <(read_words "$LC_STATE" "$LC_STATE_RED" \
     "$LOCK_CFG3" "$DAUTHSTATUS" "$XSPI_MGC" "$XSPI_TG0MDAD" | tr '\n' ' '; echo)
@@ -209,11 +209,7 @@ port_status() {
   echo "XSPI SFP         MGC=0x$mgc TG0MDAD=0x$mdad"
   echo "guest fence      $(fence_line || true)"
   if hl="$(handoff_lifecycle)"; then echo "wolfTrust saw    0x$hl ($(psa_name "$hl"))"; fi
-  if [ -s "$elf" ]; then
-    read -r vm rf < <(read_words "$(elf_sym g_wt_launch_verified_mask)" \
-      "$(elf_sym g_wt_launch_refused_mask)" | tr '\n' ' '; echo)
-    echo "guest launches   verified=0x${vm:-?} refused=0x${rf:-?}"
-  fi
+  launch_status
 }
 port_discover() {
   local lc lcr lock dauth hl
@@ -320,29 +316,9 @@ PYEOF
 # The rehearsal evidence: the life cycle wolfTrust saw, every guest launched
 # verified, the fence, the images read back, and the one attached probe.
 port_booted() {
-  local hl want vm rf fence digest probe
+  local fence digest probe
   # advance cleared the handoff and the launch masks, so both are this boot's.
-  hl="$(handoff_lifecycle)" || { echo "no boot handoff written after the advance"; return 1; }
-  echo "wolfTrust saw 0x$hl ($(psa_name "$hl"))"
-  case " $(expect_psa "$1") " in
-    *" $hl "*) pass "wolfTrust booted with the $(state_name "$1") life cycle" ;;
-    *) echo "wolfTrust saw 0x$hl, not the life cycle of $1"; return 1 ;;
-  esac
-  # In Field Return is decommissioned: wolfTrust need not launch guests there.
-  if [ "$1" != "0x1F" ]; then
-    want=$((guest_mask))
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-      read -r vm rf < <(read_words "$(elf_sym g_wt_launch_verified_mask)" \
-        "$(elf_sym g_wt_launch_refused_mask)" | tr '\n' ' '; echo)
-      [ -n "${vm:-}" ] && [ $(((0x$vm | 0x${rf:-0}) & want)) -eq "$want" ] && break
-      sleep 1
-    done
-    [ -n "${vm:-}" ] && [ $((0x$vm)) -eq "$want" ] && [ $((0x${rf:-1})) -eq 0 ] || {
-      echo "guests did not all launch (verified=0x${vm:-?} refused=0x${rf:-?}, want $guest_mask)"
-      return 1
-    }
-    pass "guests launched (verified=0x$vm refused=0x$rf)"
-  fi
+  booted_with_guests "$1" || return 1
   fence="open"
   if fence_line >/dev/null; then fence="armed"; fi
   digest="$(port_image_digest)" || { echo "missing a flashed image"; return 1; }
@@ -352,26 +328,16 @@ port_booted() {
   EVIDENCE="id=$probe image=$digest fused=$(fused_lc) fence=$fence"
 }
 port_regress() {
-  local fused lc lcr hl
+  local fused lc lcr
   ensure_spsdk
   timeout 60 pyocd reset ${probe_bind[@]+"${probe_bind[@]}"} -t "$pyocd_target" -m hw >/dev/null 2>&1 || true
-  "$target_dir/lib/rt700_reset.sh" reset
+  "$target_dir/ports/mimxrt700/reset.sh" reset
   sleep 3
   fused="$(fused_lc || echo "$LC_DEVELOP")"
   read -r lc lcr < <(read_words "$LC_STATE" "$LC_STATE_RED" | tr '\n' ' '; echo)
   [ "$(lc_hex "0x$lc")" = "$fused" ] && [ "$(lc_hex "0x$lcr")" = "$fused" ] ||
     fail "regress" "life cycle after reset is 0x$lc/0x$lcr, not the fused $fused (run discover)"
-  pass "hardware reset reloaded the fused $(state_name "$fused") life cycle"
-  hl="$(handoff_lifecycle)" || fail "regress" "cannot read the life cycle wolfTrust saw after the reset"
-  case " $(expect_psa "$fused") " in
-    *" $hl "*) pass "wolfTrust booted $(psa_name "$hl") again" ;;
-    *) fail "regress" "wolfTrust saw 0x$hl after regress" ;;
-  esac
-  # Only a regress out of a recorded mock proves the way back for later steps.
-  if [ -n "$PENDING" ]; then
-    mkdir -p "$state_dir"
-    date -u +%FT%TZ > "$state_dir/regress-ok"
-  fi
+  regress_booted_fused "$fused"
 }
 
 port_cred_fp() { echo none; }

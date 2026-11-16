@@ -2,8 +2,8 @@
 # Shared build, CI and test-harness files must not name a registered port:
 # a port is known to them only through port/<soc>/port.json. The baseline
 # (tools/port-names-baseline.txt, "count path" per line) records what still
-# does today; a file may only shrink its count, never grow it, and a shared
-# file absent from the baseline may not name a port at all.
+# does today; a count must match it (a shrink is recorded with --update), and
+# a shared file absent from the baseline may not name a port at all.
 #
 #   tools/check-no-port-names.sh            audit against the baseline
 #   tools/check-no-port-names.sh --update   rewrite the baseline from the tree
@@ -47,6 +47,9 @@ while IFS= read -r f; do
   if [ "$n" -gt "$allowed" ]; then
     echo "FAIL: $f names a port $n time(s), baseline allows $allowed"
     grep -n -E "$re" "$f" | head -5
+    rc=1
+  elif [ "$n" -lt "$allowed" ]; then
+    echo "FAIL: $f names a port $n time(s), below the baseline's $allowed; run --update to keep the shrink"
     rc=1
   fi
 done < <(shared_files)

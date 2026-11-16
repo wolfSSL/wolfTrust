@@ -60,7 +60,8 @@ if [ "$check" = 1 ]; then
     n="$(grep -cE '#error "new port|NEW_PORT_STUB' "$f" || true)"
     if [ "$n" -gt 0 ]; then echo "STUB    $f ($n to settle)"; open=$((open + n)); fi
   done < <({ port_files "$soc"; ls "port/$soc"/*.[ch] "tests/firmware/boards/$soc"/* \
-             "tests/host/port_flash/models/$soc"* "docs/$upper-Guide.md" 2>/dev/null; } | sort -u)
+             "tests/target/ports/$soc"/* "tests/host/port_flash/models/$soc"* \
+             "docs/$upper-Guide.md" 2>/dev/null; } | sort -u)
   [ -e "docs/$upper-Guide.md" ] || { echo "MISSING docs/$upper-Guide.md"; rc=1; }
   python3 tests/target/lib/scenario_matrix.py --selftest || rc=1
   python3 tests/target/lib/scenarios.py --selftest || rc=1
@@ -97,11 +98,14 @@ echo "scaffolding port/$soc from port/$from"
 for src in "port/$from"/*; do
   copy "$src" "port/$soc/$(basename "$src" | sed -e "s/$from/$soc/g")"
 done
-paste -d' ' <(port_files "$from" | grep -vE "^(port|tests/firmware/boards|tests/host/port_flash/models)/") \
-           <(port_files "$soc" | grep -vE "^(port|tests/firmware/boards|tests/host/port_flash/models)/") | while read -r src dst; do
+paste -d' ' <(port_files "$from" | grep -vE "^(port|tests/firmware/boards|tests/target/ports|tests/host/port_flash/models)/") \
+           <(port_files "$soc" | grep -vE "^(port|tests/firmware/boards|tests/target/ports|tests/host/port_flash/models)/") | while read -r src dst; do
   copy "$src" "$dst"
 done
-# The board seams and the flash model with every companion they include.
+# The runner profiles, board seams and flash model with every companion they use.
+for src in "tests/target/ports/$from"/*; do
+  copy "$src" "tests/target/ports/$soc/$(basename "$src" | sed -e "s/$from/$soc/g")"
+done
 for src in "tests/firmware/boards/$from"/*; do
   copy "$src" "tests/firmware/boards/$soc/$(basename "$src" | sed -e "s/$from/$soc/g")"
 done
@@ -116,8 +120,7 @@ NEW_PORT_STUB $soc: every claim below was copied from the $from guide; keep one 
 for f in "port/$soc"/*.[ch] "tests/firmware/boards/$soc"/*.[ch] "tests/host/port_flash/models/$soc"*.[ch]; do
   stub_c "$f"
 done
-for f in "mk/target-$soc.mk" "tests/firmware/boards/$soc/board.mk" "tests/target/ports/$soc/m33mu.sh" \
-         "tests/target/ports/$soc/hw.sh"; do
+for f in "mk/target-$soc.mk" "tests/firmware/boards/$soc/board.mk" "tests/target/ports/$soc"/*.sh; do
   sed -i.bak "1a\\
 # NEW_PORT_STUB $soc: every value below was copied from $from; settle it, then delete this line
 " "$f" && rm -f "$f.bak"

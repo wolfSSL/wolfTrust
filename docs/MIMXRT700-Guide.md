@@ -336,7 +336,7 @@ The fence refuses writes from every initiator, the Secure runtime included, so
 guest images are installed before wolfBoot arms it and a scenario that
 deliberately rewrites guest flash (`remeasureneg`) runs unfenced. The fence
 bounds come from the same `WT_GUEST*_FLASH_*` values the wolfTrust build uses
-(`tests/target/lib/rt700_fence.sh`), and the build refuses a layout whose guest
+(`tests/target/ports/mimxrt700/fence.sh`), and the build refuses a layout whose guest
 windows are not contiguous and 64 KiB aligned.
 
 Build wolfTrust with `WT_GUEST_FLASH_WRP=1` and every required launch checks,

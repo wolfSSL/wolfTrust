@@ -46,7 +46,7 @@ hw_probe_bind() {
 
 hw_preflight() {
     [ -s "$HW_FCB" ] || fail "fixture: FCB binary missing at $HW_FCB (RT700_FCB)"
-    "$here/lib/rt700_reset.sh" status >/dev/null 2>&1 || fail "fixture: the pi4 reset line is not reachable"
+    "$here/ports/mimxrt700/reset.sh" status >/dev/null 2>&1 || fail "fixture: the pi4 reset line is not reachable"
 }
 
 hw_capture_seconds() {
@@ -141,7 +141,7 @@ hw_program() {
 # the hard reset through the pi4 line boots the chain instead of halting.
 hw_boot() {
     timeout 60 "$(pyocd_bin)" reset -u "$HW_PROBE" -t "$HW_PACK_TARGET" -m hw >/dev/null 2>&1 || fail "could not release the core"
-    "$here/lib/rt700_reset.sh" reset
+    "$here/ports/mimxrt700/reset.sh" reset
     sleep "$1"
     : > "$evidence/console.log"
 }

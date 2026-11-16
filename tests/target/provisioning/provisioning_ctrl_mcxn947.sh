@@ -193,7 +193,7 @@ fence_line() {
 }
 
 port_status() {
-  local lc lcd dauth hl vm rf uuid masks
+  local lc lcd dauth hl uuid
   ensure_probe
   read -r lc lcd dauth < <(read_words "$LC_STATE" "$LC_STATE_DP" "$DAUTHSTATUS" | tr '\n' ' '; echo)
   [ -n "${lc:-}" ] && [ -n "${lcd:-}" ] || fail "status" "cannot read the life cycle over SWD through probe $PROBE"
@@ -204,14 +204,7 @@ port_status() {
   echo "guest fence      $(fence_line || true)"
   echo "lock write       hard-wired off (MCXN947_LOCK_WRITE_ENABLED=$MCXN947_LOCK_WRITE_ENABLED): lock previews only"
   if hl="$(handoff_lifecycle)"; then echo "wolfTrust saw    0x$hl ($(psa_name "$hl"))"; fi
-  if [ -s "$elf" ]; then
-    if masks="$(launch_masks)"; then
-      read -r vm rf <<<"$masks"
-      echo "guest launches   verified=0x${vm:-?} refused=0x${rf:-?}"
-    else
-      echo "guest launches   launch masks not in $elf (a WT_GUEST_FLASH_WRP=1 image launches no guest)"
-    fi
-  fi
+  launch_status
 }
 port_discover() {
   local lc lcd dauth hl uuid
@@ -319,33 +312,10 @@ PYEOF
 # The rehearsal evidence: the life cycle wolfTrust saw, every guest launched
 # verified, the images read back, the device UUID, and the probe.
 port_booted() {
-  local hl want vm rf digest uuid
+  local digest uuid
   ensure_probe
   # advance cleared the launch masks, so both are this boot's.
-  hl="$(handoff_lifecycle)" || { echo "no boot handoff life cycle readable after the advance"; return 1; }
-  echo "wolfTrust saw 0x$hl ($(psa_name "$hl"))"
-  case " $(expect_psa "$1") " in
-    *" $hl "*) pass "wolfTrust booted with the $(state_name "$1") life cycle" ;;
-    *) echo "wolfTrust saw 0x$hl, not the life cycle of $1"; return 1 ;;
-  esac
-  # Field Return is decommissioned: wolfTrust need not launch guests there.
-  if [ "$1" != "0x1F" ]; then
-    want=$((guest_mask))
-    [ -n "$(elf_sym g_wt_launch_verified_mask)" ] && [ -n "$(elf_sym g_wt_launch_refused_mask)" ] || {
-      echo "launch masks not in $elf (a WT_GUEST_FLASH_WRP=1 image launches no guest)"
-      return 1
-    }
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-      read -r vm rf < <(launch_masks)
-      [ -n "${vm:-}" ] && [ $(((0x$vm | 0x${rf:-0}) & want)) -eq "$want" ] && break
-      sleep 1
-    done
-    [ -n "${vm:-}" ] && [ $((0x$vm)) -eq "$want" ] && [ $((0x${rf:-1})) -eq 0 ] || {
-      echo "guests did not all launch (verified=0x${vm:-?} refused=0x${rf:-?}, want $guest_mask)"
-      return 1
-    }
-    pass "guests launched (verified=0x$vm refused=0x$rf)"
-  fi
+  booted_with_guests "$1" || return 1
   digest="$(port_image_digest)" || { echo "missing a flashed image"; return 1; }
   images_on_device || { echo "the images on the part differ from the host build: flash the chain again"; return 1; }
   pass "the images on the part match the host build (${digest:0:16})"
@@ -353,7 +323,7 @@ port_booted() {
   EVIDENCE="id=$uuid image=$digest fused=$(fused_lc) fence=none probe=$PROBE"
 }
 port_regress() {
-  local fused lc lcd hl
+  local fused lc lcd
   ensure_probe
   pyocd_probe 60 reset -t "$pyocd_target" -m hw >/dev/null 2>&1 ||
     fail "regress" "hardware reset through pyocd failed"
@@ -362,17 +332,7 @@ port_regress() {
   read -r lc lcd < <(read_words "$LC_STATE" "$LC_STATE_DP" | tr '\n' ' '; echo)
   [ "$(lc_hex "0x$lc")" = "$fused" ] && [ "$(lc_hex "0x$lcd")" = "$fused" ] ||
     fail "regress" "life cycle after reset is 0x$lc/0x$lcd, not the fused $fused (run discover)"
-  pass "hardware reset reloaded the fused $(state_name "$fused") life cycle"
-  hl="$(handoff_lifecycle)" || fail "regress" "cannot read the life cycle wolfTrust saw after the reset"
-  case " $(expect_psa "$fused") " in
-    *" $hl "*) pass "wolfTrust booted $(psa_name "$hl") again" ;;
-    *) fail "regress" "wolfTrust saw 0x$hl after regress" ;;
-  esac
-  # Only a regress out of a recorded mock proves the way back for later steps.
-  if [ -n "$PENDING" ]; then
-    mkdir -p "$state_dir"
-    date -u +%FT%TZ > "$state_dir/regress-ok"
-  fi
+  regress_booted_fused "$fused"
 }
 
 port_cred_fp() { echo none; }

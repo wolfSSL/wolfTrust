@@ -1,7 +1,4 @@
 1 .github/workflows/core-port-split.yml
-9 .github/workflows/cross-compile.yml
-8 .github/workflows/m33mu.yml
-19 Makefile
-2 tests/target/lib/rt700_fence.sh
+1 .github/workflows/cross-compile.yml
+16 Makefile
 1 tests/target/provisioning/provisioning_ctrl.sh
-2 tools/ci-static-analysis-build.sh

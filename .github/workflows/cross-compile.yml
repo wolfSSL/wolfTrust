@@ -94,12 +94,8 @@ jobs:
           test ! -e build-rejected-layout/wolftrust.bin
           test ! -e build-rejected-layout/wolftrust.map
           test ! -e build-rejected-layout/secure_cmse_implib.o
-      - name: Compile-check the no-attestation secure image (WT_ATTEST_COSE=0)
-        run: make TARGET=stm32h563 WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
-      - name: Build the hsm-engine secure image (WT_ENGINE=hsm)
-        run: make TARGET=stm32h563 WT_ENGINE=hsm secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_hsm
-      - name: Build the native-engine secure image (WT_ENGINE=native)
-        run: make TARGET=stm32h563 WT_ENGINE=native secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_native
+      - name: Compile-check the default port's no-attestation secure image (WT_ATTEST_COSE=0)
+        run: make WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
       - name: Verify a changed layout input regenerates the secure image
         run: TOOLPREFIX=arm-none-eabi- tools/check-layout-rebuild.sh
       - name: Build every registered port (both engines, every variant, .vectors check)

@@ -71,6 +71,62 @@ handoff_lifecycle() {
   read_words "$sym"
 }
 
+# The status line for the flashed image's launch masks.
+launch_status() {
+  local masks vm rf
+  [ -s "$elf" ] || return 0
+  if masks="$(launch_masks)"; then
+    read -r vm rf <<<"$masks"
+    echo "guest launches   verified=0x${vm:-?} refused=0x${rf:-?}"
+  else
+    echo "guest launches   launch masks not in $elf (a WT_GUEST_FLASH_WRP=1 image launches no guest)"
+  fi
+}
+
+# A rehearsal's boot evidence for state $1: wolfTrust saw its life cycle and,
+# unless that is DECOMMISSIONED, every guest in $guest_mask launched verified.
+booted_with_guests() {
+  local hl want vm rf
+  hl="$(handoff_lifecycle)" || { echo "no boot handoff life cycle readable after the advance"; return 1; }
+  echo "wolfTrust saw 0x$hl ($(psa_name "$hl"))"
+  case " $(expect_psa "$1") " in
+    *" $hl "*) pass "wolfTrust booted with the $(state_name "$1") life cycle" ;;
+    *) echo "wolfTrust saw 0x$hl, not the life cycle of $1"; return 1 ;;
+  esac
+  [ "$(expect_psa "$1")" != "00006000" ] || return 0
+  want=$((guest_mask))
+  [ -n "$(elf_sym g_wt_launch_verified_mask)" ] && [ -n "$(elf_sym g_wt_launch_refused_mask)" ] || {
+    echo "launch masks not in $elf (a WT_GUEST_FLASH_WRP=1 image launches no guest)"
+    return 1
+  }
+  for _ in 1 2 3 4 5 6 7 8 9 10; do
+    read -r vm rf < <(launch_masks)
+    [ -n "${vm:-}" ] && [ $(((0x$vm | 0x${rf:-0}) & want)) -eq "$want" ] && break
+    sleep 1
+  done
+  [ -n "${vm:-}" ] && [ $((0x$vm)) -eq "$want" ] && [ $((0x${rf:-1})) -eq 0 ] || {
+    echo "guests did not all launch (verified=0x${vm:-?} refused=0x${rf:-?}, want $guest_mask)"
+    return 1
+  }
+  pass "guests launched (verified=0x$vm refused=0x$rf)"
+}
+
+# After a regress reset reloaded the fused life cycle $1: wolfTrust boots it
+# again, and only a regress out of a recorded mock proves the way back.
+regress_booted_fused() {
+  local hl
+  pass "hardware reset reloaded the fused $(state_name "$1") life cycle"
+  hl="$(handoff_lifecycle)" || fail "regress" "cannot read the life cycle wolfTrust saw after the reset"
+  case " $(expect_psa "$1") " in
+    *" $hl "*) pass "wolfTrust booted $(psa_name "$hl") again" ;;
+    *) fail "regress" "wolfTrust saw 0x$hl after regress" ;;
+  esac
+  if [ -n "$PENDING" ]; then
+    mkdir -p "$state_dir"
+    date -u +%FT%TZ > "$state_dir/regress-ok"
+  fi
+}
+
 # The flash map of tests/target/ports/<target>/hw.sh, the one the hardware
 # runner programs: HW_WOLFBOOT_ADDR, HW_SECURE_ADDR, HW_GUEST0_ADDR,
 # HW_GUEST1_ADDR.

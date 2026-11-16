@@ -86,11 +86,9 @@ jobs:
         run: |
           ./test-app/emu-test-apps/test.sh
 
-  # Label-selected, the wolfProvider way: one select job reads the ci:* labels
-  # (ci:h5, ci:rt700 or ci:mcxn947 for that port's full matrix when only that port
-  # changed, ci:all or ci:m33mu for everything after a core change, no label
-  # for the STM32H563 smoke tier), the event, and the dispatch input, then one
-  # matrix job runs exactly those scenario groups, so nothing shows up skipped.
+  # One select job reads the ci:* labels (a port's own label from its port.json,
+  # ci:all or ci:m33mu for every port), the event and the dispatch input; one
+  # matrix job then runs exactly those scenario groups, so nothing shows skipped.
   select:
     name: m33mu_select
     runs-on: ubuntu-latest

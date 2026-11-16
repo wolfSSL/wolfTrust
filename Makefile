@@ -79,14 +79,9 @@ c99-check:
 		BUILD_ROOT="$(abspath $(BUILD_DIR))/c99" \
 		EXTRA_CFLAGS="$(C99_CFLAGS)"
 
-# FF-M target scenarios for one port under the M33MU emulator, separate from
-# `make test` (host-only). TARGET picks the port (stm32h563 by default,
-# mimxrt700 or mcxn947 for the NXP chains, whose runners build their own
-# pinned emulator and wolfBoot first stage); WT_TIER=smoke (default) runs the per-PR set,
-# WT_TIER=full every scenario, both from tests/target/lib/scenario_matrix.py.
-# The STM32H563 path auto-detects an M33MU (or WT_TARGET_SCENARIOS=1) and skips
-# explicitly otherwise so it never silently passes. Runs inside the
-# wolfboot-ci-m33mu container, never bare-metal.
+# M33MU scenarios for one registered port (TARGET): WT_TIER=smoke (default) or
+# full, from its port.json. Skips, never passes, without an emulator; runs in
+# the wolfboot-ci-m33mu container, never bare-metal.
 WT_TIER ?= smoke
 WT_SCENARIOS = $(shell python3 tests/target/lib/scenario_matrix.py \
     --port $(TARGET) --tier $(WT_TIER) --engine $(WT_ENGINE) --flat)

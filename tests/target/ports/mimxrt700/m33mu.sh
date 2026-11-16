@@ -32,8 +32,8 @@ SIGN_SECTOR_SIZE=0x1000
 # The byte authneg flips after the digest is pinned: inside the vector table.
 TAMPER_OFFSET=0x40
 
-# shellcheck source=../../lib/rt700_fence.sh disable=SC1091
-. "$here/lib/rt700_fence.sh"
+# shellcheck source=fence.sh disable=SC1091
+. "$here/ports/mimxrt700/fence.sh"
 
 # The XSPI guest fence: wrpfence and wrpneg arm it in wolfBoot, wrpoff proves
 # the Secure image refuses every guest behind a first stage without it.

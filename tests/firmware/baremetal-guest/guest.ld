@@ -1,4 +1,4 @@
-/* guest0.ld
+/* guest.ld
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *

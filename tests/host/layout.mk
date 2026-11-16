@@ -8,5 +8,8 @@ include $(ROOT)/mk/layout.mk
 # The renderer runs on every make and writes only on change, as the
 # firmware's does, so a fixture follows every layout input and header.
 WT_MANIFEST_RENDER_DEPS += FORCE
+# Restoring the goal keeps FORCE from becoming the including fixture's default.
+WT_HOST_DEFAULT_GOAL := $(.DEFAULT_GOAL)
 .PHONY: FORCE
 FORCE:
+.DEFAULT_GOAL := $(WT_HOST_DEFAULT_GOAL)

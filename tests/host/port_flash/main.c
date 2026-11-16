@@ -465,9 +465,6 @@ static void case_fwu_staging(void)
           "a write past the written extent is refused (no sparse candidate)");
     check(be->write(NULL, 0u, hdr, HEADER) != 0,
           "a write below the written extent is refused");
-    check(be->write(NULL, CAPACITY - UNIT, chunk, 2u * UNIT) != 0 &&
-              be->write(NULL, CAPACITY, chunk, UNIT) != 0,
-          "staging data may not enter the trailer");
     (void)memset(chunk, 0x42, sizeof(chunk));
     check(be->write(NULL, HEADER, chunk, 112u) == 0,
           "the payload stages in program units");
@@ -495,8 +492,8 @@ static void case_fwu_staging(void)
     fwu_snapshot_erases();
     check(be->begin(NULL) == 0, "begin again");
     written = 0u;
-    while (written < CAPACITY) {
-        uint32_t size = CAPACITY - written;
+    while (written < CAPACITY - UNIT) {
+        uint32_t size = CAPACITY - UNIT - written;
 
         if (size > sizeof(chunk)) {
             size = (uint32_t)sizeof(chunk);
@@ -508,6 +505,16 @@ static void case_fwu_staging(void)
             break;
         }
         written += size;
+    }
+    check(written == CAPACITY - UNIT &&
+              be->write(NULL, written, chunk, 2u * UNIT) != 0 &&
+              fa_blank(FWU_BASE + CAPACITY, WT_FWU_TRAILER_SIZE) == FA_OK,
+          "an in-sequence write straddling the trailer is refused, trailer blank");
+    for (i = 0u; i < UNIT; i++) {
+        chunk[i] = (uint8_t)(written + i);
+    }
+    if (be->write(NULL, written, chunk, UNIT) == 0) {
+        written += UNIT;
     }
     check(written == CAPACITY, "the whole capacity stages sequentially");
     check(fwu_sectors_erased_once(CAPACITY) == CAPACITY / SECTOR,

@@ -54,6 +54,7 @@ static uint32_t g_region_count = SAU_REGIONS;
 static uint32_t g_programs;
 static uint32_t g_syncs;
 static int g_drop_next_program;
+static int g_drop_next_open;
 static jmp_buf g_panic;
 static int g_panics;
 
@@ -84,9 +85,10 @@ void wt_armv8m_sau_program_region(uint32_t rnr, uint32_t base,
     if (rnr >= SAU_REGIONS) {
         return;
     }
-    if (g_drop_next_program) {
+    if (g_drop_next_program || (g_drop_next_open && enable)) {
         /* The register did not take: the region keeps its old state. */
         g_drop_next_program = 0;
+        g_drop_next_open = 0;
         return;
     }
     g_regions[rnr].base = base & 0xFFFFFFE0u;
@@ -138,6 +140,7 @@ static void model_reset(uint32_t regions)
     g_programs = 0u;
     g_syncs = 0u;
     g_drop_next_program = 0;
+    g_drop_next_open = 0;
 }
 
 static wt_memory_window_t window(uintptr_t base, size_t size)
@@ -205,6 +208,14 @@ static void try_dropped(void)
     apply(&w, 1u);
 }
 
+static void try_dropped_open(void)
+{
+    wt_memory_window_t w = window(WT_RAM_NS_BASE, 0x1000u);
+
+    g_drop_next_open = 1;
+    apply(&w, 1u);
+}
+
 static void try_two(void)
 {
     wt_memory_window_t w[2];
@@ -265,7 +276,14 @@ int main(void)
     check(i == SAU_REGIONS, "every dynamic region was used before the refusal");
     refusals = g_wt_sau_refusals;
     check(panics(try_dropped) && g_wt_sau_refusals == refusals + 1u,
-          "a programming that does not read back is refused");
+          "a close that does not read back is refused");
+
+    model_reset(SAU_REGIONS);
+    check(wt_fabric_sau_init(statics) == 0, "init with every region closed");
+    refusals = g_wt_sau_refusals;
+    check(panics(try_dropped_open) && g_wt_sau_refusals == refusals + 1u &&
+              g_programs == (uint32_t)(SAU_REGIONS - statics) + 1u,
+          "a window that does not read back is refused after close_all passed");
 
     model_reset(SAU_REGIONS);
     check(wt_fabric_sau_init(statics) == 0, "init again");

@@ -18,19 +18,22 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-"""docs/Ports.md from the port registry.
+"""docs/Ports.md and the bug report's target list from the port registry.
 
 Every port is described once, in port/<soc>/port.json; this renders the
 page that lists them (board, guide, CI label and image, engines and build
 variants, the emulator smoke tier, the hardware qualification extras and the
-capabilities the port declares absent). `--check` fails when the committed
-page is stale, so a port PR regenerates it instead of editing it by hand.
+capabilities the port declares absent), and the "<display> (silicon)" options
+of the issue template's target dropdown. `--check` fails when either
+committed file is stale, so a port PR regenerates them instead of editing
+them by hand.
 
-    tools/gen-port-docs.py            write docs/Ports.md
-    tools/gen-port-docs.py --check    exit 1 when docs/Ports.md differs
+    tools/gen-port-docs.py            write both files
+    tools/gen-port-docs.py --check    exit 1 when either file differs
 """
 
 import os
+import re
 import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -40,6 +43,8 @@ import scenario_matrix  # noqa: E402
 import scenarios  # noqa: E402
 
 OUT = os.path.join(REPO, "docs", "Ports.md")
+ISSUE = os.path.join(REPO, ".github", "ISSUE_TEMPLATE", "bug_report.yml")
+SILICON = re.compile(r"(?m)^( +)- [^\n]* \(silicon\)\n(?:\1- [^\n]* \(silicon\)\n)*")
 
 
 def render():
@@ -84,18 +89,38 @@ def render():
     return "\n".join(lines) + "\n"
 
 
+def render_issue(current):
+    """The bug report with its silicon targets taken from the registry."""
+    runs = SILICON.findall(current)
+    target = current.find("id: target")
+    match = SILICON.search(current, target if target >= 0 else 0)
+    if len(runs) != 1 or target < 0 or match is None:
+        raise SystemExit("%s: expected one run of '(silicon)' options under id: target" % ISSUE)
+    indent = match.group(1)
+    options = "".join("%s- %s (silicon)\n" % (indent, scenario_matrix.PORTS[name]["def"]["display"])
+                      for name in sorted(scenario_matrix.PORTS))
+    return current[:match.start()] + options + current[match.end():]
+
+
 def main():
-    text = render()
+    outputs = [(OUT, render(), "docs/Ports.md")]
+    # The scaffold's self-test copies the registry without .github.
+    if os.path.isfile(ISSUE):
+        outputs.append((ISSUE, render_issue(open(ISSUE).read()), ".github/ISSUE_TEMPLATE/bug_report.yml"))
     if "--check" in sys.argv[1:]:
-        current = open(OUT).read() if os.path.isfile(OUT) else ""
-        if current != text:
-            print("docs/Ports.md is stale; run tools/gen-port-docs.py", file=sys.stderr)
-            return 1
-        print("docs/Ports.md is current")
-        return 0
-    with open(OUT, "w") as handle:
-        handle.write(text)
-    print("wrote docs/Ports.md")
+        rc = 0
+        for path, text, label in outputs:
+            current = open(path).read() if os.path.isfile(path) else ""
+            if current != text:
+                print("%s is stale; run tools/gen-port-docs.py" % label, file=sys.stderr)
+                rc = 1
+            else:
+                print("%s is current" % label)
+        return rc
+    for path, text, label in outputs:
+        with open(path, "w") as handle:
+            handle.write(text)
+        print("wrote %s" % label)
     return 0
 
 

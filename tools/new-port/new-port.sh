@@ -65,7 +65,7 @@ if [ "$check" = 1 ]; then
   [ -e "docs/$upper-Guide.md" ] || { echo "MISSING docs/$upper-Guide.md"; rc=1; }
   python3 tests/target/lib/scenario_matrix.py --selftest || rc=1
   python3 tests/target/lib/scenarios.py --selftest || rc=1
-  python3 tools/gen-port-docs.py --check >/dev/null 2>&1 || echo "NOTE    docs/Ports.md needs tools/gen-port-docs.py"
+  python3 tools/gen-port-docs.py --check >/dev/null 2>&1 || echo "NOTE    docs/Ports.md or the issue template needs tools/gen-port-docs.py"
   echo "new-port check: $open stub(s) open, registry $([ "$rc" = 0 ] && echo ok || echo NOT ok)"
   [ "$rc" = 0 ] && [ "$open" = 0 ]
   exit $?

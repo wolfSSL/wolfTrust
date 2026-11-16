@@ -22,8 +22,9 @@ body:
       label: Target
       multiple: true
       options:
-        - STM32H563 (silicon)
+        - MCXN947 (silicon)
         - MIMXRT700 (silicon)
+        - STM32H563 (silicon)
         - M33MU emulator
         - QEMU virt (AArch64)
         - QEMU xlnx-versal-virt (AArch64)

@@ -28,14 +28,20 @@ stcli_ob_field() {
 }
 
 # stcli_program <image addr>...: flash with verify, then a hard reset. The
-# CLI exits nonzero after -hardRst even on success, so the verify text gates.
+# CLI exits nonzero after -hardRst even on success, so the output gates: every
+# image verified and no error line other than one about the reset.
 stcli_program() {
-    local args=() out
+    local args=() out images=0 verified
     while [ $# -ge 2 ]; do
         args+=(-d "$1" "$2")
+        images=$((images + 1))
         shift 2
     done
     out="$("$(stcli_bin)" -c port=SWD sn="$HW_PROBE" mode=UR "${args[@]}" --verify -hardRst 2>&1 | stcli_strip)" || true
     printf '%s\n' "$out" >> "$evidence/program.log"
-    grep -aq "verified successfully" <<<"$out" || fail "flash verify did not complete"
+    if grep -aiE '^[[:space:]]*error' <<<"$out" | grep -aviq 'reset'; then
+        fail "flash download reported an error"
+    fi
+    verified="$(grep -aci "download verified successfully" <<<"$out" || true)"
+    [ "$verified" -eq "$images" ] || fail "flash verify completed for $verified of $images images"
 }

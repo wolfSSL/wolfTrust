@@ -195,5 +195,25 @@ check "$(! PB_MODE=error program_case | grep -q RELEASED; echo $?)" "a command e
 check "$(! PB_MODE=longerror program_case | grep -q RELEASED; echo $?)" "a command error ahead of a long log stops programming"
 check "$(PB_MODE=ok program_case | grep -q RELEASED; echo $?)" "a clean session releases the core"
 
+# A multi-image CubeProgrammer flash passes only when every image verified.
+stcli_case() {
+    bash -c '
+set -euo pipefail
+. "$1"
+fail() { echo "FAIL: $*"; exit 1; }
+stcli_bin() { printf stcli_fake; }
+stcli_fake() { echo "File download complete"; echo "Download verified successfully"
+    case "$PB_MODE" in
+    laterfail) echo "Error: failed to download Segment[0]" ;;
+    resetonly) echo "File download complete"; echo "Download verified successfully"; echo "Error: hard reset failed" ;;
+    *) echo "File download complete"; echo "Download verified successfully" ;; esac
+    return 1; }
+HW_PROBE=X; evidence="$2"
+stcli_program a.bin 0x08000000 b.bin 0x08040000 && echo FLASHED' _ "$lib/hw_stcli.sh" "$tmp" 2>&1
+}
+check "$(! PB_MODE=laterfail stcli_case | grep -q FLASHED; echo $?)" "a later image's download error fails the flash"
+check "$(PB_MODE=resetonly stcli_case | grep -q FLASHED; echo $?)" "an error about the hard reset alone does not fail the flash"
+check "$(PB_MODE=ok stcli_case | grep -q FLASHED; echo $?)" "every image verified passes the flash"
+
 echo "hardware runner self-tests: $fails failures"
 [ "$fails" -eq 0 ]

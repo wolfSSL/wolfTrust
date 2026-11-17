@@ -37,6 +37,9 @@
 
 #include <string.h>
 #include <stdint.h>
+#ifdef WT_SECURE_PSA
+#include "wolftrust/services/psa_crypto_service.h"
+#endif
 
 /* =========================================================================
  * wt_native_submit — SERVICE_HSM's native wire backend.
@@ -100,7 +103,17 @@ int wt_native_submit(void* submit_ctx, int32_t client_id, const uint8_t* req,
     if (hdr.reserved != 0U) {
         status = PSA_ERROR_INVALID_ARGUMENT;
     }
+    /* Every build refuses the range: PSA records outlive a WT_SECURE_PSA=0 image. */
+    else if (hdr.op != WT_CRYPTO_OP_PSA && WT_PSA_UID_RESERVED(hdr.uid)) {
+        status = PSA_ERROR_NOT_PERMITTED;
+    }
     else switch (hdr.op) {
+#ifdef WT_SECURE_PSA
+    case WT_CRYPTO_OP_PSA:
+        status = wt_psa_service_call(owner, client_id, &hdr, payload,
+                                     payload_len, out, out_cap, &out_len);
+        break;
+#endif
     case WT_CRYPTO_OP_KEY_GENERATE:
         status = wt_hsm_key_backend.generate(owner, client_id, hdr.uid,
                                              hdr.key_type, hdr.usage);

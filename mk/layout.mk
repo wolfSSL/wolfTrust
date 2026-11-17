@@ -57,6 +57,13 @@ WT_LAYOUT_DEFS := \
     -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE) \
     -DWT_GUEST0_FLASH_SIZE=$(WT_GUEST0_FLASH_SIZE) \
     -DWT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE)
+# A Secure PSA crypto band holds the wolfPSA pool plus about 1.4 KB of slot
+# tables and service state; wolfPSA needs the larger stack for ECDSA.
+ifeq ($(WT_SECURE_PSA),1)
+WT_SP_HSM_DATA_SIZE ?= $(shell echo $$(( ($(or $(WT_PSA_POOL_BYTES),6144) + \
+    2048 + 31) / 32 * 32 )) 2>/dev/null)
+WT_SP_CRYPTO_STACK_SIZE ?= 0x2000
+endif
 WT_LAYOUT_DEFS += $(foreach v,$(WT_LAYOUT_OPTIONAL_INPUTS),\
     $(if $(strip $($(v))),-D$(v)=$($(v))))
 # The bands a build mode adds or resizes: the update stack (WT_FWU), the

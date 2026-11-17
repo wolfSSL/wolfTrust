@@ -45,6 +45,7 @@
 #define WT_CRYPTO_OP_KEY_DESTROY       8U
 #define WT_CRYPTO_OP_RANDOM            9U
 #define WT_CRYPTO_OP_HASH             10U
+#define WT_CRYPTO_OP_PSA              11U
 
 #define WT_CRYPTO_RANDOM_MAX 256U
 
@@ -91,5 +92,24 @@ psa_status_t wt_hsm_keyvault_destroy(int32_t owner, int32_t sub, uint64_t uid);
 /* The crypto partition's keyvault DRBG for key generation and signing; the
  * vault's RANDOM face draws from its own DRBG. */
 psa_status_t wt_hsm_keyvault_random(uint8_t* out, size_t len);
+
+/* Vault uids of PSA persistent keys: a "PSK" tag over the key id. The key
+ * wire refuses this range, so native keys cannot collide with or remove them. */
+#define WT_PSA_UID_TAG 0x50534BU
+#define WT_PSA_UID(id) (((uint64_t)WT_PSA_UID_TAG << 32) | (uint64_t)(id))
+#define WT_PSA_UID_RESERVED(uid) ((uint32_t)((uid) >> 32) == WT_PSA_UID_TAG)
+
+#ifdef WT_SECURE_PSA
+/* Opaque PSA key records (Secure PSA Crypto persistent keys), stored as key
+ * objects of their own type so neither the key wire nor storage can use them. */
+#define WT_HSM_KEY_TYPE_PSA_RECORD 0xFFU
+psa_status_t wt_hsm_keyvault_rec_put(int32_t owner, int32_t sub, uint64_t uid,
+                                     const uint8_t* data, size_t len);
+psa_status_t wt_hsm_keyvault_rec_get(int32_t owner, int32_t sub, uint64_t uid,
+                                     uint32_t offset, uint8_t* data,
+                                     size_t len, size_t* total);
+psa_status_t wt_hsm_keyvault_rec_remove(int32_t owner, int32_t sub,
+                                        uint64_t uid);
+#endif
 
 #endif /* WOLFTRUST_SERVICES_CRYPTO_NATIVE_H */

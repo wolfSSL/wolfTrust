@@ -213,4 +213,6 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
  * is mandatory for a hardware security module.
  * ---------------------------------------------------------------------- */
 
+#include "secure_psa_profile.h"
+
 #endif /* WOLFTRUST_SECURE_USER_SETTINGS_H */

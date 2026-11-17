@@ -29,6 +29,7 @@ WT_NS_BUSFAULT_PROBE="${WT_NS_BUSFAULT_PROBE:-0}"
 WT_NS_MASK_PROBE="${WT_NS_MASK_PROBE:-0}"
 WT_ATTEST_NEG_PROBE="${WT_ATTEST_NEG_PROBE:-0}"
 WT_FWU_PROBE="${WT_FWU_PROBE:-0}"
+WT_SECURE_PSA="${WT_SECURE_PSA:-0}"
 WT_WRITE_ONCE_RESET_PROBE="${WT_WRITE_ONCE_RESET_PROBE:-0}"
 WT_HSM_ATTACK_PROBE="${WT_HSM_ATTACK_PROBE:-0}"
 # WT_ISO_PROBE is the shared name of the peer-RAM probe (tests/target/lib/scenarios.py).
@@ -77,6 +78,11 @@ if [ "$WT_ENGINE" = "native" ]; then
     set -- "$@" \
         "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=n" \
         "-DCONFIG_WOLFTRUST_NATIVE_CLIENT=y"
+    if [ "$WT_SECURE_PSA" = "1" ]; then
+        set -- "$@" "-DCONFIG_WOLFTRUST_SECURE_PSA=y"
+    else
+        set -- "$@" "-DCONFIG_WOLFTRUST_SECURE_PSA=n"
+    fi
 else
     set -- "$@" \
         "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=y" \
@@ -140,6 +146,11 @@ if [ "$WT_ENGINE" = "native" ]; then
     fi
     if printf '%s\n' "$NM_OUT" | grep -q 'wh_Client'; then
         echo "FAIL: wolfHSM client linked into a native-engine $APP_NAME" >&2
+        exit 1
+    fi
+    if [ "$WT_SECURE_PSA" = "1" ] && \
+            printf '%s\n' "$NM_OUT" | grep -Eq ' (wc_error_to_psa_status|wolfpsa_get_key_data)$'; then
+        echo "FAIL: wolfPSA linked into a WT_SECURE_PSA $APP_NAME" >&2
         exit 1
     fi
 elif ! printf '%s\n' "$NM_OUT" | grep -q 'wt_hsm_psa_transport_cb'; then

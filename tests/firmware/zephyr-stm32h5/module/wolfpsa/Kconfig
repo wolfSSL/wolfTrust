@@ -12,3 +12,12 @@ menuconfig WOLFPSA
 	  run Non-secure and only DRBG seeds cross to the secure vault RNG.
 	  Mutually exclusive with Zephyr's bundled mbedTLS PSA front-end
 	  and TF-M.
+
+config WOLFTRUST_SECURE_PSA
+	bool "PSA Crypto served by the wolfTrust Secure image (WT_SECURE_PSA=1)"
+	depends on WOLFPSA && WOLFTRUST_NATIVE_CLIENT
+	help
+	  Link the wolfTrust PSA Crypto client in place of wolfPSA: every
+	  psa_*() call crosses SERVICE_HSM to wolfPSA in the Secure image, and
+	  keys and operation state never enter Non-secure memory. The Secure
+	  image must be built with WT_SECURE_PSA=1.

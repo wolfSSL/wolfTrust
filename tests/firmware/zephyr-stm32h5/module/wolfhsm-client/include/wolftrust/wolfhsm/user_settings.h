@@ -57,11 +57,18 @@
  * secure-side wolfHSM crypto_cb already serves CTR via the same
  * wc_AesCtrEncrypt code path it uses for CBC. */
 #define WOLFSSL_AES_COUNTER
+/* wolfPSA requires constant-time AES; the Thumb-2 assembly is T-table. */
+#define WOLFSSL_AES_TOUCH_LINES
+#define WC_ALLOW_ECC_ZERO_HASH
 
 /* AEAD for the PSA aead_* surface (dev_apis crypto); same GCM code the
  * secure-side vault sealer already runs on this core. */
 #define HAVE_AESGCM
+/* wolfPSA's multipart GCM runs on the wolfCrypt GCM streaming calls. */
+#define WOLFSSL_AESGCM_STREAM
 #define HAVE_AESCCM
+/* wolfPSA's multipart CCM runs on the direct AES block calls. */
+#define WOLFSSL_AES_DIRECT
 
 /* SHA-256 only. */
 #define NO_SHA

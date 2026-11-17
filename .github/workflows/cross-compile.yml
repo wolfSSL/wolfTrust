@@ -170,6 +170,55 @@ jobs:
               done
             done
           done
+      - name: Build every port with PSA Crypto in the Secure image (WT_SECURE_PSA=1, every profile)
+        run: |
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            for profile in compat standard lean symmetric; do
+              dir=build_spsa_${target}_$profile
+              make TARGET=$target WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=$profile \
+                secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
+              grep -qx 'WT_SECURE_PSA=1' $dir/secure_build_mode.stamp
+              grep -qx "WT_SECURE_PSA_PROFILE=$profile" $dir/secure_build_mode.stamp
+            done
+          done
+          for bad in "WT_SECURE_PSA=1 WT_ENGINE=hsm" "WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=bogus" "WT_SECURE_PSA=2" "WT_SECURE_PSA=1 WT_WOLFCRYPT_ARMASM=1"; do
+            # shellcheck disable=SC2086
+            if make $bad BUILD_DIR=build_spsa_bad secure-image TOOLPREFIX=arm-none-eabi- 2> spsa.err; then
+              echo "FAIL: $bad built" >&2
+              exit 1
+            fi
+            grep -q 'WT_SECURE_PSA' spsa.err
+          done
+          make TARGET=stm32h563 WT_SECURE_PSA=1 WT_PSA_POOL_BYTES=8192 \
+            WT_PSA_KEY_SLOTS=8 WT_PSA_OP_SLOTS=4 secure-image \
+            TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_spsa_sizes
+          grep -qx 'WT_PSA_SIZES=8192/8/4/' build_spsa_sizes/secure_build_mode.stamp
+          for bad in "WT_PSA_OP_SLOTS=1x" "WT_PSA_OP_SLOTS=300" "WT_PSA_POOL_BYTES=1024"; do
+            # shellcheck disable=SC2086
+            if make TARGET=stm32h563 WT_SECURE_PSA=1 $bad BUILD_DIR=build_spsa_bad \
+                secure-image TOOLPREFIX=arm-none-eabi- > spsa.err 2>&1; then
+              echo "FAIL: $bad built" >&2
+              exit 1
+            fi
+            grep -qE 'WT_PSA_(OP_SLOTS|POOL_BYTES)' spsa.err
+          done
+      - name: Verify the Secure PSA guest links the client and no wolfPSA
+        run: |
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            rm -rf build
+            make TARGET=$target WT_SECURE_PSA=1 secure-image TOOLPREFIX=arm-none-eabi-
+            make -C tests/firmware/psa-guest clean
+            make -C tests/firmware/psa-guest TARGET=$target WT_SECURE_PSA=1 \
+              WT_EXPECTED_LIFECYCLE=0x1000u
+            syms=tests/firmware/psa-guest/build/guest0.elf
+            if arm-none-eabi-nm $syms | grep -qE ' (wc_error_to_psa_status|wolfpsa_get_key_data|wt_psa_service_call)$'; then
+              echo "FAIL: the $target WT_SECURE_PSA guest still links wolfPSA" >&2
+              exit 1
+            fi
+            arm-none-eabi-nm $syms | grep -q ' psa_sign_hash$'
+          done
+          make -C tests/firmware/psa-guest clean
+          rm -rf build
       - name: Build every registered port (both engines, every variant, .vectors check)
         run: |
           python3 tests/target/lib/scenario_matrix.py --build-plan | python3 -c '

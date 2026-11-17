@@ -382,6 +382,30 @@ static void test_import(void)
           "import refuses a short scalar");
 }
 
+static void test_psa_uid_reserved(void)
+{
+    static const uint32_t ops[] = {
+        WT_CRYPTO_OP_KEY_GENERATE, WT_CRYPTO_OP_KEY_IMPORT,
+        WT_CRYPTO_OP_KEY_EXPORT_PUBLIC, WT_CRYPTO_OP_KEY_DESTROY
+    };
+    uint8_t out[80];
+    size_t got = 0U;
+    psa_status_t status = PSA_SUCCESS;
+    size_t i;
+    int rc;
+    int refused = 1;
+
+    for (i = 0U; i < sizeof(ops) / sizeof(ops[0]); i++) {
+        status = PSA_SUCCESS;
+        rc = wire(TEST_NS_GUEST0, ops[i], WT_PSA_UID(1U), 0U, 0U, NULL, 0U,
+                  out, sizeof(out), &got, &status);
+        if (rc != 0 || status != PSA_ERROR_NOT_PERMITTED) {
+            refused = 0;
+        }
+    }
+    check(refused, "the key wire refuses the PSA record uid range");
+}
+
 static void test_malformed(void)
 {
     uint8_t req[WT_HSM_RELAY_MSG_MAX];
@@ -464,6 +488,7 @@ int main(int argc, char* argv[])
     test_aes_gcm();
     test_import();
     test_malformed();
+    test_psa_uid_reserved();
 
     if (g_failures != 0) {
         return 1;

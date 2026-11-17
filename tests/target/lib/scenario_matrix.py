@@ -63,7 +63,7 @@ NEEDS_FULL = frozenset((
 # engine: the native engine does not link it, so the behaviour under test does
 # not exist there.
 HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
-NATIVE_ONLY = frozenset(("nativewire", "nativewireasm"))
+NATIVE_ONLY = frozenset(("nativewire", "nativewireasm", "devcryptolocal"))
 ENGINE_ONLY = {"hsm": HSM_ONLY, "native": NATIVE_ONLY}
 
 # The isolation level 3 bar: every port's full tier runs each of these, or

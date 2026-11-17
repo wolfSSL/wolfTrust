@@ -35,6 +35,7 @@
       ["confboot", "MCXN947 FF-M IPC conformance (85/4)"],
       ["devstorage devattest devattestqcbor", "MCXN947 dev_apis storage and attestation conformance"],
       ["devcrypto vaultrecover vaultrecoversec", "MCXN947 dev_apis crypto conformance and vault recovery"],
+      ["devcryptospsa", "MCXN947 dev_apis Crypto against Secure-image PSA (WT_SECURE_PSA=1)"],
       ["periphneg", "MCXN947 NS read of the SPM's ELS refused by the SAU"],
       ["deputyneg", "MCXN947 keystore-flash privileged deputy refused (L3)"],
       ["hsmpinneg hsmfaultneg", "MCXN947 wolfHSM pointer pin and tasklet fault containment (L3)"],

@@ -118,7 +118,7 @@ ${ROOT}/src/client/crypto_native_client.c"
 GUEST_GLUE_SRCS="\
 ${BAREMETAL_NS_DIR}/libc_stubs_guest.c"
 if [ "${WT_SECURE_PSA}" = "1" ]; then
-WOLFPSA_SRCS="${ROOT}/src/client/psa_crypto_client.c"
+WOLFPSA_SRCS="${ROOT}/src/client/psa_crypto_client.c ${WOLFPSA_DIR}/src/psa_api_stub.c"
 fi
 else
 WT_CLIENT_SRCS="\

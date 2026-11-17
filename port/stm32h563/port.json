@@ -67,6 +67,27 @@
       ["svcneg", "Partition guest-return SVC panics only that partition"]
     ],
     "l3_exempt": {},
+    "default": {
+      "smoke": ["positive"],
+      "groups": [
+        ["positive", "One-guest positive lifecycle"],
+        ["restartidle", "One-guest restart budget and idle backoff"],
+        ["crossdomain keystoreneg periphspneg", "SP domain and SPM peripheral isolation, one guest (L3)"],
+        ["deputyneg", "Keystore deputy refused, one guest (L3)"],
+        ["hsmpinneg", "wolfHSM pin, one guest (L3)"],
+        ["bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6", "Partition band-to-band isolation, one guest (L3)"],
+        ["restartneg1 restartneg2 restartneg3", "Partitions restart on a reset band, one guest (L3)"],
+        ["manifestneg2 manifestneg3 sealbootneg mspovfneg", "Refused boots: manifest level, overlap, seal, MSP, one guest (L3)"],
+        ["fpneg sealneg sealhaltneg sealpivotneg xnneg svcneg", "FP, seal, execute-never and SVC misuse, one guest (L3)"],
+        ["spfaultneg panicneg", "SP fault recovery and panic, one guest"],
+        ["attestneg", "Attestation negatives, one guest"],
+        ["hsmattackneg", "wolfHSM cross-namespace + NVM relay negatives, one guest"],
+        ["authneg rollbackneg remeasureneg manifestneg spbudgetneg", "Launch, rollback, re-measure, manifest and SP budget verdicts, one guest"],
+        ["periphneg revneg", "NS peripheral access and engineering-sample refusal, one guest"],
+        ["nativewire nativewireasm", "Every native wire key op from the guest, portable C and assembly, one guest"]
+      ],
+      "l3_exempt": {"hsmfaultneg": "the tasklet fault scenario ends on the second guest's breakpoint, so it runs on the full profile only"}
+    },
     "guests": {"hwpsa": ["psa", "psa"], "lifecycle": ["zephyr", "freertos"], "psa": ["zephyr", "freertos"], "conformance": ["zephyr", "freertos"], "vnet": ["vnet", "vnet"]},
     "guest_end": {"zephyr": "bkpt", "vnet": "bkpt"},
     "ends": {"crossdomain": "fault", "keystoreneg": "fault", "periphspneg": "fault"},

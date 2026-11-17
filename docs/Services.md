@@ -1,8 +1,8 @@
 # Services
 
 The STM32H563 manifest describes connection-based FF-M 1.0 IPC services. The
-default image contains six Secure services; `CONFIG_VNET=y` selects a
-manifest with a seventh service.
+default image contains five Secure services. `WT_FWU=1` adds the update
+service, and `CONFIG_VNET=y` selects a manifest with the network service.
 
 ## Service registry
 
@@ -12,7 +12,7 @@ manifest with a seventh service.
 | `SERVICE_VAULT` | `0x1002` | No | Secure-only persistent objects, sealing, and randomness |
 | `SERVICE_ITS` | `0x1003` | Yes | PSA Internal Trusted Storage |
 | `SERVICE_PS` | `0x1004` | Yes | PSA Protected Storage |
-| `SERVICE_FWU` | `0x1005` | Yes | PSA Firmware Update staging for wolfBoot |
+| `SERVICE_FWU` | `0x1005` | Yes, `WT_FWU=1` | PSA Firmware Update staging for wolfBoot |
 | `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door |
 | `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
 
@@ -161,7 +161,9 @@ is never exported.
 
 ## Firmware Update
 
-`SERVICE_FWU` exposes a single-component subset of PSA Firmware Update 1.0.
+`SERVICE_FWU` is an add-on: it exists only in images built with `WT_FWU=1`
+(see [Macros](Macros.md#wt_fwu-psa-firmware-update)). It exposes a
+single-component subset of PSA Firmware Update 1.0.
 It pads an unaligned block size to the backend write alignment and returns
 `PSA_ERROR_INVALID_ARGUMENT` rather than `PSA_ERROR_DOES_NOT_EXIST` for an
 unknown component ID. The normal flow is:

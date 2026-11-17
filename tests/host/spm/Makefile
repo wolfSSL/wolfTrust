@@ -23,6 +23,8 @@ CC ?= cc
 BUILD_DIR ?= build
 include $(ROOT)/tests/host/layout.mk
 
+# Built with the default WT_MANIFEST_RUNTIME_CHECK=0: wt_spm_init() must still
+# validate, and only wt_spm_init_generated() binds without it.
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
@@ -59,7 +61,7 @@ $(BUILD_DIR):
 
 $(GENERATED_STAMP): $(GENERATOR) $(GENERATOR_FIXTURE) | $(BUILD_DIR)
 	python3 $(GENERATOR) $(GENERATOR_FIXTURE) $(GENERATED_DIR) \
-		--supported-features 0x5 --address-bits 32
+		--supported-features 0x5 --address-bits 32 --unchecked
 	touch $@
 
 $(GENERATED_C) $(GENERATED_H): $(GENERATED_STAMP)
@@ -72,7 +74,7 @@ $(PRODUCTION_FIXTURE): $(WT_MANIFEST_RENDER_DEPS) | $(BUILD_DIR)
 
 $(PRODUCTION_STAMP): $(GENERATOR) $(PRODUCTION_FIXTURE) | $(PRODUCTION_DIR)
 	python3 $(GENERATOR) $(PRODUCTION_FIXTURE) $(PRODUCTION_DIR) \
-		--supported-features 0x1 --address-bits 32
+		--supported-features 0x1 --address-bits 32 --unchecked
 	touch $@
 
 $(PRODUCTION_C) $(PRODUCTION_H): $(PRODUCTION_STAMP)

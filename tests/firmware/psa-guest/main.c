@@ -52,6 +52,11 @@
 #include "wolfpsa/psa_engine.h"
 #endif
 
+#if defined(WT_NATIVE_WIRE_PROBE)
+#include "wolftrust/crypto_native_client.h"
+#include "wolftrust/services/vault_service.h"
+#endif
+
 #if defined(WT_HSM_ATTACK_PROBE)
 #include "wolfssl/wolfcrypt/ecc.h"
 #include "wolfhsm/wh_comm.h"
@@ -752,6 +757,244 @@ static void exercise_attestation_negatives(void)
 }
 #endif
 
+#if defined(WT_NATIVE_WIRE_PROBE)
+/* Every native wire op from the guest, so the crypto partition runs the
+ * Secure ECC and AES-GCM paths on its own stack. */
+#define GUEST_NW_UID_P256_GEN 0x4E57000000000001ull
+#define GUEST_NW_UID_P256_IMP 0x4E57000000000002ull
+#define GUEST_NW_UID_AES_GEN  0x4E57000000000003ull
+#define GUEST_NW_UID_AES_IMP  0x4E57000000000004ull
+#define GUEST_NW_ECC_USAGE \
+    (WT_VAULT_KEY_USAGE_SIGN | WT_VAULT_KEY_USAGE_VERIFY)
+#define GUEST_NW_AES_USAGE \
+    (WT_VAULT_KEY_USAGE_ENCRYPT | WT_VAULT_KEY_USAGE_DECRYPT)
+
+static psa_status_t guest_nw_call(uint32_t op, uint64_t uid, uint32_t type,
+                                  uint32_t usage, const uint8_t* in,
+                                  size_t in_len, uint8_t* out, size_t cap,
+                                  size_t* out_len)
+{
+    wt_crypto_wire_req_t hdr;
+    size_t got = 0u;
+    psa_status_t st;
+
+    (void)memset(&hdr, 0, sizeof(hdr));
+    hdr.uid = uid;
+    hdr.op = op;
+    hdr.usage = usage;
+    hdr.key_type = type;
+    st = wt_crypto_native_call(&hdr, in, in_len, out, cap, &got);
+    if (out_len != NULL) {
+        *out_len = got;
+    }
+    return st;
+}
+
+static int guest_nw_expect(const char* what, psa_status_t st,
+                           psa_status_t want)
+{
+    if (st == want) {
+        return 1;
+    }
+    guest_puts(GUEST_NAME ": nativewire ");
+    guest_puts(what);
+    guest_puts(" failed st=");
+    guest_put_i32((int32_t)st);
+    guest_puts("\r\n");
+    return 0;
+}
+
+static int guest_nw_ecc(uint64_t uid)
+{
+    static const uint8_t digest[WT_VAULT_KEY_DIGEST_LEN] = {
+        0x4E, 0x57, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06,
+        0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E,
+        0x0F, 0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16,
+        0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E
+    };
+    uint8_t vreq[WT_VAULT_KEY_DIGEST_LEN + WT_VAULT_KEY_SIG_LEN];
+    uint8_t pub[WT_VAULT_KEY_PUB_LEN];
+    size_t len = 0u;
+    int ok;
+
+    ok = guest_nw_expect("export public",
+                         guest_nw_call(WT_CRYPTO_OP_KEY_EXPORT_PUBLIC, uid, 0u,
+                                       0u, NULL, 0u, pub, sizeof(pub), &len),
+                         PSA_SUCCESS);
+    if (ok && (len != sizeof(pub) || pub[0] != 0x04u)) {
+        guest_line("nativewire export public bad point");
+        ok = 0;
+    }
+    (void)memcpy(vreq, digest, sizeof(digest));
+    if (ok) {
+        ok = guest_nw_expect("sign",
+                             guest_nw_call(WT_CRYPTO_OP_KEY_SIGN, uid, 0u, 0u,
+                                           digest, sizeof(digest),
+                                           vreq + sizeof(digest),
+                                           WT_VAULT_KEY_SIG_LEN, &len),
+                             PSA_SUCCESS);
+    }
+    if (ok && len != WT_VAULT_KEY_SIG_LEN) {
+        guest_line("nativewire sign bad length");
+        ok = 0;
+    }
+    if (ok) {
+        ok = guest_nw_expect("verify",
+                             guest_nw_call(WT_CRYPTO_OP_KEY_VERIFY, uid, 0u, 0u,
+                                           vreq, sizeof(vreq), NULL, 0u,
+                                           NULL),
+                             PSA_SUCCESS);
+    }
+    if (ok) {
+        vreq[0] ^= 0x01u;
+        ok = guest_nw_expect("tampered verify",
+                             guest_nw_call(WT_CRYPTO_OP_KEY_VERIFY, uid, 0u, 0u,
+                                           vreq, sizeof(vreq), NULL, 0u,
+                                           NULL),
+                             PSA_ERROR_INVALID_SIGNATURE);
+    }
+    return ok;
+}
+
+static int guest_nw_aes(uint64_t uid)
+{
+    static const uint8_t msg[] = "wolfTrust native wire AES-GCM";
+    uint8_t sealed[WT_VAULT_KEY_NONCE_LEN + sizeof(msg) +
+                   WT_VAULT_KEY_TAG_LEN];
+    uint8_t opened[sizeof(msg)];
+    size_t len = 0u;
+    int ok;
+
+    ok = guest_nw_expect("encrypt",
+                         guest_nw_call(WT_CRYPTO_OP_KEY_ENCRYPT, uid, 0u, 0u,
+                                       msg, sizeof(msg), sealed,
+                                       sizeof(sealed), &len),
+                         PSA_SUCCESS);
+    if (ok && len != sizeof(sealed)) {
+        guest_line("nativewire encrypt bad length");
+        ok = 0;
+    }
+    if (ok) {
+        ok = guest_nw_expect("decrypt",
+                             guest_nw_call(WT_CRYPTO_OP_KEY_DECRYPT, uid, 0u,
+                                           0u, sealed, sizeof(sealed), opened,
+                                           sizeof(opened), &len),
+                             PSA_SUCCESS);
+    }
+    if (ok && (len != sizeof(msg) || memcmp(opened, msg, sizeof(msg)) != 0)) {
+        guest_line("nativewire decrypt mismatch");
+        ok = 0;
+    }
+    if (ok) {
+        sealed[sizeof(sealed) - 1u] ^= 0x01u;
+        ok = guest_nw_expect("tampered decrypt",
+                             guest_nw_call(WT_CRYPTO_OP_KEY_DECRYPT, uid, 0u,
+                                           0u, sealed, sizeof(sealed), opened,
+                                           sizeof(opened), &len),
+                             PSA_ERROR_INVALID_SIGNATURE);
+    }
+    return ok;
+}
+
+static void exercise_native_wire(void)
+{
+    static const uint8_t ecc_d[WT_VAULT_KEY_MATERIAL_LEN] = {
+        0x51, 0x9B, 0x42, 0x3D, 0x71, 0x5F, 0x8B, 0x58,
+        0x1F, 0x4F, 0xA8, 0xEE, 0x59, 0xF4, 0x77, 0x1A,
+        0x5B, 0x44, 0xC8, 0x13, 0x0B, 0x4E, 0x3E, 0xAC,
+        0xCA, 0x54, 0xA5, 0x6D, 0xDA, 0x72, 0xB4, 0x64
+    };
+    static const uint8_t aes_k[WT_VAULT_KEY_MATERIAL_LEN] = {
+        0x4E, 0x57, 0x41, 0x45, 0x53, 0x01, 0x02, 0x03,
+        0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B,
+        0x0C, 0x0D, 0x0E, 0x0F, 0x10, 0x11, 0x12, 0x13,
+        0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B
+    };
+    static const uint8_t abc[3] = { 0x61, 0x62, 0x63 };
+    static const uint8_t abc_sha256[WT_VAULT_KEY_DIGEST_LEN] = {
+        0xBA, 0x78, 0x16, 0xBF, 0x8F, 0x01, 0xCF, 0xEA,
+        0x41, 0x41, 0x40, 0xDE, 0x5D, 0xAE, 0x22, 0x23,
+        0xB0, 0x03, 0x61, 0xA3, 0x96, 0x17, 0x7A, 0x9C,
+        0xB4, 0x10, 0xFF, 0x61, 0xF2, 0x00, 0x15, 0xAD
+    };
+    uint8_t buf[WT_VAULT_KEY_DIGEST_LEN];
+    uint8_t sig[WT_VAULT_KEY_SIG_LEN];
+    size_t len = 0u;
+    int ok;
+
+    ok = guest_nw_expect("generate p256",
+                         guest_nw_call(WT_CRYPTO_OP_KEY_GENERATE,
+                                       GUEST_NW_UID_P256_GEN,
+                                       WT_VAULT_KEY_P256, GUEST_NW_ECC_USAGE,
+                                       NULL, 0u, NULL, 0u, NULL),
+                         PSA_SUCCESS);
+    ok = ok && guest_nw_ecc(GUEST_NW_UID_P256_GEN);
+    ok = ok && guest_nw_expect("import p256",
+                               guest_nw_call(WT_CRYPTO_OP_KEY_IMPORT,
+                                             GUEST_NW_UID_P256_IMP,
+                                             WT_VAULT_KEY_P256,
+                                             GUEST_NW_ECC_USAGE, ecc_d,
+                                             sizeof(ecc_d), NULL, 0u, NULL),
+                               PSA_SUCCESS);
+    ok = ok && guest_nw_ecc(GUEST_NW_UID_P256_IMP);
+    ok = ok && guest_nw_expect("generate aes",
+                               guest_nw_call(WT_CRYPTO_OP_KEY_GENERATE,
+                                             GUEST_NW_UID_AES_GEN,
+                                             WT_VAULT_KEY_AES256,
+                                             GUEST_NW_AES_USAGE, NULL, 0u,
+                                             NULL, 0u, NULL),
+                               PSA_SUCCESS);
+    ok = ok && guest_nw_aes(GUEST_NW_UID_AES_GEN);
+    ok = ok && guest_nw_expect("import aes",
+                               guest_nw_call(WT_CRYPTO_OP_KEY_IMPORT,
+                                             GUEST_NW_UID_AES_IMP,
+                                             WT_VAULT_KEY_AES256,
+                                             GUEST_NW_AES_USAGE, aes_k,
+                                             sizeof(aes_k), NULL, 0u, NULL),
+                               PSA_SUCCESS);
+    ok = ok && guest_nw_aes(GUEST_NW_UID_AES_IMP);
+    ok = ok && guest_nw_expect("random",
+                               guest_nw_call(WT_CRYPTO_OP_RANDOM, 0u, 0u,
+                                             (uint32_t)sizeof(buf), NULL, 0u,
+                                             buf, sizeof(buf), &len),
+                               PSA_SUCCESS);
+    if (ok && len != sizeof(buf)) {
+        guest_line("nativewire random bad length");
+        ok = 0;
+    }
+    ok = ok && guest_nw_expect("hash",
+                               guest_nw_call(WT_CRYPTO_OP_HASH, 0u, 0u, 0u,
+                                             abc, sizeof(abc), buf,
+                                             sizeof(buf), &len),
+                               PSA_SUCCESS);
+    if (ok && (len != sizeof(buf) ||
+               memcmp(buf, abc_sha256, sizeof(abc_sha256)) != 0)) {
+        guest_line("nativewire hash mismatch");
+        ok = 0;
+    }
+    ok = guest_nw_expect("destroy",
+                         guest_nw_call(WT_CRYPTO_OP_KEY_DESTROY,
+                                       GUEST_NW_UID_P256_GEN, 0u, 0u, NULL,
+                                       0u, NULL, 0u, NULL),
+                         PSA_SUCCESS) && ok;
+    (void)guest_nw_call(WT_CRYPTO_OP_KEY_DESTROY, GUEST_NW_UID_P256_IMP, 0u,
+                        0u, NULL, 0u, NULL, 0u, NULL);
+    (void)guest_nw_call(WT_CRYPTO_OP_KEY_DESTROY, GUEST_NW_UID_AES_GEN, 0u,
+                        0u, NULL, 0u, NULL, 0u, NULL);
+    (void)guest_nw_call(WT_CRYPTO_OP_KEY_DESTROY, GUEST_NW_UID_AES_IMP, 0u,
+                        0u, NULL, 0u, NULL, 0u, NULL);
+    ok = ok && guest_nw_expect("sign after destroy",
+                               guest_nw_call(WT_CRYPTO_OP_KEY_SIGN,
+                                             GUEST_NW_UID_P256_GEN, 0u, 0u,
+                                             buf, sizeof(buf), sig,
+                                             sizeof(sig), &len),
+                               PSA_ERROR_DOES_NOT_EXIST);
+    if (ok) {
+        guest_line("nativewire every key op verified");
+    }
+}
+#endif
+
 #if defined(WT_HSM_ATTACK_PROBE)
 /* Compromised-guest probe: forge a COMM_INIT claiming the attestation-reserved
  * client_id and try to sign with the committed IAK, then try an NVM-group
@@ -1180,6 +1423,9 @@ void Reset_Handler(void)
     exercise_ffm_negatives();
 #if defined(WT_HSM_ATTACK_PROBE)
     exercise_hsm_attack_probe();
+#endif
+#if defined(WT_NATIVE_WIRE_PROBE)
+    exercise_native_wire();
 #endif
 #if defined(WT_FWU_PROBE)
     exercise_fwu();

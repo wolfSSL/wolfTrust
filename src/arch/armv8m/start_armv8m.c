@@ -68,6 +68,8 @@ extern uint32_t _wt_part_stacks_base;
 extern uint32_t _wt_part_stacks_limit;
 extern uint32_t _wt_sp_stacks_base;
 extern uint32_t _wt_sp_stacks_limit;
+extern uint32_t _wt_fwu_stack_base;
+extern uint32_t _wt_fwu_stack_limit;
 
 /* Bytes of partition band and stack RAM zeroed at reset, read over SWD. */
 volatile uint32_t g_wt_boot_zeroed_bytes;
@@ -204,10 +206,15 @@ static void wt_reset_main(void)
     for (dst = &_wt_sp_stacks_base; dst < &_wt_sp_stacks_limit; ++dst) {
         *dst = 0u;
     }
+    for (dst = &_wt_fwu_stack_base; dst < &_wt_fwu_stack_limit; ++dst) {
+        *dst = 0u;
+    }
     zeroed += (uint32_t)((uintptr_t)&_wt_part_stacks_limit -
                          (uintptr_t)&_wt_part_stacks_base);
     zeroed += (uint32_t)((uintptr_t)&_wt_sp_stacks_limit -
                          (uintptr_t)&_wt_sp_stacks_base);
+    zeroed += (uint32_t)((uintptr_t)&_wt_fwu_stack_limit -
+                         (uintptr_t)&_wt_fwu_stack_base);
     g_wt_boot_zeroed_bytes = zeroed;
 
 #if defined(WT_SEAL_NEG_PROBE) && (WT_SEAL_NEG_PROBE == 3)

@@ -48,7 +48,7 @@ port_layout_env() {
     export WT_GUEST_RAM_SIZE=0x00010000
     export WT_GUEST1_RAM_BASE=0x20010000
     export WT_ZEPHYR_DTC_OVERLAY_FILE=boards/wolfboot-stm32h563.overlay
-    export WT_MAX_GUESTS=2
+    # The build profile sets the guest count; the idle scenario runs one.
     case "$1" in
         restartidle) export WT_MAX_GUESTS=1 ;;
     esac

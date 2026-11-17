@@ -62,7 +62,6 @@
     _s_attest = .;
     *attestation_service.o(.data .data.*)
     *initial_attestation.o(.data .data.*)
-    *attestation_cose.o(.data .data.*)
     *wolfcose*.o(.data .data.*)
     . = ALIGN(4);
     _e_attest_data = .;
@@ -73,7 +72,6 @@
     _s_attest_bss = .;
     *attestation_service.o(.bss .bss.* COMMON)
     *initial_attestation.o(.bss .bss.* COMMON)
-    *attestation_cose.o(.bss .bss.* COMMON)
     *wolfcose*.o(.bss .bss.* COMMON)
     . = ALIGN(32);
     _e_attest = .;

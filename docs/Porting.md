@@ -63,10 +63,16 @@ skeleton and the SAU guest-window backend every Armv8-M port shares, and
 `port/<soc>/platform_<soc>.c` supplies the port's hooks together with the
 SoC's SAU and MPU region tables.
 
-A port declares what its hardware can do through the capability bits in
-`include/wolftrust/partition.h`; the core refuses a manifest that assumes a
-capability the port does not provide, so an A-profile port that has no
-Non-secure MPU says so instead of faking it.
+Armv8-M ports share the profile limits in
+`port/common/armv8m/platform_caps.h`, with matching generator values in
+`mk/arch-armv8m.mk`; the capability bits are in `include/wolftrust/domain.h`
+and `include/wolftrust/partition.h`. A port whose enforcement capabilities
+differ defines `WT_PORT_CAPABILITIES` in `port/<soc>/memory_map.h` and the
+same value as `WT_PLATFORM_PORT_CAPABILITIES` in `mk/target-<soc>.mk`. The
+manifest generator refuses, at build time, a manifest that assumes a
+capability the port does not provide, and the generated manifest fails to
+compile if the C and generator views differ.
+An A-profile port that has no Non-secure MPU says so instead of faking it.
 
 ## MCU and board contract
 
@@ -110,10 +116,14 @@ A port supplies:
 
 - in `memory_map.h`, a literal `WT_RAM_S_BASE` and `WT_RAM_S_SIZE`, then
   `#include "../common/armv8m/l3_layout.h"`. The layout needs
-  `WT_L3_SPM_RAM_SIZE + WT_SP_HSM_DATA_SIZE + 102 KiB`; the defaults (308 KiB
-  of SPM RAM and a 70 KiB crypto band) total 480 KiB, and a part with less
-  SRAM gives smaller defaults under `#ifndef` before the include (the Make
-  variables of the same names override them for every consumer at once).
+  `WT_L3_SPM_RAM_SIZE` plus 20.5 KiB for the keystore bands and partition
+  stacks, 4 KiB more with `WT_FWU=1` and 36 KiB more in conformance builds.
+  The SPM RAM window also holds the crypto partition's stack and data band,
+  sized per engine (5.5 KiB native, 34 KiB wolfHSM), and the VNET band. The
+  default window is 308 KiB; a part with less SRAM gives a smaller one under
+  `#ifndef` before the include (the Make variable of the same name overrides
+  it for every consumer at once), and the build fails if the layout does not
+  fit.
   Define `WT_RAMFUNC_BASE` and `WT_RAMFUNC_SIZE` if the SPM runs code from
   RAM, and set `WT_LD_RAM_CODE_BAND := 1` in `mk/target-<soc>.mk` so the
   shared linker script (`port/common/armv8m/secure.ld.in`) places the NSC

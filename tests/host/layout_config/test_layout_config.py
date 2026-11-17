@@ -26,7 +26,7 @@ TOOL = ROOT / "tools" / "l3_layout_args.py"
 INTEGER = re.compile(r"\b(0[xX][0-9a-fA-F]+|[0-9]+)[uUlL]*\b")
 FIRMWARE_MACROS = (
     "WT_RAM_S_BASE", "WT_L3_SPM_RAM_SIZE", "WT_SP_HSM_DATA_SIZE",
-    "WT_KEYSTORE_BASE", "WT_SP_FWU_STACK_BASE",
+    "WT_KEYSTORE_BASE", "WT_SP_PS_STACK_BASE",
     "WT_SP_VAULT_DATA_BASE", "WT_SP_VAULT_DATA_SIZE",
     "WT_SP_ATTEST_DATA_BASE", "WT_SP_ATTEST_DATA_SIZE",
     "WT_SP_HSM_DATA_BASE", "WT_CONF_SP_DATA_BASE", "WT_CONF_SERVER_MMIO_BASE",
@@ -150,9 +150,10 @@ def agree(target, flags, label):
     """Every consumer sees the values the firmware sees."""
     view = firmware_view(target, flags)
     link = defsyms(tool(target, flags, "--link"))
-    for symbol, macro in (("WT_L3_KEYSTORE_ORIGIN", "WT_KEYSTORE_BASE"),
-                          ("WT_L3_HSM_DATA_LENGTH", "WT_SP_HSM_DATA_SIZE"),
-                          ("WT_L3_STACKS_ORIGIN", "WT_SP_FWU_STACK_BASE")):
+    for symbol, macro in (("WT_L3_VAULT_ORIGIN", "WT_KEYSTORE_BASE"),
+                          ("WT_L3_HSM_ORIGIN", "WT_SP_HSM_DATA_BASE"),
+                          ("WT_L3_HSM_LENGTH", "WT_SP_HSM_DATA_SIZE"),
+                          ("WT_L3_PSSTACK_ORIGIN", "WT_SP_PS_STACK_BASE")):
         check(link.get(symbol) == view[macro],
               "%s %s: linker %s=%s, firmware %s=%#x" %
               (target, label, symbol, link.get(symbol), macro, view[macro]))
@@ -380,7 +381,8 @@ def partitions_size_each_guest(target, flags):
                    ROOT / "port" / target / ("platform_%s.c" % target)):
         if not source.exists():
             continue
-        result = run([CC, "-E", "-P", "-x", "c", "-I" + str(ROOT / "include"),
+        result = run([CC, "-E", "-P", "-x", "c", "-DWT_MAX_GUESTS=2",
+                      "-I" + str(ROOT / "include"),
                       "-I" + str(ROOT / "lib" / "wolfhal"), *includes, "-"],
                      input="\n".join(body) + '\n#include "%s"\n' % source)
         check(result.returncode == 0, "%s: preprocessing %s failed: %s"
@@ -429,7 +431,7 @@ def main():
         # headers refuse an overlap), so a moved secure image also shrinks.
         overrides = (
             (("WT_L3_SPM_RAM_SIZE", view["WT_L3_SPM_RAM_SIZE"] - 0x1000),),
-            (("WT_SP_HSM_DATA_SIZE", view["WT_SP_HSM_DATA_SIZE"] - 0x800),),
+            (("WT_SP_HSM_DATA_SIZE", view["WT_SP_HSM_DATA_SIZE"] // 2),),
             (("WT_SECURE_FLASH_BASE", view["WT_SECURE_FLASH_BASE"] + 0x1000),
              ("WT_SECURE_FLASH_SIZE", view["WT_SECURE_FLASH_SIZE"] - 0x1000)),
             (("WT_SECURE_IMAGE_HEADER_SIZE",

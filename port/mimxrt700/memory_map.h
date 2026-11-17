@@ -112,7 +112,7 @@
  * aliased at 0x0/0x1/0x2/0x3 (NS code / S code / NS data / S data) with the
  * same offset; the band is copied through the Secure data alias. */
 #define WT_RAMFUNC_BASE          0x10200000u
-#define WT_RAMFUNC_SIZE          0x00004000u
+#define WT_RAMFUNC_SIZE          0x00001000u
 #define WT_SRAM_CODE_TO_DATA     0x20000000u
 #define WT_NSC_BASE              WT_RAMFUNC_BASE
 #define WT_NSC_END               (WT_NSC_BASE + 0x000003FFu)

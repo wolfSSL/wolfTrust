@@ -10,6 +10,7 @@
 - [[Services]]
 - [[TF-M Compatibility]]
 - [[Macros]]
+- [[Footprint]]
 - [[Porting]]
 - [[Building]]
 - [[Testing]]

@@ -27,16 +27,18 @@
 
   ASSERT(ORIGIN(VNETDATA) == (ORIGIN(RAM) + LENGTH(RAM)),
          "vnet data band must sit directly above the secure RAM window")
-  ASSERT(ORIGIN(VAULTDATA) == (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
-         "vault data band must sit directly above the vnet data band")
+  ASSERT(ORIGIN(CRYPTOSTACK) == (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
+         "crypto stack must sit directly above the vnet data band")
+  ASSERT(ORIGIN(HSMDATA) == (ORIGIN(CRYPTOSTACK) + LENGTH(CRYPTOSTACK)),
+         "crypto data band must sit directly above the crypto stack")
+  ASSERT(ORIGIN(VAULTDATA) == (ORIGIN(HSMDATA) + LENGTH(HSMDATA)),
+         "vault data band must sit directly above the crypto data band")
   ASSERT(_e_vnet <= (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
          "vnet data band overflow")
   ASSERT(ORIGIN(ATTESTDATA) == (ORIGIN(VAULTDATA) + LENGTH(VAULTDATA)),
          "attestation data band must sit directly above the vault data band")
-  ASSERT(ORIGIN(HSMDATA) == (ORIGIN(ATTESTDATA) + LENGTH(ATTESTDATA)),
-         "crypto data band must sit directly above the attestation data band")
-  ASSERT(ORIGIN(FWUSTACK) == (ORIGIN(HSMDATA) + LENGTH(HSMDATA)),
-         "FWU stack must sit directly above the crypto data band")
+  ASSERT(ORIGIN(PSSTACK) == (ORIGIN(ATTESTDATA) + LENGTH(ATTESTDATA)),
+         "PS stack must sit directly above the attestation data band")
   /* Full band extents: Reset_Handler clears each band end to end before
    * loading it, so no retained byte outlives a warm reset or a layout change. */
   _wt_band_vault_base = ORIGIN(VAULTDATA);
@@ -54,20 +56,20 @@
          "attestation data band overflow")
   ASSERT(_e_hsm <= (ORIGIN(HSMDATA) + LENGTH(HSMDATA)),
          "crypto data band overflow")
-  ASSERT(ORIGIN(PSSTACK) == (ORIGIN(FWUSTACK) + LENGTH(FWUSTACK)),
-         "PS stack must sit directly above the FWU stack")
   ASSERT(ORIGIN(ITSSTACK) == (ORIGIN(PSSTACK) + LENGTH(PSSTACK)),
          "ITS stack must sit directly above the PS stack")
   ASSERT(ORIGIN(VAULTSTACK) == (ORIGIN(ITSSTACK) + LENGTH(ITSSTACK)),
          "vault stack must sit directly above the ITS stack")
-  ASSERT(ORIGIN(CONFDATA) == (ORIGIN(VAULTSTACK) + LENGTH(VAULTSTACK)),
-         "conformance SP data must sit directly above the vault stack")
+  ASSERT(ORIGIN(SPSTACKS) == (ORIGIN(VAULTSTACK) + LENGTH(VAULTSTACK)),
+         "SP secure stacks must sit directly above the vault stack")
+  ASSERT(ORIGIN(CONFDATA) == (ORIGIN(SPSTACKS) + LENGTH(SPSTACKS)),
+         "conformance SP data must sit directly above the SP secure stacks")
   /* The top 1 KiB of CONFDATA holds the per-partition pseudo-MMIO holes
    * (WT_CONF_SERVER/DRV_MMIO in memory_map.h); real data crossing into them
    * would be carved out of other partitions' domains and fault at runtime. */
-  ASSERT(_econfbss <= (ORIGIN(CONFDATA) + 0x2C00),
+  ASSERT((LENGTH(CONFDATA) == 0) || (_econfbss <= (ORIGIN(CONFDATA) + 0x2C00)),
          "conformance data/bss overflows into the reserved MMIO holes")
-  ASSERT(ORIGIN(SPSTACKS) == (ORIGIN(CONFDATA) + LENGTH(CONFDATA)),
-         "SP secure stacks must sit directly above the conformance data window")
+  ASSERT(ORIGIN(FWUSTACK) == (ORIGIN(CONFDATA) + LENGTH(CONFDATA)),
+         "FWU stack must sit directly above the conformance data window")
   ASSERT(_ebss <= _sstack,
          "secure .bss reaches the SPM main stack (WT_SPM_STACK_SIZE)")

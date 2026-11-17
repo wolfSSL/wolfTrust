@@ -32,6 +32,14 @@ exactly one place.
     scenario_matrix.py --port <port> --tier full --engine native --flat
     scenario_matrix.py --port <port> --get ci.mcuxsdk_board
     scenario_matrix.py --build-plan
+    WT_PROFILE=default scenario_matrix.py --port <port> --profile-of positive
+
+Every group also names the build profile its Secure image is built with:
+"full" turns every add-on on (tests/target/lib/profile.sh holds the flags),
+"default" is the lean image the Makefile builds with no options. A port's
+m33mu "smoke" and "groups" are its full profile; m33mu "default" holds the
+same two lists for the lean image. A runner asks --profile-of which profile a
+scenario runs on.
 """
 
 import argparse
@@ -40,11 +48,23 @@ import os
 import sys
 
 ENGINES = ("native", "hsm")
+PROFILES = ("default", "full")
+
+# Scenarios that need a second guest or an add-on the lean default leaves
+# out; they never run on the default profile.
+NEEDS_FULL = frozenset((
+    "restart", "sauneg", "ahbscneg", "gtzcneg", "guestisoneg", "bothpsa",
+    "bothiso", "fwustage", "bootupdate", "confboot", "devstorage",
+    "devcrypto", "devattest", "devattestqcbor", "vaultrecover",
+    "vaultrecoversec", "vnet", "vnetneg", "hsmfaultneg",
+))
 
 # Scenarios whose Secure-image probe or client wire lives only in the wolfHSM
 # engine: the native engine does not link it, so the behaviour under test does
 # not exist there.
 HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
+NATIVE_ONLY = frozenset(("nativewire", "nativewireasm"))
+ENGINE_ONLY = {"hsm": HSM_ONLY, "native": NATIVE_ONLY}
 
 # The isolation level 3 bar: every port's full tier runs each of these, or
 # names it in its "l3_exempt" map with the reason (an open issue) it cannot.
@@ -84,14 +104,20 @@ def load_ports(root=PORT_ROOT):
             raise SystemExit("port/%s/port.json: name mismatch or missing %s" %
                              (name, " ".join(missing)))
         m33mu = data["m33mu"]
+        lean = m33mu.get("default", {})
         ports[name] = {
             "label": data["ci"]["label"],
             "label_only": bool(data["ci"].get("label_only", False)),
             "image": data["ci"]["image"],
             "arm": m33mu["arm"],
-            "smoke": tuple(m33mu["smoke"]),
-            "groups": tuple((key, text) for key, text in m33mu["groups"]),
-            "l3_exempt": dict(m33mu.get("l3_exempt", {})),
+            "smoke": {"full": tuple(m33mu["smoke"]),
+                      "default": tuple(lean.get("smoke", []))},
+            "groups": {"full": tuple((key, text)
+                                     for key, text in m33mu["groups"]),
+                       "default": tuple((key, text) for key, text in
+                                        lean.get("groups", []))},
+            "l3_exempt": {"full": dict(m33mu.get("l3_exempt", {})),
+                          "default": dict(lean.get("l3_exempt", {}))},
             "def": data,
         }
     return ports
@@ -100,40 +126,50 @@ def load_ports(root=PORT_ROOT):
 PORTS = load_ports()
 
 
-def group_name(port, scenario):
-    for key, name in PORTS[port]["groups"]:
+def group_name(port, profile, scenario):
+    for key, name in PORTS[port]["groups"][profile]:
         if key.split() == [scenario]:
             return name
     return scenario
 
 
 def engines_for(scenarios, engine):
-    engines = ("hsm",) if all(s in HSM_ONLY for s in scenarios) else ENGINES
+    engines = ENGINES
+    for only, names in ENGINE_ONLY.items():
+        if all(s in names for s in scenarios):
+            engines = (only,)
     return [e for e in engines if engine is None or e == engine]
 
 
-def entry(port, tier, engine, key, name):
+def entry(port, tier, engine, profile, key, name):
     port_def = PORTS[port]
-    # Check names follow wolfBoot's <device>_<test> slugs.
-    job = "_".join([port] + key.split() + [engine])
-    return {"port": port, "tier": tier, "engine": engine, "key": key,
-            "name": name, "job": job, "image": port_def["image"],
+    # Check names follow wolfBoot's <device>_<test> slugs; the lean profile's
+    # jobs carry "default" so a scenario's two runs never share a name.
+    words = [port] + key.split()
+    if profile == "default":
+        words.append("default")
+    job = "_".join(words + [engine])
+    return {"port": port, "tier": tier, "engine": engine, "profile": profile,
+            "key": key, "name": name, "job": job, "image": port_def["image"],
             "arm": port_def["arm"],
             "mcuxsdk_board": port_def["def"]["ci"].get("mcuxsdk_board", "")}
 
 
-def entries(port, tier, engine):
+def entries(port, tier, engine, profile=None):
     port_def = PORTS[port]
     out = []
-    if tier == "smoke":
-        for scenario in port_def["smoke"]:
-            for eng in engines_for([scenario], engine):
-                out.append(entry(port, tier, eng, scenario,
-                                 group_name(port, scenario)))
-    else:
-        for key, name in port_def["groups"]:
-            for eng in engines_for(key.split(), engine):
-                out.append(entry(port, tier, eng, key, name))
+    for prof in PROFILES:
+        if profile is not None and prof != profile:
+            continue
+        if tier == "smoke":
+            for scenario in port_def["smoke"][prof]:
+                for eng in engines_for([scenario], engine):
+                    out.append(entry(port, tier, eng, prof, scenario,
+                                     group_name(port, prof, scenario)))
+        else:
+            for key, name in port_def["groups"][prof]:
+                for eng in engines_for(key.split(), engine):
+                    out.append(entry(port, tier, eng, prof, key, name))
     return out
 
 
@@ -141,7 +177,7 @@ def ci_plan(event, labels, port_input):
     """Every job of one workflow run: a pull request gets each port's smoke
     tier unless its label (or ci:all) asks for the full one, and a label_only
     port runs only when labelled; a push, the schedule, or a dispatch gets the
-    full tier of the selected ports."""
+    full tier of the selected ports. Each tier runs on both profiles."""
     out = []
     if (event == "workflow_dispatch" and port_input not in ("", "all") and
             port_input not in PORTS):
@@ -285,10 +321,17 @@ def registry_gaps():
             table[value] = port
         if not PORTS[port]["image"]:
             gaps.append("%s: empty image" % port)
-        full = set(flat(port, "full", None))
-        for scenario in PORTS[port]["smoke"]:
-            if scenario not in full:
-                gaps.append("%s: smoke scenario %s is not in the full tier" %
+        for prof in PROFILES:
+            full = set(flat(port, "full", None, prof))
+            for scenario in PORTS[port]["smoke"][prof]:
+                if scenario not in full:
+                    gaps.append("%s: %s smoke scenario %s is not in its "
+                                "full tier" % (port, prof, scenario))
+            if not PORTS[port]["groups"][prof]:
+                gaps.append("%s: no %s profile scenarios" % (port, prof))
+        for scenario in flat(port, "full", None, "default"):
+            if scenario in NEEDS_FULL:
+                gaps.append("%s runs %s on the default profile" %
                             (port, scenario))
         engines = data["build"].get("engines", [])
         if not engines or any(e not in ENGINES for e in engines):
@@ -296,47 +339,99 @@ def registry_gaps():
     return gaps
 
 
+def profiles_of(port, scenario):
+    """The profiles whose full tier registers scenario."""
+    return [prof for prof in PROFILES
+            if scenario in flat(port, "full", None, prof)]
+
+
+def profile_of(port, scenario, requested):
+    """The profile a runner builds scenario with: the requested one when the
+    scenario is registered there, else full when it runs there, else its only
+    profile. None when the scenario cannot run as asked."""
+    found = profiles_of(port, scenario)
+    if requested:
+        return requested if requested in found else None
+    if not found:
+        return None
+    return "full" if "full" in found else found[0]
+
+
 def l3_gaps(port):
-    """Problems with a port's level 3 bar: a required scenario neither run
-    nor exempted, an exemption with no reason, or a stale exemption."""
+    """Problems with a port's level 3 bar on each profile: a required
+    scenario neither run nor exempted, an exemption with no reason, or a
+    stale exemption."""
     port_def = PORTS[port]
-    exempt = port_def.get("l3_exempt", {})
-    run = set(flat(port, "full", None))
     gaps = []
-    for scenario in sorted(L3_REQUIRED):
-        if scenario not in run and not exempt.get(scenario, "").strip():
-            gaps.append("%s does not run level 3 scenario %s" %
-                        (port, scenario))
-    for scenario in sorted(exempt):
-        if scenario not in L3_REQUIRED:
-            gaps.append("%s exempts %s, which is not a level 3 scenario" %
-                        (port, scenario))
-        elif scenario in run:
-            gaps.append("%s runs %s but still exempts it" % (port, scenario))
+    for prof in PROFILES:
+        exempt = port_def["l3_exempt"][prof]
+        run = set(flat(port, "full", None, prof))
+        for scenario in sorted(L3_REQUIRED):
+            if scenario not in run and not exempt.get(scenario, "").strip():
+                gaps.append("%s does not run level 3 scenario %s on %s" %
+                            (port, scenario, prof))
+        for scenario in sorted(exempt):
+            if scenario not in L3_REQUIRED:
+                gaps.append("%s exempts %s on %s, which is not a level 3 "
+                            "scenario" % (port, scenario, prof))
+            elif scenario in run:
+                gaps.append("%s runs %s on %s but still exempts it" %
+                            (port, scenario, prof))
+    return gaps
+
+
+def profile_gaps():
+    """Every plan runs both profiles with unique job names, and a runner
+    resolves a scenario to the profile it is registered on."""
+    gaps = []
+    for event in ("pull_request", "push"):
+        plan = ci_plan(event, [], "")
+        jobs = [e["job"] for e in plan]
+        if len(jobs) != len(set(jobs)):
+            gaps.append("ci_plan(%s) repeats a job name" % event)
+        for port in sorted(set(e["port"] for e in plan)):
+            got = sorted(set(e["profile"] for e in plan if e["port"] == port))
+            if got != sorted(PROFILES):
+                gaps.append("ci_plan(%s) runs %s on %s only" %
+                            (event, port, " ".join(got)))
+    for port in sorted(PORTS):
+        for scenario in flat(port, "full", None, "default"):
+            if profile_of(port, scenario, "default") != "default":
+                gaps.append("%s: %s does not resolve to default" %
+                            (port, scenario))
+        for scenario in NEEDS_FULL:
+            if profile_of(port, scenario, "default") is not None:
+                gaps.append("%s: %s resolves to the default profile" %
+                            (port, scenario))
+        if profile_of(port, "__no_such_scenario__", "") is not None:
+            gaps.append("%s: an unknown scenario resolved" % port)
     return gaps
 
 
 def selftest():
     """The registry, the routing properties, the engine rule and the level 3
     bar, run by the select job and by make test."""
-    gaps = registry_gaps() + routing_gaps()
+    gaps = registry_gaps() + routing_gaps() + profile_gaps()
     for port in sorted(PORTS):
         for tier in ("smoke", "full"):
             for e in entries(port, tier, None):
-                if e["engine"] == "native" and all(
-                        s in HSM_ONLY for s in e["key"].split()):
-                    gaps.append("native job for the hsm-only %s" % e["key"])
+                names = e["key"].split()
+                for only, restricted in ENGINE_ONLY.items():
+                    if e["engine"] != only and any(s in restricted for s in names):
+                        gaps.append("%s job for the %s-only %s" %
+                                    (e["engine"], only, e["key"]))
                 if e["engine"] not in ENGINES or e["image"] == "":
                     gaps.append("bad entry %r" % e)
         gaps.extend(l3_gaps(port))
     return "; ".join(gaps) if gaps else None
 
 
-def flat(port, tier, engine):
+def flat(port, tier, engine, profile=None):
     seen = []
-    for entry in entries(port, tier, engine):
+    for entry in entries(port, tier, engine, profile):
         for scenario in entry["key"].split():
-            if scenario in HSM_ONLY and engine == "native":
+            if any(scenario in names for only, names in ENGINE_ONLY.items()
+                   if engine is not None and engine != only):
                 continue
             if scenario not in seen:
                 seen.append(scenario)
@@ -348,6 +443,8 @@ def main():
     parser.add_argument("--port", choices=sorted(PORTS))
     parser.add_argument("--tier", choices=("smoke", "full"), default="smoke")
     parser.add_argument("--engine", choices=ENGINES)
+    parser.add_argument("--profile", choices=PROFILES,
+                        help="only this build profile's scenarios")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--json", action="store_true",
                       help="matrix include list for the workflow")
@@ -357,6 +454,9 @@ def main():
                       help="the port's CI container image")
     mode.add_argument("--arm", action="store_true",
                       help="the port's run_suite.sh arm")
+    mode.add_argument("--profile-of", metavar="SCENARIO",
+                      help="the build profile SCENARIO runs on (WT_PROFILE "
+                           "asks for one)")
     mode.add_argument("--list-ports", action="store_true")
     mode.add_argument("--ci-plan", action="store_true",
                       help="the whole run's include list from GITHUB_EVENT_NAME, "
@@ -395,10 +495,20 @@ def main():
         print(get_field(args.port, args.get))
     elif args.arm:
         print(PORTS[args.port]["arm"])
+    elif args.profile_of:
+        profile = profile_of(args.port, args.profile_of,
+                             os.environ.get("WT_PROFILE", ""))
+        if profile is None:
+            print("%s does not run %s on profile %r" %
+                  (args.port, args.profile_of,
+                   os.environ.get("WT_PROFILE", "")), file=sys.stderr)
+            return 1
+        print(profile)
     elif args.flat:
-        print(" ".join(flat(args.port, args.tier, args.engine)))
+        print(" ".join(flat(args.port, args.tier, args.engine, args.profile)))
     else:
-        print(json.dumps(entries(args.port, args.tier, args.engine)))
+        print(json.dumps(entries(args.port, args.tier, args.engine,
+                                 args.profile)))
     return 0
 
 

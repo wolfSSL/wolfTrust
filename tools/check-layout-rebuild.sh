@@ -38,8 +38,8 @@ ram=$(( $(value WT_RAM_S_BASE) ))
 spm=$(( $(value WT_L3_SPM_RAM_SIZE) - 0x1000 ))
 mk WT_L3_SPM_RAM_SIZE=$(printf '0x%X' "$spm") > "$log" 2>&1
 grep -q -- '-Wl,-T' "$log" || fail "a changed WT_L3_SPM_RAM_SIZE did not relink"
-origin=$("$TOOLPREFIX"nm "$build/wolftrust.elf" | awk '$3 == "WT_L3_KEYSTORE_ORIGIN" { print $1 }')
-[ -n "$origin" ] || fail "the link carries no WT_L3_KEYSTORE_ORIGIN"
+origin=$("$TOOLPREFIX"nm "$build/wolftrust.elf" | awk '$3 == "WT_L3_VAULT_ORIGIN" { print $1 }')
+[ -n "$origin" ] || fail "the link carries no WT_L3_VAULT_ORIGIN"
 [ $((0x$origin)) -eq $((ram + spm)) ] ||
     fail "linked keystore origin 0x$origin, want $(printf '0x%08x' $((ram + spm)))"
 

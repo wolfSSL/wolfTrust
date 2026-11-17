@@ -41,6 +41,7 @@ NS_SETTINGS_DIR := $(ROOT)/tests/firmware/stm32h563/nonsecure
 WT_GUEST_FAULT_PROBE ?= 0
 WT_ATTEST_NEG_PROBE ?= 0
 WT_HSM_ATTACK_PROBE ?= 0
+WT_NATIVE_WIRE_PROBE ?= 0
 WT_FWU_PROBE ?= 0
 # Bytes of candidate body the FWU probe streams past the header, so a runner
 # can push the staging across every data sector of its update partition.
@@ -283,6 +284,12 @@ PROBE_CFLAGS += -DWT_ATTEST_NEG_PROBE
 endif
 ifeq ($(WT_HSM_ATTACK_PROBE),1)
 PROBE_CFLAGS += -DWT_HSM_ATTACK_PROBE
+endif
+ifeq ($(WT_NATIVE_WIRE_PROBE),1)
+ifneq ($(WT_ENGINE),native)
+$(error WT_NATIVE_WIRE_PROBE=1 drives the native wire and needs WT_ENGINE=native)
+endif
+PROBE_CFLAGS += -DWT_NATIVE_WIRE_PROBE
 endif
 ifeq ($(WT_FWU_PROBE),1)
 PROBE_CFLAGS += -DWT_FWU_PROBE

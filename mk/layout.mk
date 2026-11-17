@@ -15,7 +15,15 @@ WT_LAYOUT_INPUTS := WT_SECURE_FLASH_BASE WT_SECURE_FLASH_SIZE \
     WT_GUEST_CORE_CLOCK_HZ WT_GUEST_UART_CLOCK_HZ WT_CONF_IRQ \
     WT_CONF_IRQ_HANDLER WT_ISOLATION_LEVEL WT_LD_RAM_CODE_BAND
 # Overrides of the shared level 3 bands; unset keeps l3_layout.h's defaults.
-WT_LAYOUT_OPTIONAL_INPUTS := WT_L3_SPM_RAM_SIZE WT_SP_HSM_DATA_SIZE
+WT_LAYOUT_OPTIONAL_INPUTS := WT_L3_SPM_RAM_SIZE WT_SP_HSM_DATA_SIZE \
+    WT_SP_VAULT_DATA_SIZE WT_SP_ATTEST_DATA_SIZE WT_SP_PS_STACK_SIZE \
+    WT_SP_ITS_STACK_SIZE WT_SP_VAULT_STACK_SIZE WT_SP_CRYPTO_STACK_SIZE \
+    WT_SP_ATTEST_STACK_SIZE WT_SP_FWU_STACK_SIZE_RESERVED
+# The Cortex-M assembly P-256 verify peaks at 7,240 bytes on the native crypto
+# stack. Parsed before mk/arch-armv8m.mk, so only a set WT_WOLFCRYPT_SP_ASM counts.
+ifeq ($(filter 1,$(WT_WOLFCRYPT_SP_ASM))/$(filter hsm,$(WT_ENGINE))$(filter 1,$(WT_ENGINE_HSM)),1/)
+WT_SP_CRYPTO_STACK_SIZE ?= 0x00002400u
+endif
 
 $(foreach v,$(WT_LAYOUT_INPUTS),$(if $(strip $($(v))),,$(error \
     mk/target-$(TARGET).mk gives $(v) no default)))
@@ -51,6 +59,14 @@ WT_LAYOUT_DEFS := \
     -DWT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE)
 WT_LAYOUT_DEFS += $(foreach v,$(WT_LAYOUT_OPTIONAL_INPUTS),\
     $(if $(strip $($(v))),-D$(v)=$($(v))))
+# The bands a build mode adds or resizes: the update stack (WT_FWU), the
+# conformance window and stacks, the VNET band, and the engine-sized crypto
+# stack and data band.
+WT_LAYOUT_DEFS += $(if $(filter 1,$(WT_FWU)),-DWT_FWU=1) \
+    $(if $(filter 1,$(WT_CONFORMANCE)),-DWT_CONFORMANCE=1) \
+    $(if $(filter y,$(CONFIG_VNET)),-DCONFIG_VNET=1) \
+    $(if $(or $(filter hsm,$(WT_ENGINE)),$(filter 1,$(WT_ENGINE_HSM))),\
+        -DWT_ENGINE_HSM=1,-DWT_ENGINE_NATIVE=1)
 WT_LAYOUT_INCLUDE_DIRS := $(ROOT)/include $(PORT_DIR) $(PORT_COMMON_DIR) \
     $(PORT_NEUTRAL_DIR)
 WT_LAYOUT_CFLAGS := $(strip $(WT_LAYOUT_DEFS) \

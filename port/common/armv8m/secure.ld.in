@@ -81,6 +81,7 @@ SECTIONS {
     /* wolfCrypt globals that are never written after link stay read-only so
      * the crypto partition sees them without owning writable state. */
     *(.data.always_prefetch* .bss.always_prefetch*)
+    *(.data.never_prefetch* .bss.never_prefetch*)
     *(.data.sha256DrbgDisabled* .bss.sha256DrbgDisabled*)
     *(.rodata*)
     *(.ARM.extab* .gnu.linkonce.armextab.*)

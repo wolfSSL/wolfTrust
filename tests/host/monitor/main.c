@@ -46,6 +46,7 @@ static bool g_trap_thread;
 static bool g_trap_secure_handler;
 static bool g_trap_secure_thread;
 static bool g_ns_active;
+static bool g_retire_pending;
 static unsigned int g_handler_drops;
 static uint32_t g_enables_applied;
 static wt_ffm_runtime_t g_ffm;
@@ -81,13 +82,16 @@ static void setup(size_t count, uint32_t delay)
     g_resets = 0U;
     g_handler = true;
     g_verify_result = WT_GUEST_VERIFY_OK;
+#if WT_MAX_GUESTS > 1
     g_wt_first_dispatch_pending = 0U;
+#endif
     g_trap_handler = false;
     g_abandoned = 0U;
     g_trap_thread = false;
     g_trap_secure_handler = false;
     g_trap_secure_thread = false;
     g_ns_active = false;
+    g_retire_pending = false;
     g_handler_drops = 0U;
     g_enables_applied = 0U;
     (void)memset(&g_ffm, 0, sizeof(g_ffm));
@@ -161,6 +165,7 @@ void wt_arch_set_guest_irq_pending(uint32_t irq, bool asserted)
 #endif
 void wt_arch_guest_abandon_handler(void) { g_abandoned++; }
 bool wt_arch_guest_irq_active(void) { return g_ns_active; }
+bool wt_arch_guest_retire_pending(void) { return g_retire_pending; }
 void wt_arch_guest_drop_handler_active(void) { g_handler_drops++; }
 void wt_arch_mask_all_guest_irqs(void) {}
 void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* mask) { (void)mask; }
@@ -266,6 +271,63 @@ static void test_vnet_guest_reset(void)
 }
 #endif
 
+#if WT_MAX_GUESTS == 1
+/* With no peer, a Thread-mode tick never switches or re-dispatches. */
+static void test_one_guest_ticks(void)
+{
+    int event;
+
+    setup(1U, 2U);
+    g_trap_thread = true;
+    g_configs[0].irq_mask.words[0] = 0x0FU;
+    event = tick();
+    check(event == 0 && g_runtime[0].state == WT_GUEST_RUNNING &&
+          g_enables_applied == 0x05U && g_handler_drops == 0U,
+          "one guest: a Thread tick keeps the guest running, no re-dispatch");
+
+    setup(1U, 2U);
+    g_trap_thread = true;
+    g_runtime[0].state = WT_GUEST_FAULTED;
+    check(tick() == HALTED,
+          "one guest: a guest quarantined since the last tick is not resumed");
+
+    setup(1U, 2U);
+    g_trap_thread = true;
+    g_ns_active = true;
+    check(tick() == 0 && g_abandoned == 0U &&
+          g_runtime[0].state == WT_GUEST_RUNNING,
+          "one guest: an active IRQ is no switch hazard without a peer");
+
+    setup(1U, 2U);
+    g_trap_thread = true;
+    g_retire_pending = true;
+    check(tick() == DISPATCHED && g_runtime[0].state == WT_GUEST_RUNNING,
+          "one guest: an abandoned IRQ still to retire re-dispatches the guest");
+
+    setup(1U, 2U);
+    g_trap_handler = true;
+    for (event = 0; event == 0 &&
+         g_handler_slices + 1U < WT_GUEST_HANDLER_SLICE_LIMIT;) {
+        event = tick();
+    }
+    g_trap_handler = false;
+    g_trap_thread = true;
+    event = tick();
+    check(event == 0 && g_handler_slices == 0U,
+          "one guest: a Thread tick restarts the handler count");
+    g_trap_thread = false;
+    g_trap_handler = true;
+    for (event = 0; event == 0 &&
+         g_handler_slices + 1U < WT_GUEST_HANDLER_SLICE_LIMIT;) {
+        event = tick();
+    }
+    event = tick();
+    check(event == DISPATCHED && g_abandoned == 1U &&
+          g_runtime[0].restart_count == 1U && g_idle_entries == 1U,
+          "one guest: handler residency past the limit restarts it");
+}
+#endif
+
 int main(void)
 {
     int event;
@@ -282,6 +344,7 @@ int main(void)
     check(event == DISPATCHED && g_idle_entries == 1U && g_idle_ticks == 1U,
           "zero-delay recovery reaches a fresh dispatch");
 
+#if WT_MAX_GUESTS > 1
     setup(2U, 2U);
     g_runtime[1].state = WT_GUEST_FAULTED;
     event = fault_current();
@@ -309,6 +372,8 @@ int main(void)
           g_idle_entries == 0U && g_idle_ticks == 0U,
           "runnable peer retains immediate scheduling");
 
+#endif
+
     setup(1U, 2U);
     g_runtime[0].restart_count = 3U;
     event = fault_current();
@@ -316,9 +381,9 @@ int main(void)
           g_idle_entries == 0U,
           "exhausted recovery budget remains terminal");
 
-    setup(2U, 0U);
+    setup(WT_MAX_GUESTS, 0U);
     g_runtime[0].state = WT_GUEST_STOPPED;
-    g_runtime[1].state = WT_GUEST_FAULTED;
+    g_runtime[WT_MAX_GUESTS - 1U].state = WT_GUEST_FAULTED;
     check(schedule() == HALTED && g_idle_entries == 0U,
           "terminal lifecycle states halt without idling");
 
@@ -341,6 +406,7 @@ int main(void)
     check(event == HALTED && g_runtime[0].state == WT_GUEST_FAULTED &&
           g_resets == 0U, "recovery verification failure remains terminal");
 
+#if WT_MAX_GUESTS > 1
     /* A guest that never leaves a Non-secure handler is bounded: it keeps
      * the CPU only up to the slice limit, then restarts and the peer runs. */
     setup(2U, 2U);
@@ -474,6 +540,9 @@ int main(void)
     event = fault_current();
     check(event == DISPATCHED && g_abandoned == 1U,
           "a guest fault drops the guest's Non-secure exception state");
+#else
+    test_one_guest_ticks();
+#endif
 
 #ifdef CONFIG_VNET
     test_vnet_guest_reset();

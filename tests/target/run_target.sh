@@ -11,6 +11,8 @@
 #
 # Environment (all optional):
 #   WT_ENGINE           native (default) or hsm: the crypto engine under test
+#   WT_PROFILE          default or full: the build profile (unset: the one the
+#                       scenario is registered on, full when both)
 #   M33MU               a prebuilt emulator at the port's pin; otherwise the
 #                       pin is built under /tmp
 #   <PORT>_WOLFBOOT_DIR a wolfBoot tree built by lib/wolfboot_stage.sh with
@@ -39,10 +41,17 @@ case " $ports " in
 esac
 [ -n "$scenario_in" ] || { echo "usage: $0 $port <scenario>" >&2; exit 2; }
 
+# The build profile, and with it the guest count the plan's end mode and
+# checks follow.
+canonical="$(python3 "$lib/scenarios.py" --scenario "$scenario_in" --canonical)"
+profile="$(scenario_profile "$port" "$canonical")" ||
+  fail "$port does not run $canonical on profile '${WT_PROFILE:-}'"
+guests="$(scenario_profile_guests "$profile")"
+
 # The resolved plan: the canonical name, the guest pair, the flags, the end
 # mode and budget, the trace boot and the applicable assertion blocks.
 eval "$(python3 "$lib/scenarios.py" --port "$port" --scenario "$scenario_in" \
-    --engine "$WT_ENGINE" --shell)"
+    --engine "$WT_ENGINE" --guests "$guests" --shell)"
 scenario="$SC_SCENARIO"
 case " $SC_ENGINES " in
   *" $WT_ENGINE "*) ;;
@@ -58,26 +67,47 @@ case " $known " in
   *) echo "$port does not run $scenario (port/$port/port.json m33mu.groups)" >&2; exit 2 ;;
 esac
 
+# The build profile goes ahead of the scenario's own flags, and ahead of the
+# port hooks below, so a hook's scenario setting wins over the profile's.
+scenario_profile_reset
+profile_flags="$(scenario_profile_flags "$profile")"
+if [ -n "$profile_flags" ]; then
+  # shellcheck disable=SC2086,SC2163
+  export $profile_flags
+fi
+echo "Build profile: $profile ($guests guest(s))"
+
 # shellcheck source=ports/stm32h563/m33mu.sh disable=SC1090,SC1091
 . "$here/ports/$port/m33mu.sh"
 port_wolfboot_variant "$scenario"
 port_layout_env "$scenario"
+# A port hook may set the guest count for one scenario (restartidle); judge
+# the image it builds.
+guests="${WT_MAX_GUESTS:-1}"
 # shellcheck source=lib/m33mu.sh disable=SC1091
 . "$lib/m33mu.sh"
 # shellcheck source=lib/wolfboot_stage.sh disable=SC1091
 . "$lib/wolfboot_stage.sh"
 
 cd "$repo"
-mkdir -p logs
-log="$repo/logs/target-$port-$scenario.boot.log"
-trace_log="$repo/logs/target-$port-$scenario.trace.log"
-guest0_log="$repo/logs/target-$port-$scenario.guest0.log"
+logdir="${WT_SUITE_LOG_DIR:-logs}"
+case "$logdir" in /*) ;; *) logdir="$repo/$logdir" ;; esac
+mkdir -p "$logdir"
+log="$logdir/target-$port-$scenario.boot.log"
+trace_log="$logdir/target-$port-$scenario.trace.log"
+guest0_log="$logdir/target-$port-$scenario.guest0.log"
 timeout_s="${WT_TARGET_TIMEOUT:-$SC_TIMEOUT}"
 
 # The container runs as root while a host clone is owned by the login user;
 # without this git rejects every submodule with "dubious ownership".
 git config --global --add safe.directory '*' >/dev/null 2>&1 || true
 
+# The layout follows the build mode (engine, update stack, conformance, VNET),
+# so the scenario's Secure flags are in place before it is read.
+if [ -n "$SC_SECURE" ]; then
+  # shellcheck disable=SC2086,SC2163
+  export $SC_SECURE
+fi
 l3_layout_load "$repo" "$port"
 m33mu_prepare "$port"
 
@@ -113,7 +143,7 @@ G1_IMG=""
 build_shared_guests() {
   local dir="$1" flags="$2"
   stage "build the Non-secure guests from $dir ${flags:-(no probes)}"
-  make -s -C "$repo/$dir" clean
+  make -s -C "$repo/$dir" TARGET="$port" clean
   # The emulator boots with the development lifecycle the attestation token
   # reports; the guest's verify pins it.
   # shellcheck disable=SC2086
@@ -193,12 +223,15 @@ port_pre_boot "$scenario"
 # --- Boot. A console boot of guests that idle forever ends on the wall-clock
 #     budget (M33MU status 127), a guest that ends on its clean breakpoint
 #     exits 0, and a --quit-on-faults boot ends at the first delivered fault.
+emu_unbuf=()
+command -v stdbuf >/dev/null 2>&1 && emu_unbuf=(stdbuf -oL -eL)
 boot_chain() {
   local out="$1"
   shift
   set +e
+  # M33MU's wall-clock stop calls _exit(), which drops buffered fault lines.
   # shellcheck disable=SC2086
-  "$M33MU" $M33MU_CPU "$WOLFBOOT_DIR/wolfboot.bin" \
+  ${emu_unbuf[@]+"${emu_unbuf[@]}"} "$M33MU" $M33MU_CPU "$WOLFBOOT_DIR/wolfboot.bin" \
       "build/wolftrust_v1_signed.bin:$IMG_SECURE_OFF" \
       "$G0_IMG:$IMG_GUEST0_OFF" "$G1_IMG:$IMG_GUEST1_OFF" \
       ${update_img:+"$update_img"} --timeout "$timeout_s" "$@" > "$out" 2>&1
@@ -254,5 +287,6 @@ fi
 
 stage "judge"
 python3 "$lib/scenarios.py" --port "$port" --scenario "$scenario" \
-    --engine "$WT_ENGINE" --env emulator judge "${judge_args[@]}"
+    --engine "$WT_ENGINE" --env emulator --guests "$guests" judge \
+    "${judge_args[@]}"
 log "PASS: target/$port/$scenario"

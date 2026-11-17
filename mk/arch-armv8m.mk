@@ -24,8 +24,13 @@ endif
 ifeq ($(WT_XN_NEG_PROBE),1)
 ARCH_CFLAGS += -DWT_XN_NEG_PROBE=1
 endif
-WT_WOLFCRYPT_SP_ASM ?= 1
-WT_WOLFCRYPT_ARMASM ?= 1
+# Portable C by default for size; the assembly is a speed opt-in.
+WT_WOLFCRYPT_SP_ASM ?= 0
+WT_WOLFCRYPT_ARMASM ?= 0
+WT_SHA256_FAST ?= 0
+ifneq ($(words $(WT_SHA256_FAST))/$(filter 0 1,$(WT_SHA256_FAST)),1/$(WT_SHA256_FAST))
+$(error unsupported WT_SHA256_FAST='$(WT_SHA256_FAST)' (want 0 or 1))
+endif
 
 ARCH_HSM_DEFS :=
 ifeq ($(WT_WOLFCRYPT_SP_ASM),1)
@@ -36,9 +41,21 @@ ifeq ($(WT_WOLFCRYPT_ARMASM),1)
 ARCH_HSM_DEFS += -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO \
     -DWOLFSSL_ARMASM_INLINE -DWOLFSSL_ARMASM_NO_NEON \
     -DWOLFSSL_ARMASM_THUMB2
+ifeq ($(WT_SHA256_FAST),0)
+ARCH_HSM_DEFS += -DWOLFSSL_ARMASM_SHA256_SMALL
+endif
+else
+ARCH_HSM_DEFS += -DWOLFSSL_AES_SMALL_TABLES -DWOLFSSL_AES_NO_UNROLL
+ifeq ($(WT_SHA256_FAST),0)
+ARCH_HSM_DEFS += -DUSE_SLOW_SHA256
+endif
 endif
 
+ifeq ($(WT_WOLFCRYPT_SP_ASM),1)
 ARCH_WOLFCRYPT_SP_SRCS := $(WOLFSSL_DIR)/wolfcrypt/src/sp_cortexm.c
+else
+ARCH_WOLFCRYPT_SP_SRCS := $(WOLFSSL_DIR)/wolfcrypt/src/sp_c32.c
+endif
 ARCH_WOLFCRYPT_ASM_SRCS :=
 ifeq ($(WT_WOLFCRYPT_ARMASM),1)
 ARCH_WOLFCRYPT_ASM_SRCS += \
@@ -93,6 +110,21 @@ WT_L3_LINK_ARGS = $(or $(strip $(shell $(WT_LAYOUT_TOOL) --link \
     --cc $(WT_LAYOUT_CPP) --cflags '$(WT_LAYOUT_CFLAGS)' \
     $(PORT_DIR)/memory_map.h)),$(error \
     cannot read the level 3 band placement from $(PORT_DIR)/memory_map.h))
+# Partition stacks the generator checks the rendered manifest against, under
+# the same layout configuration.
+WT_L3_MANIFEST_ARGS = $(or $(strip $(shell $(WT_LAYOUT_TOOL) --stacks \
+    --cc $(WT_LAYOUT_CPP) --cflags '$(WT_LAYOUT_CFLAGS)' \
+    $(PORT_DIR)/memory_map.h)),$(error \
+    cannot read the level 3 partition stacks from $(PORT_DIR)/memory_map.h))
+# Immutable platform capabilities for the manifest generator; they must equal
+# port/common/armv8m/platform_caps.h, which the generated manifest asserts.
+WT_PLATFORM_CAPABILITIES ?= 0x7F
+WT_PLATFORM_MAX_DOMAINS ?= 11
+WT_PLATFORM_MAX_MEMORY_RESOURCES ?= 3
+WT_PLATFORM_MAX_INTERRUPTS ?= 1
+# A port that defines WT_PORT_CAPABILITIES in memory_map.h sets this to the
+# same value in mk/target-<soc>.mk; the generated manifest asserts they agree.
+WT_PLATFORM_PORT_CAPABILITIES ?= 0x7
 # Post-link band check inputs, read the same way at link time; an unreadable
 # layout stops the link rather than checking the default bands.
 WT_L3_BAND_ARGS = $(shell $(WT_LAYOUT_TOOL) \

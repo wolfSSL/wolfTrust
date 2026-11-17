@@ -161,6 +161,7 @@ hw = d.setdefault("hardware", {})
 # tiers are the source board's and start empty.
 for section in (d["m33mu"].setdefault("caps_absent", {}), d["m33mu"].get("exempt", {}),
                 d["m33mu"].get("faults_by_design", {}), d["m33mu"].get("l3_exempt", {}),
+                d["m33mu"].get("default", {}).get("l3_exempt", {}),
                 hw.get("caps_absent", {})):
     for key in list(section):
         section[key] = "NEW_PORT_STUB %s: copied from %s: %s" % (soc, src, section[key])

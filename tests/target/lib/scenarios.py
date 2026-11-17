@@ -40,6 +40,7 @@ pass.
 """
 
 import argparse
+import collections
 import json
 import os
 import re
@@ -114,7 +115,9 @@ SCENARIOS = {
                      timeout=40, quit_on_faults=False,
                      blocks=("restart", "restartidle_verdict"),
                      requires=("idle_scheduler",)),
-    "guestisoneg": S(guest_flags="WT_ISO_PROBE=1", end="timeout", timeout=40,
+    # The peer's first heartbeat follows its wolfHSM crypto, which the portable
+    # C wolfCrypt serves past 40 s while guest0's restarts share the server.
+    "guestisoneg": S(guest_flags="WT_ISO_PROBE=1", end="timeout", timeout=90,
                      quit_on_faults=False, trace="guestisoneg",
                      blocks=("guestisoneg",), hw=True,
                 hw_blocks=("hw_no_escalation", "hw_guestisoneg", "hw_peer_alive")),
@@ -162,9 +165,11 @@ SCENARIOS = {
                   blocks=("sp_fault", "lifecycle", "panic_unblocked",
                           "storage_served"),
                 hw_blocks=("hw_no_escalation", "hw_panic", "hw_peer_alive")),
+    # The wolfHSM engine's portable C crypto takes about 20 minutes on a CI
+    # runner; the budget stays inside the job's 45-minute limit.
     "confboot": S(secure="WT_CONFORMANCE=1", role="conformance",
                   guest_flags=CONF + " " + SP_PROBE_FLAGS, end="bkpt:0x7f",
-                  timeout=1200, quit_on_faults=False,
+                  timeout=2100, quit_on_faults=False,
                   blocks=("conformance_boot", "confboot"),
                 hw_blocks=("hw_confboot",), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "devstorage": S(secure="WT_CONFORMANCE=1", role="conformance",
@@ -190,6 +195,13 @@ SCENARIOS = {
                 hw_blocks=("hw_no_escalation", "hw_devattest"), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "attestneg": S(role="psa", guest_flags="WT_ATTEST_NEG_PROBE=1",
                    blocks=("psa_lifecycle", "attestneg")),
+    "nativewire": S(role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
+                    end="bkpt:0x7f", engines=("native",),
+                    blocks=("no_faults", "psa_lifecycle", "nativewire")),
+    "nativewireasm": S(secure="WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1",
+                       role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
+                       end="bkpt:0x7f", engines=("native",),
+                       blocks=("no_faults", "psa_lifecycle", "nativewire")),
     "hsmattackneg": S(role="psa", guest_flags="WT_HSM_ATTACK_PROBE=1",
                       blocks=("no_faults", "psa_lifecycle", "hsmattackneg"),
                       engines=("hsm",),
@@ -407,8 +419,15 @@ def resolve(port, scenario, engine="native"):
 
 # ---------------------------------------------------------------- markers --
 
+# What an absent guest "prints": a one-guest image never schedules guest1,
+# so every expectation of it can only be met by a guest that is there.
+NO_GUEST_MARKER = "@no_guest1@"
+
+
 def markers(kind, guest, board):
     """Console markers a guest of this kind prints, by role in the story."""
+    if kind == "none":
+        return collections.defaultdict(lambda: NO_GUEST_MARKER)
     if kind == "baremetal":
         tag = "wolfTrust %s %s" % (board, guest)
         return {"started": tag + ": start",
@@ -589,6 +608,9 @@ class Ctx(object):
 
     def kind(self, i):
         return self.guests[i]
+
+    def live_guests(self):
+        return sum(1 for kind in self.guests if kind != "none")
 
 
 # The scenarios that take down the partition serving guest0's ITS test (a
@@ -788,9 +810,12 @@ def block_checks(ctx, block, end):
     if block == "storage_served":
         if k0 != "baremetal":
             return []
+        if ctx.name == "panicneg" and k1 == "none":
+            return [expect("the pinned client was unblocked with COMMUNICATION_FAILURE",
+                           ": storage connect unblocked rc=-145")]
         if ctx.name == "panicneg":
             return [expect_n("the restarted storage SP served the guest after the panic", 1, ": storage connect ok")]
-        return [expect_n("both guests reached the storage service", 2, ": storage connect ok")]
+        return [expect_n("every guest reached the storage service", ctx.live_guests(), ": storage connect ok")]
     if block == "sp_probe_denied":
         if k0 != "baremetal":
             return []
@@ -864,9 +889,10 @@ def block_checks(ctx, block, end):
             return [expect("pinned client unblocked with COMMUNICATION_FAILURE",
                            "psa_connect(SERVICE_ITS) failed rc=0 handle=-145", where="guest0"),
                     expect("sealed storage path unaffected", "wolfTrust PS sealed set/get verified", where="guest0")]
-        return [expect_re("the pinned ITS client was unblocked with an error", r'guest[01]: psa_its_set failed st=-1(32|45)'),
-                expect("the restarted ITS partition served the other guest", "wolfTrust ITS set/get verified"),
-                expect("sealed storage path unaffected", "guest0: wolfTrust PS sealed set/get verified")]
+        out = [expect_re("the pinned ITS client was unblocked with an error", r'guest[01]: psa_its_set failed st=-1(32|45)')]
+        if k1 != "none":
+            out.append(expect("the restarted ITS partition served the other guest", "wolfTrust ITS set/get verified"))
+        return out + [expect("sealed storage path unaffected", "guest0: wolfTrust PS sealed set/get verified")]
     if block == "restart":
         return _restart_checks(ctx)
     if block == "restartidle_verdict":
@@ -944,6 +970,11 @@ def block_checks(ctx, block, end):
                 expect("tampered token fails the guest verify", pre + "attestneg tampered token rejected"),
                 expect("misattributed lifecycle fails the guest verify", pre + "attestneg lifecycle mismatch rejected"),
                 expect("attestation negatives verified", pre + "wolfTrust attestation negatives verified")]
+    if block == "nativewire":
+        return [expect("every native wire key op served by the crypto partition",
+                       "guest0: nativewire every key op verified"),
+                refute_re("no native wire op failed", r'nativewire .*(failed st=|bad |mismatch)'),
+                refute_re("no Secure stack overflow or usage fault", r'\[USGFLT\]')]
     if block == "hsmattackneg":
         pre = "guest0: " if k0 == "psa" else ""
         return [expect("forged COMM_INIT attempted", pre + "hsmattackneg forged COMM_INIT"),
@@ -969,7 +1000,10 @@ def block_checks(ctx, block, end):
         return out
     if block == "authneg":
         out = [refute_re("the tampered guest0 never entered its domain", re.escape(ctx.g0["started"]))]
-        if k1 == "freertos":
+        if k1 == "none":
+            out += [expect("the only guest refused fail-closed (all guests quarantined)",
+                           "[BKPT] imm=0x7d")]
+        elif k1 == "freertos":
             out += [expect("guest1 (unrelated domain) still runs", ctx.g1["heartbeat"]),
                     expect("guest1 mediated SERVICE_CRYPTO still live", ctx.g1["sha"])]
         else:
@@ -991,7 +1025,7 @@ def block_checks(ctx, block, end):
                 expect("guest0 receives guest1's mediated echo reply", "ping reply from 10.0.0.2 seq=1")]
     if block == "vnetneg":
         return [expect("SPM-RAM read denied to the confined vnet SP (MEMFAULT)", "addr=%s" % v.get("L3_SPM_RAM", "?")),
-                expect("execute from the XN vnet data band denied", v.get("vnet_data_band", "0x30070000")),
+                expect("execute from the XN vnet data band denied", v.get("L3_VNET_BAND", "<L3_VNET_BAND unset>")),
                 refute_re("no HardFault escalation", r'(\[HARDFLT\]|HardFault)'),
                 expect("guest0 alive through the quarantine", "vnet-guest0: alive"),
                 expect("guest1 alive through the quarantine", "vnet-guest1: alive"),
@@ -1055,7 +1089,7 @@ def block_checks(ctx, block, end):
                 expect_n("guest0 reached the SPM and finished", 1, ctx.g0["done"]),
                 expect_n("guest1 launched behind the armed guest fence", 1, ctx.g1["started"]),
                 expect_n("guest1 reached the SPM and finished", 1, ctx.g1["done"]),
-                expect_n("both guests reached the storage service", 2, ": storage connect ok")]
+                expect_n("every guest reached the storage service", ctx.live_guests(), ": storage connect ok")]
     if block == "wrpoff":
         peers = "|".join(re.escape(s) for s in (ctx.g0["started"], ctx.g1["started"]))
         return [refute_re("no guest entered its domain without the guest fence", peers)]
@@ -1320,9 +1354,13 @@ def hardware_caps_absent(port):
     return out
 
 
-def plan(port, scenario, engine="native", env="emulator"):
+def plan(port, scenario, engine="native", env="emulator", guests=2):
     r = resolve(port, scenario, engine)
     row = SCENARIOS[r["scenario"]]
+    if guests == 1 and row["tamper"]:
+        # Refusing the only guest quarantines every guest: the monitor stops
+        # on the platform recovery breakpoint, not on a guest's clean end.
+        r["end"] = "bkpt:0x7d"
     if env == "hardware":
         # A bare-metal breakpoint with no debugger would fault on silicon.
         r["guest_flags"] = " ".join(f for f in r["guest_flags"].split()
@@ -1585,9 +1623,37 @@ class Judge(object):
         raise SystemExit("unknown check %s" % op)
 
 
-def judge(port, scenario, env, logs, var, engine="native"):
-    p = plan(port, scenario, engine, env)
-    ctx = Ctx(port, p["scenario"], env, p["guests"], var)
+def needs_absent_guest(check):
+    """An expectation only the absent guest could meet: a one-guest image
+    drops it, and keeps every refute (the absent guest prints nothing)."""
+    if check["op"] in ("expect", "expect_n"):
+        return NO_GUEST_MARKER in check["text"] and check.get("n", 1) != 0
+    if check["op"] in ("expect_re", "expect_n_re"):
+        return NO_GUEST_MARKER in check["re"] and check.get("n", 1) != 0
+    return False
+
+
+def without_absent_guest(checks):
+    out = []
+    for check in checks:
+        if check["op"] == "either":
+            options = [without_absent_guest(option) for option in check["options"]
+                       if not any(needs_absent_guest(c) for c in option)]
+            if options:
+                out.append(dict(check, options=options))
+        elif not needs_absent_guest(check):
+            out.append(check)
+    return out
+
+
+def one_guest(pair, guests):
+    """The guest pair a build that schedules `guests` guests runs."""
+    return (pair[0], "none") if guests == 1 else pair
+
+
+def judge(port, scenario, env, logs, var, engine="native", guests=2):
+    p = plan(port, scenario, engine, env, guests)
+    ctx = Ctx(port, p["scenario"], env, one_guest(p["guests"], guests), var)
     j = Judge(ctx, logs)
     for block, why in p["na"]:
         j.lines.append("  [check] N/A   %s: %s" % (block, why))
@@ -1598,8 +1664,14 @@ def judge(port, scenario, env, logs, var, engine="native"):
             checks = hw_block_checks(ctx, block)
         else:
             checks = block_checks(ctx, block, p["end"])
+        if guests == 1:
+            checks = without_absent_guest(checks)
         for check in checks:
             j.run(check)
+    if guests == 1:
+        absent = markers(p["guests"][1], "guest1", ctx.board)["started"]
+        j.run(refute_re("the one-guest image never started guest1",
+                        re.escape(absent)))
     return j
 
 
@@ -1641,8 +1713,32 @@ def profile_gaps():
     return gaps
 
 
+def one_guest_gaps():
+    """No assertion a lean (one-guest) run applies can only be met by the
+    guest that image never schedules."""
+    gaps = []
+    for port in sorted(PORTS):
+        for name in scenario_matrix.flat(port, "full", None, "default"):
+            p = plan(port, name, "native", "emulator")
+            ctx = Ctx(port, p["scenario"], "emulator",
+                      one_guest(p["guests"], 1), {"board": "X"})
+            ctx.var["trace_kind"] = p["trace"]
+            for block in p["applicable"]:
+                checks = without_absent_guest(block_checks(ctx, block, p["end"]))
+                pending = list(checks)
+                while pending:
+                    check = pending.pop()
+                    if check["op"] == "either":
+                        pending.extend(c for option in check["options"]
+                                       for c in option)
+                    elif needs_absent_guest(check):
+                        gaps.append("%s %s: %s still expects guest1" %
+                                    (port, name, block))
+    return gaps
+
+
 def selftest():
-    gaps = profile_gaps()
+    gaps = profile_gaps() + one_guest_gaps()
     for name, row in SCENARIOS.items():
         if canonical(name) != name:
             gaps.append("%s is an alias" % name)
@@ -1768,6 +1864,8 @@ def main():
     parser.add_argument("--scenario")
     parser.add_argument("--engine", choices=("native", "hsm"), default="native")
     parser.add_argument("--env", choices=("emulator", "hardware"), default="emulator")
+    parser.add_argument("--guests", type=int, choices=(1, 2), default=2,
+                        help="guests the Secure image schedules (1: the lean default)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--shell", action="store_true", help="the resolved plan as SC_* assignments")
     mode.add_argument("--asserts", action="store_true", help="the applicable blocks and their checks")
@@ -1810,18 +1908,22 @@ def main():
         return 0
     if args.port is None or args.scenario is None:
         parser.error("--port and --scenario are required")
-    p = plan(args.port, args.scenario, args.engine, args.env)
+    p = plan(args.port, args.scenario, args.engine, args.env, args.guests)
     if args.shell:
         print(shell_plan(p))
         return 0
     if args.asserts:
-        ctx = Ctx(args.port, p["scenario"], args.env, p["guests"], {"board": PORTS[args.port]["def"]["display"]})
+        ctx = Ctx(args.port, p["scenario"], args.env,
+                  one_guest(p["guests"], args.guests),
+                  {"board": PORTS[args.port]["def"]["display"]})
         for block, why in p["na"]:
             print("N/A %s: %s" % (block, why))
         for block in p["applicable"]:
             ctx.var["trace_kind"] = p["trace"]
             print("block %s" % block)
             checks = hw_block_checks(ctx, block) if args.env == "hardware" else block_checks(ctx, block, p["end"])
+            if args.guests == 1:
+                checks = without_absent_guest(checks)
             for check in checks:
                 key = " [%s]" % check["key"] if check["op"] in ("word", "advancing") else ""
                 print("  %s: %s%s" % (check["op"], check["desc"], key))
@@ -1842,7 +1944,8 @@ def main():
             logs["syms"] = read(args.syms)
         if args.swd:
             logs["swd"] = read(args.swd)
-        result = judge(args.port, args.scenario, args.env, logs, var, args.engine)
+        result = judge(args.port, args.scenario, args.env, logs, var,
+                       args.engine, args.guests)
         print("\n".join(result.lines))
         return 1 if result.failures else 0
     parser.error("nothing to do")

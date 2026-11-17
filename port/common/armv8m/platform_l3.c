@@ -71,7 +71,7 @@ size_t wt_platform_sp_shared_regions(wt_memory_region_t* regions, size_t max)
 size_t wt_platform_spm_private_regions(wt_memory_region_t* regions,
                                        size_t max)
 {
-    uintptr_t first_band = WT_SP_VAULT_DATA_BASE;
+    uintptr_t first_band = WT_L3_BANDS_BASE;
     size_t count = 1u;
 
 #if defined(WT_RAMFUNC_BASE)
@@ -80,9 +80,6 @@ size_t wt_platform_spm_private_regions(wt_memory_region_t* regions,
     if (max < count) {
         return 0u;
     }
-#if defined(CONFIG_VNET)
-    first_band = WT_VNET_DATA_BASE;
-#endif
     regions[0].base = WT_RAM_S_BASE;
     regions[0].size = first_band - WT_RAM_S_BASE;
     regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
@@ -99,11 +96,7 @@ int wt_platform_priv_stack_ok(const void *stack, size_t size)
 {
     /* A privileged coroutine stack must lie wholly in SPM-private RAM, below
      * the lowest partition-writable band (WT-FFM-0011). */
-#if defined(CONFIG_VNET)
-    uintptr_t priv_end = WT_VNET_DATA_BASE;
-#else
-    uintptr_t priv_end = WT_KEYSTORE_BASE;
-#endif
+    uintptr_t priv_end = WT_L3_BANDS_BASE;
 
     if (stack == NULL) {
         return 0;

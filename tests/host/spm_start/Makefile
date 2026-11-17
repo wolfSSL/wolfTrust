@@ -46,7 +46,7 @@ $(FIXTURE): $(WT_MANIFEST_RENDER_DEPS)
 	$(WT_MANIFEST_RENDER) --output $@ $(WT_MANIFEST_TEMPLATE)
 $(GENERATED): $(GENERATOR) $(FIXTURE)
 	python3 $(GENERATOR) $(FIXTURE) $(BUILD_DIR) \
-		--supported-features 0x1 --address-bits 32
+		--supported-features 0x1 --address-bits 32 --unchecked
 $(TEST): main.c $(ROOT)/src/arch/common/spm_gate_core.c $(GENERATED)
 	$(CC) $(CFLAGS) $(GC_FLAGS) $(EXTRA_LDFLAGS) -o $@ main.c
 run: $(TEST)

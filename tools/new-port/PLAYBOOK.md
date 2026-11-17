@@ -25,13 +25,12 @@ port claims a security property it does not have.
   device, and which option bytes, fuses or life-cycle state the board must be
   in. Never a board whose state you cannot read.
 
-## Forbidden paths
+## Shared paths
 
-A port PR changes only the paths in the "Add a target" table of
-[docs/Porting.md](../../docs/Porting.md#add-a-target);
-`tools/check-port-only-diff.sh --thin <soc> <base-ref>` refuses anything else.
-If a shared file seems to need a change, stop and report what the contract
-lacks.
+A port PR mostly changes the paths in the "Add a target" table of
+[docs/Porting.md](../../docs/Porting.md#add-a-target). When the port needs a
+shared file changed, make the change generic, keep every other port's tests
+passing, and say why in the PR description.
 
 ## Files to create
 

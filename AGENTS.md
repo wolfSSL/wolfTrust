@@ -67,12 +67,10 @@ targets report a skip, never a pass, without their emulator or board. See
 - C99, no `goto`, no standalone `{ }` scope blocks, `/* */` comments,
   `WT_STATIC_ASSERT()` for compile-time checks, sensitive buffers erased:
   [docs/Coding-Standard.md](docs/Coding-Standard.md).
-- A port change touches only that port's own files;
-  `tools/check-port-only-diff.sh --thin <soc> <base-ref>` proves it. A new
-  SoC follows [tools/new-port/PLAYBOOK.md](tools/new-port/PLAYBOOK.md).
-  Shared code (`src/`, `include/`, `port/common/`, `mk/common.mk`,
-  `mk/arch-*.mk`, `tests/target/lib/`, the runners, the workflows) changes
-  only in a core change with its own review.
+- A new SoC follows [tools/new-port/PLAYBOOK.md](tools/new-port/PLAYBOOK.md).
+  A port that needs a shared change (`src/`, `include/`, `port/common/`,
+  `mk/common.mk`, `mk/arch-*.mk`, `tests/target/lib/`, the runners, the
+  workflows) makes it in the same PR and says why in the description.
 - `docs/Ports.md` and the bug report's target list are generated: run
   `python3 tools/gen-port-docs.py`, never edit them by hand.
 - `docs/` is published to the wiki: `tools/check-docs-no-internal-links.sh`

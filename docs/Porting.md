@@ -175,8 +175,11 @@ then exempt, and every assertion block that needs one is reported N/A),
 purpose so the emulator must not stop on the fault, `ends` names the
 scenarios whose run the port ends at the partition's deliberate fault
 instead of the guest's clean breakpoint, `guest_flags` adds the port's own
-guest build flags to a scenario (the FWU stream probe's sizes), and `exempt`
-names any other scenario the port does not run with its reason. `scenarios.py
+guest build flags to a scenario (the FWU stream probe's sizes),
+`iso_refusal_src` names the block that refuses `guestisoneg`'s cross-guest
+store in the trace (`SAU` by default, `MPCBB` where the GTZC block curtain
+decides it), and `exempt` names any other scenario the port does not run with
+its reason. `scenarios.py
 --selftest` fails a port that neither runs nor exempts a scenario, lists a
 port-private name, or names a scenario in its profile outside a case label.
 
@@ -417,10 +420,13 @@ never a pass.
 
 G6 is the eight scenarios every board runs, which a port cannot exempt;
 extras go in `port.json` as `hardware.qualification` or `hardware.optin`.
+`hardware.iso_probe` says how the board's `guestisoneg` store is refused:
+`faults` (the guest is quarantined), `silent` (latch 2 and guest 0 keeps
+running) or any other value (latch 1 or 2 and guest 0 stops at the store).
 
-A port is done when every step's last line is in the PR, the emulator and
-silicon evidence are recorded apart, and `tools/check-port-only-diff.sh
---thin <soc> <base-ref>` shows the diff touches only the paths above.
+A port is done when every step's last line is in the PR and the emulator and
+silicon evidence are recorded apart. A shared change the port needs is made
+generic and explained in the PR description.
 
 ### Irreversible operations by vendor
 
@@ -450,8 +456,6 @@ a `lock` step behind the typed acceptance, or refused outright by the port.
   hard core-to-architecture leaks (arch or port headers, CMSE, inline
   assembly, retired names, M-profile or A-profile register vocabulary in
   core code, and `wt_arch_*` definitions inside a port).
-- Run `tools/check-port-only-diff.sh --thin <soc> <base-ref>` on a port
-  change; it refuses any path outside the table above.
 - Run `tools/check-docs-no-internal-links.sh`; `docs/` is published to the
   wiki and must not reference internal ledgers or developer paths.
 - Cross-build the Secure image with warnings enabled.

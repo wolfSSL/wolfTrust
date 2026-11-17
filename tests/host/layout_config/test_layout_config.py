@@ -13,6 +13,7 @@ refused; every secure object that includes a generated manifest header is
 ordered after its generation, so a parallel build cannot compile it first;
 and the memory-map guard refuses each broken map it documents."""
 
+import json
 import os
 import re
 import shlex
@@ -402,6 +403,8 @@ def main():
     check(len(ports) >= 1, "no registered port")
     stamps = {}
     for target in ports:
+        engines = json.loads((ROOT / "port" / target / "port.json").read_text())["build"]["engines"]
+        hsm = ("WT_ENGINE=hsm",) if "hsm" in engines else ()
         base = cflags(target)
         tokens = shlex.split(base)
         check(all(token.startswith(("-D", "-I")) for token in tokens),
@@ -422,7 +425,7 @@ def main():
               "%s: the build-mode stamp does not record WT_LAYOUT_CFLAGS" %
               target)
         stamps[target] = base_stamp
-        for variant in ((), ("WT_CONFORMANCE=1",), ("WT_ENGINE=hsm",)):
+        for variant in ((), ("WT_CONFORMANCE=1",)) + ((hsm,) if hsm else ()):
             generated_headers_ordered(target, *variant)
         guard_refuses(target, base)
         partitions_size_each_guest(target, base)
@@ -462,8 +465,8 @@ def main():
         check(shape is not None,
               "%s: the build-mode stamp does not record the linker shape" % target)
         for setting in ("WT_LD_RAM_CODE_BAND=%d" % (1 - int(shape.group(1))),
-                        "WT_CONFORMANCE=1", "WT_ENGINE=hsm",
-                        "WT_EXTRA_CFLAGS=-DWT_LAYOUT_CONFIG_TEST=1"):
+                        "WT_CONFORMANCE=1",
+                        "WT_EXTRA_CFLAGS=-DWT_LAYOUT_CONFIG_TEST=1") + hsm:
             check(stamp(target, setting) != base_stamp,
                   "%s: %s leaves the build-mode stamp unchanged" % (target, setting))
         for smuggled in ("-DWT_CONF_IRQ=5", "-DWT_L3_SPM_RAM_SIZE=0x4C000",

@@ -28,8 +28,10 @@ An accepted upload queues analysis; results appear after Coverity processes it.
 The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
 `pr-osp-select.yml` is: a `select` job checks the routing table
 (`scenario_matrix.py --selftest`), reads the PR's `ci:*` labels, the
-event, and the dispatch input, and one matrix job runs exactly the scenario
-groups it picked, so a job that is not selected never appears as skipped.
+event, and the dispatch input, and two matrix jobs run exactly the scenario
+groups it picked, half each, so a job that is not selected never appears as
+skipped. The split is there because GitHub refuses a matrix of more than 256
+jobs; `select` fails if a half would still exceed that.
 
 | Label | Effect |
 |-------|--------|

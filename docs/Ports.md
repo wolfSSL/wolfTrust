@@ -9,6 +9,7 @@ regenerate this page instead of editing it.
 | `mcxn947` | FRDM-MCXN947 | [MCXN947](MCXN947-Guide.md) | `ci:mcxn947` (label only) | native, hsm | conformance | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` |
 | `mimxrt700` | MIMXRT700-EVK | [MIMXRT700](MIMXRT700-Guide.md) | `ci:rt700` (label only) | native, hsm | conformance | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` |
 | `stm32h563` | NUCLEO-H563ZI | [STM32H563](STM32H5-Guide.md) | `ci:h5` | native, hsm | conformance, vnet | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15` |
+| `stm32l562` | STM32L562E-DK | [STM32L562](STM32L562-Guide.md) | `ci:l5` (label only) | native | conformance | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` |
 
 ## Emulator scenarios
 
@@ -23,6 +24,7 @@ assertion blocks N/A.
 | `mcxn947` | `positive` `guestisoneg` `crossdomain` `bothpsa` `confboot` `devcrypto` | `bootupdate`, `busfault`, `dma_probe`, `guest_fence`, `handler_overrun`, `idcode`, `idle_scheduler`, `vnet` |
 | `mimxrt700` | `positive` `guestisoneg` `crossdomain` `bothpsa` `confboot` `devcrypto` | `bootupdate`, `busfault`, `dma_probe`, `idcode`, `idle_scheduler`, `vnet` |
 | `stm32h563` | `positive` `guestisoneg` `crossdomain` `bothpsa` `confboot` `devcrypto` | `boot_console`, `busfault`, `guest_fence`, `handler_overrun`, `prot_trace` |
+| `stm32l562` | `positive` `guestisoneg` `crossdomain` `bothpsa` `confboot` `devcrypto` | `boot_console`, `bootupdate`, `busfault`, `dma_probe`, `guest_fence`, `handler_overrun`, `idcode`, `idle_scheduler`, `vnet` |
 
 ## Hardware
 
@@ -34,3 +36,4 @@ Every board runs the eight-scenario minimum (`positive`, `guestisoneg`, `periphn
 | `mcxn947` | none | none | FRDM-MCXN947 with its MCU-Link bound by unique id; OEM_OPEN life cycle |
 | `mimxrt700` | `wrpfence` `wrpneg` `nsentrymask` `handlerirqneg` `romsmoke` | none | EVK with the MCU-Link bound by serial and the pi4 reset line; XSPI0 NOR holds the chain |
 | `stm32h563` | `confboot` `nsmaskneg` | `keystoreneg` `panicneg` `devstorage` `devcrypto` `devattest` `devattestqcbor` `vaultrecover` `vaultrecoversec` `writeonce` `hsmattackneg` `bootupdate` `vnet` `vnetneg` `fpneg` `sealneg` `sealpivotneg` `mspovfneg` `busfaultneg` `nsbusfaultneg` `xnneg` `svcneg` | TZEN set, product state Open, WRPSGn1 clear on the guest windows; provisioning_ctrl.sh restore puts a board back |
+| `stm32l562` | none | none | STM32L562E-DK with its ST-LINK bound by serial; TZEN set, DBANK set and SWAP_BANK clear, RDP level 0, the production SECWM split, every WRP area disabled |

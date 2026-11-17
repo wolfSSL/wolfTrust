@@ -545,8 +545,8 @@ def faults_at(desc, n, addr, lo=None, hi=None, where="log", op="eq"):
             "hi": hi, "where": where, "cmp": op}
 
 
-def sau_refusal(desc, pattern, where="trace"):
-    return {"op": "sau_refusal", "desc": desc, "re": pattern, "where": where}
+def sau_refusal(desc, pattern, where="trace", src="SAU"):
+    return {"op": "sau_refusal", "desc": desc, "re": pattern, "where": where, "src": src}
 
 
 def symbol(desc, name):
@@ -761,10 +761,10 @@ def _restart_checks(ctx):
     return out
 
 
-def _trace_sau(ctx, desc, pattern, who):
+def _trace_sau(ctx, desc, pattern, who, src="SAU"):
     return [expect("the traced run stopped at a delivered fault", "Execution stopped", where="trace"),
             expect_n_re(desc, 1, pattern, where="trace"),
-            sau_refusal("the refusal came from the SAU%s" % who, pattern)]
+            sau_refusal("the refusal came from the %s%s" % (src, who), pattern, src=src)]
 
 
 def _trace_kind(ctx, v):
@@ -775,7 +775,8 @@ def _trace_kind(ctx, v):
     if kind == "guestisoneg":
         pat = r"\[MEMFAULT_CAUSE\] sec=NS type=WRITE addr=%s reason=secure-attr" % v.get("probe_addr", "?")
         return _trace_sau(ctx, "the fault was guest0's store into guest1's RAM, refused as Secure", pat,
-                          ": the peer window was Secure at dispatch")
+                          ": the peer window was Secure at dispatch",
+                          ctx.m33mu.get("iso_refusal_src", "SAU"))
     if kind == "periphneg":
         pat = r"\[MEMFAULT_CAUSE\] sec=NS type=READ addr=%s reason=secure-attr" % v.get("periph_ns", "?")
         return _trace_sau(ctx, "the fault was guest0's NS read of the SPM's peripheral, refused as Secure", pat, "")
@@ -1191,8 +1192,15 @@ def hw_block_checks(ctx, block):
             return [word("NS MPU bypass blocked (2) or faulted and contained (1)", "g0sym.g_guest0_gtzc_probe",
                          in_=("00000001", "00000002"))]
         out = [word("guest1 RAM never received guest0's sentinel", "peer.word", ne="deadbeef")]
-        if hw.get("iso_probe", "faults") == "faults":
+        mode = hw.get("iso_probe", "faults")
+        if mode == "faults":
             out += _hw_quarantined(ctx, "probe_addr")
+        elif mode == "silent":
+            # The fabric drops the store without a fault, so guest 0 runs on.
+            out += [word("guest0 store into guest1 RAM silently blocked (latch 2)", "g0.probe", eq="00000002"),
+                    word("guest0 kept running past its probe store", "g0.beat", ne="00000000"),
+                    word("system still scheduling after the probes (IPSR not a fault handler)", "cpu.ipsr_fault", eq="00000000")]
+            out += _hw_guest_lifecycle(ctx, 1)
         else:
             out += [word("guest0 store into guest1 RAM blocked (latch 1 faulted or 2 blocked)", "g0.probe",
                          in_=("00000001", "00000002")),
@@ -1617,9 +1625,9 @@ class Judge(object):
             lines = text.splitlines()
             n = 0
             for i, line in enumerate(lines):
-                if re.search(pat, line) and i + 1 < len(lines) and "src=SAU" in lines[i + 1]:
+                if re.search(pat, line) and i + 1 < len(lines) and "src=%s" % check["src"] in lines[i + 1]:
                     n += 1
-            return self.report(n == 1, check["desc"], "saw %d SAU refusals" % n)
+            return self.report(n == 1, check["desc"], "saw %d %s refusals" % (n, check["src"]))
         raise SystemExit("unknown check %s" % op)
 
 

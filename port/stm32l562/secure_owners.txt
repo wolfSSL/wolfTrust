@@ -1,0 +1,4 @@
+# STM32L562 objects, appended to tools/secure_owners.txt by the secure link.
+sec_platform_stm32l562.o               spm
+wt_sec_guest_wrp.o                     spm
+wt_sec_gtzc.o                          spm

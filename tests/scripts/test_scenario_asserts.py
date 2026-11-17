@@ -262,10 +262,10 @@ def satisfy(ev, check):
         line = example(substitute(check["re"]))
         lines = ev.lines["log" if where == "faults" else where]
         if line in lines:
-            lines.insert(lines.index(line) + 1, "  src=SAU")
+            lines.insert(lines.index(line) + 1, "  src=%s" % check["src"])
         else:
             ev.add(where, line)
-            ev.add(where, "  src=SAU")
+            ev.add(where, "  src=%s" % check["src"])
     else:
         raise SystemExit("unknown check %s" % op)
 
@@ -401,8 +401,8 @@ def mutations(ev, check, guest0_separate):
             out.append(("stacked SP outside the prober's stack", logs, ev.var))
     elif op == "sau_refusal":
         logs = dict(base)
-        logs["trace"] = logs["trace"].replace("  src=SAU\n", "", 1)
-        out.append(("SAU attribution dropped", logs, ev.var))
+        logs["trace"] = logs["trace"].replace("  src=%s\n" % check["src"], "", 1)
+        out.append(("%s attribution dropped" % check["src"], logs, ev.var))
     return out
 
 

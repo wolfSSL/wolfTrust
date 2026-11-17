@@ -13,7 +13,7 @@ service, and `CONFIG_VNET=y` selects a manifest with the network service.
 | `SERVICE_ITS` | `0x1003` | Yes | PSA Internal Trusted Storage |
 | `SERVICE_PS` | `0x1004` | Yes | PSA Protected Storage |
 | `SERVICE_FWU` | `0x1005` | Yes, `WT_FWU=1` | PSA Firmware Update staging for wolfBoot |
-| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door |
+| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door; with `WT_SECURE_PSA=1` it also serves the PSA Crypto API |
 | `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
 
 All service versions are `1`. ITS and Protected Storage declare a

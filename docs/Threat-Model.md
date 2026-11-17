@@ -80,7 +80,7 @@ images.
 | Stale or stolen handles | Handle ownership, type, generation, and state transitions are checked by the SPM. |
 | Cross-guest RAM access | GTZC MPCBB attribution closes the full guest-RAM extent and reopens only the scheduled guest's writable SRAM blocks. Per-guest Non-secure MPU and interrupt state are restored scheduling policy, not adversarial boundaries against privileged guests. |
 | Inactive-guest flash modification | Signature-covered guest digests and runtime verification detect changes; hardened builds also require complete hardware write protection (STM32H563 WRP, MIMXRT700 XSPI guest fence). |
-| Cross-guest key use | The SPM-stamped identity selects the native vault sub-owner; the hsm relay maps guest `N` to forced wolfHSM client ID `N + 1`. |
+| Cross-guest key use | The SPM-stamped identity selects the native vault sub-owner; the hsm relay maps guest `N` to forced wolfHSM client ID `N + 1`; with `WT_SECURE_PSA=1` every PSA key and operation is owned by the SPM-stamped client ID and another guest's handle is rejected. |
 | Direct NVM access through a crypto protocol | The native format exposes no general NVM operation; the hsm relay rejects wolfHSM NVM message groups. |
 | Storage object confusion | The vault namespaces objects by front-end partition, stamped client, and UID, and storage requests cannot use its reserved key-object type. |
 | Protected Storage disclosure or edit | AES-256-GCM sealing, a non-exportable device key, authenticated labels, and checked NVM operations. |
@@ -131,7 +131,9 @@ that privileged dispatcher is within the trusted computing base.
 A hostile guest can spend its own execution time on rejected requests and can
 cause its own quarantine. Shared CPU, flash, and service queues still create
 availability coupling. Recovery limits stop infinite restart loops but may
-leave a guest or service unavailable.
+leave a guest or service unavailable. With Secure PSA a guest's crypto runs in
+the Secure image, so a guest that loops on ECC operations, or keeps relaunching
+through them, can take most of the CPU from its peers.
 
 ### Non-secure peripheral and interrupt attribution is inherited
 

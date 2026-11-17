@@ -47,6 +47,13 @@ lifecycle decisions against the production scheduler with simulated architecture
 operations.
 The attestation IAK suite runs wolfHSM NVM with both the default 8-byte and
 STM32H5 16-byte flash programming units.
+The psa_secure_crypto suite runs the PSA client against the Secure PSA service
+in a separate process: cross-client key and operation isolation, stale handles
+after a service restart, persistent keys, quotas, staging limits and AEAD
+tag failures. `run` builds and runs it once per `WT_SECURE_PSA_PROFILE`,
+checking what each profile keeps and what it refuses with
+`PSA_ERROR_NOT_SUPPORTED`; `run-one PROFILE=<name>` runs one. Its `sanitize`
+and `valgrind` targets rerun it under ASan/UBSan and Valgrind.
 
 Additional host checks:
 
@@ -340,6 +347,8 @@ runs and exempts the rest with a reason. Beyond the families above:
 - `confboot` hosts Arm's unmodified FF-M IPC suite against the conformance
   image and expects 85 passed, 4 skipped, 0 failed. `devstorage`,
   `devcrypto`, `devattest` and `devattestqcbor` run the dev_apis suites.
+  `devcryptospsa` runs the crypto suite with `WT_SECURE_PSA=1`, so every
+  call reaches wolfPSA in the Secure image instead of a guest copy.
   `vaultrecover` proves a foreign vault pool self-heals on a development
   device, and `vaultrecoversec` that SECURED refuses it gracefully.
 - `wrpfence` and `wrpoff` build with `WT_GUEST_FLASH_WRP=1`: behind a first

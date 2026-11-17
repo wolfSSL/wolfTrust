@@ -20,8 +20,8 @@ contain Armv8-M-specific types and assumptions.
 | --- | --- |
 | wolfBoot | Performs the BL2 secure-boot role, authenticates wolfTrust, passes the measured-boot handoff, and swaps authenticated update images. |
 | wolfTrust | Configures isolation, validates the manifest at build time and the guest images at boot, schedules guests and Secure Partitions, implements FF-M IPC, and manages lifecycle and recovery. |
-| wolfPSA | Implements PSA Crypto entry points over wolfCrypt for the Non-secure reference guests. |
-| wolfCrypt | Supplies cryptographic implementations used by guest wolfPSA and Secure services. The native engine dispatches it directly; with `WT_SECURE_PSA=1` it also backs wolfPSA in the crypto partition. |
+| wolfPSA | Implements PSA Crypto entry points over wolfCrypt: in the crypto partition by default (`WT_SECURE_PSA=1`), or in the Non-secure guests with `WT_SECURE_PSA=0` or the wolfHSM engine. |
+| wolfCrypt | Supplies cryptographic implementations used by wolfPSA and Secure services. The native engine dispatches it directly and, by default, backs wolfPSA in the crypto partition. |
 | wolfHSM | Optional crypto engine providing the client/server key-management model and external-HSM integration path. Both engines use its NVM object-store subset. |
 | wolfCOSE | Encodes and signs COSE_Sign1 attestation tokens. |
 | wolfIP | Supplies the TCP/IP stack for the optional bare-metal reference guests; the Secure virtual Ethernet switch itself is implemented by wolfTrust. |

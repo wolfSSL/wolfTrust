@@ -182,7 +182,7 @@ SCENARIOS = {
                    end="bkpt:0x7f", timeout=7200, quit_on_faults=False,
                    blocks=("conformance_boot", "devcrypto"),
                 hw_blocks=("hw_no_escalation", "hw_devsuite"), hw_secure="WT_CONF_DIAG_TRAP=0"),
-    "devcryptospsa": S(secure="WT_CONFORMANCE=1 WT_SECURE_PSA=1", role="conformance",
+    "devcryptolocal": S(secure="WT_CONFORMANCE=1 WT_SECURE_PSA=0", role="conformance",
                        guest_flags=CONF + " WT_CONF_SUITE=crypto " + SP_PROBE_FLAGS,
                        end="bkpt:0x7f", timeout=7200, quit_on_faults=False,
                        blocks=("conformance_boot", "devcrypto"),
@@ -203,7 +203,7 @@ SCENARIOS = {
     "nativewire": S(role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
                     end="bkpt:0x7f", engines=("native",),
                     blocks=("no_faults", "psa_lifecycle", "nativewire")),
-    "nativewireasm": S(secure="WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1",
+    "nativewireasm": S(secure="WT_SECURE_PSA=0 WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1",
                        role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
                        end="bkpt:0x7f", engines=("native",),
                        blocks=("no_faults", "psa_lifecycle", "nativewire")),
@@ -1585,7 +1585,10 @@ class Judge(object):
                 return self.report(False, check["desc"], "%s was not recorded for psa-arch-tests %s" % (want, rev))
             got = []
             num = None
-            for m in re.finditer(r"Num=([0-9]+)|Result=([A-Za-z]+)", self.text("guest0" if "guest0" in self.logs else "log")):
+            # On a shared UART another guest's lines can land inside a Result= token
+            conf = re.sub(r"wolfTrust [^\n]*guest[1-9][0-9]*: [^\n]*\n", "",
+                          self.text("guest0" if "guest0" in self.logs else "log"))
+            for m in re.finditer(r"Num=([0-9]+)|Result=([A-Za-z]+)", conf):
                 if m.group(1) is not None:
                     num = m.group(1)
                 elif num is not None:

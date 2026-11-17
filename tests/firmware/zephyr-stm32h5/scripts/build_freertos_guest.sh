@@ -48,7 +48,7 @@ fi
 mkdir -p "${BUILD_DIR}"
 
 GUEST_CC="${GUEST_CC:-arm-none-eabi-gcc}"
-WT_SECURE_PSA="${WT_SECURE_PSA:-0}"
+WT_SECURE_PSA="${WT_SECURE_PSA:-$([ "${WT_ENGINE:-native}" = native ] && echo 1 || echo 0)}"
 GUEST_OBJCOPY="${GUEST_OBJCOPY:-arm-none-eabi-objcopy}"
 
 # Sources -- everything compiled as one TU set fed to gcc.

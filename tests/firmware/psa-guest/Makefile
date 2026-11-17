@@ -141,9 +141,9 @@ ENGINE_DEFS := -DWOLFHSM_CFG -DWOLF_CRYPTO_CB -DWT_ENGINE_HSM=1
 GUEST_ENGINE_SRCS := $(WOLFHSM_MODULE_DIR)/src/wolfhsm_client_glue.c
 endif
 
-# WT_SECURE_PSA=1: PSA Crypto runs in the Secure image, so the guest links the
-# client in place of wolfPSA; wolfCrypt stays for the attestation verifier.
-WT_SECURE_PSA ?= 0
+# WT_SECURE_PSA=1 (the native default): PSA Crypto runs in the Secure image, so
+# the guest links the client in place of wolfPSA. Match the Secure image.
+WT_SECURE_PSA ?= $(if $(filter native,$(WT_ENGINE)),1,0)
 ifeq ($(WT_SECURE_PSA),1)
 ifneq ($(WT_ENGINE),native)
 $(error WT_SECURE_PSA=1 requires WT_ENGINE=native)

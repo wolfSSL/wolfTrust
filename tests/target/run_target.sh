@@ -127,6 +127,8 @@ if [ -n "$SC_SECURE" ]; then
 fi
 stage "build wolfTrust secure image + CMSE import library ${SC_SECURE:-(production)}"
 make -s TARGET="$port" secure-image TOOLPREFIX=arm-none-eabi-
+# Guests must match the Secure image's PSA mode, which a target may default off.
+export WT_SECURE_PSA="$(sed -n 's/^WT_SECURE_PSA=//p' build/secure_build_mode.stamp)"
 # The guest builds may relink build/wolftrust.elf; the image signed below is
 # this one, and its elf keeps the symbols the judge checks.
 cp build/wolftrust.bin build/wolftrust-unsigned.bin

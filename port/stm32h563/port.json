@@ -36,7 +36,7 @@
       ["confboot", "FF-M IPC conformance (85/4)"],
       ["devstorage", "dev_apis Storage (s001-s017)"],
       ["devcrypto", "dev_apis Crypto (c001-c080)"],
-      ["devcryptospsa", "dev_apis Crypto against Secure-image PSA (WT_SECURE_PSA=1)"],
+      ["devcryptolocal", "dev_apis Crypto with guest-local PSA (WT_SECURE_PSA=0)"],
       ["devattest", "dev_apis Initial Attestation (a001, shim)"],
       ["devattestqcbor", "dev_apis Initial Attestation (a001, QCBOR)"],
       ["attestneg", "Attestation negatives (IPC + tamper)"],

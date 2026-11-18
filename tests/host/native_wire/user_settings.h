@@ -53,7 +53,10 @@
 #define NO_PWDBASED
 #define NO_PKCS7
 #define NO_ASN_TIME
+/* TPM 2.0 and PKCS#11 Secure builds keep ASN.1, as the runner settings do. */
+#if !defined(CONFIG_TPM) && !defined(CONFIG_PKCS11)
 #define NO_ASN
+#endif
 
 #define WOLFSSL_USE_ALIGN
 #define WOLFSSL_IGNORE_FILE_WARN

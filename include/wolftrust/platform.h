@@ -92,6 +92,7 @@ size_t wt_platform_conf_shared_regions(wt_memory_region_t* regions,
     (defined(WT_KEYSTORE_NEG_PROBE) && (WT_KEYSTORE_NEG_PROBE == 1)) || \
     (defined(WT_PERIPH_SP_NEG_PROBE) && (WT_PERIPH_SP_NEG_PROBE == 1)) || \
     (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
+    (defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)) || \
     (defined(WT_MANIFEST_NEG_PROBE) && (WT_MANIFEST_NEG_PROBE == 3))
 /* Addresses the negative probes touch; test builds only. */
 #define WT_PROBE_OUT_OF_DOMAIN   0u
@@ -101,6 +102,7 @@ size_t wt_platform_conf_shared_regions(wt_memory_region_t* regions,
 #define WT_PROBE_ATTEST_DATA_BAND 3u
 #define WT_PROBE_HSM_DATA_BAND   4u
 #define WT_PROBE_SPM_PERIPHERAL  5u
+#define WT_PROBE_INTERFACE_DATA_BAND 6u
 uintptr_t wt_platform_probe_address(unsigned int target);
 #endif
 

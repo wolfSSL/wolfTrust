@@ -60,7 +60,8 @@ int wt_spm_sched_validate(void);
 int wt_spm_sched_start_all(void);
 
 #if (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
-    (defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0))
+    (defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)) || \
+    (defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1))
 /* Test builds only: run a probing partition through its faults at boot. */
 void wt_spm_sched_prime(int32_t partition_id);
 #endif
@@ -101,5 +102,13 @@ int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
 int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
+
+/* SERVICE_TPM or SERVICE_PKCS11: the one application-interface partition. */
+#if defined(CONFIG_TPM)
+#define WT_INTERFACE_PARTITION_ID PARTITION_TPM_ID
+#elif defined(CONFIG_PKCS11)
+#define WT_INTERFACE_PARTITION_ID PARTITION_PKCS11_ID
+#endif
+int wt_spm_interface_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 
 #endif /* WOLFTRUST_SPM_SCHED_H */

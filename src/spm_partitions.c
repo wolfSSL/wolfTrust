@@ -23,6 +23,9 @@
  * transport. Deliberate test faults go through wt_arch_sp_fault_probe(). */
 
 #include "wolftrust/spm_transport.h"
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+#include "wolftrust/provider_crypto.h"
+#endif
 
 #include "wolftrust/ffm.h"
 #include "wolftrust/ffm_domain.h"
@@ -60,6 +63,19 @@
 #include "wolftrust/services/vnet_relay.h"
 #include "wolftrust/services/vnet_service.h"
 #endif
+#if defined(CONFIG_TPM)
+#include "wolftrust/services/tpm_relay.h"
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+#include "wolftrust/services/tpm_local_provider.h"
+#endif
+#define wt_spm_interface_dispatch      wt_tpm_relay_dispatch
+#define wt_spm_interface_restart_probe wt_tpm_relay_restart_probe
+#elif defined(CONFIG_PKCS11)
+#include "wolftrust/pkcs11_provider.h"
+#include "wolftrust/services/pkcs11_relay.h"
+#define wt_spm_interface_dispatch      wt_pkcs11_relay_dispatch
+#define wt_spm_interface_restart_probe wt_pkcs11_relay_restart_probe
+#endif
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
 
@@ -96,7 +112,10 @@ static void wt_spm_band_probe_refused(wt_spm_op_t op, int32_t sub_op)
         wt_arch_sp_fault_probe(1u);
     }
 }
+#endif
 
+#if (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
+    (defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1))
 /* Band isolation proof (WT-FFM-0011): the prober reads another partition's
  * data band, and after its restart writes it; both must MemManage-fault
  * inside the prober. Its third run serves normally. Never built into
@@ -121,6 +140,35 @@ static void wt_spm_band_probe(void* arg, unsigned int target)
 #define WT_BAND_PROBE_ID(arg) \
     ((int32_t)((intptr_t)(arg) & ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED & \
                ~(intptr_t)WT_SP_FAULT_PROBE_SECOND))
+#endif
+
+#if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
+/* Prove that the relay cannot bypass IPC or execute from its data band. */
+static void wt_spm_interface_partition_probe(void* arg)
+{
+    volatile uint32_t seen;
+    void (*xn_probe)(void);
+
+    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
+        if (wt_spm_interface_restart_probe(1) == 0) {
+            wt_arch_sp_fault_probe(2u);
+        }
+        (void)wt_spm_interface_restart_probe(0);
+        seen = *(const volatile uint32_t*)
+            wt_platform_probe_address(WT_PROBE_OUT_OF_DOMAIN);
+        (void)seen;
+        wt_arch_sp_fault_probe(3u);
+    }
+    else if (((intptr_t)arg & WT_SP_FAULT_PROBE_SECOND) == 0) {
+        if (wt_spm_interface_restart_probe(1) == 0) {
+            wt_arch_sp_fault_probe(2u);
+        }
+        xn_probe = (void (*)(void))
+            (wt_platform_probe_address(WT_PROBE_INTERFACE_DATA_BAND) | 1u);
+        xn_probe();
+        wt_arch_sp_fault_probe(4u);
+    }
+}
 #endif
 
 #if defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)
@@ -185,6 +233,10 @@ static void wt_spm_hsm_entry(void* arg)
     wt_spm_band_probe(arg, WT_PROBE_ATTEST_DATA_BAND);
 #endif
 #endif
+#if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
+    partition_id = WT_BAND_PROBE_ID(arg);
+    wt_spm_band_probe(arg, WT_PROBE_INTERFACE_DATA_BAND);
+#endif
 #if defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)
     partition_id = WT_RESTART_PROBE_ID(arg);
 #if (WT_RESTART_NEG_PROBE == 1)
@@ -211,6 +263,19 @@ static uint8_t g_spm_iak_public[WT_HSM_ATTEST_PUBLIC_KEY_LEN];
 static size_t g_spm_iak_public_len;
 #endif
 
+#if defined(WT_ENGINE_HSM) && (defined(CONFIG_PKCS11) || \
+    defined(CONFIG_TPM)) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+static int wt_spm_hsm_init_provider_namespace(void)
+{
+    if (!wt_hsm_guest_ready((wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE) &&
+            wt_hsm_guest_init_relay(
+                (wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE) != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
+}
+#endif
+
 /* Wire the crypto partition's band to the relay seams and to the vault's
  * door; boot and every restart run the same steps. */
 static int wt_spm_hsm_bind(int32_t partition_id)
@@ -227,6 +292,14 @@ static int wt_spm_hsm_bind(int32_t partition_id)
     if (wt_hsm_bind_nvm(wt_nvm_client_partition_nvm()) != 0) {
         return WT_FFM_ERROR_STATE;
     }
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (wt_hsm_relay_set_secure_client(
+            WT_INTERFACE_PARTITION_ID,
+            (wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE) != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+#endif
     wt_hsm_relay_set_submit(wt_hsm_relay_submit, NULL);
 #else
     /* Native engine: SERVICE_HSM stays the single mediated door; its packets
@@ -262,6 +335,12 @@ static int wt_spm_hsm_restore(int32_t partition_id)
             return WT_FFM_ERROR_STATE;
         }
     }
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (wt_spm_hsm_init_provider_namespace() != WT_FFM_SUCCESS) {
+        return WT_FFM_ERROR_STATE;
+    }
+#endif
 #endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     if (wt_hsm_attest_restore((g_spm_iak_public_len != 0u) ?
@@ -277,6 +356,13 @@ int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     int ret;
 
+#if defined(WT_ENGINE_HSM) && (defined(CONFIG_PKCS11) || \
+    defined(CONFIG_TPM)) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+    ret = wt_spm_hsm_init_provider_namespace();
+    if (ret != WT_FFM_SUCCESS) {
+        return ret;
+    }
+#endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     /* Taken before the store is rebound to the door view, which the boot
      * context cannot call through. */
@@ -793,3 +879,82 @@ int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
                             (void*)(intptr_t)partition_id);
 }
 #endif /* CONFIG_VNET */
+
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+#ifndef WT_INTERFACE_APP_GUEST
+#define WT_INTERFACE_APP_GUEST 0
+#endif
+
+#if defined(CONFIG_TPM)
+/* The partition runs fwTPM in its own protection domain. */
+static int wt_spm_interface_bind(void)
+{
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+    void* context = NULL;
+#endif
+
+    wt_tpm_relay_set_transport(wt_spm_svc_transport);
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (wt_provider_crypto_init() != 0 ||
+            wt_tpm_local_provider_init(&context) != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+    wt_tpm_relay_set_local_provider(wt_tpm_local_provider_process, context);
+    wt_tpm_relay_set_client(-(WT_INTERFACE_APP_GUEST + 1));
+#endif
+    return WT_FFM_SUCCESS;
+}
+#else
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+static int wt_spm_pkcs11_local_dispatch(uint8_t* request,
+                                        size_t request_len,
+                                        uint8_t* response,
+                                        size_t response_cap,
+                                        size_t* response_len,
+                                        void* context)
+{
+    if (wt_provider_crypto_prepare() != 0) {
+        *response_len = 0U;
+        return -1;
+    }
+    return wt_pkcs11_provider_dispatch(request, request_len, response,
+                                       response_cap, response_len, context);
+}
+#endif
+
+static int wt_spm_interface_bind(void)
+{
+    wt_pkcs11_relay_set_transport(wt_spm_svc_transport);
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (wt_provider_crypto_init() != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+    wt_pkcs11_relay_set_local_provider(wt_spm_pkcs11_local_dispatch, NULL);
+    wt_pkcs11_relay_set_client(-(WT_INTERFACE_APP_GUEST + 1));
+#endif
+    return WT_FFM_SUCCESS;
+}
+#endif
+
+static void wt_spm_interface_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+
+#if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
+    partition_id = WT_BAND_PROBE_ID(arg);
+    wt_spm_interface_partition_probe(arg);
+#endif
+    if (wt_spm_interface_bind() != WT_FFM_SUCCESS) {
+        psa_panic();
+    }
+    for (;;) {
+        (void)wt_spm_interface_dispatch(NULL, NULL, partition_id);
+    }
+}
+
+int wt_spm_interface_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_interface_entry,
+                            (void*)(intptr_t)partition_id);
+}
+#endif /* CONFIG_TPM || CONFIG_PKCS11 */

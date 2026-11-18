@@ -3,6 +3,8 @@ name: Build manual with documentation tooling
 on:
   pull_request:
     paths:
+      - 'README.md'
+      - 'AGENTS.md'
       - 'docs/**'
       - 'DOCS-BUILD.md'
       - 'mkdocs.yml'
@@ -13,6 +15,8 @@ on:
   push:
     branches: [main]
     paths:
+      - 'README.md'
+      - 'AGENTS.md'
       - 'docs/**'
       - 'DOCS-BUILD.md'
       - 'mkdocs.yml'

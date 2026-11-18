@@ -1,7 +1,7 @@
 # PSA Compatibility
 
 wolfTrust exposes selected [PSA APIs](https://arm-software.github.io/psa-api/)
-through its STM32H563 reference applications and Secure services. This page
+through its reference applications and Secure services. This page
 records the implemented Crypto, Secure Storage, Initial Attestation, and
 Firmware Update surface against the cited Arm specifications. Algorithms and
 features depend on the selected build. The known deviations below prevent a
@@ -9,6 +9,11 @@ claim of full PSA API conformance or certification.
 
 The Secure Partition Manager and IPC contract are documented separately in
 [FF-M Compatibility](FF-M-Compatibility.md).
+
+[Ports](Ports.md) lists the crypto engines and test coverage available on each
+target. The default image includes Crypto, ITS, Protected Storage, and Initial
+Attestation. Firmware Update requires `WT_FWU=1`; VNET is an optional
+STM32H563 configuration. The STM32L562 port supports the native engine only.
 
 ## PSA specification sections
 

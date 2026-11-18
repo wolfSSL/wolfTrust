@@ -7,12 +7,13 @@ Secure service dispatch. Architecture and target ports provide the execution,
 memory-protection, interrupt, storage, entropy, and boot mechanisms needed to
 enforce that policy.
 
-The only currently supported and validated reference implementation combines
-the Armv8-M adapter with the STM32H563 port. Its default configuration runs
-one Non-secure guest on one Cortex-M33 (two with `WT_MAX_GUESTS=2`, as the
-`full` build profile does) and exposes Secure services only through FF-M IPC. These are current reference-port choices. The common policy and
-service design is intended for reuse, but current internal contracts still
-contain Armv8-M-specific types and assumptions.
+The registered STM32H563, MIMXRT700, MCXN947, and STM32L562 ports share the
+Armv8-M adapter. STM32H563 is the reference implementation; each board guide
+records its own validation scope in [supported targets](Targets.md).
+The default configuration runs one Non-secure guest on one Cortex-M33
+(two with `WT_MAX_GUESTS=2`, as the `full` build profile does) and exposes
+Secure services only through FF-M IPC. Policy and service code is shared
+across these ports. Armv8-M is the only implemented architecture adapter.
 
 ## Software stack
 
@@ -28,13 +29,17 @@ contain Armv8-M-specific types and assumptions.
 
 ## Portability boundary
 
-Most policy and service code lives under `src/` outside `src/arch/`, but the
-current internal contracts still expose Armv8-M exception-frame and
-MPU-oriented types. `src/arch/armv8m/` supplies the CMSE gateway and pointer
-checks, Secure Partition coroutine switching, and the Secure SVC transport.
-The companion `port/stm32h563/` supplies device startup and guest exception
-paths, context handling, GTZC attribution, guest and Secure MPU programming,
-interrupt routing, flash, entropy, timers, and boot handoff.
+Policy and service code lives under `src/` outside `src/arch/`.
+`src/arch/common/` supplies the shared SPM gate, scheduling, recovery, and PSA
+API bodies over `wolftrust/arch.h`. `src/arch/armv8m/` supplies CMSE checks,
+context switching, exception handling, timers, SAU/MPU programming, and the
+Secure SVC transport.
+
+`port/common/armv8m/` supplies the shared platform skeleton, partition tables,
+isolation-band layout, and linker script. Each `port/<soc>/` supplies its
+registered device facts, memory map, fabric-attribution hooks, flash and RNG
+drivers, and target-specific checks. Manifests are rendered from the shared
+template under the selected build layout.
 
 Additional Cortex-M ports may reuse the existing interfaces when their
 execution and protection models match. See [Porting](Porting.md) for the
@@ -45,7 +50,7 @@ current boundary.
 1. wolfBoot verifies the wolfTrust image and transfers a measured-boot record
    containing the Secure image measurement, lifecycle, and active image
    version.
-2. wolfTrust configures the target's TrustZone, GTZC, Secure MPU, interrupt,
+2. wolfTrust configures the target's TrustZone, fabric attribution, Secure MPU, interrupt,
    and memory policies; binds the generated manifest, which the build has
    already validated against the port's capabilities; registers
    the FF-M services; seeds each guest context; and performs an initial

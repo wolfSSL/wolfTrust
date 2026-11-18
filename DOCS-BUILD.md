@@ -6,6 +6,17 @@ shared MkDocs theme and Pandoc/LaTeX PDF rules in
 [`wolfSSL/documentation`](https://github.com/wolfSSL/documentation). Keep manual
 content and its navigation in wolfTrust; generated files stay under `build/`.
 
+Keep documentation links in `README.md` pointed at the source pages under
+`docs/`. Within the manual, use relative links to other manual pages so the
+same source works on GitHub and in generated HTML and PDF. Link source files
+outside `docs/` to their location in the wolfTrust GitHub repository.
+
+Every top-level Markdown page in `docs/` must appear exactly once in
+`mkdocs.yml`. Add new guides and other pages to the README and manual index
+too. The adapter refuses missing or duplicate navigation entries; strict
+MkDocs builds check the generated HTML links, and PDF preparation checks
+manual heading references.
+
 ## Local build
 
 Clone the documentation build tools at the revision used by wolfTrust CI:
@@ -54,8 +65,19 @@ npx --yes @mermaid-js/mermaid-cli@12.0.0 \
 
 ## Website update
 
+The planned public locations are:
+
+- [Full wolfTrust manual (HTML)](https://www.wolfssl.com/documentation/manuals/wolftrust/)
+- [wolfTrust Manual (PDF)](https://www.wolfssl.com/documentation/manuals/wolftrust/wolfTrust-Manual.pdf)
+
+These links become the public copies after the integration and website upload
+are enabled. Before then, `docs/` and the `wolftrust-manual` CI artifact are
+the available documentation.
+
 The one-time integration in `wolfSSL/documentation` adds a `wolfTrust` manual
-target beside wolfBoot and wolfHSM. It clones `wolfSSL/wolfTrust` **main**, runs
+target beside wolfBoot and wolfHSM
+([documentation PR #283](https://github.com/wolfSSL/documentation/pull/283)).
+It clones `wolfSSL/wolfTrust` **main**, runs
 the adapter from that checkout, and exports `wolfTrust-html/` and
 `wolfTrust-Manual.pdf` through the documentation repository's existing Docker
 build. Merge the wolfTrust adapter before that integration so its source is

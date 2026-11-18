@@ -3,7 +3,11 @@
 This page describes the public client and Secure Partition interfaces present
 in the repository. Header files are authoritative; algorithm availability in
 PSA Crypto also depends on the selected wolfPSA and wolfCrypt build
-configuration.
+configuration. The default image provides Crypto, ITS, Protected Storage,
+and Initial Attestation; Firmware Update requires `WT_FWU=1`. See
+[FF-M Compatibility](FF-M-Compatibility.md) for the framework contract,
+[PSA Compatibility](PSA-Compatibility.md) for service deviations, and
+[Ports](Ports.md) for target capabilities.
 
 ## Table of Contents
 

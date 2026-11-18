@@ -347,9 +347,10 @@ The Secure image and both guest images must use the same engine. See
 
 ## Measured Secure-image cost
 
-These Secure-image measurements were taken on 2026-11-17 with Arm GNU 15.2.1
-in `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`, LTO on, and the repository
-defaults other than the engine, the profile and the output directory:
+These STM32H563 Secure image measurements use Arm GNU 15.2.1 in
+`ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO enabled.
+[Footprint](Footprint.md) records measurements and configurations for each port.
+To reproduce the engine builds:
 
 ```sh
 make BUILD_DIR=build_size_native WT_ENGINE=native secure-image

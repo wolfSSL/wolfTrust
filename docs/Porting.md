@@ -397,6 +397,11 @@ A port is its own files and nothing else:
 (`tools/gen-port-docs.py`), so a port PR carries their regenerated copies and
 no other shared file.
 
+Add the board guide to `mkdocs.yml`, the documentation list in `README.md`,
+and the index at `docs/index.md` in the same change. Keep its evidence and
+limitations in the guide and link it from [supported targets](Targets.md).
+The manual adapter checks that every Markdown page appears in its navigation.
+
 `tools/new-port/new-port.sh <soc> --from <port>` scaffolds every file from
 the closest registered port with a stub on every value the reference manual
 must settle, and `--check` reports the stubs still open and runs the registry

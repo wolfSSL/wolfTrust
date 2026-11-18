@@ -1,4 +1,86 @@
-# Historical Secure-image Footprint Comparison
+# Footprint Comparison
+
+These are recorded local measurements, not compatibility or certification
+claims. [Footprint](Footprint.md) documents the wolfTrust size accounting,
+build options, and per-port measurements; [FF-M Compatibility](FF-M-Compatibility.md)
+records the framework contract separately.
+
+## STM32L562 comparison
+
+This comparison was recorded before the current STM32L562 layout and shared
+port layer. It has not been remeasured for this documentation update. The
+[STM32L562 Guide](STM32L562-Guide.md#status) records the current layout and
+validation status. The CI size budget below retains the recorded threshold;
+it is not a claim that every current image has the exact sizes in this table.
+
+Both projects were built for the same board (STM32L562E-DK) at isolation
+level 3 with the same compiler (Arm GNU 15.2.1), each with its own size
+options. These are local builds, not published reference figures.
+
+| Image | Flash | Secure RAM |
+| --- | ---: | ---: |
+| wolfTrust Secure runtime, native default | 69,496 bytes | 45,280 bytes |
+| TF-M v2.3.1 `tfm_s`, level 3 | 79,680 bytes | 45,728 bytes |
+| wolfBoot, STM32L5 secure application handoff | 27,216 bytes | 2,104 bytes |
+| TF-M BL2 (MCUboot, EC-P256) | 38,744 bytes | 27,408 bytes |
+| Chain: wolfBoot + wolfTrust | 96,712 bytes | |
+| Chain: BL2 + TF-M | 118,424 bytes | |
+
+The wolfTrust runtime is 10,184 bytes smaller in flash and 448 bytes smaller
+in Secure RAM; the boot chain is 21,712 bytes smaller in flash. Both RAM
+figures include every partition stack (see Methodology). The bootloader's RAM
+is reused by the runtime, so the RAM figures are not summed. The
+cross-compile workflow fails if any port's lean native default image grows
+past TF-M's 79,680 bytes of flash or 45,728 bytes of Secure RAM, plus the RAM
+code band (`WT_RAMFUNC_SIZE`) of a port that runs code from RAM.
+
+Both images carry Crypto, Internal Trusted Storage, Protected Storage and
+Initial Attestation with one Non-secure image; TF-M also builds its platform
+service, and neither builds Firmware Update. They differ in how level 3 is applied: TF-M's
+STM32L5 profile runs the PSA RoT partitions (Crypto, ITS, attestation,
+platform) privileged, while wolfTrust runs every
+Secure Partition unprivileged with its own MPU regions. Each wolfTrust
+feature the default leaves out comes back with one Make variable; see
+[Build profiles](Macros.md#build-profiles) for each one's cost.
+
+### Methodology
+
+Footprint is read from the linked Secure ELF and its map:
+
+```text
+Flash      = text + data
+Secure RAM = all RAM the Secure image reserves, partition stacks included
+```
+
+- TF-M places every partition stack and the SPM stack in sections
+  (`.ER_TFM_SP_*_BSS`, `.msp_stack`), so `data + bss` from
+  `arm-none-eabi-size` is its whole reservation.
+- wolfTrust's level 3 partition stacks and data bands are linker regions with
+  no section in them, which `data + bss` leaves out. `tools/secure_ram.py`
+  (printed by `make size-report`) adds them from the map: the SPM's
+  `.data` + `.bss`, the SPM main stack, and every band and stack at its full
+  length.
+- Neither figure counts Secure RAM a port leaves free.
+
+- wolfTrust: the STM32L562 port on its earlier layout, before the shared port
+  layer landed, built with its defaults (native engine, LTO, one guest):
+  `make TARGET=stm32l562 secure-image` in
+  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. The same defaults give 70,432
+  bytes of flash and 45,260 bytes of Secure RAM for `TARGET=stm32h563` in this
+  tree.
+- wolfBoot: `config/examples/stm32l5-tz-wolftrust.config` (ECC256, SHA256,
+  `WOLFBOOT_SECURE_APP=1`).
+- TF-M: v2.3.1, platform `stm/stm32l562e_dk`, `TFM_ISOLATION_LEVEL=3`,
+  `CMAKE_BUILD_TYPE=MinSizeRel`, the TF-PSA-Crypto Medium profile
+  (`crypto_config_profile_medium.h`) with asymmetric encryption off,
+  `TFM_PARTITION_FIRMWARE_UPDATE=OFF`, SPM and partition logging off,
+  `CRYPTO_HW_ACCELERATOR=OFF`, BL2 with EC-P256 signatures.
+
+## Historical cross-platform comparison
+
+This earlier comparison uses `data + bss` for static RAM, which excludes
+wolfTrust linker-only stack and band reservations. Its RAM figures are not
+comparable to the complete Secure RAM accounting above.
 
 This is a dated local comparison, not a standards-compatibility claim.
 The wolfTrust rows use the STM32H563 reference manifest with
@@ -22,7 +104,7 @@ The wolfHSM engine remains smaller in flash than TF-M Large but uses more
 static RAM because it adds per-guest server state and stacks. These results do
 not imply that the projects, platforms, or enabled feature sets are identical.
 
-## Methodology
+### Historical methodology
 
 All five images were built on `wolf-prec5560` with
 `arm-none-eabi-gcc (15:13.2.rel1-2) 13.2.1 20231009`. The wolfTrust builds

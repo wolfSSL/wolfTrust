@@ -1,8 +1,10 @@
 # Services
 
-The STM32H563 manifest describes connection-based FF-M 1.0 IPC services. The
-default image contains five Secure services. `WT_FWU=1` adds the update
-service, and `CONFIG_VNET=y` selects a manifest with the network service.
+The shared manifest describes connection-based FF-M 1.0 IPC services for
+every registered port. The default image contains five Secure services.
+`WT_FWU=1` adds the update service, and `CONFIG_VNET=y` selects the optional
+STM32H563 network configuration. [Ports](Ports.md) lists each port's engines
+and supported variants.
 
 ## Service registry
 

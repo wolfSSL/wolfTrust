@@ -1,10 +1,14 @@
 # Building
 
-The supported Secure build tuple is Armv8-M on STM32H563. The root Makefile
-includes `mk/target-stm32h563.mk`, `mk/layout.mk`, `mk/arch-armv8m.mk`, and
+The Secure build supports the Armv8-M ports listed in [Ports](Ports.md):
+STM32H563 (the default), MIMXRT700, MCXN947, and STM32L562. Select one with
+`TARGET=<port>`. The root Makefile includes `mk/target-<port>.mk`,
+`mk/layout.mk`, `mk/arch-armv8m.mk`, and
 `mk/common.mk` (target facts, the resolved layout configuration, architecture
 facts, and the shared build in that order) and cross-compiles a freestanding
-Cortex-M33 image.
+Cortex-M33 image. STM32L562 supports only `WT_ENGINE=native`; the other ports
+also support `WT_ENGINE=hsm`. Board guides describe each port's prerequisites
+and memory layout.
 
 ## Prerequisites
 
@@ -112,8 +116,9 @@ make WT_CONFORMANCE=1
 The generator is constrained to FF-M framework version `0x0100`,
 feature mask `0x1` (connection-based IPC), and 32-bit addresses.
 Unsupported capabilities or an invalid resource layout stop the build.
-The generator also checks the manifest against the port's
-`platform_caps.h` limits and each partition stack against the linked level 3
+The generator also checks the manifest against the shared Armv8-M
+`port/common/armv8m/platform_caps.h` limits, any port overrides, and each
+partition stack against the linked level 3
 layout. Without `WT_FWU=1` it leaves the update partition out
 (`--exclude-partition PARTITION_FWU`).
 

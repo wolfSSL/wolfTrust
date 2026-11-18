@@ -39,7 +39,9 @@ their text is in the specification.
   bounded budget, instead of staying terminated.
 - Non-secure guests run privileged. Isolation between guests is a wolfTrust
   hypervisor property outside FF-M; see [Guest isolation](#guest-isolation).
-- The claim covers the STM32H563 port. The MIMXRT700 port does not make it yet.
+- The claim covers the STM32H563 reference port. Other ports share the level 3
+  implementation, but their emulator and hardware evidence must be assessed
+  separately in [supported targets](Targets.md) and the board guides.
 
 ### Evidence
 
@@ -196,21 +198,15 @@ Mechanical checks:
 - A request from a partition is copied once into SPM memory and checked against
   that partition's own table.
 
-Privileged handlers keep the SPM view. Flash, entropy, the NVM lock, and reset
-are SVC operations that check the calling partition, and the state they use
-lives in SPM-private RAM.
-
 ### Partition restart
 
 A restarted partition keeps nothing from its previous instance. Requests it was
 serving fail, the connections and handles it held are released, its signals and
 interrupt lines are cleared and masked, its stack is cleared, and its band is
-restored from the link image. Only the NVM store persists.
+restored from the link image and rebuilt from SPM-owned boot and key inputs.
+Only the NVM store persists.
 
-### Processor state and the SPM
-
-Persistent state is the NVM store alone. Nothing in a partition's RAM survives
-its restart.
+### Privileged hardware access
 
 Privileged handlers retain the SPM view. Flash, entropy, NVM lock, and reset
 operations are available only through narrow SVC operations that check the
@@ -303,7 +299,7 @@ assembly-referenced objects are compiled without LTO so their symbols and
 calling conventions stay stable. State from an optimized link unit can only
 land in SPM-private RAM.
 
-[`tools/secure_owners.txt`](../tools/secure_owners.txt) gives every linked
+[`tools/secure_owners.txt`](https://github.com/wolfSSL/wolfTrust/blob/main/tools/secure_owners.txt) gives every linked
 object one owner: a partition, the SPM, or `shared` for code that runs in more
 than one domain. The post-link layout check reads the linker map and rejects:
 

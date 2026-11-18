@@ -55,9 +55,10 @@ Measured 2026-11-17, with wolfCrypt built as portable C (the default). The `full
 | STM32L562 | native | 69,496 | 45,280 | 78,928 | 58,780 |
 
 The MIMXRT700 RAM includes its 4 KiB RAM code band (the NSC gateway and the
-NOR program code). The STM32L562 figures were measured on the STM32L562 port,
-which is under review and not yet in this tree, merged with these sources
-before the shared port layer landed. That port builds the native engine only.
+NOR program code). The STM32L562 figures were measured on the port's earlier
+layout before the shared port layer landed. The port is now in this tree; its
+[guide](STM32L562-Guide.md#status) records the current layout and validation
+status. That port builds the native engine only.
 Update this table and its date when a change moves an image size.
 
 ## Options that change the size

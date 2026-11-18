@@ -7,15 +7,21 @@ common runtime implements Arm Platform Security Architecture (PSA) Firmware
 Framework for M (FF-M) interprocess communication (IPC), manifest policy,
 scheduling, lifecycle management, fault recovery, and services.
 
-The currently supported and validated reference implementation combines
-the Armv8-M adapter with the STM32H563 Cortex-M33 port. Additional Cortex-M
-ports may reuse the common runtime and, where applicable, the Armv8-M layer.
+The Armv8-M adapter supports STM32H563, MIMXRT700, MCXN947, and STM32L562.
+They share the common runtime and isolation layer; [supported targets](Targets.md)
+and the board guides record each port's engines, capabilities, and validation.
+STM32H563 is the reference implementation. The default image runs one guest;
+`WT_MAX_GUESTS=2` adds the second guest.
 
-[Download the wolfTrust Manual (PDF)](https://www.wolfssl.com/documentation/manuals/wolftrust/wolfTrust-Manual.pdf)
+The version-controlled pages in this directory are the primary documentation
+source. Once published, the [full wolfTrust manual](https://www.wolfssl.com/documentation/manuals/wolftrust/)
+will also be available as HTML and a
+[downloadable PDF](https://www.wolfssl.com/documentation/manuals/wolftrust/wolfTrust-Manual.pdf).
+Before publication, documentation CI provides both formats as review artifacts.
 
 ## Architecture
 
-![wolfTrust architecture from authenticated boot through guest clients, FF-M services, and the STM32H563 port](assets/architecture.png)
+![wolfTrust architecture from authenticated boot through guest clients, FF-M services, and the selected Armv8-M port](assets/architecture.png)
 
 The optional wolfIP/VNET reference uses separate bare-metal guests, not the
 Zephyr and FreeRTOS PSA guest pair.
@@ -61,7 +67,12 @@ port's five CMSE gateway veneers.
 | [Footprint](Footprint.md) | Measured image sizes and the options that change them |
 | [Porting](Porting.md) | Architecture and target port contracts |
 | [Building](Building.md) | Build targets, outputs, and cross-build options |
-| [Testing](Testing.md) | Host, M33MU, STM32H563, and MIMXRT700 validation |
+| [Testing](Testing.md) | Host, M33MU, and hardware validation for registered ports |
 | [Provisioning](Provisioning.md) | Rehearse, validate, then lock: the production life cycle flow for every port |
 | [Project Structure](Project-Structure.md) | Repository layout |
 | [Ports](Ports.md) | Every registered port with its board guide, CI, emulator and hardware tiers (generated) |
+| [STM32H5 Guide](STM32H5-Guide.md) | NUCLEO-H563ZI setup and validation |
+| [MIMXRT700 Guide](MIMXRT700-Guide.md) | MIMXRT700-EVK setup and validation |
+| [MCXN947 Guide](MCXN947-Guide.md) | FRDM-MCXN947 setup and validation |
+| [STM32L562 Guide](STM32L562-Guide.md) | STM32L562E-DK layouts, native-engine build, and validation |
+| [Coding Standard](Coding-Standard.md) | C source rules and local checks |

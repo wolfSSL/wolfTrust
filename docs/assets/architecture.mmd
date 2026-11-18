@@ -1,12 +1,12 @@
 flowchart TB
     BOOT["wolfBoot authenticated loader"]
-    ZEPHYR["Zephyr guest"]
-    FREERTOS["FreeRTOS guest"]
+    ZEPHYR["Guest A: Zephyr, FreeRTOS, or bare metal"]
+    FREERTOS["Optional guest B"]
     CLIENT["wolfPSA client and selected crypto engine"]
     GATE["FF-M client gateway"]
     SPM["wolfTrust SPM: identity, policy, IPC"]
-    SERVICES["Secure crypto, storage, attestation, update"]
-    PORT["Armv8-M and STM32H563 port"]
+    SERVICES["Secure crypto, storage, attestation; optional update"]
+    PORT["Armv8-M and selected target port"]
 
     ZEPHYR --> CLIENT
     FREERTOS --> CLIENT

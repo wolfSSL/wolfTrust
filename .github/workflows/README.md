@@ -19,8 +19,11 @@ An accepted upload queues analysis; results appear after Coverity processes it.
 
 `docs-site.yml` builds the HTML and PDF manual with the shared
 `wolfSSL/documentation` tooling for documentation pull requests and merges to
-`main`. The website's existing documentation update picks up merged changes
-through the documentation repository. See [DOCS-BUILD.md](../../DOCS-BUILD.md).
+`main`. It includes every page in `mkdocs.yml`, including the generated port
+registry and board guides, and uploads the `wolftrust-manual` review artifact.
+After the companion documentation integration and website upload are enabled,
+the nightly documentation update will read merged pages from wolfTrust `main`.
+See [DOCS-BUILD.md](../../DOCS-BUILD.md).
 
 ## At a glance
 

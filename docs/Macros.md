@@ -8,8 +8,8 @@ selected values into C preprocessor defines. Defaults below come from
 ## Build profiles
 
 `make` with no options builds the lean default image. It runs at isolation
-level 3 with one Non-secure image and the PSA services a TF-M level 3 build
-ships: Crypto, Internal Trusted Storage, Protected Storage, and Initial
+level 3 with one Non-secure image and the PSA services Crypto, Internal
+Trusted Storage, Protected Storage, and Initial
 Attestation. The manifest is checked at build time. Each add-on below turns one feature back on with one Make variable.
 None of them changes the isolation level.
 
@@ -17,12 +17,11 @@ Costs are over the default image, built with Arm GNU 15.2.1 in
 `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO and read with
 `make size-report`: flash is `text + data`, and RAM is the Secure RAM the image
 reserves, partition stacks and bands included ([Footprint](Footprint.md#how-sizes-are-measured)).
-The default native image serves PSA Crypto from the Secure image and is
-109,849 bytes of flash and 48,844 bytes of RAM on the STM32H563, with wolfCrypt
-built as portable C. The other rows are measured over the `WT_SECURE_PSA=0`
-image, 70,400 and 45,260 bytes on the STM32H563, and 69,496 and 45,280 bytes
-on the STM32L562 (measured on the STM32L562 port, which is under review and not
-yet in this tree).
+The default native image serves PSA Crypto from the Secure image. On
+STM32H563 it measured 109,849 bytes of flash and 48,844 bytes of Secure RAM.
+The add-on costs below were measured with `WT_SECURE_PSA=0`. The baselines
+were 70,400 bytes of flash and 45,260 bytes of RAM on STM32H563 and
+69,496 bytes of flash and 45,280 bytes of RAM on STM32L562.
 [Footprint](Footprint.md) logs the sizes of every port and engine.
 
 | Option | Brings back | STM32H563 flash / RAM | STM32L562 flash / RAM | Enable |
@@ -183,7 +182,7 @@ build `full` only, because their checks assert both guests.
 | `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `0`, the portable C `sp_c32.c`, which is smaller. `1` trades flash for faster ECC and, on the native engine, raises the crypto partition stack from 5 KiB to 9 KiB for its deeper P-256 verify. | `1` requires compatible Armv8-M assembly sources and toolchain. |
 | `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `0`, portable C AES with small tables. `1` trades flash for faster AES and SHA-256. | `1` requires a compatible GNU Arm toolchain and `WT_SECURE_PSA=0`: the Thumb-2 AES is not constant time, which wolfPSA refuses. [`WT_SHA256_FAST`](#wt_sha256_fast-unrolled-sha-256) picks the SHA-256 transform either way. |
 | `WT_WOLFCRYPT_STM32_HASH` | STM32 HASH acceleration selector; default `0`. | Must remain `0`: the Makefile rejects other values because wolfHSM SHA state is not compatible with the peripheral representation. |
-| `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | STM32H563 only; MIMXRT700 rejects this selector because it has no conformance manifest. |
+| `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | Use only for conformance builds; the selected port must register the `conformance` variant in [Ports](Ports.md). All current ports do. |
 
 ## Image layout
 
@@ -197,7 +196,7 @@ build `full` only, because their checks assert both guests.
 | `WT_GUEST0_FLASH_SIZE` | Guest 0 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
 | `WT_GUEST1_FLASH_SIZE` | Guest 1 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
 | `WT_L3_SPM_RAM_SIZE` | SPM-private RAM band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x0004D000`). | Moves every level 3 band above it; the keystore bands, partition stacks and conformance window follow. |
-| `WT_SP_HSM_DATA_SIZE` | Crypto partition data band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x00011800`). | Must hold the engine's working set; the post-link layout check reports an overflow. |
+| `WT_SP_HSM_DATA_SIZE` | Crypto partition data band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x600` native, `0x6000` wolfHSM). | Must hold the engine's working set; the post-link layout check reports an overflow. |
 | `WT_LD_RAM_CODE_BAND` | `1` links the NSC gateway and the flash program code into the RAM code band; default `0` (`1` for `TARGET=mimxrt700`). | The port's `memory_map.h` must define `WT_RAMFUNC_BASE` and `WT_RAMFUNC_SIZE`. |
 
 Every layout input is a Make variable that `mk/layout.mk` resolves once into
@@ -216,7 +215,7 @@ guest linker files, measurement records, and flash commands consistent.
 ## Virtual network options
 
 - `CONFIG_VNET`: Select the VNET manifest and link the Secure switch when set
-  to `y`; default `n`. STM32H563 only; MIMXRT700 rejects this selector. Both
+  to `y`; default `n`. Only STM32H563 registers the `vnet` build variant. Both
   guests need the matching transport and memory layout.
 - `WT_VNET_POOL_SLOTS`: Secure frame-pool slot count; default `8`. Static VNET
   data must fit its manifest region.

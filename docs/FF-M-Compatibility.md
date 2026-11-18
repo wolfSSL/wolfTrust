@@ -4,7 +4,10 @@ wolfTrust targets conformance with the [Arm Firmware Framework for M (FF-M)
 1.0 specification](https://documentation-service.arm.com/static/64a2ed35df6cd61d528c4132).
 It is an alternative Secure Partition Manager and services runtime for supported
 Cortex-M systems, with its own image, manifest, build, and port integration.
-The currently supported reference port is STM32H563 Cortex-M33.
+The STM32H563 is the reference port; [Ports and supported targets](Targets.md)
+covers MIMXRT700, MCXN947, and STM32L562 as well. Framework compatibility is
+with the Arm specification; wolfTrust has its own SPM and does not require the
+Trusted Firmware-M (TF-M) runtime or build system.
 
 This page records the implemented FF-M 1.0 surface and known differences. It is
 not a full conformance statement. The [PSA Compatibility](PSA-Compatibility.md)
@@ -27,7 +30,7 @@ page covers Crypto, Storage, Attestation, and Firmware Update APIs separately.
 | Secure Partition IPC API | FF-M 1.0 plus a wolfTrust-specific backport of `psa_irq_enable()` from [Arm's FF-M 1.1 Extension Beta, Issue 0](https://developer.arm.com/documentation/aes0039/latest) | Supported for scheduled IPC partitions. The public client contract reports at most `0x0100`. The manifest validator accepts 1.1 partition metadata, but the current runtime rejects 1.1 partitions during activation. | `include/psa/service.h`, `include/psa/client.h`, `src/arch/common/spm_sp_api.c`, `src/manifest.c`, and `src/ffm.c` |
 | Framework and service discovery | 1.0 | Supported | `psa_framework_version` and `psa_version` |
 | Copied input and output vectors | FF-M 1.0 | Supported, with at most four vectors total and a 1024-byte aggregate budget across input bytes and declared output capacity | `include/wolftrust/ffm.h` and `src/ffm.c` |
-| Manifest validation | wolfTrust format 1 | Supported for immutable generated C data | `tools/manifest/generate.py`, `src/manifest.c`, and `port/stm32h563/manifest.json` |
+| Manifest validation | wolfTrust format 1 | Supported for immutable generated C data rendered under the selected build layout | `manifest/base.json`, its overlays, `tools/manifest/render.py`, `tools/manifest/generate.py`, and `src/manifest.c` |
 | Root of Trust (RoT) lifecycle query | FF-M 1.0 | Secure Partition only; there is no Non-secure adapter or veneer | `include/psa/lifecycle.h` and `src/arch/common/spm_sp_api.c` |
 | Secure Partition signals and IRQ APIs | FF-M 1.0 plus one wolfTrust-specific beta-extension backport | The 1.0 signal APIs and `psa_eoi` are supported; only `psa_irq_enable()` is backported from the [FF-M 1.1 Extension Beta, Issue 0](https://developer.arm.com/documentation/aes0039/latest), while `psa_irq_status_t`, `psa_irq_is_enabled`, `psa_irq_disable`, and `psa_irq_restore` are absent | `include/psa/service.h` and the Armv8-M supervisor-call (SVC) implementation |
 | Guest identity | FF-M convention | Non-secure guest `N` is client `-(N + 1)` | `src/arch/armv8m/ffm_nsc.c` |
@@ -37,7 +40,7 @@ page covers Crypto, Storage, Attestation, and Firmware Update APIs separately.
 | Difference | Classification | Reason and impact |
 | --- | --- | --- |
 | wolfTrust exposes the FF-M Non-secure client API through one five-function Cortex-M Security Extensions (CMSE) gateway. | Implementation detail | The gateway exports framework version, service version, connect, call, and close; Secure Partition entry points are a separate manifest concern. |
-| Only connection-based IPC services are enabled in the reference build. | Scoped | The STM32H563 manifest requests only `WT_MANIFEST_FEATURE_IPC`. It does not enable stateless-function (SFN) partitions, stateless services, or memory-mapped I/O vectors. The common manifest validator recognizes their 1.1 feature bits, but the runtime activates only IPC partitions with a framework version no newer than `0x0100`. |
+| Only connection-based IPC services are enabled. | Scoped | The shared manifest requests only `WT_MANIFEST_FEATURE_IPC`. Secure Function (SFN) partitions, stateless services, memory-mapped I/O vectors, and framework versions newer than `0x0100` are rejected during production manifest generation. The runtime also refuses those features at activation. |
 | IPC uses fixed copied buffers. | Scoped safety bound | Calls are limited to four vectors and a 1024-byte transfer budget. Services apply smaller bounds. Applications must chunk larger data. |
 | A Non-secure connect, call, or close cannot remain pending after the scheduler reaches quiescence for that dispatch. | Scoped deviation | An incomplete message becomes a client error. If already claimed, the service retains its message until reply or partition fault; late output is discarded. A late call reply releases the message, but the connection remains in error until the client requests close. If close was already requested, the late reply allows deferred disconnection to proceed. Shipped Non-secure-facing services reply within the dispatch; Secure Partition callers use the begin/finish path when scheduling another partition is required. |
 | Secure services are linked in one image. | Scoped isolation difference | Service writable state is isolated by unprivileged threads and Secure MPU domains, but executable text is shared rather than separately linked. |

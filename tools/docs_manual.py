@@ -94,6 +94,13 @@ def stage(documentation_root, source_root):
     header = (documentation_root / "wolfBoot" / "header.txt").read_text()
     header = header.replace("wolfBoot Documentation", "wolfTrust Manual")
     header = re.sub(r"(\\copyright\s+)\d{4}", r"\g<1>2026", header)
+    # Permit long inline identifiers and source paths to wrap in PDF tables.
+    header = header.replace(
+        "header-includes:\n",
+        "header-includes:\n"
+        r"    - \usepackage{seqsplit}" "\n"
+        r"    - \DeclareRobustCommand{\texttt}[1]{{\ttfamily\seqsplit{#1}}}" "\n",
+    )
     (manual / "header.txt").write_text(header)
     return manual
 

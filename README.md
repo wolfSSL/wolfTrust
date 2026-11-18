@@ -7,9 +7,10 @@ common runtime provides interprocess communication (IPC) through the Arm
 Platform Security Architecture (PSA) Firmware Framework for M (FF-M), manifest
 policy, lifecycle management, scheduling, fault recovery, and PSA services.
 
-The Armv8-M adapter has two target ports: STM32H563 and NXP MIMXRT700. They
-share the core runtime and architecture layer, with different device security
-controls and validation coverage. See [Ports and supported targets](docs/Targets.md).
+The Armv8-M adapter supports STM32H563, MIMXRT700, MCXN947, and STM32L562.
+They share the core runtime and architecture layer, with different device
+security controls, crypto-engine support, and validation coverage. See
+[Ports and supported targets](docs/Targets.md).
 
 ## Architecture
 
@@ -25,7 +26,7 @@ flowchart TB
     subgraph PORT[Architecture and target ports]
         GW[Client gateway<br/>current: five Armv8-M CMSE veneers]
         ARCH[Architecture adapter<br/>current: Armv8-M]
-        TARGET[Target and board port<br/>STM32H563 or MIMXRT700]
+        TARGET[Target and board port<br/>STM32H563, MIMXRT700, MCXN947, or STM32L562]
         GW --- ARCH
         ARCH --- TARGET
     end
@@ -47,7 +48,7 @@ flowchart TB
     end
 
     subgraph LIBS[wolfSSL ecosystem components]
-        PSA[wolfPSA<br/>guest wolfCrypt and wolfHSM client]
+        PSA[wolfPSA<br/>guest wolfCrypt; optional wolfHSM client]
         WC[Secure wolfCrypt<br/>optional wolfHSM server]
         COSE[wolfCOSE]
         HAL[wolfHAL]
@@ -88,15 +89,15 @@ current reference port, not a requirement imposed on every intended port.
 
 ## Ports
 
-wolfTrust currently supports three ports; each guide covers the board, the
-first-stage loader contract, and the runners:
+Each port's guide covers the board, the first-stage loader contract, and the
+runners:
 
 - every registered port, its board and guide: [Ports](docs/Ports.md)
   (generated from `port/<soc>/port.json`)
 
-All build with `TARGET=<port>` (`stm32h563` is the default) and run the
-same scenario set under the M33MU emulator with `make test-target
-TARGET=<port>`.
+Build with `TARGET=<port>` (`stm32h563` is the default). Run the port's
+registered M33MU smoke scenarios with `make test-target TARGET=<port>`.
+STM32L562 supports the native engine; the other ports support both engines.
 
 ## Quick start
 
@@ -141,6 +142,7 @@ make test
 make test-target
 make test-target TARGET=mimxrt700
 make test-target TARGET=mcxn947
+make test-target TARGET=stm32l562
 make test-conformance
 make test-hardware TARGET=stm32h563
 make test-hardware TARGET=mcxn947
@@ -160,12 +162,10 @@ host (`flash`) out of the same checkout.
 
 ## Documentation
 
-The version-controlled documentation in [`docs/`](docs/) is the primary
+The version-controlled documentation in [`docs/`](docs/index.md) is the primary
 documentation source:
 
 - [Getting Started](docs/Getting-Started.md)
-- [Ports and supported targets](docs/Targets.md)
-- [MIMXRT700 Guide](docs/MIMXRT700-Guide.md)
 - [Architecture](docs/Architecture.md)
 - [Security Model](docs/Security-Model.md)
 - [Threat Model](docs/Threat-Model.md)
@@ -174,17 +174,26 @@ documentation source:
 - [Standards and Claims](docs/Standards.md)
 - [FF-M Compatibility](docs/FF-M-Compatibility.md)
 - [PSA Compatibility](docs/PSA-Compatibility.md)
-- [Footprint Comparison](docs/Footprint-Comparison.md)
 - [Macros](docs/Macros.md)
 - [Footprint](docs/Footprint.md)
+- [Footprint Comparison](docs/Footprint-Comparison.md)
+- [Crypto Engines](docs/Crypto-Engines.md)
 - [Porting](docs/Porting.md)
 - [Building](docs/Building.md)
 - [Testing](docs/Testing.md)
 - [Provisioning](docs/Provisioning.md)
 - [Project Structure](docs/Project-Structure.md)
+- [Ports and supported targets](docs/Targets.md)
+- [Registered Ports](docs/Ports.md)
 - [STM32H5 Guide](docs/STM32H5-Guide.md)
 - [MIMXRT700 Guide](docs/MIMXRT700-Guide.md)
 - [MCXN947 Guide](docs/MCXN947-Guide.md)
+- [STM32L562 Guide](docs/STM32L562-Guide.md)
+- [Coding Standard](docs/Coding-Standard.md)
+
+Once published, the [full wolfTrust manual](https://www.wolfssl.com/documentation/manuals/wolftrust/)
+will provide HTML documentation and a downloadable PDF. Until then, use the
+pages above or the manual artifacts attached to documentation CI runs.
 
 The source tree is authoritative:
 

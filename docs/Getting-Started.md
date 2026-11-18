@@ -1,7 +1,8 @@
 # Getting Started
 
-This guide builds the currently supported STM32H563 Secure image, the Zephyr
-and FreeRTOS reference guests, and the host tests. See [Building](Building.md) for
+This guide starts with the STM32H563 Secure image, the Zephyr and FreeRTOS
+reference guests, and the host tests. Other registered ports are listed in
+[Ports and supported targets](Targets.md). See [Building](Building.md) for
 build controls, and read [STM32H5 Guide](STM32H5-Guide.md) before flashing a
 board.
 
@@ -53,6 +54,10 @@ The default STM32H563 cross-build produces:
 - `build/wolftrust.bin`
 - `build/secure_cmse_implib.o`, used when linking Non-secure clients
 
+The default image runs one guest and includes Crypto, ITS, Protected Storage,
+and Initial Attestation. Firmware Update requires `WT_FWU=1`; a second guest
+requires `WT_MAX_GUESTS=2`. See [Build profiles](Macros.md#build-profiles).
+
 The standalone binary is not a complete authenticated boot chain. The target
 runners patch guest measurement records into a copy of the Secure binary and
 sign that image with wolfBoot.
@@ -71,7 +76,7 @@ make -C tests/firmware/zephyr-stm32h5 \
 
 The first command creates ignored workspaces under
 `tests/firmware/zephyr-stm32h5/.workspace/`. The second command also
-builds the matching Secure image and CMSE import library.
+builds the matching two-guest Secure image and CMSE import library.
 
 ## Run host tests
 
@@ -124,7 +129,7 @@ write-protected and names the provisioning command that clears them.
 
 ## Run on MIMXRT700
 
-Pass `TARGET=mimxrt700` to build and test the second port:
+Pass `TARGET=mimxrt700` to build and test the RT700 port:
 
 ```sh
 make TARGET=mimxrt700 secure-image
@@ -135,6 +140,23 @@ make test-hardware TARGET=mimxrt700
 `test-target` runs the RT700 emulator scenarios and `test-hardware` runs the
 EVK suite on the host that owns the probe. See the
 [MIMXRT700 Guide](MIMXRT700-Guide.md) for the rig and flash layout.
+
+## Run on MCXN947 or STM32L562
+
+Use the same build and test entry points with the selected port:
+
+```sh
+make TARGET=mcxn947 secure-image
+make test-target TARGET=mcxn947
+make TARGET=stm32l562 secure-image
+make test-target TARGET=stm32l562
+```
+
+The [MCXN947 Guide](MCXN947-Guide.md) and
+[STM32L562 Guide](STM32L562-Guide.md) cover board setup, memory layouts,
+emulator coverage, and hardware status. STM32L562 supports only the native
+crypto engine. Run emulator tests inside the port's container listed in
+[Ports](Ports.md); NXP ports also need the SDK setup described in their guides.
 
 ## Next steps
 

@@ -2,8 +2,9 @@
 
 wolfTrust targets the Arm Firmware Framework for M (FF-M) 1.0 contract and
 selected Platform Security Architecture (PSA) service APIs. The reference
-implementation is the STM32H563 Cortex-M33 port; MIMXRT700 is the second
-Armv8-M port. Compatibility is documented
+implementation is the STM32H563 Cortex-M33 port. MIMXRT700, MCXN947, and
+STM32L562 share the Armv8-M adapter; [supported targets](Targets.md) and their
+board guides record port-specific coverage. Compatibility is documented
 per interface, with its limits and test evidence; no full FF-M or PSA
 certification is claimed.
 

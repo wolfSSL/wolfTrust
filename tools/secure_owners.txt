@@ -130,6 +130,24 @@ wt_sec_vnet_ring.o                     vnet
 wt_sec_vnet_service.o                  vnet
 wt_sec_vnet_switch.o                   vnet
 
+wt_sec_msg_relay.o                     shared
+wt_sec_tpm_relay_service.o             tpm
+wt_sec_tpm_local_provider.o            tpm
+tpm_sec_*                              tpm
+tpm_wc_*                               tpm
+tpm_wh_*                               tpm
+wt_sec_pkcs11_relay_service.o          pkcs11
+wt_sec_hsm_psa_transport.o             pkcs11
+wt_sec_pkcs11_provider.o               pkcs11
+wt_sec_pkcs11_secure_heap.o            pkcs11
+wt_sec_pkcs11_wire.o                   pkcs11
+wh_sec_wh_client.o                     pkcs11
+wh_sec_wh_client_crypto.o              pkcs11
+wh_sec_wh_client_cryptocb.o            pkcs11
+p11_sec_*                              pkcs11
+p11_wc_*                               pkcs11
+p11_wh_*                               pkcs11
+
 wc_sec_aes.o                           shared
 wc_sec_asn.o                           shared
 wc_sec_coding.o                        shared
@@ -141,6 +159,7 @@ wc_sec_logging.o                       shared
 wc_sec_memory.o                        shared
 wc_sec_random.o                        shared
 wc_sec_sha256.o                        shared
+wc_sec_sha512.o                        shared
 wc_sec_sp_cortexm.o                    shared
 wc_sec_sp_c32.o                        shared
 wc_sec_sp_int.o                        shared

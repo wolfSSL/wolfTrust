@@ -62,8 +62,8 @@ PSA_STEP_FAILED = (r'guest[01]: .*(FAILED|failed|NOT re|SUCCEEDED|accepted|'
 ALIASES = {"gtzcneg": "guestisoneg", "ahbscneg": "guestisoneg",
            "sauneg": "guestisoneg"}
 
-GUEST_KINDS = ("baremetal", "psa", "zephyr", "freertos", "vnet")
-ROLES = ("lifecycle", "psa", "conformance", "vnet", "hwpsa")
+GUEST_KINDS = ("baremetal", "psa", "zephyr", "freertos", "vnet", "interface")
+ROLES = ("lifecycle", "psa", "conformance", "vnet", "hwpsa", "tpm", "pkcs11")
 CAPABILITIES = {
     "boot_console": "wolfBoot prints its HAL and signature lines on the console",
     "prot_trace": "the emulator's protection-unit trace names the unit behind a refusal",
@@ -101,6 +101,10 @@ def S(secure="", role="lifecycle", guest_flags="", end="guest", timeout=None,
 
 
 SP_PROBE_FLAGS = "WT_M33MU_EXPECT_BKPT=1"
+TPM_APP = "WT_INTERFACE=tpm " + SP_PROBE_FLAGS
+PKCS11_APP = "WT_INTERFACE=pkcs11 " + SP_PROBE_FLAGS
+# Emulator-only: the PIN KDF at its production cost outlasts the budget.
+PKCS11_KDF = "WT_PKCS11_TEST_PBKDF2_ITERATIONS=25"
 CONF = "WT_RUN_CONFORMANCE=1"
 
 SCENARIOS = {
@@ -243,6 +247,20 @@ SCENARIOS = {
                  timeout=180, quit_on_faults=False, blocks=("vnetneg",),
                  requires=("vnet",),
                 hw_blocks=("hw_no_escalation", "hw_vnetneg")),
+    "tpm": S(secure="CONFIG_TPM=y", role="tpm", guest_flags=TPM_APP,
+             end="bkpt:0x7f", timeout=360, blocks=("no_faults", "tpm"),
+             envs=("emulator",)),
+    "tpmneg": S(secure="CONFIG_TPM=y WT_TPM_NEG_PROBE=1", role="tpm",
+                guest_flags=TPM_APP, end="bkpt:0x7f", timeout=360,
+                quit_on_faults=False, blocks=("tpmneg",), level3=True,
+                envs=("emulator",)),
+    "pkcs11": S(secure="CONFIG_PKCS11=y " + PKCS11_KDF, role="pkcs11",
+                guest_flags=PKCS11_APP, end="bkpt:0x7f", timeout=1200,
+                blocks=("no_faults", "pkcs11"), envs=("emulator",)),
+    "pkcs11neg": S(secure="CONFIG_PKCS11=y WT_PKCS11_NEG_PROBE=1 " + PKCS11_KDF,
+                   role="pkcs11", guest_flags=PKCS11_APP + " WT_PKCS11_FULL_SUITE=core",
+                   end="bkpt:0x7f", timeout=360, quit_on_faults=False,
+                   blocks=("pkcs11neg",), level3=True, envs=("emulator",)),
     "manifestneg": S(secure="WT_MANIFEST_NEG_PROBE=1", end="bkpt:0x7e",
                      blocks=("verdict_manifestneg",)),
     "manifestneg2": S(secure="WT_MANIFEST_NEG_PROBE=2", end="bkpt:0x7e",
@@ -459,6 +477,8 @@ def markers(kind, guest, board):
                 "sha": "freertos_guest1: ffm sha256 ok"}
     if kind == "vnet":
         return {"started": "vnet-%s: alive" % guest}
+    if kind == "interface":
+        return {"started": "-%s: alive" % guest}
     raise SystemExit("unknown guest kind %s" % kind)
 
 
@@ -706,6 +726,45 @@ def _verdict(ctx, name):
                 refute_re("no partition or guest ran after the fault", peers + r'|\[BKPT\] imm=0x7f'),
                 info("the production halt is not executed by the emulator; asserted on silicon")]
     raise SystemExit("no verdict table for %s" % name)
+
+
+PKCS11_PASSED = {"core": 10, "objects": 8, "crypto": 10, "negative": 12,
+                 "all": 40, "profile": 9}
+
+
+def _interface_neg(v, what):
+    band, spm = v.get("L3_INTERFACE_BAND"), v.get("L3_SPM_RAM")
+    lo, hi = v.get("L3_INTERFACE_STACK_LO"), v.get("L3_INTERFACE_STACK_HI")
+    return [faults_at("%s band %s read then written by the crypto partition (2 MEMFAULTs)" % (what, band),
+                      2, band, v.get("L3_CRYPTO_STACK_LO"), v.get("L3_CRYPTO_STACK_HI")),
+            faults_at("%s relay denied SPM private RAM %s on its own stack" % (what, spm), 1, spm, lo, hi),
+            expect_re("%s relay denied execution from its XN data band" % what,
+                      r'^\[MEMFAULT\] pc=%s addr=%s' % (band, band)),
+            refute_re("isolation faults did not escalate", ESCALATION)]
+
+
+def _interface_checks(ctx, block):
+    v = ctx.var
+    full = v.get("interface_profile", "default") != "default"
+    if block.startswith("tpm"):
+        app = "tpm-guest0"
+        out = _interface_neg(v, "TPM") if block == "tpmneg" else []
+        out += [expect("TPM application guest alive", app + ": alive"),
+                expect("fwTPM capabilities match the relay frame limit", app + ": tpm frame caps ok"),
+                expect("valid TPM command reaches the advertised frame limit", app + ": tpm max frame ok")]
+        if not full and block == "tpm":
+            out += [expect("TPM capabilities match the selected commands",
+                           app + ": tpm command capabilities match profile"),
+                    expect("disabled TPM command refused by the provider", app + ": tpm disabled command rejected")]
+        return out + [expect("wolfTPM round trip through the isolated fwTPM", app + ": tpm round trip ok")]
+    app = "pkcs11-guest0"
+    suite = ("core" if block == "pkcs11neg" else "all") if full else "profile"
+    out = _interface_neg(v, "PKCS#11") if block == "pkcs11neg" else []
+    return out + [expect("PKCS#11 application guest alive", app + ": alive"),
+                  expect("the %s PKCS#11 suite completed" % suite, "%s: suite %s complete" % (app, suite)),
+                  expect("the PKCS#11 suite reported zero failures", app + ": TOTAL FAILED: 0"),
+                  expect("the PKCS#11 suite ran every planned case",
+                         "%s: TOTAL PASSED: %d" % (app, PKCS11_PASSED[suite]))]
 
 
 def _l3(ctx):
@@ -1036,6 +1095,8 @@ def block_checks(ctx, block, end):
                 expect("guest0 alive through the quarantine", "vnet-guest0: alive"),
                 expect("guest1 alive through the quarantine", "vnet-guest1: alive"),
                 expect("mediated ping still completes after both restarts", "ping reply from 10.0.0.2")]
+    if block in ("tpm", "tpmneg", "pkcs11", "pkcs11neg"):
+        return _interface_checks(ctx, block)
     if block == "revneg":
         peers = "|".join(re.escape(s) for s in (ctx.g0["started"], ctx.g1["started"]))
         return [expect("revision Z refused with the ES0565 2.2.9 console line",

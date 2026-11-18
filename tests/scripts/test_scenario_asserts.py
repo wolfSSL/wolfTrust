@@ -55,6 +55,8 @@ VARS = {"expected_measurement": "deadbeef00112233" * 4, "v2_measurement": "feedf
         "L3_CRYPTO_STACK_HI": "0x301f8000", "L3_ATTEST_STACK_LO": "0x301f8000",
         "L3_ATTEST_STACK_HI": "0x301fa000", "L3_VAULT_STACK_LO": "0x301ef000",
         "L3_VAULT_STACK_HI": "0x301f3000", "L3_SPM_PERIPHERAL": "0x50187000",
+        "L3_INTERFACE_BAND": "0x301b0000", "L3_INTERFACE_STACK_LO": "0x301bc000",
+        "L3_INTERFACE_STACK_HI": "0x301c0000",
         "conf_want": os.path.join(REPO, "tests", "target", "ffm_ipc_results.txt"),
         "board": "RT700", "periph_addr": "0x40187000", "pst_4": "0000beef"}
 with open(os.path.join(REPO, "tests", "upstream", "psa-arch-tests.rev")) as handle:

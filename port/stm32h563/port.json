@@ -13,7 +13,7 @@
   "build": {
     "engines": ["native", "hsm"],
     "attest_cose": 1,
-    "variants": ["conformance", "vnet"],
+    "variants": ["conformance", "vnet", "tpm", "pkcs11"],
     "vectors": ""
   },
   "m33mu": {
@@ -65,7 +65,9 @@
       ["sealpivotneg", "Blocking wait stacked on the seal stays contained"],
       ["mspovfneg", "SPM main-stack overflow halts fail-closed"],
       ["xnneg", "Privileged execution from SPM RAM denied"],
-      ["svcneg", "Partition guest-return SVC panics only that partition"]
+      ["svcneg", "Partition guest-return SVC panics only that partition"],
+      ["tpm tpmneg", "TPM 2.0 interface and isolation (L3)"],
+      ["pkcs11 pkcs11neg", "PKCS#11 interface and isolation (L3)"]
     ],
     "l3_exempt": {},
     "default": {
@@ -85,11 +87,13 @@
         ["hsmattackneg", "wolfHSM cross-namespace + NVM relay negatives, one guest"],
         ["authneg rollbackneg remeasureneg manifestneg spbudgetneg", "Launch, rollback, re-measure, manifest and SP budget verdicts, one guest"],
         ["periphneg revneg", "NS peripheral access and engineering-sample refusal, one guest"],
-        ["nativewire nativewireasm", "Every native wire key op from the guest, portable C and assembly, one guest"]
+        ["nativewire nativewireasm", "Every native wire key op from the guest, portable C and assembly, one guest"],
+         ["tpm tpmneg", "TPM 2.0 interface and isolation, one guest (L3)"],
+         ["pkcs11 pkcs11neg", "PKCS#11 interface and isolation, one guest (L3)"]
       ],
       "l3_exempt": {"hsmfaultneg": "the tasklet fault scenario ends on the second guest's breakpoint, so it runs on the full profile only"}
     },
-    "guests": {"hwpsa": ["psa", "psa"], "lifecycle": ["zephyr", "freertos"], "psa": ["zephyr", "freertos"], "conformance": ["zephyr", "freertos"], "vnet": ["vnet", "vnet"]},
+    "guests": {"hwpsa": ["psa", "psa"], "lifecycle": ["zephyr", "freertos"], "psa": ["zephyr", "freertos"], "conformance": ["zephyr", "freertos"], "vnet": ["vnet", "vnet"], "tpm": ["interface", "baremetal"], "pkcs11": ["interface", "baremetal"]},
     "guest_end": {"zephyr": "bkpt", "vnet": "bkpt"},
     "ends": {"crossdomain": "fault", "keystoreneg": "fault", "periphspneg": "fault"},
     "timeouts": {},

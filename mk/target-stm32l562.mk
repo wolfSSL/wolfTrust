@@ -35,6 +35,10 @@ WT_CONF_IRQ_HANDLER ?= USART3_IRQHandler
 WT_SECURE_FLASH_BASE ?= 0x0C00C000
 WT_SECURE_IMAGE_HEADER_SIZE ?= 0x400
 ifneq ($(filter 1,$(WT_CONFORMANCE))$(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+# This layout leaves only wolfBoot's swap above guest 1, so no update partition fits.
+ifeq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11))/$(WT_FWU),y/1)
+$(error STM32L562 TPM 2.0 and PKCS#11 layouts have no update partition; build with WT_FWU=0)
+endif
 WT_SECURE_FLASH_SIZE ?= 0x00028000
 WT_GUEST0_FLASH_BASE ?= 0x08034000
 WT_GUEST1_FLASH_BASE ?= 0x08070000

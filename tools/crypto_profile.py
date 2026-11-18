@@ -322,9 +322,17 @@ def generate(root, output, profile, custom, enable, disable):
     write_file(output / "hsm_callback.c", hsm_callback_source(root, extra_crypto))
     write_file(output / "fwtpm_command.c", selected_tpm(commands, selected["tpm"], profile == "full"))
     psa_wrappers(root, output, sources, selected["psa"], catalog["psa"])
+    # Consumers depend only on this header, so it must change with any output.
+    digest = hashlib.sha256()
+    for path in sorted(output.rglob("*")):
+        if path.is_file() and path.name not in ("selected_profile.h",
+                                                "selection.json"):
+            digest.update(path.relative_to(output).as_posix().encode())
+            digest.update(path.read_bytes())
     flags = ["/* Generated build configuration. */",
              "#ifndef WT_SELECTED_CRYPTO_PROFILE_H",
              "#define WT_SELECTED_CRYPTO_PROFILE_H",
+             "#define WT_PROFILE_OUTPUTS_SHA256 \"%s\"" % digest.hexdigest(),
              "#define WT_PROFILE_FULL %d" % (profile == "full"),
              "#define WT_PROFILE_PROVIDER_EXTRA_CRYPTO %d" % extra_crypto,
              "#define WT_PROFILE_TPM_COMMAND_COUNT %dU" % len(selected["tpm"]),

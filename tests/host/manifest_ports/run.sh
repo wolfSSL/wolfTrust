@@ -36,7 +36,9 @@ for port in $(python3 "$matrix" --list-ports); do
         case "$variant" in
             conformance) profiles="conformance" ;;
             vnet) profiles="full" ;;
-            *) profiles="default full" ;;
+            *) profiles=$(python3 "$matrix" --port "$port" \
+                   --get "build.variant_profiles.$variant" 2>/dev/null) ||
+               profiles="default full" ;;
         esac
         for profile in $profiles; do
             out="$build/$port-$variant-$profile"

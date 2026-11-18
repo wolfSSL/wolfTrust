@@ -20,10 +20,6 @@
 
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/zeroize.h"
-#if defined(WT_PKCS11_HSM_RESTART_PROBE) && \
-    (WT_PKCS11_HSM_RESTART_PROBE == 1)
-#include "wolftrust/arch.h"
-#endif
 
 #include <string.h>
 
@@ -306,13 +302,6 @@ int wt_hsm_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
     if (msg.type == PSA_IPC_CONNECT || msg.type == PSA_IPC_DISCONNECT) {
         reply_status = PSA_SUCCESS;
     }
-#if defined(WT_PKCS11_HSM_RESTART_PROBE) && \
-    (WT_PKCS11_HSM_RESTART_PROBE == 1)
-    else if (msg.type == WT_HSM_OP_TEST_RESTART && msg.client_id < 0) {
-        wt_arch_sp_fault_probe(0U);
-        reply_status = PSA_ERROR_GENERIC_ERROR;
-    }
-#endif
     else if (msg.type == PSA_IPC_CALL) {
 #if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
     defined(WT_INTERFACE_LOCAL_PROVIDER)

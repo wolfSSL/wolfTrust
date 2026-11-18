@@ -6,10 +6,10 @@ regenerate this page instead of editing it.
 
 | Port | Board | Guide | CI label | Engines | Variants | Image |
 | --- | --- | --- | --- | --- | --- | --- |
-| `mcxn947` | FRDM-MCXN947 | [MCXN947](MCXN947-Guide.md) | `ci:mcxn947` (label only) | native, hsm | conformance | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` |
-| `mimxrt700` | MIMXRT700-EVK | [MIMXRT700](MIMXRT700-Guide.md) | `ci:rt700` (label only) | native, hsm | conformance | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` |
-| `stm32h563` | NUCLEO-H563ZI | [STM32H563](STM32H5-Guide.md) | `ci:h5` | native, hsm | conformance, vnet | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15` |
-| `stm32l562` | STM32L562E-DK | [STM32L562](STM32L562-Guide.md) | `ci:l5` (label only) | native | conformance | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` |
+| `mcxn947` | FRDM-MCXN947 | [MCXN947](MCXN947-Guide.md) | `ci:mcxn947` (label only) | native, hsm | conformance, tpm, pkcs11 | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` |
+| `mimxrt700` | MIMXRT700-EVK | [MIMXRT700](MIMXRT700-Guide.md) | `ci:rt700` (label only) | native, hsm | conformance, tpm, pkcs11 | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` |
+| `stm32h563` | NUCLEO-H563ZI | [STM32H563](STM32H5-Guide.md) | `ci:h5` | native, hsm | conformance, vnet, tpm, pkcs11 | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15` |
+| `stm32l562` | STM32L562E-DK | [STM32L562](STM32L562-Guide.md) | `ci:l5` (label only) | native | conformance, tpm, pkcs11 | `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` |
 
 ## Emulator scenarios
 

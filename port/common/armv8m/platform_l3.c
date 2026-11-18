@@ -181,6 +181,7 @@ size_t wt_platform_conf_shared_regions(wt_memory_region_t* regions,
 
 #if (defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)) || \
     (defined(WT_VNET_NEG_PROBE) && (WT_VNET_NEG_PROBE == 1)) || \
+    (defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)) || \
     (defined(WT_KEYSTORE_NEG_PROBE) && (WT_KEYSTORE_NEG_PROBE == 1)) || \
     (defined(WT_PERIPH_SP_NEG_PROBE) && (WT_PERIPH_SP_NEG_PROBE == 1)) || \
     (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
@@ -199,6 +200,10 @@ uintptr_t wt_platform_probe_address(unsigned int target)
 #if defined(CONFIG_VNET)
     case WT_PROBE_VNET_DATA_BAND:
         return (uintptr_t)WT_VNET_DATA_BASE;
+#endif
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+    case WT_PROBE_INTERFACE_DATA_BAND:
+        return (uintptr_t)WT_INTERFACE_DATA_BASE;
 #endif
     default:
         return (uintptr_t)WT_RAM_S_BASE;

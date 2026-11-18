@@ -3,6 +3,7 @@
 # ARCH_* inputs; repository paths come from the Makefile.
 CC := $(TOOLPREFIX)gcc
 OBJCOPY := $(TOOLPREFIX)objcopy
+NM := $(TOOLPREFIX)nm
 SIZE := $(TOOLPREFIX)size
 
 # A linked image that fails any post-link security check must not remain a
@@ -94,6 +95,9 @@ WT_PANIC_NEG_PROBE ?= 0
 WT_BUSFAULT_NEG_PROBE ?= 0
 WT_SVC_NEG_PROBE ?= 0
 WT_VNET_NEG_PROBE ?= 0
+WT_TPM_NEG_PROBE ?= 0
+WT_PKCS11_NEG_PROBE ?= 0
+WT_PKCS11_HSM_RESTART_PROBE ?= 0
 WT_MANIFEST_NEG_PROBE ?= 0
 # The generator refuses at build time every manifest the boot-time validator
 # would; 1 also re-runs that validator and the port binding checks at boot.
@@ -130,7 +134,20 @@ WT_VNET_RX_IRQ ?= 130
 WT_VNET_TIMEOUT_TICKS ?= 500
 WT_VNET_UNKNOWN_UCAST_FLOOD ?= 0
 
-HSM_INCLUDES := -I$(WOLFHSM_DIR) -I$(WOLFSSL_DIR) -I$(BUILD_DIR)
+# Firmware-TPM (fwTPM) subsystem. Off by default; when on, links the
+# SERVICE_TPM mediated relay into the secure image so a Non-secure wolfTPM
+# client reaches the isolated fwTPM partition. Host unit tests under
+# tests/host/tpm_relay/ build regardless of this switch.
+CONFIG_TPM ?= n
+
+# PKCS#11 clients call SERVICE_PKCS11 in a managed Secure partition. Its
+# implementation uses native wolfCrypt or the mediated wolfHSM engine.
+CONFIG_PKCS11 ?= n
+WT_INTERFACE_LOCAL_PROVIDER ?= 0
+
+HSM_INCLUDES := -I$(WOLFHSM_DIR) -I$(WOLFSSL_DIR) \
+    $(if $(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),-I$(WOLFTPM_DIR) -I$(WOLFPKCS11_DIR)) \
+    -I$(BUILD_DIR)
 HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(WOLFHAL_DIR) -I$(abspath $(WOLFHSM_RUNNER_DIR))
 HSM_DEFS_SECURE := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
     -DWC_RESEED_INTERVAL=1000000 \
@@ -155,6 +172,12 @@ SECURE_CFLAGS_COSE := -I$(WOLFCOSE_DIR)/include \
     -DWOLFCOSE_ENABLE_EAT_PSA_CURRENT \
     -DWOLFCOSE_ENABLE_EAT_PSA_ISSUE \
     -DWOLFCOSE_ENABLE_EAT_PSA_SIGN1_ISSUE
+endif
+
+WOLFPKCS11_COMMON_DEFS := -DWOLFPKCS11_USER_SETTINGS \
+    -DWOLFPKCS11_NO_STORE -DWOLFPKCS11_NO_TIME -DWOLFPKCS11_NO_ENV
+ifeq ($(WT_ENGINE),hsm)
+WOLFPKCS11_COMMON_DEFS += -DWOLFPKCS11_DEFAULT_DEVID=0x5748534D
 endif
 
 SECURE_CFLAGS := $(CPU_FLAGS) -std=c99 -ffreestanding -fno-builtin -nostdlib -Os -g \
@@ -182,6 +205,29 @@ SECURE_CFLAGS += -DCONFIG_VNET=1 \
     -DWT_VNET_RX_IRQ=$(WT_VNET_RX_IRQ) \
     -DWT_VNET_TIMEOUT_TICKS=$(WT_VNET_TIMEOUT_TICKS) \
     -DWT_VNET_UNKNOWN_UCAST_FLOOD=$(WT_VNET_UNKNOWN_UCAST_FLOOD)
+endif
+
+ifeq ($(CONFIG_PKCS11),y)
+SECURE_CFLAGS += -DCONFIG_PKCS11=1
+ifeq ($(WT_INTERFACE_LOCAL_PROVIDER),1)
+SECURE_CFLAGS += $(WOLFPKCS11_COMMON_DEFS)
+ifneq ($(WT_PKCS11_PIN_MAX_FAILURES),)
+ifneq ($(shell printf '%s' '$(WT_PKCS11_PIN_MAX_FAILURES)' | grep -Ex '[1-9][0-9]*'),$(WT_PKCS11_PIN_MAX_FAILURES))
+$(error WT_PKCS11_PIN_MAX_FAILURES must be > 0)
+endif
+SECURE_CFLAGS += -DWT_PKCS11_PIN_MAX_FAILURES=$(WT_PKCS11_PIN_MAX_FAILURES)U
+endif
+# Production keeps wolfPKCS11's 600,000-round PIN PBKDF2; only the M33MU
+# emulator gate lowers it, explicitly, because emulated SHA-256 is too slow.
+ifneq ($(WT_PKCS11_TEST_PBKDF2_ITERATIONS),)
+$(warning NOTE: emulator-only PIN PBKDF2 iterations=$(WT_PKCS11_TEST_PBKDF2_ITERATIONS))
+SECURE_CFLAGS += -DPBKDF2_ITERATIONS=$(WT_PKCS11_TEST_PBKDF2_ITERATIONS)
+endif
+endif
+endif
+
+ifeq ($(CONFIG_TPM),y)
+SECURE_CFLAGS += -DCONFIG_TPM=1
 endif
 
 ifeq ($(WT_LAUNCH_DEBUG),1)
@@ -237,6 +283,24 @@ endif
 ifeq ($(WT_VNET_NEG_PROBE),1)
 SECURE_CFLAGS += -DWT_VNET_NEG_PROBE=1
 endif
+ifeq ($(WT_TPM_NEG_PROBE),1)
+ifneq ($(CONFIG_TPM),y)
+$(error WT_TPM_NEG_PROBE=1 requires CONFIG_TPM=y)
+endif
+SECURE_CFLAGS += -DWT_INTERFACE_NEG_PROBE=1
+endif
+ifeq ($(WT_PKCS11_NEG_PROBE),1)
+ifneq ($(CONFIG_PKCS11),y)
+$(error WT_PKCS11_NEG_PROBE=1 requires CONFIG_PKCS11=y)
+endif
+SECURE_CFLAGS += -DWT_INTERFACE_NEG_PROBE=1
+endif
+ifeq ($(WT_PKCS11_HSM_RESTART_PROBE),1)
+ifneq ($(CONFIG_PKCS11)/$(WT_ENGINE_HSM)/$(WT_INTERFACE_LOCAL_PROVIDER),y/1/1)
+$(error WT_PKCS11_HSM_RESTART_PROBE=1 requires the local HSM PKCS11 provider)
+endif
+SECURE_CFLAGS += -DWT_PKCS11_HSM_RESTART_PROBE=1
+endif
 ifneq ($(filter 1 2 3,$(WT_MANIFEST_NEG_PROBE)),)
 SECURE_CFLAGS += -DWT_MANIFEST_NEG_PROBE=$(WT_MANIFEST_NEG_PROBE)
 endif
@@ -260,7 +324,7 @@ ifneq ($(strip \
         $(WT_BUSFAULT_NEG_PROBE) $(WT_PANIC_NEG_PROBE) $(WT_SVC_NEG_PROBE) \
         $(WT_FFM_NEGATIVE_PROBE) $(WT_KEYSTORE_NEG_PROBE) \
         $(WT_PERIPH_SP_NEG_PROBE) $(WT_VNET_NEG_PROBE) $(WT_XN_NEG_PROBE) \
-        $(WT_FP_NEG_PROBE)) \
+        $(WT_FP_NEG_PROBE) $(WT_TPM_NEG_PROBE) $(WT_PKCS11_NEG_PROBE)) \
     $(filter 1 2 3 4,$(WT_SEAL_NEG_PROBE))),)
 SECURE_CFLAGS += -DWT_SP_LAZY_FIRST_ENTRY=1
 endif
@@ -380,8 +444,49 @@ WOLFCRYPT_SECURE_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/wolfmath.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/wc_port.c
 WOLFCRYPT_SECURE_SRCS += $(ARCH_WOLFCRYPT_ASM_SRCS)
-ifeq ($(WT_ENGINE),native)
+ifeq ($(WT_ENGINE)/$(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),native/)
 WOLFCRYPT_SECURE_SRCS := $(filter-out %/asn.c,$(WOLFCRYPT_SECURE_SRCS))
+endif
+
+# TPM 2.0 and PKCS#11 build one provider the same way; only one is ever linked.
+WT_IF := $(if $(filter y,$(CONFIG_TPM)),tpm,$(if $(filter y,$(CONFIG_PKCS11)),p11))
+WT_IF_LIB_SRCS :=
+WT_IF_WOLFCRYPT_SRCS :=
+WT_IF_WOLFHSM_SRCS :=
+WOLFTPM_SECURE_CFLAGS := -DWOLFTPM_USER_SETTINGS -DWOLFTPM_FWTPM \
+    -DFWTPM_NO_NV -include wolftrust/tpm/tpm_abi.h \
+    -DFWTPM_MAX_COMMAND_SIZE=WT_TPM_FRAME_MAX \
+    -DFWTPM_MAX_PERSISTENT=2 -DFWTPM_MAX_SESSIONS=2 \
+    -DFWTPM_NO_POLICY -DFWTPM_NO_CREDENTIAL -DFWTPM_NO_DA \
+    -DFWTPM_NO_PARAM_ENC -DFWTPM_NO_KEY_MIGRATION \
+    -DFWTPM_NO_CONTEXT -DFWTPM_NO_SYM_ENCRYPT -DFWTPM_NO_CLOCK
+TPM_CRYPTO_DEVICE_CFLAGS := $(if $(filter hsm,$(WT_ENGINE)),-DWOLF_CRYPTO_CB_FIND)
+WOLFTPM_SECURE_CFLAGS += $(TPM_CRYPTO_DEVICE_CFLAGS)
+WOLFPKCS11_SECURE_CFLAGS := $(WOLFPKCS11_COMMON_DEFS) -DWOLFSSL_PUBLIC_MP \
+    -include time.h
+WT_PROVIDER_ECC_FALLBACK ?= 0
+ifeq ($(WT_ENGINE)/$(WT_PROVIDER_ECC_FALLBACK),hsm/0)
+TPM_CRYPTO_DEVICE_CFLAGS += -DWT_TPM_HSM_CALLBACK_ECC
+WOLFTPM_SECURE_CFLAGS += -DWT_TPM_HSM_CALLBACK_ECC
+WOLFPKCS11_SECURE_CFLAGS += -DWOLF_CRYPTO_CB_ONLY_ECC
+else ifeq ($(WT_ENGINE),hsm)
+ifneq ($(WT_PROVIDER_ECC_FALLBACK),1)
+$(error WT_PROVIDER_ECC_FALLBACK must be 0 or 1)
+endif
+endif
+
+$(BUILD_DIR)/wt_sec_tpm_local_provider.o: SECURE_CFLAGS += $(WOLFTPM_SECURE_CFLAGS)
+
+ifeq ($(WT_IF),tpm)
+WT_IF_NAMESPACE := wt_tpm_
+WT_IF_CLIENT_CFLAGS = -UWC_NO_DEFAULT_DEVID $(WOLFTPM_SECURE_CFLAGS)
+WT_IF_WOLFCRYPT_CFLAGS = -UWC_NO_DEFAULT_DEVID $(TPM_CRYPTO_DEVICE_CFLAGS)
+WT_IF_WOLFHSM_CFLAGS = -UWC_NO_DEFAULT_DEVID
+else
+WT_IF_NAMESPACE := wt_p11_
+WT_IF_CLIENT_CFLAGS = $(WOLFPKCS11_SECURE_CFLAGS)
+WT_IF_WOLFCRYPT_CFLAGS = $(WOLFPKCS11_SECURE_CFLAGS)
+WT_IF_WOLFHSM_CFLAGS = $(WOLFPKCS11_SECURE_CFLAGS)
 endif
 
 WT_SECURE_EXTRA_SRCS := \
@@ -486,11 +591,95 @@ WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/services/vnet/vnet_relay_service.c
 endif
 
+ifeq ($(WT_INTERFACE_LOCAL_PROVIDER),1)
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+include $(ROOT)/mk/crypto-profile.mk
+SECURE_CFLAGS += $(WT_INTERFACE_PROFILE_FLAGS)
+HSM_LIB_CFLAGS += $(WT_INTERFACE_PROFILE_FLAGS)
+HSM_WOLFHSM_CFLAGS += $(WT_INTERFACE_PROFILE_FLAGS)
+endif
+endif
+
+# TPM 2.0 and PKCS#11 are instances of one message relay; each links only its transfer mode.
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/msg_relay.c
+$(BUILD_DIR)/wt_sec_msg_relay.o: SECURE_CFLAGS += \
+    $(if $(filter y,$(CONFIG_TPM)),-DWT_MSG_RELAY_ONESHOT=1,-DWT_MSG_RELAY_CHUNKED=1)
+endif
+
+ifeq ($(CONFIG_TPM),y)
+WT_SECURE_EXTRA_SRCS += \
+    $(ROOT)/src/services/tpm/tpm_relay_service.c
+ifeq ($(WT_INTERFACE_LOCAL_PROVIDER),1)
+WT_IF_LIB_SRCS += \
+    $(WOLFTPM_DIR)/src/fwtpm/fwtpm.c \
+    $(WOLFTPM_DIR)/src/fwtpm/fwtpm_command.c \
+    $(WOLFTPM_DIR)/src/fwtpm/fwtpm_crypto.c \
+    $(WOLFTPM_DIR)/src/fwtpm/fwtpm_nv.c \
+    $(WOLFTPM_DIR)/src/tpm2_util.c \
+    $(WOLFTPM_DIR)/src/tpm2_packet.c \
+    $(WOLFTPM_DIR)/src/tpm2_param_enc.c \
+    $(WOLFTPM_DIR)/src/tpm2_crypto.c
+WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/tpm/tpm_local_provider.c
+endif
+endif
+
+ifeq ($(CONFIG_PKCS11),y)
+WT_SECURE_EXTRA_SRCS += \
+    $(ROOT)/src/services/pkcs11/pkcs11_relay_service.c
+ifeq ($(WT_INTERFACE_LOCAL_PROVIDER),1)
+WT_IF_LIB_SRCS += \
+    $(WOLFPKCS11_DIR)/src/wolfpkcs11.c \
+    $(WOLFPKCS11_DIR)/src/internal.c \
+    $(WOLFPKCS11_DIR)/src/slot.c \
+    $(WOLFPKCS11_DIR)/src/crypto.c
+WOLFCRYPT_SECURE_SRCS += $(filter-out $(WOLFCRYPT_SECURE_SRCS), \
+    $(WOLFSSL_DIR)/wolfcrypt/src/sha512.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/kdf.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/pwdbased.c)
+WT_SECURE_EXTRA_SRCS += \
+    $(ROOT)/src/pkcs11/pkcs11_wire.c \
+    $(ROOT)/src/pkcs11/pkcs11_provider.c \
+    $(ROOT)/src/pkcs11/pkcs11_secure_heap.c
+endif
+endif
+
+# The provider owns private copies of wolfCrypt and the wolfHSM client.
+ifeq ($(if $(WT_IF),$(WT_INTERFACE_LOCAL_PROVIDER)),1)
+WT_IF_LIB_SRCS += $(ROOT)/src/client/provider_crypto.c
+ifeq ($(WT_ENGINE),hsm)
+WT_IF_LIB_SRCS += $(ROOT)/src/client/hsm_psa_transport.c
+WT_IF_WOLFHSM_SRCS := \
+    $(WOLFHSM_DIR)/src/wh_client.c \
+    $(WOLFHSM_DIR)/src/wh_client_crypto.c \
+    $(WOLFHSM_DIR)/src/wh_client_cryptocb.c
+endif
+WT_IF_WOLFCRYPT_SRCS := $(WOLFCRYPT_SECURE_SRCS)
+endif
+
+# Shared code has no writable state; working contexts stay in the caller domain.
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+HSM_LIB_CFLAGS += -DWOLFSSL_PUBLIC_MP
+WT_INTERFACE_SHARED_CRYPTO := $(ARCH_WOLFCRYPT_ASM_SRCS) \
+    $(WOLFSSL_DIR)/wolfcrypt/src/sp_int.c
+ifeq ($(WT_ENGINE),native)
+WT_INTERFACE_SHARED_CRYPTO := $(filter-out \
+    %/wc_port.c %/cryptocb.c %/random.c %/pwdbased.c,$(WOLFCRYPT_SECURE_SRCS))
+endif
+WT_IF_WOLFCRYPT_SRCS := $(filter-out $(WT_INTERFACE_SHARED_CRYPTO),$(WT_IF_WOLFCRYPT_SRCS))
+endif
+
 HSM_SECURE_BASE_OBJS := $(patsubst %.c,$(BUILD_DIR)/sec_%.o,$(notdir $(SECURE_SRCS)))
 HSM_WOLFHSM_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wh_sec_%.o,$(notdir $(WOLFHSM_SECURE_SRCS)))
 HSM_WOLFCRYPT_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wc_sec_%.o,$(notdir $(WOLFCRYPT_SECURE_SRCS)))
 HSM_WT_EXTRA_OBJS := $(patsubst %.c,$(BUILD_DIR)/wt_sec_%.o,$(notdir $(WT_SECURE_EXTRA_SRCS)))
 WOLFPSA_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wp_sec_%.o,$(notdir $(WOLFPSA_SECURE_SRCS)))
+WT_IF_LIB_OBJS := $(patsubst %.c,$(BUILD_DIR)/$(WT_IF)_sec_%.o,$(notdir $(WT_IF_LIB_SRCS)))
+WT_IF_WOLFCRYPT_RAW_OBJS := $(patsubst %.c,$(BUILD_DIR)/$(WT_IF)_wc_raw_%.o,$(notdir $(WT_IF_WOLFCRYPT_SRCS)))
+WT_IF_WOLFCRYPT_OBJS := $(patsubst %.c,$(BUILD_DIR)/$(WT_IF)_wc_%.o,$(notdir $(WT_IF_WOLFCRYPT_SRCS)))
+WT_IF_WOLFHSM_RAW_OBJS := $(patsubst %.c,$(BUILD_DIR)/$(WT_IF)_wh_raw_%.o,$(notdir $(WT_IF_WOLFHSM_SRCS)))
+WT_IF_WOLFHSM_OBJS := $(patsubst %.c,$(BUILD_DIR)/$(WT_IF)_wh_%.o,$(notdir $(WT_IF_WOLFHSM_SRCS)))
+WT_IF_NAMESPACE_MAP := $(BUILD_DIR)/$(WT_IF)_wc_symbols.map
 MANIFEST_OBJ := $(BUILD_DIR)/wt_sec_wolftrust_manifest_generated.o
 # Arch sources that live in subdirectories of src/arch/<arch>/ (C or assembly);
 # each gets its own rule below because the pattern rules key on one directory.
@@ -504,8 +693,21 @@ ALL_SECURE_OBJS := $(strip \
     $(HSM_WOLFCRYPT_SEC_OBJS) \
     $(HSM_WT_EXTRA_OBJS) \
     $(WOLFPSA_SEC_OBJS) \
+    $(WT_IF_LIB_OBJS) \
+    $(WT_IF_WOLFCRYPT_OBJS) \
+    $(WT_IF_WOLFHSM_OBJS) \
     $(ARCH_TREE_OBJS) \
     $(MANIFEST_OBJ))
+
+ifneq ($(WT_INTERFACE_PROFILE_HEADER),)
+# Namespaced objects also have raw compile prerequisites; a dependency on
+# only the final object does not order those compilations after generation.
+WT_PROFILE_RAW_OBJS := $(WT_IF_WOLFCRYPT_RAW_OBJS) $(WT_IF_WOLFHSM_RAW_OBJS) \
+    $(patsubst $(BUILD_DIR)/$(WT_IF)_sec_%.o,$(BUILD_DIR)/$(WT_IF)_sec_raw_%.o,$(WT_IF_LIB_OBJS))
+$(ALL_SECURE_OBJS) $(WT_PROFILE_RAW_OBJS): $(WT_INTERFACE_PROFILE_HEADER)
+# Rebuild namespace maps when makefile edits change private source membership.
+$(ALL_SECURE_OBJS) $(WT_PROFILE_RAW_OBJS): $(MAKEFILE_LIST)
+endif
 
 # LTO cannot safely rewrite objects whose symbols are consumed by inline
 # assembly or synthesized by the CMSE linker. Objects that own a
@@ -1497,14 +1699,33 @@ $(MANIFEST_DIR):
 	@mkdir -p $@
 
 # The manifest is rendered from the shared template under this build's layout
-# configuration; WT_CONFORMANCE=1 and CONFIG_VNET=y add their overlay, and
+# configuration; WT_CONFORMANCE=1, CONFIG_VNET=y, CONFIG_TPM=y and
+# CONFIG_PKCS11=y add their overlay, and
 # a port registers the variants it supports in port/<soc>/port.json.
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+ifeq ($(WT_CONFORMANCE),1)
+$(error CONFIG_TPM/CONFIG_PKCS11 conflicts with WT_CONFORMANCE=1; the manifests are mutually exclusive)
+endif
+ifeq ($(CONFIG_VNET),y)
+$(error CONFIG_TPM/CONFIG_PKCS11 conflicts with CONFIG_VNET=y; the manifests are mutually exclusive)
+endif
+ifeq ($(WT_SECURE_PSA),1)
+$(error CONFIG_TPM/CONFIG_PKCS11 conflicts with WT_SECURE_PSA=1; their guests do not use PSA Crypto)
+endif
+endif
+ifeq ($(CONFIG_TPM)$(CONFIG_PKCS11),yy)
+$(error CONFIG_TPM=y conflicts with CONFIG_PKCS11=y; select one application API)
+endif
 MANIFEST_VARIANT := base
 MANIFEST_OVERLAY :=
 ifeq ($(WT_CONFORMANCE),1)
 MANIFEST_VARIANT := conformance
 else ifeq ($(CONFIG_VNET),y)
 MANIFEST_VARIANT := vnet
+else ifeq ($(CONFIG_TPM),y)
+MANIFEST_VARIANT := tpm
+else ifeq ($(CONFIG_PKCS11),y)
+MANIFEST_VARIANT := pkcs11
 endif
 ifneq ($(MANIFEST_VARIANT),base)
 MANIFEST_OVERLAY := $(ROOT)/manifest/$(MANIFEST_VARIANT).json
@@ -1551,7 +1772,7 @@ MANIFEST_GEN_ARGS := --supported-features 0x1 \
 
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.
-MANIFEST_MODE = MANIFEST_VARIANT=$(MANIFEST_VARIANT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) WT_FWU=$(WT_FWU) GEN_OPTS=$(strip $(MANIFEST_GEN_ARGS) $(MANIFEST_EXCLUDE) $(WT_L3_MANIFEST_ARGS))
+MANIFEST_MODE = MANIFEST_VARIANT=$(MANIFEST_VARIANT) CONFIG_VNET=$(CONFIG_VNET) CONFIG_TPM=$(CONFIG_TPM) CONFIG_PKCS11=$(CONFIG_PKCS11) WT_CONFORMANCE=$(WT_CONFORMANCE) WT_FWU=$(WT_FWU) GEN_OPTS=$(strip $(MANIFEST_GEN_ARGS) $(MANIFEST_EXCLUDE) $(WT_L3_MANIFEST_ARGS))
 
 $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		FORCE | $(MANIFEST_DIR)
@@ -1595,6 +1816,7 @@ BUILD_MODE_LINES = \
 		'WT_LAYOUT_LDFLAGS=$(WT_LAYOUT_LDFLAGS)' \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
 		'WT_LTO=$(WT_LTO)' \
+		'WT_PROVIDER_ECC_FALLBACK=$(WT_PROVIDER_ECC_FALLBACK)' \
 		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
 		'WT_SECURE_PSA=$(WT_SECURE_PSA)' \
 		'WT_SECURE_PSA_PROFILE=$(if $(filter 1,$(WT_SECURE_PSA)),$(WT_SECURE_PSA_PROFILE))' \
@@ -1602,6 +1824,9 @@ BUILD_MODE_LINES = \
 		'WT_CONFORMANCE=$(WT_CONFORMANCE)' \
 		'CONFIG_VNET=$(CONFIG_VNET)' \
 		'WT_VNET_TIMEOUT_TICKS=$(WT_VNET_TIMEOUT_TICKS)' \
+		'CONFIG_TPM=$(CONFIG_TPM)' \
+		'TPM_CRYPTO_DEVICE_CFLAGS=$(TPM_CRYPTO_DEVICE_CFLAGS)' \
+		'CONFIG_PKCS11=$(CONFIG_PKCS11)' \
 		'WT_FFM_NEGATIVE_PROBE=$(WT_FFM_NEGATIVE_PROBE)' \
 		'WT_KEYSTORE_NEG_PROBE=$(WT_KEYSTORE_NEG_PROBE)' \
 		'WT_PERIPH_SP_NEG_PROBE=$(WT_PERIPH_SP_NEG_PROBE)' \
@@ -1616,6 +1841,9 @@ BUILD_MODE_LINES = \
 		'WT_SP_FAULT_ALWAYS_PROBE=$(WT_SP_FAULT_ALWAYS_PROBE)' \
 		'WT_PANIC_NEG_PROBE=$(WT_PANIC_NEG_PROBE)' \
 		'WT_VNET_NEG_PROBE=$(WT_VNET_NEG_PROBE)' \
+		'WT_TPM_NEG_PROBE=$(WT_TPM_NEG_PROBE)' \
+		'WT_PKCS11_NEG_PROBE=$(WT_PKCS11_NEG_PROBE)' \
+		'WT_PKCS11_HSM_RESTART_PROBE=$(WT_PKCS11_HSM_RESTART_PROBE)' \
 		'WT_MANIFEST_NEG_PROBE=$(WT_MANIFEST_NEG_PROBE)' \
 		'WT_MANIFEST_RUNTIME_CHECK=$(WT_MANIFEST_RUNTIME_CHECK)' \
 		'WT_HANDLER_IRQ_PROBE=$(WT_HANDLER_IRQ_PROBE)' \
@@ -1637,6 +1865,9 @@ BUILD_MODE_LINES = \
 		'WT_WOLFCRYPT_STM32_HASH=$(WT_WOLFCRYPT_STM32_HASH)' \
 		'WT_TIMESLICE_MS=$(WT_TIMESLICE_MS)' \
 		'WT_EXTRA_CFLAGS=$(WT_EXTRA_CFLAGS)' \
+		'WT_INTERFACE_SHARED_CRYPTO=$(WT_INTERFACE_SHARED_CRYPTO)' \
+		'WT_PKCS11_PIN_MAX_FAILURES=$(WT_PKCS11_PIN_MAX_FAILURES)' \
+		'WT_PKCS11_TEST_PBKDF2_ITERATIONS=$(WT_PKCS11_TEST_PBKDF2_ITERATIONS)' \
 		'WT_EXTRA_LDFLAGS=$(WT_EXTRA_LDFLAGS)'
 
 $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
@@ -1680,6 +1911,64 @@ $(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/%.c $(WOLFHSM_CFG
 
 $(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/st/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
+
+ifeq ($(if $(WT_IF),$(WT_INTERFACE_LOCAL_PROVIDER)),1)
+ifeq ($(WT_IF),tpm)
+$(BUILD_DIR)/tpm_sec_raw_fwtpm_command.o: $(WT_INTERFACE_PROFILE_DIR)/fwtpm_command.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFTPM_SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/tpm_sec_raw_%.o: $(WOLFTPM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFTPM_SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/tpm_sec_raw_%.o: $(WOLFTPM_DIR)/src/fwtpm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFTPM_SECURE_CFLAGS) -c -o $@ $<
+else
+$(BUILD_DIR)/p11_sec_raw_crypto.o: $(WT_INTERFACE_PROFILE_DIR)/pkcs11_crypto.c \
+        $(WOLFPKCS11_DIR)/src/crypto.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/p11_sec_raw_%.o: $(WOLFPKCS11_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
+endif
+
+$(BUILD_DIR)/$(WT_IF)_sec_raw_%.o: $(ROOT)/src/client/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WT_IF_CLIENT_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/$(WT_IF)_wh_raw_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_WOLFHSM_CFLAGS) $(WT_IF_WOLFHSM_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/$(WT_IF)_wh_raw_wh_client_cryptocb.o: $(WT_INTERFACE_PROFILE_DIR)/hsm_callback.c \
+        $(WOLFHSM_DIR)/src/wh_client_cryptocb.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP)
+	$(CC) $(HSM_WOLFHSM_CFLAGS) $(WT_IF_WOLFHSM_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/$(WT_IF)_wc_raw_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WT_IF_WOLFCRYPT_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/$(WT_IF)_wc_raw_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WT_IF_WOLFCRYPT_CFLAGS) -c -o $@ $<
+
+$(WT_IF_NAMESPACE_MAP): $(WT_IF_WOLFCRYPT_RAW_OBJS) | $(BUILD_DIR)
+	@$(NM) -g --defined-only $^ | awk 'NF >= 2 && $$(NF - 1) ~ /^[A-ZTWV]$$/ { print $$NF, "$(WT_IF_NAMESPACE)" $$NF }' | LC_ALL=C sort -u > $@.tmp
+	@mv $@.tmp $@
+
+$(BUILD_DIR)/$(WT_IF)_wc_%.o: $(BUILD_DIR)/$(WT_IF)_wc_raw_%.o $(WT_IF_NAMESPACE_MAP)
+	$(OBJCOPY) --redefine-syms=$(WT_IF_NAMESPACE_MAP) $< $@
+
+$(BUILD_DIR)/$(WT_IF)_sec_%.o: $(BUILD_DIR)/$(WT_IF)_sec_raw_%.o $(WT_IF_NAMESPACE_MAP)
+	$(OBJCOPY) --redefine-syms=$(WT_IF_NAMESPACE_MAP) $< $@
+
+$(BUILD_DIR)/$(WT_IF)_wh_%.o: $(BUILD_DIR)/$(WT_IF)_wh_raw_%.o $(WT_IF_NAMESPACE_MAP)
+	$(OBJCOPY) --redefine-syms=$(WT_IF_NAMESPACE_MAP) $< $@
+else ifeq ($(WT_IF),tpm)
+$(BUILD_DIR)/tpm_sec_%.o: $(WOLFTPM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFTPM_SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/tpm_sec_%.o: $(WOLFTPM_DIR)/src/fwtpm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFTPM_SECURE_CFLAGS) -c -o $@ $<
+else ifeq ($(WT_IF),p11)
+$(BUILD_DIR)/p11_sec_%.o: $(WOLFPKCS11_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
+endif
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/$(ARCH)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
@@ -1726,6 +2015,15 @@ $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/vnet/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAM
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/vnet/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/tpm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/pkcs11/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/pkcs11/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/services/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)

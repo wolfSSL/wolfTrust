@@ -21,6 +21,9 @@ HSM_ORIGIN = 0x30077800
 HSM_LIMIT = 0x30089000
 CONFDATA_ORIGIN = 0x30093000
 CONFDATA_DATA_LIMIT = 0x30095C00
+# SERVICE_TPM or SERVICE_PKCS11 data band; ports pass --interface-band.
+INTERFACE_ORIGIN = 0x30095000
+INTERFACE_LIMIT = 0x30095800
 
 REQUIRED_ENTRIES = (
     "Reset_Handler",
@@ -38,6 +41,7 @@ READONLY_STATE = tuple(
     re.compile(pattern)
     for pattern in (
         r"^always_prefetch(?:\.|$)",
+        r"^never_prefetch(?:\.|$)",
         r"^sha256DrbgDisabled(?:\.|$)",
     )
 )
@@ -66,6 +70,8 @@ class Layout:
     bands: tuple = BANDS
     confdata_origin: int = CONFDATA_ORIGIN
     confdata_data_limit: int = CONFDATA_DATA_LIMIT
+    interface_origin: int = INTERFACE_ORIGIN
+    interface_limit: int = INTERFACE_LIMIT
     wolfhal: bool = True
 
 
@@ -79,6 +85,8 @@ OWNER_REGIONS = {
     "attest": ("_s_attest", "_e_attest"),
     "hsm": ("_s_hsm", "_e_hsm"),
     "vnet": ("_s_vnet", "_e_vnet"),
+    "tpm": ("_s_tpm", "_e_tpm"),
+    "pkcs11": ("_s_pkcs11", "_e_pkcs11"),
     "conf": ("_sconfdata", "_econfbss"),
     "conf-server": ("_s_conf_server_data", "_e_conf_server_data"),
     "conf-driver": ("_s_conf_driver_data", "_e_conf_driver_data"),
@@ -274,7 +282,8 @@ def parse_map(text):
     return regions, sections
 
 
-def validate(symbols, production=False, layout=DEFAULT_LAYOUT):
+def validate(symbols, production=False, layout=DEFAULT_LAYOUT,
+             require_tpm=False, require_pkcs11=False):
     errors = []
     table = symbol_table(symbols)
 
@@ -323,6 +332,27 @@ def validate(symbols, production=False, layout=DEFAULT_LAYOUT):
             errors.append("conformance state escapes its isolation band")
         if production and bounds["_sconfdata"] != bounds["_econfbss"]:
             errors.append("production image carries conformance data")
+
+    # The interface band (TPM 2.0 or PKCS#11) starts its state at the origin;
+    # a linked relay object makes an empty band an error.
+    for name, required in (("tpm", require_tpm), ("pkcs11", require_pkcs11)):
+        edge_names = ("_s_" + name, "_e_%s_data" % name, "_s_%s_bss" % name,
+                      "_e_" + name)
+        edges = [table.get(edge, ()) for edge in edge_names]
+        if all(len(matches) == 1 for matches in edges):
+            start, end_data, start_bss, end = (m[0].address for m in edges)
+            if required and end <= start:
+                errors.append("required %s band is empty" % name)
+            if end > start:
+                if start != layout.interface_origin:
+                    errors.append("%s band origin is not 0x%08x" %
+                                  (name, layout.interface_origin))
+                if not (start <= end_data <= start_bss <= end <=
+                        layout.interface_limit):
+                    errors.append("%s state escapes its isolation band" % name)
+        elif required:
+            errors.append("required %s band markers are missing or duplicated" %
+                          name)
 
     if (text_start is not None and text_end is not None and
             text_start >= text_end):
@@ -556,7 +586,14 @@ def check_elf(nm, elf, map_text=None, owners_text=None, objects=(),
         return result.returncode
 
     symbols = parse_nm(result.stdout)
-    errors = validate(symbols, production, layout)
+    require_tpm = any(
+        Path(path).name.endswith("tpm_relay_service.o") for path in objects
+    )
+    require_pkcs11 = any(
+        Path(path).name.endswith("pkcs11_relay_service.o") for path in objects
+    )
+    errors = validate(symbols, production, layout, require_tpm=require_tpm,
+                      require_pkcs11=require_pkcs11)
     if map_text is not None:
         owners, owner_errors = parse_owners(owners_text or "")
         regions, sections = parse_map(map_text)
@@ -657,6 +694,10 @@ def self_test():
         "30093060 ? _econfdata",
         "30093060 ? _sconfbss",
         "30093080 ? _econfbss",
+        "30095000 ? _s_tpm",
+        "30095004 ? _e_tpm_data",
+        "30095004 ? _s_tpm_bss",
+        "30095420 ? _e_tpm",
         "30028004 0000000c D g_whalTimeout",
         "30077840 00000100 B g_guests",
         "30028020 00000080 B g_co_stack_slots",
@@ -709,6 +750,14 @@ def self_test():
               file=sys.stderr)
         return False
 
+    empty_tpm = good
+    for name in ("_e_tpm_data", "_s_tpm_bss", "_e_tpm"):
+        empty_tpm = changed(empty_tpm, name, 0x30095000)
+    errors = validate(empty_tpm, require_tpm=True)
+    if not any("required tpm band is empty" in message for message in errors):
+        print("self-test accepted a required empty TPM band", file=sys.stderr)
+        return False
+
     default_handler = next(
         symbol for symbol in good if symbol.name == "default_handler"
     )
@@ -741,6 +790,10 @@ def self_test():
          "conformance data origin is not"),
         ("conformance limit", changed(good, "_econfbss", 0x30095C04),
          "conformance state escapes its isolation band"),
+        ("tpm origin", changed(good, "_s_tpm", 0x30095100),
+         "tpm band origin is not"),
+        ("tpm limit", changed(good, "_e_tpm", 0x30096000),
+         "tpm state escapes its isolation band"),
         ("empty text", changed(good, "_e_secure_text", 0x0C000800),
          "secure text range is empty or reversed"),
         ("missing entry", removed(good, "SVC_Handler"),
@@ -784,6 +837,9 @@ def self_test():
          "shared library state is not read-only"),
         ("writable DRBG flag", list(good) + [
             Symbol(0x30028200, 4, "b", "sha256DrbgDisabled")
+         ], "shared library state is not read-only"),
+        ("writable CCM prefetch anchor", list(good) + [
+            Symbol(0x30028200, 4, "D", "never_prefetch")
          ], "shared library state is not read-only"),
     ) + heap_cases + (
         ("missing timeout", removed(good, "g_whalTimeout"),
@@ -1066,6 +1122,17 @@ def self_test():
         return False
 
     error = io.StringIO()
+    if (check_elf(
+            "fake-nm", Path("empty-tpm.elf"),
+            objects=[Path("build/wt_sec_tpm_relay_service.o")],
+            runner=completed(0, rendered(empty_tpm)),
+            output=io.StringIO(), error=error) != 1 or
+            "required tpm band is empty" not in error.getvalue()):
+        print("self-test required TPM object did not reject an empty band",
+              file=sys.stderr)
+        return False
+
+    error = io.StringIO()
     if (check_elf("fake-nm", Path("invalid.elf"),
                   map_text=render_map(placed), owners_text="a.o nobody\n",
                   runner=completed(0, rendered(good)),
@@ -1165,14 +1232,17 @@ def named_band(text):
     return name, low, high
 
 
-def port_layout(bands, confdata, wolfhal):
+def port_layout(bands, confdata, wolfhal, interface_band=None):
     """Every port declares all three bands or none (the STM32H563 default)."""
     if bands and sorted(name for name, _, _ in bands) != sorted(BAND_NAMES):
         raise argparse.ArgumentTypeError(
             "--band must name each of %s exactly once" % "/".join(BAND_NAMES))
     ordered = tuple(sorted(bands, key=lambda b: BAND_NAMES.index(b[0]))) if bands else BANDS
+    interface = interface_band or (INTERFACE_ORIGIN, INTERFACE_LIMIT)
     return Layout(bands=ordered, confdata_origin=confdata[0],
-                  confdata_data_limit=confdata[1], wolfhal=wolfhal)
+                  confdata_data_limit=confdata[1],
+                  interface_origin=interface[0],
+                  interface_limit=interface[1], wolfhal=wolfhal)
 
 
 def main():
@@ -1189,6 +1259,9 @@ def main():
                         metavar="NAME=ORIGIN:LIMIT")
     parser.add_argument("--confdata", type=band, metavar="ORIGIN:DATA_LIMIT",
                         default=(CONFDATA_ORIGIN, CONFDATA_DATA_LIMIT))
+    parser.add_argument("--interface-band", type=band, metavar="ORIGIN:LIMIT",
+                        default=None, dest="interface_band",
+                        help="TPM 2.0 or PKCS#11 data band for this port")
     parser.add_argument("--no-wolfhal", action="store_true",
                         help="the port links no wolfHAL, so no g_whalTimeout")
     args = parser.parse_args()
@@ -1200,7 +1273,8 @@ def main():
     if args.map is None or args.owners is None:
         parser.error("--map and --owners are required to check an ELF")
     try:
-        layout = port_layout(args.band, args.confdata, not args.no_wolfhal)
+        layout = port_layout(args.band, args.confdata, not args.no_wolfhal,
+                             args.interface_band)
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))
 

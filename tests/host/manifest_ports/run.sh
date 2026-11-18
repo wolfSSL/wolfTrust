@@ -45,7 +45,11 @@ for port in $(python3 "$matrix" --list-ports); do
                 *) flags=$(scenario_profile_flags "$profile")
                    guests=$(scenario_profile_guests "$profile") ;;
             esac
-            [ "$variant" = vnet ] && flags="$flags CONFIG_VNET=y"
+            case "$variant" in
+                vnet) flags="$flags CONFIG_VNET=y" ;;
+                tpm) flags="$flags CONFIG_TPM=y" ;;
+                pkcs11) flags="$flags CONFIG_PKCS11=y" ;;
+            esac
             rm -rf "$out"
             # The manifest exactly as the build renders it for this mode.
             # shellcheck disable=SC2086

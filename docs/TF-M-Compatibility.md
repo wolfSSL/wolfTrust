@@ -53,6 +53,39 @@ and Mbed TLS); the rest is the storage and SPM code outside it. The
 `WT_SECURE_PSA=0` opt-out, which runs wolfPSA in the Non-secure guest instead,
 stays below TF-M, and CI holds it to TF-M's flash and RAM.
 
+### Non-crypto split
+
+`tools/footprint/classify.py` splits a non-LTO map by category with one rules
+file per project (`tools/footprint/wolftrust.rules` and `tfm.rules`). Every
+flash byte lands in a category, `fill` or `linker`, so the categories sum to
+`text + data`, and an object no rule matches fails the run. Crypto is the
+crypto library, the crypto partition and its client, key loaders and entropy
+glue on both sides; attestation includes its CBOR and COSE libraries; storage
+includes the flash drivers and NV counters; guest is the Non-secure guest
+management (TF-M's NS agent).
+
+| Category | wolfTrust STM32H563 | TF-M STM32L562 |
+| --- | ---: | ---: |
+| SPM | 20,168 | 7,548 |
+| Storage | 13,388 | 13,156 |
+| Attestation | 6,244 | 5,585 |
+| Guest management | 4,262 | 176 |
+| Platform | 4,073 | 9,104 |
+| Runtime, fill, linker | 540 | 1,689 |
+| **Non-crypto total** | **48,675** | **37,258** |
+| Crypto | 62,541 | 42,422 |
+
+```sh
+make TARGET=stm32h563 WT_ENGINE=native WT_ATTEST_COSE=1 WT_LTO=0 secure-image
+python3 tools/footprint/classify.py build/wolftrust.map \
+  --rules tools/footprint/wolftrust.rules --elf build/wolftrust.elf --objects
+python3 tools/footprint/classify.py tfm_s.map --rules tools/footprint/tfm.rules \
+  --elf tfm_s.elf
+```
+
+The cross-compile workflow holds each port's non-crypto flash under a ceiling
+it lowers as size work lands.
+
 ### Methodology
 
 Footprint is read from the linked Secure ELF and its map:

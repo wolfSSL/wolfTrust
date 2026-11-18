@@ -16,6 +16,7 @@
     ],
     "attest_cose": 1,
     "variants": ["conformance", "tpm", "pkcs11"],
+    "variant_profiles": {"tpm": ["default"], "pkcs11": ["default"]},
     "vectors": ""
   },
   "m33mu": {
@@ -112,14 +113,6 @@
       [
         "mspovfneg xnneg svcneg",
         "STM32L562 SPM stack, execute-never and SVC misuse (L3)"
-      ],
-      [
-        "tpm tpmneg",
-        "STM32L562 TPM 2.0 interface and isolation (L3)"
-      ],
-      [
-        "pkcs11 pkcs11neg",
-        "STM32L562 PKCS#11 interface and isolation (L3)"
       ]
     ],
     "l3_exempt": {

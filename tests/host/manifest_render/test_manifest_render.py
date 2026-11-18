@@ -178,14 +178,24 @@ def render(flags, variant):
     return result.stdout
 
 
-def generator_accepts(text, label):
+def mode(target, variant):
+    """A variant a port limits to the default profile builds without FWU."""
+    result = run([sys.executable, str(ROOT / "tests/target/lib/scenario_matrix.py"),
+                  "--port", target, "--get", "build.variant_profiles." + variant])
+    if result.returncode == 0 and "full" not in result.stdout.split():
+        return tuple(f for f in MODE[variant] if f != "WT_FWU=1"), True
+    return MODE[variant], False
+
+
+def generator_accepts(text, label, no_fwu=False):
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "manifest.json"
         source.write_text(text, encoding="utf-8")
         result = run([sys.executable, str(GENERATE), str(source),
                       str(Path(directory) / "out"), "--supported-features",
                       "0x1", "--supported-framework-version", "0x100",
-                      "--address-bits", "32", "--unchecked"])
+                      "--address-bits", "32", "--unchecked"] +
+                     (["--exclude-partition", "PARTITION_FWU"] if no_fwu else []))
         check(result.returncode == 0, "%s: the generator rejects the rendered "
               "manifest: %s" % (label, result.stderr.strip()))
 
@@ -269,16 +279,17 @@ def main():
     for target in ports:
         variants = registry(target)
         for variant in variants:
-            flags = cflags(target, *MODE[variant])
+            settings, no_fwu = mode(target, variant)
+            flags = cflags(target, *settings)
             text = render(flags, variant)
             label = "%s/%s" % (target, variant)
-            generator_accepts(text, label)
+            generator_accepts(text, label, no_fwu)
             windows(json.loads(text), layout(flags), label, variant)
             for key, digest in COMMITTED.items():
                 port, committed_variant, settings = key
                 if (port, committed_variant) != (target, variant):
                     continue
-                pinned = render(cflags(target, *(settings + MODE[variant])),
+                pinned = render(cflags(target, *(settings + mode(target, variant)[0])),
                                 variant)
                 check(hashlib.sha256(pinned.encode()).hexdigest() == digest,
                       "%s: rendered under %s differs from the committed "

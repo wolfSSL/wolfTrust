@@ -202,7 +202,7 @@ def main():
             capture_output=True, text=True)
         conf_result = subprocess.run(
             [sys.executable, str(generator), str(conf), conf_out,
-             "--supported-features", "1"],
+             "--supported-features", "1", "--unchecked"],
             capture_output=True, text=True)
         if result.returncode != 0 or conf_result.returncode != 0:
             print("conformance manifest generation failed: {}{}".format(

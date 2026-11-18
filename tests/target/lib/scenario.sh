@@ -19,6 +19,17 @@ expect_n()  { local n; n="$(count "$3")"; \
 expect_n_re() { local n; n="$(count_re "$3")"; \
                 check "$([ "$n" -eq "$2" ]; echo $?)" "$1 ($n)"; }
 
+# shellcheck source=profile.sh disable=SC1091
+. "$(dirname "${BASH_SOURCE[0]}")/profile.sh"
+
+# The profile scenario $2 of port $1 builds with: WT_PROFILE when the matrix
+# registers it there, otherwise full when it runs there, otherwise its only
+# profile.
+scenario_profile() {
+    python3 "$(dirname "${BASH_SOURCE[0]}")/scenario_matrix.py" \
+        --port "$1" --profile-of "$2"
+}
+
 # Isolation level 3 addresses of port/$2 (band, partition stack and SPM
 # peripheral), read from its memory_map.h under the build's own layout
 # configuration so no runner copies them.

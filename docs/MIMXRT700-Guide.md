@@ -106,7 +106,7 @@ XSPI0 octal NOR is aliased at `0x28000000` (Non-secure) and `0x38000000`
 | Guest 1 RAM (`0x40000`) | `0x20140000` |
 | Boot-handoff record | `0x30180000` |
 | Secure runtime RAM | `0x30188000` |
-| RAM code band (`0x4000`, NSC gateway and NOR driver) | executes at `0x10200000`, staged through `0x30200000` |
+| RAM code band (`0x1000`, NSC gateway and NOR driver) | executes at `0x10200000`, staged through `0x30200000` |
 
 SRAM appears at four aliases with the same offset: `0x0` Non-secure code,
 `0x1` Secure code, `0x2` Non-secure data, `0x3` Secure data.
@@ -140,8 +140,8 @@ run time by three mechanisms the port programs before any guest launches:
   NXP's TrustZone setup does, without claiming isolation from those rules.
 
 A port declares what it actually enforces through the capability bitmap in
-`partitions.c`, and the manifest validator refuses a domain that requires a
-capability the port does not provide: a writable Non-secure guest window is
+`platform_caps.h`, and the manifest generator refuses, at build time, a domain
+that requires a capability the port does not provide: a writable Non-secure guest window is
 refused unless the port claims the fabric filter. This port claims it on the
 strength of the per-dispatch SAU window. The AHBSC SRAM rules do not gate CPU0
 on this silicon (a Non-secure store into a closed guest window landed with them
@@ -246,6 +246,9 @@ The stamp lives under `WT_PROVISION_STATE/mimxrt700` (default `~/.cache/wolftrus
 Running `discover` again clears both it and any earlier `regress` stamp.
 
 ## Build, flash, and verify
+
+The hardware runner builds the `full` profile, so its scenarios launch two
+guests and include Firmware Update; it refuses any other `WT_PROFILE`.
 
 The hardware runner (`tests/target/run_hardware.sh mimxrt700 <scenario>`)
 drives image assembly and flashing so the addresses stay paired; its emulator

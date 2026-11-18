@@ -104,10 +104,7 @@
 #define WT_RAM_S_SIZE            0x00037000u
 #define WT_BOOT_HANDOFF_ADDRESS  0x30030000u
 #ifndef WT_L3_SPM_RAM_SIZE
-#define WT_L3_SPM_RAM_SIZE       0x00015800u
-#endif
-#ifndef WT_SP_HSM_DATA_SIZE
-#define WT_SP_HSM_DATA_SIZE      0x00008000u
+#define WT_L3_SPM_RAM_SIZE       0x0001B800u
 #endif
 
 #include "../common/armv8m/l3_layout.h"

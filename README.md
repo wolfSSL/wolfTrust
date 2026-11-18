@@ -23,7 +23,7 @@ flowchart TB
 
     subgraph APP[Application domains]
         GA[Cortex-M client A<br/>Zephyr, FreeRTOS, or bare metal]
-        GB[Cortex-M client B<br/>Zephyr, FreeRTOS, or bare metal]
+        GB[Optional Cortex-M client B<br/>Zephyr, FreeRTOS, or bare metal]
     end
 
     subgraph PORT[Architecture and target ports]
@@ -40,7 +40,7 @@ flowchart TB
             CR["Cryptography and hardware<br/>security module (HSM)"]
             ST["Internal Trusted Storage (ITS),<br/>Protected Storage, and vault"]
             AT[Initial Attestation]
-            FW[Firmware Update]
+            FW[Optional Firmware Update]
             VN[Optional virtual networking]
         end
         SPM --> CR
@@ -118,12 +118,17 @@ make test
 ```
 
 The Secure build produces `build/wolftrust.elf`,
-`build/wolftrust.bin`, and `build/secure_cmse_implib.o`.
+`build/wolftrust.bin`, and `build/secure_cmse_implib.o`. `make` builds the
+lean default image: isolation level 3, one Non-secure guest, and the Crypto,
+ITS, Protected Storage and attestation services. Add-ons such as a second
+guest (`WT_MAX_GUESTS=2`) or firmware update (`WT_FWU=1`) are one Make
+variable each; see [Build profiles](docs/Macros.md#build-profiles).
 Target runners assemble the wolfBoot-to-wolfTrust chain, patch
 signature-covered guest measurements into wolfTrust, and then sign the
 wolfTrust image.
 
-Build both PSA reference guests with:
+Build both PSA reference guests (the second one runs on a
+`WT_MAX_GUESTS=2` Secure image) with:
 
 ```sh
 make -C tests/firmware/zephyr-stm32h5 clone
@@ -168,6 +173,7 @@ documentation source:
 - [Services](docs/Services.md)
 - [TF-M Compatibility](docs/TF-M-Compatibility.md)
 - [Macros](docs/Macros.md)
+- [Footprint](docs/Footprint.md)
 - [Porting](docs/Porting.md)
 - [Building](docs/Building.md)
 - [Testing](docs/Testing.md)
@@ -175,6 +181,7 @@ documentation source:
 - [Project Structure](docs/Project-Structure.md)
 - [STM32H5 Guide](docs/STM32H5-Guide.md)
 - [MIMXRT700 Guide](docs/MIMXRT700-Guide.md)
+- [MCXN947 Guide](docs/MCXN947-Guide.md)
 
 The source tree is authoritative:
 

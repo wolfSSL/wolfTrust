@@ -21,7 +21,10 @@ BUILD_MODE_STAMP := $(BUILD_DIR)/secure_build_mode.stamp
 WOLFHSM_CFG_H := $(BUILD_DIR)/wolfhsm_cfg.h
 
 WT_TIMESLICE_MS ?= 2
-WT_MAX_GUESTS ?= 2
+WT_MAX_GUESTS ?= 1
+ifneq ($(words $(WT_MAX_GUESTS))/$(filter 1 2,$(WT_MAX_GUESTS)),1/$(WT_MAX_GUESTS))
+$(error unsupported WT_MAX_GUESTS='$(WT_MAX_GUESTS)' (want 1 or 2))
+endif
 # Per-tasklet coroutine stack. 10K measured with >=2K headroom: the M33MU
 # deep set (positive, devcrypto 78-test ECC, confboot 85/4) runs clean at
 # 8K with no PSPLIM overflow, so peak use is under 8K. The old 24K predated
@@ -29,7 +32,7 @@ WT_MAX_GUESTS ?= 2
 # is measured, not guessed.
 WT_CO_STACK_SIZE ?= 10240
 # Secure main (SPM) stack, sized at link and limited by MSPLIM_S at reset.
-WT_SPM_STACK_SIZE ?= 0x4000
+WT_SPM_STACK_SIZE ?= 0x1000
 WT_LTO ?= 1
 ifneq ($(WT_LTO),0)
 ifneq ($(WT_LTO),1)
@@ -92,10 +95,28 @@ WT_BUSFAULT_NEG_PROBE ?= 0
 WT_SVC_NEG_PROBE ?= 0
 WT_VNET_NEG_PROBE ?= 0
 WT_MANIFEST_NEG_PROBE ?= 0
+# The generator refuses at build time every manifest the boot-time validator
+# would; 1 also re-runs that validator and the port binding checks at boot.
+WT_MANIFEST_RUNTIME_CHECK ?= 0
+# Manifest negatives 1 and 2 corrupt the manifest at boot, after the build.
+ifneq ($(filter 1 2,$(WT_MANIFEST_NEG_PROBE)),)
+override WT_MANIFEST_RUNTIME_CHECK := 1
+endif
+ifneq ($(words $(WT_MANIFEST_RUNTIME_CHECK))/$(filter 0 1,$(WT_MANIFEST_RUNTIME_CHECK)),1/$(WT_MANIFEST_RUNTIME_CHECK))
+$(error unsupported WT_MANIFEST_RUNTIME_CHECK='$(WT_MANIFEST_RUNTIME_CHECK)' (want 0 or 1))
+endif
 WT_HANDLER_IRQ_PROBE ?= 0
 WT_REMEASURE_PROBE ?= 0
 WT_BOOTUPDATE_PROBE ?= 0
 WT_CONFORMANCE ?= 0
+# PSA Firmware Update partition (SERVICE_FWU) and its 4 KiB stack.
+WT_FWU ?= 0
+ifneq ($(words $(WT_FWU))/$(filter 0 1,$(WT_FWU)),1/$(WT_FWU))
+$(error unsupported WT_FWU='$(WT_FWU)' (want 0 or 1))
+endif
+ifeq ($(WT_BOOTUPDATE_PROBE)/$(WT_FWU),1/0)
+$(error WT_BOOTUPDATE_PROBE=1 drives the update service; build it with WT_FWU=1)
+endif
 
 # Virtual-Ethernet (VNET) subsystem. Off until Wave 2 lands a working
 # core. Host-side unit tests under tests/host/vnet/ build regardless;
@@ -112,7 +133,6 @@ WT_VNET_UNKNOWN_UCAST_FLOOD ?= 0
 HSM_INCLUDES := -I$(WOLFHSM_DIR) -I$(WOLFSSL_DIR) -I$(BUILD_DIR)
 HSM_INCLUDES_SECURE := $(HSM_INCLUDES) -I$(WOLFHAL_DIR) -I$(abspath $(WOLFHSM_RUNNER_DIR))
 HSM_DEFS_SECURE := -DWOLFSSL_USER_SETTINGS -DWOLFHSM_CFG \
-    -UNO_CODING \
     -DWC_RESEED_INTERVAL=1000000 \
     $(ARCH_HSM_DEFS)
 ifeq ($(WT_ENGINE),hsm)
@@ -126,7 +146,8 @@ endif
 ifeq ($(WT_ATTEST_COSE),1)
 SECURE_CFLAGS_COSE := -I$(WOLFCOSE_DIR)/include \
     -DWT_ATTEST_COSE=1 \
-    -DWOLFCOSE_LEAN -DWOLFCOSE_ENABLE_EXT_SIGN -DWOLFCOSE_ENABLE_DEPRECATED_ALGS \
+    -DWOLFCOSE_LEAN -DWOLFCOSE_ENABLE_EXT_SIGN -DWOLFCOSE_NO_LOCAL_SIGN \
+    -DWOLFCOSE_ENABLE_DEPRECATED_ALGS \
     -DWOLFCOSE_NO_SIGN1_VERIFY -DWOLFCOSE_NO_ENCRYPT0 \
     -DWOLFCOSE_NO_MAC0 -DWOLFCOSE_NO_KEY_ENCODE \
     -DWOLFCOSE_NO_KEY_DECODE \
@@ -149,6 +170,11 @@ SECURE_CFLAGS := $(CPU_FLAGS) -std=c99 -ffreestanding -fno-builtin -nostdlib -Os
 SECURE_CFLAGS += $(WT_EXTRA_CFLAGS)
 
 ifeq ($(CONFIG_VNET),y)
+ifneq ($(WT_MAX_GUESTS),2)
+$(error CONFIG_VNET=y needs both guests; build with WT_MAX_GUESTS=2)
+endif
+endif
+ifeq ($(CONFIG_VNET),y)
 SECURE_CFLAGS += -DCONFIG_VNET=1 \
     -DWT_VNET_POOL_SLOTS=$(WT_VNET_POOL_SLOTS) \
     -DWT_VNET_FRAME_MAX=$(WT_VNET_FRAME_MAX) \
@@ -156,9 +182,6 @@ SECURE_CFLAGS += -DCONFIG_VNET=1 \
     -DWT_VNET_RX_IRQ=$(WT_VNET_RX_IRQ) \
     -DWT_VNET_TIMEOUT_TICKS=$(WT_VNET_TIMEOUT_TICKS) \
     -DWT_VNET_UNKNOWN_UCAST_FLOOD=$(WT_VNET_UNKNOWN_UCAST_FLOOD)
-WT_VNET_DATA_LENGTH := 0x5000
-else
-WT_VNET_DATA_LENGTH := 0
 endif
 
 ifeq ($(WT_LAUNCH_DEBUG),1)
@@ -217,6 +240,9 @@ endif
 ifneq ($(filter 1 2 3,$(WT_MANIFEST_NEG_PROBE)),)
 SECURE_CFLAGS += -DWT_MANIFEST_NEG_PROBE=$(WT_MANIFEST_NEG_PROBE)
 endif
+ifeq ($(WT_MANIFEST_RUNTIME_CHECK),1)
+SECURE_CFLAGS += -DWT_MANIFEST_RUNTIME_CHECK=1
+endif
 ifneq ($(filter-out 0,$(WT_HANDLER_IRQ_PROBE)),)
 SECURE_CFLAGS += -DWT_HANDLER_IRQ_PROBE=$(WT_HANDLER_IRQ_PROBE)
 endif
@@ -237,6 +263,13 @@ ifneq ($(strip \
         $(WT_FP_NEG_PROBE)) \
     $(filter 1 2 3 4,$(WT_SEAL_NEG_PROBE))),)
 SECURE_CFLAGS += -DWT_SP_LAZY_FIRST_ENTRY=1
+endif
+ifeq ($(WT_FWU),1)
+SECURE_CFLAGS += -DWT_FWU=1
+MANIFEST_EXCLUDE :=
+else
+# The conformance manifest never carries the update partition.
+MANIFEST_EXCLUDE := $(if $(filter 1,$(WT_CONFORMANCE)),,--exclude-partition PARTITION_FWU)
 endif
 # Hardware guest-flash write protection: refuse to launch a guest whose image
 # sectors are not WRP-protected, so a peer Non-secure guest cannot reprogram a
@@ -347,6 +380,9 @@ WOLFCRYPT_SECURE_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/wolfmath.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/wc_port.c
 WOLFCRYPT_SECURE_SRCS += $(ARCH_WOLFCRYPT_ASM_SRCS)
+ifeq ($(WT_ENGINE),native)
+WOLFCRYPT_SECURE_SRCS := $(filter-out %/asn.c,$(WOLFCRYPT_SECURE_SRCS))
+endif
 
 WT_SECURE_EXTRA_SRCS := \
     $(ARCH_SRCS) \
@@ -364,8 +400,11 @@ WT_SECURE_EXTRA_SRCS := \
     $(ROOT)/src/services/hsm_relay_service.c \
     $(ROOT)/src/services/nvm_client.c \
     $(ROOT)/src/services/storage_service.c \
-    $(ROOT)/src/services/fwu_service.c \
     $(ROOT)/src/services/vault_service.c
+
+ifeq ($(WT_FWU),1)
+WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/fwu_service.c
+endif
 
 # Engine split: wt_hsm.c drives the wolfHSM server (hsm engine only); the
 # native engine dispatches wolfCrypt directly behind the same SERVICE_HSM
@@ -380,7 +419,6 @@ endif
 
 ifeq ($(WT_ATTEST_COSE),1)
 WT_SECURE_EXTRA_SRCS += \
-    $(ROOT)/src/services/attestation_cose.c \
     $(ROOT)/src/services/attestation_service.c \
     $(ROOT)/src/services/initial_attestation.c \
     $(WOLFCOSE_DIR)/src/wolfcose_cbor.c \
@@ -1447,9 +1485,35 @@ $(MANIFEST_INPUT): $(MANIFEST_OVERLAY) $(WT_MANIFEST_RENDER_DEPS) \
 	$(WT_MANIFEST_RENDER) $(addprefix --overlay ,$(MANIFEST_OVERLAY)) \
 		--output $@ $(WT_MANIFEST_TEMPLATE)
 
+# The generator checks the manifest against the port's platform limits and the
+# FF-M runtime's compiled limits, read from the headers that size it.
+wt_header_value = $(strip $(shell sed -n -E 's/^.define $(1)[[:space:]]+(0x[0-9A-Fa-f]+|[0-9]+)U.*/\1/p' $(2)))
+WT_FFM_MAX_PARTITIONS_VALUE := $(call wt_header_value,WT_FFM_MAX_PARTITIONS,$(ROOT)/include/wolftrust/ffm.h)
+WT_FFM_MAX_SERVICES_VALUE := $(call wt_header_value,WT_FFM_MAX_SERVICES,$(ROOT)/include/wolftrust/ffm.h)
+WT_PSA_FRAMEWORK_VERSION_VALUE := $(call wt_header_value,PSA_FRAMEWORK_VERSION,$(ROOT)/include/psa/client.h)
+ifeq ($(words $(WT_FFM_MAX_PARTITIONS_VALUE) $(WT_FFM_MAX_SERVICES_VALUE) $(WT_PSA_FRAMEWORK_VERSION_VALUE)),3)
+else
+$(error cannot read the FF-M runtime limits for the manifest generator)
+endif
+ifeq ($(words $(WT_PLATFORM_CAPABILITIES) $(WT_PLATFORM_MAX_DOMAINS) $(WT_PLATFORM_MAX_MEMORY_RESOURCES) $(WT_PLATFORM_MAX_INTERRUPTS) $(WT_PLATFORM_PORT_CAPABILITIES)),5)
+else
+$(error the WT_PLATFORM_* capabilities are unset (mk/arch-$(ARCH).mk))
+endif
+MANIFEST_GEN_ARGS := --supported-features 0x1 \
+    --supported-framework-version $(WT_PSA_FRAMEWORK_VERSION_VALUE) \
+    --address-bits 32 \
+    --platform-capabilities $(WT_PLATFORM_CAPABILITIES) \
+    --platform-max-domains $(WT_PLATFORM_MAX_DOMAINS) \
+    --platform-max-memory-resources $(WT_PLATFORM_MAX_MEMORY_RESOURCES) \
+    --platform-max-interrupts $(WT_PLATFORM_MAX_INTERRUPTS) \
+    --port-capabilities $(WT_PLATFORM_PORT_CAPABILITIES) \
+    --platform-header platform_caps.h \
+    --ffm-max-partitions $(WT_FFM_MAX_PARTITIONS_VALUE) \
+    --ffm-max-services $(WT_FFM_MAX_SERVICES_VALUE) --ffm-ipc-only
+
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.
-MANIFEST_MODE := MANIFEST_VARIANT=$(MANIFEST_VARIANT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) GEN_OPTS=--supported-features 0x1 --supported-framework-version 0x100 --address-bits 32
+MANIFEST_MODE = MANIFEST_VARIANT=$(MANIFEST_VARIANT) CONFIG_VNET=$(CONFIG_VNET) WT_CONFORMANCE=$(WT_CONFORMANCE) WT_FWU=$(WT_FWU) GEN_OPTS=$(strip $(MANIFEST_GEN_ARGS) $(MANIFEST_EXCLUDE) $(WT_L3_MANIFEST_ARGS))
 
 $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		FORCE | $(MANIFEST_DIR)
@@ -1459,14 +1523,18 @@ $(MANIFEST_STAMP): $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
 		:; \
 	else \
 		python3 $(ROOT)/tools/manifest/generate.py $(MANIFEST_INPUT) \
-			$(MANIFEST_DIR) --supported-features 0x1 \
-			--supported-framework-version 0x100 --address-bits 32 \
-			&& printf '%s\n' '$(MANIFEST_MODE)' > "$@"; \
+			$(MANIFEST_DIR) $(MANIFEST_GEN_ARGS) $(MANIFEST_EXCLUDE) \
+			$(WT_L3_MANIFEST_ARGS) && printf '%s\n' '$(MANIFEST_MODE)' > "$@"; \
 	fi
 
 $(MANIFEST_GEN_C) $(MANIFEST_GEN_H): $(MANIFEST_STAMP)
 
-$(MANIFEST_OBJ): $(MANIFEST_GEN_C) $(MANIFEST_GEN_H) \
+# tests/host/manifest_ports generates every port manifest with these arguments.
+.PHONY: print-manifest-gen-args
+print-manifest-gen-args:
+	@echo $(MANIFEST_GEN_ARGS) $(MANIFEST_EXCLUDE) $(WT_L3_MANIFEST_ARGS)
+
+$(MANIFEST_OBJ): $(MANIFEST_GEN_C) $(MANIFEST_GEN_H) $(PORT_HEADERS) \
 		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $(MANIFEST_GEN_C)
 
@@ -1508,6 +1576,7 @@ BUILD_MODE_LINES = \
 		'WT_PANIC_NEG_PROBE=$(WT_PANIC_NEG_PROBE)' \
 		'WT_VNET_NEG_PROBE=$(WT_VNET_NEG_PROBE)' \
 		'WT_MANIFEST_NEG_PROBE=$(WT_MANIFEST_NEG_PROBE)' \
+		'WT_MANIFEST_RUNTIME_CHECK=$(WT_MANIFEST_RUNTIME_CHECK)' \
 		'WT_HANDLER_IRQ_PROBE=$(WT_HANDLER_IRQ_PROBE)' \
 		'WT_FP_NEG_PROBE=$(WT_FP_NEG_PROBE)' \
 		'WT_SEAL_NEG_PROBE=$(WT_SEAL_NEG_PROBE)' \
@@ -1517,11 +1586,13 @@ BUILD_MODE_LINES = \
 		'WT_SVC_NEG_PROBE=$(WT_SVC_NEG_PROBE)' \
 		'WT_REMEASURE_PROBE=$(WT_REMEASURE_PROBE)' \
 		'WT_BOOTUPDATE_PROBE=$(WT_BOOTUPDATE_PROBE)' \
+		'WT_FWU=$(WT_FWU)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_SPM_STACK_SIZE=$(WT_SPM_STACK_SIZE)' \
 		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \
 		'WT_WOLFCRYPT_ARMASM=$(WT_WOLFCRYPT_ARMASM)' \
+		'WT_SHA256_FAST=$(WT_SHA256_FAST)' \
 		'WT_WOLFCRYPT_STM32_HASH=$(WT_WOLFCRYPT_STM32_HASH)' \
 		'WT_TIMESLICE_MS=$(WT_TIMESLICE_MS)' \
 		'WT_EXTRA_CFLAGS=$(WT_EXTRA_CFLAGS)' \
@@ -1653,9 +1724,10 @@ $(SECURE_ELF) $(SECURE_MAP) $(ARCH_LINK_OUTPUTS) &: $(ALL_SECURE_OBJS) $(SECURE_
 		$(PORT_HEADERS) $(ROOT)/tools/check_secure_layout.py \
 		$(ROOT)/tools/secure_owners.txt $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(RM) $(SECURE_BIN)
+	$(if $(WT_SECURE_LINK_REFUSE),@$(RM) $(SECURE_ELF) $(SECURE_MAP) $(ARCH_LINK_OUTPUTS); \
+		printf 'error: %s\n' '$(WT_SECURE_LINK_REFUSE)' >&2; exit 1)
 	$(CC) $(SECURE_CFLAGS) \
 		$(TARGET_LDFLAGS) \
-		-Wl,--defsym=WT_VNET_DATA_LENGTH=$(WT_VNET_DATA_LENGTH) \
 		-Wl,--defsym=WT_SPM_STACK_SIZE=$(WT_SPM_STACK_SIZE) \
 		-Wl,-T$(SECURE_LD) \
 		-Wl,--gc-sections -Wl,-Map=$(SECURE_MAP),--cref \
@@ -1675,8 +1747,9 @@ secure-image: $(SECURE_BIN) $(SECURE_ELF)
 
 # Footprint evidence for size tracking: totals plus the section and largest
 # .bss breakdown of the secure image.
-size-report: $(SECURE_ELF)
+size-report: $(SECURE_ELF) $(SECURE_MAP)
 	@$(SIZE) $(SECURE_ELF)
+	@python3 $(ROOT)/tools/secure_ram.py $(SECURE_MAP)
 	@$(SIZE) -A -d $(SECURE_ELF) | grep -vE '^(Total|section| *$$)' | sort -k2 -nr | head -12
 	@$(TOOLPREFIX)nm --print-size --size-sort --radix=d $(SECURE_ELF) | \
 		awk '$$3 ~ /^[bB]$$/' | tail -10

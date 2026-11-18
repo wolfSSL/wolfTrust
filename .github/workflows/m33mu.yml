@@ -107,7 +107,7 @@ jobs:
           echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
           printf '%s' "$matrix" | python3 -c 'import json, sys
           for e in json.load(sys.stdin):
-              print(e["job"], "(" + e["engine"] + ")")'
+              print(e["job"], "(" + e["engine"] + ", " + e["profile"] + ")")'
 
   scenarios:
     name: ${{ matrix.job }}
@@ -122,6 +122,7 @@ jobs:
       image: ${{ matrix.image }}
     env:
       WT_ENGINE: ${{ matrix.engine }}
+      WT_PROFILE: ${{ matrix.profile }}
     steps:
       - uses: actions/checkout@v4
 

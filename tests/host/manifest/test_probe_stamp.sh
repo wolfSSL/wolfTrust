@@ -40,11 +40,13 @@ if grep -q '^WT_FP_NEG_PROBE=0$' "$stamp" &&
    grep -q '^WT_MSP_OVF_PROBE=0$' "$stamp" &&
    grep -q '^WT_BUSFAULT_NEG_PROBE=0$' "$stamp" &&
    grep -q '^WT_XN_NEG_PROBE=0$' "$stamp" &&
-   grep -q '^WT_SVC_NEG_PROBE=0$' "$stamp"; then st=0; else st=1; fi
+   grep -q '^WT_SVC_NEG_PROBE=0$' "$stamp" &&
+   grep -q '^WT_MANIFEST_RUNTIME_CHECK=0$' "$stamp"; then st=0; else st=1; fi
 check $st "default stamp records every probe off"
 
 for probe in WT_FP_NEG_PROBE WT_SEAL_NEG_PROBE WT_MSP_OVF_PROBE \
-        WT_BUSFAULT_NEG_PROBE WT_XN_NEG_PROBE WT_SVC_NEG_PROBE; do
+        WT_BUSFAULT_NEG_PROBE WT_XN_NEG_PROBE WT_SVC_NEG_PROBE \
+        WT_MANIFEST_RUNTIME_CHECK; do
     gen "$probe=1"
     if grep -q "^$probe=1\$" "$stamp" &&
        ! cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
@@ -60,6 +62,15 @@ for probe in WT_FP_NEG_PROBE WT_SEAL_NEG_PROBE WT_MSP_OVF_PROBE \
     check $st "dropping $probe restores the default stamp"
 done
 
+for probe in 1 2; do
+    gen WT_MANIFEST_NEG_PROBE=$probe
+    if grep -q '^WT_MANIFEST_RUNTIME_CHECK=1$' "$stamp"; then st=0; else st=1; fi
+    check $st "WT_MANIFEST_NEG_PROBE=$probe forces the boot-time manifest check"
+done
+gen WT_MANIFEST_NEG_PROBE=3
+if grep -q '^WT_MANIFEST_RUNTIME_CHECK=0$' "$stamp"; then st=0; else st=1; fi
+check $st "WT_MANIFEST_NEG_PROBE=3 keeps the default build-time check"
+
 gen WT_VNET_TIMEOUT_TICKS=100
 if grep -q '^WT_VNET_TIMEOUT_TICKS=100$' "$stamp" &&
    ! cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
@@ -67,6 +78,105 @@ check $st "WT_VNET_TIMEOUT_TICKS=100 invalidates the stamp"
 gen
 if cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
 check $st "dropping WT_VNET_TIMEOUT_TICKS restores the default stamp"
+
+if grep -q '^WT_MAX_GUESTS=1$' "$build/default.stamp"; then st=0; else st=1; fi
+check $st "default stamp records the one-guest image"
+gen WT_MAX_GUESTS=2
+if grep -q '^WT_MAX_GUESTS=2$' "$stamp" &&
+   ! cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
+check $st "WT_MAX_GUESTS=2 invalidates the stamp"
+gen
+if cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
+check $st "dropping WT_MAX_GUESTS restores the default stamp"
+
+if grep -q '^WT_FWU=0$' "$build/default.stamp"; then st=0; else st=1; fi
+check $st "default stamp records the image without the update service"
+gen WT_FWU=1
+if grep -q '^WT_FWU=1$' "$stamp" &&
+   ! cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
+check $st "WT_FWU=1 invalidates the stamp"
+gen
+if cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
+check $st "dropping WT_FWU restores the default stamp"
+if (cd "$root" && make -s BUILD_DIR="$build" WT_BOOTUPDATE_PROBE=1 \
+        "$stamp" >/dev/null 2>"$build/bootupdate.err"); then st=1;
+elif grep -q 'build it with WT_FWU=1' "$build/bootupdate.err"; then st=0;
+else st=1; fi
+check $st "WT_BOOTUPDATE_PROBE=1 without WT_FWU=1 stops the build"
+if (cd "$root" && make -s BUILD_DIR="$build" CONFIG_VNET=y \
+        "$stamp" >/dev/null 2>"$build/vnet.err"); then st=1;
+elif grep -q 'CONFIG_VNET=y needs both guests' "$build/vnet.err"; then st=0;
+else st=1; fi
+check $st "CONFIG_VNET=y with one guest stops the build"
+plan=$(cd "$root" && make -n -s TARGET=stm32h563 WT_CONFORMANCE=1 \
+    WT_LAYOUT_CPP="${CC:-cc}" BUILD_DIR="$build/refuse" \
+    "$build/refuse/wolftrust.elf" 2>/dev/null || true)
+case "$plan" in
+*"needs the 256 KiB Secure slot"*) st=0 ;;
+*) st=1 ;;
+esac
+check $st "WT_CONFORMANCE=1 in the 128 KiB STM32H563 slot refuses the link"
+plan=$(cd "$root" && make -n -s TARGET=stm32h563 WT_CONFORMANCE=1 \
+    WT_SECURE_FLASH_SIZE=0x00040000 WT_LAYOUT_CPP="${CC:-cc}" \
+    BUILD_DIR="$build/refuse" "$build/refuse/wolftrust.elf" 2>/dev/null || true)
+case "$plan" in
+*"needs the 256 KiB Secure slot"*) st=1 ;;
+*) st=0 ;;
+esac
+check $st "WT_CONFORMANCE=1 in the 256 KiB slot links"
+plan=$(cd "$root" && make -n -s TARGET=stm32h563 test-target 2>/dev/null | tr '\n' ' ')
+case "$plan" in
+*"WT_PROFILE=default WT_SUITE_LOG_DIR=logs/default"*"WT_PROFILE=full WT_SUITE_LOG_DIR=logs/full"*) st=0 ;;
+*) st=1 ;;
+esac
+check $st "make test-target runs default then full, each with its own logs"
+plan=$(cd "$root" && make -n -s TARGET=stm32h563 WT_PROFILE=default test-target 2>/dev/null | tr '\n' ' ')
+case "$plan" in
+*"WT_PROFILE=full"*) st=1 ;;
+*"WT_PROFILE=default WT_SUITE_LOG_DIR=logs "*) st=0 ;;
+*) st=1 ;;
+esac
+check $st "make test-target WT_PROFILE=default runs only the default profile"
+
+if grep -q '^WT_SHA256_FAST=0$' "$build/default.stamp"; then st=0; else st=1; fi
+check $st "default stamp records the looped SHA-256 transform"
+gen WT_SHA256_FAST=1
+if grep -q '^WT_SHA256_FAST=1$' "$stamp" &&
+   ! cmp -s "$stamp" "$build/default.stamp"; then st=0; else st=1; fi
+check $st "WT_SHA256_FAST=1 invalidates the stamp"
+if (cd "$root" && make -s BUILD_DIR="$build" WT_SHA256_FAST=2 \
+        "$stamp" >/dev/null 2>"$build/sha256.err"); then st=1;
+elif grep -q 'unsupported WT_SHA256_FAST' "$build/sha256.err"; then st=0;
+else st=1; fi
+check $st "WT_SHA256_FAST=2 stops the build"
+gen
+
+for value in 2 "0 1"; do
+    if (cd "$root" && make -s BUILD_DIR="$build" \
+            WT_MANIFEST_RUNTIME_CHECK="$value" "$stamp" >/dev/null \
+            2>"$build/rtcheck.err"); then st=1;
+    elif grep -q 'unsupported WT_MANIFEST_RUNTIME_CHECK' "$build/rtcheck.err"; then st=0;
+    else st=1; fi
+    check $st "WT_MANIFEST_RUNTIME_CHECK='$value' stops the build"
+done
+for value in lean "default full"; do
+    if (cd "$root" && WT_TARGET_SCENARIOS=1 make -s WT_PROFILE="$value" \
+            test-target >/dev/null 2>"$build/profile.err"); then st=1;
+    elif grep -q 'unsupported WT_PROFILE' "$build/profile.err"; then st=0;
+    else st=1; fi
+    check $st "make test-target WT_PROFILE='$value' fails"
+done
+gen
+
+for target in stm32h563 mimxrt700 mcxn947; do
+    deps=$(cd "$root" && make -pq TARGET=$target BUILD_DIR="$build" "$stamp" \
+        2>/dev/null | grep "^$build/wt_sec_wolftrust_manifest_generated.o:" || true)
+    case "$deps" in
+        *port/common/armv8m/platform_caps.h*) st=0 ;;
+        *) st=1 ;;
+    esac
+    check $st "$target: the generated manifest object rebuilds on platform_caps.h"
+done
 
 echo "probe build stamp tests: $checks checks, $failures failures"
 if [ "$failures" -eq 0 ]; then

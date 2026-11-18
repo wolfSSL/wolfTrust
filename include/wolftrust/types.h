@@ -29,7 +29,10 @@
 #include "wolftrust/domain.h"
 
 #ifndef WT_MAX_GUESTS
-#define WT_MAX_GUESTS 2U
+#define WT_MAX_GUESTS 1U
+#endif
+#if (WT_MAX_GUESTS != 1) && (WT_MAX_GUESTS != 2)
+#error "WT_MAX_GUESTS must be 1 or 2"
 #endif
 #define WT_MAX_IRQ_WORDS 8U
 #define WT_MAX_MEMORY_WINDOWS 8U

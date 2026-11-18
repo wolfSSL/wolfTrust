@@ -25,6 +25,11 @@ endif
 WT_SECURE_FLASH_BASE ?= 0x0C000000
 WT_SECURE_FLASH_SIZE ?= 0x00020000
 WT_SECURE_IMAGE_HEADER_SIZE ?= 0
+# The Arm suite overflows the 128 KiB standalone slot. Refused at the link
+# only, so the host manifest suites still render its manifest.
+ifeq ($(WT_CONFORMANCE)/$(filter 0x00020000 0x20000,$(WT_SECURE_FLASH_SIZE)),1/$(WT_SECURE_FLASH_SIZE))
+WT_SECURE_LINK_REFUSE := WT_CONFORMANCE=1 needs the 256 KiB Secure slot on the STM32H563; build it in the M33MU layout (port_layout_env in tests/target/ports/stm32h563/m33mu.sh)
+endif
 WT_GUEST0_FLASH_BASE ?= 0x08020000
 WT_GUEST1_FLASH_BASE ?= 0x08040000
 WT_GUEST0_FLASH_SIZE ?= 0x00020000

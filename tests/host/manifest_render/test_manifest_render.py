@@ -4,8 +4,8 @@ rendered under each port's layout configuration is the manifest the secure
 build compiles.
 
 For every registered port and each variant it registers: the rendered
-manifest is pinned by SHA-256 (the checked-in manifests at the base of this
-work, reproduced byte for byte), the generator accepts it, every window in
+manifest is pinned by SHA-256 (a layout or template change is a reviewed
+change), the generator accepts it, every window in
 it equals the port's memory_map.h (the guests' flash, RAM and console, the
 SPM stack, the partition stacks and keystore bands, the conformance IRQ),
 no two partitions share a writable byte and none reaches SPM RAM, and a
@@ -36,23 +36,23 @@ H5_RUNNER = ("WT_SECURE_FLASH_BASE=0x0C060000", "WT_SECURE_FLASH_SIZE=0x00040000
              "WT_GUEST1_FLASH_BASE=0x080E0000", "WT_GUEST0_FLASH_SIZE=0x00040000")
 H5_COMMITTED = ("WT_GUEST0_FLASH_BASE=0x080A0000", "WT_GUEST1_FLASH_BASE=0x080E0000",
                 "WT_GUEST0_FLASH_SIZE=0x00040000")
-# SHA-256 of the manifests this work replaced (upstream main 8643e958):
-# port/<soc>/manifest.json, manifest-conformance.json, manifest-vnet.json.
+# SHA-256 of each port's rendered manifest under the shared level 3 layout,
+# pinned so a layout or template change is a reviewed change.
 COMMITTED = {
     ("mimxrt700", "base", ()):
-        "c46322ff3a08e74de21844095847d86d994f183bbfe852c879198584da9afef7",
+        "f1d2e3f48abc89ed60357afaded9d2854c84ed4922b90405e59d9533ca54ea43",
     ("mimxrt700", "conformance", ()):
-        "8dee73baa282d2394ac44305f1f122526da137e114823bbf44d0f2720b40e504",
+        "aad2bcff6fed6947589e41464b6e67caf5da2c4f1172152b70c18a8ca3ec6477",
     ("mcxn947", "base", ()):
-        "b4ed8618854ce8aada2bac2ea15bc838a21531e1d0442ce425881042eb462e70",
+        "82e7a587c0aca10e33bf241d8c1e5265b11c4041736861f2ce1188e1d2d9e1c9",
     ("mcxn947", "conformance", ()):
-        "6a932402558f967d09a283081b8b50fdcd8d5110fa5552f6f2987b2a0e655a0d",
+        "048932c132dd12d9acabb248dad5508888992af2764fdbe40680f05c6633127b",
     ("stm32h563", "base", H5_COMMITTED):
-        "34b704b4bcd796575ae3794df79d72c397046d1e010b798eef761248f1f3888e",
+        "86f4026a9af68862af59263c3081c71508cbbe0489c7e4911b2ce4a540455385",
     ("stm32h563", "conformance", H5_COMMITTED):
-        "145a9758440058f2051e2dfc83b61051573e03ecc2da1067e54edf1c8674ca1d",
+        "aa895ef647df739dff74ae2e98990acf0a156953b0b7e190783aaa1ae396b2aa",
     ("stm32h563", "vnet", H5_COMMITTED):
-        "9cd91a091fa20acdcdeb4396344a953ee107d4602e98cd9a36d882df8dbdc993",
+        "f73ececaa88988def0287796ccde11c8dc10e58dd174c9101b56a0f08e45bc01",
 }
 WINDOW_MACROS = (
     "WT_SECURE_FLASH_BASE", "WT_RAM_S_BASE", "WT_SP_CODE_BASE",
@@ -64,20 +64,22 @@ WINDOW_MACROS = (
     "WT_SP_ATTEST_STACK_BASE", "WT_SP_CRYPTO_STACK_BASE",
     "WT_SP_VAULT_STACK_BASE", "WT_SP_VAULT_STACK_SIZE", "WT_SP_ITS_STACK_BASE",
     "WT_SP_PS_STACK_BASE", "WT_SP_FWU_STACK_BASE", "WT_SP_SECURE_STACK_SIZE",
+    "WT_SP_ATTEST_STACK_SIZE", "WT_SP_CRYPTO_STACK_SIZE", "WT_SP_ITS_STACK_SIZE",
+    "WT_SP_PS_STACK_SIZE", "WT_SP_FWU_STACK_SIZE",
     "WT_SP_FF_SERVER_STACK_BASE", "WT_SP_FF_DRIVER_STACK_BASE",
     "WT_SP_FF_CLIENT_STACK_BASE", "WT_SP_VNET_STACK_BASE", "WT_SP_VNET_STACK_SIZE",
     "WT_SP_VAULT_DATA_BASE", "WT_SP_VAULT_DATA_SIZE", "WT_SP_ATTEST_DATA_BASE",
     "WT_SP_ATTEST_DATA_SIZE", "WT_SP_HSM_DATA_BASE", "WT_SP_HSM_DATA_SIZE",
     "WT_VNET_DATA_BASE", "WT_VNET_DATA_SIZE", "WT_CONF_SP_DATA_BASE",
-    "WT_CONF_SP_DATA_SIZE",
+    "WT_CONF_SP_DATA_SIZE", "WT_L3_BANDS_BASE",
 )
 STACKS = {
-    "PARTITION_ATTEST": ("WT_SP_ATTEST_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
-    "PARTITION_HSM": ("WT_SP_CRYPTO_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
+    "PARTITION_ATTEST": ("WT_SP_ATTEST_STACK_BASE", "WT_SP_ATTEST_STACK_SIZE"),
+    "PARTITION_HSM": ("WT_SP_CRYPTO_STACK_BASE", "WT_SP_CRYPTO_STACK_SIZE"),
     "PARTITION_VAULT": ("WT_SP_VAULT_STACK_BASE", "WT_SP_VAULT_STACK_SIZE"),
-    "PARTITION_ITS": ("WT_SP_ITS_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
-    "PARTITION_PS": ("WT_SP_PS_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
-    "PARTITION_FWU": ("WT_SP_FWU_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
+    "PARTITION_ITS": ("WT_SP_ITS_STACK_BASE", "WT_SP_ITS_STACK_SIZE"),
+    "PARTITION_PS": ("WT_SP_PS_STACK_BASE", "WT_SP_PS_STACK_SIZE"),
+    "PARTITION_FWU": ("WT_SP_FWU_STACK_BASE", "WT_SP_FWU_STACK_SIZE"),
     "PARTITION_VNET": ("WT_SP_VNET_STACK_BASE", "WT_SP_VNET_STACK_SIZE"),
     "SERVER_PARTITION": ("WT_SP_FF_SERVER_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
     "DRIVER_PARTITION": ("WT_SP_FF_DRIVER_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
@@ -151,6 +153,13 @@ def layout(flags):
     return values
 
 
+# The build mode a variant renders under: the layout reserves the update
+# stack, the conformance window and the VNET band only in the modes that use
+# them, and the base template carries the update partition.
+MODE = {"base": ("WT_FWU=1",), "conformance": ("WT_CONFORMANCE=1",),
+        "vnet": ("CONFIG_VNET=y", "WT_MAX_GUESTS=2", "WT_FWU=1")}
+
+
 def render(flags, variant):
     command = [sys.executable, str(RENDER), "--cc", CC, "--cflags", flags]
     if variant != "base":
@@ -168,7 +177,7 @@ def generator_accepts(text, label):
         result = run([sys.executable, str(GENERATE), str(source),
                       str(Path(directory) / "out"), "--supported-features",
                       "0x1", "--supported-framework-version", "0x100",
-                      "--address-bits", "32"])
+                      "--address-bits", "32", "--unchecked"])
         check(result.returncode == 0, "%s: the generator rejects the rendered "
               "manifest: %s" % (label, result.stderr.strip()))
 
@@ -192,10 +201,9 @@ def windows(manifest, values, label, variant):
               values["WT_GUEST%d_FLASH_BASE" % index],
               "%s: guest %d windows %s, memory_map.h %s" %
               (label, index, sorted(mems), sorted(want)))
-    # SPM RAM ends at the keystore; the network variant carves its data band
-    # out of the top of it for PARTITION_VNET alone.
-    spm_end = values["WT_VNET_DATA_BASE" if variant == "vnet"
-                     else "WT_SP_VAULT_DATA_BASE"]
+    # SPM RAM ends at the lowest partition band: the VNET band, then the
+    # crypto partition's stack and data band below the keystore.
+    spm_end = values["WT_L3_BANDS_BASE"]
     writable = []
     for part in manifest["partitions"]:
         domain = domains[part["domain_id"]]
@@ -253,7 +261,7 @@ def main():
     for target in ports:
         variants = registry(target)
         for variant in variants:
-            flags = cflags(target)
+            flags = cflags(target, *MODE[variant])
             text = render(flags, variant)
             label = "%s/%s" % (target, variant)
             generator_accepts(text, label)
@@ -262,21 +270,22 @@ def main():
                 port, committed_variant, settings = key
                 if (port, committed_variant) != (target, variant):
                     continue
-                pinned = render(cflags(target, *settings), variant)
+                pinned = render(cflags(target, *(settings + MODE[variant])),
+                                variant)
                 check(hashlib.sha256(pinned.encode()).hexdigest() == digest,
                       "%s: rendered under %s differs from the committed "
                       "manifest" % (label, " ".join(settings) or "the defaults"))
                 seen.add(key)
         # Each guest's console follows the console selection, as the bind check does.
         for uart in range(4):
-            flags = cflags(target, "WT_SHARED_UART=%d" % uart)
+            flags = cflags(target, "WT_SHARED_UART=%d" % uart, *MODE["base"])
             windows(json.loads(render(flags, "base")), layout(flags),
                     "%s/WT_SHARED_UART=%d" % (target, uart), "base")
         # A moved guest window moves only the guest's windows.
         values = layout(cflags(target))
         moved = "WT_GUEST1_FLASH_SIZE=%#x" % (values["WT_GUEST1_FLASH_SIZE"] // 2)
-        before = json.loads(render(cflags(target), "base"))
-        after = json.loads(render(cflags(target, moved), "base"))
+        before = json.loads(render(cflags(target, *MODE["base"]), "base"))
+        after = json.loads(render(cflags(target, moved, *MODE["base"]), "base"))
         check(before != after and
               after["domains"][2]["memory_resources"][0]["size"] ==
               values["WT_GUEST1_FLASH_SIZE"] // 2 and
@@ -285,7 +294,8 @@ def main():
               "%s: %s did not move exactly guest 1's window" % (target, moved))
         if "conformance" in variants:
             irq = "WT_CONF_IRQ=%d" % (values["WT_CONF_IRQ"] + 1)
-            conf = json.loads(render(cflags(target, irq), "conformance"))
+            conf = json.loads(render(cflags(target, irq, *MODE["conformance"]),
+                                     "conformance"))
             driver = [d for d in conf["domains"] if d["interrupt_resources"]]
             check(len(driver) == 1 and
                   driver[0]["interrupt_resources"][0]["interrupt"] ==

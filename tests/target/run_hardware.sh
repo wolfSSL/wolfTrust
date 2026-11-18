@@ -40,6 +40,16 @@ lib="$here/lib"
 # shellcheck source=lib/engine.sh disable=SC1091
 . "$lib/engine.sh"
 
+# The hardware suites build, flash and assert both guests, so only the full
+# profile runs on silicon; its flags go ahead of every scenario's own.
+case "${WT_PROFILE:-full}" in
+  full) ;;
+  *) echo "WT_PROFILE=$WT_PROFILE is not supported on hardware (the suite asserts both guests; use WT_PROFILE=full)" >&2; exit 2 ;;
+esac
+scenario_profile_reset
+# shellcheck disable=SC2046
+export $(scenario_profile_flags full)
+
 ports="$(python3 "$lib/scenario_matrix.py" --list-ports)"
 case " $ports " in
   *" $port "*) ;;
@@ -100,6 +110,10 @@ periph_addr="$(awk '/define GUEST_PERIPH_NS_ADDR/ { sub(/u$/, "", $3); print $3 
 # --- The Secure image and the guests: the recipe run_target.sh boots, minus
 #     the emulator-only breakpoint the plan already dropped for hardware. ---
 do_build() {
+  if [ -n "$SC_SECURE" ]; then
+    # shellcheck disable=SC2086,SC2163
+    export $SC_SECURE
+  fi
   l3_layout_load "$repo" "$port"
   wolfboot_build "$WOLFBOOT_DIR" ${WOLFBOOT_MAKE_ARGS[@]+"${WOLFBOOT_MAKE_ARGS[@]}"} || fail "wolfBoot build failed"
   git -c "safe.directory=$repo" -c "safe.directory=$repo/*" submodule update --init --single-branch

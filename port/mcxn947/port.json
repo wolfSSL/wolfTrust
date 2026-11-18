@@ -45,6 +45,25 @@
       ["mspovfneg xnneg svcneg", "MCXN947 SPM stack, execute-never and SVC misuse (L3)"]
     ],
     "l3_exempt": {},
+    "default": {
+      "smoke": ["positive"],
+      "groups": [
+        ["positive", "MCXN947 one-guest lifecycle"],
+        ["authneg rollbackneg remeasureneg manifestneg spbudgetneg", "MCXN947 launch, rollback, re-measure, manifest and SP budget verdicts, one guest"],
+        ["spfaultneg panicneg", "MCXN947 SP fault recovery and panic, one guest"],
+        ["attestneg", "MCXN947 attestation negatives, one guest"],
+        ["hsmattackneg", "MCXN947 wolfHSM cross-namespace + NVM relay negatives, one guest"],
+        ["periphneg", "MCXN947 NS read of the SPM's ELS refused by the SAU, one guest"],
+        ["nativewire nativewireasm", "MCXN947 every native wire key op from the guest, portable C and assembly, one guest"],
+        ["crossdomain keystoreneg periphspneg deputyneg", "MCXN947 SP domain, SPM peripheral and deputy, one guest (L3)"],
+        ["hsmpinneg", "MCXN947 wolfHSM pointer pin, one guest (L3)"],
+        ["bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6", "MCXN947 partition band-to-band isolation, one guest (L3)"],
+        ["restartneg1 restartneg2 restartneg3", "MCXN947 partitions restart on a reset band, one guest (L3)"],
+        ["manifestneg2 manifestneg3 sealbootneg fpneg", "MCXN947 refused boots and FP isolation, one guest (L3)"],
+        ["sealneg sealhaltneg sealpivotneg mspovfneg xnneg svcneg", "MCXN947 seal, SPM stack, execute-never and SVC, one guest (L3)"]
+      ],
+      "l3_exempt": {"hsmfaultneg": "the tasklet fault scenario ends on the second guest's breakpoint, so it runs on the full profile only"}
+    },
     "guests": {"hwpsa": ["psa", "psa"], "lifecycle": ["baremetal", "baremetal"], "psa": ["psa", "psa"], "conformance": ["psa", "baremetal"], "vnet": ["vnet", "vnet"]},
     "guest_end": {},
     "timeouts": {"psa": 180, "conformance": 900},

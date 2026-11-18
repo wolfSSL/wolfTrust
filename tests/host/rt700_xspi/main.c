@@ -713,8 +713,30 @@ static void test_flush_failure(void)
           "the bytes were programmed before the flush failed");
 }
 
+#if !defined(WT_FWU)
+/* Without the update service the update partition is no privileged write
+ * target at all. */
+static void test_update_window_closed(void)
+{
+    int rc;
+
+    model_reset();
+    rc = wt_xspi_nor_program(UPDATE_NS, pattern, 16u);
+    check(rc == WT_XSPI_NOR_ARGUMENT && programs == 0u,
+          "WT_FWU=0: a program into the update partition is refused");
+    rc = wt_xspi_nor_erase(UPDATE_NS, WT_XSPI_NOR_SECTOR);
+    check(rc == WT_XSPI_NOR_ARGUMENT && erases == 0u,
+          "WT_FWU=0: an erase of the update partition is refused");
+    rc = wt_xspi_nor_program(WT_HSM_NVM_FLASH_BASE_NS, pattern, 16u);
+    check(rc == WT_XSPI_NOR_OK, "WT_FWU=0: the vault store stays writable");
+}
+#endif
+
 int main(void)
 {
+#if !defined(WT_FWU)
+    test_update_window_closed();
+#else
     test_program_and_lut();
     test_page_split();
     test_windows();
@@ -726,6 +748,7 @@ int main(void)
     test_read_timeout();
     test_device_failures();
     test_flush_failure();
+#endif
     if (failures == 0) {
         printf("PASS: unit/rt700_xspi (%d checks)\n", checks);
         return 0;

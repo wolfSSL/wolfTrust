@@ -76,7 +76,6 @@ wt_sec_vault_service.o                 vault
 wt_sec_wt_hsm_seal.o                   vault
 wt_sec_wt_hsm_vault.o                  vault
 
-wt_sec_attestation_cose.o              attest
 wt_sec_attestation_service.o           attest
 wt_sec_initial_attestation.o           attest
 wt_sec_wolfcose_alg.o                  attest
@@ -139,6 +138,7 @@ wc_sec_memory.o                        shared
 wc_sec_random.o                        shared
 wc_sec_sha256.o                        shared
 wc_sec_sp_cortexm.o                    shared
+wc_sec_sp_c32.o                        shared
 wc_sec_sp_int.o                        shared
 wc_sec_thumb2-aes-asm_c.o              shared
 wc_sec_thumb2-sha256-asm_c.o           shared

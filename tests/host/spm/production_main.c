@@ -218,11 +218,12 @@ int main(void)
     }
     for (i = 0U; i < table_count; i++) {
         if (!wt_secure_domain_excludes(&tables[i], WT_RAM_S_BASE,
-                WT_SP_VAULT_DATA_BASE - WT_RAM_S_BASE)) {
+                WT_L3_BANDS_BASE - WT_RAM_S_BASE)) {
             (void)fprintf(stderr, "partition %u reaches SPM RAM\n",
                           (unsigned int)tables[i].domain_id);
             return 1;
         }
+#if WT_CONF_SP_DATA_SIZE != 0U
         if (!wt_secure_domain_excludes(&tables[i], WT_CONF_SP_DATA_BASE,
                                        WT_CONF_SP_DATA_SIZE)) {
             (void)fprintf(stderr,
@@ -230,6 +231,7 @@ int main(void)
                           (unsigned int)tables[i].domain_id);
             return 1;
         }
+#endif
         for (j = i + 1U; j < table_count; j++) {
             if (!wt_secure_domains_isolated(&tables[i], &tables[j], NULL,
                                             0U)) {

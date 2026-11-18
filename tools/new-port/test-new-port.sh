@@ -25,6 +25,12 @@ for path in sys.argv[1:]:
     m = d["m33mu"]
     m["groups"] = [g for g in m["groups"] if g[0] != "fpneg"]
     m.setdefault("l3_exempt", {})["fpneg"] = "synthetic: the source board's open issue"
+    lean = m.get("default")
+    if lean is not None:
+        lean["groups"] = [[" ".join(w for w in key.split() if w != "fpneg"), text]
+                          for key, text in lean["groups"]
+                          if [w for w in key.split() if w != "fpneg"]]
+        lean.setdefault("l3_exempt", {})["fpneg"] = "synthetic: the source board's open issue"
     m.setdefault("exempt", {})["fpneg"] = "synthetic: the source board's open issue"
     json.dump(d, open(path, "w"), indent=2)
 PY
@@ -72,6 +78,7 @@ import json, sys
 d = json.load(open(sys.argv[1]))
 hw = d.get("hardware", {})
 reasons = [r for key in ("caps_absent", "exempt", "l3_exempt") for r in d["m33mu"].get(key, {}).values()]
+reasons += list(d["m33mu"].get("default", {}).get("l3_exempt", {}).values())
 reasons += list(hw.get("caps_absent", {}).values())
 ok = d["ci"].get("mcuxsdk_board", "") == "" and not hw.get("qualification") and not hw.get("optin")
 ok = ok and not any(k in d["m33mu"] for k in ("ends", "guest_flags", "periph_probe"))

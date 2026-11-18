@@ -22,6 +22,8 @@
 #include "wolftrust/guest_verify.h"
 #include "wolftrust/partition.h"
 #include "memory_map.h"
+#include "platform_caps.h"
+#include "wolftrust/static_assert.h"
 #if defined(WT_HANDLER_IRQ_PROBE)
 #include "wolftrust/arch.h"
 #include "wolftrust/arch/armv8m/armv8m.h"
@@ -35,15 +37,6 @@
 #define WT_GUEST_MEAS_SLOT_MAGIC_LEN 16u
 #define WT_GUEST_MEAS_SLOT_UNPATCHED 0xFFFFFFFFu
 
-/* Enforcement every Armv8-M port provides (WT-PORT-0008): the fabric filter
- * is the per-dispatch SAU window (plus GTZC on the STM32H5); a port that
- * provides more or less says so in its memory_map.h. */
-#ifndef WT_PORT_CAPABILITIES
-#define WT_PORT_CAPABILITIES \
-    (WT_PORT_CAPABILITY_VECTOR_READ_ALIAS | \
-     WT_PORT_CAPABILITY_NS_DOMAIN_PROGRAMMING | \
-     WT_PORT_CAPABILITY_TZ_FILTER)
-#endif
 /* A writable guest window must own whole attribution blocks of the fabric
  * filter (512-byte GTZC blocks on the STM32H5, the 32-byte MPU granule
  * elsewhere), or the curtain would hand a neighbour's bytes to the guest. */
@@ -111,6 +104,24 @@ const wt_guest_measurement_t* wt_platform_guest_measurements(size_t* count)
  * Thread/MSP frame; ES stays set because the exception was taken to Secure
  * state (clearing it trips INVPC on Armv8-M silicon). */
 #define WT_EXC_RETURN_NS_THREAD_MSP_FROM_SECURE 0xFFFFFFB9U
+
+/* Compile-time half of wt_partition_validate_port_binding's alias check. */
+WT_STATIC_ASSERT((WT_PORT_CAPABILITIES &
+                  WT_PORT_CAPABILITY_VECTOR_READ_ALIAS) == 0U ||
+                 (WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE) != 0U &&
+                  (WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE) & 3U) == 0U &&
+                  WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE) !=
+                      WT_GUEST0_FLASH_BASE),
+                 "guest 0 vector read alias is invalid");
+#if WT_MAX_GUESTS > 1
+WT_STATIC_ASSERT((WT_PORT_CAPABILITIES &
+                  WT_PORT_CAPABILITY_VECTOR_READ_ALIAS) == 0U ||
+                 (WT_FLASH_TO_S_ALIAS(WT_GUEST1_FLASH_BASE) != 0U &&
+                  (WT_FLASH_TO_S_ALIAS(WT_GUEST1_FLASH_BASE) & 3U) == 0U &&
+                  WT_FLASH_TO_S_ALIAS(WT_GUEST1_FLASH_BASE) !=
+                      WT_GUEST1_FLASH_BASE),
+                 "guest 1 vector read alias is invalid");
+#endif
 
 static wt_guest_config_t g_partition_configs[] = {
     {
@@ -223,16 +234,10 @@ static void wt_partitions_wire_contexts(void)
     }
 }
 static const wt_profile_capabilities_t g_profile_capabilities = {
-    .capabilities = WT_CAPABILITY_SECURITY_STATE |
-                    WT_CAPABILITY_PRIVILEGE_STATE |
-                    WT_CAPABILITY_ROT_ISOLATION |
-                    WT_CAPABILITY_DOMAIN_ISOLATION |
-                    WT_CAPABILITY_MEMORY_PROTECTION |
-                    WT_CAPABILITY_INTERRUPT_ISOLATION |
-                    WT_CAPABILITY_RESTART,
-    .max_domains = 11U,
-    .max_memory_resources_per_domain = 3U,
-    .max_interrupts_per_domain = 1U,
+    .capabilities = WT_PLATFORM_CAPABILITIES,
+    .max_domains = WT_PLATFORM_MAX_DOMAINS,
+    .max_memory_resources_per_domain = WT_PLATFORM_MAX_MEMORY_RESOURCES,
+    .max_interrupts_per_domain = WT_PLATFORM_MAX_INTERRUPTS,
 };
 static uintptr_t g_bound_exec_bases[
     sizeof(g_partition_configs) / sizeof(g_partition_configs[0])
@@ -339,10 +344,12 @@ int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest)
                 domain->restart_policy.action != WT_RESTART_ACTION_DOMAIN) {
             return -1;
         }
+#if WT_MANIFEST_RUNTIME_CHECK
         if (wt_partition_validate_port_binding(config, domain) !=
                 WT_PORT_VALID) {
             return -1;
         }
+#endif
 
         /* The generated manifest's restart policy is authoritative: the SPM
          * honors the declared limits, not a compiled-in copy. */

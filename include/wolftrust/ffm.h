@@ -28,6 +28,7 @@
 #include "psa/service.h"
 #include "wolftrust/ipc.h"
 #include "wolftrust/manifest.h"
+#include "wolftrust/types.h"
 
 #define WT_FFM_MAX_PARTITIONS     9U
 #define WT_FFM_MAX_SERVICES       20U
@@ -41,7 +42,19 @@
 #define WT_FFM_SECURE_RESERVED_CONNECTIONS 4U
 #define WT_FFM_MAX_NS_CONNECTIONS \
     (WT_FFM_MAX_CONNECTIONS - WT_FFM_SECURE_RESERVED_CONNECTIONS)
+/* One guest holds at most one call chain (NS, attestation, crypto, vault);
+ * a second guest, VNET or the Arm suite's client partitions need more. */
+#ifndef WT_FFM_MAX_MESSAGES
+#if (WT_MAX_GUESTS > 1) || defined(CONFIG_VNET) || \
+    (defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1))
 #define WT_FFM_MAX_MESSAGES       8U
+#else
+#define WT_FFM_MAX_MESSAGES       4U
+#endif
+#endif
+#if (WT_FFM_MAX_MESSAGES < 4U) || (WT_FFM_MAX_MESSAGES > 16U)
+#error "WT_FFM_MAX_MESSAGES must be 4 to 16"
+#endif
 #define WT_FFM_TRANSFER_BYTES     1024U
 #define WT_FFM_QUEUE_NONE         UINT16_MAX
 

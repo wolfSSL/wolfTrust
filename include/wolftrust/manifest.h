@@ -26,6 +26,11 @@
 
 #include "wolftrust/domain.h"
 
+/* 1 re-validates the generated manifest at boot; the build already did. */
+#ifndef WT_MANIFEST_RUNTIME_CHECK
+#define WT_MANIFEST_RUNTIME_CHECK 0
+#endif
+
 #define WT_MANIFEST_FORMAT_VERSION 1U
 #define WT_MANIFEST_DIGEST_SIZE 32U
 #define WT_MANIFEST_NAME_MAX 63U
@@ -42,6 +47,9 @@
 #define WT_MANIFEST_FEATURE_SFN       (1U << 1)
 #define WT_MANIFEST_FEATURE_STATELESS (1U << 2)
 #define WT_MANIFEST_FEATURE_MM_IOVEC  (1U << 3)
+#define WT_MANIFEST_FEATURE_MASK \
+    (WT_MANIFEST_FEATURE_IPC | WT_MANIFEST_FEATURE_SFN | \
+     WT_MANIFEST_FEATURE_STATELESS | WT_MANIFEST_FEATURE_MM_IOVEC)
 
 typedef enum wt_partition_model {
     WT_PARTITION_MODEL_IPC = 0,

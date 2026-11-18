@@ -115,9 +115,11 @@ int wt_conf_nvm_flash_sync(uint8_t *buf, uint32_t len, int store);
 void wt_conf_uart_irq_set(int on);
 #endif
 
+#if defined(PARTITION_FWU_ID)
 /* Port flash staging backend (WT-FWU-0002); the SVC dispatcher runs its ops
  * privileged on behalf of the confined FWU partition. */
 extern const wt_fwu_backend_t wt_fwu_flash_backend;
+#endif
 
 /* Port seams the SVC dispatcher runs privileged on behalf of the confined
  * keystore partitions: the shared NVM flash callback set and its context

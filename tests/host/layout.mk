@@ -3,6 +3,9 @@
 # same fragments. The fixture sets ROOT and TARGET, then includes this.
 ARCH ?= armv8m
 WT_LAYOUT_CPP ?= $(CC)
+# A fixture renders the whole template, update partition included, so its
+# layout reserves the update stack (WT_FWU=1).
+WT_FWU ?= 1
 include $(ROOT)/mk/target-$(TARGET).mk
 include $(ROOT)/mk/layout.mk
 # The renderer runs on every make and writes only on change, as the

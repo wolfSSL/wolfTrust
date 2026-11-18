@@ -419,6 +419,10 @@ void Reset_Handler(void)
         guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME
                          ": storage connect ok\r\n");
     }
+    else if (handle == (psa_handle_t)PSA_ERROR_COMMUNICATION_FAILURE) {
+        guest0_uart_puts("wolfTrust " GUEST_BOARD_NAME " " GUEST_NAME
+                         ": storage connect unblocked rc=-145\r\n");
+    }
 
 #if defined(WT_ISO_PROBE)
     guest0_iso_probe(mb);

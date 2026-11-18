@@ -44,7 +44,7 @@ $(FIXTURE): $(WT_MANIFEST_RENDER_DEPS)
 	$(WT_MANIFEST_RENDER) --output $@ $(WT_MANIFEST_TEMPLATE)
 $(GENERATED): $(GENERATOR) $(FIXTURE)
 	python3 $(GENERATOR) $(FIXTURE) $(BUILD_DIR) \
-		--supported-features 0x1 --address-bits 32
+		--supported-features 0x1 --address-bits 32 --unchecked
 $(TEST): main.c $(ROOT)/src/spm_partitions.c $(ROOT)/src/services/fwu_service.c $(GENERATED)
 	$(CC) $(CFLAGS) $(GC_FLAGS) $(EXTRA_LDFLAGS) -o $@ \
 		main.c $(ROOT)/src/services/fwu_service.c

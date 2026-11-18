@@ -38,7 +38,7 @@ CFLAGS := \
     -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
 
-# wolfCrypt's ECC/ASN sources need GNU libc declarations that strict C11
+# wolfCrypt's ECC sources need GNU libc declarations that strict C11
 # hides; wolfTrust and test sources keep the strict flags above.
 WC_CFLAGS := $(filter-out -std=c11 -Werror -pedantic -Wextra,$(CFLAGS))
 
@@ -59,7 +59,6 @@ _WH_SRCS := \
 
 _WC_SRCS := \
     $(WOLFSSL)/wolfcrypt/src/aes.c      \
-    $(WOLFSSL)/wolfcrypt/src/asn.c      \
     $(WOLFSSL)/wolfcrypt/src/coding.c   \
     $(WOLFSSL)/wolfcrypt/src/ecc.c      \
     $(WOLFSSL)/wolfcrypt/src/sp_int.c   \

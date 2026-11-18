@@ -18,9 +18,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-# Offline tests of the production lock gates in provisioning_ctrl.sh (STM32H5)
-# and provisioning_ctrl_rt700.sh (MIMXRT700). Every vendor tool is a stub that
-# records writes to a file; nothing here touches a board.
+# Offline tests of the production lock gates in provisioning_ctrl.sh and its
+# port files; a port may add its own in tests/target/ports/<soc>/provisioning_gates.sh.
+# Every vendor tool is a stub that records writes to a file; nothing here touches a board.
 # shellcheck disable=SC2015  # result lines are "cond && pass || fail" on purpose
 set -u
 SRC="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -535,5 +535,11 @@ regs 0x0F 0x0F; mrec 0xCF 0x0F "$(now)"
 check "lock refused: oem-locked from oem-closed" 2 "oem-locked (0xCF) is not a lock target" -- "${MX[@]}" lock 0xCF
 nowrite
 rm -f "$T/mcxn_regs"
+# Each port's own gates run here, with the helpers and stubs above.
+for gates in "$SRC"/tests/target/ports/*/provisioning_gates.sh; do
+  [ -f "$gates" ] || continue
+  # shellcheck source=/dev/null
+  . "$gates"
+done
 echo "provisioning gates: $pass passed, $failn failed"
 [ "$failn" = 0 ]

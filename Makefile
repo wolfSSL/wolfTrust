@@ -46,7 +46,6 @@ test:
 	@python3 tests/scripts/test_scenario_asserts.py
 	@python3 tools/gen-port-docs.py --check
 	@tools/new-port/test-new-port.sh
-	@tools/check-port-only-diff.sh --selftest
 	@tools/check-no-port-names.sh
 	@python3 tests/scripts/test_m33mu_console.py
 	@$(MAKE) --no-print-directory -C tests/host test

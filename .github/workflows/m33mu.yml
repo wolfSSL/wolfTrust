@@ -87,13 +87,15 @@ jobs:
           ./test-app/emu-test-apps/test.sh
 
   # One select job reads the ci:* labels (a port's own label from its port.json,
-  # ci:all or ci:m33mu for every port), the event and the dispatch input; one
-  # matrix job then runs exactly those scenario groups, so nothing shows skipped.
+  # ci:all or ci:m33mu for every port), the event and the dispatch input; two
+  # matrix jobs then run exactly those scenario groups, half each, since GitHub
+  # refuses a matrix of more than 256 jobs.
   select:
     name: m33mu_select
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.p.outputs.matrix }}
+      matrix_a: ${{ steps.p.outputs.matrix_a }}
+      matrix_b: ${{ steps.p.outputs.matrix_b }}
     steps:
       - uses: actions/checkout@v4
 
@@ -103,27 +105,34 @@ jobs:
           PORT_INPUT: ${{ inputs.port }}
         run: |
           python3 tests/target/lib/scenario_matrix.py --selftest
-          matrix=$(python3 tests/target/lib/scenario_matrix.py --ci-plan)
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          printf '%s' "$matrix" | python3 -c 'import json, sys
-          for e in json.load(sys.stdin):
-              print(e["job"], "(" + e["engine"] + ", " + e["profile"] + ")")'
+          python3 tests/target/lib/scenario_matrix.py --ci-plan | python3 -c 'import json, sys
+          plan = json.load(sys.stdin)
+          half = (len(plan) + 1) // 2
+          if half > 256:
+              sys.exit("FAIL: %d jobs exceed two 256-job matrices" % len(plan))
+          for e in plan:
+              print(e["job"], "(" + e["engine"] + ", " + e["profile"] + ")")
+          with open(sys.argv[1], "a") as out:
+              for key, part in (("matrix_a", plan[:half]), ("matrix_b", plan[half:])):
+                  out.write("%s=%s\n" % (key, json.dumps(part, separators=(",", ":"))))
+          ' "$GITHUB_OUTPUT"
 
   scenarios:
     name: ${{ matrix.job }}
     needs: select
+    if: needs.select.outputs.matrix_a != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.select.outputs.matrix) }}
+        include: ${{ fromJSON(needs.select.outputs.matrix_a) }}
     timeout-minutes: 45
     container:
       image: ${{ matrix.image }}
     env:
       WT_ENGINE: ${{ matrix.engine }}
       WT_PROFILE: ${{ matrix.profile }}
-    steps:
+    steps: &scenario_steps
       - uses: actions/checkout@v4
 
       - name: Trust the checked-out workspace
@@ -171,3 +180,20 @@ jobs:
           MCUXPRESSO: ${{ github.workspace }}/mcuxpresso-sdk/mcuxsdk
           MCUXPRESSO_CMSIS: ${{ github.workspace }}/CMSIS_5/CMSIS
         run: tests/target/run_suite.sh ${{ matrix.port }} ${{ matrix.key }}
+
+  scenarios_b:
+    name: ${{ matrix.job }}
+    needs: select
+    if: needs.select.outputs.matrix_b != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.select.outputs.matrix_b) }}
+    timeout-minutes: 45
+    container:
+      image: ${{ matrix.image }}
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
+      WT_PROFILE: ${{ matrix.profile }}
+    steps: *scenario_steps

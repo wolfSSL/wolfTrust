@@ -141,13 +141,13 @@ fi
 G0_IMG=""
 G1_IMG=""
 build_shared_guests() {
-  local dir="$1" flags="$2"
+  local dir="$1" flags="$2" goals="$3"
   stage "build the Non-secure guests from $dir ${flags:-(no probes)}"
   make -s -C "$repo/$dir" TARGET="$port" clean
   # The emulator boots with the development lifecycle the attestation token
   # reports; the guest's verify pins it.
   # shellcheck disable=SC2086
-  make -s -C "$repo/$dir" TARGET="$port" WT_EXPECTED_LIFECYCLE=0x1000u $flags
+  make -s -C "$repo/$dir" TARGET="$port" WT_EXPECTED_LIFECYCLE=0x1000u $flags $goals
 }
 case "$SC_GUEST0/$SC_GUEST1" in
   zephyr/freertos)
@@ -164,8 +164,11 @@ case "$SC_GUEST0/$SC_GUEST1" in
         psa)       dir=tests/firmware/psa-guest ;;
       esac
       flags=""
-      [ "$SC_GUEST0" = "$kind" ] && flags="$SC_GUEST_FLAGS"
-      build_shared_guests "$dir" "$flags"
+      goals=""
+      [ "$SC_GUEST0" = "$kind" ] && flags="$SC_GUEST_FLAGS" && goals="build/guest0.bin"
+      # Only the slots this kind fills: a small peer window need not fit it.
+      [ "$SC_GUEST1" = "$kind" ] && goals="$goals build/guest1.bin"
+      build_shared_guests "$dir" "$flags" "$goals"
       [ "$SC_GUEST0" = "$kind" ] && G0_IMG="$repo/$dir/build/guest0.bin"
       [ "$SC_GUEST1" = "$kind" ] && G1_IMG="$repo/$dir/build/guest1.bin"
     done ;;

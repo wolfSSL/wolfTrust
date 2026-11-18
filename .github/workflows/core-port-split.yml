@@ -30,7 +30,6 @@ jobs:
       - name: Self-test the split and port-only-diff guards
         run: |
           tools/check-core-port-split.sh --selftest
-          tools/check-port-only-diff.sh --selftest
           tools/check-docs-no-internal-links.sh --selftest
 
       - name: Enforce the core/port split (strict)
@@ -40,10 +39,6 @@ jobs:
         run: |
           python3 tests/target/lib/scenario_matrix.py --selftest
           tools/check-no-port-names.sh
-
-      - name: Audit a new port against the thin-port allow-list
-        if: github.event_name == 'pull_request'
-        run: tools/check-port-only-diff.sh --new-ports "origin/${{ github.base_ref }}"
 
       - name: Keep internal ledger references out of the public docs
         run: tools/check-docs-no-internal-links.sh

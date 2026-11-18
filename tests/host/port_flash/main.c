@@ -466,7 +466,7 @@ static void case_fwu_staging(void)
     check(be->write(NULL, 0u, hdr, HEADER) != 0,
           "a write below the written extent is refused");
     (void)memset(chunk, 0x42, sizeof(chunk));
-    check(be->write(NULL, HEADER, chunk, 112u) == 0,
+    check(be->write(NULL, HEADER, chunk, (100u + UNIT - 1u) / UNIT * UNIT) == 0,
           "the payload stages in program units");
     check(be->verify(NULL, staged, &version) == 0 && version == 7u,
           "FINISH with a logical size below the programmed extent verifies");
@@ -588,10 +588,15 @@ static void case_remeasure_tamper(void)
     uintptr_t guest0 = WT_FLASH_TO_S_ALIAS(WT_GUEST0_FLASH_BASE);
     const uint8_t* p;
     uint8_t zero[UNIT];
+    uint8_t* sector = fa_map(guest0, SECTOR);
 
     (void)memset(zero, 0, sizeof(zero));
     check(wt_hsm_flash_remeasure_tamper(guest0 + SECTOR) != 0,
           "only guest 0's first sector may be tampered with");
+    /* A partial erase must not pass on a sector that was already blank. */
+    if (sector != NULL) {
+        (void)memset(sector, 0x5A, SECTOR);
+    }
     check(wt_hsm_flash_remeasure_tamper(guest0) == 0, "the probe tamper runs");
     p = fa_map(guest0, UNIT);
     check(p != NULL && memcmp(p, zero, sizeof(zero)) == 0 &&

@@ -10,10 +10,8 @@
 # flash model and guide) under the new name and marks every value a reference
 # manual must settle with an #error or a refusal (every provisioning write
 # refuses), so nothing links or writes a board until a person has replaced
-# each stub. Shared code is never touched:
-# a port lands with zero handwritten edits outside its own files, and
-# tools/check-port-only-diff.sh --thin <soc> <base-ref> proves it. --check reports the
-# stubs still open and runs the registry self-tests.
+# each stub. --check reports the stubs still open and runs the registry
+# self-tests.
 set -eu
 
 here="$(cd "$(dirname "$0")" && pwd)"

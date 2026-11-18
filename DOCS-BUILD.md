@@ -15,7 +15,9 @@ Every top-level Markdown page in `docs/` must appear exactly once in
 `mkdocs.yml`. Add new guides and other pages to the README and manual index
 too. The adapter refuses missing or duplicate navigation entries; strict
 MkDocs builds check the generated HTML links, and PDF preparation checks
-manual heading references.
+manual heading references. The PDF layout reserves wider number columns
+for multi-digit subsection labels and limits image height to leave room for
+captions above the footer.
 
 ## Local build
 

@@ -94,12 +94,19 @@ def stage(documentation_root, source_root):
     header = (documentation_root / "wolfBoot" / "header.txt").read_text()
     header = header.replace("wolfBoot Documentation", "wolfTrust Manual")
     header = re.sub(r"(\\copyright\s+)\d{4}", r"\g<1>2026", header)
-    # Permit long inline identifiers and source paths to wrap in PDF tables.
+    # Wrap inline code, leave room for multi-digit contents labels, and keep
+    # tall figures clear of their captions and the page footer.
     header = header.replace(
         "header-includes:\n",
         "header-includes:\n"
         r"    - \usepackage{seqsplit}" "\n"
-        r"    - \DeclareRobustCommand{\texttt}[1]{{\ttfamily\seqsplit{#1}}}" "\n",
+        r"    - \DeclareRobustCommand{\texttt}[1]{{\ttfamily\seqsplit{#1}}}" "\n"
+        r"    - \makeatletter" "\n"
+        r"    - \renewcommand{\l@subsection}{\@dottedtocline{2}{1.5em}{3.5em}}" "\n"
+        r"    - \renewcommand{\l@subsubsection}{\@dottedtocline{3}{5em}{4.5em}}" "\n"
+        r"    - \def\maxheight{\ifdim\Gin@nat@height>0.8\textheight0.8\textheight"
+        r"\else\Gin@nat@height\fi}" "\n"
+        r"    - \makeatother" "\n",
     )
     (manual / "header.txt").write_text(header)
     return manual

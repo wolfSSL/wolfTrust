@@ -18,7 +18,8 @@ ifeq ($(wildcard mk/arch-$(ARCH).mk),)
 $(error unsupported secure build architecture ARCH=$(ARCH))
 endif
 include mk/target-$(TARGET).mk
-include mk/layout.mk
+# A port that ships its own manifest (WT_PORT_MANIFEST) also owns its layout.
+include $(if $(WT_PORT_MANIFEST),,mk/layout.mk)
 include mk/arch-$(ARCH).mk
 include mk/common.mk
 

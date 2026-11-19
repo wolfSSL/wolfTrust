@@ -24,7 +24,7 @@ An accepted upload queues analysis; results appear after Coverity processes it.
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
 | **M33MU smoke** | every PR | each port not marked label only, on both crypto engines (its smoke tier in `port.json`) |
 | **M33MU full** | PR labels `ci:all`, `ci:m33mu` or a port's own label; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
-| **AArch64 smoke** | every PR | a representative subset: `virt-gicv3-a72` `smoke boot positive crossdomain ffa-direct confboot devcrypto` on both crypto engines, `versal-virt` the same on the native engine, plus dedicated QEMU fwTPM and PKCS#11 interface and isolation jobs |
+| **AArch64 smoke** | every PR | a representative subset: `virt-gicv3-a72` `smoke boot positive crossdomain ffa-direct confboot devcrypto` on both crypto engines, `versal-virt` the same on the native engine |
 | **AArch64 full** | PR labels `ci:all`, `ci:aarch64`, `ci:qemu-virt`, `ci:qemu-versal`; push to main; nightly; `workflow_dispatch` (cell input) | every AArch64 scenario and the Arm FF-A ACS groups on three QEMU cells under both crypto engines (see below) |
 
 The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
@@ -103,11 +103,6 @@ full matrix. The cells and the smoke subset live in
 
 | Check name | What it proves |
 |------------|----------------|
-| `qemuvirt_psa_<engine>` | the Normal-world PSA client uses the selected engine through FF-A |
-| `qemuvirt_tpm_<engine>_<profile>` | the Normal-world application sends real TPM 2.0 GetRandom, CreatePrimary, Sign, and full-profile PCR Extend/Read commands through FF-A and `SERVICE_TPM` to the isolated fwTPM |
-| `qemuvirt_tpmneg_<engine>_<profile>` | the fwTPM round trip plus TPM state-band, provider-RAM, and execute-never isolation negatives |
-| `qemuvirt_pkcs11_<engine>_<profile>` | the Normal-world application runs nine default or 40 full PKCS#11 cases through FF-A and the isolated provider |
-| `qemuvirt_pkcs11neg_<engine>_<profile>` | the PKCS#11 suite plus state-band, provider-RAM, execute-never, and engine-appropriate restart/recovery negatives |
 | `el3_<cell>_<engine>` | the EL3 image links under the symbol guard, then the tier's QEMU AArch64 scenarios run through `tests/target/run_suite.sh qemu-a` |
 | `ffa_acs_<cell>_<engine>` | the Arm FF-A ACS groups (discovery, direct and indirect messaging, memory, notifications, interrupts) at their asserted floors (full tier only) |
 

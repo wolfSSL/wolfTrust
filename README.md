@@ -27,7 +27,8 @@ Cortex-A ports are an intended extension point.
 A Non-secure application can use TPM 2.0 or PKCS#11 instead of PSA Crypto:
 `CONFIG_TPM=y` runs wolfTPM's firmware TPM in `SERVICE_TPM`, and
 `CONFIG_PKCS11=y` runs wolfPKCS11 in `SERVICE_PKCS11`, each as a Secure
-Partition over the selected `WT_ENGINE`. See the
+Partition over the selected `WT_ENGINE`. Both are Armv8-M only for now; the
+AArch64 ports build without them. See the
 [TPM 2.0 Interface](docs/TPM.md), the [PKCS#11 Interface](docs/PKCS11.md),
 and [Interface Profiles](docs/Interface-Profiles.md).
 

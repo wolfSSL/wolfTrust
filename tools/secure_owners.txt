@@ -187,10 +187,8 @@ wc_sec_ecc.o                           shared
 wc_sec_error.o                         shared
 wc_sec_hash.o                          shared
 wc_sec_hmac.o                          shared
-wc_sec_kdf.o                           shared
 wc_sec_logging.o                       shared
 wc_sec_memory.o                        shared
-wc_sec_pwdbased.o                      shared
 wc_sec_random.o                        shared
 wc_sec_sha256.o                        shared
 wc_sec_sha512.o                        shared

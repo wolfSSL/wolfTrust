@@ -69,10 +69,6 @@ void wt_hsm_relay_set_secure_client_policy(int32_t partition_id);
  * platform start hook; NULL (the default) refuses both. */
 #define WT_HSM_OP_ATTEST_SIGN       1
 #define WT_HSM_OP_ATTEST_PUBLIC_KEY 2
-#if defined(WT_PKCS11_HSM_RESTART_PROBE) && \
-    (WT_PKCS11_HSM_RESTART_PROBE == 1)
-#define WT_HSM_OP_TEST_RESTART      0x7f01
-#endif
 
 /* Signer result for "no Initial Attestation Key yet"; equals the engines'
  * WH_ERROR_NOTREADY (asserted where they are linked) so the relay stays free

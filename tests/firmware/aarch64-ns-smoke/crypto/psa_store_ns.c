@@ -120,18 +120,20 @@ int wolfPSA_Store_Remove(int type, unsigned long id1, unsigned long id2)
     return WOLFPSA_STORE_OK;
 }
 
-void wolfPSA_Store_Close(void* store)
+int wolfPSA_Store_Close(void* store)
 {
     WolfpsaNsStore* ctx = (WolfpsaNsStore*)store;
 
-    if (ctx != NULL) {
-        if (ctx->buf != NULL) {
-            wc_ForceZero(ctx->buf, ctx->len);
-            XFREE(ctx->buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
-        }
-        XMEMSET(ctx, 0, sizeof(*ctx));
-        XFREE(ctx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    if (ctx == NULL) {
+        return WOLFPSA_STORE_IO_ERROR;
     }
+    if (ctx->buf != NULL) {
+        wc_ForceZero(ctx->buf, ctx->len);
+        XFREE(ctx->buf, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    }
+    XMEMSET(ctx, 0, sizeof(*ctx));
+    XFREE(ctx, NULL, DYNAMIC_TYPE_TMP_BUFFER);
+    return WOLFPSA_STORE_OK;
 }
 
 int wolfPSA_Store_Read(void* store, unsigned char* buffer, int len)

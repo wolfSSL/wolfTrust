@@ -401,15 +401,12 @@ make test-target-a                     # MACHINE=virt GIC=3 CPU=cortex-a72
 make test-target-a MACHINE=versal-virt
 tests/target/run_suite.sh qemu-a positive ffa-memneg
 WT_ENGINE=hsm tests/target/run_qemu_a_scenario.sh hsmattackneg
-WT_ENGINE=native tests/target/run_suite.sh qemu-a tpm tpmneg
-WT_ENGINE=hsm tests/target/run_suite.sh qemu-a pkcs11 pkcs11neg
 ```
 
 `make test-target-a` runs a quick subset (`WT_QEMU_A_SCENARIOS`). CI runs the
-common scenarios below on all three cells under both engines. The `tpm`,
-`tpmneg`, `pkcs11`, and `pkcs11neg` runtime scenarios are deliberately limited
-to `virt`: Versal cross-builds both interface configurations, but its QEMU
-model has no XMPU/RISAF for the required Normal-world isolation proof.
+common scenarios below on all three cells under both engines. The TPM 2.0
+and PKCS#11 interfaces are Armv8-M only; the AArch64 ports refuse
+`CONFIG_TPM=y` and `CONFIG_PKCS11=y`.
 
 The runner auto-detects `qemu-system-aarch64` and the `aarch64-none-elf`
 toolchain and skips explicitly otherwise; CI runs it inside
@@ -427,8 +424,6 @@ assert through `tests/target/lib/expect.sh`.
 | `parkneg`, `rdistneg`, `tickneg` | The monitor stops the boot with a panic, before it enters Secure EL1, when a declared secondary never parks, the GICv3 redistributor reads asleep (SKIP on GICv2), or the secure tick never reaches EL3 |
 | `positive-secure` | The neutral core boots at Secure EL1 and every Secure Partition initializes at Secure EL0 under its own translation table |
 | `positive` | The Normal-world guest discovers the partitions, reads framework and service versions, is refused an unknown service, and completes a data-carrying `psa_call` through the FF-M gateway: a wolfHSM echo under `hsm`, two random draws over the native wire under `native` |
-| `tpm`, `tpmneg` | A Normal-world wolfTPM client sends real TPM 2.0 commands through FF-A and `SERVICE_TPM` to the fwTPM in its S-EL0 partition. GetRandom, CreatePrimary, Sign, signature verification, PCR extend, and PCR read must complete. The negative also proves state-band read/write isolation, SPM-private RAM isolation, and execute-never state before the same operation sequence passes. These scenarios run under both engines and profiles. |
-| `pkcs11`, `pkcs11neg` | A Normal-world application runs nine default-profile or 40 full-profile PKCS#11 cases through FF-A and `SERVICE_PKCS11`. The S-EL0 handler uses native wolfCrypt or the existing HSM partition. The negative proves state-band read/write isolation, SPM-private RAM isolation, and execute-never state before the suite completes. Both engines and profiles run. |
 | `guest1` | SKIP: the AArch64 ports run a single Normal-world endpoint (`0x0000`), so the second-guest identity path has no AArch64 counterpart; M33MU covers it |
 | `crossdomain`, `keystoreneg`, `periphspneg` | A partition reading outside its domain, a non-keystore partition reading the keystore band, or a partition reading the SPM's secure UART takes a data abort at S-EL0, spends its restart budget, and escalates to fail-closed recovery |
 | `bandneg1` to `bandneg6` | Each of the vault, attestation, and crypto partitions reads and then writes another one's private band at boot; both accesses take a data abort at S-EL0 on that band, and every partition still initializes |

@@ -91,15 +91,10 @@ OWNER_REGIONS = {
     "conf-server": ("_s_conf_server_data", "_e_conf_server_data"),
     "conf-driver": ("_s_conf_driver_data", "_e_conf_driver_data"),
 }
-# AArch64 keeps the optional direct-application provider in one shared
-# interface band. TPM and PKCS#11 are mutually exclusive build modes, so both
-# owner classes intentionally resolve to the same linker bounds. The other
-# partition bands retain their per-owner bounds while S-EL1 state stays in the
-# private SPM RAM window.
+# AArch64 keeps S-EL1 state in the private SPM RAM window and one conformance
+# band; the other partition bands keep their per-owner bounds.
 AARCH64_OWNER_REGIONS = dict(OWNER_REGIONS, **{
     "spm": ("__data_start", "__spm_ram_end"),
-    "tpm": ("_s_interface", "_e_interface"),
-    "pkcs11": ("_s_interface", "_e_interface"),
     "conf": ("_s_conf_data", "_e_conf_data"),
 })
 OWNER_PROFILES = {
@@ -1102,24 +1097,21 @@ def self_test():
     aarch_symbols = list(good) + parse_nm("\n".join((
         "40000000 ? __data_start",
         "40008000 ? __spm_ram_end",
-        "40010000 ? _s_interface",
-        "40011000 ? _e_interface",
         "40020000 ? _s_conf_data",
         "40021000 ? _e_conf_data",
     )))
     aarch_regions = [
         Region("RAM", 0x40000000, 0x8000, True),
-        Region("INTERFACEDATA", 0x40010000, 0x1000, True),
         Region("CONFDATA", 0x40020000, 0x1000, True),
     ]
     aarch_sections = [
         Section(".data", ".data.spm", 0x40000000, 4,
                 "build/sec_monitor.o"),
-        Section(".interface_bss", ".bss.tpm", 0x40010000, 4,
-                "build/wt_sec_tpm_local_provider.o"),
+        Section(".conf_bss", ".bss.conf", 0x40020000, 4,
+                "build/conf_sec_conf_nvm_sync.o"),
     ]
     aarch_owners_text = (SELF_TEST_OWNERS +
-                         "wt_sec_tpm_local_provider.o tpm\n")
+                         "conf_sec_conf_nvm_sync.o conf\n")
     aarch_owners, owner_errors = parse_owners(aarch_owners_text)
     errors = validate_ownership(
         aarch_symbols, aarch_regions, aarch_sections, aarch_owners,
@@ -1129,14 +1121,14 @@ def self_test():
               ", ".join(owner_errors + errors), file=sys.stderr)
         return False
     misplaced = [aarch_sections[0], Section(
-        ".bss", ".bss.tpm", 0x40000004, 4,
-        "build/wt_sec_tpm_local_provider.o")]
+        ".bss", ".bss.conf", 0x40000004, 4,
+        "build/conf_sec_conf_nvm_sync.o")]
     errors = validate_ownership(
         aarch_symbols, aarch_regions, misplaced, aarch_owners,
         owner_regions=AARCH64_OWNER_REGIONS)
-    if not any("tpm object places writable state outside its region" in error
+    if not any("conf object places writable state outside its region" in error
                for error in errors):
-        print("self-test accepted AArch64 TPM state in SPM RAM",
+        print("self-test accepted AArch64 conformance state in SPM RAM",
               file=sys.stderr)
         return False
 

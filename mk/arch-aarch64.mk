@@ -26,9 +26,17 @@ ifneq ($(WT_ISOLATION_LEVEL),3)
 $(error only isolation level 3 is implemented (WT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL)))
 endif
 ARCH_CFLAGS += -DWT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL)
+# The SPMC stack, guest count, Normal-world PSA Crypto and update partition keep
+# the values the QEMU suite was validated with; the Armv8-M defaults differ.
+WT_SPM_STACK_SIZE ?= 0x4000
+WT_SECURE_PSA ?= 0
+WT_FWU ?= 1
+WT_MAX_GUESTS ?= 2
+# The ports keep RAM-backed NVM and test entropy (port/common/aarch64).
+PORT_SHARED_SRCS :=
+# TPM 2.0 and PKCS#11 have no AArch64 manifest variant yet.
 ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
-WT_INTERFACE_LOCAL_PROVIDER := 1
-ARCH_CFLAGS += -DWT_INTERFACE_LOCAL_PROVIDER=$(WT_INTERFACE_LOCAL_PROVIDER)
+$(error CONFIG_TPM/CONFIG_PKCS11 is not supported on ARCH=aarch64)
 endif
 
 # Level 3 layer shared by every AArch64 port: the board's memory_map.h names
@@ -36,13 +44,15 @@ endif
 # from it; the build reads them back, and an unreadable layout stops it.
 PORT_COMMON_DIR := $(ROOT)/port/common/aarch64
 PORT_HEADERS += $(wildcard $(PORT_COMMON_DIR)/*.h)
+# mk/layout.mk is Armv8-M only; these ports take just the include paths.
+WT_LAYOUT_CFLAGS := -I$(ROOT)/include -I$(PORT_DIR)
+WT_LAYOUT_CFLAGS_ABS := -I$(abspath $(ROOT)/include) -I$(abspath $(PORT_DIR))
 # A band overridden on the command line reaches the tool too, so the compiler,
 # the linker and the manifest check all see the same layout.
 WT_L3_OVERRIDABLE := WT_SPM_BOOT_INFO_PA WT_SPM_TABLE_POOL_PA WT_SPM_IMAGE_PA \
     WT_SPM_IMAGE_SIZE WT_SPM_RAM_PA WT_SPM_RAM_SIZE WT_SPM_CONFDATA_PA \
     WT_SPM_CONFDATA_SIZE WT_SPM_KEYSTORE_PA WT_SPM_KEYSTORE_SIZE \
-    WT_SPM_RXTX_PA WT_SPM_RXTX_SIZE WT_SPM_SHARE_PA WT_SPM_SHARE_SIZE \
-    WT_SPM_INTERFACE_PA WT_SPM_INTERFACE_SIZE
+    WT_SPM_RXTX_PA WT_SPM_RXTX_SIZE WT_SPM_SHARE_PA WT_SPM_SHARE_SIZE
 WT_L3_TOOL := python3 $(ROOT)/tools/aarch64_l3_layout.py \
     --cc $(TOOLPREFIX)gcc -I$(PORT_COMMON_DIR) \
     -DWT_ISOLATION_LEVEL=$(WT_ISOLATION_LEVEL) \
@@ -67,15 +77,13 @@ WT_L3_CFLAGS := $(foreach v,WT_SPM_BOOT_INFO_PA WT_SPM_TABLE_POOL_PA \
     WT_SPM_IMAGE_PA WT_SPM_IMAGE_SIZE WT_SPM_RAM_PA WT_SPM_RAM_SIZE \
     WT_SPM_KEYSTORE_PA WT_SPM_KEYSTORE_SIZE WT_SPM_RXTX_PA WT_SPM_RXTX_SIZE \
     WT_SPM_SHARE_PA WT_SPM_SHARE_SIZE WT_SPM_CONFDATA_PA \
-    WT_SPM_CONFDATA_SIZE WT_SPM_INTERFACE_PA \
-    WT_SPM_INTERFACE_SIZE,-D$(v)=$($(v))u) \
+    WT_SPM_CONFDATA_SIZE,-D$(v)=$($(v))u) \
     -DWT_SPM_TABLE_POOL_PAGES=$(WT_SPM_TABLE_POOL_PAGES)u -I$(PORT_COMMON_DIR)
 WT_L3_LDFLAGS := $(foreach v,WT_SPM_IMAGE_PA WT_SPM_IMAGE_SIZE \
     WT_SPM_RAM_PA WT_SPM_RAM_SIZE WT_SPM_KEYSTORE_PA WT_SPM_KEYSTORE_SIZE \
     WT_SPM_VAULT_PA WT_SPM_VAULT_SIZE WT_SPM_ATTEST_PA WT_SPM_ATTEST_SIZE \
     WT_SPM_HSMDATA_PA WT_SPM_HSMDATA_SIZE WT_SPM_CONFDATA_PA \
-    WT_SPM_CONFDATA_SIZE WT_SPM_INTERFACE_PA \
-    WT_SPM_INTERFACE_SIZE,-Wl,--defsym=$(v)=$($(v)))
+    WT_SPM_CONFDATA_SIZE,-Wl,--defsym=$(v)=$($(v)))
 TARGET_CFLAGS += $(WT_L3_CFLAGS)
 TARGET_LDFLAGS += $(WT_L3_LDFLAGS)
 TARGET_EXTRA_SRCS += $(PORT_COMMON_DIR)/platform_l3.c
@@ -190,8 +198,7 @@ ARCH_LINK_OUTPUTS :=
 ARCH_LDFLAGS := -Wl,--undefined=wt_boot_run
 # The manifest must grant exactly the bands the shared layout places, and the
 # linked map must keep every object's writable state in its declared owner
-# band. In particular, direct TPM and PKCS#11 provider state may only land in
-# the optional interface band granted to that provider partition.
+# band.
 define arch_image_checks
 	$(WT_L3_TOOL) --check-manifest $(MANIFEST_INPUT) $(PORT_DIR)/memory_map.h \
 		|| { rm -f $(SECURE_ELF); exit 1; }

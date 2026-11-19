@@ -81,8 +81,15 @@ int wt_ns_generate_seed(unsigned char* output, unsigned int sz);
 #define WOLFSSL_DES3
 #define WOLFSSL_DES_ECB
 
+/* NS-EL1 runs with the MMU off, so an unaligned word access to Device memory
+ * faults: keep wolfCrypt's word-accessed fields aligned. */
+#define WOLFSSL_USE_ALIGN
+/* wolfPSA requires constant-time AES and the default masked GHASH. */
+#define WOLFSSL_AES_TOUCH_LINES
+#define WC_ALLOW_ECC_ZERO_HASH
 #define HAVE_AESGCM
-#define GCM_SMALL
+/* wolfPSA's multipart GCM runs on the wolfCrypt GCM streaming calls. */
+#define WOLFSSL_AESGCM_STREAM
 #define HAVE_AESCCM
 #define HAVE_AES_ECB
 #define WOLFSSL_AES_COUNTER

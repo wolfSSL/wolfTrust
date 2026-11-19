@@ -1363,7 +1363,9 @@ def main():
         }
     if args.platform_header is not None and platform is None:
         parser.error("--platform-header needs the platform options")
-    if not args.unchecked:
+    # AArch64 SP stacks and limits come from the manifest the SPMC maps,
+    # not from a linked Armv8-M layout.
+    if not args.unchecked and args.address_bits == "32":
         missing = [name for name, given in (
             ("the platform options", platform is not None),
             ("--ffm-max-partitions", args.ffm_max_partitions is not None),

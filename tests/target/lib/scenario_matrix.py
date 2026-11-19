@@ -125,8 +125,7 @@ QEMU_A_SUITE = (
     "guest1", "smcfuzz", "secramneg", "periphneg", "periphspneg",
     "resetneg", "ffa-memneg", "hsmattackneg", "hsmpinneg", "attestneg",
     "vaultrecover", "vaultrecoversec", "confboot", "storage", "devstorage",
-    "devattest", "devattestqcbor", "devcrypto", "tpm", "tpmneg",
-    "pkcs11", "pkcs11neg",
+    "devattest", "devattestqcbor", "devcrypto",
 )
 QEMU_A_ACS = (
     "ffaacs-discovery", "ffaacs-direct", "ffaacs-memory", "ffaacs-notify",
@@ -137,12 +136,8 @@ QEMU_A_ACS = (
 # representative GICv3 virt cell (both engines) and the versal cell (native).
 # boot-smp2 and the ACS stay in the full tier.
 QEMU_A_SMOKE = ("smoke", "boot", "positive", "crossdomain", "ffa-direct",
-                "confboot", "devcrypto", "tpm", "tpmneg", "pkcs11",
-                "pkcs11neg")
+                "confboot", "devcrypto")
 QEMU_A_SMOKE_CELLS = {"virt-gicv3-a72": ENGINES, "versal-virt": ("native",)}
-QEMU_A_TPM = frozenset(("tpm", "tpmneg"))
-QEMU_A_PKCS11 = frozenset(("pkcs11", "pkcs11neg"))
-QEMU_A_INTERFACES = QEMU_A_TPM | QEMU_A_PKCS11
 # The Armv8-M registry below does not describe the QEMU lane's targets yet.
 QEMU_A_TARGETS = frozenset(cell["target"] for cell in QEMU_A_CELLS)
 
@@ -212,24 +207,17 @@ def qemu_a_cell_suite(cell):
     return tuple(s for s in QEMU_A_SUITE if s not in exempt)
 
 
-def qemu_a_scenarios(cell, engine, scenarios):
-    """The direct interfaces run in their own visible QEMU PR matrix."""
-    return tuple(s for s in scenarios if s not in QEMU_A_INTERFACES)
-
-
 def qemu_a_full(cell):
     out = []
     for engine in ENGINES:
         out.append(qemu_a_entry(cell, engine, "suite", "full",
-                                qemu_a_scenarios(cell, engine,
-                                                 qemu_a_cell_suite(cell))))
+                                qemu_a_cell_suite(cell)))
         out.append(qemu_a_entry(cell, engine, "acs", "full", QEMU_A_ACS))
     return out
 
 
 def qemu_a_smoke(cell):
-    return [qemu_a_entry(cell, engine, "suite", "smoke",
-                         qemu_a_scenarios(cell, engine, QEMU_A_SMOKE))
+    return [qemu_a_entry(cell, engine, "suite", "smoke", QEMU_A_SMOKE)
             for engine in QEMU_A_SMOKE_CELLS.get(cell["name"], ())]
 
 
@@ -595,9 +583,6 @@ def qemu_a_gaps():
         if got != expect:
             gaps.append("qemu_a_plan(%s, %r, %r) = %s, expected %s" % (
                 event, labels, cell_input, got, expect))
-    for entry_ in qemu_a_plan("pull_request", [], ""):
-        if set(entry_["scenarios"].split()) & set(QEMU_A_INTERFACES):
-            gaps.append("bad AArch64 interface plan for %s" % entry_["job"])
     return gaps
 
 

@@ -403,14 +403,14 @@ SECURE_SRCS := \
 
 # The flash and entropy backends every port shares, over its flash_port.h
 # and rng_port.h drivers.
-PORT_SHARED_SRCS := \
+PORT_SHARED_SRCS ?= \
     $(PORT_NEUTRAL_DIR)/hsm_flash.c \
     $(PORT_NEUTRAL_DIR)/hsm_flash_ctx.c \
     $(PORT_NEUTRAL_DIR)/rng_entropy.c \
     $(PORT_DIR)/flash_drv.c \
     $(PORT_DIR)/rng_drv.c
 TARGET_EXTRA_SRCS += $(PORT_SHARED_SRCS)
-PORT_HEADERS += $(wildcard $(PORT_NEUTRAL_DIR)/*.h)
+PORT_HEADERS += $(if $(PORT_NEUTRAL_DIR),$(wildcard $(PORT_NEUTRAL_DIR)/*.h))
 
 WOLFHSM_SECURE_SRCS := \
     $(WOLFHSM_DIR)/src/wh_comm.c \
@@ -780,8 +780,9 @@ SECURE_CFLAGS += -DWT_CONF_DIAG_TRAP=$(WT_CONF_DIAG_TRAP)
 UPSTREAM_DIR := $(BUILD_DIR)/upstream/psa-arch-tests/api-tests
 UPSTREAM_STAMP := $(BUILD_DIR)/.psa-arch-tests.stamp
 CONF_GEN_STAMP := $(MANIFEST_DIR)/.conformance-gen.stamp
-# One PAL for every port; its addresses come from the port's memory_map.h.
-TARGET_CONF_DIR := $(ROOT)/tests/conformance/pal
+# One PAL for every Armv8-M port; its addresses come from the port's
+# memory_map.h. The AArch64 targets name their own.
+TARGET_CONF_DIR ?= $(ROOT)/tests/conformance/pal
 # VERBOSITY=9: SP-side val prints route over IPC to the DRIVER UART partition,
 # which does not run until P3b; below-ALWAYS prints short-circuit instead of
 # deadlocking on a service nobody serves.
@@ -1753,7 +1754,6 @@ endif
 ifneq ($(WT_PORT_MANIFEST),)
 MANIFEST_VARIANT := $(WT_PORT_MANIFEST)
 MANIFEST_INPUT := $(WT_PORT_MANIFEST)
-MANIFEST_EXCLUDE :=
 MANIFEST_GEN_ARGS := --supported-features 0x1 \
     --supported-framework-version 0x100 $(MANIFEST_ARCH_OPTS)
 else
@@ -2041,9 +2041,6 @@ $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sync/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAM
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
-	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
-
-$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/port/common/$(ARCH)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(PORT_DIR)/%.c $(PORT_HEADERS) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)

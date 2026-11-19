@@ -36,7 +36,7 @@ payload and public API are PKCS#11.
 
 Every Cortex-M33 port (STM32H563, MIMXRT700, MCX N947, STM32L562) registers
 the `pkcs11` build variant and runs the application suite under M33MU. The
-STM32L562 builds the native engine only.
+STM32L562 builds the native engine and the default profile only.
 
 ## Build and run
 
@@ -191,6 +191,7 @@ including 4096-byte messages, malformed chunks, wrong callers, short outputs,
 wiping, handler failures, reconnection, and prevention of duplicate execution.
 
 The M33MU workflow runs `pkcs11` and `pkcs11neg` on every port, each engine
-the port builds, and both profiles, from the port registry's `m33mu.groups`:
-nine default-profile cases and 40 full-profile cases. The cross-compile
+the port builds, and each profile the port registers, from the port registry's
+`m33mu.groups`: nine default-profile cases and 40 full-profile cases. The
+STM32L562 runs the default profile only. The cross-compile
 workflow builds the `CONFIG_PKCS11=y` Secure image on every port and engine.

@@ -55,8 +55,15 @@
  * NO_STDLIB_H and NO_STRING_H keep the freestanding Cortex-M build
  * independent of libc headers; the linked local stubs provide these calls.
  * ---------------------------------------------------------------------- */
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+/* Both copies keep one struct layout; only the PKCS#11 provider's copy reaches
+ * its partition's heap, and the Secure copy's allocator fails closed. */
+#if defined(WT_PKCS11_PROVIDER_HEAP)
 #define XMALLOC_USER
+#elif defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#define XMALLOC_OVERRIDE
+#define XMALLOC(s, h, t)     ((void)(s), (void)(h), (void)(t), (void*)NULL)
+#define XFREE(p, h, t)       do { (void)(p); (void)(h); (void)(t); } while (0)
+#define XREALLOC(p, n, h, t) ((void)(p), (void)(n), (void)(h), (void)(t), (void*)NULL)
 #else
 #define NO_WOLFSSL_MEMORY
 #define WOLFSSL_NO_MALLOC

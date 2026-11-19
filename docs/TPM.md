@@ -90,6 +90,8 @@ The host suite drives the production client/service protocol through a real
 FF-M runtime and checks bounds, caller identity, wiping, and no replay.
 
 The M33MU workflow runs `tpm` and `tpmneg` on every port, each engine the
-port builds, and both profiles, from the port registry's `m33mu.groups`. The
+port builds, and each profile the port registers, from the port registry's
+`m33mu.groups`. The STM32L562 runs the default profile only: its interface
+layout has no update partition for the full profile's `WT_FWU=1`. The
 cross-compile workflow builds the `CONFIG_TPM=y` Secure image on every port
 and engine, and the host manifest suite validates its rendered manifest.

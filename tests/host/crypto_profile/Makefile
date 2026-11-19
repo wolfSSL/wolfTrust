@@ -60,6 +60,10 @@ run: $(TEST_BIN)
 	$(MAKE) --no-print-directory all BUILD_DIR=$(BUILD_DIR)/custom \
 		PROFILE_ARGS="--enable pkcs11:C_GetObjectSize --disable pkcs11:C_GetMechanismInfo"
 	$(BUILD_DIR)/custom/test_crypto_profile
+	$(MAKE) --no-print-directory all BUILD_DIR=$(BUILD_DIR)/noinfo \
+		PROFILE_ARGS="--interface pkcs11 --disable pkcs11:C_GetInfo \
+		--disable pkcs11:C_GetTokenInfo --disable pkcs11:C_GetSessionInfo"
+	$(BUILD_DIR)/noinfo/test_crypto_profile
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

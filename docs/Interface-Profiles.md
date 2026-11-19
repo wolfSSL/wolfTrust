@@ -20,7 +20,7 @@ make secure-image CONFIG_PKCS11=y WT_ENGINE=native WT_INTERFACE_PROFILE=default
 make secure-image CONFIG_TPM=y WT_ENGINE=hsm WT_INTERFACE_PROFILE=full
 
 WT_INTERFACE_ENABLE='pkcs11:C_GetObjectSize tpm:PCR_Read' \
-WT_INTERFACE_DISABLE='psa:psa_sign_hash' \
+WT_INTERFACE_DISABLE='pkcs11:C_GenerateRandom' \
   make secure-image CONFIG_PKCS11=y
 ```
 
@@ -35,15 +35,17 @@ profile's defaults:
 
 ```json
 {
-  "psa": ["psa_crypto_init", "psa_generate_random", "psa_hash_compute"],
+  "pkcs11": ["C_Initialize", "C_Finalize", "C_GetSlotList", "C_OpenSession",
+             "C_CloseSession", "C_DigestInit", "C_Digest"],
   "mechanisms": ["CKM_SHA256"]
 }
 ```
 
-Pass its absolute path with `WT_INTERFACE_CONFIG`. The accepted fields are `psa`,
-`pkcs11`, `tpm`, and `mechanisms`, each a JSON array of names. An empty mechanism
-list exports no crypto mechanisms. Unknown fields and operation names fail the
-build. A `CONFIG_TPM=y` build requires at least one selected command; a
+Pass its absolute path with `WT_INTERFACE_CONFIG`. The accepted fields are
+`pkcs11`, `tpm`, and `mechanisms`, each a JSON array of names. TPM 2.0 and
+PKCS#11 builds link no PSA Crypto, so a `psa` field or `psa:` override fails.
+An empty mechanism list exports no crypto mechanisms. Unknown fields and
+operation names fail the build. A `CONFIG_TPM=y` build requires at least one selected command; a
 `CONFIG_PKCS11=y` build accepts `"tpm": []`.
 
 Inspect known dependency entry points or generate a selection directly:
@@ -51,7 +53,7 @@ Inspect known dependency entry points or generate a selection directly:
 ```sh
 python3 tools/crypto_profile.py --list
 python3 tools/crypto_profile.py --output build/crypto-profile \
-  --profile default --enable pkcs11:C_GetObjectSize --disable psa:psa_sign_hash
+  --profile default --enable pkcs11:C_GetObjectSize --disable pkcs11:C_GenerateRandom
 ```
 
 The command catalog includes dependency commands whose algorithm or feature
@@ -61,12 +63,6 @@ that every requested command survived those guards. The full profile retains
 the dependency guards; `TPM_CAP_COMMANDS` reports the commands actually built.
 
 ## What is removed
-
-PSA public entry points forward to private implementations only when selected.
-A disabled public entry point returns `PSA_ERROR_NOT_SUPPORTED`. Internal calls
-retain private names so, for example, disabling multipart hashing does not break
-a selected one-shot hash operation. Unreferenced private functions are removed
-by section garbage collection and LTO.
 
 PKCS#11 keeps the standard function-list ABI. Disabled entries are typed stubs
 returning `CKR_FUNCTION_NOT_SUPPORTED` without a transport call. The provider

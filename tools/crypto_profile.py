@@ -311,6 +311,9 @@ def generate(root, output, profile, custom, enable, disable, interface="tpm"):
     defaults = json.loads((root / "config/crypto-profiles.json").read_text())["default"]
     selected, mechanisms = select(catalog, defaults, profile, custom, enable, disable,
                                   interface == "tpm")
+    # No TPM 2.0 or PKCS#11 build links PSA Crypto, so a PSA override would do nothing.
+    if "psa" in custom or any(item.startswith("psa:") for item in enable + disable):
+        raise ValueError("TPM 2.0 and PKCS#11 builds link no PSA Crypto; remove psa selections")
     basic_mechanisms = {"CKM_SHA256", "CKM_EC_KEY_PAIR_GEN", "CKM_ECDSA",
                         "CKM_ECDSA_KEY_PAIR_GEN"}
     extra_crypto = (profile == "full" or mechanisms is None or

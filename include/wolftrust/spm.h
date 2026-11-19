@@ -45,11 +45,17 @@ typedef enum wt_spm_result {
     WT_SPM_ERROR_VALIDATION = -401
 } wt_spm_result_t;
 
-/* Validate the generated manifest before the SPM exposes a ready state. */
+/* Validate a manifest before the SPM exposes a ready state. */
 int wt_spm_init(wt_spm_t* spm,
                 const wt_system_manifest_t* manifest,
                 uint32_t supported_features,
                 const wt_profile_capabilities_t* platform);
+
+/* Bind the build's generated manifest without the runtime validator:
+ * tools/manifest/generate.py already refused any manifest it would reject,
+ * against this build's platform limits. Any other manifest needs
+ * wt_spm_init(). */
+int wt_spm_init_generated(wt_spm_t* spm, uint32_t supported_features);
 
 bool wt_spm_ready(const wt_spm_t* spm);
 const wt_system_manifest_t* wt_spm_manifest(const wt_spm_t* spm);

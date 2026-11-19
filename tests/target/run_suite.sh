@@ -1,28 +1,40 @@
 #!/usr/bin/env bash
-# Run target scenarios through one emulator runner and report them the way
-# `make test-target` always has: RUN/PASS/FAIL per scenario, the tagged
-# "  [check] " lines, the log path, and PASS/FAIL: target/all at the end.
+# Run target scenarios for one port through the shared emulator runner and
+# report them the way `make test-target` always has: RUN/PASS/FAIL per
+# scenario, the tagged "  [check] " lines, the log path, and PASS/FAIL:
+# target/all at the end.
 #
-#   tests/target/run_suite.sh m33mu       <scenario>...   -> run_m33mu_scenario.sh
-#   tests/target/run_suite.sh qemu-a      <scenario>...   -> run_qemu_a_scenario.sh
-#   tests/target/run_suite.sh rt700-m33mu <scenario>...   -> run_rt700_m33mu.sh
+#   tests/target/run_suite.sh <port> <scenario>...
+#   tests/target/run_suite.sh qemu-a <scenario>...   -> run_qemu_a_scenario.sh
 #   WT_SUITE_LOG_DIR   where target-<scenario>.log lands (default logs)
 #   WT_REQUIRE_SCENARIO_PASS=1 requires a real terminal PASS, including API CI.
+#
+# A port's former runner arm (port.json m33mu.arm) still selects it.
 set -u
 
-usage() { echo "usage: $0 m33mu|qemu-a|rt700-m33mu <scenario>..." >&2; exit 2; }
+repo="$(cd "$(dirname "$0")/../.." && pwd)"
+matrix="$repo/tests/target/lib/scenario_matrix.py"
+ports="$(python3 "$matrix" --list-ports)"
+usage() { echo "usage: $0 <$(echo "$ports" | tr ' ' '|')|qemu-a> <scenario>..." >&2; exit 2; }
 
-model="${1:-}"
-case "$model" in
-  m33mu)       runner=run_m33mu_scenario.sh ;;
-  qemu-a)      runner=run_qemu_a_scenario.sh ;;
-  rt700-m33mu) runner=run_rt700_m33mu.sh ;;
-  *) usage ;;
-esac
+port="${1:-}"
+if [ "$port" = qemu-a ]; then
+  runner=(tests/target/run_qemu_a_scenario.sh)
+else
+  for p in $ports; do
+    if [ "$(python3 "$matrix" --port "$p" --arm)" = "$port" ]; then
+      port="$p"
+    fi
+  done
+  case " $ports " in
+    *" $port "*) ;;
+    *) usage ;;
+  esac
+  runner=(tests/target/run_target.sh "$port")
+fi
 shift
 [ $# -ge 1 ] || usage
 
-repo="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo" || exit 2
 logdir="${WT_SUITE_LOG_DIR:-logs}"
 mkdir -p "$logdir"
@@ -30,7 +42,7 @@ mkdir -p "$logdir"
 rc=0
 for s in "$@"; do
   echo "RUN: target/$s"
-  if "tests/target/$runner" "$s" > "$logdir/target-$s.log" 2>&1; then
+  if "${runner[@]}" "$s" > "$logdir/target-$s.log" 2>&1; then
     grep -F '  [check] ' "$logdir/target-$s.log" || true
     if [ "${WT_REQUIRE_SCENARIO_PASS:-0}" = 1 ] &&
         ! grep -Eq "^PASS: (target|qemu-a)/$s( |$)" "$logdir/target-$s.log"; then

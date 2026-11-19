@@ -18,9 +18,13 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 ROOT := ../../..
+TARGET := stm32h563
 CC ?= cc
 BUILD_DIR ?= build
+include $(ROOT)/tests/host/layout.mk
 
+# Built with the default WT_MANIFEST_RUNTIME_CHECK=0: wt_spm_init() must still
+# validate, and only wt_spm_init_generated() binds without it.
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
@@ -34,7 +38,7 @@ GENERATED_C := $(GENERATED_DIR)/wolftrust_manifest_generated.c
 GENERATED_H := $(GENERATED_DIR)/wolftrust_manifest_generated.h
 SPM_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
     $(ROOT)/src/spm.c $(GENERATED_C) main.c
-PRODUCTION_FIXTURE := $(ROOT)/port/stm32h563/manifest.json
+PRODUCTION_FIXTURE := $(BUILD_DIR)/manifest.json
 PRODUCTION_DIR := $(BUILD_DIR)/production-generated
 PRODUCTION_STAMP := $(PRODUCTION_DIR)/.stamp
 PRODUCTION_C := $(PRODUCTION_DIR)/wolftrust_manifest_generated.c
@@ -43,7 +47,7 @@ PRODUCTION_TEST := $(BUILD_DIR)/test_production_manifest
 PRODUCTION_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
     $(ROOT)/src/spm.c $(ROOT)/src/ffm.c $(ROOT)/src/ipc.c \
     $(ROOT)/src/ffm_domain.c \
-    $(ROOT)/port/stm32h563/partitions.c \
+    $(ROOT)/port/common/armv8m/partitions.c \
     $(ROOT)/src/partition.c \
     $(PRODUCTION_C) production_main.c
 
@@ -57,7 +61,7 @@ $(BUILD_DIR):
 
 $(GENERATED_STAMP): $(GENERATOR) $(GENERATOR_FIXTURE) | $(BUILD_DIR)
 	python3 $(GENERATOR) $(GENERATOR_FIXTURE) $(GENERATED_DIR) \
-		--supported-features 0x5 --address-bits 32
+		--supported-features 0x5 --address-bits 32 --unchecked
 	touch $@
 
 $(GENERATED_C) $(GENERATED_H): $(GENERATED_STAMP)
@@ -65,9 +69,12 @@ $(GENERATED_C) $(GENERATED_H): $(GENERATED_STAMP)
 $(PRODUCTION_DIR):
 	mkdir -p $@
 
+$(PRODUCTION_FIXTURE): $(WT_MANIFEST_RENDER_DEPS) | $(BUILD_DIR)
+	$(WT_MANIFEST_RENDER) --output $@ $(WT_MANIFEST_TEMPLATE)
+
 $(PRODUCTION_STAMP): $(GENERATOR) $(PRODUCTION_FIXTURE) | $(PRODUCTION_DIR)
 	python3 $(GENERATOR) $(PRODUCTION_FIXTURE) $(PRODUCTION_DIR) \
-		--supported-features 0x1 --address-bits 32
+		--supported-features 0x1 --address-bits 32 --unchecked
 	touch $@
 
 $(PRODUCTION_C) $(PRODUCTION_H): $(PRODUCTION_STAMP)
@@ -77,7 +84,7 @@ $(SPM_TEST): $(SPM_SRCS) $(GENERATED_STAMP) $(GENERATED_H) | $(BUILD_DIR)
 
 $(PRODUCTION_TEST): $(PRODUCTION_SRCS) $(PRODUCTION_STAMP) $(PRODUCTION_H) \
 		| $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(PRODUCTION_DIR) -I$(ROOT)/port/stm32h563 \
+	$(CC) $(CFLAGS) -I$(PRODUCTION_DIR) $(WT_LAYOUT_CFLAGS) \
 		$(LDFLAGS) -o $@ $(PRODUCTION_SRCS)
 
 run: $(SPM_TEST) $(PRODUCTION_TEST)

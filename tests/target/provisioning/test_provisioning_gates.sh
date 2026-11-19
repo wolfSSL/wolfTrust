@@ -18,9 +18,9 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-# Offline tests of the production lock gates in provisioning_ctrl.sh (STM32H5)
-# and provisioning_ctrl_rt700.sh (MIMXRT700). Every vendor tool is a stub that
-# records writes to a file; nothing here touches a board.
+# Offline tests of the production lock gates in provisioning_ctrl.sh and its
+# port files; a port may add its own in tests/target/ports/<soc>/provisioning_gates.sh.
+# Every vendor tool is a stub that records writes to a file; nothing here touches a board.
 # shellcheck disable=SC2015  # result lines are "cond && pass || fail" on purpose
 set -u
 SRC="$(cd "$(dirname "$0")/../../.." && pwd)"
@@ -35,10 +35,10 @@ echo wb > "$R/wolfBoot/wolfboot.bin"; echo wt > "$R/build/wolftrust_v1_signed.bi
 echo g0 > "$R/tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin"
 echo g1 > "$R/tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
 echo elf > "$R/build/wolftrust.elf"
-mkdir -p "$R/build/rt700" "$R/tests/firmware/mimxrt700-baremetal/build"
-echo rwb > "$R/build/rt700/flash_wolfboot.bin"
-echo rg0 > "$R/tests/firmware/mimxrt700-baremetal/build/guest0.bin"
-echo rg1 > "$R/tests/firmware/mimxrt700-baremetal/build/guest1.bin"
+mkdir -p "$R/logs/mimxrt700-hw/wrpfence-native" "$R/tests/firmware/baremetal-guest/build"
+echo rwb > "$R/logs/mimxrt700-hw/wrpfence-native/flash_wolfboot.bin"
+echo rg0 > "$R/tests/firmware/baremetal-guest/build/guest0.bin"
+echo rg1 > "$R/tests/firmware/baremetal-guest/build/guest1.bin"
 SD="$T/home/st-rot-h5/Projects/NUCLEO-H563ZI/ROT_Provisioning/DA"
 mkdir -p "$SD/Binary" "$SD/Keys" "$SD/Certificates" "$T/prodda"
 echo sobk > "$SD/Binary/DA_Config.obk"; echo spwd > "$SD/Binary/password.bin"
@@ -50,6 +50,7 @@ mkdir -p "$T/flash"
 # STM32 CLI stub: state in $T/ps, $T/wrp; logs writes to $T/writes.
 cat > "$T/bin/stcli" <<EOF
 #!/usr/bin/env bash
+echo "\$*" >> $T/stcli_calls
 ps=\$(cat $T/ps)
 args=("\$@")
 for i in "\${!args[@]}"; do
@@ -93,7 +94,28 @@ esac
 EOF
 cat > "$T/venv/bin/pyocd" <<EOF
 #!/bin/sh
-if [ "\$1" = cmd ]; then cat "$T/sfp" 2>/dev/null; exit 0; fi
+echo "\$*" >> $T/pyocd_calls
+if [ "\$1" = cmd ]; then
+  # With a register file (MCXN947), answer each read32 from it and give a
+  # savemem a blank page; else the RT700 SFP dump.
+  if [ -s "$T/mcxn_regs" ]; then
+    for a in "\$@"; do
+      case "\$a" in
+        "read32 "*) k=\$(printf '%08x' "\${a#read32 }" 2>/dev/null || echo 0)
+          v=\$(awk -v k="\$k" '\$1 == k { print \$2 }' "$T/mcxn_regs")
+          echo "\$k:  \${v:-00000000}" ;;
+        "savemem "*) set -- \$a
+          head -c "\$3" /dev/zero | tr '\\000' '\\377' > "\$4"
+          # A failed read: the file is written but the commander reports an
+          # error, ahead of a long log, and still exits 0.
+          if [ -e "$T/savemem_err" ]; then echo "Error: memory transfer fault"
+            printf '%02000000d\\n' 0; fi ;;
+      esac
+    done
+    exit 0
+  fi
+  cat "$T/sfp" 2>/dev/null; exit 0
+fi
 [ "\$1" = list ] || exit 0
 echo "  #   Probe/Board   Unique ID   Target"
 echo "-----------------------------------"
@@ -105,7 +127,49 @@ printf '#!/bin/sh\nexec %s "$@"\n' "$(command -v python3)" > "$T/venv/bin/python
 sha() { if command -v sha256sum >/dev/null 2>&1; then sha256sum; else shasum -a 256; fi; }
 subst() { sed "s/$1/$2/" "$3" > "$3.tmp" && mv "$3.tmp" "$3"; }
 have_expect=0; command -v expect >/dev/null 2>&1 && have_expect=1
-chmod +x "$T/bin/stcli" "$T/venv/bin/blhost" "$T/venv/bin/pyocd"
+# docker/wolftrust-ci sets WT_REQUIRE_EXPECT=1 with expect installed; the
+# images pinned before it carry neither, so there a missing expect is a skip.
+typed_skip() {
+  echo "skip $1 (no expect)"
+  if [ "${WT_REQUIRE_EXPECT:-0}" = "1" ]; then failn=$((failn+1)); echo "FAIL $1 needs expect (WT_REQUIRE_EXPECT=1)"; fi
+}
+# SPSDK stubs for the MCXN947 lock preview: pfr parses a page into a YAML
+# that names its source and exports that source back (a byte-true round
+# trip); nxpfuses writes the fuse script for the named life cycle; every
+# write-class command of pfr, nxpfuses and nxpdebugmbox is logged and fails.
+cat > "$T/venv/bin/pfr" <<EOF
+#!/usr/bin/env bash
+sub="\$1"; shift
+case "\$sub" in
+  parse) while [ \$# -gt 0 ]; do case "\$1" in -b) b="\$2"; shift;; -o) o="\$2"; shift;; esac; shift; done
+    printf 'family: mcxn947\\nsource: %s\\nsha: %s\\n' "\$b" "\$(sha256sum "\$b" | cut -c1-16)" > "\$o" ;;
+  export) while [ \$# -gt 0 ]; do case "\$1" in -c) c="\$2"; shift;; -o) o="\$2"; shift;; esac; shift; done
+    cp "\$(sed -n 's/^source: //p' "\$c")" "\$o" ;;
+  get-template) while [ \$# -gt 0 ]; do case "\$1" in -o) o="\$2"; shift;; esac; shift; done
+    printf 'family: mcxn947\\n' > "\$o" ;;
+  *) echo "pfr \$sub \$*" >> $T/writes; exit 1 ;;
+esac
+EOF
+cat > "$T/venv/bin/nxpfuses" <<EOF
+#!/usr/bin/env bash
+sub="\$1"; shift
+case "\$sub" in
+  fuses-script) while [ \$# -gt 0 ]; do case "\$1" in -c) c="\$2"; shift;; -o) o="\$2"; shift;; esac; shift; done
+    case "\$(sed -n 's/.*"LIFECYCLE\\[7:0\\]": //p' "\$c")" in
+      DEVELOP2) v=7 ;; IN_FIELD) v=F ;; *) exit 1 ;;
+    esac
+    printf '# Fuse LIFE_CYCLE, index 1 and value: 0x%s00000%s.\\nefuse-program-once 1 0x%s00000%s --no-verify\\n' "\$v" "\$v" "\$v" "\$v" > "\$o" ;;
+  *) echo "nxpfuses \$sub \$*" >> $T/writes; exit 1 ;;
+esac
+EOF
+cat > "$T/venv/bin/nxpdebugmbox" <<EOF
+#!/usr/bin/env bash
+case "\$*" in
+  *"tool get-uuid"*) echo "The device UUID is: 11111111222222223333333344444444" ;;
+  *) echo "nxpdebugmbox \$*" >> $T/writes; exit 1 ;;
+esac
+EOF
+chmod +x "$T/bin/stcli" "$T/venv/bin/blhost" "$T/venv/bin/pyocd" "$T/venv/bin/pfr" "$T/venv/bin/nxpfuses" "$T/venv/bin/nxpdebugmbox"
 
 pass=0; failn=0
 check() { # check <name> <expected-rc> <grep-in-output> -- cmd...
@@ -137,11 +201,23 @@ check "help lists the port's states" 0 "0x72   closed" -- "${H5[@]}" help
 check "a port file refuses to run alone" 2 "not this port file" -- bash "$R/tests/target/provisioning/provisioning_ctrl_stm32h563.sh" lock 0x72
 check "the other port file too" 2 "not this port file" -- bash "$R/tests/target/provisioning/provisioning_ctrl_mimxrt700.sh" lock 0x07
 check "unknown port"         2 "no provisioning port for TARGET=nope" -- env TARGET=nope "$P" help
+check "a port probe name naming another probe than WT_HW_PROBE is refused" 2 "name different probes" -- env WT_HW_PROBE=PROBEB H5_PROBE_SN=PROBEC "${H5[@]}" status
+check "the same refusal on the RT700" 2 "name different probes" -- env WT_HW_PROBE=PROBEB RT700_PROBE_UID=PROBEC TARGET=mimxrt700 WT_PROVISION_STATE="$T/st" "$P" status
+check "another port's probe name is not this port's concern" 0 "" -- env WT_HW_PROBE=PROBEB RT700_PROBE_UID=PROBEC MCXN947_PROBE_UID=PROBED "${H5[@]}" status
+: > "$T/stcli_calls"
+env WT_HW_PROBE=PROBEB "${H5[@]}" status >/dev/null 2>&1 || true
+if grep -q . "$T/stcli_calls" && ! grep -v -- "sn=PROBEB" "$T/stcli_calls" | grep -q .; then pass=$((pass+1)); echo "ok   every CubeProgrammer call of status carried the ST-Link serial"; else failn=$((failn+1)); echo "FAIL a CubeProgrammer call ignored WT_HW_PROBE: $(grep -v -- 'sn=PROBEB' "$T/stcli_calls" | head -2)"; fi
+: > "$T/stcli_calls"
+"${H5[@]}" status >/dev/null 2>&1 || true
+if grep -q . "$T/stcli_calls" && ! grep -q -- "sn=" "$T/stcli_calls"; then pass=$((pass+1)); echo "ok   without WT_HW_PROBE no serial is bound"; else failn=$((failn+1)); echo "FAIL a serial was bound without WT_HW_PROBE"; fi
 check "unknown state"        2 "unknown state '0x99'" -- "${H5[@]}" lock 0x99
 check "no state"             2 "unknown state ''" -- "${H5[@]}" lock
 check "start state is not a lock target" 2 "open (0xED) is not a lock target" -- "${H5[@]}" lock open
 check "permanent state has no mock" 2 "locked (0x5C) has no mock" -- env WT_LOCK_CONFIRM=1 "${H5[@]}" advance locked
 check "writes need WT_LOCK_CONFIRM" 2 "writes to the board" -- "${H5[@]}" advance 0x17
+check "a port write command needs WT_LOCK_CONFIRM" 2 "writes to the board" -- "${H5[@]}" set-wrp
+check "unknown command refused centrally" 2 "is not a STM32H563 command" -- "${H5[@]}" frobnicate
+check "help lists the port's commands with their class" 0 "provision-da .*(write)" -- "${H5[@]}" help
 nowrite
 
 echo "== STM32H563"
@@ -254,7 +330,7 @@ out="$(expect -c "set timeout 300; spawn $H5X lock 0x5C; expect \"to continue: \
 rc=$?; [ $rc = 0 ] && [ "$(cat "$T/writes")" = "PRODUCT_STATE=0x5C" ] && grep -q "STM32H563 is locked (0x5C)" <<<"$out" && [ ! -e "$HS/rehearsal-0x72" ] && { pass=$((pass+1)); echo "ok   Locked (stub) consumes the Closed rehearsal it used"; } || { failn=$((failn+1)); echo "FAIL Locked consume rc=$rc writes=$(cat "$T/writes")"; echo "$out" | tail -5; }
 : > "$T/writes"; echo 0x17 > "$T/ps"
 else
-  echo "skip typed confirmation tests (no expect)"
+  typed_skip "typed confirmation tests"
   rm -f "$HS"/rehearsal-*
 fi
 check "a consumed rehearsal cannot lock again" 2 "no rehearsal for" -- env "${PROD[@]}" "${H5[@]}" lock 0x5C
@@ -267,9 +343,9 @@ ISP=(RT700_ISP="-u 0x1fc9,0x014f")
 fuse() { echo "$2" > "$T/fuse.$(($1))"; }
 edig() {
   local a f
-  for a in 0x28000000:build/rt700/flash_wolfboot.bin 0x28040000:build/wolftrust_v1_signed.bin \
-           0x28080000:tests/firmware/mimxrt700-baremetal/build/guest0.bin \
-           0x28100000:tests/firmware/mimxrt700-baremetal/build/guest1.bin; do
+  for a in 0x28000000:logs/mimxrt700-hw/wrpfence-native/flash_wolfboot.bin 0x28040000:build/wolftrust_v1_signed.bin \
+           0x28080000:tests/firmware/baremetal-guest/build/guest0.bin \
+           0x28100000:tests/firmware/baremetal-guest/build/guest1.bin; do
     f="$R/${a#*:}"; printf '%s %s\n' "${a%%:*}" "$(wc -c < "$f" | tr -d ' ')"; cat "$f"
   done | sha | cut -c1-64
 }
@@ -278,6 +354,11 @@ rec() { mkdir -p "$RS"; echo "state=$1 run=r id=${6:-PROBEA} image=$3 fused=$2 f
 now() { date +%s; }
 rm -f "$T"/fuse.*; fuse 0x8F 0x03; fuse 0x25 0x03
 check "help lists the port's states" 0 "in-field-locked" -- "${RT[@]}" help
+check "unknown command refused centrally" 2 "is not a MIMXRT700 command" -- "${RT[@]}" frobnicate
+: > "$T/pyocd_calls"
+env WT_HW_PROBE=PROBEB "${RT[@]}" status >/dev/null 2>&1 || true
+if grep -qE '^(cmd|reset) ' "$T/pyocd_calls" && ! grep -E '^(cmd|reset) ' "$T/pyocd_calls" | grep -v -- "-u PROBEB" | grep -q .; then pass=$((pass+1)); echo "ok   every pyocd call of status carried the MCU-Link id"; else failn=$((failn+1)); echo "FAIL a pyocd call ignored WT_HW_PROBE: $(grep -E '^(cmd|reset) ' "$T/pyocd_calls" | grep -v -- '-u PROBEB' | head -2)"; fi
+: > "$T/pyocd_calls"
 for m in 0 0x0 0x4 0x7 junk; do
   check "RT700_GUEST_MASK=$m refused" 2 "RT700_GUEST_MASK must be" -- env RT700_GUEST_MASK="$m" WT_LOCK_CONFIRM=1 "${RT[@]}" advance 0x07
 done
@@ -311,7 +392,7 @@ fuse 0x8F 0x03; fuse 0x25 0x03
 check "unrehearsed"          2 "no rehearsal for develop2" -- env "${ISP[@]}" "${RT[@]}" lock develop2
 rec 0x07 0x03 0000 armed "$(now)"
 check "rehearsed other images" 2 "no rehearsal for" -- env "${ISP[@]}" "${RT[@]}" lock 0x07
-G="$R/tests/firmware/mimxrt700-baremetal/build"
+G="$R/tests/firmware/baremetal-guest/build"
 rec 0x07 0x03 "$(edig)" armed "$(now)"
 printf 'rg0\nr' > "$G/guest0.bin"; printf 'g1\n' > "$G/guest1.bin"
 check "bytes moved between images" 2 "no rehearsal for" -- env "${ISP[@]}" "${RT[@]}" lock 0x07
@@ -354,11 +435,111 @@ out="$(expect -c "set timeout 300; spawn $RTX lock 0x07; expect \"to continue: \
 rc=$?; [ $rc = 1 ] && grep -q "batch failed part way" <<<"$out" && grep -q "fuses read LC 0x00000003, RED 0x00000007" <<<"$out" && { pass=$((pass+1)); echo "ok   a burn that fails part way still reads both words back"; } || { failn=$((failn+1)); echo "FAIL partial burn rc=$rc"; echo "$out" | tail -4; }
 rm -f "$T/batchfail" "$RS/rehearsal-0x07"; fuse 0x8F 0x07; fuse 0x25 0x07; : > "$T/writes"
 else
-  echo "skip typed burn tests (no expect)"; fuse 0x8F 0x07; fuse 0x25 0x07
+  typed_skip "typed burn tests"; fuse 0x8F 0x07; fuse 0x25 0x07
 fi
 check "the next step after the burn" 2 "runs only from in-field (0x0F)" -- env "${ISP[@]}" "${RT[@]}" lock in-field-locked
 rec 0x0F 0x07 "$(edig)" armed "$(now)"
 check "In Field refused until ROM authentication" 2 "needs the BootROM to authenticate wolfBoot" -- env "${ISP[@]}" "${RT[@]}" lock in-field
 nowrite
+
+echo "== MCXN947"
+MX=(env TARGET=mcxn947 MCXN947_SPSDK_VENV="$T/venv" MCXN947_PROBE_UID=PROBEA MCXN947_WOLFBOOT_DIR="$R/wolfBoot" WT_PROVISION_STATE="$T/st" PATH="$T/venv/bin:$PATH" "$P")
+MS="$T/st/mcxn947"
+mkdir -p "$R/tests/firmware/baremetal-guest/build"
+echo mg0 > "$R/tests/firmware/baremetal-guest/build/guest0.bin"
+echo mg1 > "$R/tests/firmware/baremetal-guest/build/guest1.bin"
+# restore runs the hardware runner; here a stub that reports the probe it got.
+printf '#!/bin/sh\necho "stub runner $2 probe=${WT_HW_PROBE:-none}"\n' > "$R/tests/target/run_hardware.sh"
+chmod +x "$R/tests/target/run_hardware.sh"
+mdig() {
+  local a f
+  for a in 0x00000000:wolfBoot/wolfboot.bin 0x00040000:build/wolftrust_v1_signed.bin \
+           0x00080000:tests/firmware/baremetal-guest/build/guest0.bin \
+           0x00100000:tests/firmware/baremetal-guest/build/guest1.bin; do
+    f="$R/${a#*:}"; printf '%s %s\n' "${a%%:*}" "$(wc -c < "$f" | tr -d ' ')"; cat "$f"
+  done | sha | cut -c1-64
+}
+# mrec <state> <fused> <completed> [probe]: a rehearsal record of this part
+mrec() { mkdir -p "$MS"; echo "state=$1 run=r id=11111111222222223333333344444444 image=$(mdig) fused=$2 fence=none probe=${4:-PROBEA} time=$3 cred=none completed=$3" > "$MS/rehearsal-$1"; }
+# regs <LC_STATE> <LC_STATE_DP> [DAUTHSTATUS]: the words the pyocd stub answers
+# (SYSCON life cycle, debug status, UUID, an intact handoff, the reset vector).
+regs() {
+  printf '50000980 %08x\n50000984 %08x\ne000efb8 %08x\n' $(($1)) $(($2)) $((${3:-0xAA})) > "$T/mcxn_regs"
+  printf '01100000 11111111\n01100004 22222222\n01100008 33333333\n0110000c 44444444\n' >> "$T/mcxn_regs"
+  printf '30030000 5742484f\n30030004 a8bdb7b0\n3003000c 00001000\n10040404 10040801\n' >> "$T/mcxn_regs"
+}
+regs 0x03 0x03
+check "help lists the port's states" 0 "oem-secure-world" -- "${MX[@]}" help
+check "the MCXN947 port file refuses to run alone" 2 "not this port file" -- bash "$R/tests/target/provisioning/provisioning_ctrl_mcxn947.sh" lock 0x07
+for m in 0 0x4 junk; do
+  check "MCXN947_GUEST_MASK=$m refused" 2 "MCXN947_GUEST_MASK must be" -- env MCXN947_GUEST_MASK="$m" WT_LOCK_CONFIRM=1 "${MX[@]}" advance 0x07
+done
+check "no guest flash fence is reported" 1 "no guest flash fence" -- "${MX[@]}" verify-wrp
+check "lock refused: oem-closed by name" 2 "oem-closed (0x0F) is not a lock target" -- "${MX[@]}" lock oem-closed
+check "lock refused: oem-locked" 2 "is not a lock target" -- "${MX[@]}" lock 0xCF
+check "lock refused: oem-field-return" 2 "is not a lock target" -- "${MX[@]}" lock 0x1F
+check "advance needs discover" 2 "run 'discover' first" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" advance 0x07
+check "status reads the life cycle and the UUID" 0 "device UUID      11111111222222223333333344444444" -- "${MX[@]}" status
+regs 0x03 0x07
+check "discover: copies disagree" 1 "life cycle copies disagree" -- "${MX[@]}" discover
+regs 0x103 0x103
+check "discover: bits above the state byte" 1 "above the state byte" -- "${MX[@]}" discover
+regs 0xCF 0xCF
+check "discover: no further rehearsal step" 1 "has no further rehearsal step" -- "${MX[@]}" discover
+regs 0x03 0x03
+check "discover stamps the life cycle and UUID" 0 "discovery stamped" -- "${MX[@]}" discover
+check "advance past oem-secure-world needs a regress" 2 "prove 'regress' from oem-secure-world" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" advance 0x0F
+check "OTP writes refused" 2 "would program OTP" -- "${MX[@]}" burn
+check "perimeter commands refused" 2 "has no MCXN947 form" -- "${MX[@]}" set-wrp
+check "unknown command refused centrally" 2 "is not a MCXN947 command" -- "${MX[@]}" frobnicate
+check "restore runs the hardware runner bound to the probe" 0 "stub runner positive probe=PROBEA" -- env WT_LOCK_CONFIRM=1 "${MX[@]}" restore
+# Three probes and no id: every device command refuses loudly, never a
+# silent empty read.
+printf 'PROBEA\nPROBEB\nPROBEC\n' > "$T/probe"
+check "status with three probes and no id refuses" 2 "set MCXN947_PROBE_UID" -- env -u MCXN947_PROBE_UID TARGET=mcxn947 MCXN947_SPSDK_VENV="$T/venv" WT_PROVISION_STATE="$T/st" PATH="$T/venv/bin:$PATH" "$P" status
+check "status names the bound probe" 0 "debug probe      PROBEA" -- "${MX[@]}" status
+check "discover stamps the probe" 0 "probe PROBEA" -- "${MX[@]}" discover
+grep -q "PROBE=PROBEA" "$MS/discovery" && { pass=$((pass+1)); echo "ok   discovery records the probe"; } || { failn=$((failn+1)); echo "FAIL discovery lacks the probe"; }
+: > "$T/pyocd_calls"
+# The lock: previews the vendor write from the live pages and refuses it,
+# with every confirmation supplied, on the hard-wired port constant.
+check "lock needs a rehearsal" 2 "no rehearsal for oem-secure-world" -- "${MX[@]}" lock 0x07
+mrec 0x07 0x03 "$(now)"
+out="$("${MX[@]}" lock 0x07 2>&1)"; rc=$?
+[ $rc = 2 ] && grep -q "preview only" <<<"$out" && grep -q "efuse-program-once 1 0x7000007 --no-verify" <<<"$out" && grep -q "pfr write: nothing" <<<"$out" && grep -q "hard-wired off" <<<"$out" && grep -q "CMPA/CFPA read and parsed" <<<"$out" && { pass=$((pass+1)); echo "ok   lock previews the fuse script and the pages, then stops"; } || { failn=$((failn+1)); echo "FAIL lock preview rc=$rc"; echo "$out" | tail -8; }
+[ -s "$MS/lock-0x07/burn-0x07.bls" ] && [ -s "$MS/lock-0x07/cmpa.yaml" ] && [ -s "$MS/lock-0x07/pages.sha256" ] && { pass=$((pass+1)); echo "ok   the preview keeps the script, the parsed pages and their digests"; } || { failn=$((failn+1)); echo "FAIL preview artifacts missing"; }
+if grep -q . "$T/pyocd_calls" && ! grep -v -- "-u PROBEA" "$T/pyocd_calls" | grep -q .; then pass=$((pass+1)); echo "ok   every pyocd call of the preview carried the probe id"; else failn=$((failn+1)); echo "FAIL a pyocd call ran without -u PROBEA: $(grep -v -- '-u PROBEA' "$T/pyocd_calls" | head -2)"; fi
+mrec 0x07 0x03 "$(now)" PROBEB
+check "a rehearsal on another probe is refused" 2 "no rehearsal for oem-secure-world" -- "${MX[@]}" lock 0x07
+mrec 0x07 0x03 "$(now)"
+check "lock refused with the production opt-in but no terminal" 2 "needs an interactive terminal" -- env WT_FIXTURE_BOUND=1 WT_LOCK_CONFIRM=1 WT_PRODUCTION_LOCK=1 "${MX[@]}" lock 0x07
+if [ "$have_expect" = 1 ]; then
+MXX="env TARGET=mcxn947 MCXN947_SPSDK_VENV=$T/venv MCXN947_PROBE_UID=PROBEA MCXN947_WOLFBOOT_DIR=$R/wolfBoot WT_PROVISION_STATE=$T/st PATH=$T/venv/bin:$PATH WT_LOCK_CONFIRM=1 WT_PRODUCTION_LOCK=1 $P"
+out="$(expect -c "set timeout 300; spawn $MXX lock 0x07; expect \"to continue: \"; send \"I ACCEPT 0x07\r\"; expect eof; catch close; catch wait r; exit [lindex \$r 3]")"
+rc=$?; [ $rc = 2 ] && grep -q "hard-wired off in this port (MCXN947_LOCK_WRITE_ENABLED=0)" <<<"$out" && [ -e "$MS/rehearsal-0x07" ] && { pass=$((pass+1)); echo "ok   the exact phrase with every confirmation is still refused at the write"; } || { failn=$((failn+1)); echo "FAIL typed acceptance rc=$rc"; echo "$out" | tail -5; }
+else
+  echo "skip typed lock refusal (no expect)"
+fi
+nowrite
+check "verify-pages: unchanged since the preview" 0 "cfpa-pong unchanged since the preview" -- "${MX[@]}" verify-pages
+# A savemem that fails while the commander exits 0 must not let the previous
+# readback stand in for the page.
+touch "$T/savemem_err"
+check "verify-pages: a failed read is never the earlier readback" 1 "cannot read cmpa over SWD" -- "${MX[@]}" verify-pages
+rm -f "$T/savemem_err"
+# From a part fused one step further, the closed states are still no lock
+# target: the ladder stops them before any preview.
+regs 0x07 0x07; mrec 0x0F 0x07 "$(now)"
+check "lock refused: oem-closed from oem-secure-world" 2 "oem-closed (0x0F) is not a lock target" -- "${MX[@]}" lock 0x0F
+regs 0x0F 0x0F; mrec 0xCF 0x0F "$(now)"
+check "lock refused: oem-locked from oem-closed" 2 "oem-locked (0xCF) is not a lock target" -- "${MX[@]}" lock 0xCF
+nowrite
+rm -f "$T/mcxn_regs"
+# Each port's own gates run here, with the helpers and stubs above.
+for gates in "$SRC"/tests/target/ports/*/provisioning_gates.sh; do
+  [ -f "$gates" ] || continue
+  # shellcheck source=/dev/null
+  . "$gates"
+done
 echo "provisioning gates: $pass passed, $failn failed"
 [ "$failn" = 0 ]

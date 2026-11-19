@@ -861,6 +861,40 @@ static void test_full_store_remove(void)
     g_ramsim_size = RAMSIM_SIZE;
 }
 
+/* Unsealed writes must leave the directory entry a sealed remove needs for
+ * its counter-table update, so PS data stays deletable on a full store. */
+static void test_mixed_full_store_remove(void)
+{
+    static uint8_t object[16];
+    uint64_t uid;
+    uint64_t filled = 0U;
+    psa_status_t status = PSA_SUCCESS;
+
+    (void)memset(object, 0x3C, sizeof(object));
+    (void)memset(g_flash_memory, 0xFF, sizeof(g_flash_memory));
+    g_ramsim_size = 2U * RAMSIM_SECTOR;
+    check(test_nvm_up(0) == 0, "initialized small mixed store");
+    check(wt_hsm_vault_backend.set(TEST_PS_PARTITION, TEST_NS_GUEST0, 1U,
+              WT_VAULT_FLAG_SEALED, object, sizeof(object)) == PSA_SUCCESS,
+          "sealed object stored before the unsealed fill");
+    for (uid = 1U; status == PSA_SUCCESS; uid++) {
+        status = wt_hsm_vault_backend.set(TEST_VAULT_PARTITION,
+            TEST_NS_GUEST1, uid, 0U, object, sizeof(object));
+        if (status == PSA_SUCCESS) {
+            filled++;
+        }
+    }
+    check(filled > 0U && status == PSA_ERROR_INSUFFICIENT_STORAGE,
+          "unsealed small objects fill the directory");
+    check(wt_hsm_vault_backend.set(TEST_VAULT_PARTITION, TEST_NS_GUEST1, 1U,
+              0U, object, sizeof(object)) == PSA_SUCCESS,
+          "an existing unsealed object is still overwritable when full");
+    check(wt_hsm_vault_backend.remove(TEST_PS_PARTITION, TEST_NS_GUEST0,
+                                       1U) == PSA_SUCCESS,
+          "WT-FFM-0048 sealed remove succeeds after an unsealed fill");
+    g_ramsim_size = RAMSIM_SIZE;
+}
+
 int main(void)
 {
     static const uint8_t secret_v1[] = "ps-secret-version-one";
@@ -1085,6 +1119,7 @@ int main(void)
     test_replacement_stage_cleanup();
     test_sealed_delete_recovery();
     test_full_store_remove();
+    test_mixed_full_store_remove();
 
     if (g_failures != 0) {
         return 1;

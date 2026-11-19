@@ -15,14 +15,14 @@ Read the current state first and keep a development board recoverable.
   Secure image cross-build (`make TARGET=mimxrt700 secure-image`) with the port
   split, veneer, and manifest checks green.
 - **Validated in emulation:** the wolfTrust chain under M33MU's RT700 model
-  (`tests/target/run_rt700_m33mu.sh`, see Testing). wolfBoot verifies the
+  (`tests/target/run_target.sh mimxrt700`, see Testing). wolfBoot verifies the
   Secure image and both bare-metal guests launch and complete their PSA calls
-  through the veneers (`positive`); the isolation negative (`ahbscneg`) shows a
+  through the veneers (`positive`); the isolation negative (`guestisoneg`) shows a
   guest's store into the other guest's RAM refused by the SAU, contained by the
   monitor, and the offender quarantined after its restart budget while the peer
   keeps running.
 - **Validated on the EVK:** the same two scenarios on both crypto engines
-  (`tests/target/run_rt700_hardware.sh`). In `ahbscneg`, guest0 disables its
+  (`tests/target/run_hardware.sh mimxrt700`). In `guestisoneg`, guest0 disables its
   Non-secure MPU and stores into guest1's RAM; the store faults, guest1's RAM
   never holds the sentinel, and guest1 keeps running. The port isolates guest
   RAM with a per-dispatch SAU window, because the AHB secure controller's SRAM
@@ -38,7 +38,7 @@ Read the current state first and keep a development board recoverable.
   (`0x38180000`, the `imx-rt700-tz.config` update address) and arms the swap
   trigger in its trailer, as the STM32H563 port does; staging must be
   contiguous from offset 0, so a finished candidate has no unwritten gap. `WT_CONFORMANCE=1`
-  selects `port/mimxrt700/manifest-conformance.json`, which hosts Arm's
+  renders the shared `manifest/conformance.json` overlay, which hosts Arm's
   server, driver, and client partitions for the conformance suites.
 
 Record emulator, cross-build, and physical-board evidence separately: M33MU's
@@ -76,20 +76,13 @@ only `port/mimxrt700/` and one build fragment:
 
 | File | Responsibility |
 | --- | --- |
-| `memory_map.h` | The bit-28 Secure-alias map: XSPI0 NOR windows, Secure and guest RAM, the boot-handoff address, and the RAM code band; the per-partition bands are offsets from `WT_RAM_S_BASE` in `port/common/armv8m/l3_layout.h`. |
-| `l3_port.h` | The level 3 layer's one board input: the TRNG as the Secure peripheral only the SPM drives. |
+| `memory_map.h` | The bit-28 Secure-alias map: XSPI0 NOR windows, Secure and guest RAM, the guests' console window, the boot-handoff address, the RAM code band, and the TRNG as the Secure peripheral only the SPM drives; the per-partition bands are offsets from `WT_RAM_S_BASE` in `port/common/armv8m/l3_layout.h`, and `memory_map_check.h` refuses an inconsistent map. |
 | `mimxrt798_regs.h` | Register bases for CLKCTL, SYSCON, IOPCTL, LPUART0, XSPI0, TRNG, the AHBSC fabric controllers, and their GLIKEY unlock state machines. |
-| `platform_mimxrt700.c` | Every `wt_platform_*` operation: clocks, the SAU table, the Secure MPU whitelist, enabling AHBSC secure checking behind its GLIKEY unlock, staging of the RAM code band, the boot-handoff region, fault logging, panic, and reset. |
-| `partitions.c` | The guest and capability tables, the profile capability bitmap (the fabric filter is claimed on the per-dispatch SAU window, not on the AHBSC SRAM rules), and the pinned guest-measurement slot. |
+| `platform_mimxrt700.c` | The port's hooks for the shared Armv8-M platform (`port/common/armv8m/platform_armv8m.c`): the SAU table, the Secure MPU whitelist, staging of the RAM code band, enabling AHBSC secure checking behind its GLIKEY unlock, and the XSPI guest fence read-back; the per-dispatch guest windows are the shared SAU backend (`fabric_sau.c`). |
 | `xspi_nor.c/.h` | The XSPI0 octal-DTR NOR program and erase driver: bounded target-group IP commands on its own LUT sequences, run from the RAM code band with interrupts masked, flushing the XSPI read cache afterwards. |
-| `hsm_flash.c/.h` | The `port_nvm.h` backend for the wolfHSM store: reads through the Secure XIP alias, program and erase through `xspi_nor.c`. |
-| `rng_entropy.c` | The `CUSTOM_RAND_GENERATE_BLOCK` entropy source over the on-die TRNG, preserving the unprivileged-to-privileged trap. |
-| `secure.ld` | The port's own Secure linker script, which INCLUDEs the shared level 3 regions, band sections, and layout ASSERTs and adds the RAM code band: the SG veneers, the `cmse_nonsecure_entry` bodies, and the NOR driver, loaded from flash and executed from SRAM. |
-| `manifest.json` | The service partitions (attestation, HSM, vault, ITS, PS, FWU) and their resources. |
-| `mk/target-mimxrt700.mk` | `WT_CPU`, the flash and RAM defaults, the linker `--defsym` set, and the source lists. |
-
-The only edit outside the port allow-list is a neutral seam: an `#ifndef` guard
-around `WOLFHSM_CFG_FLASH_UNIT_SIZE` so the port can set the NOR write unit.
+| `flash_drv.c` | The `flash_port.h` primitives for the shared store and FWU backend (`port/common/hsm_flash.c`): reads through the Secure XIP alias, program and erase through `xspi_nor.c`. |
+| `rng_drv.c` | The `rng_port.h` entropy source over the on-die TRNG; the shared `port/common/rng_entropy.c` keeps the unprivileged-to-privileged trap and the failure latch. |
+| `mk/target-mimxrt700.mk` | `WT_CPU`, the flash and RAM defaults, `WT_LD_RAM_CODE_BAND := 1` (the shared `port/common/armv8m/secure.ld.in` then places the SG veneers, the `cmse_nonsecure_entry` bodies, and the NOR driver in the RAM code band, loaded from flash and executed from SRAM), and the source lists. |
 
 ## Reference flash and RAM layout
 
@@ -113,7 +106,7 @@ XSPI0 octal NOR is aliased at `0x28000000` (Non-secure) and `0x38000000`
 | Guest 1 RAM (`0x40000`) | `0x20140000` |
 | Boot-handoff record | `0x30180000` |
 | Secure runtime RAM | `0x30188000` |
-| RAM code band (`0x4000`, NSC gateway and NOR driver) | executes at `0x10200000`, staged through `0x30200000` |
+| RAM code band (`0x1000`, NSC gateway and NOR driver) | executes at `0x10200000`, staged through `0x30200000` |
 
 SRAM appears at four aliases with the same offset: `0x0` Non-secure code,
 `0x1` Secure code, `0x2` Non-secure data, `0x3` Secure data.
@@ -147,14 +140,14 @@ run time by three mechanisms the port programs before any guest launches:
   NXP's TrustZone setup does, without claiming isolation from those rules.
 
 A port declares what it actually enforces through the capability bitmap in
-`partitions.c`, and the manifest validator refuses a domain that requires a
-capability the port does not provide: a writable Non-secure guest window is
+`platform_caps.h`, and the manifest generator refuses, at build time, a domain
+that requires a capability the port does not provide: a writable Non-secure guest window is
 refused unless the port claims the fabric filter. This port claims it on the
 strength of the per-dispatch SAU window. The AHBSC SRAM rules do not gate CPU0
 on this silicon (a Non-secure store into a closed guest window landed with them
 on), so the CPU's own attribution is the barrier: with the peer window Secure,
 a guest's store into it faults even after the guest disables its own
-Non-secure MPU, and the monitor contains the fault. `ahbscneg` shows exactly
+Non-secure MPU, and the monitor contains the fault. `guestisoneg` shows exactly
 that on the EVK and under M33MU.
 As on the STM32H563 (see [TF-M Compatibility](TF-M-Compatibility.md)), the
 manifest declares the guests unprivileged but the runtime launches them with
@@ -254,20 +247,36 @@ Running `discover` again clears both it and any earlier `regress` stamp.
 
 ## Build, flash, and verify
 
-The hardware runner (`tests/target/run_rt700_hardware.sh`) drives image
-assembly and flashing so the addresses stay paired; its emulator sibling
-(`tests/target/run_rt700_m33mu.sh`) runs the same chain and scenario names
-under M33MU. The `romsmoke` scenario proves the BootROM XIP path; the
-`positive` scenario is the wolfTrust chain; `ahbscneg` adds the guest
-isolation negative; `wrpfence`, `wrpoff`, and `wrpneg` cover the guest flash
-fence. `make test-hardware TARGET=mimxrt700` runs that set through
-`tests/target/run_rt700_suite.sh` on the probe host and skips without a board.
+The hardware runner builds the `full` profile, so its scenarios launch two
+guests and include Firmware Update; it refuses any other `WT_PROFILE`.
+
+The hardware runner (`tests/target/run_hardware.sh mimxrt700 <scenario>`)
+drives image assembly and flashing so the addresses stay paired; its emulator
+sibling (`tests/target/run_target.sh mimxrt700`) runs the same chain and
+scenario names under M33MU. `make test-hardware TARGET=mimxrt700` runs the
+eight every board runs. `WT_HW_TIER=qualification` adds `wrpfence`; `wrpneg`
+(wolfBoot's flash-protect selftest sees the silicon refuse an erase inside the
+guest fence); `nsentrymask` (a Non-secure SysTick comes due inside an FF-M
+entry, and the Secure entry mask holds it until the outer entry returns, which
+M33MU cannot model); `handlerirqneg` (guest 0 parks in a Non-secure IRQ handler
+on every launch, and after its restarts that IRQ must read inactive while
+guest 1's PendSV keeps firing); and `romsmoke` (the BootROM boots an XIP image
+from XSPI0). The EVK run resets the board through the pi4 line and observes
+over SWD only, so its console blocks are N/A. Without the probe, pyOCD pack or
+SPSDK, `tests/target/detect_rt700.sh` reports why and the suite skips.
+
 Both runners build the wolfBoot first stage from one pinned upstream commit
-plus the carried patches (`tests/target/lib/rt700_wolfboot.sh`) unless
-`RT700_WOLFBOOT_DIR` names a prebuilt tree. The emulator runner then carries the STM32H563 scenario
-matrix (restart and launch refusal, SP fault recovery, the Secure-verdict
-negatives, every isolation level 3 negative, the PSA guest's lifecycle and
-negatives, and Arm's conformance suites), listed in [Testing](Testing.md).
+plus the carried patches (`tests/target/ports/mimxrt700/m33mu.sh`), which needs
+the MCUXpresso SDK or DFP. `RT700_WOLFBOOT_DIR` reuses a prebuilt tree; the
+runner stops, rather than replace it, when that tree was not built from the pin
+with the same patches, link offset and guest fence. The emulator is upstream
+M33MU plus `tests/target/m33mu-imxrt700.patch`, which only seeds the OTP fuses
+with the Develop life cycle the EVK ships in. M33MU applies the Secure AHBSC
+SRAM rules to CPU0 as documented, which is stricter than the EVK measured, and
+models no DMA, so the Non-secure eDMA leg of `periphneg` is left to the EVK.
+The flash context holds no geometry a partition can write, so `deputyneg`
+forges out-of-range offsets and misaligned lengths instead, each refused
+against the const flash configuration.
 
 The full chain build and flash performs:
 
@@ -275,8 +284,9 @@ The full chain build and flash performs:
    and a boot header (`nxpimage`);
 2. build the wolfTrust Secure image and its CMSE import library with the
    target's default `WT_SECURE_IMAGE_HEADER_SIZE=0x400`;
-3. build the bare-metal guest for both guest windows, linked against the
-   Secure image's CMSE import library so the `WolfTrust_FFM_*` veneers resolve;
+3. build the shared bare-metal guest (`tests/firmware/baremetal-guest`,
+   `TARGET=mimxrt700`) for both guest windows, linked against the Secure
+   image's CMSE import library so the `WolfTrust_FFM_*` veneers resolve;
 4. patch both guest measurement records into the unsigned `wolftrust.bin`
    (`tools/measure/patch_guest_digests.py`);
 5. sign `wolftrust.bin` with the wolfBoot key tools (`IMAGE_HEADER_SIZE=1024`);
@@ -294,25 +304,9 @@ match its record.
 
 ### Bring-up markers
 
-Each guest records progress in an SWD-readable mailbox at the base of its own
-Non-secure RAM window (`0x20100000` for guest 0, `0x20140000` for guest 1) and
-echoes it on LPUART0:
-
-| Mailbox word | Offset | Pass value |
-| --- | ---: | ---: |
-| signature | `+0x00` | `0x47543030` |
-| step | `+0x04` | `0x00000005` |
-| `psa_framework_version()` | `+0x08` | `0x00000100` |
-| `psa_connect(SERVICE_HSM)` handle | `+0x10` | > 0, distinct per guest |
-| status | `+0x14` | `0x600D600D` |
-| LPUART0 `VERID` as the guest reads it | `+0x18` | non-zero |
-| isolation probe latch (`ahbscneg`) | `+0x1C` | `1` faulted or `2` blocked; `3` leaked |
-| isolation probe read-back (`ahbscneg`) | `+0x20` | not the stored sentinel |
-
-A `status` of `0x600D600D` in both mailboxes proves the wolfBoot to wolfTrust to
-Non-secure-guest chain booted and that the Secure runtime serviced both
-Non-secure PSA clients through the veneers. `0xBAD00000` records a failed check
-at the `step` reached. In `ahbscneg`, guest 0 disables its own Non-secure MPU
+Each guest keeps the [bare-metal guest mailbox](Testing.md#bare-metal-guest-mailbox)
+at the base of its own Non-secure RAM window (`0x20100000` for guest 0,
+`0x20140000` for guest 1) and echoes it on LPUART0. In `guestisoneg`, guest 0 disables its own Non-secure MPU
 and stores a sentinel into guest 1's RAM; guest 1 carries no probe of its own
 and keeps running untouched. The M33MU runner asserts the store faulted,
 refused by the SAU with the peer window Secure at dispatch; the hardware
@@ -340,7 +334,7 @@ The fence refuses writes from every initiator, the Secure runtime included, so
 guest images are installed before wolfBoot arms it and a scenario that
 deliberately rewrites guest flash (`remeasureneg`) runs unfenced. The fence
 bounds come from the same `WT_GUEST*_FLASH_*` values the wolfTrust build uses
-(`tests/target/lib/rt700_fence.sh`), and the build refuses a layout whose guest
+(`tests/target/ports/mimxrt700/fence.sh`), and the build refuses a layout whose guest
 windows are not contiguous and 64 KiB aligned.
 
 Build wolfTrust with `WT_GUEST_FLASH_WRP=1` and every required launch checks,
@@ -351,9 +345,9 @@ or unlocked descriptor overlapping it. Anything less refuses the launch. The
 runners set this up per scenario:
 
 ```sh
-tests/target/run_rt700_hardware.sh wrpfence   # fence armed: both guests run
-tests/target/run_rt700_hardware.sh wrpoff     # no fence: both guests refused
-tests/target/run_rt700_hardware.sh wrpneg     # the silicon refuses a fenced erase
+tests/target/run_hardware.sh mimxrt700 wrpfence   # fence armed: both guests run
+tests/target/run_hardware.sh mimxrt700 wrpoff     # no fence: both guests refused
+tests/target/run_hardware.sh mimxrt700 wrpneg     # the silicon refuses a fenced erase
 TARGET=mimxrt700 tests/target/provisioning/provisioning_ctrl.sh verify-wrp
 ```
 
@@ -400,6 +394,10 @@ All commands below use the single entry point with `TARGET=mimxrt700`:
 ```sh
 export TARGET=mimxrt700
 ```
+
+Port variables: `RT700_ISP` (the blhost ISP connection), `RT700_SPSDK_VENV`
+(the SPSDK environment) and `RT700_GUEST_MASK` (the guests a rehearsal must
+launch).
 
 ### Stage 1: prepare the production chain
 

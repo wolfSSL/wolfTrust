@@ -25,9 +25,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init --depth 1 --jobs 4 \
             lib/wolfCOSE lib/wolfHSM lib/wolfPSA lib/wolfSSL \
-            lib/wolfTPM lib/wolfPKCS11 lib/wolfhal
-          test -f lib/wolfTPM/src/fwtpm/fwtpm.c
-          test -f lib/wolfPKCS11/src/wolfpkcs11.c
+            lib/wolfhal lib/wolfTPM lib/wolfPKCS11
       - name: Build STM32H563 secure firmware
         run: make -C tests/firmware/stm32h563 all TOOLPREFIX=arm-none-eabi-
       - name: Validate the LTO gate, rebuild, and size reduction
@@ -51,7 +49,7 @@ jobs:
           echo "LTO flash: $no_lto_flash -> $lto_flash bytes"
       - name: Verify an unimplemented isolation level stops the build
         run: |
-          for target in stm32h563 mimxrt700; do
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
             for level in 1 2; do
               if make TARGET=$target WT_ISOLATION_LEVEL=$level \
                   BUILD_DIR=build-level-$level secure-image \
@@ -96,38 +94,207 @@ jobs:
           test ! -e build-rejected-layout/wolftrust.bin
           test ! -e build-rejected-layout/wolftrust.map
           test ! -e build-rejected-layout/secure_cmse_implib.o
-      - name: Compile-check the no-attestation secure image (WT_ATTEST_COSE=0)
-        run: make TARGET=stm32h563 WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
-      - name: Build the hsm-engine secure image (WT_ENGINE=hsm)
-        run: make TARGET=stm32h563 WT_ENGINE=hsm secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_hsm
-      - name: Build the native-engine secure image (WT_ENGINE=native)
-        run: make TARGET=stm32h563 WT_ENGINE=native secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_native
-      - name: Build the MIMXRT700 secure image (both engines, default layout)
+      - name: Compile-check the default port's no-attestation secure image (WT_ATTEST_COSE=0)
+        run: make WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
+      - name: Verify a changed layout input regenerates the secure image
+        run: TOOLPREFIX=arm-none-eabi- tools/check-layout-rebuild.sh
+      - name: Build every port with the boot-time manifest check (WT_MANIFEST_RUNTIME_CHECK=1)
         run: |
-          for engine in native hsm; do
-            make TARGET=mimxrt700 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
-              secure-image TOOLPREFIX=arm-none-eabi- \
-              BUILD_DIR=build_rt700_$engine
-            # The default must leave wolfBoot's 0x400 header before the vectors.
-            vectors="$(arm-none-eabi-objdump -h build_rt700_$engine/wolftrust.elf \
-              | awk '$2 == ".vectors" { print $4 }')"
-            test "$vectors" = "38040400" || \
-              { echo "RT700 .vectors at 0x$vectors, want 0x38040400"; exit 1; }
-          done
-      - name: Build the MIMXRT700 conformance secure image (both engines)
-        run: |
-          for engine in native hsm; do
-            make TARGET=mimxrt700 WT_ENGINE=$engine WT_ATTEST_COSE=0 \
-              WT_CONFORMANCE=1 secure-image TOOLPREFIX=arm-none-eabi- \
-              BUILD_DIR=build_rt700_conf_$engine
-          done
-      - name: Build both interfaces with both crypto engines on both ports
-        run: |
-          for engine in native hsm; do
-            for target in stm32h563 mimxrt700; do
-              make TARGET="$target" CONFIG_TPM=y WT_ENGINE="$engine" \
-                WT_ATTEST_COSE=0 BUILD_DIR="build-$target-tpm-$engine" secure-image
-              make TARGET="$target" CONFIG_PKCS11=y WT_ENGINE="$engine" \
-                WT_ATTEST_COSE=0 BUILD_DIR="build-$target-pkcs11-$engine" secure-image
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            for engine in $(python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines); do
+              make TARGET=$target WT_ENGINE=$engine WT_MANIFEST_RUNTIME_CHECK=1 \
+                secure-image TOOLPREFIX=arm-none-eabi- \
+                BUILD_DIR=build_rtcheck_${target}_$engine
+              grep -qx 'WT_MANIFEST_RUNTIME_CHECK=1' \
+                build_rtcheck_${target}_$engine/secure_build_mode.stamp
             done
           done
+      - name: Verify only the opt-in image links the boot-time manifest validator
+        run: |
+          for check in 0 1; do
+            make WT_LTO=0 WT_MANIFEST_RUNTIME_CHECK=$check \
+              secure-image TOOLPREFIX=arm-none-eabi- \
+              BUILD_DIR=build_rtcheck_nolto_$check
+            if arm-none-eabi-nm build_rtcheck_nolto_$check/wolftrust.elf \
+                | grep ' wt_manifest_validate$' >/dev/null; then
+              linked=1
+            else
+              linked=0
+            fi
+            test "$linked" = "$check" || \
+              { echo "WT_MANIFEST_RUNTIME_CHECK=$check linked=$linked" >&2; exit 1; }
+          done
+      # TF-M v2.3.1 level 3 tfm_s on the STM32L562E-DK is 79,680 bytes of
+      # flash and 45,728 bytes of RAM, partition stacks included; the
+      # guest-local PSA build, attestation included as in TF-M, must stay below
+      # both (docs/TF-M-Compatibility.md). A port's linked RAM code band is allowed.
+      - name: Check the guest-local PSA footprint against TF-M level 3
+        run: |
+          budget=79680
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            make TARGET=$target WT_ENGINE=native WT_ATTEST_COSE=1 WT_SECURE_PSA=0 secure-image \
+              TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_budget_$target
+            flash=$(arm-none-eabi-size build_budget_$target/wolftrust.elf \
+              | awk 'NR == 2 { print $1 + $2 }')
+            echo "$target guest-local PSA flash: $flash bytes (budget $budget)"
+            test "$flash" -le "$budget" || \
+              { echo "FAIL: $target guest-local PSA build exceeds the TF-M level 3 budget" >&2; exit 1; }
+            python3 tools/secure_ram.py --base-max 45728 \
+              build_budget_$target/wolftrust.map
+          done
+      - name: Build every port's full-profile secure image (every engine)
+        run: |
+          flags="$(. tests/target/lib/profile.sh; scenario_profile_flags full)"
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            for engine in $(python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines); do
+              # shellcheck disable=SC2086
+              make TARGET=$target WT_ENGINE=$engine $flags secure-image \
+                TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_full_${target}_$engine
+            done
+          done
+          if make WT_MAX_GUESTS=3 BUILD_DIR=build-guests-3 secure-image \
+              TOOLPREFIX=arm-none-eabi- 2> guests.err; then
+            echo 'FAIL: WT_MAX_GUESTS=3 built' >&2
+            exit 1
+          fi
+          grep -q 'unsupported WT_MAX_GUESTS' guests.err
+      - name: Build every add-on alone for every port (every engine)
+        run: |
+          for flag in WT_MAX_GUESTS=2 WT_FWU=1 WT_SHA256_FAST=1 WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1; do
+            for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+              for engine in $(python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines); do
+                dir=build_addon_${target}_${engine}_${flag%%=*}
+                # The Thumb-2 AES is not constant time, so it builds with the opt-out.
+                spsa=
+                if [ "$flag" = WT_WOLFCRYPT_ARMASM=1 ]; then spsa=WT_SECURE_PSA=0; fi
+                # shellcheck disable=SC2086
+                make TARGET=$target WT_ENGINE=$engine $flag $spsa secure-image \
+                  TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
+                grep -qx "$flag" $dir/secure_build_mode.stamp
+                if [ -n "$spsa" ]; then grep -qx "$spsa" $dir/secure_build_mode.stamp; fi
+              done
+            done
+          done
+      - name: Build every port with PSA Crypto in the Secure image (WT_SECURE_PSA=1, every profile)
+        run: |
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            for profile in compat standard lean symmetric; do
+              dir=build_spsa_${target}_$profile
+              make TARGET=$target WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=$profile \
+                secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
+              grep -qx 'WT_SECURE_PSA=1' $dir/secure_build_mode.stamp
+              grep -qx "WT_SECURE_PSA_PROFILE=$profile" $dir/secure_build_mode.stamp
+            done
+          done
+          for bad in "WT_SECURE_PSA=1 WT_ENGINE=hsm" "WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=bogus" "WT_SECURE_PSA=2" "WT_SECURE_PSA=1 WT_WOLFCRYPT_ARMASM=1"; do
+            # shellcheck disable=SC2086
+            if make $bad BUILD_DIR=build_spsa_bad secure-image TOOLPREFIX=arm-none-eabi- 2> spsa.err; then
+              echo "FAIL: $bad built" >&2
+              exit 1
+            fi
+            grep -q 'WT_SECURE_PSA' spsa.err
+          done
+          make WT_SECURE_PSA=1 WT_PSA_POOL_BYTES=8192 \
+            WT_PSA_KEY_SLOTS=8 WT_PSA_OP_SLOTS=4 secure-image \
+            TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_spsa_sizes
+          grep -qx 'WT_PSA_SIZES=8192/8/4/' build_spsa_sizes/secure_build_mode.stamp
+          for bad in "WT_PSA_OP_SLOTS=1x" "WT_PSA_OP_SLOTS=300" "WT_PSA_POOL_BYTES=1024"; do
+            # shellcheck disable=SC2086
+            if make WT_SECURE_PSA=1 $bad BUILD_DIR=build_spsa_bad \
+                secure-image TOOLPREFIX=arm-none-eabi- > spsa.err 2>&1; then
+              echo "FAIL: $bad built" >&2
+              exit 1
+            fi
+            grep -qE 'WT_PSA_(OP_SLOTS|POOL_BYTES)' spsa.err
+          done
+      - name: Verify the Secure PSA guest links the client and no wolfPSA
+        run: |
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            rm -rf build
+            make TARGET=$target WT_SECURE_PSA=1 secure-image TOOLPREFIX=arm-none-eabi-
+            make -C tests/firmware/psa-guest clean
+            make -C tests/firmware/psa-guest TARGET=$target WT_SECURE_PSA=1 \
+              WT_EXPECTED_LIFECYCLE=0x1000u
+            syms=tests/firmware/psa-guest/build/guest0.elf
+            if arm-none-eabi-nm $syms | grep -qE ' (wc_error_to_psa_status|wolfpsa_get_key_data|wt_psa_service_call)$'; then
+              echo "FAIL: the $target WT_SECURE_PSA guest still links wolfPSA" >&2
+              exit 1
+            fi
+            arm-none-eabi-nm $syms | grep -q ' psa_sign_hash$'
+          done
+          make -C tests/firmware/psa-guest clean
+          rm -rf build
+      - name: Verify the default is Secure PSA and WT_SECURE_PSA=0 links wolfPSA in the guest
+        run: |
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            # A port may keep PSA in its guests by default (WT_SECURE_PSA ?= 0)
+            want=1
+            if grep -qx 'WT_SECURE_PSA ?= 0' mk/target-$target.mk; then want=0; fi
+            make TARGET=$target secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_spsa_dflt
+            grep -qx "WT_SECURE_PSA=$want" build_spsa_dflt/secure_build_mode.stamp
+            if python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines | grep -qw hsm; then
+              make TARGET=$target WT_ENGINE=hsm secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_spsa_hsm
+              grep -qx 'WT_SECURE_PSA=0' build_spsa_hsm/secure_build_mode.stamp
+            fi
+            rm -rf build build_spsa_dflt build_spsa_hsm
+            make TARGET=$target WT_SECURE_PSA=0 secure-image TOOLPREFIX=arm-none-eabi-
+            grep -qx 'WT_SECURE_PSA=0' build/secure_build_mode.stamp
+            make -C tests/firmware/psa-guest clean
+            make -C tests/firmware/psa-guest TARGET=$target WT_SECURE_PSA=0 \
+              WT_EXPECTED_LIFECYCLE=0x1000u
+            arm-none-eabi-nm tests/firmware/psa-guest/build/guest0.elf | \
+              grep -q ' wolfpsa_get_key_data$'
+          done
+          make -C tests/firmware/psa-guest clean
+          rm -rf build
+      - name: Build every registered port (both engines, every variant, .vectors check)
+        run: |
+          python3 tests/target/lib/scenario_matrix.py --build-plan | python3 -c '
+          import json, subprocess, sys
+          for b in json.load(sys.stdin):
+              port, engine = b["port"], b["engine"]
+              base = ["make", "TARGET=" + port, "WT_ENGINE=" + engine,
+                      "WT_ATTEST_COSE=%d" % b["attest_cose"], "secure-image",
+                      "TOOLPREFIX=arm-none-eabi-"]
+              out = "build_%s_%s" % (port, engine)
+              subprocess.run(base + ["BUILD_DIR=" + out], check=True)
+              if b["vectors"]:
+                  # The default must leave wolfBoot header room before the vectors.
+                  hdr = subprocess.run(["arm-none-eabi-objdump", "-h", out + "/wolftrust.elf"],
+                                       check=True, capture_output=True, text=True).stdout
+                  got = [l.split()[3] for l in hdr.splitlines() if len(l.split()) > 3 and l.split()[1] == ".vectors"]
+                  if got != [b["vectors"]]:
+                      sys.exit("%s .vectors at %s, want %s" % (port, got, b["vectors"]))
+              # A variant builds in the layout its emulator and hardware runs use.
+              layout = ("here=\"$PWD/tests/target\"; repo=\"$PWD\"; . \"$here/ports/$1/m33mu.sh\"; "
+                        "port_layout_env; shift; exec \"$@\"")
+              for variant in b["variants"]:
+                  flags = {"conformance": ["WT_CONFORMANCE=1"],
+                           "vnet": ["CONFIG_VNET=y", "WT_MAX_GUESTS=2"],
+                           "tpm": ["CONFIG_TPM=y"],
+                           "pkcs11": ["CONFIG_PKCS11=y"]}[variant]
+                  subprocess.run(["bash", "-c", layout, "_", port] + base + flags +
+                                 ["BUILD_DIR=%s_%s" % (out, variant)], check=True)
+          '
+
+  interface-footprint:
+    name: tpm_pkcs11_footprint
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize firmware dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1 --jobs 4 \
+            lib/wolfCOSE lib/wolfHSM lib/wolfPSA lib/wolfSSL \
+            lib/wolfhal lib/wolfTPM lib/wolfPKCS11
+      - name: Report the PSA, TPM 2.0 and PKCS#11 sizes on every port
+        run: JOBS=4 tools/measure_interface_footprint.sh interface-footprint
+      - uses: actions/upload-artifact@v4
+        with:
+          name: interface-footprint
+          path: interface-footprint/*.csv

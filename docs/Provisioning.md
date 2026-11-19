@@ -11,13 +11,11 @@ One script does this on every port, with the same commands:
 TARGET=<port> tests/target/provisioning/provisioning_ctrl.sh <command> [state]
 ```
 
-`TARGET` is `stm32h563` (the default) or `mimxrt700`. `help` lists the
-commands and the port's states. Only the state codes and a few device commands
-differ between ports. This page covers the shared flow; each port guide covers
-its states, quirks, and a walkthrough with real output:
-
-- [STM32H5 Guide: Provisioning and product state](STM32H5-Guide.md#provisioning-and-product-state)
-- [MIMXRT700 Guide: Provisioning and life cycle](MIMXRT700-Guide.md#provisioning-and-life-cycle)
+`TARGET` is a registered port from [Ports](Ports.md) (`stm32h563` by default). `help` lists
+the commands and the port's states. Only the state codes and a few device
+commands differ between ports. This page covers the shared flow; each port
+guide, linked from [Ports](Ports.md), covers its states, quirks, and a
+walkthrough with real output.
 
 > **Production locks are permanent.** `lock` is for a production station and a
 > part you intend to ship, never a development board. Every step before it is
@@ -175,31 +173,25 @@ software then only changes through wolfBoot's signed update path
 Back these up before the first lock. A lost signing key means the parts locked
 with it can never be updated; a leaked one means they trust whoever holds it.
 
-## PSA life cycle by port
+## PSA life cycle
 
-| PSA life cycle | STM32H5 product state | MIMXRT700 life cycle |
-| --- | --- | --- |
-| `0x1000` ASSEMBLY_AND_TEST | open `0xED` | develop `0x03` |
-| `0x2000` PSA_ROT_PROVISIONING | provisioning `0x17` | develop2 `0x07` |
-| `0x4000` NON_PSA_ROT_DEBUG | tz-closed `0xC6` | in-field, only Non-secure debug open |
-| `0x5000` RECOVERABLE_PSA_ROT_DEBUG | closed, Secure debug open | in-field, Secure debug open |
-| `0x3000` SECURED | closed `0x72`, locked `0x5C` | in-field `0x0F`, in-field-locked `0xCF` |
-| `0x6000` DECOMMISSIONED | none | in-field-return `0x1F` |
-| `0x0000` UNKNOWN | any other value | copies disagree, or an NXP-internal state |
+Each guide maps its product or life-cycle states to the PSA life cycle
+wolfTrust reports. A value outside that table, or redundant copies that
+disagree, reports `0x0000` UNKNOWN.
 
 ## Environment
 
 | Variable | Meaning |
 | --- | --- |
-| `TARGET` | the port: `stm32h563` (default) or `mimxrt700` |
+| `TARGET` | the port (`stm32h563` by default) |
+| `WT_HW_PROBE` | the debug probe to bind when the host has more than one; the hardware runner reads the same name |
 | `WT_LOCK_CONFIRM=1` | allow a board write; without it `lock` only previews |
 | `WT_PRODUCTION_LOCK=1` | marks a production station; `lock` never writes without it |
 | `WT_FIXTURE_BOUND=1` | the fixture holds one part from rehearsal to lock; needed where the part's identity cannot be read |
 | `WT_PROVISION_STATE` | where rehearsal records live (default `~/.cache/wolftrust`, one folder per port) |
 | `WT_REHEARSAL_MAX_AGE` | seconds a rehearsal stays valid (default `3600`) |
 | `WT_DA_OBK`, `WT_DA_KEY`, `WT_DA_CERT`, `WT_DA_PWD` | STM32H5 Debug Authentication inputs; a production lock requires all four, none of them ST's sample |
-| `STM32_CLI`, `H5_SERIAL` | STM32H5: STM32CubeProgrammer CLI and the board UART |
-| `RT700_ISP`, `RT700_SPSDK_VENV`, `RT700_GUEST_MASK` | MIMXRT700: blhost ISP connection, SPSDK environment, guests a rehearsal must launch |
+| port variables | the probe, tools and console a port's backend reads, listed in its guide |
 
 ## Adding a port
 
@@ -215,13 +207,25 @@ that answers device questions through a fixed set of functions:
 | `port_image_digest`, `port_cred_fp`, `port_record_ok` | what binds a rehearsal to these images, credentials, and part |
 | `port_rehearsal_for`, `port_ready` | which rehearsals count, and the port's provisioned-first checks |
 | `port_lock_plan`, `port_lock_write`, `port_lock_verify`, `port_consequence` | the permanent write: preview, do, read back, and what it costs |
-| `port_usage_extra`, `port_extra` | device-only commands |
+| `port_commands`, `port_extra` | device-only commands: a table of name, class and summary, and their bodies |
+| `port_image_files` | the wolfBoot, Secure and guest images, flashed at the addresses of `tests/target/ports/<target>/hw.sh` |
 
 The gates, records, and prompts stay in `provisioning_ctrl.sh`, so a new port
-cannot weaken them.
+cannot weaken them. Every command a port adds carries a class: `read` runs
+without a gate, `write` needs `WT_LOCK_CONFIRM=1`, `destructive` needs it too
+and says what it destroys (the STM32H5 `regress` is a DA mass-erase; the NXP
+mock regressions rewrite RAM and are plain writes), and `refused` lets the
+port explain why a command has no form on its part. A command no port
+registers is refused by `provisioning_ctrl.sh` itself, and a port that
+implements no permanent write inherits a `port_lock_write` that refuses.
+The helpers every port shares (the PSA life cycle names, the Secure image's
+symbols, wolfBoot's handoff record, the launch masks and the flashed image
+list) live in `tests/target/provisioning/lib/provision_common.sh`.
 
 ## Testing
 
-`make test` runs `make test-provisioning`: every gate of both ports against
-stub vendor tools, from the generic refusals to the typed acceptance. Nothing
-touches a board; the typed-acceptance cases need `expect` and skip without it.
+`make test` runs `make test-provisioning`: every gate of the three ports
+against stub vendor tools, from the generic refusals to the typed acceptance.
+Nothing touches a board; the typed-acceptance cases need `expect` and skip
+without it, unless `WT_REQUIRE_EXPECT=1` is set: then a skipped typed group
+fails. The `docker/wolftrust-ci` image installs `expect` and sets it.

@@ -82,6 +82,8 @@ extern uint32_t _wt_part_stacks_base;
 extern uint32_t _wt_part_stacks_limit;
 extern uint32_t _wt_sp_stacks_base;
 extern uint32_t _wt_sp_stacks_limit;
+extern uint32_t _wt_fwu_stack_base;
+extern uint32_t _wt_fwu_stack_limit;
 #if defined(CONFIG_TPM)
 extern uint32_t _wt_tpm_stack_base;
 extern uint32_t _wt_tpm_stack_limit;
@@ -242,6 +244,9 @@ static void wt_reset_main(void)
     for (dst = &_wt_sp_stacks_base; dst < &_wt_sp_stacks_limit; ++dst) {
         *dst = 0u;
     }
+    for (dst = &_wt_fwu_stack_base; dst < &_wt_fwu_stack_limit; ++dst) {
+        *dst = 0u;
+    }
 #if defined(CONFIG_TPM)
     for (dst = &_wt_tpm_stack_base; dst < &_wt_tpm_stack_limit; ++dst) {
         *dst = 0u;
@@ -257,6 +262,8 @@ static void wt_reset_main(void)
                          (uintptr_t)&_wt_part_stacks_base);
     zeroed += (uint32_t)((uintptr_t)&_wt_sp_stacks_limit -
                          (uintptr_t)&_wt_sp_stacks_base);
+    zeroed += (uint32_t)((uintptr_t)&_wt_fwu_stack_limit -
+                         (uintptr_t)&_wt_fwu_stack_base);
 #if defined(CONFIG_TPM)
     zeroed += (uint32_t)((uintptr_t)&_wt_tpm_stack_limit -
                          (uintptr_t)&_wt_tpm_stack_base);

@@ -51,36 +51,53 @@ static int wt_ffm_gateway_caller(psa_client_id_t* caller)
     return 1;
 }
 
+/* The FF-M core is not re-entrant and the port masks Non-secure exceptions
+ * for an entry, so a nested entry means that mask failed: stop. */
+static void wt_ffm_gateway_enter(wt_ffm_runtime_t* runtime,
+                                 psa_client_id_t caller)
+{
+    if (runtime->ns_entry_caller != 0) {
+        wt_platform_panic();
+    }
+    runtime->ns_entry_caller = caller;
+}
+
+static void wt_ffm_gateway_exit(wt_ffm_runtime_t* runtime)
+{
+    runtime->ns_entry_caller = 0;
+}
+
 int32_t wt_ffm_gateway_connect(uint32_t sid, uint32_t version)
 {
+    wt_ffm_runtime_t* runtime = wt_ffm_boot_runtime_mut();
     psa_client_id_t caller;
+    int32_t handle;
 
     if (!wt_ffm_gateway_caller(&caller)) {
         return (int32_t)PSA_NULL_HANDLE;
     }
-    return (int32_t)wt_ffm_connect(wt_ffm_boot_runtime_mut(), caller, sid,
-                                   version);
+    wt_ffm_gateway_enter(runtime, caller);
+    handle = (int32_t)wt_ffm_connect(runtime, caller, sid, version);
+    wt_ffm_gateway_exit(runtime);
+    return handle;
 }
 
-int32_t wt_ffm_gateway_call(int32_t handle, int32_t type,
-                          wt_ffm_veneer_iovec_t* ns_iovec)
+static int32_t wt_ffm_gateway_call_in(wt_ffm_runtime_t* runtime,
+                                      psa_client_id_t caller, int32_t handle,
+                                      int32_t type,
+                                      wt_ffm_veneer_iovec_t* ns_iovec)
 {
-    psa_client_id_t caller;
     wt_ffm_veneer_iovec_t iovec;
     psa_invec in_vec[WT_FFM_VENEER_IOVEC_MAX];
     psa_outvec out_vec[WT_FFM_VENEER_IOVEC_MAX];
     int32_t status;
     uint32_t i;
 
-    if (!wt_ffm_gateway_caller(&caller)) {
-        g_wt_ffm_call_trace = 1UL << 28;
-        return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
-    }
     if (ns_iovec == NULL ||
             !wt_arch_ns_check_writable(ns_iovec, sizeof(*ns_iovec))) {
         g_wt_ffm_call_trace = (2UL << 28) |
             ((uint32_t)(uintptr_t)ns_iovec & 0x0FFFFFFFUL);
-        wt_ffm_call_refuse(wt_ffm_boot_runtime_mut(), caller,
+        wt_ffm_call_refuse(runtime, caller,
                            (psa_handle_t)handle);
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
@@ -90,7 +107,7 @@ int32_t wt_ffm_gateway_call(int32_t handle, int32_t type,
     iovec = *ns_iovec;
     if (iovec.in_count > WT_FFM_VENEER_IOVEC_MAX ||
             iovec.out_count > WT_FFM_VENEER_IOVEC_MAX) {
-        wt_ffm_call_refuse(wt_ffm_boot_runtime_mut(), caller,
+        wt_ffm_call_refuse(runtime, caller,
                            (psa_handle_t)handle);
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
@@ -102,7 +119,7 @@ int32_t wt_ffm_gateway_call(int32_t handle, int32_t type,
         out_vec[i].base = iovec.out[i].base;
         out_vec[i].len = iovec.out[i].len;
     }
-    status = (int32_t)wt_ffm_call(wt_ffm_boot_runtime_mut(), caller,
+    status = (int32_t)wt_ffm_call(runtime, caller,
                                   (psa_handle_t)handle,
                                   type, in_vec, iovec.in_count,
                                   out_vec, iovec.out_count);
@@ -112,15 +129,34 @@ int32_t wt_ffm_gateway_call(int32_t handle, int32_t type,
     return status;
 }
 
+int32_t wt_ffm_gateway_call(int32_t handle, int32_t type,
+                          wt_ffm_veneer_iovec_t* ns_iovec)
+{
+    wt_ffm_runtime_t* runtime = wt_ffm_boot_runtime_mut();
+    psa_client_id_t caller;
+    int32_t status;
+
+    if (!wt_ffm_gateway_caller(&caller)) {
+        g_wt_ffm_call_trace = 1UL << 28;
+        return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+    }
+    wt_ffm_gateway_enter(runtime, caller);
+    status = wt_ffm_gateway_call_in(runtime, caller, handle, type, ns_iovec);
+    wt_ffm_gateway_exit(runtime);
+    return status;
+}
+
 void wt_ffm_gateway_close(int32_t handle)
 {
+    wt_ffm_runtime_t* runtime = wt_ffm_boot_runtime_mut();
     psa_client_id_t caller;
 
     if (!wt_ffm_gateway_caller(&caller)) {
         return;
     }
-    (void)wt_ffm_close(wt_ffm_boot_runtime_mut(), caller,
-                       (psa_handle_t)handle);
+    wt_ffm_gateway_enter(runtime, caller);
+    (void)wt_ffm_close(runtime, caller, (psa_handle_t)handle);
+    wt_ffm_gateway_exit(runtime);
 }
 
 uint32_t wt_ffm_gateway_framework_version(void)

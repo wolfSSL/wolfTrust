@@ -68,6 +68,10 @@ if(WT_GUEST_FAULT_PROBE)
     target_compile_definitions(app PRIVATE WT_GUEST_FAULT_PROBE=1)
 endif()
 
+if(WT_NS_MASK_PROBE)
+    target_compile_definitions(app PRIVATE WT_NS_MASK_PROBE=1)
+endif()
+
 if(WT_NS_BUSFAULT_PROBE)
     target_compile_definitions(app PRIVATE WT_NS_BUSFAULT_PROBE=1)
 endif()
@@ -334,7 +338,7 @@ if(WT_RUN_CONFORMANCE)
     ${WT_CONF_U}/val/nspe
     ${WT_CONF_U}/val/spe
     ${WT_CONF_U}/platform/targets/common/nspe
-    ${WT_REPO_ROOT}/port/stm32h563/conformance
+    ${WT_REPO_ROOT}/tests/conformance/pal ${WT_REPO_ROOT}/port/stm32h563
     ${WT_CONF_U}/ff/ipc/test_i001
     ${WT_CONF_U}/ff/ipc/test_i002
     ${WT_CONF_U}/ff/ipc/test_i003
@@ -648,7 +652,7 @@ if(WT_RUN_CONFORMANCE)
       ${WT_CONF_U}/val/nspe
       ${WT_CONF_U}/val/spe
       ${WT_CONF_U}/platform/targets/common/nspe
-      ${WT_REPO_ROOT}/port/stm32h563/conformance
+      ${WT_REPO_ROOT}/tests/conformance/pal ${WT_REPO_ROOT}/port/stm32h563
       ${WT_CONF_U}/dev_apis/storage/common
     )
     foreach(n RANGE 1 17)
@@ -697,7 +701,7 @@ if(WT_RUN_CONFORMANCE)
       ${WT_CONF_U}/val/spe
       ${WT_CONF_U}/platform/targets/common/nspe
       ${WT_CONF_U}/platform/targets/common/nspe/crypto
-      ${WT_REPO_ROOT}/port/stm32h563/conformance
+      ${WT_REPO_ROOT}/tests/conformance/pal ${WT_REPO_ROOT}/port/stm32h563
       ${WT_CONF_U}/dev_apis/crypto/common
     )
     foreach(n RANGE 1 80)
@@ -758,7 +762,7 @@ if(WT_RUN_CONFORMANCE)
       ${WT_CONF_U}/val/spe
       ${WT_CONF_U}/platform/targets/common/nspe
       ${WT_CONF_U}/platform/targets/common/nspe/initial_attestation
-      ${WT_REPO_ROOT}/port/stm32h563/conformance
+      ${WT_REPO_ROOT}/tests/conformance/pal ${WT_REPO_ROOT}/port/stm32h563
       ${WT_CONF_U}/dev_apis/initial_attestation/test_a001
     )
     if(WT_ATTEST_CBOR STREQUAL "qcbor")

@@ -1,8 +1,10 @@
 # Services
 
 The STM32H563 manifest describes connection-based FF-M 1.0 IPC services. The
-default image contains six Secure services; `CONFIG_VNET=y` selects a
-manifest with a seventh service.
+default image contains five Secure services. `WT_FWU=1` adds the update
+service, and `CONFIG_VNET=y` selects a manifest with the network service.
+`CONFIG_TPM=y` and `CONFIG_PKCS11=y` select a manifest with a TPM 2.0 or a
+PKCS#11 service, an application API offered instead of PSA Crypto.
 
 ## Service registry
 
@@ -12,16 +14,18 @@ manifest with a seventh service.
 | `SERVICE_VAULT` | `0x1002` | No | Secure-only persistent objects, sealing, and randomness |
 | `SERVICE_ITS` | `0x1003` | Yes | PSA Internal Trusted Storage |
 | `SERVICE_PS` | `0x1004` | Yes | PSA Protected Storage |
-| `SERVICE_FWU` | `0x1005` | Yes | PSA Firmware Update staging for wolfBoot |
-| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door |
+| `SERVICE_FWU` | `0x1005` | Yes, `WT_FWU=1` | PSA Firmware Update staging for wolfBoot |
+| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door; with `WT_SECURE_PSA=1` it also serves the PSA Crypto API |
 | `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
-| `SERVICE_TPM` | `0x1008` | Yes, optional | Mediated mailbox to an isolated Non-secure firmware TPM for wolfTPM applications (`CONFIG_TPM=y`) |
-| `SERVICE_PKCS11` | `0x1009` | Yes, optional | Copied-transfer relay between a PKCS#11 application proxy and an isolated wolfPKCS11 provider (`CONFIG_PKCS11=y`) |
+| `SERVICE_TPM` | `0x1008` | Yes, `CONFIG_TPM=y` | wolfTPM firmware TPM 2.0 serving one TPM 2.0 command frame per call |
+| `SERVICE_PKCS11` | `0x1009` | Yes, `CONFIG_PKCS11=y` | wolfPKCS11 token serving the PKCS#11 `C_*` API through the client proxy |
 
 All service versions are `1`. ITS and Protected Storage declare a
-dependency on the Secure-only vault. The default manifest is
-`port/stm32h563/manifest.json`; the network variant is
-`port/stm32h563/manifest-vnet.json`.
+dependency on the Secure-only vault. The manifest is rendered for every
+port from `manifest/base.json`; the network variant adds
+`manifest/vnet.json`, and the interface variants add `manifest/tpm.json` or
+`manifest/pkcs11.json`. The VNET, TPM 2.0 and PKCS#11 variants share one band
+above SPM RAM, so a build selects at most one of them.
 
 ## Runtime model
 
@@ -38,9 +42,10 @@ Zephyr and FreeRTOS reference guests expose wolfPSA's PSA Crypto API. The
 wired. Both engines use one input and one output vector, bounded to 384 bytes,
 through the same copied FF-M call.
 
-With the default native engine, wolfPSA and wolfCrypt execute in the
-Non-secure guest. DRBG seed requests use the native client to reach the Secure
-vault RNG. The native wire also exposes explicit vault-backed P-256 and
+With the default native engine, wolfPSA and wolfCrypt execute in the crypto
+partition (`WT_SECURE_PSA=1`) and each guest calls PSA Crypto through the
+client library. With `WT_SECURE_PSA=0` they execute in the Non-secure guest,
+and DRBG seed requests use the native client to reach the Secure vault RNG. The native wire also exposes explicit vault-backed P-256 and
 AES-256 key operations, random generation, and SHA-256. Vault key objects are
 namespaced by the SPM-stamped client ID and stored `SENSITIVE` and
 `NONEXPORTABLE`.
@@ -51,8 +56,9 @@ dedicated server, forces server client ID `N + 1`, and rejects guest-facing
 wolfHSM NVM message groups. The reference build executes the server with
 software wolfCrypt; deployments can configure wolfHSM's external-HSM path.
 
-The reference cryptographic profile is controlled by each guest's wolfCrypt
-`user_settings.h`. Consult the vendored
+The cryptographic profile is the Secure image's `WT_SECURE_PSA_PROFILE`
+under `WT_SECURE_PSA=1`, and each guest's wolfCrypt `user_settings.h` under
+`WT_SECURE_PSA=0` or the wolfHSM engine. Consult the vendored
 `lib/wolfPSA/wolfpsa/psa/crypto.h` and the active guest configuration
 before assuming a particular algorithm is available. See
 [Crypto Engines](Crypto-Engines.md) for the protocol, key-protection, and
@@ -163,7 +169,9 @@ is never exported.
 
 ## Firmware Update
 
-`SERVICE_FWU` exposes a single-component subset of PSA Firmware Update 1.0.
+`SERVICE_FWU` is an add-on: it exists only in images built with `WT_FWU=1`
+(see [Macros](Macros.md#wt_fwu-psa-firmware-update)). It exposes a
+single-component subset of PSA Firmware Update 1.0.
 It pads an unaligned block size to the backend write alignment and returns
 `PSA_ERROR_INVALID_ARGUMENT` rather than `PSA_ERROR_DOES_NOT_EXIST` for an
 unknown component ID. The normal flow is:
@@ -206,19 +214,25 @@ RX_FETCH. Frames sent to a port before its guest re-registers are dropped, so
 a receiver must keep polling RX_FETCH rather than wait only for the receive
 interrupt.
 
-## Optional TPM and PKCS#11 interfaces
+## Optional TPM 2.0 and PKCS#11 interfaces
 
-`CONFIG_TPM=y` runs wolfTPM's firmware TPM inside `SERVICE_TPM`.
-`CONFIG_PKCS11=y` runs wolfPKCS11 inside `SERVICE_PKCS11`. Both use ordinary
-wolfTrust Secure partitions on Cortex-M and Cortex-A, without an additional
-Non-secure guest, RTOS, or worker. A bare-metal or RTOS application uses the
-same FF-M boundary. TPM returns each command's response in one call. PKCS#11
-stages larger serialized messages in bounded chunks and executes each once.
+PSA is the primary application API. A product that already speaks TPM 2.0 or
+PKCS#11 can select one of them instead: `CONFIG_TPM=y` runs wolfTPM's firmware
+TPM in `SERVICE_TPM`, and `CONFIG_PKCS11=y` runs wolfPKCS11 in
+`SERVICE_PKCS11`. Each runs as a level 3 Secure Partition over the selected
+crypto engine, and the image links no PSA Crypto (`WT_SECURE_PSA=0`). See
+[TPM 2.0](TPM.md), [PKCS#11](PKCS11.md) and [Interface
+Profiles](Interface-Profiles.md).
 
-All three interfaces select native wolfCrypt or wolfHSM with `WT_ENGINE`.
-TPM and PKCS#11 are mutually exclusive and link no PSA Crypto front end.
-Both default to `n`, so disabling them removes their protocol handlers.
-See [TPM](TPM.md), [PKCS#11](PKCS11.md), and the [six-build footprint](Interface-Footprint.md).
+Both services are instances of one port-neutral message relay
+(`src/services/msg_relay.c`) and one Non-secure client
+(`src/client/msg_client.c`), with one wire ABI
+(`include/wolftrust/msg_relay_abi.h`). A TPM 2.0 frame fits one copied transfer,
+so `SERVICE_TPM` uses the single-call `TRANSACT` operation. A PKCS#11 message
+can reach 4096 bytes, so `SERVICE_PKCS11` stages it with `BEGIN`, `WRITE`,
+`EXECUTE`, `READ` and `ABORT`. A build compiles only the mode its interface
+uses. The two share one interface band, one partition entry, one set of
+isolation probes and one set of build rules; only the provider library differs.
 
 See [API Reference](API-Reference.md) for client signatures and [Macros](Macros.md) for service build
 controls.

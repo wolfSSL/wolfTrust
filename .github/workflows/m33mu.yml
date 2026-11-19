@@ -1,9 +1,9 @@
 name: M33MU
 
 on:
-  # Pull requests run each port's smoke tier; the ci:all, ci:stm32h563, and ci:imxrt700
-  # labels, pushes to main, the nightly schedule (workflow_call from
-  # nightly.yml), and manual dispatch run a port's full matrix.
+  # Pull requests run the STM32H563 smoke tier; MIMXRT700 and MCXN947 run on a
+  # PR only with their label, ci:all, or ci:m33mu. Those labels, ci:h5, pushes
+  # to main, the nightly schedule, and manual dispatch run a port's full matrix.
   pull_request:
     types: [opened, synchronize, reopened, labeled]
   push:
@@ -11,9 +11,8 @@ on:
   workflow_dispatch:
     inputs:
       port:
-        description: Port whose full matrix to run
-        type: choice
-        options: [all, stm32h563, mimxrt700]
+        description: Port whose full matrix to run (a registered port, or all)
+        type: string
         default: all
   workflow_call:
 
@@ -21,7 +20,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: m33mu-${{ github.workflow }}-${{ github.ref }}
+  group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -87,339 +86,53 @@ jobs:
         run: |
           ./test-app/emu-test-apps/test.sh
 
-  interfaces-m33mu:
-    name: stm32h563_${{ matrix.api }}_${{ matrix.os }}_${{ matrix.engine }}_${{ matrix.profile }}
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      inputs.port == '' || inputs.port == 'all' || inputs.port == 'stm32h563'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        api: [psa, pkcs11, tpm]
-        os: [zephyr, freertos]
-        engine: [native, hsm]
-        profile: [default, full]
-    timeout-minutes: 60
-    container:
-      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
-    env:
-      # Keep the validated H5 secure-app handoff until that configuration is
-      # upstreamed; upstream master does not yet ship this wolfTrust config.
-      WOLFBOOT_REF: d85fa9dbdf6c36f47b7e96eba5c9df750ad3c963
-      WT_ENGINE: ${{ matrix.engine }}
-      WT_CRYPTO_PROFILE: ${{ matrix.profile }}
-      WT_INTERFACE_OS: ${{ matrix.os }}
-      WT_REQUIRE_SCENARIO_PASS: 1
-      CROSS_COMPILE: /usr/local/bin/arm-none-eabi-
-      ZEPHYR_TOOLCHAIN_VARIANT: cross-compile
-      # The wolfBoot configuration reserves the wolfTrust partition at the
-      # first 128-KiB-aligned secure slot.
-      WT_SECURE_FLASH_BASE: 0x0C060000
-      WT_SECURE_FLASH_SIZE: 0x00040000
-      WOLFBOOT_PARTITION_SIZE: 0x40000
-      WOLFBOOT_PARTITION_SWAP_ADDRESS: 0x0C140000
-      WT_SECURE_IMAGE_HEADER_SIZE: 0x400
-      WT_GUEST0_FLASH_BASE: 0x080A0000
-      WT_GUEST1_FLASH_BASE: 0x080E0000
-      WT_GUEST0_FLASH_SIZE: 0x00040000
-      WT_GUEST_RAM_SIZE: 0x00010000
-      WT_GUEST1_RAM_BASE: 0x20010000
-      WT_ZEPHYR_DTC_OVERLAY_FILE: boards/wolfboot-stm32h563.overlay
-      WT_MAX_GUESTS: 2
-      ZEPHYR_BOARD: nucleo_h563zi/stm32h563xx/ns
-      WT_TEST_GUEST: ${{ matrix.os }}
-      # Upstream master with danielinux/m33mu PR #21 (deterministic USART IRQ timing).
-      M33MU_REF: f3c03675260264cdec815adebe4b020bb6fe57b8
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Trust the checked-out workspace
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global url."https://github.com/".insteadOf git@github.com:
-
-      - name: Build pinned upstream M33MU
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        run: |
-          git clone --no-checkout https://github.com/danielinux/m33mu.git m33mu
-          git -C m33mu fetch --depth 1 origin "$M33MU_REF"
-          git -C m33mu checkout --detach "$M33MU_REF"
-          cmake -S m33mu -B m33mu/build -DM33MU_ENABLE_WOLFSSL=OFF
-          cmake --build m33mu/build --target m33mu -j2
-          echo "M33MU=$GITHUB_WORKSPACE/m33mu/build/m33mu" >> "$GITHUB_ENV"
-
-      - name: Initialize wolfTrust dependencies
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        run: git submodule update --init --single-branch
-
-      - name: Prepare Zephyr and FreeRTOS workspaces
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        working-directory: tests/firmware/zephyr-stm32h5
-        run: make clone
-
-      - name: Fetch secure-app wolfBoot
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        run: |
-          git clone --no-checkout https://github.com/aidangarske/wolfBoot.git wolfBoot
-          git -C wolfBoot fetch --depth 1 origin "$WOLFBOOT_REF"
-          git -C wolfBoot checkout --detach "$WOLFBOOT_REF"
-          git -C wolfBoot submodule update --init --single-branch
-
-      - name: Build wolfBoot secure first stage
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        working-directory: wolfBoot
-        run: |
-          cp config/examples/stm32h5-tz-wolftrust.config .config
-          # keytools serially first: wolfBoot's host keytools Makefile has a
-          # parallel dependency race (sp_ModExp_*, sp_Rsa* link before their
-          # objects), so a -j build intermittently fails to link.
-          make keytools
-          # Force -j1: wolfBoot FORCE-regenerates include/target.h in place and
-          # its objects don't depend on it, so -j reads it half-written.
-          make -j1 wolfboot.bin wolfboot_signing_private_key.der
-
-      - name: Build relocated wolfTrust
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        run: |
-          make build/wolftrust.bin build/secure_cmse_implib.o
-
-      - name: Build Zephyr and FreeRTOS PSA guests
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        run: |
-          make -C tests/firmware/zephyr-stm32h5 \
-            WT_REUSE_SECURE_BUILD=1 \
-            WT_EXPECTED_LIFECYCLE=0x1000u \
-            WT_ATTESTATION_DEVELOPMENT_PROFILE=1 \
-            WT_M33MU_EXPECT_BKPT=1 \
-            build-guest0-psa build-freertos-guest1
-
-      - name: Pin guest measurements into the secure image
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        run: |
-          python3 tools/measure/patch_guest_digests.py build/wolftrust.bin \
-            "0:1:tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin" \
-            "1:1:tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin"
-
-      - name: Sign wolfTrust secure runtime
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        working-directory: wolfBoot
-        run: |
-          IMAGE_HEADER_SIZE=1024 \
-          WOLFBOOT_PARTITION_SIZE=0x40000 \
-          WOLFBOOT_SECTOR_SIZE=0x2000 \
-            ./tools/keytools/sign --ecc256 \
-              "$GITHUB_WORKSPACE/build/wolftrust.bin" \
-              wolfboot_signing_private_key.der 1
-          test -s "$GITHUB_WORKSPACE/build/wolftrust_v1_signed.bin"
-
-      - name: Read the wolfBoot authenticated measurement
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        run: |
-          measurement=$(python3 tests/scripts/read_wolfboot_measurement.py \
-            build/wolftrust_v1_signed.bin)
-          echo "WT_EXPECTED_MEASUREMENT_HEX=$measurement" >> "$GITHUB_ENV"
-
-      - name: Boot the authenticated wolfBoot → wolfTrust → guests chain
-        if: matrix.api == 'psa' && matrix.profile == 'full'
-        run: |
-          echo "Guest vector tables (SP, reset PC):"
-          od -An -tx4 -N8 tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin
-          od -An -tx4 -N8 tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin
-          guest0_entry=$(arm-none-eabi-readelf -h \
-            tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.elf \
-            | awk '/Entry point address:/ { print $4 }')
-          guest1_entry=$(arm-none-eabi-readelf -h \
-            tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.elf \
-            | awk '/Entry point address:/ { print $4 }')
-          case "$guest0_entry" in
-            0x80a*) ;;
-            *) echo "Zephyr entry $guest0_entry is outside 0x080A0000 slot" >&2; exit 1 ;;
-          esac
-          case "$guest1_entry" in
-            0x80e*) ;;
-            *) echo "FreeRTOS entry $guest1_entry is outside 0x080E0000 slot" >&2; exit 1 ;;
-          esac
-          set +e
-          rc_file=$(mktemp)
-          ( stdbuf -oL -eL "$M33MU" wolfBoot/wolfboot.bin \
-              build/wolftrust_v1_signed.bin:0x60000 \
-              tests/firmware/zephyr-stm32h5/build/guest0_psa/zephyr/zephyr.bin:0xA0000 \
-              tests/firmware/zephyr-stm32h5/build/freertos_guest1/freertos_guest1.bin:0xE0000 \
-              --uart-stdout --expect-bkpt 0x7f --quit-on-faults --timeout 60; \
-            echo $? > "$rc_file" ) \
-            | tee "$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          emu_status=$(cat "$rc_file")
-          rm -f "$rc_file"
-          echo "wolfBoot/wolfTrust M33MU exit status: $emu_status"
-          set -e
-          if [ "$emu_status" -ne 0 ] && [ "$emu_status" -ne 127 ]; then
-            exit "$emu_status"
-          fi
-          log="$RUNNER_TEMP/wolfboot-wolftrust-m33mu.log"
-          if grep -Eq '^(\[MEMFAULT\]|\[HARDFLT\]|HardFault|SecureFault)' "$log"; then
-            exit 1
-          fi
-          # Rejoin guest0 lines interrupted by UART attach banners or complete
-          # guest1 records. Keep the raw log for guest1 and fault checks.
-          guest0_log="$RUNNER_TEMP/wolfboot-wolftrust-m33mu-guest0.log"
-          python3 tests/target/lib/m33mu_console.py "$log" > "$guest0_log"
-          need()     { grep -Fq "$1" "$guest0_log" || { echo "missing: $1" >&2; exit 1; }; }
-          need_raw() { grep -Fq "$1" "$log" || { echo "missing: $1" >&2; exit 1; }; }
-          need "wolfTrust TEE client initialized"
-          need "wolfTrust FF-M mediated crypto dispatch verified"
-          need "wolfTrust ITS set/get verified"
-          need "wolfTrust PS sealed set/get verified"
-          need "wolfTrust key-ops sign/verify verified"
-          need "wolfTrust key negatives verified"
-          need "wolfTrust FF-M forged-handle call rejected"
-          need "wolfTrust FF-M oversized-vector call rejected"
-          need "psa_initial_attestation short-buffer rejected correctly"
-          need "psa_hash_compute(SHA-256) KAT verified"
-          need "psa_cipher_encrypt(AES-CTR) st=0"
-          need "psa_initial_attestation st=0"
-          need "wolfTrust attestation: wolfCOSE COSE_Sign1 signed by wolfHSM"
-          need "wolfTrust attestation: COSE_Sign1 verified"
-          need "wolfTrust attestation: token measurement=$WT_EXPECTED_MEASUREMENT_HEX"
-          need "attestation verify=0 challenge=ok identity=ok lifecycle=0x1000 measurement=ok cose=ES256"
-          need "secured lifecycle policy rejected development token"
-          need "[EXPECT BKPT] Success"
-          if [ "$WT_TEST_GUEST" = "zephyr" ]; then
-            need "psa_generate_random st=0"
-            need "psa_hash_compute(SHA-256) KAT verified"
-            need "psa_cipher_encrypt(AES-CTR) st=0"
-          else
-            need_raw "freertos_guest1: ffm sha256 ok"
-            need_raw "freertos_guest1: ffm rng ok"
-            need_raw "freertos_guest1: psa_crypto_init st=0"
-            need_raw "freertos_guest1: psa rng ok"
-            need_raw "freertos_guest1: psa hash ok"
-            need_raw "freertos_guest1: psa ECC keygen/sign/verify ok"
-          fi
-
-      - name: Run the direct SPM interface scenario
-        if: matrix.api != 'psa' || matrix.profile != 'full'
-        run: tests/target/run_suite.sh m33mu ${{ matrix.api == 'psa' && 'positive' || matrix.api }}
-
-  interface-isolation-m33mu:
-    name: stm32h563_${{ matrix.scenario }}_${{ matrix.engine }}_${{ matrix.profile }}
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      inputs.port == '' || inputs.port == 'all' || inputs.port == 'stm32h563'
-    runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        scenario: [tpmneg, pkcs11neg]
-        engine: [native, hsm]
-        profile: [default, full]
-    timeout-minutes: 45
-    container:
-      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
-    env:
-      WT_ENGINE: ${{ matrix.engine }}
-      WT_CRYPTO_PROFILE: ${{ matrix.profile }}
-      WT_REQUIRE_SCENARIO_PASS: 1
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Trust the checked-out workspace
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global url."https://github.com/".insteadOf git@github.com:
-
-      - name: Run the direct interface scenario
-        run: tests/target/run_suite.sh m33mu ${{ matrix.scenario }}
-
-  interface-footprint:
-    name: stm32h563_interface_footprint
-    if: >-
-      github.event_name != 'workflow_dispatch' ||
-      inputs.port == '' || inputs.port == 'all' || inputs.port == 'stm32h563'
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
-    container:
-      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
-    env:
-      WT_CRYPTO_PROFILE: default
-      WT_LTO: 1
-      FREERTOS_REF: f4fcc3b228643144727e9257ba12db1cb632b6e6
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Initialize pinned dependencies
-        run: |
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          git config --global url."https://github.com/".insteadOf git@github.com:
-          git submodule update --init --single-branch
-          workspace=tests/firmware/zephyr-stm32h5/.workspace/freertos
-          git init "$workspace"
-          git -C "$workspace" remote add origin https://github.com/FreeRTOS/FreeRTOS.git
-          git -C "$workspace" fetch --depth 1 origin "$FREERTOS_REF"
-          git -C "$workspace" checkout --detach FETCH_HEAD
-          make -C tests/firmware/zephyr-stm32h5 freertos-workspace
-
-      - name: Measure all six API and engine combinations
-        run: bash tools/measure_interface_footprint.sh
-
-      - name: Compare total flash with same-engine PSA
-        run: |
-          python3 tools/check_interface_footprint.py \
-            build/interface-footprint/sizes.csv --max-overhead 8192 \
-            > build/interface-footprint/comparison.txt
-          cat build/interface-footprint/comparison.txt
-
-      - name: Upload size comparison
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: stm32h563-interface-footprint
-          path: |
-            build/interface-footprint/sizes.csv
-            build/interface-footprint/configuration.txt
-            build/interface-footprint/comparison.txt
-
-  # Label-selected, the wolfProvider way: one select job reads the ci:* labels
-  # (ci:stm32h563 or ci:imxrt700 for that port's full matrix when only that port
-  # changed, ci:all or ci:m33mu for everything after a core change, no label
-  # for each port's smoke tier), the event, and the dispatch input, then one
-  # matrix job runs exactly those scenario groups, so nothing shows up skipped.
+  # One select job reads the ci:* labels (a port's own label from its port.json,
+  # ci:all or ci:m33mu for every port), the event and the dispatch input; two
+  # matrix jobs then run exactly those scenario groups, half each, since GitHub
+  # refuses a matrix of more than 256 jobs.
   select:
     name: m33mu_select
     runs-on: ubuntu-latest
     outputs:
-      matrix: ${{ steps.p.outputs.matrix }}
+      matrix_a: ${{ steps.p.outputs.matrix_a }}
+      matrix_b: ${{ steps.p.outputs.matrix_b }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Generate and verify the M33MU scenario matrix
-        id: p
+      - id: p
         env:
           PR_LABELS: ${{ join(github.event.pull_request.labels.*.name, ' ') }}
           PORT_INPUT: ${{ inputs.port }}
         run: |
           python3 tests/target/lib/scenario_matrix.py --selftest
-          matrix=$(python3 tests/target/lib/scenario_matrix.py --ci-plan)
-          echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
-          printf '%s' "$matrix" | python3 -c 'import json, sys
-          for e in json.load(sys.stdin):
-              print(e["job"], "(" + e["engine"] + ")")'
+          python3 tests/target/lib/scenario_matrix.py --ci-plan | python3 -c 'import json, sys
+          plan = json.load(sys.stdin)
+          half = (len(plan) + 1) // 2
+          if half > 256:
+              sys.exit("FAIL: %d jobs exceed two 256-job matrices" % len(plan))
+          for e in plan:
+              print(e["job"], "(" + e["engine"] + ", " + e["profile"] + ")")
+          with open(sys.argv[1], "a") as out:
+              for key, part in (("matrix_a", plan[:half]), ("matrix_b", plan[half:])):
+                  out.write("%s=%s\n" % (key, json.dumps(part, separators=(",", ":"))))
+          ' "$GITHUB_OUTPUT"
 
   scenarios:
     name: ${{ matrix.job }}
     needs: select
+    if: needs.select.outputs.matrix_a != '[]'
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include: ${{ fromJSON(needs.select.outputs.matrix) }}
+        include: ${{ fromJSON(needs.select.outputs.matrix_a) }}
     timeout-minutes: 45
     container:
       image: ${{ matrix.image }}
     env:
       WT_ENGINE: ${{ matrix.engine }}
-      WT_MANIFEST_NEG_PROBE: ${{ matrix.scenario.probe }}
-    steps:
+      WT_PROFILE: ${{ matrix.profile }}
+    steps: &scenario_steps
       - uses: actions/checkout@v4
 
       - name: Trust the checked-out workspace
@@ -427,27 +140,30 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git config --global url."https://github.com/".insteadOf git@github.com:
 
-      # The RT700 wolfBoot first stage builds against the MCUXpresso SDK, staged
-      # the way wolfBoot's own imxrt700 emulator workflow stages it.
+      # The RT700 and MCXN947 wolfBoot first stages build against the
+      # MCUXpresso SDK, staged the way wolfBoot's own imxrt700 emulator
+      # workflow stages it, one board per port.
       - uses: actions/checkout@v4
-        if: matrix.port == 'mimxrt700'
+        if: matrix.mcuxsdk_board != ''
         with:
           repository: nxp-mcuxpresso/CMSIS_5
           ref: f9cf5df6d51a95f0146930d75af3d71977cf795a
           path: CMSIS_5
 
       - name: Cache MCUXpresso SDK
-        if: matrix.port == 'mimxrt700'
+        if: matrix.mcuxsdk_board != ''
         id: cache-mcuxpresso
         uses: actions/cache@v4
         with:
           path: |
             mcuxpresso-sdk
             venv
-          key: mcuxpresso-sdk-mimxrt700evk-${{ hashFiles('.github/workflows/m33mu.yml') }}
+          key: mcuxpresso-sdk-${{ matrix.mcuxsdk_board }}-${{ hashFiles('.github/workflows/m33mu.yml') }}
 
       - name: Setup MCUXpresso SDK
-        if: matrix.port == 'mimxrt700' && steps.cache-mcuxpresso.outputs.cache-hit != 'true'
+        if: matrix.mcuxsdk_board != '' && steps.cache-mcuxpresso.outputs.cache-hit != 'true'
+        env:
+          SDK_BOARD: ${{ matrix.mcuxsdk_board }}
         run: |
           python3 -m venv venv
           . venv/bin/activate
@@ -455,12 +171,29 @@ jobs:
           west init -m https://github.com/nxp-mcuxpresso/mcuxsdk-manifests.git \
             --mr v26.06.00-LTS mcuxpresso-sdk
           cd mcuxpresso-sdk
-          sed -i '/se_hostlib\|emwin/d' manifests/boards/mimxrt700evk.yml
-          west update_board --set board mimxrt700evk
+          sed -i '/se_hostlib\|emwin/d' "manifests/boards/$SDK_BOARD.yml"
+          west update_board --set board "$SDK_BOARD"
 
       - name: Run target scenarios
         env:
-          MCUXSDK: ${{ matrix.port == 'mimxrt700' && '1' || '' }}
+          MCUXSDK: ${{ matrix.mcuxsdk_board != '' && '1' || '' }}
           MCUXPRESSO: ${{ github.workspace }}/mcuxpresso-sdk/mcuxsdk
           MCUXPRESSO_CMSIS: ${{ github.workspace }}/CMSIS_5/CMSIS
-        run: tests/target/run_suite.sh ${{ matrix.arm }} ${{ matrix.key }}
+        run: tests/target/run_suite.sh ${{ matrix.port }} ${{ matrix.key }}
+
+  scenarios_b:
+    name: ${{ matrix.job }}
+    needs: select
+    if: needs.select.outputs.matrix_b != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.select.outputs.matrix_b) }}
+    timeout-minutes: 45
+    container:
+      image: ${{ matrix.image }}
+    env:
+      WT_ENGINE: ${{ matrix.engine }}
+      WT_PROFILE: ${{ matrix.profile }}
+    steps: *scenario_steps

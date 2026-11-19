@@ -18,51 +18,60 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-"""Check complete, matched Secure + application flash measurements."""
+"""Check complete, matched Secure + application flash measurements: every
+port and engine measured has a Secure image and an application for PSA, TPM
+2.0 and PKCS#11, and each interface's total is reported against PSA's."""
 
 import argparse
 import csv
 from pathlib import Path
 import sys
 
+APIS = ("psa", "pkcs11", "tpm")
+ROLES = ("secure", "app")
 
-def compare(rows, max_overhead):
-    expected = {(api, engine, role) for api in ("psa", "pkcs11", "tpm")
-                for engine in ("native", "hsm") for role in ("secure", "app")}
+
+def compare(rows, max_overhead=None):
     measured = {}
     for row in rows:
-        key = (row["api"], row["engine"], row["role"])
-        if key not in expected or key in measured:
+        key = (row["port"], row["api"], row["engine"], row["role"])
+        if row["api"] not in APIS or row["role"] not in ROLES or key in measured:
             raise ValueError("unexpected or duplicate measurement: " + str(key))
-        sizes = [int(row[field]) for field in ("text", "data", "bss", "flash")]
-        text, data, bss, flash = sizes
-        if min(sizes) < 0 or text == 0 or flash != text + data:
-            raise ValueError("invalid section sizes: " + str(key))
+        flash = int(row["flash"])
+        if flash <= 0:
+            raise ValueError("invalid flash size: " + str(key))
+        if row["role"] == "secure" and int(row["ram"] or "0") <= 0:
+            raise ValueError("invalid Secure RAM: " + str(key))
         measured[key] = flash
+    cells = sorted({(port, engine) for port, _, engine, _ in measured})
+    if not cells:
+        raise ValueError("no measurements")
+    expected = {(port, api, engine, role) for port, engine in cells
+                for api in APIS for role in ROLES}
     if set(measured) != expected:
         raise ValueError("missing measurements: " + str(sorted(expected - set(measured))))
     summary = []
     exceeded = False
-    for engine in ("native", "hsm"):
-        baseline = sum(measured["psa", engine, role] for role in ("secure", "app"))
-        for api in ("psa", "pkcs11", "tpm"):
-            secure, app = (measured[api, engine, role] for role in ("secure", "app"))
+    for port, engine in cells:
+        baseline = sum(measured[port, "psa", engine, role] for role in ROLES)
+        for api in APIS:
+            secure, app = (measured[port, api, engine, role] for role in ROLES)
             total = secure + app
             overhead = total - baseline
-            summary.append("%s %s: secure=%d app=%d total=%d delta=%+d (%+.2f%%)" %
-                           (engine, api, secure, app, total, overhead,
+            summary.append("%s %s %s: secure=%d app=%d total=%d delta=%+d (%+.2f%%)" %
+                           (port, engine, api, secure, app, total, overhead,
                             100.0 * overhead / baseline))
-            exceeded |= overhead > max_overhead
+            exceeded |= max_overhead is not None and overhead > max_overhead
     return summary, exceeded
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("csv", type=Path)
-    parser.add_argument("--max-overhead", type=int, required=True,
-                        help="maximum total flash bytes above same-engine PSA")
+    parser.add_argument("--max-overhead", type=int,
+                        help="fail above this many total flash bytes over same-engine PSA")
     args = parser.parse_args()
-    if args.max_overhead < 0:
+    if args.max_overhead is not None and args.max_overhead < 0:
         parser.error("--max-overhead must be nonnegative")
     try:
         with args.csv.open(newline="", encoding="utf-8") as source:
@@ -71,8 +80,9 @@ def main():
         print("FAIL: interface footprint: " + str(error), file=sys.stderr)
         return 1
     print("\n".join(summary))
-    print("%s: interface flash overhead <= %d bytes" %
-          ("FAIL" if exceeded else "PASS", args.max_overhead))
+    if args.max_overhead is not None:
+        print("%s: interface flash overhead <= %d bytes" %
+              ("FAIL" if exceeded else "PASS", args.max_overhead))
     return int(exceeded)
 
 

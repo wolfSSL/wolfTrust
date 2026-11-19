@@ -99,7 +99,7 @@ def discover(root):
              "tpm": {m.group(1) for m in rows}}, signatures, sources, commands)
 
 
-def select(catalog, defaults, profile, custom, enable, disable):
+def select(catalog, defaults, profile, custom, enable, disable, require_tpm=True):
     if not isinstance(custom, dict):
         raise ValueError("profile configuration must be a JSON object")
     for kind, names in custom.items():
@@ -129,7 +129,7 @@ def select(catalog, defaults, profile, custom, enable, disable):
         if unknown:
             raise ValueError("unknown %s operations: %s" %
                              (kind, ", ".join(sorted(unknown))))
-    if not selected["tpm"]:
+    if require_tpm and not selected["tpm"]:
         raise ValueError("a TPM profile requires at least one command")
     if mechanisms is not None and any(not re.fullmatch(r"CKM_[A-Z0-9_]+", n)
                                       for n in mechanisms):
@@ -306,10 +306,14 @@ def hsm_callback_source(root, extra_crypto):
     return prefix + "\n#include " + json.dumps(str(original)) + "\n"
 
 
-def generate(root, output, profile, custom, enable, disable):
+def generate(root, output, profile, custom, enable, disable, interface="tpm"):
     catalog, signatures, sources, commands = discover(root)
     defaults = json.loads((root / "config/crypto-profiles.json").read_text())["default"]
-    selected, mechanisms = select(catalog, defaults, profile, custom, enable, disable)
+    selected, mechanisms = select(catalog, defaults, profile, custom, enable, disable,
+                                  interface == "tpm")
+    # No TPM 2.0 or PKCS#11 build links PSA Crypto, so a PSA override would do nothing.
+    if "psa" in custom or any(item.startswith("psa:") for item in enable + disable):
+        raise ValueError("TPM 2.0 and PKCS#11 builds link no PSA Crypto; remove psa selections")
     basic_mechanisms = {"CKM_SHA256", "CKM_EC_KEY_PAIR_GEN", "CKM_ECDSA",
                         "CKM_ECDSA_KEY_PAIR_GEN"}
     extra_crypto = (profile == "full" or mechanisms is None or
@@ -322,9 +326,17 @@ def generate(root, output, profile, custom, enable, disable):
     write_file(output / "hsm_callback.c", hsm_callback_source(root, extra_crypto))
     write_file(output / "fwtpm_command.c", selected_tpm(commands, selected["tpm"], profile == "full"))
     psa_wrappers(root, output, sources, selected["psa"], catalog["psa"])
+    # Consumers depend only on this header, so it must change with any output.
+    digest = hashlib.sha256()
+    for path in sorted(output.rglob("*")):
+        if path.is_file() and path.name not in ("selected_profile.h",
+                                                "selection.json"):
+            digest.update(path.relative_to(output).as_posix().encode())
+            digest.update(path.read_bytes())
     flags = ["/* Generated build configuration. */",
              "#ifndef WT_SELECTED_CRYPTO_PROFILE_H",
              "#define WT_SELECTED_CRYPTO_PROFILE_H",
+             "#define WT_PROFILE_OUTPUTS_SHA256 \"%s\"" % digest.hexdigest(),
              "#define WT_PROFILE_FULL %d" % (profile == "full"),
              "#define WT_PROFILE_PROVIDER_EXTRA_CRYPTO %d" % extra_crypto,
              "#define WT_PROFILE_TPM_COMMAND_COUNT %dU" % len(selected["tpm"]),
@@ -358,6 +370,7 @@ def main():
     parser.add_argument("--config", type=Path)
     parser.add_argument("--enable", action="append", default=[])
     parser.add_argument("--disable", action="append", default=[])
+    parser.add_argument("--interface", choices=("tpm", "pkcs11"), default="tpm")
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args()
     try:
@@ -366,12 +379,13 @@ def main():
         elif args.output is None:
             parser.error("--output is required")
         else:
-            config = args.config or (Path(os.environ["WT_CRYPTO_CONFIG"])
-                                     if os.environ.get("WT_CRYPTO_CONFIG") else None)
+            config = args.config or (Path(os.environ["WT_INTERFACE_CONFIG"])
+                                     if os.environ.get("WT_INTERFACE_CONFIG") else None)
             custom = json.loads(config.read_text()) if config else {}
-            enable = args.enable + os.environ.get("WT_CRYPTO_ENABLE", "").split()
-            disable = args.disable + os.environ.get("WT_CRYPTO_DISABLE", "").split()
-            generate(args.root, args.output, args.profile, custom, enable, disable)
+            enable = args.enable + os.environ.get("WT_INTERFACE_ENABLE", "").split()
+            disable = args.disable + os.environ.get("WT_INTERFACE_DISABLE", "").split()
+            generate(args.root, args.output, args.profile, custom, enable, disable,
+                     args.interface)
     except (OSError, ValueError, KeyError) as error:
         parser.error(str(error))
 

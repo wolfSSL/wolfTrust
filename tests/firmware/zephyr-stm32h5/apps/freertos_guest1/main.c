@@ -38,7 +38,7 @@
 
 #include "psa/client.h"
 
-/* SERVICE_HSM (port/stm32h563/manifest.json): the single mediated door to
+/* SERVICE_HSM (manifest/base.json): the single mediated door to
  * the secure crypto engine — the same path guest0 uses. */
 #define WT_SERVICE_HSM_SID 4102u
 #ifndef WT_FREERTOS_OTHER_RAM_BASE
@@ -462,6 +462,9 @@ static int guest_crypto_init(void)
     return 0;
 }
 
+/* Read over SWD: it keeps rising only while guest1 gets time slices. */
+volatile uint32_t g_guest1_heartbeats;
+
 static void crypto_task(void *arg)
 {
     uint32_t count = 0u;
@@ -481,6 +484,7 @@ static void crypto_task(void *arg)
         uart_put_u32(count);
         uart_puts("\r\n");
         count++;
+        g_guest1_heartbeats = count;
     }
 }
 

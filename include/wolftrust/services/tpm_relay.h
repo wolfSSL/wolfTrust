@@ -24,13 +24,9 @@
 #include "wolftrust/ffm.h"
 #include "wolftrust/spm_gate.h"
 #include "wolftrust/tpm/tpm_abi.h"
+#include "wolftrust/services/msg_relay.h"
 
-typedef int (*wt_tpm_local_provider_fn)(const uint8_t* command,
-                                        size_t command_len,
-                                        uint8_t* response,
-                                        size_t response_cap,
-                                        size_t* response_len,
-                                        void* context);
+typedef wt_msg_provider_fn wt_tpm_local_provider_fn;
 
 /* Bind the SPM-stamped Non-secure caller (guest N is -(N+1)). */
 void wt_tpm_relay_set_client(int32_t app_client_id);
@@ -49,7 +45,7 @@ void wt_tpm_relay_set_transport(wt_spm_transport_fn fn);
 int wt_tpm_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
                           int32_t partition_id);
 
-#if defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)
+#if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
 /* Test-only witness that cold boot and restart restore this partition's
  * initialized data and clear its BSS. */
 int wt_tpm_relay_restart_probe(int restarted);

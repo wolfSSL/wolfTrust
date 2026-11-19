@@ -3,36 +3,6 @@
 WT_CPU ?= cortex-m33
 PORT_DIR := $(ROOT)/port/stm32h563
 PORT_HEADERS := $(wildcard $(PORT_DIR)/*.h)
-TARGET_CONF_DIR := $(PORT_DIR)/conformance
-
-# WT_CONFORMANCE=1 swaps in the manifest that also hosts Arm's test partitions;
-# CONFIG_VNET=y swaps in the variant that adds the SERVICE_VNET partition so
-# the default image carries no virtual network service at all. These manifest
-# variants are mutually exclusive, so reject a combination that would silently
-# discard a requested service rather than build it.
-ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
-WT_MAX_GUESTS ?= 1
-ifeq ($(WT_CONFORMANCE),1)
-$(error CONFIG_TPM/CONFIG_PKCS11 conflicts with WT_CONFORMANCE=1; the manifests are mutually exclusive)
-endif
-ifeq ($(CONFIG_VNET),y)
-$(error CONFIG_TPM/CONFIG_PKCS11 conflicts with CONFIG_VNET=y; the manifests are mutually exclusive)
-endif
-endif
-ifeq ($(CONFIG_TPM)$(CONFIG_PKCS11),yy)
-$(error CONFIG_TPM=y conflicts with CONFIG_PKCS11=y; select one application API)
-endif
-ifeq ($(WT_CONFORMANCE),1)
-MANIFEST_INPUT := $(PORT_DIR)/manifest-conformance.json
-else ifeq ($(CONFIG_VNET),y)
-MANIFEST_INPUT := $(PORT_DIR)/manifest-vnet.json
-else ifeq ($(CONFIG_TPM),y)
-MANIFEST_INPUT := $(PORT_DIR)/manifest-tpm.json
-else ifeq ($(CONFIG_PKCS11),y)
-MANIFEST_INPUT := $(PORT_DIR)/manifest-pkcs11.json
-else
-MANIFEST_INPUT := $(PORT_DIR)/manifest.json
-endif
 
 WT_SHARED_UART ?= 3
 WT_GUEST_CORE_CLOCK_HZ ?= 240000000
@@ -53,49 +23,22 @@ endif
 # Secure runtime placement. The default preserves the standalone image;
 # the wolfBoot handoff build relocates it to 0x0C020000.
 WT_SECURE_FLASH_BASE ?= 0x0C000000
-WT_SECURE_FLASH_SIZE ?= $(if $(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),0x00040000,0x00020000)
+WT_SECURE_FLASH_SIZE ?= 0x00020000
 WT_SECURE_IMAGE_HEADER_SIZE ?= 0
-ifeq ($(CONFIG_PKCS11),y)
-WT_GUEST0_FLASH_BASE ?= 0x080A0000
-WT_GUEST1_FLASH_BASE ?= 0x080C0000
-WT_GUEST0_FLASH_SIZE ?= 0x00020000
-WT_GUEST1_FLASH_SIZE ?= 0x00040000
-else
-WT_GUEST0_FLASH_BASE ?= 0x080A0000
-WT_GUEST1_FLASH_BASE ?= 0x080E0000
-WT_GUEST0_FLASH_SIZE ?= 0x00040000
-WT_GUEST1_FLASH_SIZE ?= 0x00020000
+# The Arm suite overflows the 128 KiB standalone slot. Refused at the link
+# only, so the host manifest suites still render its manifest.
+ifeq ($(WT_CONFORMANCE)/$(filter 0x00020000 0x20000,$(WT_SECURE_FLASH_SIZE)),1/$(WT_SECURE_FLASH_SIZE))
+WT_SECURE_LINK_REFUSE := WT_CONFORMANCE=1 needs the 256 KiB Secure slot on the STM32H563; build it in the M33MU layout (port_layout_env in tests/target/ports/stm32h563/m33mu.sh)
 endif
-MANIFEST_GUEST_LAYOUT_ARGS := \
-    --guest 1=$(WT_GUEST0_FLASH_BASE):$(WT_GUEST0_FLASH_SIZE) \
-    --guest 2=$(WT_GUEST1_FLASH_BASE):$(WT_GUEST1_FLASH_SIZE)
+WT_GUEST0_FLASH_BASE ?= 0x08020000
+WT_GUEST1_FLASH_BASE ?= 0x08040000
+WT_GUEST0_FLASH_SIZE ?= 0x00020000
+WT_GUEST1_FLASH_SIZE ?= 0x00020000
 
-TARGET_CFLAGS := \
-    -DWT_SHARED_UART=$(WT_SHARED_UART) \
-    -DWT_GUEST_CORE_CLOCK_HZ=$(WT_GUEST_CORE_CLOCK_HZ) \
-    -DWT_GUEST_UART_CLOCK_HZ=$(WT_GUEST_UART_CLOCK_HZ) \
-    -DWT_CONF_IRQ=$(WT_CONF_IRQ)u \
-    -DWT_CONF_IRQ_HANDLER=$(WT_CONF_IRQ_HANDLER) \
-    -DWT_SECURE_FLASH_BASE=$(WT_SECURE_FLASH_BASE) \
-    -DWT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE) \
-    -DWT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE) \
-    -DWT_GUEST0_FLASH_BASE=$(WT_GUEST0_FLASH_BASE) \
-    -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE) \
-    -DWT_GUEST0_FLASH_SIZE=$(WT_GUEST0_FLASH_SIZE) \
-    -DWT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE) \
-    -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING
-TARGET_LDFLAGS := \
-    -Wl,--defsym=WT_SECURE_FLASH_ORIGIN=$(WT_SECURE_FLASH_BASE) \
-    -Wl,--defsym=WT_SECURE_FLASH_SIZE=$(WT_SECURE_FLASH_SIZE) \
-    -Wl,--defsym=WT_SECURE_IMAGE_HEADER_SIZE=$(WT_SECURE_IMAGE_HEADER_SIZE)
-SECURE_LD := $(PORT_DIR)/secure.ld
+TARGET_CFLAGS := -DWHAL_CFG_STM32H5_RNG_DIRECT_API_MAPPING
 
 TARGET_PLATFORM_SRC := $(PORT_DIR)/platform_stm32h563.c
-TARGET_PARTITIONS_SRC := $(PORT_DIR)/partitions.c
 TARGET_EXTRA_SRCS := \
-    $(wildcard $(PORT_DIR)/rng_entropy.c) \
-    $(wildcard $(PORT_DIR)/hsm_flash.c) \
-    $(wildcard $(PORT_DIR)/hsm_flash_ctx.c) \
     $(PORT_DIR)/silicon_rev.c \
     $(PORT_DIR)/silicon_guard.c \
     $(WOLFHAL_DIR)/src/reg.c \

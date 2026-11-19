@@ -29,6 +29,7 @@
 
 extern CK_FUNCTION_LIST g_provider_test_functions;
 extern unsigned int g_provider_test_calls;
+extern unsigned int g_provider_test_library_count;
 static unsigned int transport_calls;
 static unsigned int failures;
 
@@ -91,6 +92,13 @@ int main(void)
     wt_pkcs11_writer_t writer;
     wt_pkcs11_reader_t reader;
     unsigned int before;
+#if !WT_PROFILE_PKCS11_C_GetInfo && !WT_PROFILE_PKCS11_C_GetTokenInfo
+    static CK_UTF8CHAR so_pin[] = { 's', 'o', '-', 'p', 'i', 'n' };
+    static CK_UTF8CHAR wrong_pin[] = { 'w', 'r', 'o', 'n', 'g' };
+    static CK_UTF8CHAR label[32] = { 't', 'o', 'k', 'e', 'n' };
+    unsigned int i;
+    int locked;
+#endif
 
     g_provider_test_functions.C_GetMechanismInfo = mechanism_info;
     g_provider_test_functions.C_GetObjectSize = object_size;
@@ -153,5 +161,20 @@ int main(void)
     check(functions->C_SignInit(1, &mechanism, 1) == CKR_MECHANISM_INVALID &&
           g_provider_test_calls == before,
           "allowed operation cannot use a disabled mechanism");
+#if !WT_PROFILE_PKCS11_C_GetInfo && !WT_PROFILE_PKCS11_C_GetTokenInfo
+    locked = functions->C_InitToken(1, so_pin, sizeof(so_pin), label) == CKR_OK;
+    for (i = 0U; i < WT_PKCS11_PIN_MAX_FAILURES; i++) {
+        locked = locked && functions->C_InitToken(1, wrong_pin,
+            sizeof(wrong_pin), label) == CKR_PIN_INCORRECT;
+    }
+    check(locked && functions->C_InitToken(1, so_pin, sizeof(so_pin), label) ==
+          CKR_PIN_LOCKED,
+          "PIN accounting survives disabled info entry points");
+    g_provider_test_library_count = 1U;
+    check(functions->C_Finalize(NULL) == CKR_OK &&
+          functions->C_Initialize(NULL) == CKR_OK &&
+          functions->C_InitToken(1, so_pin, sizeof(so_pin), label) == CKR_OK,
+          "finalize clears PIN failures without the public C_GetInfo");
+#endif
     return failures != 0;
 }

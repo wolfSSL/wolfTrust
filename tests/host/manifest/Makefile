@@ -52,7 +52,7 @@ $(MANIFEST_TEST): $(MANIFEST_SRCS) | $(BUILD_DIR)
 
 $(GENERATED_STAMP): $(GENERATOR) $(GENERATOR_FIXTURE) | $(BUILD_DIR)
 	python3 $(GENERATOR) $(GENERATOR_FIXTURE) $(GENERATED_DIR) \
-		--supported-features 0x5 --address-bits 32
+		--supported-features 0x5 --address-bits 32 --unchecked
 	touch $@
 
 $(GENERATED_C) $(GENERATED_H): $(GENERATED_STAMP)

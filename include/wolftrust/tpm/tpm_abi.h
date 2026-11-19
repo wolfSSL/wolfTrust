@@ -21,6 +21,8 @@
 #ifndef WOLFTRUST_TPM_TPM_ABI_H
 #define WOLFTRUST_TPM_TPM_ABI_H
 
+#include "wolftrust/msg_relay_abi.h"
+
 /* SERVICE_TPM copies a command into its private domain, runs fwTPM, and
  * returns the response in the same call. No external responder is needed. */
 #define WT_TPM_SERVICE_SID      4104U
@@ -30,6 +32,6 @@
 #define WT_TPM_FRAME_MAX        512U
 
 /* invec[0]=command, outvec[0]=response. Never replay a failed call. */
-#define WT_TPM_OP_TRANSACT      5
+#define WT_TPM_OP_TRANSACT      WT_MSG_OP_TRANSACT
 
 #endif /* WOLFTRUST_TPM_TPM_ABI_H */

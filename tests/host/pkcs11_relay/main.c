@@ -99,7 +99,7 @@ static void check(int ok, const char* what)
     }
 }
 
-void wt_pkcs11_test_relay_chunk_zeroized(const void* memory, size_t size,
+void wt_msg_relay_test_chunk_zeroized(const void* memory, size_t size,
                                          psa_status_t status)
 {
     const uint8_t* bytes = (const uint8_t*)memory;

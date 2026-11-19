@@ -109,7 +109,8 @@ psa_status_t wt_crypto_native_call(const wt_crypto_wire_req_t* hdr,
          * failure; only connect setup and idempotent ops are safe to retry. */
         if (hdr->op == WT_CRYPTO_OP_KEY_GENERATE ||
                 hdr->op == WT_CRYPTO_OP_KEY_IMPORT ||
-                hdr->op == WT_CRYPTO_OP_KEY_DESTROY) {
+                hdr->op == WT_CRYPTO_OP_KEY_DESTROY ||
+                hdr->op == WT_CRYPTO_OP_PSA) {
             return status;
         }
     }

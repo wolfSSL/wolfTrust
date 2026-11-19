@@ -26,10 +26,12 @@
  * host memcheck standing in for the CMSE checker. */
 
 #include "wolftrust/ffm_boot.h"
+#include "wolftrust/ffm_gateway.h"
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/hsm_relay.h"
 #include "psa_manifest/pid.h"
 
+#include <setjmp.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -43,10 +45,55 @@ static int g_reads_seen;
 static int g_writes_seen;
 static wt_guest_id_t g_last_guest;
 
+/* ---- arch seam the NS gateway reads: the caller is always guest 0 ---- */
+extern volatile uint32_t g_wt_ffm_call_trace;
+
+uint32_t wt_arch_active_guest_id(void);
+int wt_arch_ns_check_writable(const void* address, size_t size);
+
+uint32_t wt_arch_active_guest_id(void)
+{
+    return 0U;
+}
+
+int wt_arch_ns_check_writable(const void* address, size_t size)
+{
+    return size == 0U || address != NULL;
+}
+
+/* Nested-entry seam: the relay submit runs mid-dispatch, standing in for a
+ * Non-secure exception that re-enters the gateway during an in-flight call. */
+static int g_nest_armed;
+static int g_panic_armed;
+static jmp_buf g_panic_jmp;
+static wt_ffm_veneer_iovec_t g_nest_iovec;
+
+static void test_nested_gateway_entry(void)
+{
+    g_nest_armed = 0;
+    (void)memset(&g_nest_iovec, 0, sizeof(g_nest_iovec));
+    (void)wt_ffm_gateway_call(1, PSA_IPC_CALL, &g_nest_iovec);
+}
+
+static size_t test_live_connections(const wt_ffm_runtime_t* rt)
+{
+    size_t i;
+    size_t n = 0U;
+
+    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++) {
+        n += (rt->connections[i].allocated != 0U) ? 1U : 0U;
+    }
+    return n;
+}
+
 /* ---- platform stub for the symbol the neutral boot core needs ---- */
 void wt_platform_panic(void)
 {
     g_panics++;
+    if (g_panic_armed != 0) {
+        g_panic_armed = 0;
+        longjmp(g_panic_jmp, 1);
+    }
 }
 
 /* Scheduler stubs: wt_ffm_boot_start_sched is not exercised here. */
@@ -57,9 +104,22 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return WT_FFM_SUCCESS;
 }
 
+static int g_validate_calls;
+static int g_start_all_calls;
+static int g_start_all_after_validate;
+static int g_start_all_ret;
+
 int wt_spm_sched_validate(void)
 {
+    g_validate_calls++;
     return WT_FFM_SUCCESS;
+}
+
+int wt_spm_sched_start_all(void)
+{
+    g_start_all_calls++;
+    g_start_all_after_validate = (g_validate_calls > 0);
+    return g_start_all_ret;
 }
 
 int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
@@ -103,6 +163,22 @@ static int test_ns_check_write(wt_guest_id_t guest_id, void* address,
     return size == 0U || address != NULL;
 }
 
+int wt_arch_ns_check_read(wt_guest_id_t guest_id, const void* address,
+                          size_t size);
+int wt_arch_ns_check_write(wt_guest_id_t guest_id, void* address,
+                           size_t size);
+
+int wt_arch_ns_check_read(wt_guest_id_t guest_id, const void* address,
+                          size_t size)
+{
+    return test_ns_check_read(guest_id, address, size);
+}
+
+int wt_arch_ns_check_write(wt_guest_id_t guest_id, void* address, size_t size)
+{
+    return test_ns_check_write(guest_id, address, size);
+}
+
 /* ---- SHA-256 submit hook: hashing the relayed request packet keeps the
  * KAT round trip byte-exact without a wolfHSM server in this fixture ---- */
 static int test_sha_submit(void* submit_ctx, int32_t client_id,
@@ -114,6 +190,9 @@ static int test_sha_submit(void* submit_ctx, int32_t client_id,
 
     (void)submit_ctx;
     (void)client_id;
+    if (g_nest_armed != 0) {
+        test_nested_gateway_entry();
+    }
     if (resp_cap < WC_SHA256_DIGEST_SIZE) {
         return -1;
     }
@@ -187,6 +266,10 @@ int main(void)
     psa_invec in_vec;
     psa_outvec out_vec;
     psa_status_t status;
+    wt_ffm_veneer_iovec_t iov;
+    size_t live;
+    int panics;
+    int kind;
 
     check(wt_ffm_boot_init(&g_manifest) == WT_FFM_SUCCESS,
           "WT-FFM-0012 boot core initializes from the manifest");
@@ -243,6 +326,82 @@ int main(void)
                          &in_vec, 1U, &out_vec, 1U);
     check(status != PSA_SUCCESS,
           "WT-FFM-0012 clearing the memcheck seam fails closed again");
+
+    /* One NS entry at a time. The port masks Non-secure exceptions for an
+     * entry, so an entry that still arrives while another is in flight stops
+     * the system before it reaches the core. */
+    wt_ffm_gateway_install();
+    handle = (psa_handle_t)wt_ffm_gateway_connect(TEST_HSM_SID, 1U);
+    check(handle > 0 && rt->ns_entry_caller == 0,
+          "NS client opens a gateway connection");
+    (void)memset(&iov, 0, sizeof(iov));
+    (void)memset(digest, 0, sizeof(digest));
+    iov.in[0].base = input;
+    iov.in[0].len = sizeof(input) - 1U;
+    iov.in_count = 1U;
+    iov.out[0].base = digest;
+    iov.out[0].len = sizeof(digest);
+    iov.out_count = 1U;
+    check(wt_ffm_gateway_call((int32_t)handle, PSA_IPC_CALL, &iov) ==
+              PSA_SUCCESS &&
+          memcmp(digest, expected, sizeof(expected)) == 0 &&
+          rt->ns_entry_caller == 0,
+          "WT-FFM-0012 a gateway call completes and releases the entry");
+    live = test_live_connections(rt);
+    panics = g_panics;
+    g_nest_armed = 1;
+    g_panic_armed = 1;
+    if (setjmp(g_panic_jmp) == 0) {
+        (void)wt_ffm_gateway_call((int32_t)handle, PSA_IPC_CALL, &iov);
+    }
+    g_nest_armed = 0;
+    g_panic_armed = 0;
+    check(g_panics == panics + 1 && test_live_connections(rt) == live,
+          "WT-FFM-0012 an entry nested in a call stops the system");
+    for (kind = 0; kind < 3; kind++) {
+        panics = g_panics;
+        rt->ns_entry_caller = TEST_NS_CLIENT;
+        g_panic_armed = 1;
+        if (setjmp(g_panic_jmp) == 0) {
+            if (kind == 0) {
+                (void)wt_ffm_gateway_connect(TEST_HSM_SID, 1U);
+            }
+            else if (kind == 1) {
+                (void)wt_ffm_gateway_call((int32_t)handle, PSA_IPC_CALL, &iov);
+            }
+            else {
+                wt_ffm_gateway_close((int32_t)handle);
+            }
+        }
+        g_panic_armed = 0;
+        check(g_panics == panics + 1 && test_live_connections(rt) == live,
+              "WT-FFM-0012 connect, call and close never enter beside an "
+              "in-flight entry");
+    }
+
+    /* A guest restarted mid-call never returns through the gateway; its
+     * abnormal-termination cleanup must release the entry. */
+    rt->ns_entry_caller = TEST_NS_CLIENT;
+    (void)wt_ffm_fail_client_connections(rt, TEST_NS_CLIENT);
+    panics = g_panics;
+    handle = (psa_handle_t)wt_ffm_gateway_connect(TEST_HSM_SID, 1U);
+    check(rt->ns_entry_caller == 0 && handle > 0 && g_panics == panics,
+          "WT-FFM-0026 client restart cleanup releases the gateway entry");
+    wt_ffm_gateway_close((int32_t)handle);
+
+    /* FF-M start-up order: every partition runs to idle after the isolation
+     * check and before the NSPE starts; a partition that cannot refuses boot. */
+    g_validate_calls = 0;
+    g_start_all_calls = 0;
+    g_start_all_ret = WT_FFM_SUCCESS;
+    check(wt_ffm_boot_start_sched() == WT_FFM_SUCCESS &&
+              g_start_all_calls == 1 && g_start_all_after_validate,
+          "WT-FFM-0013 boot runs every partition to idle after validation");
+    g_start_all_calls = 0;
+    g_start_all_ret = WT_FFM_ERROR_STATE;
+    check(wt_ffm_boot_start_sched() == WT_FFM_ERROR_STATE &&
+              g_start_all_calls == 1,
+          "WT-FFM-0013 a partition that cannot reach idle refuses the boot");
 
     if (g_failures == 0) {
         printf("PASS: ffm_veneer (extracted NS gateway core)\n");

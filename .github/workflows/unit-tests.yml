@@ -22,6 +22,10 @@ jobs:
       - uses: actions/checkout@v4
       - name: Test M33MU console marker reconstruction
         run: python3 tests/scripts/test_m33mu_console.py
+      - name: Target scenario table and assertion mutations
+        run: |
+          python3 tests/target/lib/scenarios.py --selftest
+          python3 tests/scripts/test_scenario_asserts.py
       - id: s
         # Single source of truth: the Makefile's UNIT_SUITES. Adding a suite
         # there makes it a new CI check automatically — no workflow edit.

@@ -32,6 +32,10 @@ fi
 PORT_NAME="MIMXRT700"
 target_dir="$here/.."
 pyocd_target="${RT700_TARGET:-mimxrt798sgfob}"
+# The bound MCU-Link (WT_HW_PROBE); unset, the one attached probe.
+bind_probe RT700_PROBE_UID
+probe_bind=()
+[ -z "${RT700_PROBE_UID:-}" ] || probe_bind=(-u "$RT700_PROBE_UID")
 spsdk_venv="${RT700_SPSDK_VENV:-$HOME/spsdk-venv}"
 # Set here, not in a helper: the controller runs many port calls in subshells.
 [ ! -d "$spsdk_venv/bin" ] || PATH="$spsdk_venv/bin:$PATH"
@@ -57,12 +61,14 @@ DAUTHSTATUS=0xE000EFB8
 XSPI_MGC=0x50184920
 XSPI_TG0MDAD=0x50184900
 LC_DEVELOP=0x03
+# wolfBoot's handoff record, as the Secure image sees it.
+HANDOFF=0x30180000
 # OTP fuse word indexes blhost addresses (not shadow addresses).
 FUSE_LC_RED=0x25
 FUSE_LC=0x8F
 
-# shellcheck source=../lib/rt700_fence.sh disable=SC1091
-. "$target_dir/lib/rt700_fence.sh"
+# shellcheck source=../ports/mimxrt700/fence.sh disable=SC1091
+. "$target_dir/ports/mimxrt700/fence.sh"
 
 port_ladder() {
   cat <<'EOF'
@@ -73,13 +79,17 @@ port_ladder() {
 0x1F in-field-return  yes yes permanent 0x0F
 EOF
 }
-port_usage_extra() {
+port_commands() {
   cat <<'EOF'
-  verify-wrp          check the running chain's XSPI guest fence (read-only)
+verify-wrp read check the XSPI guest fence wolfBoot armed
+provision-da refused programming OTP waits for a bound chip identity
+burn refused programming OTP waits for a bound chip identity
+set-perimeter refused wolfBoot and wolfTrust program the perimeter on every boot
+set-wrp refused the XSPI guest fence is armed by wolfBoot on every boot
+clear-wrp refused every reset clears the XSPI guest fence
 EOF
 }
 
-lc_hex() { printf '0x%02X' $(( $1 & 0xFF )); }
 ensure_spsdk() {
   if ! command -v pyocd >/dev/null 2>&1; then
     [ -x "$spsdk_venv/bin/pyocd" ] || fail "tools" "pyocd not found (set RT700_SPSDK_VENV)"
@@ -92,43 +102,7 @@ read_words() {
   local -a cmds=()
   local a
   for a in "$@"; do cmds+=(-c "read32 $a"); done
-  timeout 60 pyocd cmd -t cortex_m "${cmds[@]}" 2>&1 | awk '/^[0-9a-f]+:/ { print $2 }'
-}
-psa_name() {
-  case "$1" in
-    00001000) echo "ASSEMBLY_AND_TEST" ;; 00002000) echo "PSA_ROT_PROVISIONING" ;;
-    00003000) echo "SECURED" ;; 00004000) echo "NON_PSA_ROT_DEBUG" ;;
-    00005000) echo "RECOVERABLE_PSA_ROT_DEBUG" ;; 00006000) echo "DECOMMISSIONED" ;;
-    *) echo "UNKNOWN" ;;
-  esac
-}
-# The PSA life cycles wolfTrust may report while the life cycle is $1.
-expect_psa() {
-  case "$1" in
-    0x03) echo "00001000" ;; 0x07) echo "00002000" ;;
-    0x0F|0xCF) echo "00003000 00004000 00005000" ;; 0x1F) echo "00006000" ;;
-  esac
-}
-# The life cycle fused when discover ran (the shadow can differ until a reset).
-fused_lc() {
-  local w
-  w="$(sed -n 's/^LC=\(0x[0-9A-Fa-f]*\) .*/\1/p' "$state_dir/discovery" 2>/dev/null)"
-  [ -n "$w" ] && lc_hex "$w"
-}
-elf_sym() { arm-none-eabi-nm "$elf" | awk -v s="$1" '$3 == s && !f { print "0x" $1; f = 1 }'; }
-# The life cycle wolfBoot handed wolfTrust: the raw handoff record while it is
-# intact, else wolfTrust's consumed copy.
-handoff_lifecycle() {
-  local magic inv lc sym
-  read -r magic inv lc < <(read_words 0x30180000 0x30180004 0x3018000C | tr '\n' ' '; echo)
-  if [ "${magic:-}" = "5742484f" ] && [ $((0x$magic ^ 0x${inv:-0})) -eq $((0xFFFFFFFF)) ]; then
-    echo "$lc"
-    return 0
-  fi
-  [ -s "$elf" ] || return 1
-  sym="$(elf_sym g_boot_lifecycle)"
-  [ -n "$sym" ] || return 1
-  read_words "$sym"
+  timeout 60 pyocd cmd ${probe_bind[@]+"${probe_bind[@]}"} -t cortex_m "${cmds[@]}" 2>&1 | awk '/^[0-9a-f]+:/ { print $2 }'
 }
 # The same predicate as wt_platform_guest_flash_wrp_ok: SFP sealed, every valid
 # descriptor touching the guest windows locked and write-denying, no gap.
@@ -156,7 +130,7 @@ fence_line() {
           deny+=(0)
         fi ;;
     esac
-  done < <(timeout 60 pyocd cmd -t cortex_m "${cmds[@]}" 2>&1 | awk '/^50184/ { print $1, $2, $3, $4, $5 }')
+  done < <(timeout 60 pyocd cmd ${probe_bind[@]+"${probe_bind[@]}"} -t cortex_m "${cmds[@]}" 2>&1 | awk '/^50184/ { print $1, $2, $3, $4, $5 }')
   if [ -z "$mgc" ] || [ -z "$mdad" ] ||
      [ $((0x$mgc & 0xA8000000)) -ne $((0xA8000000)) ] || [ $((0x$mgc & 0xC00)) -eq 0 ] ||
      [ $((0x$mdad & 0xA0000000)) -ne $((0xA0000000)) ]; then
@@ -188,26 +162,27 @@ fence_line() {
   done
   echo "armed $out"
 }
-# The four images run_rt700_hardware.sh flashes, as "address file" lines.
-flashed_images() {
-  printf '%s %s\n' \
-    0x28000000 "${RT700_WORK:-$repo/build/rt700}/flash_wolfboot.bin" \
-    0x28040000 "$repo/build/wolftrust_v1_signed.bin" \
-    0x28080000 "$repo/tests/firmware/mimxrt700-baremetal/build/guest0.bin" \
-    0x28100000 "$repo/tests/firmware/mimxrt700-baremetal/build/guest1.bin"
+# The four images run_hardware.sh flashes, as "address file" lines.
+port_image_files() {
+  printf '%s\n' \
+    "${RT700_WORK:-$repo/logs/mimxrt700-hw/wrpfence-${WT_ENGINE:-native}}/flash_wolfboot.bin" \
+    "$repo/build/wolftrust_v1_signed.bin" \
+    "$repo/tests/firmware/baremetal-guest/build/guest0.bin" \
+    "$repo/tests/firmware/baremetal-guest/build/guest1.bin"
 }
 port_image_digest() { framed_digest; }
 images_on_device() {
   local a f
   while read -r a f; do
-    timeout 120 pyocd cmd -t cortex_m \
+    timeout 120 pyocd cmd ${probe_bind[@]+"${probe_bind[@]}"} -t cortex_m \
       -c "savemem $a $(wc -c < "$f" | tr -d ' ') $state_dir/readback.bin" \
       >/dev/null 2>&1 && cmp -s "$state_dir/readback.bin" "$f" || return 1
   done < <(flashed_images)
 }
-# The one attached debug probe; the EVK's MCU-Link is soldered to the board.
+# The bound probe, else the one attached; the EVK's MCU-Link is soldered to the board.
 probe_uid() {
   local ids
+  if [ -n "${RT700_PROBE_UID:-}" ]; then echo "$RT700_PROBE_UID"; return 0; fi
   ids="$(timeout 30 pyocd list 2>/dev/null | awk '$1 ~ /^[0-9]+$/ { print $(NF-1) }')"
   [ "$(printf '%s\n' "$ids" | grep -c .)" = "1" ] && echo "$ids"
 }
@@ -224,7 +199,7 @@ print("0x%08X" % r["response"][1])' 2>/dev/null
 }
 
 port_status() {
-  local lc lcr lock dauth mgc mdad hl vm rf
+  local lc lcr lock dauth mgc mdad hl
   ensure_spsdk
   read -r lc lcr lock dauth mgc mdad < <(read_words "$LC_STATE" "$LC_STATE_RED" \
     "$LOCK_CFG3" "$DAUTHSTATUS" "$XSPI_MGC" "$XSPI_TG0MDAD" | tr '\n' ' '; echo)
@@ -234,11 +209,7 @@ port_status() {
   echo "XSPI SFP         MGC=0x$mgc TG0MDAD=0x$mdad"
   echo "guest fence      $(fence_line || true)"
   if hl="$(handoff_lifecycle)"; then echo "wolfTrust saw    0x$hl ($(psa_name "$hl"))"; fi
-  if [ -s "$elf" ]; then
-    read -r vm rf < <(read_words "$(elf_sym g_wt_launch_verified_mask)" \
-      "$(elf_sym g_wt_launch_refused_mask)" | tr '\n' ' '; echo)
-    echo "guest launches   verified=0x${vm:-?} refused=0x${rf:-?}"
-  fi
+  launch_status
 }
 port_discover() {
   local lc lcr lock dauth hl
@@ -260,12 +231,12 @@ port_discover() {
   pass "fused life cycle is $(label "$(lc_hex "0x$lc")") and its redundant copy agrees"
   [ $((0x$lock & 2)) -eq 0 ] || fail "discover" "LIFE_CYCLE_LOCK over-ride protect is set (0x$lock)"
   pass "life cycle shadow over-ride is open (LOCK_CFG3 0x$lock)"
-  hl="$(handoff_lifecycle)" || fail "discover" "no readable boot handoff: run tests/target/run_rt700_hardware.sh first"
+  hl="$(handoff_lifecycle)" || fail "discover" "no readable boot handoff: run tests/target/run_hardware.sh mimxrt700 positive first"
   pass "the boot handoff life cycle is readable (0x$hl, $(psa_name "$hl"))"
   printf 'LC=0x%s RED=0x%s LOCK_CFG3=0x%s DAUTH=0x%s\n' "$lc" "$lcr" "$lock" "$dauth" > "$state_dir/discovery"
   echo "PASS: discovery stamped ($state_dir/discovery)"
 }
-port_restore() { "$target_dir/run_rt700_hardware.sh" wrpfence; }
+port_restore() { WT_HW_PROBE="${RT700_PROBE_UID:-${WT_HW_PROBE:-}}" "$target_dir/run_hardware.sh" mimxrt700 wrpfence; }
 port_extra() {
   local line
   case "$1" in
@@ -298,7 +269,7 @@ port_advance() {
     fail "advance" "no wolfBoot reset vector at 0x28004004 (flash the chain first)"
   echo "ADVANCING the life cycle shadow to $1 ($(state_name "$1")); regress or any reset undoes it"
   "$spsdk_py" - "0x$entry" "$1" "$LC_STATE" "$LC_STATE_RED" "$pyocd_target" \
-    "$vm" "$rf" 0x30180000 <<'PYEOF'
+    "$vm" "$rf" 0x30180000 "${RT700_PROBE_UID:-}" <<'PYEOF'
 import sys
 import time
 from pyocd.core.helpers import ConnectHelper
@@ -307,6 +278,7 @@ from pyocd.core.target import Target
 WOLFBOOT_TEXT = (0x28004000, 0x28040000)
 entry, value, lc, lc_red = (int(a, 0) for a in sys.argv[1:5])
 with ConnectHelper.session_with_chosen_probe(
+        unique_id=sys.argv[9] or None,
         options={"target_override": sys.argv[5], "resume_on_disconnect": True,
                  "reset_type": "hw"}) as s:
     t = s.target
@@ -344,29 +316,9 @@ PYEOF
 # The rehearsal evidence: the life cycle wolfTrust saw, every guest launched
 # verified, the fence, the images read back, and the one attached probe.
 port_booted() {
-  local hl want vm rf fence digest probe
+  local fence digest probe
   # advance cleared the handoff and the launch masks, so both are this boot's.
-  hl="$(handoff_lifecycle)" || { echo "no boot handoff written after the advance"; return 1; }
-  echo "wolfTrust saw 0x$hl ($(psa_name "$hl"))"
-  case " $(expect_psa "$1") " in
-    *" $hl "*) pass "wolfTrust booted with the $(state_name "$1") life cycle" ;;
-    *) echo "wolfTrust saw 0x$hl, not the life cycle of $1"; return 1 ;;
-  esac
-  # In Field Return is decommissioned: wolfTrust need not launch guests there.
-  if [ "$1" != "0x1F" ]; then
-    want=$((guest_mask))
-    for _ in 1 2 3 4 5 6 7 8 9 10; do
-      read -r vm rf < <(read_words "$(elf_sym g_wt_launch_verified_mask)" \
-        "$(elf_sym g_wt_launch_refused_mask)" | tr '\n' ' '; echo)
-      [ -n "${vm:-}" ] && [ $(((0x$vm | 0x${rf:-0}) & want)) -eq "$want" ] && break
-      sleep 1
-    done
-    [ -n "${vm:-}" ] && [ $((0x$vm)) -eq "$want" ] && [ $((0x${rf:-1})) -eq 0 ] || {
-      echo "guests did not all launch (verified=0x${vm:-?} refused=0x${rf:-?}, want $guest_mask)"
-      return 1
-    }
-    pass "guests launched (verified=0x$vm refused=0x$rf)"
-  fi
+  booted_with_guests "$1" || return 1
   fence="open"
   if fence_line >/dev/null; then fence="armed"; fi
   digest="$(port_image_digest)" || { echo "missing a flashed image"; return 1; }
@@ -376,26 +328,16 @@ port_booted() {
   EVIDENCE="id=$probe image=$digest fused=$(fused_lc) fence=$fence"
 }
 port_regress() {
-  local fused lc lcr hl
+  local fused lc lcr
   ensure_spsdk
-  timeout 60 pyocd reset -t "$pyocd_target" -m hw >/dev/null 2>&1 || true
-  "$target_dir/lib/rt700_reset.sh" reset
+  timeout 60 pyocd reset ${probe_bind[@]+"${probe_bind[@]}"} -t "$pyocd_target" -m hw >/dev/null 2>&1 || true
+  "$target_dir/ports/mimxrt700/reset.sh" reset
   sleep 3
   fused="$(fused_lc || echo "$LC_DEVELOP")"
   read -r lc lcr < <(read_words "$LC_STATE" "$LC_STATE_RED" | tr '\n' ' '; echo)
   [ "$(lc_hex "0x$lc")" = "$fused" ] && [ "$(lc_hex "0x$lcr")" = "$fused" ] ||
     fail "regress" "life cycle after reset is 0x$lc/0x$lcr, not the fused $fused (run discover)"
-  pass "hardware reset reloaded the fused $(state_name "$fused") life cycle"
-  hl="$(handoff_lifecycle)" || fail "regress" "cannot read the life cycle wolfTrust saw after the reset"
-  case " $(expect_psa "$fused") " in
-    *" $hl "*) pass "wolfTrust booted $(psa_name "$hl") again" ;;
-    *) fail "regress" "wolfTrust saw 0x$hl after regress" ;;
-  esac
-  # Only a regress out of a recorded mock proves the way back for later steps.
-  if [ -n "$PENDING" ]; then
-    mkdir -p "$state_dir"
-    date -u +%FT%TZ > "$state_dir/regress-ok"
-  fi
+  regress_booted_fused "$fused"
 }
 
 port_cred_fp() { echo none; }

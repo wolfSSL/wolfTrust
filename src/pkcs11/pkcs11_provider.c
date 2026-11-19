@@ -30,6 +30,25 @@ static CK_RV provider_backend_mechanism_info(CK_SLOT_ID slot,
     return C_GetMechanismInfo(slot, mechanism, info);
 }
 
+/* PIN accounting needs session, token and library state even when the
+ * profile drops the exported info calls. */
+static CK_RV provider_backend_session_info(CK_SESSION_HANDLE session,
+    CK_SESSION_INFO_PTR info)
+{
+    return C_GetSessionInfo(session, info);
+}
+
+static CK_RV provider_backend_token_info(CK_SLOT_ID slot,
+    CK_TOKEN_INFO_PTR info)
+{
+    return C_GetTokenInfo(slot, info);
+}
+
+static CK_RV provider_backend_info(CK_INFO_PTR info)
+{
+    return C_GetInfo(info);
+}
+
 #define WT_PKCS11_PROVIDER_BUILD
 #include "wolftrust/crypto_profile.h"
 
@@ -553,7 +572,7 @@ static CK_RV provider_pin_counter(CK_SESSION_HANDLE session, int set_pin,
 
     *failures = NULL;
     (void)memset(info, 0, sizeof(*info));
-    rv = C_GetSessionInfo(session, info);
+    rv = provider_backend_session_info(session, info);
     if (rv == CKR_OK) {
         so = (set_pin != 0) ? (info->state == CKS_RW_SO_FUNCTIONS) :
                               (user == CKU_SO);
@@ -626,7 +645,7 @@ static CK_RV provider_login(CK_SESSION_HANDLE session, CK_USER_TYPE user,
 
     if (rv == CKR_OK && *failures >= WT_PKCS11_PIN_MAX_FAILURES) {
         (void)memset(&token, 0, sizeof(token));
-        rv = C_GetTokenInfo(info.slotID, &token);
+        rv = provider_backend_token_info(info.slotID, &token);
         if (rv != CKR_OK || provider_login_tests_pin(&info, &token, user,
                                                      pin, pin_len) != 0) {
             rv = CKR_PIN_LOCKED;
@@ -650,7 +669,7 @@ static CK_RV provider_set_pin(CK_SESSION_HANDLE session,
 
     if (rv == CKR_OK && *failures >= WT_PKCS11_PIN_MAX_FAILURES) {
         (void)memset(&token, 0, sizeof(token));
-        rv = C_GetTokenInfo(info.slotID, &token);
+        rv = provider_backend_token_info(info.slotID, &token);
         if (rv != CKR_OK || provider_set_pin_tests_pin(&info, &token,
                 old_pin, old_len, new_pin, new_len) != 0) {
             rv = CKR_PIN_LOCKED;
@@ -672,7 +691,7 @@ static CK_RV provider_init_pin(CK_SESSION_HANDLE session, CK_UTF8CHAR_PTR pin,
 
     if (rv == CKR_OK) {
         (void)memset(&info, 0, sizeof(info));
-        if (C_GetSessionInfo(session, &info) == CKR_OK) {
+        if (provider_backend_session_info(session, &info) == CKR_OK) {
             failures = provider_pin_failures(info.slotID, 0);
         }
         if (failures != NULL) {
@@ -691,7 +710,7 @@ static CK_RV provider_init_token(CK_SLOT_ID slot, CK_UTF8CHAR_PTR pin,
 
     if (failures == NULL || *failures >= WT_PKCS11_PIN_MAX_FAILURES) {
         (void)memset(&info, 0, sizeof(info));
-        rv = C_GetTokenInfo(slot, &info);
+        rv = provider_backend_token_info(slot, &info);
         if (rv == CKR_OK && failures == NULL) {
             rv = CKR_FUNCTION_FAILED;
         }
@@ -722,7 +741,7 @@ static void provider_pin_finalized(void)
 #ifdef WOLFPKCS11_NO_STORE
     CK_INFO info;
 
-    if (C_GetInfo(&info) == CKR_CRYPTOKI_NOT_INITIALIZED) {
+    if (provider_backend_info(&info) == CKR_CRYPTOKI_NOT_INITIALIZED) {
         wt_forceZero(g_provider_pin, sizeof(g_provider_pin));
     }
 #endif

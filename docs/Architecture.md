@@ -9,9 +9,9 @@ enforce that policy.
 
 Two architecture ports run the same policy and service code. The Armv8-M
 adapter with the STM32H563 port is the reference implementation validated on
-hardware; it runs one or two Non-secure guests on one Cortex-M33 and exposes
-Secure services through FF-M IPC. TPM and PKCS#11 run directly in Secure
-partitions and need only the application guest. The AArch64 adapter replaces Trusted
+hardware; its default configuration runs one Non-secure guest on one
+Cortex-M33 (two with `WT_MAX_GUESTS=2`, as the `full` build profile does) and
+exposes Secure services through FF-M IPC. The AArch64 adapter replaces Trusted
 Firmware-A on Cortex-A and is validated under QEMU; see
 [AArch64 architecture](#aarch64-architecture). The boot flow, isolation, and
 scheduling sections below describe the Armv8-M reference port.
@@ -21,9 +21,9 @@ scheduling sections below describe the Armv8-M reference port.
 | Layer | Role |
 | --- | --- |
 | wolfBoot | Performs the BL2 secure-boot role, authenticates wolfTrust, passes the measured-boot handoff, and swaps authenticated update images. |
-| wolfTrust | Configures isolation, validates the manifest and guest images, schedules guests and Secure Partitions, implements FF-M IPC, and manages lifecycle and recovery. |
-| wolfPSA | Implements PSA Crypto entry points over wolfCrypt for the Non-secure reference guests. |
-| wolfCrypt | Supplies cryptographic implementations used by guest wolfPSA and Secure services. The native engine dispatches it directly. |
+| wolfTrust | Configures isolation, validates the manifest at build time and the guest images at boot, schedules guests and Secure Partitions, implements FF-M IPC, and manages lifecycle and recovery. |
+| wolfPSA | Implements PSA Crypto entry points over wolfCrypt: in the crypto partition by default (`WT_SECURE_PSA=1`), or in the Non-secure guests with `WT_SECURE_PSA=0` or the wolfHSM engine. |
+| wolfCrypt | Supplies cryptographic implementations used by wolfPSA and Secure services. The native engine dispatches it directly and, by default, backs wolfPSA in the crypto partition. |
 | wolfHSM | Optional crypto engine providing the client/server key-management model and external-HSM integration path. Both engines use its NVM object-store subset. |
 | wolfCOSE | Encodes and signs COSE_Sign1 attestation tokens. |
 | wolfIP | Supplies the TCP/IP stack for the optional bare-metal reference guests; the Secure virtual Ethernet switch itself is implemented by wolfTrust. |
@@ -53,17 +53,22 @@ ports are `port/qemuvirt/`, `port/versal/`, and the shared
    containing the Secure image measurement, lifecycle, and active image
    version.
 2. wolfTrust configures the target's TrustZone, GTZC, Secure MPU, interrupt,
-   and memory policies; validates and binds the generated manifest; registers
+   and memory policies; binds the generated manifest, which the build has
+   already validated against the port's capabilities; registers
    the FF-M services; seeds each guest context; and performs an initial
    signed-record, image-size, manifest-version, digest, and optional WRP check.
 3. wolfTrust consumes the measured-boot handoff, initializes the selected
    [crypto engine](Crypto-Engines.md) and shared persistent vault backend, and
    checks the persistent Secure-image and guest version floors.
-4. wolfTrust starts the scheduled Secure Partitions.
-5. Immediately before an accepted guest's first dispatch, the monitor repeats
-   its signed-record, image-size, manifest-version, digest, and optional WRP
-   checks, then installs that guest's active GTZC, Non-secure MPU, and interrupt
-   policy.
+4. wolfTrust starts the scheduled Secure Partitions, runs each one from its
+   entry point to its first wait, and drains partition-to-partition IPC until
+   all are idle. A partition that faults, or stops anywhere but `psa_wait`,
+   refuses boot.
+5. Before an accepted guest's first dispatch, the monitor installs that
+   guest's active GTZC, Non-secure MPU, and interrupt policy. With two guests
+   (`WT_MAX_GUESTS=2`) it first repeats its signed-record, image-size,
+   manifest-version, digest, and optional WRP checks, because the other guest
+   may have run in between.
 6. The monitor begins time-sliced Non-secure execution.
 
 The image assembly and signing order matters: guest records are patched into
@@ -117,8 +122,16 @@ guest API
 ```
 
 The gateway never accepts a caller ID from the guest. It derives guest
-`N` as PSA client ID `-(N + 1)`. Handles carry ownership and
-generation state, and the SPM rejects stale, cross-owner, or invalid
+`N` as PSA client ID `-(N + 1)`. The connect, call, and close veneers mask every
+Non-secure exception (Secure `BASEPRI` at the Non-secure priority floor) for
+the length of the entry, so a guest handler cannot re-enter the FF-M core
+mid-call; the Secure timer, Secure interrupts, and faults stay above the mask.
+The caller's Non-secure interrupts, its SysTick and PendSV included, wait for
+the call to return, so a long FF-M call (a large crypto operation, for one)
+adds its length to that guest's interrupt latency.
+An entry that still arrives while another is in flight means that mask failed,
+and the gateway stops the system rather than re-enter the core. Handles carry
+ownership and generation state, and the SPM rejects stale, cross-owner, or invalid
 transitions.
 
 The link step runs `arm-none-eabi-nm` and requires exactly five
@@ -152,11 +165,21 @@ the port's fail-closed path.
 
 ## Guests and lifecycle
 
-The monitor time-slices the configured Non-secure guests. A guest fault masks
-its interrupts and applies the restart policy. If restart is allowed, wolfTrust
-clears restart-marked RAM and restores a clean context after a bounded delay; if
-the budget is exhausted, the guest remains faulted. Runtime remeasurement can
-also quarantine a guest without entering it.
+The monitor time-slices the configured Non-secure guests. The Secure SysTick,
+PendSV, and Secure interrupts run at a priority above the Non-secure range
+(`AIRCR.PRIS` set), so Non-secure `PRIMASK`, `BASEPRI`, or `FAULTMASK` cannot
+stop the slice, and each guest's masks are saved and restored with its context.
+A guest that stays in a Non-secure handler for `WT_GUEST_HANDLER_SLICE_LIMIT`
+consecutive slices, counting Secure calls it makes from that handler, is
+restarted under its policy, and its Non-secure system handler activations are
+cleared. Armv8-M keeps an external interrupt's active bit read-only, so an
+external IRQ the guest abandoned is retired by an exception return on the next
+exit to a guest whose `FAULTMASK_NS` is clear; until then it can hold off
+Non-secure interrupts of equal or lower priority. A guest fault clears the
+same handler state, masks its interrupts and applies the restart policy. If
+restart is allowed, wolfTrust clears restart-marked RAM and restores a clean
+context after a bounded delay; if the budget is exhausted, the guest remains
+faulted. Runtime remeasurement can also quarantine a guest without entering it.
 
 When no guest is runnable but recovery is pending, the monitor idles in
 Secure Thread mode so Secure SysTick can finish the backoff. It halts only

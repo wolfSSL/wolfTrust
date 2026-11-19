@@ -55,8 +55,15 @@
  * NO_STDLIB_H and NO_STRING_H keep the freestanding Cortex-M build
  * independent of libc headers; the linked local stubs provide these calls.
  * ---------------------------------------------------------------------- */
-#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+/* Both copies keep one struct layout; only the PKCS#11 provider's copy reaches
+ * its partition's heap, and the Secure copy's allocator fails closed. */
+#if defined(WT_PKCS11_PROVIDER_HEAP)
 #define XMALLOC_USER
+#elif defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#define XMALLOC_OVERRIDE
+#define XMALLOC(s, h, t)     ((void)(s), (void)(h), (void)(t), (void*)NULL)
+#define XFREE(p, h, t)       do { (void)(p); (void)(h); (void)(t); } while (0)
+#define XREALLOC(p, n, h, t) ((void)(p), (void)(n), (void)(h), (void)(t), (void*)NULL)
 #else
 #define NO_WOLFSSL_MEMORY
 #define WOLFSSL_NO_MALLOC
@@ -226,10 +233,22 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
 #define NO_CODING       /* base-64 encode/decode not needed                */
 #define NO_ASN_TIME     /* no RTC on secure side                           */
 
+/* The native engine signs and verifies raw r||s and imports raw keys, so it
+ * links no ASN.1; the hsm engine and the TPM and PKCS#11 providers need DER. */
+#if defined(WT_ENGINE_NATIVE) && !defined(CONFIG_TPM) && !defined(CONFIG_PKCS11)
+#define NO_ASN
+/* Native AES is GCM only, which runs the block cipher forward for both seal
+ * and unseal, so the inverse key schedule and decrypt tables are dead code. */
+#define NO_AES_DECRYPT
+#define HAVE_AESGCM_DECRYPT
+#endif
+
 /* -------------------------------------------------------------------------
  * Explicitly keep side-channel hardening ON (WC_NO_HARDEN is left
  * undefined).  The constant-time ECC ladder costs a few extra cycles but
  * is mandatory for a hardware security module.
  * ---------------------------------------------------------------------- */
+
+#include "secure_psa_profile.h"
 
 #endif /* WOLFTRUST_SECURE_USER_SETTINGS_H */

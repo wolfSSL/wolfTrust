@@ -102,6 +102,15 @@ Pending recovery keeps the Secure timer running even when no peer is runnable.
 The monitor leaves the fault handler and waits in Secure Thread mode; a fully
 faulted or stopped guest set remains terminal.
 
+The default build runs one guest (`WT_MAX_GUESTS=1`), and two fault checks
+exist only to protect a peer, so that build leaves them out. With two guests,
+a guest that returns to Thread mode with a Non-secure interrupt still active is
+restarted with `WT_FAULT_IRQ_LEFT_ACTIVE`, and any system handler it left
+active is dropped before the switch, so it cannot hold off the other guest's
+interrupts. With one guest there is no other guest to hold off: the guest only
+stalls its own interrupts, the Secure timer still preempts it, and the handler
+overrun limit still applies.
+
 ## Secure Partition isolation
 
 Every shipped service loop runs as a scheduled unprivileged Secure coroutine.
@@ -121,9 +130,9 @@ token state and holds no key material, obtaining every signature and the IAK
 public key from `SERVICE_HSM`'s attestation door. Each door client is
 confined to its door: the crypto partition's other vault requests and any
 Secure Partition's call on `SERVICE_HSM`'s ordinary crypto wire return
-`PSA_ERROR_NOT_PERMITTED`. The manifest generator and
-the runtime domain validator both refuse a level 3 manifest that shares a
-writable resource between partitions, so the split cannot regress silently.
+`PSA_ERROR_NOT_PERMITTED`. The manifest generator refuses a level 3 manifest
+that shares a writable resource between partitions, so the split cannot regress
+silently; `WT_MANIFEST_RUNTIME_CHECK=1` repeats that check at boot.
 The keystore door hands the crypto partition the key objects it asks for.
 That is an IPC contract between two partitions, not shared memory.
 
@@ -192,8 +201,9 @@ frames it stacks itself.
 
 ### SPM stack limit and fault attribution
 
-The Secure main stack has a fixed size (`WT_SPM_STACK_SIZE`, 16 KiB), reserved
-by the linker below `_estack`; the link fails if `.bss` reaches it. Reset sets
+The Secure main stack has a fixed size (`WT_SPM_STACK_SIZE`, 4 KiB; its peak
+measured on M33MU is about 1.9 KiB), reserved by the linker below `_estack`;
+the link fails if `.bss` reaches it. Reset sets
 `MSPLIM_S` to its bottom right after MSP is placed under the seal words, and
 boot refuses to continue unless the limit reads back. An SPM stack overflow
 raises `UsageFault.STKOF` on the main stack; the handler halts the platform on
@@ -272,11 +282,21 @@ packet. In the native engine the same SPM-stamped identity becomes the vault
 key namespace's delegated sub-owner. A client-provided communication ID
 therefore cannot select another guest's key namespace in either engine.
 
-The native reference guests normally run wolfPSA and wolfCrypt locally. Their
-ordinary volatile PSA keys therefore live in Non-secure guest RAM; only DRBG
-seed requests and explicit native-wire vault-key requests cross the Secure
-boundary. In the hsm engine, supported guest PSA operations and their private
-key state are routed to the Secure wolfHSM server.
+By default (`WT_SECURE_PSA=1`) the native engine runs wolfPSA in the crypto
+partition, so PSA key state, operation state and internal intermediate secrets
+stay in Secure memory. APIs whose contract returns secret material, such as
+`psa_export_key()` of an exportable key, `psa_raw_key_agreement()` and
+`psa_key_derivation_output_bytes()`, still copy that output to the
+Non-secure caller. Keys and operations are bound to the SPM-stamped client ID, handles
+carry a per-boot nonce, and persistent key IDs are namespaced per client and
+limited to the user range. A replacement image in the same guest slot owns
+that slot's persistent keys, matching TF-M's client-ID ownership.
+
+With the `WT_SECURE_PSA=0` opt-out the native guests run wolfPSA and wolfCrypt
+locally. Their ordinary volatile PSA keys then live in Non-secure guest RAM;
+only DRBG seed requests and explicit native-wire vault-key requests cross the
+Secure boundary. In the hsm engine, supported guest PSA operations and their
+private key state are routed to the Secure wolfHSM server.
 
 The hsm engine's guest-facing relay rejects wolfHSM NVM message groups. The
 native request format exposes no general NVM operation. Guests can use the
@@ -340,8 +360,9 @@ At boot, after initial guest-image validation and before any guest executes,
 wolfTrust checks the persistent Secure-image and recorded-guest version floors.
 Versions that pass the rollback check advance those floors.
 
-During initial validation, immediately before a guest's first dispatch, and
-again after a restart, wolfTrust:
+During initial validation and again after a restart (and, with
+`WT_MAX_GUESTS=2`, immediately before each guest's first dispatch, because the
+other guest may have run in between), wolfTrust:
 
 - locates the guest's signed record;
 - rejects an empty or out-of-window image size;

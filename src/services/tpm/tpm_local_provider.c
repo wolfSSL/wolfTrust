@@ -45,7 +45,7 @@ int wt_tpm_local_provider_init(void** context)
     return rc;
 }
 
-int wt_tpm_local_provider_process(const uint8_t* command,
+int wt_tpm_local_provider_process(uint8_t* command,
                                   size_t command_len,
                                   uint8_t* response,
                                   size_t response_cap,

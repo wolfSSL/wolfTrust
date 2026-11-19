@@ -49,7 +49,7 @@ _SRCS := \
 	$(WOLFTPM)/src/tpm2_util.c \
 	main.c
 
-_OBJS := $(addprefix $(BUILD_DIR)/,tpm_psa_transport.o tpm2.o tpm2_util.o main.o)
+_OBJS := $(addprefix $(BUILD_DIR)/,msg_client.o tpm_psa_transport.o tpm2.o tpm2_util.o main.o)
 TEST_BIN := $(BUILD_DIR)/test_tpm_client
 
 .PHONY: all run compilers sanitize valgrind clean
@@ -60,6 +60,9 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 $(BUILD_DIR)/tpm_psa_transport.o: $(ROOT)/src/client/tpm_psa_transport.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/msg_client.o: $(ROOT)/src/client/msg_client.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/tpm2.o: $(WOLFTPM)/src/tpm2.c | $(BUILD_DIR)

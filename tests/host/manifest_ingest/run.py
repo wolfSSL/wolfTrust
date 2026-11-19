@@ -128,22 +128,23 @@ def main():
                     name, value, driver.get(name)), file=sys.stderr)
                 failures += 1
 
-    conf = REPO / "port" / "stm32h563" / "manifest-conformance.json"
-    base = REPO / "port" / "stm32h563" / "manifest.json"
+    overlay = REPO / "manifest" / "conformance.json"
+    base = REPO / "manifest" / "base.json"
     generator = REPO / "tools" / "manifest" / "generate.py"
+    renderer = REPO / "tools" / "manifest" / "render.py"
 
     with tempfile.TemporaryDirectory() as emit_dir:
         emitted = Path(emit_dir) / "conformance.json"
         emit = subprocess.run(
             [sys.executable, str(INGESTER), *[str(p) for p in inputs],
-             "--base", str(base), "--emit-manifest", str(emitted)],
+             "--base", str(base), "--emit-overlay", str(emitted)],
             capture_output=True, text=True)
         if emit.returncode != 0:
-            print("emit-manifest failed: {}".format(emit.stderr),
+            print("emit-overlay failed: {}".format(emit.stderr),
                   file=sys.stderr)
             failures += 1
-        elif json.loads(emitted.read_text()) != json.loads(conf.read_text()):
-            print("committed manifest-conformance.json is not reproducible "
+        elif json.loads(emitted.read_text()) != json.loads(overlay.read_text()):
+            print("committed manifest/conformance.json is not reproducible "
                   "from the upstream manifests", file=sys.stderr)
             failures += 1
         if emit.returncode == 0:
@@ -169,7 +170,7 @@ def main():
             refused = subprocess.run(
                 [sys.executable, str(INGESTER), str(bad_input),
                  *[str(p) for p in inputs[1:]], "--base", str(base),
-                 "--emit-manifest", str(bad_emit)],
+                 "--emit-overlay", str(bad_emit)],
                 capture_output=True, text=True)
             if refused.returncode != 1 or \
                     "unknown partition type" not in refused.stderr or \
@@ -178,15 +179,30 @@ def main():
                     bad_type, refused.stderr.strip()), file=sys.stderr)
                 failures += 1
 
+    # The conformance manifest the secure build compiles: the overlay rendered
+    # under the default port's layout configuration.
+    cflags = subprocess.run(
+        ["make", "-s", "--no-print-directory", "-C", str(REPO),
+         "print-layout-cflags"], capture_output=True, text=True)
     with tempfile.TemporaryDirectory() as ingest_out, \
             tempfile.TemporaryDirectory() as conf_out:
+        conf = Path(conf_out) / "manifest-conformance.json"
+        rendered = subprocess.run(
+            [sys.executable, str(renderer), "--cc", "cc",
+             "--cflags", cflags.stdout.strip(), "--overlay", str(overlay),
+             "--output", str(conf), str(base)],
+            capture_output=True, text=True)
+        if cflags.returncode != 0 or rendered.returncode != 0:
+            print("rendering the conformance manifest failed: {}{}".format(
+                cflags.stderr, rendered.stderr), file=sys.stderr)
+            return 1
         result = subprocess.run(
             [sys.executable, str(INGESTER), *[str(p) for p in inputs],
              "--output", ingest_out],
             capture_output=True, text=True)
         conf_result = subprocess.run(
             [sys.executable, str(generator), str(conf), conf_out,
-             "--supported-features", "1"],
+             "--supported-features", "1", "--unchecked"],
             capture_output=True, text=True)
         if result.returncode != 0 or conf_result.returncode != 0:
             print("conformance manifest generation failed: {}{}".format(

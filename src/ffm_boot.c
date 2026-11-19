@@ -34,6 +34,16 @@
 #endif
 #include "psa_manifest/pid.h"
 
+/* The manifest carries the update partition exactly when WT_FWU builds it;
+ * the conformance manifest never does. */
+#if defined(PARTITION_FWU_ID) && !defined(WT_FWU)
+#error "the manifest declares PARTITION_FWU but WT_FWU is off"
+#endif
+#if defined(WT_FWU) && !defined(PARTITION_FWU_ID) && \
+    !(defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1))
+#error "WT_FWU=1 but the manifest has no PARTITION_FWU"
+#endif
+
 static wt_ffm_runtime_t g_ffm_runtime;
 
 /* WT-FFM-0012: the SPM validates every external memory reference before
@@ -267,14 +277,10 @@ int wt_ffm_boot_start_sched(void)
         ret = wt_spm_vnet_start(&g_ffm_runtime, PARTITION_VNET_ID);
     }
 #endif
-#ifdef PARTITION_TPM_ID
+#if defined(WT_INTERFACE_PARTITION_ID)
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_tpm_start(&g_ffm_runtime, PARTITION_TPM_ID);
-    }
-#endif
-#ifdef PARTITION_PKCS11_ID
-    if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_pkcs11_start(&g_ffm_runtime, PARTITION_PKCS11_ID);
+        ret = wt_spm_interface_start(&g_ffm_runtime,
+                                     WT_INTERFACE_PARTITION_ID);
     }
 #endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
@@ -325,16 +331,15 @@ int wt_ffm_boot_start_sched(void)
 #endif
     }
 #endif
-#if defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)
+#if !defined(WT_SP_LAZY_FIRST_ENTRY)
     if (ret == WT_FFM_SUCCESS) {
-        wt_spm_sched_prime(PARTITION_HSM_ID);
-        wt_spm_sched_prime(PARTITION_TPM_ID);
+        ret = wt_spm_sched_start_all();
     }
 #endif
-#if defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1)
+#if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
     if (ret == WT_FFM_SUCCESS) {
         wt_spm_sched_prime(PARTITION_HSM_ID);
-        wt_spm_sched_prime(PARTITION_PKCS11_ID);
+        wt_spm_sched_prime(WT_INTERFACE_PARTITION_ID);
     }
 #endif
     return ret;

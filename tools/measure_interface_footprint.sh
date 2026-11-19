@@ -20,67 +20,76 @@
 
 # Run in the M33MU CI image after initializing dependencies and FreeRTOS.
 set -euo pipefail
+
+# Secure image and application sizes of the PSA, TPM 2.0 and PKCS#11 builds on
+# every registered port and engine, in the layout the emulator runs use.
+#   tools/measure_interface_footprint.sh [out-dir]
 root="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$root"
-out="${1:-$root/build/interface-footprint}"
+out="${1:-$root/interface-footprint}"
 mkdir -p "$out"
 out="$(cd "$out" && pwd)"
-export FREERTOS_DIR="${FREERTOS_DIR:-$root/tests/firmware/zephyr-stm32h5/.workspace/freertos}"
-export WT_CRYPTO_PROFILE="${WT_CRYPTO_PROFILE:-default}"
-export WT_LTO="${WT_LTO:-1}"
-# Footprint results always use production PIN settings, including in CI.
+# Every cell rebuilds build/ from scratch, so the results must live elsewhere.
+case "$out/" in
+    "$root/build/"*) echo "Refusing an output directory under build/: $out" >&2; exit 1 ;;
+esac
+export WT_INTERFACE_PROFILE="${WT_INTERFACE_PROFILE:-default}"
 if [ -n "${WT_PKCS11_TEST_PBKDF2_ITERATIONS:-}" ]; then
     echo 'Refusing footprint measurement with emulator-only PIN settings' >&2
     exit 1
 fi
-export WT_SECURE_FLASH_BASE=0x0C060000 WT_SECURE_FLASH_SIZE=0x40000
-export WT_MAX_GUESTS=1
-printf 'api,engine,role,text,data,bss,flash\n' > "$out/sizes.csv"
+matrix="$root/tests/target/lib/scenario_matrix.py"
+
+printf 'port,api,engine,role,flash,ram\n' > "$out/sizes.csv"
 {
     git rev-parse HEAD
-    git diff --stat HEAD --ignore-submodules=all
     git status --porcelain --ignore-submodules=all
     git ls-tree HEAD lib/
-    git -C "$FREERTOS_DIR" rev-parse HEAD
     arm-none-eabi-gcc --version | head -1
-    printf 'profile=%s lto=%s guests=%s\n' "$WT_CRYPTO_PROFILE" "$WT_LTO" "$WT_MAX_GUESTS"
+    printf 'profile=%s\n' "$WT_INTERFACE_PROFILE"
 } > "$out/configuration.txt"
-record()
-{
-    local text data bss rest
-    read -r text data bss rest < <(arm-none-eabi-size "$4" | tail -1)
-    arm-none-eabi-nm -S --size-sort "$4" > "$4.symbols.txt"
-    arm-none-eabi-size -A -d "$4" > "$4.sections.txt"
-    printf '%s,%s,%s,%s,%s,%s,%s\n' "$1" "$2" "$3" "$text" "$data" "$bss" "$((text + data))" >> "$out/sizes.csv"
-}
-for WT_ENGINE in native hsm; do
-    export WT_ENGINE
-    for api in psa pkcs11 tpm; do
-        secure="$out/$api-$WT_ENGINE-secure"
-        config=(CONFIG_PKCS11=n CONFIG_TPM=n)
-        case "$api" in
-            pkcs11) config=(CONFIG_PKCS11=y CONFIG_TPM=n) ;;
-            tpm) config=(CONFIG_TPM=y CONFIG_PKCS11=n) ;;
-        esac
-        echo "BUILD $api $WT_ENGINE"
-        make -j"${JOBS:-4}" TARGET=stm32h563 BUILD_DIR="$secure" \
-            "${config[@]}" secure-image > "$out/$api-$WT_ENGINE-secure.log" 2>&1
-        record "$api" "$WT_ENGINE" secure "$secure/wolftrust.elf"
-        export SECURE_CMSE_IMPLIB="$secure/secure_cmse_implib.o"
-        export BUILD_DIR="$out/$api-$WT_ENGINE-app"
-        mkdir -p "$BUILD_DIR"
-        if [ "$api" = psa ]; then
-            WT_GUEST1_FLASH_BASE=0x080A0000 WT_GUEST1_RAM_BASE=0x20000000 \
-                WT_WOLFHSM_CLIENT_ID=1 WT_FREERTOS_OTHER_RAM_BASE=0x20010000 \
-                bash tests/firmware/zephyr-stm32h5/scripts/build_freertos_guest.sh > "$BUILD_DIR/build.log" 2>&1
-            record "$api" "$WT_ENGINE" app "$BUILD_DIR/freertos_guest1.elf"
-        else
-            export WT_PKCS11_SUITE=all
-            [ "$WT_CRYPTO_PROFILE" != default ] || export WT_PKCS11_SUITE=profile
-            bash "tests/firmware/stm32h563-tpm/scripts/build_freertos_$api.sh" > "$BUILD_DIR/build.log" 2>&1
-            record "$api" "$WT_ENGINE" app "$BUILD_DIR/guest0.elf"
 
-        fi
+flash()
+{
+    local text data rest
+    read -r text data rest < <(arm-none-eabi-size "$1" | tail -1)
+    echo "$((text + data))"
+}
+
+# Each port builds in the layout its emulator run uses (tests/target/ports).
+layout='here="$PWD/tests/target"; repo="$PWD"; . "$here/ports/$1/m33mu.sh"; port_layout_env; shift; exec "$@"'
+for port in $(python3 "$matrix" --list-ports); do
+    for engine in $(python3 "$matrix" --port "$port" --get build.engines); do
+        for api in psa tpm pkcs11; do
+            config=()
+            case "$api" in
+                tpm) config=(CONFIG_TPM=y) ;;
+                pkcs11) config=(CONFIG_PKCS11=y) ;;
+            esac
+            cell="$port-$api-$engine"
+            echo "BUILD $cell"
+            rm -rf build
+            bash -c "$layout" _ "$port" env "${config[@]}" WT_ENGINE="$engine" \
+                make -j"${JOBS:-4}" TARGET="$port" secure-image \
+                > "$out/$cell-secure.log" 2>&1
+            cp build/wolftrust.elf "$out/$cell-secure.elf"
+            ram=$(python3 tools/secure_ram.py build/wolftrust.map |
+                sed -n 's/^Reserved Secure RAM: \([0-9]*\) bytes$/\1/p')
+            printf '%s,%s,%s,secure,%s,%s\n' "$port" "$api" "$engine" \
+                "$(flash build/wolftrust.elf)" "$ram" >> "$out/sizes.csv"
+            guest=interface-guest
+            [ "$api" != psa ] || guest=psa-guest
+            make -C "tests/firmware/$guest" TARGET="$port" clean > /dev/null
+            bash -c "$layout" _ "$port" env "${config[@]}" WT_ENGINE="$engine" \
+                make -C "tests/firmware/$guest" TARGET="$port" \
+                WT_INTERFACE="$api" build/guest0.bin \
+                > "$out/$cell-app.log" 2>&1
+            elf="tests/firmware/$guest/build/guest0.elf"
+            cp "$elf" "$out/$cell-app.elf"
+            printf '%s,%s,%s,app,%s,\n' "$port" "$api" "$engine" \
+                "$(flash "$elf")" >> "$out/sizes.csv"
+        done
     done
 done
-cat "$out/sizes.csv"
+python3 tools/check_interface_footprint.py "$out/sizes.csv" \
+    ${WT_INTERFACE_MAX_OVERHEAD:+--max-overhead "$WT_INTERFACE_MAX_OVERHEAD"}

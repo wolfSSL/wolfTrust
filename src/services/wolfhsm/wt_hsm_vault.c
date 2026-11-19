@@ -194,6 +194,26 @@ psa_status_t wt_hsm_vault_reserve_object(whNvmSize len)
     return wt_hsm_vault_reserve_object_in(g_vault_nvm, len);
 }
 
+psa_status_t wt_hsm_vault_reserve_table_in(whNvmContext* nvm, whNvmId id,
+                                           whNvmSize len)
+{
+    whNvmMetadata meta;
+    int rc;
+
+    if (nvm == NULL) {
+        return PSA_ERROR_NOT_SUPPORTED;
+    }
+    rc = wh_Nvm_GetMetadata(nvm, id, &meta);
+    if (rc != WH_ERROR_OK && rc != WH_ERROR_NOTFOUND) {
+        return wt_hsm_vault_map_err(rc);
+    }
+    /* A first create keeps room for one more copy so the next supersede can
+     * land before the old copy becomes reclaimable. */
+    return wt_hsm_vault_reserve_in(nvm,
+        wt_hsm_vault_storage_size(len) * ((rc == WH_ERROR_NOTFOUND) ? 2U : 1U),
+        (rc == WH_ERROR_NOTFOUND) ? 2U : 1U);
+}
+
 static psa_status_t wt_hsm_vault_table_store(const wt_hsm_vault_table_t* table)
 {
     whNvmMetadata meta;
@@ -529,6 +549,7 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
     const uint8_t* store_data;
     psa_status_t status;
     int replacement = 0;
+    int created = 0;
 
     if (g_vault_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
@@ -562,6 +583,7 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
             return PSA_ERROR_INSUFFICIENT_STORAGE;
         }
         id = free_id;
+        created = 1;
     }
     else {
         return status;
@@ -594,10 +616,13 @@ static psa_status_t wt_hsm_vault_set(int32_t owner, int32_t sub,
         status = wt_hsm_vault_reserve(need_size, 4U);
     }
     else {
+        /* A new object keeps one entry free, as the object reservation does,
+         * so a later sealed remove can still update the table; an unsealed
+         * overwrite needs only the append, its old copy becomes reclaimable. */
         status = wt_hsm_vault_reserve(
             need_size,
             (uint16_t)(((flags & WT_VAULT_FLAG_SEALED) != 0U ||
-                        table.slot[slot] != 0U) ? 2U : 1U));
+                        table.slot[slot] != 0U || created != 0) ? 2U : 1U));
     }
     if (status != PSA_SUCCESS) {
         return status;

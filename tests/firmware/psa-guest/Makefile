@@ -17,7 +17,11 @@ ARCH ?= armv8m
 WT_ENGINE ?= native
 BUILD ?= build
 
-include boards/$(TARGET)/board.mk
+# The guest windows come from the port's memory map under the same layout
+# configuration the Secure image is built with.
+include $(ROOT)/mk/target-$(TARGET).mk
+include $(ROOT)/mk/layout.mk
+$(foreach kv,$(WT_LAYOUT_GUEST_WINDOWS),$(eval $(kv)))
 
 TOP_BUILD_DIR := $(ROOT)/build
 SECURE_CMSE_IMPLIB := $(TOP_BUILD_DIR)/secure_cmse_implib.o
@@ -37,12 +41,16 @@ NS_SETTINGS_DIR := $(ROOT)/tests/firmware/stm32h563/nonsecure
 WT_GUEST_FAULT_PROBE ?= 0
 WT_ATTEST_NEG_PROBE ?= 0
 WT_HSM_ATTACK_PROBE ?= 0
+WT_NATIVE_WIRE_PROBE ?= 0
 WT_FWU_PROBE ?= 0
 # Bytes of candidate body the FWU probe streams past the header, so a runner
 # can push the staging across every data sector of its update partition.
 WT_FWU_PROBE_STREAM_BYTES ?=
 # The backend under test refuses a write that skips ahead of the staged extent.
 WT_FWU_PROBE_SEQUENTIAL ?= 0
+# Bytes of the FWU probe's final write; a size off the backend alignment proves
+# FINISH accepts a padded last block.
+WT_FWU_PROBE_TAIL_BYTES ?=
 # The attestation verify pins the token measurement to wolfBoot's measurement
 # of the signed Secure image and the lifecycle the Secure side reports.
 WT_EXPECTED_MEASUREMENT_HEX ?=
@@ -79,9 +87,7 @@ WOLFCRYPT_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/wc_port.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/sha512.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/kdf.c \
-    $(WOLFSSL_DIR)/wolfcrypt/src/pwdbased.c \
-    $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c \
-    $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
+    $(WOLFSSL_DIR)/wolfcrypt/src/pwdbased.c
 
 # The whole wolfPSA front-end, as the Zephyr guest links it; the POSIX store
 # is replaced by the volatile-only custom store, attestation by the FF-M client.
@@ -133,6 +139,19 @@ ENGINE_SRCS := \
     $(ROOT)/src/client/hsm_psa_transport.c
 ENGINE_DEFS := -DWOLFHSM_CFG -DWOLF_CRYPTO_CB -DWT_ENGINE_HSM=1
 GUEST_ENGINE_SRCS := $(WOLFHSM_MODULE_DIR)/src/wolfhsm_client_glue.c
+endif
+
+# WT_SECURE_PSA=1 (the native default): PSA Crypto runs in the Secure image, so
+# the guest links the client in place of wolfPSA. Match the Secure image.
+WT_SECURE_PSA ?= $(if $(filter native,$(WT_ENGINE)),1,0)
+ifeq ($(WT_SECURE_PSA),1)
+ifneq ($(WT_ENGINE),native)
+$(error WT_SECURE_PSA=1 requires WT_ENGINE=native)
+endif
+WOLFPSA_SRCS :=
+ENGINE_SRCS += $(ROOT)/src/client/psa_crypto_client.c \
+    $(WOLFPSA_DIR)/src/psa_api_stub.c
+ENGINE_DEFS += -DWT_SECURE_PSA=1
 endif
 
 CONF_SRCS :=
@@ -207,7 +226,7 @@ endif
 CONF_INCS := $(CONF_SUITE_INCS) -I$(CONF_GEN) \
     -I$(CONF_U)/val/common -I$(CONF_U)/val/nspe -I$(CONF_U)/val/spe \
     -I$(CONF_U)/platform/targets/common/nspe \
-    -I$(ROOT)/port/$(TARGET)/conformance
+    -I$(ROOT)/tests/conformance/pal $(WT_LAYOUT_CFLAGS)
 endif
 
 SHARED_SRCS := guest_libc.c $(WOLFCRYPT_SRCS) $(WOLFPSA_SRCS) $(WOLFCOSE_SRCS) \
@@ -219,6 +238,10 @@ GUEST_SRCS := main.c $(ZEPHYR_GUEST_DIR)/attestation_verify.c $(GUEST_ENGINE_SRC
 GUEST0_SRCS := $(GUEST_SRCS) $(CONF_SRCS)
 
 WH_CFG_DIR := $(BUILD)/wh_include
+PSA_CFG_H := $(BUILD)/wolfpsa_cfg/crypto_config_generated.h
+ifeq ($(WT_SECURE_PSA),1)
+PSA_CFG_H := $(ROOT)/build/wolfpsa_cfg/crypto_config_generated.h
+endif
 
 CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
     -ffreestanding -fno-builtin -nostdlib -Os -g \
@@ -226,7 +249,7 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
     -Wno-unused-parameter -Wno-type-limits \
     -ffunction-sections -fdata-sections -mno-unaligned-access \
     $(CONF_INCS) \
-    -I. -Imanifest -Iboards/$(TARGET) \
+    -I. -Imanifest -I$(ROOT)/tests/firmware/boards/$(TARGET) \
     -I$(ROOT)/include \
     -I$(WOLFSSL_DIR) \
     -I$(WOLFHSM_DIR) \
@@ -238,14 +261,13 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
     -I$(ZEPHYR_GUEST_DIR) \
     -I$(NS_SETTINGS_DIR) \
     -I$(WH_CFG_DIR) \
+    -I$(dir $(PSA_CFG_H)) \
     -DWOLFSSL_USER_SETTINGS \
     -DWOLFSSL_PSA_ENGINE \
     -DWOLFPSA_CUSTOM_STORE \
     -DWOLFPSA_NO_TRACE \
     -include $(ROOT)/tests/firmware/zephyr-stm32h5/module/wolfpsa/wolfpsa_no_trace.h \
     -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8 \
-    -DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO -DWOLFSSL_ARMASM_INLINE \
-    -DWOLFSSL_ARMASM_NO_NEON -DWOLFSSL_ARMASM_THUMB2 \
     -DNO_ERROR_STRINGS -DWOLFSSL_PUBLIC_MP -DWC_RSA_DIRECT \
     -DWC_RESEED_INTERVAL=1000000 \
     -DWOLFCOSE_LEAN -DWOLFCOSE_ENABLE_DEPRECATED_ALGS -DWOLFCOSE_NO_SIGN1_SIGN \
@@ -277,6 +299,12 @@ endif
 ifeq ($(WT_HSM_ATTACK_PROBE),1)
 PROBE_CFLAGS += -DWT_HSM_ATTACK_PROBE
 endif
+ifeq ($(WT_NATIVE_WIRE_PROBE),1)
+ifneq ($(WT_ENGINE),native)
+$(error WT_NATIVE_WIRE_PROBE=1 drives the native wire and needs WT_ENGINE=native)
+endif
+PROBE_CFLAGS += -DWT_NATIVE_WIRE_PROBE
+endif
 ifeq ($(WT_FWU_PROBE),1)
 PROBE_CFLAGS += -DWT_FWU_PROBE
 endif
@@ -285,6 +313,9 @@ PROBE_CFLAGS += -DWT_FWU_PROBE_STREAM_BYTES=$(WT_FWU_PROBE_STREAM_BYTES)
 endif
 ifeq ($(WT_FWU_PROBE_SEQUENTIAL),1)
 PROBE_CFLAGS += -DWT_FWU_PROBE_SEQUENTIAL
+endif
+ifneq ($(WT_FWU_PROBE_TAIL_BYTES),)
+PROBE_CFLAGS += -DWT_FWU_PROBE_TAIL_BYTES=$(WT_FWU_PROBE_TAIL_BYTES)
 endif
 
 # guest0 carries the probes; guest1 is the peer that must keep running.
@@ -312,13 +343,27 @@ $(WH_CFG_DIR)/wolfhsm_cfg.h: | $(BUILD)
 	printf '#include "%s"\n' "wh_settings_guest.h" > $@
 	printf '#include "%s"\n' "wh_settings_guest.h" > $(WH_CFG_DIR)/wolfhsm_guest_cfg.h
 
-$(BUILD)/shared_%.o: %.c $(WH_CFG_DIR)/wolfhsm_cfg.h | $(BUILD)
+# <psa/crypto.h> takes its PSA_WANT_* surface from whoever serves PSA Crypto:
+# the Secure image's profile, or this guest's own wolfCrypt set.
+# FORCE: the generator rewrites the header only when the surface changes.
+ifeq ($(WT_SECURE_PSA),1)
+$(PSA_CFG_H): FORCE
+	$(MAKE) -C $(ROOT) ARCH=$(ARCH) TARGET=$(TARGET) TOOLPREFIX=$(TOOLPREFIX) \
+	    WT_ENGINE=$(WT_ENGINE) build/wolfpsa_cfg/crypto_config_generated.h
+else
+$(PSA_CFG_H): $(WH_CFG_DIR)/wolfhsm_cfg.h FORCE | $(BUILD)
+	mkdir -p $(dir $@)
+	python3 $(WOLFPSA_DIR)/tools/gen-crypto-config.py $@ "$(CC)" \
+	    $(WOLFPSA_DIR)/tools/psa_want_probe.c $(CFLAGS)
+endif
+
+$(BUILD)/shared_%.o: %.c $(WH_CFG_DIR)/wolfhsm_cfg.h $(PSA_CFG_H) | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(BUILD)/g0_%.o: %.c $(WH_CFG_DIR)/wolfhsm_cfg.h | $(BUILD)
+$(BUILD)/g0_%.o: %.c $(WH_CFG_DIR)/wolfhsm_cfg.h $(PSA_CFG_H) | $(BUILD)
 	$(CC) $(CFLAGS) $(GUEST0_CFLAGS) -c -o $@ $<
 
-$(BUILD)/g1_%.o: %.c $(WH_CFG_DIR)/wolfhsm_cfg.h | $(BUILD)
+$(BUILD)/g1_%.o: %.c $(WH_CFG_DIR)/wolfhsm_cfg.h $(PSA_CFG_H) | $(BUILD)
 	$(CC) $(CFLAGS) $(GUEST1_CFLAGS) -c -o $@ $<
 
 define link_guest

@@ -29,6 +29,8 @@ sec_fabric_windows.o                   spm
 sec_platform_stm32h563.o               spm
 sec_platform_mimxrt700.o               spm
 wt_sec_platform_l3.o                   spm
+wt_sec_platform_armv8m.o               spm
+wt_sec_fabric_sau.o                    spm
 sec_restart_policy.o                   spm
 sec_rollback.o                         spm
 sec_runtime.o                          spm
@@ -59,6 +61,8 @@ wt_sec_gicv2.o                         spm
 wt_sec_gicv3.o                         spm
 wt_sec_guest_context_armv8m.o          spm
 wt_sec_hsm_flash.o                     spm
+wt_sec_flash_drv.o                     spm
+wt_sec_rng_drv.o                       spm
 wt_sec_silicon_guard.o                 spm
 wt_sec_silicon_rev.o                   spm
 wt_sec_xspi_nor.o                      spm
@@ -104,7 +108,6 @@ wt_sec_vault_service.o                 vault
 wt_sec_wt_hsm_seal.o                   vault
 wt_sec_wt_hsm_vault.o                  vault
 
-wt_sec_attestation_cose.o              attest
 wt_sec_attestation_service.o           attest
 wt_sec_initial_attestation.o           attest
 wt_sec_wolfcose_alg.o                  attest
@@ -144,6 +147,10 @@ wt_sec_crypto_native.o                 hsm
 wt_sec_hsm_relay_service.o             hsm
 wt_sec_keyvault.o                      hsm
 wt_sec_native_wire.o                   hsm
+wt_sec_psa_crypto_service.o            hsm
+wp_sec_*                               hsm
+wc_sec_kdf.o                           hsm
+wc_sec_pwdbased.o                      hsm
 wt_sec_nvm_client.o                    hsm
 wt_sec_wt_hsm.o                        hsm
 
@@ -155,6 +162,7 @@ wt_sec_vnet_ring.o                     vnet
 wt_sec_vnet_service.o                  vnet
 wt_sec_vnet_switch.o                   vnet
 
+wt_sec_msg_relay.o                     shared
 wt_sec_tpm_relay_service.o             tpm
 wt_sec_tpm_local_provider.o            tpm
 tpm_sec_*                              tpm
@@ -188,6 +196,7 @@ wc_sec_sha256.o                        shared
 wc_sec_sha512.o                        shared
 wc_sec_sp_cortexm.o                    shared
 wc_sec_sp_c64.o                        shared
+wc_sec_sp_c32.o                        shared
 wc_sec_sp_int.o                        shared
 wc_sec_thumb2-aes-asm_c.o              shared
 wc_sec_thumb2-sha256-asm_c.o           shared

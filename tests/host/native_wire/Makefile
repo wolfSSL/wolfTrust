@@ -38,7 +38,7 @@ CFLAGS := \
     -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
 
-# wolfCrypt's ECC/ASN sources need GNU libc declarations that strict C11
+# wolfCrypt's ECC sources need GNU libc declarations that strict C11
 # hides; wolfTrust and test sources keep the strict flags above.
 WC_CFLAGS := $(filter-out -std=c11 -Werror -pedantic -Wextra,$(CFLAGS))
 
@@ -59,7 +59,6 @@ _WH_SRCS := \
 
 _WC_SRCS := \
     $(WOLFSSL)/wolfcrypt/src/aes.c      \
-    $(WOLFSSL)/wolfcrypt/src/asn.c      \
     $(WOLFSSL)/wolfcrypt/src/coding.c   \
     $(WOLFSSL)/wolfcrypt/src/ecc.c      \
     $(WOLFSSL)/wolfcrypt/src/sp_int.c   \
@@ -74,6 +73,14 @@ _WC_SRCS := \
     $(WOLFSSL)/wolfcrypt/src/misc.c
 
 _TEST_SRCS := main.c
+
+# ASN=1 builds the keyvault as TPM 2.0 and PKCS#11 do, converting r||s through DER.
+ASN ?= 0
+ifeq ($(ASN),1)
+CFLAGS += -DCONFIG_PKCS11=1
+WC_CFLAGS += -DCONFIG_PKCS11=1
+_WC_SRCS += $(WOLFSSL)/wolfcrypt/src/asn.c
+endif
 
 _WT_OBJS   := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
 _WH_OBJS   := $(patsubst %.c,wh_%.o,$(notdir $(_WH_SRCS)))
@@ -119,6 +126,8 @@ run: $(TEST_BIN)
 	    cat $(BUILD_DIR)/aes_setup_failure.log; exit 1; \
 	fi; \
 	printf '%s\n' 'PASS: AES-GCM setup failure remains a failed test'
+	$(MAKE) --no-print-directory all BUILD_DIR=$(BUILD_DIR)/asn ASN=1
+	$(BUILD_DIR)/asn/test_native_wire
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

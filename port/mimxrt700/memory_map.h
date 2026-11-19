@@ -41,6 +41,8 @@
 #define WT_FLASH_NS_BASE         0x28000000u
 #define WT_FLASH_S_ALIAS_BASE    0x38000000u
 #define WT_FLASH_ALIAS_SIZE      0x04000000u
+/* The EVK's 64 MiB octal NOR fills the XSPI0 alias. */
+#define WT_FLASH_SIZE            WT_FLASH_ALIAS_SIZE
 #define WT_FLASH_TO_S_ALIAS(address) \
     ((address) - WT_FLASH_NS_BASE + WT_FLASH_S_ALIAS_BASE)
 #ifndef WT_GUEST0_FLASH_BASE
@@ -60,6 +62,9 @@
  * the first 2 MiB of XSPI0, above the wolfBoot update and swap partitions. */
 #define WT_FLASH_SECTOR_SIZE       0x00001000u
 #define WT_FLASH_PAGE_SIZE         0x00000100u
+/* 16-byte program units; wolfBoot keeps its trailer in the last sector. */
+#define WT_FLASH_PROGRAM_UNIT      0x00000010u
+#define WT_FWU_TRAILER_SIZE        WT_FLASH_SECTOR_SIZE
 #define WT_HSM_NVM_FLASH_BASE_NS   0x281E0000u
 #define WT_HSM_NVM_FLASH_BASE_S    0x381E0000u
 #define WT_HSM_NVM_FLASH_SIZE      0x00002000u
@@ -67,6 +72,10 @@
 #define WT_CONF_NVM_FLASH_BASE_NS  0x281E8000u
 #define WT_CONF_NVM_FLASH_BASE_S   0x381E8000u
 #define WT_CONF_NVM_FLASH_SIZE     0x00001000u
+/* Conformance PAL device bases (Secure LPUART0 and WWDT0); the PAL only
+ * reports them, nothing is driven through them. */
+#define WT_CONF_UART_BASE          0x50110000u
+#define WT_CONF_WDG_BASE           0x5000E000u
 
 /* Non-secure guest RAM: two 256 KiB windows inside the compute-domain SRAM
  * partitions (AHBSC rule granularity, not the 512 B GTZC blocks of the H5). */
@@ -76,6 +85,11 @@
 #define WT_GUEST0_RAM_BASE       0x20100000u
 #define WT_GUEST1_RAM_BASE       0x20140000u
 #define WT_GUEST_RAM_SIZE        0x00040000u
+#define WT_GUEST0_RAM_SIZE       WT_GUEST_RAM_SIZE
+#define WT_GUEST1_RAM_SIZE       WT_GUEST_RAM_SIZE
+/* The guests' shared console window (LPUART0 through its Non-secure alias). */
+#define WT_GUEST_UART_BASE       0x40110000u
+#define WT_GUEST_UART_SIZE       0x00001000u
 
 /* Secure runtime RAM: the cpu0 application SRAM (sram0) through its Secure
  * alias; the isolation level 3 bands are offsets from this base. */
@@ -98,7 +112,7 @@
  * aliased at 0x0/0x1/0x2/0x3 (NS code / S code / NS data / S data) with the
  * same offset; the band is copied through the Secure data alias. */
 #define WT_RAMFUNC_BASE          0x10200000u
-#define WT_RAMFUNC_SIZE          0x00004000u
+#define WT_RAMFUNC_SIZE          0x00001000u
 #define WT_SRAM_CODE_TO_DATA     0x20000000u
 #define WT_NSC_BASE              WT_RAMFUNC_BASE
 #define WT_NSC_END               (WT_NSC_BASE + 0x000003FFu)
@@ -106,5 +120,11 @@
 #ifndef WT_PLATFORM_CORE_CLOCK_HZ
 #define WT_PLATFORM_CORE_CLOCK_HZ 237500000u
 #endif
+
+/* A Secure peripheral only the SPM drives (the TRNG, WT_TRNG_BASE_S), probed
+ * by the periphsp negative. */
+#define WT_L3_SPM_PERIPHERAL_BASE 0x50187000u
+
+#include "../common/armv8m/memory_map_check.h"
 
 #endif

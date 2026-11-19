@@ -31,13 +31,14 @@ else
 SUBMAKE_FLAGS := --no-print-directory -s
 endif
 
-UNIT_SUITES := domain manifest lifecycle monitor guest_verify rollback sp_recovery \
+UNIT_SUITES := domain manifest manifest_ports lifecycle monitor guest_verify rollback sp_recovery \
     fabric_windows periph irq_claim rt700_trng rt700_xspi rt700_lifecycle \
+    mcxn947_flash mcxn947_lifecycle mcxn947_rng \
     ipc ffm spm \
     vnet wolfhsm_loopback wolfhsm_relay tpm_relay pkcs11_relay \
     tpm_client pkcs11_client pkcs11_proxy pkcs11_provider \
     crypto_profile asn_codec pkcs11_secure_heap native_wire \
-    native_wire_client \
+    native_wire_client psa_secure_crypto \
     keystore_isolation \
     attestation_service attestation attestation_token \
     attestation_golden attestation_negatives attestation_replay \
@@ -49,7 +50,11 @@ UNIT_SUITES := domain manifest lifecycle monitor guest_verify rollback sp_recove
     flash_nvm ffm_veneer secure_layout \
     vault_service storage_service ps_service keystore_ipc negatives qcbor_shim \
     fwu_service runtime_verify psa_ffm_client psa_storage_client vnet_relay \
-    psa_headers psa_ffa_transport acs_pal
+    psa_headers nvm_boot conf_nvm_sync fwu_restore spm_start layout_config \
+    manifest_render port_flash h5_rng fabric_sau psa_ffa_transport acs_pal
+# A registered port's own suites (tests/host/<soc>_*/) run without a shared edit.
+UNIT_SUITES += $(filter-out $(UNIT_SUITES),$(patsubst %/Makefile,%,$(wildcard \
+    $(addsuffix _*/Makefile,$(notdir $(patsubst %/port.json,%,$(wildcard ../../port/*/port.json)))))))
 
 .PHONY: all test test-compilers test-sanitize test-valgrind print-suites clean
 

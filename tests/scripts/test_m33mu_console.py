@@ -93,37 +93,31 @@ class ConsoleTests(unittest.TestCase):
                     b"TOTAL FAILED    : 0\r\n")
         self.assertEqual(CONSOLE.guest0_console(raw), expected)
 
-    def test_confboot_pipeline_reads_reconstructed_per_test_results(self):
+    def test_confboot_ledger_reads_the_reconstructed_per_test_results(self):
         target = HELPER.parent.parent
-        expected = b"".join(
-            line + b"\n" for line in
-            (target / "ffm_ipc_results.txt").read_bytes().splitlines()
-            if line and not line.startswith(b"#")
-        )
+        sys.path.insert(0, str(HELPER.parent))
+        import scenarios
+        recorded = (target / "ffm_ipc_results.txt").read_bytes().splitlines()
         raw = b""
-        for line in expected.splitlines():
+        for line in recorded:
+            if not line or line.startswith(b"#"):
+                continue
             num, result = line.split()
             raw += (b"Num=" + num[:1] + INTERJECTION + num[1:]
                     + b" Result=" + result[:3] + BANNER + result[3:]
                     + b"\r\n")
-        # Exercise the runner's actual extraction pipeline without booting.
-        runner = (target / "run_m33mu_scenario.sh").read_text()
-        pipeline = runner.split('\n    conf_got=', 1)[1]
-        pipeline = 'conf_got=' + pipeline.split('\n    if grep -v', 1)[0]
-        with tempfile.TemporaryDirectory() as directory:
-            repo = Path(directory)
-            (repo / "build").mkdir()
-            (repo / "raw.log").write_bytes(raw)
-            (repo / "guest0.log").write_bytes(CONSOLE.guest0_console(raw))
-            script = ('set -euo pipefail\nrepo=$1\nlog="$repo/raw.log"\n'
-                      'guest0_log="$repo/guest0.log"\n' + pipeline)
-            completed = subprocess.run(
-                ["bash", "-c", script, "confboot-test", str(repo)],
-                capture_output=True,
-            )
-            self.assertEqual(completed.returncode, 0, completed.stderr)
-            self.assertEqual((repo / "build/ffm-ipc-results.txt").read_bytes(),
-                             expected)
+        rev = (target.parent / "upstream" / "psa-arch-tests.rev").read_text().strip()
+        var = {"conf_want": str(target / "ffm_ipc_results.txt"), "conf_rev": rev,
+               "board": "STM32H563"}
+        ctx = scenarios.Ctx("stm32h563", "confboot", "emulator",
+                            ("zephyr", "freertos"), var)
+        # The judge reads the ledger from the reconstructed guest0 view, so the
+        # spliced raw log must come out whole and the raw log alone must not.
+        judge = scenarios.Judge(ctx, {"log": raw.decode(),
+                                      "guest0": CONSOLE.guest0_console(raw).decode()})
+        self.assertTrue(judge.run(scenarios.ledger("ledger")), judge.lines)
+        judge = scenarios.Judge(ctx, {"log": raw.decode(), "guest0": raw.decode()})
+        self.assertFalse(judge.run(scenarios.ledger("ledger")), judge.lines)
 
     def test_pty_and_crlf_banner(self):
         banner = b"[UART] 44002400 attached to /dev/pts/17\r\n"

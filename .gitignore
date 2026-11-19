@@ -1,11 +1,8 @@
 # Build outputs
 /build/
 /build-aarch64-*/
-tests/firmware/stm32h563/build/
-tests/firmware/stm32h563-vnet/build/
-tests/firmware/mimxrt700-baremetal/build/
-tests/firmware/aarch64-smoke/build/
-tests/firmware/aarch64-ns-smoke/build/
+/interface-footprint/
+tests/firmware/*/build/
 tests/firmware/stm32h563-vnet/stm32h563_OTP.bin
 *.o
 /wolftrust
@@ -17,6 +14,7 @@ tests/host/ipc/build/
 tests/host/spm/build/
 tests/host/build/
 tests/host/*/build/
+tests/host/*/build-*/
 tests/host/vnet/test_vnet
 tests/host/wolfcose/test_wolfcose_integration
 tests/fuzz/build/
@@ -36,5 +34,7 @@ tests/fuzz/timeout-*
 # Tool-specific files
 .claude/
 .codex
+/AGENTS.local.md
+/CLAUDE.local.md
 /logs/
 /SESSION_WRAPUP.md

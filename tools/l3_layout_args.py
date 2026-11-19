@@ -1,15 +1,18 @@
 #!/usr/bin/env python3
 """Read the isolation level 3 layout from a port's memory_map.h.
 
-The keystore bands, partition stacks and conformance data window come from
-the shared Armv8-M layout. The default output is the post-link band check's
-arguments; --shell prints the addresses the target scenario checks match
-fault logs against. Both read the macros the C code and the linker fragments
-are placed by instead of a copied address list."""
+The keystore bands, partition stacks, conformance data window and guest
+windows come from the port's memory map under the build's own layout
+configuration (--cflags, the WT_LAYOUT_CFLAGS of mk/layout.mk). The default
+output is the post-link band check's arguments; --shell prints the addresses
+the target scenario checks match fault logs against; --link prints the
+linker symbols placing the bands; --guest prints the Non-secure guest
+windows a guest build links into. Every mode reads the macros the C code and
+the linker script are placed by instead of a copied address list."""
 
 import argparse
-import os
 import re
+import shlex
 import subprocess
 import sys
 
@@ -19,30 +22,71 @@ BAND_MACROS = (
     "WT_SP_ATTEST_DATA_BASE", "WT_SP_ATTEST_DATA_SIZE",
     "WT_SP_HSM_DATA_BASE", "WT_SP_HSM_DATA_SIZE",
     "WT_CONF_SP_DATA_BASE", "WT_CONF_SERVER_MMIO_BASE",
-    "WT_TPM_DATA_BASE", "WT_TPM_DATA_SIZE",
-    "WT_PKCS11_DATA_BASE", "WT_PKCS11_DATA_SIZE",
+    "WT_INTERFACE_DATA_BASE", "WT_INTERFACE_DATA_SIZE",
 )
 SHELL_MACROS = BAND_MACROS + (
-    "WT_RAM_S_BASE", "WT_SP_SECURE_STACK_SIZE",
-    "WT_SP_CRYPTO_STACK_BASE", "WT_SP_ATTEST_STACK_BASE",
+    "WT_RAM_S_BASE",
+    "WT_SP_CRYPTO_STACK_BASE", "WT_SP_CRYPTO_STACK_SIZE",
+    "WT_SP_ATTEST_STACK_BASE", "WT_SP_ATTEST_STACK_SIZE",
     "WT_SP_VAULT_STACK_BASE", "WT_SP_VAULT_STACK_SIZE",
-    "WT_L3_SPM_PERIPHERAL_BASE",
+    "WT_L3_SPM_PERIPHERAL_BASE", "WT_VNET_DATA_BASE",
+    "WT_SP_INTERFACE_STACK_BASE", "WT_SP_INTERFACE_STACK_SIZE",
 )
-LINK_MACROS = (
-    "WT_KEYSTORE_BASE", "WT_SP_HSM_DATA_SIZE", "WT_SP_FWU_STACK_BASE",
+# Each linker MEMORY region of secure_l3_memory.ld: (region, base, size).
+LINK_REGIONS = (
+    ("RAM", "WT_RAM_S_BASE", None),
+    ("VNET", "WT_VNET_DATA_BASE", "WT_VNET_DATA_SIZE"),
+    ("CRYPTOSTACK", "WT_SP_CRYPTO_STACK_BASE", "WT_SP_CRYPTO_STACK_SIZE"),
+    ("HSM", "WT_SP_HSM_DATA_BASE", "WT_SP_HSM_DATA_SIZE"),
+    ("VAULT", "WT_SP_VAULT_DATA_BASE", "WT_SP_VAULT_DATA_SIZE"),
+    ("ATTEST", "WT_SP_ATTEST_DATA_BASE", "WT_SP_ATTEST_DATA_SIZE"),
+    ("PSSTACK", "WT_SP_PS_STACK_BASE", "WT_SP_PS_STACK_SIZE"),
+    ("ITSSTACK", "WT_SP_ITS_STACK_BASE", "WT_SP_ITS_STACK_SIZE"),
+    ("VAULTSTACK", "WT_SP_VAULT_STACK_BASE", "WT_SP_VAULT_STACK_SIZE"),
+    ("SPSTACKS", "WT_SP_SECURE_RAM_BASE", "WT_SP_SECURE_RAM_SIZE"),
+    ("CONF", "WT_CONF_SP_DATA_BASE", "WT_CONF_SP_DATA_SIZE"),
+    ("FWUSTACK", "WT_SP_FWU_STACK_BASE", "WT_SP_FWU_STACK_SIZE"),
 )
+LINK_MACROS = tuple(sorted(set(
+    name for _, base, size in LINK_REGIONS for name in (base, size) if name)
+    | {"WT_L3_BANDS_BASE", "WT_SP_INTERFACE_STACK_BASE",
+       "WT_SP_INTERFACE_STACK_SIZE"}))
+# Each partition's stack in the layout, matched against the manifest.
+STACK_MACROS = (
+    ("PARTITION_PS", "WT_SP_PS_STACK_BASE", "WT_SP_PS_STACK_SIZE"),
+    ("PARTITION_ITS", "WT_SP_ITS_STACK_BASE", "WT_SP_ITS_STACK_SIZE"),
+    ("PARTITION_VAULT", "WT_SP_VAULT_STACK_BASE", "WT_SP_VAULT_STACK_SIZE"),
+    ("PARTITION_HSM", "WT_SP_CRYPTO_STACK_BASE", "WT_SP_CRYPTO_STACK_SIZE"),
+    ("PARTITION_ATTEST", "WT_SP_ATTEST_STACK_BASE", "WT_SP_ATTEST_STACK_SIZE"),
+    ("SERVER_PARTITION", "WT_SP_FF_SERVER_STACK_BASE",
+     "WT_SP_SECURE_STACK_SIZE"),
+    ("DRIVER_PARTITION", "WT_SP_FF_DRIVER_STACK_BASE",
+     "WT_SP_SECURE_STACK_SIZE"),
+    ("CLIENT_PARTITION", "WT_SP_FF_CLIENT_STACK_BASE",
+     "WT_SP_SECURE_STACK_SIZE"),
+    ("PARTITION_FWU", "WT_SP_FWU_STACK_BASE", "WT_SP_FWU_STACK_SIZE_RESERVED"),
+    ("PARTITION_VNET", "WT_SP_VNET_STACK_BASE", "WT_SP_VNET_STACK_SIZE"),
+    ("PARTITION_TPM", "WT_SP_INTERFACE_STACK_BASE", "WT_SP_INTERFACE_STACK_SIZE"),
+    ("PARTITION_PKCS11", "WT_SP_INTERFACE_STACK_BASE", "WT_SP_INTERFACE_STACK_SIZE"),
+)
+# A port that runs its gateway and flash code from a RAM band places it here;
+# the others leave these undefined and the linker script's band stays out.
+LINK_OPTIONAL = ("WT_RAMFUNC_BASE", "WT_RAMFUNC_SIZE")
+GUEST_MACROS = (
+    "WT_GUEST0_FLASH_BASE", "WT_GUEST0_FLASH_SIZE",
+    "WT_GUEST1_FLASH_BASE", "WT_GUEST1_FLASH_SIZE",
+    "WT_GUEST0_RAM_BASE", "WT_GUEST1_RAM_BASE", "WT_GUEST_RAM_SIZE",
+)
+GUEST_OPTIONAL = ("WT_GUEST0_RAM_SIZE", "WT_GUEST1_RAM_SIZE")
 INTEGER = re.compile(r"\b(0[xX][0-9a-fA-F]+|[0-9]+)[uUlL]*\b")
 EXPRESSION = re.compile(r"^[0-9a-fA-FxX+\-*() ]+$")
 
 
-def evaluate(cc, header, macros, includes):
+def evaluate(cc, header, macros, includes, optional=(), cflags=()):
     probe = '#include "%s"\n' % header
-    port_header = os.path.join(os.path.dirname(header), "l3_port.h")
-    if "WT_L3_SPM_PERIPHERAL_BASE" in macros:
-        probe += '#include "%s"\n' % port_header
     probe += "".join("%d=%s\n" % (index, name)
                      for index, name in enumerate(macros))
-    command = [cc, "-E", "-P", "-x", "c"]
+    command = [cc, "-E", "-P", "-x", "c"] + list(cflags)
     command += ["-I%s" % path for path in includes]
     result = subprocess.run(command + ["-"], input=probe, text=True,
                             capture_output=True, check=False)
@@ -62,7 +106,8 @@ def evaluate(cc, header, macros, includes):
             raise SystemExit("FAIL: %s does not reduce to a constant: %s" %
                              (name, text))
         values[name] = eval(text, {"__builtins__": {}})
-    missing = [name for name in macros if name not in values]
+    missing = [name for name in macros
+               if name not in values and name not in optional]
     if missing:
         raise SystemExit("FAIL: %s defines no %s" %
                          (header, ", ".join(missing)))
@@ -79,61 +124,108 @@ def band_args(v):
                    (band, base, base + v[prefix + "_SIZE"]))
     out.append("--confdata 0x%08X:0x%08X" %
                (v["WT_CONF_SP_DATA_BASE"], v["WT_CONF_SERVER_MMIO_BASE"]))
-    for flag, prefix in (("--tpm-band", "WT_TPM_DATA"),
-                         ("--pkcs11-band", "WT_PKCS11_DATA")):
-        base = v[prefix + "_BASE"]
-        out.append("%s 0x%08X:0x%08X" % (flag, base, base + v[prefix + "_SIZE"]))
+    if v["WT_INTERFACE_DATA_SIZE"] != 0:
+        base = v["WT_INTERFACE_DATA_BASE"]
+        out.append("--interface-band 0x%08X:0x%08X" %
+                   (base, base + v["WT_INTERFACE_DATA_SIZE"]))
     return " ".join(out)
 
 
 def shell_vars(v):
-    stack = v["WT_SP_SECURE_STACK_SIZE"]
     pairs = (
         ("L3_SPM_RAM", v["WT_RAM_S_BASE"]),
         ("L3_VAULT_BAND", v["WT_SP_VAULT_DATA_BASE"]),
         ("L3_ATTEST_BAND", v["WT_SP_ATTEST_DATA_BASE"]),
         ("L3_HSM_BAND", v["WT_SP_HSM_DATA_BASE"]),
         ("L3_CRYPTO_STACK_LO", v["WT_SP_CRYPTO_STACK_BASE"]),
-        ("L3_CRYPTO_STACK_HI", v["WT_SP_CRYPTO_STACK_BASE"] + stack),
+        ("L3_CRYPTO_STACK_HI",
+         v["WT_SP_CRYPTO_STACK_BASE"] + v["WT_SP_CRYPTO_STACK_SIZE"]),
         ("L3_ATTEST_STACK_LO", v["WT_SP_ATTEST_STACK_BASE"]),
-        ("L3_ATTEST_STACK_HI", v["WT_SP_ATTEST_STACK_BASE"] + stack),
+        ("L3_ATTEST_STACK_HI",
+         v["WT_SP_ATTEST_STACK_BASE"] + v["WT_SP_ATTEST_STACK_SIZE"]),
         ("L3_VAULT_STACK_LO", v["WT_SP_VAULT_STACK_BASE"]),
         ("L3_VAULT_STACK_HI",
          v["WT_SP_VAULT_STACK_BASE"] + v["WT_SP_VAULT_STACK_SIZE"]),
         ("L3_SPM_PERIPHERAL", v["WT_L3_SPM_PERIPHERAL_BASE"]),
+        ("L3_VNET_BAND", v["WT_VNET_DATA_BASE"]),
+        ("L3_INTERFACE_BAND", v["WT_INTERFACE_DATA_BASE"]),
+        ("L3_INTERFACE_STACK_LO", v["WT_SP_INTERFACE_STACK_BASE"]),
+        ("L3_INTERFACE_STACK_HI",
+         v["WT_SP_INTERFACE_STACK_BASE"] + v["WT_SP_INTERFACE_STACK_SIZE"]),
     )
     return "\n".join("%s=0x%08x" % pair for pair in pairs)
 
 
 def link_args(v):
-    pairs = (
-        ("WT_L3_KEYSTORE_ORIGIN", v["WT_KEYSTORE_BASE"]),
-        ("WT_L3_HSM_DATA_LENGTH", v["WT_SP_HSM_DATA_SIZE"]),
-        ("WT_L3_STACKS_ORIGIN", v["WT_SP_FWU_STACK_BASE"]),
-    )
+    pairs = [("WT_L3_RAM_LENGTH", v["WT_L3_BANDS_BASE"] - v["WT_RAM_S_BASE"])]
+    for region, base, size in LINK_REGIONS[1:]:
+        pairs.append(("WT_L3_%s_ORIGIN" % region, v[base]))
+        pairs.append(("WT_L3_%s_LENGTH" % region, v[size]))
+    stack = v["WT_SP_INTERFACE_STACK_BASE"] - v["WT_VNET_DATA_BASE"]
+    pairs.append(("WT_L3_INTERFACE_STACK_OFFSET", stack))
+    pairs.append(("WT_L3_INTERFACE_STACK_END",
+                  stack + v["WT_SP_INTERFACE_STACK_SIZE"]))
+    if "WT_RAMFUNC_BASE" in v:
+        pairs.append(("WT_RAMFUNC_ORIGIN", v["WT_RAMFUNC_BASE"]))
+        pairs.append(("WT_RAMFUNC_LENGTH", v["WT_RAMFUNC_SIZE"]))
     return " ".join("-Wl,--defsym=%s=0x%08X" % pair for pair in pairs)
+
+
+def guest_vars(v):
+    pairs = []
+    for guest in (0, 1):
+        ram_size = v.get("WT_GUEST%d_RAM_SIZE" % guest, v["WT_GUEST_RAM_SIZE"])
+        pairs += [
+            ("GUEST%d_FLASH_ORIGIN" % guest, v["WT_GUEST%d_FLASH_BASE" % guest]),
+            ("GUEST%d_FLASH_LENGTH" % guest, v["WT_GUEST%d_FLASH_SIZE" % guest]),
+            ("GUEST%d_RAM_ORIGIN" % guest, v["WT_GUEST%d_RAM_BASE" % guest]),
+            ("GUEST%d_RAM_LENGTH" % guest, ram_size),
+        ]
+    return "\n".join("%s=0x%08X" % pair for pair in pairs)
+
+
+def stack_args(v):
+    return " ".join("--stack %s=0x%08X:0x%X" % (name, v[base], v[size])
+                    for name, base, size in STACK_MACROS)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cc", default="arm-none-eabi-gcc")
     parser.add_argument("-I", dest="includes", action="append", default=[])
+    parser.add_argument("--cflags", default="",
+                        help="the build's layout defines and include paths")
     parser.add_argument("--shell", action="store_true",
                         help="print the scenario checks' layout variables")
     parser.add_argument("--link", action="store_true",
                         help="print the linker symbols placing the bands")
+    parser.add_argument("--guest", action="store_true",
+                        help="print the Non-secure guest windows")
+    parser.add_argument("--stacks", action="store_true",
+                        help="print the generator's partition stack checks")
     parser.add_argument("memory_map")
     args = parser.parse_args()
+    cflags = shlex.split(args.cflags)
 
-    if args.link:
-        print(link_args(evaluate(args.cc, args.memory_map, LINK_MACROS,
-                                 args.includes)))
+    if args.stacks:
+        macros = sorted(set(name for _, base, size in STACK_MACROS
+                            for name in (base, size)))
+        print(stack_args(evaluate(args.cc, args.memory_map, tuple(macros),
+                                  args.includes, cflags=cflags)))
+    elif args.link:
+        print(link_args(evaluate(args.cc, args.memory_map,
+                                 LINK_MACROS + LINK_OPTIONAL, args.includes,
+                                 optional=LINK_OPTIONAL, cflags=cflags)))
     elif args.shell:
         print(shell_vars(evaluate(args.cc, args.memory_map, SHELL_MACROS,
-                                  args.includes)))
+                                  args.includes, cflags=cflags)))
+    elif args.guest:
+        print(guest_vars(evaluate(args.cc, args.memory_map,
+                                  GUEST_MACROS + GUEST_OPTIONAL, args.includes,
+                                  optional=GUEST_OPTIONAL, cflags=cflags)))
     else:
         print(band_args(evaluate(args.cc, args.memory_map, BAND_MACROS,
-                                 args.includes)))
+                                 args.includes, cflags=cflags)))
     return 0
 
 

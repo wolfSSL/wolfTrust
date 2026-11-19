@@ -46,22 +46,22 @@ check_conflict() {
     fi
 }
 
+# Every registered port lists both variants; stm32l562 builds native only.
 for selected_engine in native hsm; do
     for selected_config in CONFIG_TPM CONFIG_PKCS11; do
-        check_make "$selected_config" stm32h563 armv8m "$selected_engine" pass
-        check_make "$selected_config" mimxrt700 armv8m "$selected_engine" pass
-        check_make "$selected_config" qemuvirt aarch64 "$selected_engine" pass
-        check_make "$selected_config" versal aarch64 "$selected_engine" pass
+        for port in stm32h563 mimxrt700 mcxn947; do
+            check_make "$selected_config" "$port" armv8m "$selected_engine" pass
+        done
         check_make "$selected_config" unsupported armv8m "$selected_engine" fail
         check_make "$selected_config" stm32h563 armv8m invalid fail
     done
 done
+check_make CONFIG_TPM stm32l562 armv8m native pass
+check_make CONFIG_PKCS11 stm32l562 armv8m native pass
 
-for target_arch in "stm32h563 armv8m" "mimxrt700 armv8m" \
-        "qemuvirt aarch64" "versal aarch64"; do
-    set -- $target_arch
-    check_conflict CONFIG_TPM "$1" "$2" native
-    check_conflict CONFIG_PKCS11 "$1" "$2" hsm
+for port in stm32h563 mimxrt700 mcxn947; do
+    check_conflict CONFIG_TPM "$port" armv8m native
+    check_conflict CONFIG_PKCS11 "$port" armv8m hsm
 done
 
 echo "Interface target guard tests: $checks checks, $failures failures"

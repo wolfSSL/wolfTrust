@@ -19,8 +19,7 @@
  */
 
 /* Isolation level 3 platform hooks shared by every Armv8-M port. The layout
- * comes from l3_layout.h through the port's memory_map.h; the port's
- * l3_port.h supplies the few board inputs. */
+ * comes from l3_layout.h and the board inputs from the port's memory_map.h. */
 
 #include "wolftrust/platform.h"
 #include "wolftrust/priv_stack.h"
@@ -29,7 +28,6 @@
 #include <stdint.h>
 
 #include "memory_map.h"
-#include "l3_port.h"
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 #include "psa_manifest/pid.h"
@@ -73,7 +71,7 @@ size_t wt_platform_sp_shared_regions(wt_memory_region_t* regions, size_t max)
 size_t wt_platform_spm_private_regions(wt_memory_region_t* regions,
                                        size_t max)
 {
-    uintptr_t first_band = WT_SP_VAULT_DATA_BASE;
+    uintptr_t first_band = WT_L3_BANDS_BASE;
     size_t count = 1u;
 
 #if defined(WT_RAMFUNC_BASE)
@@ -82,9 +80,6 @@ size_t wt_platform_spm_private_regions(wt_memory_region_t* regions,
     if (max < count) {
         return 0u;
     }
-#if defined(CONFIG_VNET) || defined(CONFIG_PKCS11) || defined(CONFIG_TPM)
-    first_band = WT_VNET_DATA_BASE;
-#endif
     regions[0].base = WT_RAM_S_BASE;
     regions[0].size = first_band - WT_RAM_S_BASE;
     regions[0].attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE;
@@ -101,11 +96,7 @@ int wt_platform_priv_stack_ok(const void *stack, size_t size)
 {
     /* A privileged coroutine stack must lie wholly in SPM-private RAM, below
      * the lowest partition-writable band (WT-FFM-0011). */
-#if defined(CONFIG_VNET) || defined(CONFIG_PKCS11) || defined(CONFIG_TPM)
-    uintptr_t priv_end = WT_VNET_DATA_BASE;
-#else
-    uintptr_t priv_end = WT_KEYSTORE_BASE;
-#endif
+    uintptr_t priv_end = WT_L3_BANDS_BASE;
 
     if (stack == NULL) {
         return 0;
@@ -190,8 +181,7 @@ size_t wt_platform_conf_shared_regions(wt_memory_region_t* regions,
 
 #if (defined(WT_FFM_NEGATIVE_PROBE) && (WT_FFM_NEGATIVE_PROBE == 1)) || \
     (defined(WT_VNET_NEG_PROBE) && (WT_VNET_NEG_PROBE == 1)) || \
-    (defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)) || \
-    (defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1)) || \
+    (defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)) || \
     (defined(WT_KEYSTORE_NEG_PROBE) && (WT_KEYSTORE_NEG_PROBE == 1)) || \
     (defined(WT_PERIPH_SP_NEG_PROBE) && (WT_PERIPH_SP_NEG_PROBE == 1)) || \
     (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
@@ -211,17 +201,9 @@ uintptr_t wt_platform_probe_address(unsigned int target)
     case WT_PROBE_VNET_DATA_BAND:
         return (uintptr_t)WT_VNET_DATA_BASE;
 #endif
-#if defined(CONFIG_TPM)
-    case WT_PROBE_TPM_DATA_BAND:
-        return (uintptr_t)WT_TPM_DATA_BASE;
-    case WT_PROBE_TPM_FTPM_RAM:
-        return (uintptr_t)WT_GUEST1_RAM_BASE;
-#endif
-#if defined(CONFIG_PKCS11)
-    case WT_PROBE_PKCS11_DATA_BAND:
-        return (uintptr_t)WT_PKCS11_DATA_BASE;
-    case WT_PROBE_PKCS11_PROVIDER_RAM:
-        return (uintptr_t)WT_GUEST1_RAM_BASE;
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+    case WT_PROBE_INTERFACE_DATA_BAND:
+        return (uintptr_t)WT_INTERFACE_DATA_BASE;
 #endif
     default:
         return (uintptr_t)WT_RAM_S_BASE;

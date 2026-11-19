@@ -51,6 +51,13 @@ int wt_fwu_wolfboot_arm_trailer(uint8_t* block, uint32_t len)
     return 0;
 }
 
+int wt_fwu_staged_extent_ok(uint32_t staged_size, uint32_t programmed_end,
+                            uint32_t align)
+{
+    return align != 0u && staged_size <= programmed_end &&
+           programmed_end - staged_size < align;
+}
+
 psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
                           uint32_t version)
 {

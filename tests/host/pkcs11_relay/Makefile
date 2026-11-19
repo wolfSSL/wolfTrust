@@ -17,7 +17,7 @@ BUILD_DIR ?= build
 CFLAGS := \
     -I. \
     -I$(ROOT)/include \
-    -DWT_PKCS11_TEST_HOOKS \
+    -DWT_MSG_RELAY_TEST_HOOKS \
     -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
@@ -29,9 +29,11 @@ _WT_SRCS := \
     $(ROOT)/src/spm_gate.c
 
 _WTS_SRCS := \
+    $(ROOT)/src/services/msg_relay.c \
     $(ROOT)/src/services/pkcs11/pkcs11_relay_service.c
 
 _WTC_SRCS := \
+    $(ROOT)/src/client/msg_client.c \
     $(ROOT)/src/client/pkcs11_psa_transport.c
 
 _TEST_SRCS := main.c
@@ -43,7 +45,7 @@ _TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
 ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WTS_OBJS) $(_WTC_OBJS) $(_TEST_OBJS))
 TEST_BIN := $(BUILD_DIR)/test_pkcs11_relay
-RELAY_SRC := $(ROOT)/src/services/pkcs11/pkcs11_relay_service.c
+RELAY_SRC := $(ROOT)/src/services/msg_relay.c
 
 .PHONY: all run check-zeroize compilers sanitize valgrind clean
 
@@ -58,6 +60,9 @@ $(BUILD_DIR)/wt_%.o: $(ROOT)/src/%.c | $(BUILD_DIR)
 $(BUILD_DIR)/wts_%.o: $(ROOT)/src/services/pkcs11/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/wts_%.o: $(ROOT)/src/services/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
 $(BUILD_DIR)/wtc_%.o: $(ROOT)/src/client/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -70,7 +75,7 @@ $(TEST_BIN): $(ALL_OBJS) | $(BUILD_DIR)
 check-zeroize:
 	@test "$$(grep -Fc 'wt_forceZero(&chunk, sizeof(chunk));' $(RELAY_SRC))" -eq 2
 	@! grep -Fq 'memset(&chunk' $(RELAY_SRC)
-	@echo "PASS: PKCS11 relay chunk uses optimization-resistant zeroization"
+	@echo "PASS: message relay chunk uses optimization-resistant zeroization"
 
 run: check-zeroize $(TEST_BIN)
 	$(TEST_BIN)

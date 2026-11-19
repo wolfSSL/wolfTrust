@@ -52,7 +52,14 @@
     (WT_VAULT_KEY_MATERIAL_LEN + WT_VAULT_KEY_PUB_LEN)
 #define WT_HSM_KEY_AES_OBJ_LEN WT_VAULT_KEY_MATERIAL_LEN
 
+/* NO_ASN makes wc_ecc_sign_hash/verify_hash use the fixed-width r||s form;
+ * TPM 2.0 and PKCS#11 builds link ASN.1, so they convert through DER. */
+#if !defined(NO_ASN) && !defined(CONFIG_TPM) && !defined(CONFIG_PKCS11)
+    #error "native keyvault requires a NO_ASN wolfCrypt build"
+#endif
+#ifndef NO_ASN
 #define WT_HSM_KEY_DER_SIG_MAX 80U
+#endif
 
 #define WT_HSM_KEY_LABEL(usage, type) \
     (WT_VAULT_FLAG_KEY | ((usage) & WT_VAULT_KEY_USAGE_MASK) | \
@@ -345,19 +352,59 @@ static psa_status_t wt_hsm_kv_export_public(int32_t owner, int32_t sub,
     return PSA_SUCCESS;
 }
 
+#ifndef NO_ASN
+/* Sign into DER, then return the fixed-width raw r||s the vault wire uses. */
+static int wt_hsm_kv_sign_raw(const uint8_t* digest, word32 digest_len,
+                              uint8_t* sig, word32* sig_len, WC_RNG* rng,
+                              ecc_key* key)
+{
+    uint8_t der[WT_HSM_KEY_DER_SIG_MAX];
+    uint8_t r[WT_VAULT_KEY_MATERIAL_LEN];
+    uint8_t s[WT_VAULT_KEY_MATERIAL_LEN];
+    word32 der_len = sizeof(der);
+    word32 r_len = sizeof(r);
+    word32 s_len = sizeof(s);
+    int rc;
+
+    rc = wc_ecc_sign_hash(digest, digest_len, der, &der_len, rng, key);
+    if (rc == 0) {
+        rc = wc_ecc_sig_to_rs(der, der_len, r, &r_len, s, &s_len);
+    }
+    if (rc == 0 && (r_len > 32U || s_len > 32U)) {
+        rc = BAD_FUNC_ARG;
+    }
+    if (rc == 0) {
+        (void)memset(sig, 0, WT_VAULT_KEY_SIG_LEN);
+        (void)memcpy(sig + (32U - r_len), r, r_len);
+        (void)memcpy(sig + 32U + (32U - s_len), s, s_len);
+        *sig_len = WT_VAULT_KEY_SIG_LEN;
+    }
+    return rc;
+}
+
+static int wt_hsm_kv_verify_raw(const uint8_t* sig, const uint8_t* digest,
+                                word32 digest_len, int* res, ecc_key* key)
+{
+    uint8_t der[WT_HSM_KEY_DER_SIG_MAX];
+    word32 der_len = sizeof(der);
+    int rc;
+
+    rc = wc_ecc_rs_raw_to_sig(sig, 32U, sig + 32U, 32U, der, &der_len);
+    if (rc == 0) {
+        rc = wc_ecc_verify_hash(der, der_len, digest, digest_len, res, key);
+    }
+    return rc;
+}
+#endif
+
 static psa_status_t wt_hsm_kv_sign(int32_t owner, int32_t sub, uint64_t uid,
                                    const uint8_t* digest, size_t digest_len,
                                    uint8_t* sig, size_t cap, size_t* out_len)
 {
     uint8_t obj[WT_HSM_KEY_P256_OBJ_LEN];
-    uint8_t der[WT_HSM_KEY_DER_SIG_MAX];
-    uint8_t r[WT_VAULT_KEY_MATERIAL_LEN];
-    uint8_t s[WT_VAULT_KEY_MATERIAL_LEN];
     ecc_key key;
     WC_RNG* rng;
-    word32 der_len = sizeof(der);
-    word32 r_len = sizeof(r);
-    word32 s_len = sizeof(s);
+    word32 sig_len = WT_VAULT_KEY_SIG_LEN;
     psa_status_t status;
     int rc;
 
@@ -384,22 +431,21 @@ static psa_status_t wt_hsm_kv_sign(int32_t owner, int32_t sub, uint64_t uid,
         rc = wc_ecc_import_private_key_ex(obj, WT_VAULT_KEY_MATERIAL_LEN,
                                           NULL, 0U, &key, ECC_SECP256R1);
         if (rc == 0) {
-            rc = wc_ecc_sign_hash(digest, (word32)digest_len, der, &der_len,
+#ifdef NO_ASN
+            rc = wc_ecc_sign_hash(digest, (word32)digest_len, sig, &sig_len,
                                   rng, &key);
+#else
+            rc = wt_hsm_kv_sign_raw(digest, (word32)digest_len, sig,
+                                    &sig_len, rng, &key);
+#endif
         }
         wc_ecc_free(&key);
     }
     wt_hsm_kv_zeroize(obj, sizeof(obj));
-    if (rc == 0) {
-        rc = wc_ecc_sig_to_rs(der, der_len, r, &r_len, s, &s_len);
-    }
-    if (rc != 0 || r_len > 32U || s_len > 32U) {
+    if (rc != 0 || sig_len != WT_VAULT_KEY_SIG_LEN) {
+        (void)memset(sig, 0, WT_VAULT_KEY_SIG_LEN);
         return PSA_ERROR_GENERIC_ERROR;
     }
-    /* Fixed-width raw r||s, left-padded with zeros. */
-    (void)memset(sig, 0, WT_VAULT_KEY_SIG_LEN);
-    (void)memcpy(sig + (32U - r_len), r, r_len);
-    (void)memcpy(sig + 32U + (32U - s_len), s, s_len);
     *out_len = WT_VAULT_KEY_SIG_LEN;
     return PSA_SUCCESS;
 }
@@ -409,9 +455,7 @@ static psa_status_t wt_hsm_kv_verify(int32_t owner, int32_t sub, uint64_t uid,
                                      const uint8_t* sig, size_t sig_len)
 {
     uint8_t obj[WT_HSM_KEY_P256_OBJ_LEN];
-    uint8_t der[WT_HSM_KEY_DER_SIG_MAX];
     ecc_key key;
-    word32 der_len = sizeof(der);
     int res = 0;
     psa_status_t status;
     int rc;
@@ -426,16 +470,18 @@ static psa_status_t wt_hsm_kv_verify(int32_t owner, int32_t sub, uint64_t uid,
     if (status != PSA_SUCCESS) {
         return status;
     }
-    rc = wc_ecc_rs_raw_to_sig(sig, 32U, sig + 32U, 32U, der, &der_len);
-    if (rc == 0) {
-        rc = wc_ecc_init_ex(&key, NULL, INVALID_DEVID);
-    }
+    rc = wc_ecc_init_ex(&key, NULL, INVALID_DEVID);
     if (rc == 0) {
         rc = wc_ecc_import_x963_ex(obj + WT_VAULT_KEY_MATERIAL_LEN,
                                    WT_VAULT_KEY_PUB_LEN, &key, ECC_SECP256R1);
         if (rc == 0) {
-            rc = wc_ecc_verify_hash(der, der_len, digest, (word32)digest_len,
-                                    &res, &key);
+#ifdef NO_ASN
+            rc = wc_ecc_verify_hash(sig, (word32)sig_len, digest,
+                                    (word32)digest_len, &res, &key);
+#else
+            rc = wt_hsm_kv_verify_raw(sig, digest, (word32)digest_len, &res,
+                                      &key);
+#endif
         }
         wc_ecc_free(&key);
     }
@@ -573,6 +619,70 @@ psa_status_t wt_hsm_keyvault_destroy(int32_t owner, int32_t sub, uint64_t uid)
     }
     return PSA_SUCCESS;
 }
+
+#ifdef WT_SECURE_PSA
+psa_status_t wt_hsm_keyvault_rec_put(int32_t owner, int32_t sub, uint64_t uid,
+                                     const uint8_t* data, size_t len)
+{
+    if (g_kv_nvm == NULL) {
+        return PSA_ERROR_NOT_SUPPORTED;
+    }
+    if (data == NULL || len == 0U || len > WT_VAULT_OBJECT_MAX) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    return wt_hsm_kv_store(owner, sub, uid, WT_HSM_KEY_TYPE_PSA_RECORD, 0U,
+                           data, len);
+}
+
+/* Reads len bytes at offset; total reports the record size. */
+psa_status_t wt_hsm_keyvault_rec_get(int32_t owner, int32_t sub, uint64_t uid,
+                                     uint32_t offset, uint8_t* data,
+                                     size_t len, size_t* total)
+{
+    whNvmMetadata meta;
+    whNvmId id = WH_NVM_ID_INVALID;
+    uint32_t flags;
+    psa_status_t status;
+
+    if (g_kv_nvm == NULL) {
+        return PSA_ERROR_NOT_SUPPORTED;
+    }
+    status = wt_hsm_vault_lookup_in(g_kv_nvm, owner, sub, uid, &id, &meta,
+                                    NULL);
+    if (status == PSA_SUCCESS) {
+        flags = wt_hsm_vault_flags_of(meta.label);
+        if ((flags & WT_VAULT_FLAG_KEY) == 0U ||
+                WT_HSM_KEY_TYPE_OF(flags) != WT_HSM_KEY_TYPE_PSA_RECORD) {
+            status = PSA_ERROR_NOT_PERMITTED;
+        }
+    }
+    if (status == PSA_SUCCESS && total != NULL) {
+        *total = meta.len;
+    }
+    if (status == PSA_SUCCESS && len != 0U) {
+        if (data == NULL || offset > meta.len || len > meta.len - offset) {
+            status = PSA_ERROR_INVALID_ARGUMENT;
+        }
+        else if (wh_Nvm_Read(g_kv_nvm, id, (whNvmSize)offset, (whNvmSize)len,
+                             data) != WH_ERROR_OK) {
+            status = PSA_ERROR_STORAGE_FAILURE;
+        }
+    }
+    return status;
+}
+
+psa_status_t wt_hsm_keyvault_rec_remove(int32_t owner, int32_t sub,
+                                        uint64_t uid)
+{
+    psa_status_t status = wt_hsm_keyvault_rec_get(owner, sub, uid, 0U, NULL,
+                                                  0U, NULL);
+
+    if (status == PSA_SUCCESS) {
+        status = wt_hsm_keyvault_destroy(owner, sub, uid);
+    }
+    return status;
+}
+#endif
 
 const wt_vault_key_backend_t wt_hsm_key_backend = {
     wt_hsm_kv_generate,

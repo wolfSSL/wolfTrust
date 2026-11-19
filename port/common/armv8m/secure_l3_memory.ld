@@ -22,23 +22,28 @@
  * block. WT_RAM_S_ORIGIN and the WT_L3_* symbols come from the port's
  * memory_map.h through port/common/armv8m/l3_layout.h. */
 
-  /* General SPM RAM up to the keystore bands, less the VNET band when built. */
-  RAM   (rwx): ORIGIN = WT_RAM_S_ORIGIN,
-               LENGTH = WT_L3_KEYSTORE_ORIGIN - WT_RAM_S_ORIGIN - WT_VNET_DATA_LENGTH
-  /* SERVICE_VNET data band, or the TPM/PKCS11 interface window; zero length
-   * outside CONFIG_VNET, CONFIG_TPM and CONFIG_PKCS11 builds. */
-  VNETDATA (rw): ORIGIN = WT_L3_KEYSTORE_ORIGIN - WT_VNET_DATA_LENGTH,
-                 LENGTH = WT_VNET_DATA_LENGTH
-  /* Keystore bands: the vault, attestation and crypto partitions each own one. */
-  VAULTDATA (rw): ORIGIN = WT_L3_KEYSTORE_ORIGIN, LENGTH = 8K
-  ATTESTDATA (rw): ORIGIN = WT_L3_KEYSTORE_ORIGIN + 8K, LENGTH = 2K
-  HSMDATA (rw): ORIGIN = WT_L3_KEYSTORE_ORIGIN + 10K,
-                LENGTH = WT_L3_HSM_DATA_LENGTH
+  /* General SPM RAM: .data, .bss and the SPM main stack, up to the bands. */
+  RAM   (rwx): ORIGIN = WT_RAM_S_ORIGIN, LENGTH = WT_L3_RAM_LENGTH
+  /* SERVICE_VNET data band; zero length outside CONFIG_VNET builds. */
+  VNETDATA (rw): ORIGIN = WT_L3_VNET_ORIGIN, LENGTH = WT_L3_VNET_LENGTH
+  /* Crypto partition stack and data band, sized per engine, below the
+   * keystore. */
+  CRYPTOSTACK (rw): ORIGIN = WT_L3_CRYPTOSTACK_ORIGIN,
+                    LENGTH = WT_L3_CRYPTOSTACK_LENGTH
+  HSMDATA (rw): ORIGIN = WT_L3_HSM_ORIGIN, LENGTH = WT_L3_HSM_LENGTH
+  /* Keystore bands: the vault and attestation partitions each own one. */
+  VAULTDATA (rw): ORIGIN = WT_L3_VAULT_ORIGIN, LENGTH = WT_L3_VAULT_LENGTH
+  ATTESTDATA (rw): ORIGIN = WT_L3_ATTEST_ORIGIN, LENGTH = WT_L3_ATTEST_LENGTH
   /* Partition execution stacks, each also the partition's MPU RW resource. */
-  FWUSTACK (rw): ORIGIN = WT_L3_STACKS_ORIGIN, LENGTH = 8K
-  PSSTACK (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 8K, LENGTH = 8K
-  ITSSTACK (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 16K, LENGTH = 8K
-  VAULTSTACK (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 24K, LENGTH = 16K
-  /* Conformance partition data; CONFIG_VNET builds use it as the VNET stack. */
-  CONFDATA (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 40K, LENGTH = 12K
-  SPSTACKS (rw): ORIGIN = WT_L3_STACKS_ORIGIN + 52K, LENGTH = 40K
+  PSSTACK (rw): ORIGIN = WT_L3_PSSTACK_ORIGIN, LENGTH = WT_L3_PSSTACK_LENGTH
+  ITSSTACK (rw): ORIGIN = WT_L3_ITSSTACK_ORIGIN, LENGTH = WT_L3_ITSSTACK_LENGTH
+  VAULTSTACK (rw): ORIGIN = WT_L3_VAULTSTACK_ORIGIN,
+                   LENGTH = WT_L3_VAULTSTACK_LENGTH
+  /* The attestation stack, then the Arm suite partitions' stacks in
+   * conformance builds. */
+  SPSTACKS (rw): ORIGIN = WT_L3_SPSTACKS_ORIGIN, LENGTH = WT_L3_SPSTACKS_LENGTH
+  /* Conformance partition data, or the VNET stack; zero length otherwise. */
+  CONFDATA (rw): ORIGIN = WT_L3_CONF_ORIGIN, LENGTH = WT_L3_CONF_LENGTH
+  /* SERVICE_FWU stack, last so dropping it moves nothing; zero length
+   * outside WT_FWU builds. */
+  FWUSTACK (rw): ORIGIN = WT_L3_FWUSTACK_ORIGIN, LENGTH = WT_L3_FWUSTACK_LENGTH

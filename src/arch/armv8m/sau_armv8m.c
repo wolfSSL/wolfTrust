@@ -87,3 +87,29 @@ void wt_armv8m_sau_init(const wt_armv8m_sau_region_t* regions, size_t count)
     wt_dsb();
     wt_isb();
 }
+
+uint32_t wt_armv8m_sau_region_count(void)
+{
+    return WT_SAU_TYPE & 0xFFu;
+}
+
+int wt_armv8m_sau_region_is(uint32_t rnr, uint32_t base,
+                            uint32_t limit_inclusive, bool nsc, bool enabled)
+{
+    uint32_t rlar;
+
+    WT_SAU_RNR = rnr;
+    rlar = WT_SAU_RLAR;
+    if (!enabled) {
+        return (rlar & 1u) == 0u;
+    }
+    return (rlar & 1u) != 0u && ((rlar & 2u) != 0u) == nsc &&
+           (rlar & 0xFFFFFFE0u) == (limit_inclusive & 0xFFFFFFE0u) &&
+           (WT_SAU_RBAR & 0xFFFFFFE0u) == (base & 0xFFFFFFE0u);
+}
+
+void wt_armv8m_sau_sync(void)
+{
+    wt_dsb();
+    wt_isb();
+}

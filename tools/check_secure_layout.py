@@ -21,12 +21,9 @@ HSM_ORIGIN = 0x30077800
 HSM_LIMIT = 0x30089000
 CONFDATA_ORIGIN = 0x30093000
 CONFDATA_DATA_LIMIT = 0x30095C00
-# SERVICE_TPM mailbox band (CONFIG_TPM builds only). STM32H563 default; other
-# ports pass their own with --tpm-band.
-TPM_ORIGIN = 0x30095000
-TPM_LIMIT = 0x30095800
-PKCS11_ORIGIN = 0x30070000
-PKCS11_LIMIT = 0x30075000
+# SERVICE_TPM or SERVICE_PKCS11 data band; ports pass --interface-band.
+INTERFACE_ORIGIN = 0x30095000
+INTERFACE_LIMIT = 0x30095800
 
 REQUIRED_ENTRIES = (
     "Reset_Handler",
@@ -73,10 +70,8 @@ class Layout:
     bands: tuple = BANDS
     confdata_origin: int = CONFDATA_ORIGIN
     confdata_data_limit: int = CONFDATA_DATA_LIMIT
-    tpm_origin: int = TPM_ORIGIN
-    tpm_limit: int = TPM_LIMIT
-    pkcs11_origin: int = PKCS11_ORIGIN
-    pkcs11_limit: int = PKCS11_LIMIT
+    interface_origin: int = INTERFACE_ORIGIN
+    interface_limit: int = INTERFACE_LIMIT
     wolfhal: bool = True
 
 
@@ -353,51 +348,26 @@ def validate(symbols, production=False, layout=DEFAULT_LAYOUT,
         if production and bounds["_sconfdata"] != bounds["_econfbss"]:
             errors.append("production image carries conformance data")
 
-    # SERVICE_TPM mailbox band (CONFIG_TPM builds only): when it carries state,
-    # hold it to the same fixed origin and containment the keystore bands get.
-    # Empty outside CONFIG_TPM; a linked relay object makes emptiness an error.
-    tpm_edges = {
-        name: table.get(name, ())
-        for name in ("_s_tpm", "_e_tpm_data", "_s_tpm_bss", "_e_tpm")
-    }
-    if all(len(matches) == 1 for matches in tpm_edges.values()):
-        s_tpm = tpm_edges["_s_tpm"][0].address
-        e_tpm_data = tpm_edges["_e_tpm_data"][0].address
-        s_tpm_bss = tpm_edges["_s_tpm_bss"][0].address
-        e_tpm = tpm_edges["_e_tpm"][0].address
-        if require_tpm and e_tpm <= s_tpm:
-            errors.append("required tpm band is empty")
-        if e_tpm > s_tpm:
-            if s_tpm != layout.tpm_origin:
-                errors.append("tpm band origin is not 0x%08x" %
-                              layout.tpm_origin)
-            if not (s_tpm <= e_tpm_data <= s_tpm_bss <= e_tpm <=
-                    layout.tpm_limit):
-                errors.append("tpm state escapes its isolation band")
-    elif require_tpm:
-        errors.append("required tpm band markers are missing or duplicated")
-
-    pkcs11_edges = {
-        name: table.get(name, ())
-        for name in ("_s_pkcs11", "_e_pkcs11_data", "_s_pkcs11_bss",
-                     "_e_pkcs11")
-    }
-    if all(len(matches) == 1 for matches in pkcs11_edges.values()):
-        s_pkcs11 = pkcs11_edges["_s_pkcs11"][0].address
-        e_pkcs11_data = pkcs11_edges["_e_pkcs11_data"][0].address
-        s_pkcs11_bss = pkcs11_edges["_s_pkcs11_bss"][0].address
-        e_pkcs11 = pkcs11_edges["_e_pkcs11"][0].address
-        if require_pkcs11 and e_pkcs11 <= s_pkcs11:
-            errors.append("required pkcs11 band is empty")
-        if e_pkcs11 > s_pkcs11:
-            if s_pkcs11 != layout.pkcs11_origin:
-                errors.append("pkcs11 band origin is not 0x%08x" %
-                              layout.pkcs11_origin)
-            if not (s_pkcs11 <= e_pkcs11_data <= s_pkcs11_bss <=
-                    e_pkcs11 <= layout.pkcs11_limit):
-                errors.append("pkcs11 state escapes its isolation band")
-    elif require_pkcs11:
-        errors.append("required pkcs11 band markers are missing or duplicated")
+    # The interface band (TPM 2.0 or PKCS#11) starts its state at the origin;
+    # a linked relay object makes an empty band an error.
+    for name, required in (("tpm", require_tpm), ("pkcs11", require_pkcs11)):
+        edge_names = ("_s_" + name, "_e_%s_data" % name, "_s_%s_bss" % name,
+                      "_e_" + name)
+        edges = [table.get(edge, ()) for edge in edge_names]
+        if all(len(matches) == 1 for matches in edges):
+            start, end_data, start_bss, end = (m[0].address for m in edges)
+            if required and end <= start:
+                errors.append("required %s band is empty" % name)
+            if end > start:
+                if start != layout.interface_origin:
+                    errors.append("%s band origin is not 0x%08x" %
+                                  (name, layout.interface_origin))
+                if not (start <= end_data <= start_bss <= end <=
+                        layout.interface_limit):
+                    errors.append("%s state escapes its isolation band" % name)
+        elif required:
+            errors.append("required %s band markers are missing or duplicated" %
+                          name)
 
     if (text_start is not None and text_end is not None and
             text_start >= text_end):
@@ -1325,20 +1295,17 @@ def named_band(text):
     return name, low, high
 
 
-def port_layout(bands, confdata, wolfhal, tpm_band=None, pkcs11_band=None):
+def port_layout(bands, confdata, wolfhal, interface_band=None):
     """Every port declares all three bands or none (the STM32H563 default)."""
     if bands and sorted(name for name, _, _ in bands) != sorted(BAND_NAMES):
         raise argparse.ArgumentTypeError(
             "--band must name each of %s exactly once" % "/".join(BAND_NAMES))
     ordered = tuple(sorted(bands, key=lambda b: BAND_NAMES.index(b[0]))) if bands else BANDS
-    tpm_origin = tpm_band[0] if tpm_band else TPM_ORIGIN
-    tpm_limit = tpm_band[1] if tpm_band else TPM_LIMIT
-    pkcs11_origin = pkcs11_band[0] if pkcs11_band else PKCS11_ORIGIN
-    pkcs11_limit = pkcs11_band[1] if pkcs11_band else PKCS11_LIMIT
+    interface = interface_band or (INTERFACE_ORIGIN, INTERFACE_LIMIT)
     return Layout(bands=ordered, confdata_origin=confdata[0],
-                  confdata_data_limit=confdata[1], tpm_origin=tpm_origin,
-                  tpm_limit=tpm_limit, pkcs11_origin=pkcs11_origin,
-                  pkcs11_limit=pkcs11_limit, wolfhal=wolfhal)
+                  confdata_data_limit=confdata[1],
+                  interface_origin=interface[0],
+                  interface_limit=interface[1], wolfhal=wolfhal)
 
 
 def main():
@@ -1360,12 +1327,9 @@ def main():
                         metavar="NAME=ORIGIN:LIMIT")
     parser.add_argument("--confdata", type=band, metavar="ORIGIN:DATA_LIMIT",
                         default=(CONFDATA_ORIGIN, CONFDATA_DATA_LIMIT))
-    parser.add_argument("--tpm-band", type=band, metavar="ORIGIN:LIMIT",
-                        default=None, dest="tpm_band",
-                        help="SERVICE_TPM mailbox band bounds for this port")
-    parser.add_argument("--pkcs11-band", type=band, metavar="ORIGIN:LIMIT",
-                        default=None, dest="pkcs11_band",
-                        help="SERVICE_PKCS11 relay band bounds for this port")
+    parser.add_argument("--interface-band", type=band, metavar="ORIGIN:LIMIT",
+                        default=None, dest="interface_band",
+                        help="TPM 2.0 or PKCS#11 data band for this port")
     parser.add_argument("--no-wolfhal", action="store_true",
                         help="the port links no wolfHAL, so no g_whalTimeout")
     args = parser.parse_args()
@@ -1378,7 +1342,7 @@ def main():
         parser.error("--map and --owners are required to check an ELF")
     try:
         layout = port_layout(args.band, args.confdata, not args.no_wolfhal,
-                             args.tpm_band, args.pkcs11_band)
+                             args.interface_band)
     except argparse.ArgumentTypeError as exc:
         parser.error(str(exc))
 

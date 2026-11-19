@@ -5,6 +5,10 @@ runs wolfTPM's firmware TPM directly inside a normal wolfTrust Secure
 Partition. It needs no second application image, RTOS, or worker. A bare-metal,
 Zephyr, or FreeRTOS client uses the same transport.
 
+TPM 2.0 is an alternative application API to PSA, not an addition to it. PSA
+stays the primary interface and the default build; `CONFIG_TPM=y` is off by
+default, and leaving it off keeps the default image byte-for-byte unchanged.
+
 ```text
 Application: wolfTPM TPM2_* API
     |
@@ -18,36 +22,33 @@ SERVICE_TPM Secure Partition: fwTPM
 
 The transport uses FF-M `psa_connect`, `psa_call`, and `psa_close`. These are
 IPC operations, not PSA Crypto calls. TPM and PKCS#11 builds link no wolfPSA
-Crypto implementation. Cortex-M reaches the SPM through its CMSE gateway;
-Cortex-A uses FF-A through the EL3 SPMD.
+Crypto implementation (`WT_SECURE_PSA` defaults to 0 and an explicit 1 is
+refused). The application reaches the SPM through the CMSE gateway.
 
 ## Build and run
 
 All three application interfaces use `WT_ENGINE=native` (default) or
 `WT_ENGINE=hsm`. TPM's native configuration does not need wolfHSM crypto.
-`WT_CRYPTO_PROFILE=default` exports RNG, SHA-256, P-256 key generation,
+`WT_INTERFACE_PROFILE=default` exports RNG, SHA-256, P-256 key generation,
 signing, verification, and their required lifecycle commands. `full` retains
 the broader supported command set, including PCR operations. Individual
-commands can be added or removed with [operation profiles](Crypto-Profiles.md).
+commands can be added or removed with [operation profiles](Interface-Profiles.md).
 
 ```sh
-make TARGET=stm32h563 CONFIG_TPM=y WT_ENGINE=native secure-image
+make TARGET=mimxrt700 CONFIG_TPM=y WT_ENGINE=native secure-image
+make -C tests/firmware/interface-guest TARGET=mimxrt700 WT_INTERFACE=tpm
 
-WT_ENGINE=native WT_CRYPTO_PROFILE=default WT_INTERFACE_OS=zephyr \
-    tests/target/run_suite.sh m33mu tpm
-WT_ENGINE=hsm WT_CRYPTO_PROFILE=full WT_INTERFACE_OS=freertos \
-    tests/target/run_suite.sh m33mu tpm tpmneg
-
-make ARCH=aarch64 TARGET=qemuvirt CONFIG_TPM=y WT_ENGINE=native \
-    secure-image TOOLPREFIX=aarch64-none-elf-
-WT_ENGINE=native tests/target/run_suite.sh qemu-a tpm tpmneg
+WT_ENGINE=native tests/target/run_suite.sh mimxrt700 tpm tpmneg
+WT_ENGINE=hsm WT_PROFILE=full tests/target/run_suite.sh stm32h563 tpm tpmneg
 ```
 
-The Cortex-M runner authenticates wolfBoot, wolfTrust, and one application.
-`make test-tpm-target WT_INTERFACE_OS=zephyr` and the `freertos` variant are
-focused entry points. The isolation scenario also exercises a bare-metal
-wolfTPM application. See [footprint measurements](Interface-Footprint.md) for
-matched Secure-image and application sizes across all six configurations.
+Every Cortex-M33 port registers the `tpm` build variant in its `port.json`;
+the STM32L562 builds the native engine only. The runner authenticates
+wolfBoot, wolfTrust, the bare-metal wolfTPM application in guest0
+(`tests/firmware/interface-guest`), and an idle bare-metal guest1. The
+interface profile follows the runner's `WT_PROFILE` unless
+`WT_INTERFACE_PROFILE` is set. [Footprint](Footprint.md#tpm-20-and-pkcs11)
+has the Secure image and application sizes for every port and engine.
 
 ## Service boundary
 
@@ -70,16 +71,17 @@ refused. Command and response staging is wiped after every successful or failed
 execution. There are no submit/poll/fetch/respond worker operations.
 
 The volatile `FWTPM_NO_NV` configuration has no heap. Keys and PCR values do
-not survive reboot. On Cortex-M the linker and MPU assign the handler a
-private state region and stack; on Cortex-A its S-EL0 translation table maps
-its private writable pages. Native builds share read-only crypto code while
-keeping working state private. HSM builds retain private callback state.
+not survive reboot. The linker and MPU assign the handler a private state
+region and stack in the interface band above SPM RAM. Native builds share
+read-only crypto code while keeping working state private. HSM builds retain
+private callback state.
 
 ## Validation and supported targets
 
-STM32H563 under M33MU and QEMU `virt` run actual commands and isolation tests.
+Every Cortex-M33 port runs actual commands and isolation tests under M33MU.
 The default suite checks capabilities, a maximum-sized hash command, RNG,
-P-256 key creation, signing, verification, disabled commands, and cleanup.
+P-256 key creation, signing, verification, disabled commands, dictionary-attack
+lockout after repeated bad authorization, and cleanup.
 The full suite also checks PCR extend/read and broader object operations.
 
 `tpmneg` proves that another Secure Partition cannot read or write TPM state,
@@ -88,8 +90,9 @@ state, that each fault is contained, and that commands succeed after recovery.
 The host suite drives the production client/service protocol through a real
 FF-M runtime and checks bounds, caller identity, wiping, and no replay.
 
-CI covers both engines and profiles, Zephyr and FreeRTOS applications on
-Cortex-M, and Normal-world applications on Cortex-A. Required matrix cells
-must report real passes; successful skips are rejected. MIMXRT700 and Versal
-have compile and layout gates, without an API runtime qualification claim.
-Versal QEMU lacks the XMPU/RISAF needed for Normal-world level-3 isolation.
+The M33MU workflow runs `tpm` and `tpmneg` on every port, each engine the
+port builds, and each profile the port registers, from the port registry's
+`m33mu.groups`. The STM32L562 runs the default profile only: its interface
+layout has no update partition for the full profile's `WT_FWU=1`. The
+cross-compile workflow builds the `CONFIG_TPM=y` Secure image on every port
+and engine, and the host manifest suite validates its rendered manifest.

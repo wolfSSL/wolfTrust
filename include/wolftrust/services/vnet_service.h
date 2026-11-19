@@ -47,6 +47,10 @@ void wt_vnet_service_init_state(void);
  * the underlying state via vnet_rx_poll and can poll. */
 void wt_vnet_service_refresh_irq(wt_guest_id_t guest_id);
 
+/* A restarted or quarantined guest never closes its port: drop its queued
+ * frames, FDB entries and MAC binding so the next instance starts clean. */
+void wt_vnet_service_reset_guest(wt_guest_id_t guest_id);
+
 /* The monitor-owned switch instance for the SERVICE_VNET relay; NULL until
  * wt_vnet_service_init succeeds, which keeps the relay fail-closed. */
 vnet_switch_t* wt_vnet_service_switch(void);

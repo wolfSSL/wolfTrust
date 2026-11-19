@@ -1100,6 +1100,31 @@ static void wt_guest_fault_probe(void)
 }
 #endif
 
+#if defined(WT_NS_MASK_PROBE)
+/* PRIMASK | FAULTMASK << 1 | BASEPRI << 8 as read back, then spins. */
+volatile uint32_t g_wt_ns_mask_state;
+volatile uint32_t g_wt_ns_mask_spins;
+
+/* Test-only: every Non-secure mask raised, then a spin in Thread mode; only
+ * the Secure tick, above them all under AIRCR.PRIS, can still run guest1. */
+static void wt_guest_ns_mask_probe(void)
+{
+	uint32_t primask;
+	uint32_t faultmask;
+	uint32_t basepri;
+
+	__asm volatile("cpsid i \n cpsid f \n msr basepri, %0"
+		       : : "r"(0x10u) : "memory");
+	__asm volatile("mrs %0, primask" : "=r"(primask));
+	__asm volatile("mrs %0, faultmask" : "=r"(faultmask));
+	__asm volatile("mrs %0, basepri" : "=r"(basepri));
+	g_wt_ns_mask_state = primask | (faultmask << 1) | (basepri << 8);
+	for (;;) {
+		g_wt_ns_mask_spins++;
+	}
+}
+#endif
+
 #if defined(WT_NS_BUSFAULT_PROBE)
 /* Test-only: with its own MPU off, the guest reads an unmapped Non-secure hole;
  * the precise BusFault goes to the Secure monitor (BFHFNMINS=0) for restart. */
@@ -1585,6 +1610,11 @@ int main(void)
 #if defined(WT_WRITE_ONCE_RESET_PROBE)
 	exercise_write_once_reset();
 #endif
+#if defined(WT_MPU_BYPASS_PROBE)
+	/* Probe first: each relaunch would otherwise replay Secure ECDSA and
+	 * starve the peer guest the scenario watches. */
+	exercise_mpu_bypass_probe();
+#endif
 	exercise_tee_driver();
 	exercise_ffm_crypto();
 	exercise_ffm_its();
@@ -1594,9 +1624,6 @@ int main(void)
 	exercise_ffm_negatives();
 #if defined(WT_HSM_ATTACK_PROBE)
 	exercise_hsm_attack_probe();
-#endif
-#if defined(WT_MPU_BYPASS_PROBE)
-	exercise_mpu_bypass_probe();
 #endif
 #if defined(WT_PERIPH_NEG_PROBE)
 	exercise_periph_neg_probe();
@@ -1624,6 +1651,9 @@ int main(void)
 
 	LOG_INF("guest0_psa done");
 	g_guest0_lifecycle |= WT_LC_DONE;
+#if defined(WT_NS_MASK_PROBE)
+	wt_guest_ns_mask_probe();
+#endif
 
 #if defined(WT_M33MU_EXPECT_BKPT)
     __asm volatile("bkpt #0x7f");

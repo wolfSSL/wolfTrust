@@ -51,7 +51,7 @@ flowchart TB
 
     subgraph APP[Application domains]
         GA[Client A<br/>Cortex-M guest or Cortex-A Normal world]
-        GB[Client B<br/>Cortex-M guest or Cortex-A Normal world]
+        GB[Optional client B<br/>Cortex-M guest or Cortex-A Normal world]
     end
 
     subgraph PORT[Architecture and target ports]
@@ -68,7 +68,7 @@ flowchart TB
             CR["Cryptography and hardware<br/>security module (HSM)"]
             ST["Internal Trusted Storage (ITS),<br/>Protected Storage, and vault"]
             AT[Initial Attestation]
-            FW[Firmware Update]
+            FW[Optional Firmware Update]
             VN[Optional virtual networking]
             P11[Optional PKCS#11 relay]
             TPM[Optional TPM 2.0 service]
@@ -130,12 +130,12 @@ current reference port, not a requirement imposed on every intended port.
 
 ## Ports
 
-wolfTrust currently supports two Armv8-M ports and an AArch64 (Cortex-A) port;
-each guide covers the board or machine, the first-stage loader contract, and
-the runners:
+wolfTrust currently supports four Armv8-M ports and an AArch64 (Cortex-A)
+port; each guide covers the board or machine, the first-stage loader
+contract, and the runners:
 
-- STM32H563 (NUCLEO-H563ZI): [STM32H5 Guide](docs/STM32H5-Guide.md)
-- NXP MIMXRT700 (MIMXRT700-EVK): [MIMXRT700 Guide](docs/MIMXRT700-Guide.md)
+- every registered port, its board and guide: [Ports](docs/Ports.md)
+  (generated from `port/<soc>/port.json`)
 - AArch64 (QEMU virt and xlnx-versal-virt): [Porting Guide](docs/Porting.md)
 
 The Armv8-M ports build with `TARGET=<port>` (`stm32h563` is the default) and
@@ -170,7 +170,11 @@ make test
 ```
 
 The Secure build produces `build/wolftrust.elf`,
-`build/wolftrust.bin`, and `build/secure_cmse_implib.o`.
+`build/wolftrust.bin`, and `build/secure_cmse_implib.o`. `make` builds the
+lean default image: isolation level 3, one Non-secure guest, and the Crypto,
+ITS, Protected Storage and attestation services. Add-ons such as a second
+guest (`WT_MAX_GUESTS=2`) or firmware update (`WT_FWU=1`) are one Make
+variable each; see [Build profiles](docs/Macros.md#build-profiles).
 Target runners assemble the wolfBoot-to-wolfTrust chain, patch
 signature-covered guest measurements into wolfTrust, and then sign the
 wolfTrust image.
@@ -188,6 +192,8 @@ The AArch64 build produces the EL3 monitor (`build/wolftrust_el3.elf`) and
 the Secure EL1 SPMC (`build/wolftrust.elf`).
 
 Build both PSA reference guests with:
+Build both PSA reference guests (the second one runs on a
+`WT_MAX_GUESTS=2` Secure image) with:
 
 ```sh
 make -C tests/firmware/zephyr-stm32h5 clone
@@ -201,23 +207,26 @@ Common validation entry points:
 make test
 make test-target
 make test-target TARGET=mimxrt700
+make test-target TARGET=mcxn947
 make test-target-a
 make test-conformance
-WT_H5_DOCKER_IMAGE=ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15 make test-hardware
+make test-hardware TARGET=stm32h563
+make test-hardware TARGET=mcxn947
 ```
 
 `make test-target` runs the port's smoke tier under M33MU (`WT_TIER=full` for
 every scenario): the STM32H563 default skips explicitly when M33MU is
-unavailable, and `TARGET=mimxrt700` builds its pinned emulator and wolfBoot
-first stage itself. `make test-target-a` runs the AArch64 scenarios under QEMU
-and skips explicitly when QEMU or the AArch64 toolchain is unavailable.
+unavailable, and `TARGET=mimxrt700` or `TARGET=mcxn947` builds its pinned
+emulator and wolfBoot first stage itself. `make test-target-a` runs the AArch64
+scenarios under QEMU and skips explicitly when QEMU or the AArch64 toolchain is
+unavailable.
 `make test-conformance` instead runs its 20-test host subset and warns that it
 is not full emulator or hardware evidence. `make test-hardware` skips when
 board detection fails; on hosts without `lsusb`, a missing ST-Link can instead
 surface as a flash failure. The hardware target can flash and reset the
-connected board. Use the disposable build container for the published hardware
-workflow; the current direct-host build path changes the user's global Git
-`safe.directory` configuration.
+connected board. When the probe host has no cross toolchain, the published
+workflow builds in the disposable container (`build`) and flashes from the
+host (`flash`) out of the same checkout.
 
 ## Documentation
 
@@ -236,6 +245,7 @@ documentation source:
 - [TF-M Compatibility](docs/TF-M-Compatibility.md)
 - [FF-A Compatibility](docs/FF-A-Compatibility.md)
 - [Macros](docs/Macros.md)
+- [Footprint](docs/Footprint.md)
 - [Porting](docs/Porting.md)
 - [Building](docs/Building.md)
 - [Testing](docs/Testing.md)
@@ -243,6 +253,7 @@ documentation source:
 - [Project Structure](docs/Project-Structure.md)
 - [STM32H5 Guide](docs/STM32H5-Guide.md)
 - [MIMXRT700 Guide](docs/MIMXRT700-Guide.md)
+- [MCXN947 Guide](docs/MCXN947-Guide.md)
 
 The source tree is authoritative:
 

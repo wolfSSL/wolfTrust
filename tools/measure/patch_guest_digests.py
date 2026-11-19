@@ -23,7 +23,7 @@
 Usage:
   patch_guest_digests.py <wolftrust.bin> <guest_id>:<version>:<guest.bin> ...
 
-Locates the guest-measurement slot by magic (see port/stm32h563/partitions.c
+Locates the guest-measurement slot by magic (see port/common/armv8m/partitions.c
 wt_guest_meas_slot_t), writes one record per argument (guest_id, version,
 image_size, SHA-256), and rewrites the image in place. Must run BEFORE the
 wolfBoot signing step so the pins are covered by the image signature.

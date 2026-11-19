@@ -23,15 +23,17 @@
 _estack = ORIGIN(RAM) + LENGTH(RAM);
 /* Secure main stack: MSPLIM_S is set to _sstack at reset. */
 _sstack = _estack - WT_SPM_STACK_SIZE;
-_wt_part_stacks_base = ORIGIN(FWUSTACK);
-_wt_part_stacks_limit = ORIGIN(VAULTSTACK) + LENGTH(VAULTSTACK);
-_wt_sp_stacks_base = ORIGIN(SPSTACKS);
-_wt_sp_stacks_limit = ORIGIN(SPSTACKS) + LENGTH(SPSTACKS);
+_wt_part_stacks_base = ORIGIN(PSSTACK);
+_wt_part_stacks_limit = ORIGIN(SPSTACKS) + LENGTH(SPSTACKS);
+_wt_sp_stacks_base = ORIGIN(CRYPTOSTACK);
+_wt_sp_stacks_limit = ORIGIN(CRYPTOSTACK) + LENGTH(CRYPTOSTACK);
+_wt_fwu_stack_base = ORIGIN(FWUSTACK);
+_wt_fwu_stack_limit = ORIGIN(FWUSTACK) + LENGTH(FWUSTACK);
 _wt_tpm_stack_base = ORIGIN(VNETDATA) +
-    ((SIZEOF(.tpm_data) + SIZEOF(.tpm_bss)) != 0 ? 48K : 0);
+    ((SIZEOF(.tpm_data) + SIZEOF(.tpm_bss)) != 0 ? WT_L3_INTERFACE_STACK_OFFSET : 0);
 _wt_tpm_stack_limit = ORIGIN(VNETDATA) +
-    ((SIZEOF(.tpm_data) + SIZEOF(.tpm_bss)) != 0 ? 64K : 0);
+    ((SIZEOF(.tpm_data) + SIZEOF(.tpm_bss)) != 0 ? WT_L3_INTERFACE_STACK_END : 0);
 _wt_pkcs11_stack_base = ORIGIN(VNETDATA) +
-    ((SIZEOF(.pkcs11_data) + SIZEOF(.pkcs11_bss)) != 0 ? 48K : 0);
+    ((SIZEOF(.pkcs11_data) + SIZEOF(.pkcs11_bss)) != 0 ? WT_L3_INTERFACE_STACK_OFFSET : 0);
 _wt_pkcs11_stack_limit = ORIGIN(VNETDATA) +
-    ((SIZEOF(.pkcs11_data) + SIZEOF(.pkcs11_bss)) != 0 ? 64K : 0);
+    ((SIZEOF(.pkcs11_data) + SIZEOF(.pkcs11_bss)) != 0 ? WT_L3_INTERFACE_STACK_END : 0);

@@ -101,12 +101,16 @@ jobs:
               "$GITHUB_WORKSPACE/lib/wolfPSA/user_settings.h" \
               > "$wolfpsa_settings/user_settings.h"
           fi
+          psa_cfg="$GITHUB_WORKSPACE/lib/wolfPSA/build/include"
+          make -C lib/wolfPSA WOLFSSL_PATH=../wolfSSL \
+            USER_SETTINGS_PATH="$wolfpsa_settings" \
+            build/include/crypto_config_generated.h
           cd lib/wolfSSL
           ./autogen.sh
           ./configure --enable-shared --enable-psa --enable-pkcallbacks \
             --with-psa-include="$GITHUB_WORKSPACE/lib/wolfPSA/wolfpsa" \
             --disable-examples --disable-benchmark --disable-crypttests \
-            --prefix="$GITHUB_WORKSPACE/.deps/wolfssl"
+            --prefix="$GITHUB_WORKSPACE/.deps/wolfssl" CPPFLAGS="-I$psa_cfg"
           make -j2
           make install
           cd ../wolfPSA
@@ -119,7 +123,10 @@ jobs:
               -I../wolfSSL -I../wolfSSL/wolfssl \
               -I$GITHUB_WORKSPACE/.deps/wolfssl/lib \
               -I$GITHUB_WORKSPACE/.deps/wolfssl/include \
-              -I.. -I../wolfpsa -I../src -I../test/psa_server" \
+              -I.. -I../wolfpsa -I../src -I../test/psa_server -I$psa_cfg" \
             psa_api_test psa_crypto_init_test
+          # wolfPSA's key store refuses the container's workspace, owned by another uid
+          WOLFPSA_TOKEN_PATH="$(mktemp -d)"
+          export WOLFPSA_TOKEN_PATH
           ./test/psa_api_test
           ./test/psa_crypto_init_test

@@ -18,24 +18,25 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 # Generate one operation selection shared by the provider and its clients.
-WT_CRYPTO_PROFILE ?= default
-WT_CRYPTO_PROFILE_DIR := $(abspath $(BUILD_DIR)/crypto-profile)
-WT_CRYPTO_PROFILE_HEADER := $(WT_CRYPTO_PROFILE_DIR)/selected_profile.h
-WT_CRYPTO_PROFILE_FLAGS := -include $(WT_CRYPTO_PROFILE_HEADER)
-export WT_CRYPTO_PROFILE WT_CRYPTO_CONFIG WT_CRYPTO_ENABLE WT_CRYPTO_DISABLE
+WT_INTERFACE_PROFILE ?= default
+WT_INTERFACE_PROFILE_DIR := $(abspath $(BUILD_DIR)/crypto-profile)
+WT_INTERFACE_PROFILE_HEADER := $(WT_INTERFACE_PROFILE_DIR)/selected_profile.h
+WT_INTERFACE_PROFILE_FLAGS := -include $(WT_INTERFACE_PROFILE_HEADER)
+export WT_INTERFACE_PROFILE WT_INTERFACE_CONFIG WT_INTERFACE_ENABLE WT_INTERFACE_DISABLE
 
 .PHONY: crypto-profile-force
 crypto-profile-force:
 
-$(WT_CRYPTO_PROFILE_HEADER): crypto-profile-force
+$(WT_INTERFACE_PROFILE_HEADER): crypto-profile-force
 	@python3 $(ROOT)/tools/crypto_profile.py --root $(abspath $(ROOT)) \
-		--output $(WT_CRYPTO_PROFILE_DIR) --profile $(WT_CRYPTO_PROFILE)
+		--output $(WT_INTERFACE_PROFILE_DIR) --profile $(WT_INTERFACE_PROFILE) \
+		--interface $(if $(filter y,$(CONFIG_PKCS11)),pkcs11,tpm)
 
-$(WT_CRYPTO_PROFILE_DIR)/fwtpm_command.c: $(WT_CRYPTO_PROFILE_HEADER)
+$(WT_INTERFACE_PROFILE_DIR)/fwtpm_command.c: $(WT_INTERFACE_PROFILE_HEADER)
 	@test -f $@
 
-$(WT_CRYPTO_PROFILE_DIR)/pkcs11_crypto.c: $(WT_CRYPTO_PROFILE_HEADER)
+$(WT_INTERFACE_PROFILE_DIR)/pkcs11_crypto.c: $(WT_INTERFACE_PROFILE_HEADER)
 	@test -f $@
 
-$(WT_CRYPTO_PROFILE_DIR)/hsm_callback.c: $(WT_CRYPTO_PROFILE_HEADER)
+$(WT_INTERFACE_PROFILE_DIR)/hsm_callback.c: $(WT_INTERFACE_PROFILE_HEADER)
 	@test -f $@

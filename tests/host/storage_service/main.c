@@ -166,6 +166,28 @@ static psa_status_t its_set(wt_ffm_runtime_t* runtime, int32_t caller,
                        in_vec, 1U, NULL, 0U);
 }
 
+/* A SET of len filler bytes, sized past the 128-byte helper above. */
+static psa_status_t its_set_large(wt_ffm_runtime_t* runtime, int32_t caller,
+                                  psa_handle_t handle, uint64_t uid,
+                                  size_t len)
+{
+    static uint8_t buffer[sizeof(wt_its_req_t) + WT_FFM_TRANSFER_BYTES];
+    wt_its_req_t req;
+    psa_invec in_vec[1];
+
+    if (len > WT_FFM_TRANSFER_BYTES - sizeof(req)) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    (void)memset(&req, 0, sizeof(req));
+    req.uid = uid;
+    (void)memcpy(buffer, &req, sizeof(req));
+    (void)memset(buffer + sizeof(req), 0x6B, len);
+    in_vec[0].base = buffer;
+    in_vec[0].len = sizeof(req) + len;
+    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_SET,
+                       in_vec, 1U, NULL, 0U);
+}
+
 static psa_status_t its_get(wt_ffm_runtime_t* runtime, int32_t caller,
                             psa_handle_t handle, uint64_t uid,
                             uint32_t offset, void* data, size_t size,
@@ -377,6 +399,24 @@ int main(void)
     check(status == PSA_ERROR_INVALID_ARGUMENT, "its_get(uid 0) rejected");
     status = its_remove(&runtime, TEST_NS_GUEST0, handle_g0, 0ULL);
     check(status == PSA_ERROR_INVALID_ARGUMENT, "its_remove(uid 0) rejected");
+
+    /* The vault hop carries its own request header in the same transfer
+     * budget: the largest payload that fits is stored, one byte more is an
+     * insufficient-storage condition, not an argument error. */
+    status = its_set_large(&runtime, TEST_NS_GUEST0, handle_g0, 0x4444ULL,
+                           WT_FFM_TRANSFER_BYTES - sizeof(wt_vault_req_t));
+    check(status == PSA_SUCCESS,
+          "its_set of the largest payload the vault hop carries succeeds");
+    status = its_set_large(&runtime, TEST_NS_GUEST0, handle_g0, 0x4445ULL,
+                           WT_FFM_TRANSFER_BYTES - sizeof(wt_vault_req_t) +
+                               1U);
+    check(status == PSA_ERROR_INSUFFICIENT_STORAGE,
+          "its_set past the vault hop budget reports insufficient storage");
+    status = its_set_large(&runtime, TEST_NS_GUEST0, handle_g0, 0x4446ULL,
+                           WT_FFM_TRANSFER_BYTES - sizeof(wt_its_req_t));
+    check(status == PSA_ERROR_INSUFFICIENT_STORAGE,
+          "its_set of a full transfer reports insufficient storage");
+    (void)its_remove(&runtime, TEST_NS_GUEST0, handle_g0, 0x4444ULL);
 
     /* A vault restart between requests must not strand the front end. */
     status = its_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x3333ULL, 0U,

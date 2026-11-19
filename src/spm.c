@@ -19,16 +19,13 @@
  */
 
 #include "wolftrust/spm.h"
+#include "wolftrust_manifest_generated.h"
 
 #include <stddef.h>
 
-int wt_spm_init(wt_spm_t* spm,
-                const wt_system_manifest_t* manifest,
-                uint32_t supported_features,
-                const wt_profile_capabilities_t* platform)
+static int wt_spm_begin(wt_spm_t* spm, const wt_system_manifest_t* manifest,
+                        uint32_t supported_features)
 {
-    int result;
-
     if (spm == NULL) {
         return WT_SPM_ERROR_ARGUMENT;
     }
@@ -42,8 +39,12 @@ int wt_spm_init(wt_spm_t* spm,
         spm->state = WT_SPM_STATE_FAILED;
         return WT_SPM_ERROR_ARGUMENT;
     }
+    return WT_SPM_VALID;
+}
 
-    result = wt_manifest_validate(manifest, supported_features, platform);
+static int wt_spm_finish(wt_spm_t* spm, const wt_system_manifest_t* manifest,
+                         int result)
+{
     spm->validation_result = result;
     if (result != WT_MANIFEST_VALID) {
         spm->state = WT_SPM_STATE_FAILED;
@@ -53,6 +54,42 @@ int wt_spm_init(wt_spm_t* spm,
     spm->manifest = manifest;
     spm->state = WT_SPM_STATE_READY;
     return WT_SPM_VALID;
+}
+
+int wt_spm_init(wt_spm_t* spm,
+                const wt_system_manifest_t* manifest,
+                uint32_t supported_features,
+                const wt_profile_capabilities_t* platform)
+{
+    int ret;
+
+    ret = wt_spm_begin(spm, manifest, supported_features);
+    if (ret == WT_SPM_VALID) {
+        ret = wt_spm_finish(spm, manifest, wt_manifest_validate(manifest,
+                            supported_features, platform));
+    }
+    return ret;
+}
+
+int wt_spm_init_generated(wt_spm_t* spm, uint32_t supported_features)
+{
+    const wt_system_manifest_t* manifest = wt_generated_manifest_get();
+    int result = WT_MANIFEST_VALID;
+    int ret;
+
+    ret = wt_spm_begin(spm, manifest, supported_features);
+    /* The generator fixed the manifest; the caller's feature set still has to
+     * be one the runtime validator would accept for it. */
+    if ((ret == WT_SPM_VALID) &&
+        (((supported_features & ~WT_MANIFEST_FEATURE_MASK) != 0U) ||
+         ((supported_features & WT_MANIFEST_FEATURE_IPC) == 0U) ||
+         ((manifest->features & ~supported_features) != 0U))) {
+        result = WT_MANIFEST_ERROR_FEATURE;
+    }
+    if (ret == WT_SPM_VALID) {
+        ret = wt_spm_finish(spm, manifest, result);
+    }
+    return ret;
 }
 
 bool wt_spm_ready(const wt_spm_t* spm)

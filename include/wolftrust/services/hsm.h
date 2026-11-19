@@ -84,6 +84,10 @@ int wt_hsm_guest_init_relay(wt_guest_id_t guest_id);
     defined(WT_INTERFACE_LOCAL_PROVIDER)
 int wt_hsm_relay_set_secure_client(int32_t partition_id,
                                    wt_guest_id_t namespace_id);
+
+/* Wipe and rebuild the provider namespace so a restarted interface partition
+ * inherits no cached keys or DRBG state. */
+int wt_hsm_provider_namespace_reset(void);
 #endif
 
 /* SERVICE_HSM's platform submit hook (matches wt_hsm_relay_submit_fn): map
@@ -241,6 +245,10 @@ psa_status_t wt_hsm_vault_lookup_in(struct whNvmContext_t* nvm,
                                     whNvmId* out_free_id);
 psa_status_t wt_hsm_vault_reserve_object_in(struct whNvmContext_t* nvm,
                                             whNvmSize len);
+/* Pool gate for writing fixed-id table id of len bytes, for writers outside
+ * the vault such as the boot rollback floor. */
+psa_status_t wt_hsm_vault_reserve_table_in(struct whNvmContext_t* nvm,
+                                           whNvmId id, whNvmSize len);
 
 /* Keystore object door (SERVICE_VAULT WT_VAULT_OP_NVM_*): the vault-side
  * policy and store access behind the crypto partition's NVM callbacks,

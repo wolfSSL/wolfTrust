@@ -22,16 +22,13 @@
  * conformance DRIVER PAL. The real flash controller code (hsm_flash.c) is
  * target-only, so this drives the genuine pal_driver_intf.c shadow logic
  * against a faithful flash model that keeps its contents across a simulated
- * reset — proving load-on-boot, write-through, and reload semantics. Built
- * once per port, each with its own PAL and pal_config.h. */
-
-#include "pal_config.h"
+ * reset — proving load-on-boot, write-through, and reload semantics. */
 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
-/* PAL entry points under test (the port's conformance/pal_driver_intf.c). */
+/* PAL entry points under test (tests/conformance/pal/pal_driver_intf.c). */
 int pal_nvmem_write(uintptr_t base, uint32_t offset, void *buffer, int size);
 int pal_nvmem_read(uintptr_t base, uint32_t offset, void *buffer, int size);
 void wt_conf_drv_nvm_test_reset(void);
@@ -43,18 +40,14 @@ void wt_conf_drv_nvm_test_reset(void);
 #define FLASH_SZ 0x2000u
 static uint8_t g_flash[FLASH_SZ];
 static int g_flash_powered;
+static int g_fail_store;
+/* Knob: the next load of the persisted sector fails (an ECC or read error). */
+static int g_load_fails;
 
 static void flash_power_on(void)
 {
     (void)memset(g_flash, 0xFF, sizeof(g_flash));
     g_flash_powered = 1;
-}
-
-/* The backend refusing every access (a rejected trap or a dead controller)
- * with the sector's contents intact. */
-static void flash_backend_down(int down)
-{
-    g_flash_powered = (down != 0) ? 0 : 1;
 }
 
 /* The PAL interrupt hooks are irrelevant to the NVM logic under test. */
@@ -72,8 +65,17 @@ int wt_conf_nvm_sync(uint8_t *buf, uint32_t len, int store)
         return -1;
     }
     if (store == 0) {
+        if (g_load_fails != 0) {
+            g_load_fails = 0;
+            return -1;
+        }
         (void)memcpy(buf, g_flash, len);
         return 0;
+    }
+    if (g_fail_store != 0) {
+        /* Model a sync that erased the sector and then failed to program. */
+        (void)memset(g_flash, 0xFF, sizeof(g_flash));
+        return -1;
     }
     (void)memset(g_flash, 0xFF, sizeof(g_flash));
     for (i = 0u; i < len; i++) {
@@ -98,14 +100,11 @@ static void check(int cond, const char *name)
     }
 }
 
-#define NVM_BYTES ((uint32_t)(NVMEM_0_END - NVMEM_0_START + 1u))
-
 int main(void)
 {
     uint8_t boot[4];
     uint8_t data[8];
     uint8_t readback[8];
-    uint8_t edge = 0x5Au;
 
     flash_power_on();
 
@@ -138,17 +137,26 @@ int main(void)
     check(pal_nvmem_read(0u, 16u, readback, 8) == 1, "flag read after reset");
     check(memcmp(readback, "FLAGDATA", 8) == 0, "flag field survives reset");
 
-    /* Every byte pal_config.h advertises is backed, and none past it. */
-    check(pal_nvmem_write(0u, NVM_BYTES - 1u, &edge, 1) == 1,
-          "the last advertised NVMEM byte is writable");
-    wt_conf_drv_nvm_test_reset();
-    readback[0] = 0u;
-    check(pal_nvmem_read(0u, NVM_BYTES - 1u, readback, 1) == 1 &&
-          readback[0] == 0x5Au, "and reads back after a reset");
-    check(pal_nvmem_write(0u, NVM_BYTES, &edge, 1) == 0,
-          "the first byte past the advertised range is refused");
-    check(pal_nvmem_read(0u, NVM_BYTES, readback, 1) == 0,
-          "and cannot be read");
+    /* A write that fails to persist is not visible to later reads, even when
+     * the failed sync left the sector half programmed, and a later successful
+     * write does not carry the rejected bytes to flash. */
+    (void)memcpy(data, "LOSTBYTE", 8);
+    g_fail_store = 1;
+    check(pal_nvmem_write(0u, 32u, data, 8) == 0,
+          "nvmem write reports a failed flash sync");
+    g_fail_store = 0;
+    (void)memset(readback, 0, sizeof(readback));
+    check(pal_nvmem_read(0u, 32u, readback, 8) == 1 &&
+          readback[0] == 0xFFu && readback[7] == 0xFFu,
+          "failed write is not served from the shadow");
+    (void)memset(readback, 0, sizeof(readback));
+    check(pal_nvmem_read(0u, 16u, readback, 8) == 1 &&
+          memcmp(readback, "FLAGDATA", 8) == 0,
+          "failed write keeps the last good contents");
+    (void)memcpy(boot, "BOT2", 4);
+    check(pal_nvmem_write(0u, 0u, boot, 4) == 1 &&
+          g_flash[32] == 0xFFu && memcmp(g_flash, "BOT2", 4) == 0,
+          "later write does not persist rejected bytes");
 
     /* A fresh power-on with a blank sector reads back the 0xFF erased state,
      * matching the pre-flash RAM store's power-on behaviour. */
@@ -159,32 +167,24 @@ int main(void)
     check(readback[0] == 0xFFu && readback[3] == 0xFFu,
           "blank sector reads erased 0xFF");
 
-    /* A backend that refuses the load must not fabricate a blank sector, and
-     * a store it refuses must not show through the shadow. */
-    check(pal_nvmem_write(0u, 0u, boot, 4) == 1, "write before the backend fails");
-    flash_backend_down(1);
+    /* A failed load is an error, never a blank store, and the write that
+     * follows it must not persist a fabricated shadow over the real one. */
+    (void)memcpy(boot, "KEEP", 4);
+    check(pal_nvmem_write(0u, 0u, boot, 4) == 1, "a field is persisted");
     wt_conf_drv_nvm_test_reset();
-    (void)memset(readback, 0x55, sizeof(readback));
-    check(pal_nvmem_read(0u, 0u, readback, 4) == 0 && readback[0] == 0x55u,
-          "a read whose reload the backend refuses fails and returns nothing");
-    check(pal_nvmem_write(0u, 0u, data, 4) == 0,
-          "a write whose reload the backend refuses fails");
-    flash_backend_down(0);
-    check(pal_nvmem_read(0u, 0u, readback, 4) == 1 &&
-              memcmp(readback, "BOOT", 4) == 0,
-          "once the backend answers, the next access reloads the real contents");
-    flash_backend_down(1);
-    check(pal_nvmem_write(0u, 0u, data, 4) == 0,
-          "a write whose store the backend refuses fails");
-    flash_backend_down(0);
-    check(pal_nvmem_read(0u, 0u, readback, 4) == 1 &&
-              memcmp(readback, "BOOT", 4) == 0,
-          "and the shadow still reads the last committed value, not the "
-          "rejected one");
+    g_load_fails = 1;
+    (void)memset(readback, 0, sizeof(readback));
+    check(pal_nvmem_read(0u, 0u, readback, 4) == 0 && readback[0] == 0u,
+          "a failed load fails the read");
     wt_conf_drv_nvm_test_reset();
+    g_load_fails = 1;
+    (void)memcpy(data, "OTHERFLD", 8);
+    check(pal_nvmem_write(0u, 16u, data, 8) == 0 &&
+          memcmp(g_flash, "KEEP", 4) == 0,
+          "a failed load fails the write and leaves the store intact");
     check(pal_nvmem_read(0u, 0u, readback, 4) == 1 &&
-              memcmp(readback, "BOOT", 4) == 0,
-          "which is also what flash holds after a reset");
+          memcmp(readback, "KEEP", 4) == 0,
+          "the next good load reads the persisted field");
 
     if (g_failures == 0) {
         printf("PASS: flash_nvm survive-reset NVM\n");

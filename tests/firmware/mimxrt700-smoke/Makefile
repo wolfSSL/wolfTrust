@@ -1,6 +1,6 @@
 # BootROM XIP smoke for the MIMXRT700-EVK: builds smoke.bin linked at the
 # XSPI0 MBI offset (flash + 0x4000). Wrapping (FCB + MBI) and flashing are
-# done by tests/target/run_rt700_hardware.sh with SPSDK and pyOCD.
+# done by tests/target/run_hardware.sh (romsmoke) with SPSDK and pyOCD.
 TOOLPREFIX ?= arm-none-eabi-
 CC := $(TOOLPREFIX)gcc
 OBJCOPY := $(TOOLPREFIX)objcopy

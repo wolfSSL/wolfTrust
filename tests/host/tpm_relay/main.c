@@ -142,7 +142,7 @@ static uint8_t* g_direct_response;
 static int g_direct_fail;
 static int g_direct_length_mode;
 
-static int direct_handler(const uint8_t* command, size_t command_len,
+static int direct_handler(uint8_t* command, size_t command_len,
                            uint8_t* response, size_t response_cap,
                            size_t* response_len, void* context)
 {

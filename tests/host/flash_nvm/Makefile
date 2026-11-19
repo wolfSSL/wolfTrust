@@ -22,16 +22,14 @@ CC ?= cc
 BUILD_DIR ?= build
 
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
-    -DWT_CONF_NVM_HOST_TEST -DWT_CONFORMANCE=1 -I$(ROOT)/include \
-    $(EXTRA_CFLAGS)
+    -DWT_CONF_NVM_HOST_TEST -DWT_CONFORMANCE=1 -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
-H5 := $(ROOT)/port/stm32h563
-A64 := $(ROOT)/port/common/aarch64
+PAL := $(ROOT)/tests/conformance/pal
+A64 := $(ROOT)/port/common/aarch64/conformance
 TEST := $(BUILD_DIR)/test_flash_nvm
 TEST_A64 := $(BUILD_DIR)/test_flash_nvm_aarch64
-WRAP := $(BUILD_DIR)/test_conf_wrap
 WRAP_A64 := $(BUILD_DIR)/test_conf_wrap_aarch64
-TESTS := $(TEST) $(TEST_A64) $(WRAP) $(WRAP_A64)
+TESTS := $(TEST) $(TEST_A64) $(WRAP_A64)
 
 .PHONY: all run compilers compiler-gcc compiler-clang sanitize valgrind \
     run-valgrind clean
@@ -41,22 +39,18 @@ all: $(TESTS)
 $(BUILD_DIR):
 	mkdir -p $@
 
-$(TEST): $(H5)/conformance/pal_driver_intf.c main.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(H5)/conformance $(LDFLAGS) -o $@ $^
+$(TEST): $(PAL)/pal_driver_intf.c main.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(PAL) $(LDFLAGS) -o $@ $^
 
-$(TEST_A64): $(A64)/conformance/pal_driver_intf.c main.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(A64)/conformance $(LDFLAGS) -o $@ $^
+$(TEST_A64): $(A64)/pal_driver_intf.c main.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(A64) $(LDFLAGS) -o $@ $^
 
-$(WRAP): $(H5)/conformance/conf_nvm_sync.c wrap.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(H5)/conformance -I$(H5) $(LDFLAGS) -o $@ $^
-
-$(WRAP_A64): $(A64)/conformance/conf_nvm_sync.c wrap.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(A64)/conformance $(LDFLAGS) -o $@ $^
+$(WRAP_A64): $(A64)/conf_nvm_sync.c wrap.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(A64) $(LDFLAGS) -o $@ $^
 
 run: $(TESTS)
 	$(TEST)
 	$(TEST_A64)
-	$(WRAP)
 	$(WRAP_A64)
 
 compiler-gcc:
@@ -77,8 +71,8 @@ valgrind:
 
 run-valgrind: $(TESTS)
 	for t in $(TESTS); do \
-		valgrind --error-exitcode=1 --leak-check=full \
-			--show-leak-kinds=all $$t || exit 1; \
+		valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+			$$t || exit 1; \
 	done
 
 clean:

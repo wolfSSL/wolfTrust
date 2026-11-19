@@ -40,6 +40,7 @@ _WT_SRCS := \
     $(ROOT)/src/spm_gate.c
 
 _WTS_SRCS := \
+    $(ROOT)/src/services/msg_relay.c \
     $(ROOT)/src/services/tpm/tpm_relay_service.c
 
 _TEST_SRCS := main.c
@@ -62,6 +63,9 @@ $(BUILD_DIR)/wt_%.o: $(ROOT)/src/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wts_%.o: $(ROOT)/src/services/tpm/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wts_%.o: $(ROOT)/src/services/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)

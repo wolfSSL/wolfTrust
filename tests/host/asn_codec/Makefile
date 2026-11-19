@@ -9,7 +9,7 @@ WOLFSSL := $(ROOT)/lib/wolfSSL
 CC ?= cc
 BUILD_DIR ?= build
 
-CFLAGS := -DWOLFSSL_USER_SETTINGS -UHAVE_CONFIG_H -I../native_wire \
+CFLAGS := -DWOLFSSL_USER_SETTINGS -UHAVE_CONFIG_H -DCONFIG_PKCS11=1 -I../native_wire \
     -I$(WOLFSSL) -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)

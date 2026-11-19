@@ -17,10 +17,12 @@ CFLAGS := \
 CFLAGS += $(EXTRA_CFLAGS)
 
 OBJS := \
+	$(BUILD_DIR)/msg_client.o \
 	$(BUILD_DIR)/pkcs11_psa_transport.o \
 	$(BUILD_DIR)/main.o
 TEST_BIN := $(BUILD_DIR)/test_pkcs11_client
 TRANSPORT_SRC := $(ROOT)/src/client/pkcs11_psa_transport.c
+CLIENT_SRC := $(ROOT)/src/client/msg_client.c
 
 .PHONY: all run check-zeroize compilers sanitize valgrind clean
 
@@ -33,6 +35,9 @@ $(BUILD_DIR)/pkcs11_psa_transport.o: \
 		$(TRANSPORT_SRC) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/msg_client.o: $(CLIENT_SRC) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
 $(BUILD_DIR)/main.o: main.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -40,9 +45,9 @@ $(TEST_BIN): $(OBJS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(EXTRA_LDFLAGS) -o $@ $(OBJS)
 
 check-zeroize:
-	@grep -Fq 'wt_forceZero(&chunk, sizeof(chunk));' $(TRANSPORT_SRC)
-	@! grep -Fq 'memset(&chunk' $(TRANSPORT_SRC)
-	@echo "PASS: PKCS11 client chunk uses optimization-resistant zeroization"
+	@grep -Fq 'wt_forceZero(&chunk, sizeof(chunk));' $(CLIENT_SRC)
+	@! grep -Fq 'memset(&chunk' $(CLIENT_SRC) $(TRANSPORT_SRC)
+	@echo "PASS: message client chunk uses optimization-resistant zeroization"
 
 run: check-zeroize $(TEST_BIN)
 	$(TEST_BIN)

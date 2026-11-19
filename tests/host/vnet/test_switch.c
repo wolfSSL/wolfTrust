@@ -453,6 +453,36 @@ static int test_release_decrements_refcount(void)
     return 0;
 }
 
+/* A restarted or quarantined guest gets a clean port: its MAC binding, FDB
+ * entries and queued frames do not outlive the instance that owned them. */
+static int test_reset_vm(void)
+{
+    vnet_switch_t sw;
+    vnet_info_t info;
+    uint8_t f[64];
+
+    SETUP(&sw, false);
+    DO(open_and_assign_two(&sw));
+    build_frame(f, &MAC_A, &MAC_B, 1);
+    T_EQ_INT(vnet_switch_tx(&sw, 1, f, 64, 0), WT_VNET_OK);
+    T_EQ_INT(vnet_pool_in_use_count(&sw.pool), 1);
+
+    T_EQ_INT(vnet_switch_reset_vm(&sw, 0), WT_VNET_OK);
+    T_EQ_INT(vnet_pool_in_use_count(&sw.pool), 0);
+    T_EQ_INT(vnet_switch_tx(&sw, 0, f, 64, 0), WT_VNET_E_NOT_OPEN);
+    T_EQ_INT(vnet_switch_open(&sw, 0, &info), WT_VNET_OK);
+    T_CHECK(!info.mac_set);
+    T_EQ_INT(vnet_switch_assign_mac(&sw, 0, &MAC_UNK), WT_VNET_OK);
+    T_CHECK(!vnet_switch_irq_pending(&sw, 0));
+
+    /* The peer's port is untouched and the released MAC is reusable. */
+    T_EQ_INT(vnet_switch_assign_mac(&sw, 1, &MAC_B), WT_VNET_OK);
+    T_CHECK(vnet_fdb_lookup(&sw.fdb, &MAC_A) == VNET_FDB_NO_VM);
+    T_CHECK(vnet_fdb_lookup(&sw.fdb, &MAC_UNK) == 0U);
+    T_EQ_INT(vnet_switch_reset_vm(&sw, NVM), WT_VNET_E_BADARG);
+    return 0;
+}
+
 int run_switch_tests(void)
 {
     int rc = 0;
@@ -469,5 +499,6 @@ int run_switch_tests(void)
     rc |= test_timeout_reaper();
     rc |= test_irq_ack_semantics();
     rc |= test_release_decrements_refcount();
+    rc |= test_reset_vm();
     return rc;
 }

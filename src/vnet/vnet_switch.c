@@ -83,6 +83,20 @@ static const vnet_vnic_t *vnic_of_const(const vnet_switch_t *sw, uint32_t vm_id)
     return &sw->vnics[vm_id];
 }
 
+int vnet_switch_reset_vm(vnet_switch_t *sw, uint32_t vm_id)
+{
+    vnet_vnic_t *v = vnic_of(sw, vm_id);
+    vnet_rx_desc_t desc;
+
+    if (v == NULL) return WT_VNET_E_BADARG;
+    while (vnet_ring_pop(&v->rxq, &desc) == WT_VNET_OK) {
+        (void)vnet_pool_release(&sw->pool, desc.slot, desc.gen);
+    }
+    vnet_fdb_release(&sw->fdb, vm_id);
+    vnic_reset(v, v->rxq.buf, v->rxq.capacity);
+    return WT_VNET_OK;
+}
+
 int vnet_switch_open(vnet_switch_t *sw, uint32_t vm_id, vnet_info_t *info_out)
 {
     vnet_vnic_t *v = vnic_of(sw, vm_id);

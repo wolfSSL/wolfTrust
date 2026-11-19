@@ -39,7 +39,7 @@ flowchart TB
 
     subgraph APP[Application domains]
         GA[Client A<br/>Cortex-M guest or Cortex-A Normal world]
-        GB[Client B<br/>Cortex-M guest or Cortex-A Normal world]
+        GB[Optional client B<br/>Cortex-M guest or Cortex-A Normal world]
     end
 
     subgraph PORT[Architecture and target ports]
@@ -56,7 +56,7 @@ flowchart TB
             CR["Selected crypto engine<br/>native or wolfHSM"]
             ST["Internal Trusted Storage (ITS),<br/>Protected Storage, and vault"]
             AT[Initial Attestation]
-            FW[Firmware Update]
+            FW[Optional Firmware Update]
             VN[Optional virtual networking]
         end
         SPM --> CR
@@ -117,8 +117,8 @@ the services that depend on it fail closed.
 | One mediated client boundary | Application domains reach services only through the client gateway supplied by the architecture port. The current Armv8-M image exports exactly five `WolfTrust_FFM_*` veneers; on AArch64 the Normal world reaches services only through FF-A calls that the EL3 SPMD relays to the SPMC. |
 | Caller-bound IPC | wolfTrust derives the PSA client identity from the active application domain, copies vector descriptors, checks every range, and enforces manifest access policy. |
 | Port-defined isolation | Each port declares and enforces the protection capabilities required by its manifest. The STM32H563 reference uses TrustZone, the Secure MPU, and GTZC MPCBB attribution; its exact limits are documented in [Security Model](Security-Model.md). The AArch64 port runs each Secure Partition at Secure EL0 under its own stage-1 translation table, refusing writable and executable mappings. |
-| PSA cryptography | Zephyr and FreeRTOS reference guests call wolfPSA's PSA Crypto API. The default native engine runs wolfCrypt in each guest and obtains DRBG seeds from the Secure vault; the optional wolfHSM engine routes supported operations to per-guest Secure server namespaces. |
-| Secure services | Connection-based services provide the selected crypto engine, attestation, Internal Trusted Storage (ITS), Protected Storage, firmware update, and an optional Secure virtual Ethernet switch. The optional bare-metal networking guests run wolfIP outside the Secure image. |
+| PSA cryptography | Zephyr and FreeRTOS reference guests call wolfPSA's PSA Crypto API. The default native engine serves PSA Crypto from the Secure image's crypto partition, and `WT_SECURE_PSA=0` runs wolfCrypt in each guest with DRBG seeds from the Secure vault; the optional wolfHSM engine routes supported operations to per-guest Secure server namespaces. |
+| Secure services | Connection-based services provide the selected crypto engine, attestation, Internal Trusted Storage (ITS), Protected Storage, and two add-ons: firmware update (`WT_FWU=1`) and a Secure virtual Ethernet switch (`CONFIG_VNET=y`). The optional bare-metal networking guests run wolfIP outside the Secure image. |
 | Fault containment | A guest fault either restarts the guest within policy limits or leaves it quarantined. A Secure Partition fault releases synchronization state before failing affected calls. Restart paths scrub declared private writable memory before rearming; forbidden, exhausted, or failed recovery escalates to the port's fail-closed path. |
 | Static Secure memory | The Secure image is built with `WOLFSSL_NO_MALLOC` and `NO_WOLFSSL_MEMORY`; service buffers, stacks, and state are statically allocated. |
 
@@ -138,10 +138,10 @@ the services that depend on it fail closed.
 | [TF-M Compatibility](TF-M-Compatibility.md) | Supported interfaces, intentional differences, and migration guidance |
 | [FF-A Compatibility](FF-A-Compatibility.md) | The AArch64 FF-A interface register, intentional differences, and Arm FF-A ACS results |
 | [Macros](Macros.md) | Supported build and manifest configuration |
+| [Footprint](Footprint.md) | Measured image sizes and the options that change them |
 | [Porting](Porting.md) | Architecture and target port contracts |
 | [Building](Building.md) | Build targets, outputs, and cross-build options |
 | [Testing](Testing.md) | Host, M33MU, QEMU AArch64, and STM32H563 validation |
 | [Provisioning](Provisioning.md) | Rehearse, validate, then lock: the production life cycle flow for every port |
 | [Project Structure](Project-Structure.md) | Repository layout |
-| [STM32H5 Guide](STM32H5-Guide.md) | STM32H563 provisioning, flashing, WRP, and recovery safety |
-| [MIMXRT700 Guide](MIMXRT700-Guide.md) | MIMXRT700 provisioning, flashing, XSPI guest fence, and recovery safety |
+| [Ports](Ports.md) | Every registered port with its board guide, CI, emulator and hardware tiers (generated) |

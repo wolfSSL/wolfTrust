@@ -1,11 +1,16 @@
 # PKCS#11 Interface
 
 wolfTrust lets an application call the standard PKCS#11 `C_*` API through the
-Secure Partition Manager. The reference Cortex-M clients run under Zephyr and
-FreeRTOS. The Cortex-A test client runs in the Normal world under QEMU. The
-application uses a PKCS#11 proxy, while wolfPKCS11 runs directly inside the
-`SERVICE_PKCS11` Secure Partition. No second image, RTOS, or worker is needed. PKCS#11 is a direct application interface to wolfTrust. It
-does not use the PSA Crypto API and it does not depend on TPM support.
+Secure Partition Manager. The reference client is a bare-metal application
+that builds for every Cortex-M33 port. The application uses a PKCS#11 proxy,
+while wolfPKCS11 runs directly inside the `SERVICE_PKCS11` Secure Partition.
+No second image, RTOS, or worker is needed. PKCS#11 is a direct application
+interface to wolfTrust. It does not use the PSA Crypto API and it does not
+depend on TPM support.
+
+PKCS#11 is an alternative application API to PSA, not an addition to it. PSA
+stays the primary interface and the default build; `CONFIG_PKCS11=y` is off by
+default, and leaving it off keeps the default image byte-for-byte unchanged.
 
 The HSM backend follows this path:
 
@@ -16,9 +21,7 @@ Application
         v
   wolfTrust PKCS#11 proxy
         |
-        | FF-M IPC
-        | Cortex-M: CMSE gateway
-        | Cortex-A: FF-A through the EL3 SPMD
+        | FF-M IPC through the CMSE gateway
         v
   SERVICE_PKCS11 Secure Partition: wolfPKCS11
         |
@@ -31,62 +34,46 @@ The transport uses `psa_connect`, `psa_call`, and `psa_close` because those are
 the standard FF-M IPC operations. That does not make it a PSA Crypto path. The
 payload and public API are PKCS#11.
 
-The runtime-qualified targets in this release are STM32H563 under M33MU and
-`qemuvirt` under QEMU. MIMXRT700 and Versal have `CONFIG_PKCS11=y` compile and
-absolute-layout gates, but no PKCS#11 application/service runtime claim yet.
-The Versal QEMU model also lacks the XMPU/RISAF needed for a Normal-world
-level-3 isolation claim.
+Every Cortex-M33 port (STM32H563, MIMXRT700, MCX N947, STM32L562) registers
+the `pkcs11` build variant and runs the application suite under M33MU. The
+STM32L562 builds the native engine and the default profile only.
 
 ## Build and run
 
 PKCS#11 uses the same `WT_ENGINE=native` (default) or `WT_ENGINE=hsm`
 selector as PSA. Native needs no wolfHSM crypto. The application may run bare
 metal or under an RTOS; the Secure service uses wolfTrust's existing runtime.
-`WT_CRYPTO_PROFILE=default` selects the RNG/SHA-256/P-256 default operation
+`WT_INTERFACE_PROFILE=default` selects the RNG/SHA-256/P-256 default operation
 set; `full` retains the broader set. Individual operations and mechanisms are
-configurable through [operation profiles](Crypto-Profiles.md).
+configurable through [operation profiles](Interface-Profiles.md).
 
-See [TPM and PKCS#11 footprint](Interface-Footprint.md) for measured Secure
-and application sizes against the base revision.
+[Footprint](Footprint.md#tpm-20-and-pkcs11) has the measured Secure image and
+application sizes for every port and engine.
 
 Enable the service and its manifest in the Secure image with:
 
 ```sh
-make TARGET=stm32h563 CONFIG_PKCS11=y WT_ENGINE=native secure-image \
-    TOOLPREFIX=arm-none-eabi-
+make TARGET=mimxrt700 CONFIG_PKCS11=y WT_ENGINE=native secure-image
+make -C tests/firmware/interface-guest TARGET=mimxrt700 WT_INTERFACE=pkcs11
 ```
 
-Run the complete PKCS#11 application suite with either supported guest OS:
+Run the application suite and the isolation scenario under M33MU:
 
 ```sh
-WT_ENGINE=hsm WT_INTERFACE_OS=zephyr \
-    tests/target/run_suite.sh m33mu pkcs11
-WT_ENGINE=hsm WT_INTERFACE_OS=freertos \
-    tests/target/run_suite.sh m33mu pkcs11
+WT_ENGINE=hsm tests/target/run_suite.sh mimxrt700 pkcs11 pkcs11neg
+WT_ENGINE=native WT_PROFILE=full tests/target/run_suite.sh mcxn947 pkcs11
 ```
 
-`make test-pkcs11-target WT_INTERFACE_OS=zephyr` and
-`make test-pkcs11-target WT_INTERFACE_OS=freertos` are equivalent focused
-entry points.
-
-Build the Cortex-A service and run its positive and isolation scenarios with:
-
-```sh
-make ARCH=aarch64 TARGET=qemuvirt CONFIG_PKCS11=y WT_ENGINE=hsm \
-    secure-image TOOLPREFIX=aarch64-none-elf-
-WT_ENGINE=hsm tests/target/run_suite.sh qemu-a pkcs11 pkcs11neg
-```
-
-The older `pkcs11core`, `pkcs11objects`, `pkcs11crypto`, and
-`pkcs11negative` scenario names remain available for focused debugging. The CI
-gate uses `pkcs11`, which runs all four groups in one authenticated boot.
+The default profile runs the `profile` suite; `full` runs all four groups in
+one authenticated boot. `WT_PKCS11_SUITE=core|objects|crypto|negative` builds
+one group for focused debugging.
 
 ## Application and service boundary
 
 The application image contains the PKCS#11 proxy and FF-M client transport. It
-does not contain the wolfPKCS11 implementation, wolfTPM, or a TPM transport. Link-time
-checks enforce that separation for the Zephyr, FreeRTOS, and Cortex-A
-Normal-world builds.
+does not contain the wolfPKCS11 implementation, wolfCrypt, wolfTPM, or a TPM
+transport. Link-time checks in `tests/firmware/interface-guest` enforce that
+separation.
 
 The native configuration runs wolfCrypt directly in the PKCS#11 domain. The
 HSM configuration registers the wolfHSM callback and reaches `SERVICE_HSM`
@@ -102,9 +89,8 @@ wolfPKCS11 does. Neither pointer is sent to the provider. A NULL `phSession`
 is still forwarded, so the provider returns wolfPKCS11's own error codes in
 wolfPKCS11's own order.
 
-On both architectures, wolfPKCS11 runs inside `SERVICE_PKCS11`. Cortex-M
-uses private MPU state and stack regions; Cortex-A maps private writable pages
-in the partition's S-EL0 translation table. Executable and read-only code can
+wolfPKCS11 runs inside `SERVICE_PKCS11`, with private MPU state and stack
+regions in the interface band above SPM RAM. Executable and read-only code can
 be shared. Native builds reuse stateless wolfCrypt code already in the Secure
 image, while RNG, initialization, PBKDF2 policy, and callback state stay private.
 
@@ -115,7 +101,7 @@ keeps `WC_NO_DEFAULT_DEVID` enabled so explicitly local operations stay local.
 PIN PBKDF2 always runs in software; its 600,000 rounds do not become 600,000
 individual HSM IPC transactions. Neither variant requires a TPM backend.
 
-The M33MU and QEMU emulator gates lower the PBKDF2 count with the test-only
+The M33MU emulator gate lowers the PBKDF2 count with the test-only
 `WT_PKCS11_TEST_PBKDF2_ITERATIONS` setting because emulated hashing is too
 slow; production builds keep the 600,000-round default.
 
@@ -192,8 +178,8 @@ mechanisms, and `CKM_PKCS5_PBKD2` out of `C_GetMechanismList`, and
 
 ## Isolation and CI
 
-The PKCS#11 service runs as an isolation-level-3 Secure Partition on Cortex-M
-and QEMU `virt`. `pkcs11neg` proves that:
+The PKCS#11 service runs as an isolation-level-3 Secure Partition. `pkcs11neg`
+proves that:
 
 - another Secure Partition cannot read or write PKCS#11 state;
 - PKCS#11 cannot read SPM-private RAM or execute its writable state;
@@ -204,10 +190,8 @@ The host suite exercises the production copied-transfer service through FF-M,
 including 4096-byte messages, malformed chunks, wrong callers, short outputs,
 wiping, handler failures, reconnection, and prevention of duplicate execution.
 
-Pull-request CI has Zephyr and FreeRTOS `pkcs11` rows in the same explicit API
-matrix as PSA and TPM. A separate `pkcs11neg` row keeps the L3 isolation proof
-visible. The cross-compile workflow also builds `CONFIG_PKCS11=y` Secure images
-for STM32H563 and MIMXRT700. The AArch64 QEMU matrix also runs `pkcs11` and
-`pkcs11neg` on the `virt` cell. Both profiles run on both engines: nine default
-profile cases and 40 full-profile cases, including disabled-operation and
-capability checks for the default.
+The M33MU workflow runs `pkcs11` and `pkcs11neg` on every port, each engine
+the port builds, and each profile the port registers, from the port registry's
+`m33mu.groups`: nine default-profile cases and 40 full-profile cases. The
+STM32L562 runs the default profile only. The cross-compile
+workflow builds the `CONFIG_PKCS11=y` Secure image on every port and engine.

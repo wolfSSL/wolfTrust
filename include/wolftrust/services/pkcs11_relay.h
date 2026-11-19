@@ -24,13 +24,9 @@
 #include "wolftrust/ffm.h"
 #include "wolftrust/pkcs11/pkcs11_abi.h"
 #include "wolftrust/spm_gate.h"
+#include "wolftrust/services/msg_relay.h"
 
-typedef int (*wt_pkcs11_local_provider_fn)(uint8_t* request,
-                                           size_t request_len,
-                                           uint8_t* response,
-                                           size_t response_cap,
-                                           size_t* response_len,
-                                           void* context);
+typedef wt_msg_provider_fn wt_pkcs11_local_provider_fn;
 
 void wt_pkcs11_relay_set_client(int32_t app_client_id);
 void wt_pkcs11_relay_set_local_provider(
@@ -39,7 +35,7 @@ void wt_pkcs11_relay_set_transport(wt_spm_transport_fn fn);
 int wt_pkcs11_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
                              int32_t partition_id);
 
-#if defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1)
+#if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
 int wt_pkcs11_relay_restart_probe(int restarted);
 #endif
 

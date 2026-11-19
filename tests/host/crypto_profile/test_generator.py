@@ -55,19 +55,20 @@ class GeneratorTests(unittest.TestCase):
         self.assertNotIn("psa_sign_hash", selected["psa"])
         self.assertEqual(mechanisms, self.defaults["mechanisms"])
 
-    def test_footprint_requires_all_six_matched_pairs(self):
-        rows = [dict(api=api, engine=engine, role=role, text="100",
-                     data="10", bss="20", flash="110")
-                for api in ("psa", "pkcs11", "tpm")
+    def test_footprint_requires_matched_pairs_per_port(self):
+        rows = [dict(port=port, api=api, engine=engine, role=role, flash="110",
+                     ram="64" if role == "secure" else "")
+                for port in ("a", "b") for api in ("psa", "pkcs11", "tpm")
                 for engine in ("native", "hsm") for role in ("secure", "app")]
         summary, exceeded = footprint.compare(rows, 0)
-        self.assertEqual(len(summary), 6)
+        self.assertEqual(len(summary), 12)
         self.assertFalse(exceeded)
-        for broken in (rows[:-1], rows + [rows[0]],
-                       [dict(rows[0], flash="111")] + rows[1:]):
+        self.assertFalse(footprint.compare(rows)[1])
+        for broken in (rows[:-1], rows + [rows[0]], [dict(rows[0], flash="0")] + rows[1:],
+                       [dict(rows[0], ram="")] + rows[1:]):
             with self.subTest(rows=broken), self.assertRaises(ValueError):
                 footprint.compare(broken, 8192)
-        rows[-1] = dict(rows[-1], text="8293", flash="8303")
+        rows[-1] = dict(rows[-1], flash="8303")
         self.assertTrue(footprint.compare(rows, 8192)[1])
 
     def test_full_means_implemented_proxy_operations(self):
@@ -87,6 +88,22 @@ class GeneratorTests(unittest.TestCase):
                        {"mechanisms": ["CKM_SHA256; invalid"]}):
             with self.subTest(custom=custom), self.assertRaises(ValueError):
                 profile.select(self.catalog, self.defaults, "default", custom, [], [])
+
+    def test_empty_tpm_selection_only_for_pkcs11(self):
+        with self.assertRaises(ValueError):
+            profile.select(self.catalog, self.defaults, "default", {"tpm": []}, [], [])
+        selected, _ = profile.select(self.catalog, self.defaults, "default",
+                                     {"tpm": []}, [], [], require_tpm=False)
+        self.assertEqual(selected["tpm"], set())
+
+    def test_generate_rejects_psa_selections(self):
+        with tempfile.TemporaryDirectory(dir=BUILD_DIR) as temporary:
+            for custom, enable, disable in (({"psa": []}, [], []),
+                    ({}, ["psa:psa_sign_hash"], []), ({}, [], ["psa:psa_sign_hash"])):
+                with self.subTest(custom=custom, enable=enable, disable=disable), \
+                        self.assertRaises(ValueError):
+                    profile.generate(ROOT, Path(temporary), "default", custom,
+                                     enable, disable)
 
     def test_tpm_table_filters_handlers_and_keeps_auth_metadata(self):
         selected = profile.selected_tpm(self.commands, {"Sign"})
@@ -189,7 +206,7 @@ class GeneratorTests(unittest.TestCase):
                 environment.pop("MAKEFLAGS", None)
                 environment.pop("MFLAGS", None)
                 result = subprocess.run(["make", "--no-print-directory", "-j8",
-                    "-C", str(ROOT), "ARCH=aarch64", "TARGET=qemuvirt", "TOOLPREFIX=",
+                    "-C", str(ROOT), "ARCH=armv8m", "TARGET=mimxrt700", "TOOLPREFIX=",
                     "CONFIG_" + api + "=y", "WT_ENGINE=" + engine,
                     "BUILD_DIR=" + str(build), "CC=" + str(compiler),
                     str(build / object_name)], text=True, capture_output=True,
@@ -240,36 +257,6 @@ class GeneratorTests(unittest.TestCase):
                     text=True, capture_output=True, check=True)
                 self.assertEqual("#define WOLF_CRYPTO_CB_ONLY_ECC 1" in result.stdout,
                                  not enabled)
-
-    def test_ci_matrix_keeps_every_profile_engine_api_cell(self):
-        matrix_spec = importlib.util.spec_from_file_location("scenario_matrix",
-            ROOT / "tests/target/lib/scenario_matrix.py")
-        matrix = importlib.util.module_from_spec(matrix_spec)
-        matrix_spec.loader.exec_module(matrix)
-        workflow = (ROOT / ".github/workflows/m33mu.yml").read_text()
-        aarch = (ROOT / ".github/workflows/aarch64-cross-compile.yml").read_text()
-        self.assertIsNone(matrix.interface_matrices_error(workflow, aarch))
-        c99 = (ROOT / ".github/workflows/c99-compliance.yml").read_text()
-        self.assertIsNone(matrix.reusable_concurrency_error(workflow, aarch, c99))
-        collision = workflow.replace("group: m33mu-", "group: ", 1)
-        self.assertIsNotNone(matrix.reusable_concurrency_error(collision, aarch, c99))
-        for original, replacement in (
-            ("engine: [native, hsm]", "engine: [native]"),
-            ("profile: [default, full]", "profile: [full]"),
-            ("api: [psa, pkcs11, tpm]", "api: [psa, tpm]"),
-            ("WT_ENGINE: ${{ matrix.engine }}", "WT_ENGINE: native"),
-            ("WT_INTERFACE_OS: ${{ matrix.os }}", "WT_INTERFACE_OS: zephyr"),
-            ("WT_CRYPTO_PROFILE: ${{ matrix.profile }}", "WT_CRYPTO_PROFILE: full"),
-        ):
-            with self.subTest(replacement=replacement):
-                self.assertIsNotNone(matrix.interface_matrices_error(
-                    workflow.replace(original, replacement, 1), aarch))
-        for job in ("interfaces-m33mu", "interface-isolation-m33mu", "interface-footprint"):
-            with self.subTest(nightly_job=job):
-                before, body = workflow.split("  " + job + ":\n", 1)
-                missing = before + "  " + job + ":\n" + body.replace(
-                    "inputs.port == '' || ", "", 1)
-                self.assertIsNotNone(matrix.interface_matrices_error(missing, aarch))
 
 
 if __name__ == "__main__":

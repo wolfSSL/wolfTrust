@@ -52,6 +52,9 @@
 #endif
 #ifndef WT_ENGINE_HSM
 #include "wolftrust/services/crypto_native.h"
+#ifdef WT_SECURE_PSA
+#include "wolftrust/services/psa_crypto_service.h"
+#endif
 #endif
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/storage_service.h"
@@ -65,10 +68,13 @@
 #if defined(WT_INTERFACE_LOCAL_PROVIDER)
 #include "wolftrust/services/tpm_local_provider.h"
 #endif
-#endif
-#if defined(CONFIG_PKCS11)
+#define wt_spm_interface_dispatch      wt_tpm_relay_dispatch
+#define wt_spm_interface_restart_probe wt_tpm_relay_restart_probe
+#elif defined(CONFIG_PKCS11)
 #include "wolftrust/pkcs11_provider.h"
 #include "wolftrust/services/pkcs11_relay.h"
+#define wt_spm_interface_dispatch      wt_pkcs11_relay_dispatch
+#define wt_spm_interface_restart_probe wt_pkcs11_relay_restart_probe
 #endif
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
@@ -80,9 +86,11 @@
 #include "psa_manifest/pid.h"
 #include "psa_manifest/sid.h"
 
+#if defined(PARTITION_FWU_ID)
 /* Port flash staging backend (WT-FWU-0002), driven by the FWU partition
  * through the gate's privileged backend ops. */
 extern const wt_fwu_backend_t wt_fwu_flash_backend;
+#endif
 
 #if defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)
 /* A keystore service the prober does not own must be refused at the gate;
@@ -104,7 +112,10 @@ static void wt_spm_band_probe_refused(wt_spm_op_t op, int32_t sub_op)
         wt_arch_sp_fault_probe(1u);
     }
 }
+#endif
 
+#if (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
+    (defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1))
 /* Band isolation proof (WT-FFM-0011): the prober reads another partition's
  * data band, and after its restart writes it; both must MemManage-fault
  * inside the prober. Its third run serves normally. Never built into
@@ -131,102 +142,29 @@ static void wt_spm_band_probe(void* arg, unsigned int target)
                ~(intptr_t)WT_SP_FAULT_PROBE_SECOND))
 #endif
 
-#if defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)
-#define WT_TPM_PROBE_ID(arg) \
-    ((int32_t)((intptr_t)(arg) & ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED & \
-               ~(intptr_t)WT_SP_FAULT_PROBE_SECOND))
-
-/* Prove that an unrelated partition cannot read or write TPMDATA. */
-static void wt_spm_tpm_band_probe(void* arg)
-{
-    volatile uint32_t* band = (volatile uint32_t*)
-        wt_platform_probe_address(WT_PROBE_TPM_DATA_BAND);
-    volatile uint32_t seen;
-
-    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
-        seen = *band;
-        (void)seen;
-        wt_arch_sp_fault_probe(3u);
-    }
-    else if (((intptr_t)arg & WT_SP_FAULT_PROBE_SECOND) == 0) {
-        *band = 0xA5A5A5A5u;
-        wt_arch_sp_fault_probe(4u);
-    }
-}
-
+#if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
 /* Prove that the relay cannot bypass IPC or execute from its data band. */
-static void wt_spm_tpm_partition_probe(void* arg)
+static void wt_spm_interface_partition_probe(void* arg)
 {
     volatile uint32_t seen;
     void (*xn_probe)(void);
 
     if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
-        if (wt_tpm_relay_restart_probe(1) == 0) {
+        if (wt_spm_interface_restart_probe(1) == 0) {
             wt_arch_sp_fault_probe(2u);
         }
-        (void)wt_tpm_relay_restart_probe(0);
+        (void)wt_spm_interface_restart_probe(0);
         seen = *(const volatile uint32_t*)
             wt_platform_probe_address(WT_PROBE_OUT_OF_DOMAIN);
         (void)seen;
         wt_arch_sp_fault_probe(3u);
     }
     else if (((intptr_t)arg & WT_SP_FAULT_PROBE_SECOND) == 0) {
-        if (wt_tpm_relay_restart_probe(1) == 0) {
+        if (wt_spm_interface_restart_probe(1) == 0) {
             wt_arch_sp_fault_probe(2u);
         }
         xn_probe = (void (*)(void))
-            (wt_platform_probe_address(WT_PROBE_TPM_DATA_BAND) | 1u);
-        xn_probe();
-        wt_arch_sp_fault_probe(4u);
-    }
-}
-#endif
-
-#if defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1)
-#define WT_PKCS11_PROBE_ID(arg) \
-    ((int32_t)((intptr_t)(arg) & ~(intptr_t)WT_SP_FAULT_PROBE_RESTARTED & \
-               ~(intptr_t)WT_SP_FAULT_PROBE_SECOND))
-
-/* Prove that an unrelated partition cannot read or write PKCS11DATA. */
-static void wt_spm_pkcs11_band_probe(void* arg)
-{
-    volatile uint32_t* band = (volatile uint32_t*)
-        wt_platform_probe_address(WT_PROBE_PKCS11_DATA_BAND);
-    volatile uint32_t seen;
-
-    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
-        seen = *band;
-        (void)seen;
-        wt_arch_sp_fault_probe(3u);
-    }
-    else if (((intptr_t)arg & WT_SP_FAULT_PROBE_SECOND) == 0) {
-        *band = 0xA5A5A5A5u;
-        wt_arch_sp_fault_probe(4u);
-    }
-}
-
-/* Prove that the relay cannot bypass IPC or execute from its data band. */
-static void wt_spm_pkcs11_partition_probe(void* arg)
-{
-    volatile uint32_t seen;
-    void (*xn_probe)(void);
-
-    if (((intptr_t)arg & WT_SP_FAULT_PROBE_RESTARTED) == 0) {
-        if (wt_pkcs11_relay_restart_probe(1) == 0) {
-            wt_arch_sp_fault_probe(2u);
-        }
-        (void)wt_pkcs11_relay_restart_probe(0);
-        seen = *(const volatile uint32_t*)
-            wt_platform_probe_address(WT_PROBE_OUT_OF_DOMAIN);
-        (void)seen;
-        wt_arch_sp_fault_probe(3u);
-    }
-    else if (((intptr_t)arg & WT_SP_FAULT_PROBE_SECOND) == 0) {
-        if (wt_pkcs11_relay_restart_probe(1) == 0) {
-            wt_arch_sp_fault_probe(2u);
-        }
-        xn_probe = (void (*)(void))
-            (wt_platform_probe_address(WT_PROBE_PKCS11_DATA_BAND) | 1u);
+            (wt_platform_probe_address(WT_PROBE_INTERFACE_DATA_BAND) | 1u);
         xn_probe();
         wt_arch_sp_fault_probe(4u);
     }
@@ -295,13 +233,9 @@ static void wt_spm_hsm_entry(void* arg)
     wt_spm_band_probe(arg, WT_PROBE_ATTEST_DATA_BAND);
 #endif
 #endif
-#if defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)
-    partition_id = WT_TPM_PROBE_ID(arg);
-    wt_spm_tpm_band_probe(arg);
-#endif
-#if defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1)
-    partition_id = WT_PKCS11_PROBE_ID(arg);
-    wt_spm_pkcs11_band_probe(arg);
+#if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
+    partition_id = WT_BAND_PROBE_ID(arg);
+    wt_spm_band_probe(arg, WT_PROBE_INTERFACE_DATA_BAND);
 #endif
 #if defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)
     partition_id = WT_RESTART_PROBE_ID(arg);
@@ -361,11 +295,7 @@ static int wt_spm_hsm_bind(int32_t partition_id)
 #if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
     defined(WT_INTERFACE_LOCAL_PROVIDER)
     if (wt_hsm_relay_set_secure_client(
-#if defined(CONFIG_PKCS11)
-            PARTITION_PKCS11_ID,
-#else
-            PARTITION_TPM_ID,
-#endif
+            WT_INTERFACE_PARTITION_ID,
             (wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE) != 0) {
         return WT_FFM_ERROR_STATE;
     }
@@ -377,6 +307,11 @@ static int wt_spm_hsm_bind(int32_t partition_id)
     if (wt_native_bind_nvm(wt_nvm_client_partition_nvm()) != 0) {
         return WT_FFM_ERROR_STATE;
     }
+#ifdef WT_SECURE_PSA
+    if (wt_psa_service_init() != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+#endif
     wt_hsm_relay_set_submit(wt_native_submit, (void*)(intptr_t)partition_id);
 #endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
@@ -665,12 +600,14 @@ static void wt_spm_its_entry(void* arg)
          * reaching either privileged backend from here would be a privilege
          * escape, so trap hard (unexpected extra fault fails the scenario)
          * instead of continuing to the expected MPU probe below. */
+#if defined(PARTITION_FWU_ID)
         (void)memset(&pin, 0, sizeof(pin));
         pin.op = WT_SPM_OP_FWU_BACKEND;
         pin.call_type = WT_SPM_FWU_BEGIN;
         if (wt_arch_sp_trap(&pin) != WT_FFM_ERROR_ARGUMENT) {
             wt_arch_sp_fault_probe(1u);
         }
+#endif
         (void)memset(&pin, 0, sizeof(pin));
         pin.op = WT_SPM_OP_KEYSTORE_FLASH;
         pin.call_type = WT_SPM_KS_FLASH_ERASE;
@@ -728,6 +665,7 @@ int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
                             (void*)(intptr_t)partition_id);
 }
 
+#if defined(PARTITION_FWU_ID)
 /* Confined FWU staging backend: each op traps to the privileged SVC
  * dispatcher (WT_SPM_OP_FWU_BACKEND), which pins the caller to the FWU
  * partition and runs the port flash backend in handler mode. */
@@ -862,11 +800,30 @@ static void wt_spm_fwu_entry(void* arg)
     }
 }
 
+/* A restarted partition rebuilds its state machine READY, so clear any swap
+ * trigger its previous instance armed. */
+static int wt_spm_fwu_restore(int32_t partition_id)
+{
+    (void)partition_id;
+    if (wt_fwu_flash_backend.disarm == NULL ||
+            wt_fwu_flash_backend.disarm(NULL) != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
+}
+
 int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
-    return wt_spm_sched_add(runtime, partition_id, wt_spm_fwu_entry,
-                            (void*)(intptr_t)partition_id);
+    int ret;
+
+    ret = wt_spm_sched_add(runtime, partition_id, wt_spm_fwu_entry,
+                           (void*)(intptr_t)partition_id);
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_sched_set_restore(partition_id, wt_spm_fwu_restore);
+    }
+    return ret;
 }
+#endif
 
 #if defined(CONFIG_VNET)
 /* The virtual network partition (WT-FFM-0056): an UNPRIVILEGED scheduled
@@ -923,49 +880,31 @@ int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 }
 #endif /* CONFIG_VNET */
 
-#if defined(CONFIG_TPM)
-#ifndef WT_TPM_APP_GUEST
-#define WT_TPM_APP_GUEST 0
-#endif
-/* The ordinary Secure partition runs fwTPM in its own protection domain. */
-static void wt_spm_tpm_entry(void* arg)
-{
-    int32_t partition_id = (int32_t)(intptr_t)arg;
-#if defined(WT_INTERFACE_LOCAL_PROVIDER)
-    void* provider_context = NULL;
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+#ifndef WT_INTERFACE_APP_GUEST
+#define WT_INTERFACE_APP_GUEST 0
 #endif
 
-#if defined(WT_TPM_NEG_PROBE) && (WT_TPM_NEG_PROBE == 1)
-    partition_id = WT_TPM_PROBE_ID(arg);
-    wt_spm_tpm_partition_probe(arg);
+#if defined(CONFIG_TPM)
+/* The partition runs fwTPM in its own protection domain. */
+static int wt_spm_interface_bind(void)
+{
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+    void* context = NULL;
 #endif
+
     wt_tpm_relay_set_transport(wt_spm_svc_transport);
 #if defined(WT_INTERFACE_LOCAL_PROVIDER)
     if (wt_provider_crypto_init() != 0 ||
-            wt_tpm_local_provider_init(&provider_context) != 0) {
-        psa_panic();
+            wt_tpm_local_provider_init(&context) != 0) {
+        return WT_FFM_ERROR_STATE;
     }
-    wt_tpm_relay_set_local_provider(wt_tpm_local_provider_process,
-                                    provider_context);
-    wt_tpm_relay_set_client(-(WT_TPM_APP_GUEST + 1));
+    wt_tpm_relay_set_local_provider(wt_tpm_local_provider_process, context);
+    wt_tpm_relay_set_client(-(WT_INTERFACE_APP_GUEST + 1));
 #endif
-    for (;;) {
-        (void)wt_tpm_relay_dispatch(NULL, NULL, partition_id);
-    }
+    return WT_FFM_SUCCESS;
 }
-
-int wt_spm_tpm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
-{
-    return wt_spm_sched_add(runtime, partition_id, wt_spm_tpm_entry,
-                            (void*)(intptr_t)partition_id);
-}
-#endif /* CONFIG_TPM */
-
-#if defined(CONFIG_PKCS11)
-#ifndef WT_PKCS11_APP_GUEST
-#define WT_PKCS11_APP_GUEST 0
-#endif
-
+#else
 #if defined(WT_INTERFACE_LOCAL_PROVIDER)
 static int wt_spm_pkcs11_local_dispatch(uint8_t* request,
                                         size_t request_len,
@@ -983,30 +922,58 @@ static int wt_spm_pkcs11_local_dispatch(uint8_t* request,
 }
 #endif
 
-static void wt_spm_pkcs11_entry(void* arg)
+static int wt_spm_interface_bind(void)
 {
-    int32_t partition_id = (int32_t)(intptr_t)arg;
-
-#if defined(WT_PKCS11_NEG_PROBE) && (WT_PKCS11_NEG_PROBE == 1)
-    partition_id = WT_PKCS11_PROBE_ID(arg);
-    wt_spm_pkcs11_partition_probe(arg);
-#endif
     wt_pkcs11_relay_set_transport(wt_spm_svc_transport);
 #if defined(WT_INTERFACE_LOCAL_PROVIDER)
     if (wt_provider_crypto_init() != 0) {
-        psa_panic();
+        return WT_FFM_ERROR_STATE;
     }
     wt_pkcs11_relay_set_local_provider(wt_spm_pkcs11_local_dispatch, NULL);
-    wt_pkcs11_relay_set_client(-(WT_PKCS11_APP_GUEST + 1));
+    wt_pkcs11_relay_set_client(-(WT_INTERFACE_APP_GUEST + 1));
 #endif
+    return WT_FFM_SUCCESS;
+}
+#endif
+
+static void wt_spm_interface_entry(void* arg)
+{
+    int32_t partition_id = (int32_t)(intptr_t)arg;
+
+#if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
+    partition_id = WT_BAND_PROBE_ID(arg);
+    wt_spm_interface_partition_probe(arg);
+#endif
+    if (wt_spm_interface_bind() != WT_FFM_SUCCESS) {
+        psa_panic();
+    }
     for (;;) {
-        (void)wt_pkcs11_relay_dispatch(NULL, NULL, partition_id);
+        (void)wt_spm_interface_dispatch(NULL, NULL, partition_id);
     }
 }
 
-int wt_spm_pkcs11_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+#if defined(WT_ENGINE_HSM) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+static int wt_spm_interface_restore(int32_t partition_id)
 {
-    return wt_spm_sched_add(runtime, partition_id, wt_spm_pkcs11_entry,
-                            (void*)(intptr_t)partition_id);
+    (void)partition_id;
+    if (wt_hsm_provider_namespace_reset() != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
 }
-#endif /* CONFIG_PKCS11 */
+#endif
+
+int wt_spm_interface_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
+{
+    int ret;
+
+    ret = wt_spm_sched_add(runtime, partition_id, wt_spm_interface_entry,
+                           (void*)(intptr_t)partition_id);
+#if defined(WT_ENGINE_HSM) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_sched_set_restore(partition_id, wt_spm_interface_restore);
+    }
+#endif
+    return ret;
+}
+#endif /* CONFIG_TPM || CONFIG_PKCS11 */

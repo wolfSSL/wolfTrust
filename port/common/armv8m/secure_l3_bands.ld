@@ -62,7 +62,6 @@
     _s_attest = .;
     *attestation_service.o(.data .data.*)
     *initial_attestation.o(.data .data.*)
-    *attestation_cose.o(.data .data.*)
     *wolfcose*.o(.data .data.*)
     . = ALIGN(4);
     _e_attest_data = .;
@@ -73,7 +72,6 @@
     _s_attest_bss = .;
     *attestation_service.o(.bss .bss.* COMMON)
     *initial_attestation.o(.bss .bss.* COMMON)
-    *attestation_cose.o(.bss .bss.* COMMON)
     *wolfcose*.o(.bss .bss.* COMMON)
     . = ALIGN(32);
     _e_attest = .;
@@ -88,6 +86,10 @@
     *crypto_native.o(.data .data.*)
     *keyvault.o(.data .data.*)
     *native_wire.o(.data .data.*)
+    *psa_crypto_service.o(.data .data.*)
+    *wp_sec_*.o(.data .data.*)
+    *wc_sec_pwdbased.o(.data .data.*)
+    *wc_sec_kdf.o(.data .data.*)
     *wh_sec_*.o(.data .data.*)
     *wc_sec_cryptocb.o(.data .data.*)
     . = ALIGN(4);
@@ -103,6 +105,10 @@
     *crypto_native.o(.bss .bss.* COMMON)
     *keyvault.o(.bss .bss.* COMMON)
     *native_wire.o(.bss .bss.* COMMON)
+    *psa_crypto_service.o(.bss .bss.* COMMON)
+    *wp_sec_*.o(.bss .bss.* COMMON)
+    *wc_sec_pwdbased.o(.bss .bss.* COMMON)
+    *wc_sec_kdf.o(.bss .bss.* COMMON)
     *wh_sec_*.o(.bss .bss.* COMMON)
     *wc_sec_cryptocb.o(.bss .bss.* COMMON)
     . = ALIGN(32);

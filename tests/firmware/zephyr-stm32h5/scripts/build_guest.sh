@@ -26,11 +26,14 @@ WT_ATTESTATION_DEVELOPMENT_PROFILE="${WT_ATTESTATION_DEVELOPMENT_PROFILE:-0}"
 WT_M33MU_EXPECT_BKPT="${WT_M33MU_EXPECT_BKPT:-0}"
 WT_GUEST_FAULT_PROBE="${WT_GUEST_FAULT_PROBE:-0}"
 WT_NS_BUSFAULT_PROBE="${WT_NS_BUSFAULT_PROBE:-0}"
+WT_NS_MASK_PROBE="${WT_NS_MASK_PROBE:-0}"
 WT_ATTEST_NEG_PROBE="${WT_ATTEST_NEG_PROBE:-0}"
 WT_FWU_PROBE="${WT_FWU_PROBE:-0}"
+WT_SECURE_PSA="${WT_SECURE_PSA:-$([ "${WT_ENGINE:-native}" = native ] && echo 1 || echo 0)}"
 WT_WRITE_ONCE_RESET_PROBE="${WT_WRITE_ONCE_RESET_PROBE:-0}"
 WT_HSM_ATTACK_PROBE="${WT_HSM_ATTACK_PROBE:-0}"
-WT_MPU_BYPASS_PROBE="${WT_MPU_BYPASS_PROBE:-0}"
+# WT_ISO_PROBE is the shared name of the peer-RAM probe (tests/target/lib/scenarios.py).
+WT_MPU_BYPASS_PROBE="${WT_MPU_BYPASS_PROBE:-${WT_ISO_PROBE:-0}}"
 WT_PERIPH_NEG_PROBE="${WT_PERIPH_NEG_PROBE:-0}"
 if [ "${WT_CRYPTO_PROFILE:-default}" = default ]; then
     WT_PKCS11_SUITE="${WT_PKCS11_SUITE:-profile}"
@@ -68,6 +71,7 @@ set -- \
     "-DWT_M33MU_EXPECT_BKPT=$WT_M33MU_EXPECT_BKPT" \
     "-DWT_GUEST_FAULT_PROBE=$WT_GUEST_FAULT_PROBE" \
     "-DWT_NS_BUSFAULT_PROBE=$WT_NS_BUSFAULT_PROBE" \
+    "-DWT_NS_MASK_PROBE=$WT_NS_MASK_PROBE" \
     "-DWT_ATTEST_NEG_PROBE=$WT_ATTEST_NEG_PROBE" \
     "-DWT_FWU_PROBE=$WT_FWU_PROBE" \
     "-DWT_WRITE_ONCE_RESET_PROBE=$WT_WRITE_ONCE_RESET_PROBE" \
@@ -84,6 +88,11 @@ elif [ "$WT_ENGINE" = "native" ]; then
     set -- "$@" \
         "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=n" \
         "-DCONFIG_WOLFTRUST_NATIVE_CLIENT=y"
+    if [ "$WT_SECURE_PSA" = "1" ]; then
+        set -- "$@" "-DCONFIG_WOLFTRUST_SECURE_PSA=y"
+    else
+        set -- "$@" "-DCONFIG_WOLFTRUST_SECURE_PSA=n"
+    fi
 else
     set -- "$@" \
         "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=y" \
@@ -173,6 +182,11 @@ elif [ "$WT_ENGINE" = "native" ]; then
     fi
     if printf '%s\n' "$NM_OUT" | grep -q 'wh_Client'; then
         echo "FAIL: wolfHSM client linked into a native-engine $APP_NAME" >&2
+        exit 1
+    fi
+    if [ "$WT_SECURE_PSA" = "1" ] && \
+            printf '%s\n' "$NM_OUT" | grep -Eq ' (wc_error_to_psa_status|wolfpsa_get_key_data)$'; then
+        echo "FAIL: wolfPSA linked into a WT_SECURE_PSA $APP_NAME" >&2
         exit 1
     fi
 elif ! printf '%s\n' "$NM_OUT" | grep -q 'wt_hsm_psa_transport_cb'; then

@@ -558,6 +558,18 @@ int wt_hsm_relay_set_secure_client(int32_t partition_id,
     g_secure_client_bound = true;
     return WH_ERROR_OK;
 }
+
+int wt_hsm_provider_namespace_reset(void)
+{
+    wt_hsm_guest_t *g = &g_guests[WT_PROVIDER_HSM_NAMESPACE];
+
+    wt_hsm_force_zero(&g_relay_bufs[WT_PROVIDER_HSM_NAMESPACE],
+                      sizeof(g_relay_bufs[WT_PROVIDER_HSM_NAMESPACE]));
+    wt_hsm_force_zero(&g->server, sizeof(g->server));
+    wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
+    g->ready = false;
+    return wt_hsm_guest_init((wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE);
+}
 #endif
 
 #if defined(WT_HSM_PIN_NEG_PROBE) && (WT_HSM_PIN_NEG_PROBE == 1)
@@ -592,6 +604,8 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
     int rc = WH_ERROR_OK;
 
     (void)submit_ctx;
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
     if (req == NULL || resp == NULL || resp_len == NULL) {
         return WH_ERROR_BADARGS;
     }
@@ -603,18 +617,26 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
             return WH_ERROR_BADARGS;
         }
     }
-#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
-    defined(WT_INTERFACE_LOCAL_PROVIDER)
     else if (g_secure_client_bound && client_id == g_secure_client_id) {
         gid = g_secure_namespace_id;
     }
-#endif
     else {
         return WH_ERROR_ACCESS;
     }
     if (gid >= WT_HSM_NAMESPACE_COUNT) {
         return WH_ERROR_BADARGS;
     }
+#else
+    if (req == NULL || resp == NULL || resp_len == NULL || client_id >= 0) {
+        return WH_ERROR_BADARGS;
+    }
+    /* The SPM stamps NS callers as -(guest + 1); the mapping mirrors
+     * wt_ffm_boot_caller_guest. */
+    gid = (wt_guest_id_t)(-client_id - 1);
+    if (gid >= WT_MAX_GUESTS) {
+        return WH_ERROR_BADARGS;
+    }
+#endif
     g = &g_guests[gid];
     buf = &g_relay_bufs[gid];
     *resp_len = 0U;

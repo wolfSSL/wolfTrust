@@ -32,6 +32,13 @@
 /* External lines in g_secure_vectors (runner/ivt.c); no Secure IRQ may go past. */
 #define WT_ARMV8M_SECURE_IRQS 64u
 
+/* Priority of the Secure SysTick, PendSV and Secure IRQs: with AIRCR.PRIS set,
+ * Non-secure PRIMASK/BASEPRI/FAULTMASK boosting stops at 0x80, so a guest
+ * can never mask it. Valid with 3 or 4 implemented priority bits. */
+#define WT_ARMV8M_SECURE_BAND_PRIO 0x60u
+/* With AIRCR.PRIS set every Non-secure exception sits at 0x80 or below. */
+#define WT_ARMV8M_NS_PRIO_FLOOR 0x80u
+
 #define WT_MPU_RBAR_XN       (1u << 0)
 #define WT_MPU_RBAR_AP_RW    (0u << 1)   /* privileged RW, no access from unpriv */
 #define WT_MPU_RBAR_AP_RWRW  (1u << 1)   /* RW from any priv level */
@@ -65,6 +72,13 @@ void wt_armv8m_sau_init(const wt_armv8m_sau_region_t* regions, size_t count);
 void wt_armv8m_sau_program_region(uint32_t rnr, uint32_t base,
                                   uint32_t limit_inclusive, bool nsc,
                                   bool enable);
+/* Implemented SAU regions; whether region rnr holds exactly this programming
+ * (an enabled region's bounds and NSC bit, or disabled); the barrier after a
+ * batch of region edits. */
+uint32_t wt_armv8m_sau_region_count(void);
+int wt_armv8m_sau_region_is(uint32_t rnr, uint32_t base,
+                            uint32_t limit_inclusive, bool nsc, bool enabled);
+void wt_armv8m_sau_sync(void);
 /* PRIVDEFENA off; wt_arch_restore_spm_domain() replays this table. */
 void wt_armv8m_mpu_s_init(const wt_armv8m_mpu_region_t* whitelist,
                           size_t count);

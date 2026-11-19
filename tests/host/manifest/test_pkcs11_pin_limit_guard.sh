@@ -38,38 +38,35 @@ report() {
 run_make() {
     make -n -C "$root" ARCH="$arch" TARGET="$target" TOOLPREFIX= \
         CONFIG_PKCS11=y CONFIG_TPM=n WT_ENGINE="$engine" \
-        BUILD_DIR="$work/$arch-$engine" "$@" > "$work/make.out" 2>&1
+        BUILD_DIR="$work/$target-$engine" "$@" > "$work/make.out" 2>&1
 }
 
-for arch in armv8m aarch64; do
-    case "$arch" in
-        armv8m) target=stm32h563 ;;
-        aarch64) target=qemuvirt ;;
-    esac
+arch=armv8m
+for target in stm32h563 mimxrt700; do
     for engine in native hsm; do
         rc=0
         run_make WT_PKCS11_PIN_MAX_FAILURES=5 || rc=1
         if [ "$rc" -eq 0 ] && grep 'pkcs11_provider\.c' "$work/make.out" |
                 grep -q -- '-DWT_PKCS11_PIN_MAX_FAILURES=5U'; then
-            report 0 "$arch/$engine requested PIN limit reaches the Secure compiler"
+            report 0 "$target/$engine requested PIN limit reaches the Secure compiler"
         else
-            report 1 "$arch/$engine requested PIN limit reaches the Secure compiler"
+            report 1 "$target/$engine requested PIN limit reaches the Secure compiler"
         fi
         rc=0
         run_make || rc=1
         if [ "$rc" -eq 0 ] && grep -q 'pkcs11_provider\.c' "$work/make.out" &&
                 ! grep -q -- '-DWT_PKCS11_PIN_MAX_FAILURES=' "$work/make.out" &&
                 ! grep -q -- '-DPBKDF2_ITERATIONS=' "$work/make.out"; then
-            report 0 "$arch/$engine production PIN policy keeps its defaults"
+            report 0 "$target/$engine production PIN policy keeps its defaults"
         else
-            report 1 "$arch/$engine production PIN policy keeps its defaults"
+            report 1 "$target/$engine production PIN policy keeps its defaults"
         fi
         if [ "$engine" = hsm ]; then
             if grep 'pkcs11_provider\.c' "$work/make.out" |
                     grep -q -- '-DWOLFPKCS11_DEFAULT_DEVID=0x5748534D'; then
-                report 0 "$arch HSM PKCS11 selects the HSM callback (WT-FFM-0054)"
+                report 0 "$target HSM PKCS11 selects the HSM callback (WT-FFM-0054)"
             else
-                report 1 "$arch HSM PKCS11 selects the HSM callback (WT-FFM-0054)"
+                report 1 "$target HSM PKCS11 selects the HSM callback (WT-FFM-0054)"
             fi
         elif grep 'pkcs11_provider\.c' "$work/make.out" |
                 grep -q -- 'WOLFPKCS11_DEFAULT_DEVID'; then
@@ -81,9 +78,9 @@ for arch in armv8m aarch64; do
             rc=0
             run_make WT_PKCS11_PIN_MAX_FAILURES="$bad" || rc=1
             if [ "$rc" -ne 0 ] && grep -q 'must be > 0' "$work/make.out"; then
-                report 0 "$arch/$engine PIN limit '$bad' is refused"
+                report 0 "$target/$engine PIN limit '$bad' is refused"
             else
-                report 1 "$arch/$engine PIN limit '$bad' is refused"
+                report 1 "$target/$engine PIN limit '$bad' is refused"
             fi
         done
     done

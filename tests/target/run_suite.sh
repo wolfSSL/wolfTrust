@@ -45,7 +45,7 @@ for s in "$@"; do
   if "${runner[@]}" "$s" > "$logdir/target-$s.log" 2>&1; then
     grep -F '  [check] ' "$logdir/target-$s.log" || true
     if [ "${WT_REQUIRE_SCENARIO_PASS:-0}" = 1 ] &&
-        ! grep -Eq "^PASS: (target|qemu-a)/$s( |$)" "$logdir/target-$s.log"; then
+        ! grep -Eq "^PASS: (target|qemu-a)/([^/ ]+/)?$s( |$)" "$logdir/target-$s.log"; then
       echo "FAIL: target/$s (required scenario did not report a real pass)"
       tail -5 "$logdir/target-$s.log"
       rc=1

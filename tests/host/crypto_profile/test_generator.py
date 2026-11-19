@@ -96,6 +96,15 @@ class GeneratorTests(unittest.TestCase):
                                      {"tpm": []}, [], [], require_tpm=False)
         self.assertEqual(selected["tpm"], set())
 
+    def test_generate_rejects_psa_selections(self):
+        with tempfile.TemporaryDirectory(dir=BUILD_DIR) as temporary:
+            for custom, enable, disable in (({"psa": []}, [], []),
+                    ({}, ["psa:psa_sign_hash"], []), ({}, [], ["psa:psa_sign_hash"])):
+                with self.subTest(custom=custom, enable=enable, disable=disable), \
+                        self.assertRaises(ValueError):
+                    profile.generate(ROOT, Path(temporary), "default", custom,
+                                     enable, disable)
+
     def test_tpm_table_filters_handlers_and_keeps_auth_metadata(self):
         selected = profile.selected_tpm(self.commands, {"Sign"})
         start, end, rows = profile.tpm_table(selected)

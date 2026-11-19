@@ -30,6 +30,14 @@ static CK_RV provider_backend_mechanism_info(CK_SLOT_ID slot,
     return C_GetMechanismInfo(slot, mechanism, info);
 }
 
+/* PIN accounting needs the session state even when the profile drops
+ * C_GetSessionInfo. */
+static CK_RV provider_backend_session_info(CK_SESSION_HANDLE session,
+    CK_SESSION_INFO_PTR info)
+{
+    return C_GetSessionInfo(session, info);
+}
+
 #define WT_PKCS11_PROVIDER_BUILD
 #include "wolftrust/crypto_profile.h"
 
@@ -553,7 +561,7 @@ static CK_RV provider_pin_counter(CK_SESSION_HANDLE session, int set_pin,
 
     *failures = NULL;
     (void)memset(info, 0, sizeof(*info));
-    rv = C_GetSessionInfo(session, info);
+    rv = provider_backend_session_info(session, info);
     if (rv == CKR_OK) {
         so = (set_pin != 0) ? (info->state == CKS_RW_SO_FUNCTIONS) :
                               (user == CKU_SO);
@@ -672,7 +680,7 @@ static CK_RV provider_init_pin(CK_SESSION_HANDLE session, CK_UTF8CHAR_PTR pin,
 
     if (rv == CKR_OK) {
         (void)memset(&info, 0, sizeof(info));
-        if (C_GetSessionInfo(session, &info) == CKR_OK) {
+        if (provider_backend_session_info(session, &info) == CKR_OK) {
             failures = provider_pin_failures(info.slotID, 0);
         }
         if (failures != NULL) {

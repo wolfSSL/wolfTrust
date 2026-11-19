@@ -558,6 +558,18 @@ int wt_hsm_relay_set_secure_client(int32_t partition_id,
     g_secure_client_bound = true;
     return WH_ERROR_OK;
 }
+
+int wt_hsm_provider_namespace_reset(void)
+{
+    wt_hsm_guest_t *g = &g_guests[WT_PROVIDER_HSM_NAMESPACE];
+
+    wt_hsm_force_zero(&g_relay_bufs[WT_PROVIDER_HSM_NAMESPACE],
+                      sizeof(g_relay_bufs[WT_PROVIDER_HSM_NAMESPACE]));
+    wt_hsm_force_zero(&g->server, sizeof(g->server));
+    wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
+    g->ready = false;
+    return wt_hsm_guest_init((wt_guest_id_t)WT_PROVIDER_HSM_NAMESPACE);
+}
 #endif
 
 #if defined(WT_HSM_PIN_NEG_PROBE) && (WT_HSM_PIN_NEG_PROBE == 1)

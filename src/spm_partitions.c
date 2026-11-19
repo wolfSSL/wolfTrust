@@ -952,9 +952,28 @@ static void wt_spm_interface_entry(void* arg)
     }
 }
 
+#if defined(WT_ENGINE_HSM) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+static int wt_spm_interface_restore(int32_t partition_id)
+{
+    (void)partition_id;
+    if (wt_hsm_provider_namespace_reset() != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+    return WT_FFM_SUCCESS;
+}
+#endif
+
 int wt_spm_interface_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
-    return wt_spm_sched_add(runtime, partition_id, wt_spm_interface_entry,
-                            (void*)(intptr_t)partition_id);
+    int ret;
+
+    ret = wt_spm_sched_add(runtime, partition_id, wt_spm_interface_entry,
+                           (void*)(intptr_t)partition_id);
+#if defined(WT_ENGINE_HSM) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_sched_set_restore(partition_id, wt_spm_interface_restore);
+    }
+#endif
+    return ret;
 }
 #endif /* CONFIG_TPM || CONFIG_PKCS11 */

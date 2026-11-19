@@ -140,6 +140,42 @@ static int tpm_max_frame_hash(void)
     return rc == TPM_RC_SUCCESS && out.outHash.size == 32U ? 0 : -1;
 }
 
+#if WT_TPM_DA
+/* Above fwTPM's default of 32 tries, so the loop must reach lockout. */
+#define WT_TPM_LOCKOUT_TRIES 64
+
+/* Runs last: the lockout it reaches lasts until the TPM restarts. */
+static int tpm_lockout(const byte* digest, int digest_size)
+{
+    static const byte auth[] = { 'w', 't', '-', 'd', 'a' };
+    byte sig[80];
+    int sig_size;
+    int tries;
+    int rc;
+
+    rc = wolfTPM2_GetKeyTemplate_ECC(&g_pub,
+        TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+        TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+        TPMA_OBJECT_sign, TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+    if (rc == 0) {
+        rc = wolfTPM2_CreatePrimaryKey(&g_dev, &g_key, TPM_RH_OWNER, &g_pub,
+                                       auth, (int)sizeof(auth));
+    }
+    if (rc == 0) {
+        g_key.handle.auth.buffer[0] ^= 0xFFU;
+        rc = TPM_RC_AUTH_FAIL;
+        for (tries = 0; tries < WT_TPM_LOCKOUT_TRIES && rc != 0 &&
+                rc != TPM_RC_LOCKOUT; tries++) {
+            sig_size = (int)sizeof(sig);
+            rc = wolfTPM2_SignHash(&g_dev, &g_key, digest, digest_size, sig,
+                                   &sig_size);
+        }
+        (void)wolfTPM2_UnloadHandle(&g_dev, &g_key.handle);
+    }
+    return (rc == TPM_RC_LOCKOUT) ? 0 : -1;
+}
+#endif
+
 int wt_tpm_run(void)
 {
     static const byte digest[32] = {
@@ -253,6 +289,13 @@ int wt_tpm_run(void)
 #endif
 
     (void)wolfTPM2_UnloadHandle(&g_dev, &g_key.handle);
+#if WT_TPM_DA
+    if (tpm_lockout(digest, (int)sizeof(digest)) != 0) {
+        app_line("tpm lockout FAILED");
+        return -1;
+    }
+    app_line("tpm lockout ok");
+#endif
     (void)wolfTPM2_Cleanup(&g_dev);
     app_line("tpm round trip ok");
     return 0;

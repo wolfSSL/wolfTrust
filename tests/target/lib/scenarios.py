@@ -756,7 +756,8 @@ def _interface_checks(ctx, block):
             out += [expect("TPM capabilities match the selected commands",
                            app + ": tpm command capabilities match profile"),
                     expect("disabled TPM command refused by the provider", app + ": tpm disabled command rejected")]
-        return out + [expect("wolfTPM round trip through the isolated fwTPM", app + ": tpm round trip ok")]
+        return out + [expect("repeated bad authorization reaches DA lockout", app + ": tpm lockout ok"),
+                      expect("wolfTPM round trip through the isolated fwTPM", app + ": tpm round trip ok")]
     app = "pkcs11-guest0"
     suite = ("core" if block == "pkcs11neg" else "all") if full else "profile"
     out = _interface_neg(v, "PKCS#11") if block == "pkcs11neg" else []

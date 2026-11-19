@@ -80,7 +80,8 @@ private callback state.
 
 Every Cortex-M33 port runs actual commands and isolation tests under M33MU.
 The default suite checks capabilities, a maximum-sized hash command, RNG,
-P-256 key creation, signing, verification, disabled commands, and cleanup.
+P-256 key creation, signing, verification, disabled commands, dictionary-attack
+lockout after repeated bad authorization, and cleanup.
 The full suite also checks PCR extend/read and broader object operations.
 
 `tpmneg` proves that another Secure Partition cannot read or write TPM state,

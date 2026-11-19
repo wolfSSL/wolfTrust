@@ -208,6 +208,7 @@ static void test_p256_lifecycle(void)
     uint8_t verify_in[WT_VAULT_KEY_DIGEST_LEN + WT_VAULT_KEY_SIG_LEN];
     size_t got = 0U;
     psa_status_t status = PSA_ERROR_GENERIC_ERROR;
+    int tries;
     int rc;
 
     rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_GENERATE, 0x1001ULL,
@@ -248,6 +249,25 @@ static void test_p256_lifecycle(void)
               verify_in, sizeof(verify_in) - 1U, NULL, 0U, &got, &status);
     check(rc == 0 && status == PSA_ERROR_INVALID_ARGUMENT,
           "verify refuses a malformed digest+signature payload");
+
+    /* About 1 in 128 signatures has a short r or s; 2048 tries all but
+     * guarantee one, so the left-padding path runs. */
+    for (tries = 0; tries < 2048; tries++) {
+        rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_SIGN, 0x1001ULL, 0U, 0U,
+                  digest, sizeof(digest), sig, sizeof(sig), &got, &status);
+        if (rc != 0 || status != PSA_SUCCESS || sig[0] == 0U ||
+                sig[32] == 0U) {
+            break;
+        }
+    }
+    (void)memcpy(verify_in, digest, sizeof(digest));
+    (void)memcpy(verify_in + sizeof(digest), sig, sizeof(sig));
+    check(rc == 0 && status == PSA_SUCCESS &&
+              (sig[0] == 0U || sig[32] == 0U) &&
+              wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_VERIFY, 0x1001ULL, 0U, 0U,
+                   verify_in, sizeof(verify_in), NULL, 0U, &got,
+                   &status) == 0 && status == PSA_SUCCESS,
+          "a signature with a short r or s pads and verifies");
 
     /* The key namespace is (owner, SPM-stamped client, uid): another client
      * using the same UID reaches nothing. */

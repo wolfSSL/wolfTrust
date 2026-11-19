@@ -153,19 +153,19 @@ Leave these at their defaults, which already favor speed:
 so the comparison covers both images: the Secure image and the application that
 calls it. `tools/measure_interface_footprint.sh` builds each port, engine and
 API with `WT_INTERFACE_PROFILE=default` and checks that every pair is present;
-the cross-compile workflow publishes its CSV. Measured 2026-11-18.
+the cross-compile workflow publishes its CSV. Measured 2026-11-19.
 
 Flash is Secure plus application, in bytes; RAM is reserved Secure RAM.
 
 | Port | Engine | PSA flash | TPM 2.0 flash | PKCS#11 flash | PSA RAM | TPM 2.0 RAM | PKCS#11 RAM |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| STM32H563 | native | 147,137 | 132,784 (-9.8%) | 112,020 (-23.9%) | 48,844 | 83,148 | 98,508 |
-| STM32H563 | hsm | 176,700 | 192,780 (+9.1%) | 146,852 (-16.9%) | 83,932 | 123,868 | 139,228 |
-| MIMXRT700 | native | 147,381 | 132,996 (-9.8%) | 112,268 (-23.8%) | 53,240 | 87,544 | 102,904 |
-| MIMXRT700 | hsm | 176,880 | 193,060 (+9.1%) | 147,132 (-16.8%) | 88,324 | 128,260 | 143,620 |
-| MCX N947 | native | 145,877 | 131,524 (-9.8%) | 110,780 (-24.1%) | 49,040 | 83,344 | 98,704 |
-| MCX N947 | hsm | 175,344 | 191,556 (+9.2%) | 145,612 (-17.0%) | 84,124 | 124,060 | 139,420 |
-| STM32L562 | native | 135,340 | 132,272 (-2.3%) | 111,520 (-17.6%) | 45,244 | 83,132 | 98,492 |
+| STM32H563 | native | 147,137 | 132,784 (-9.8%) | 114,784 (-22.0%) | 48,844 | 83,148 | 98,508 |
+| STM32H563 | hsm | 176,700 | 192,780 (+9.1%) | 151,640 (-14.2%) | 83,932 | 123,868 | 139,228 |
+| MIMXRT700 | native | 147,381 | 132,996 (-9.8%) | 115,032 (-22.0%) | 53,240 | 87,544 | 102,904 |
+| MIMXRT700 | hsm | 176,880 | 193,060 (+9.1%) | 151,920 (-14.1%) | 88,324 | 128,260 | 143,620 |
+| MCX N947 | native | 145,877 | 131,524 (-9.8%) | 113,544 (-22.2%) | 49,040 | 83,344 | 98,704 |
+| MCX N947 | hsm | 175,344 | 191,556 (+9.2%) | 150,400 (-14.2%) | 84,124 | 124,060 | 139,420 |
+| STM32L562 | native | 135,340 | 132,272 (-2.3%) | 114,284 (-15.6%) | 45,244 | 83,132 | 98,492 |
 
 The application shrinks because it no longer links a PSA Crypto client: the
 PKCS#11 proxy is under 8 KB. The Secure image grows by the provider (fwTPM or
@@ -184,7 +184,7 @@ profile on the STM32H563 with the stack method above:
 | TPM 2.0, native | 24,736 / 28,672 | 7,712 / 9,216 |
 | TPM 2.0, hsm | 26,144 / 28,672 | 7,384 / 9,216 |
 | PKCS#11, native | 42,016 / 45,056 | 6,784 / 8,192 |
-| PKCS#11, hsm | 43,008 / 45,056 | 5,144 / 8,192 |
+| PKCS#11, hsm | 43,008 / 45,056 | 5,288 / 8,192 |
 
 PKCS#11 data includes its 28 KiB token heap (`WT_PKCS11_HEAP_SIZE`). With the
 hsm engine the crypto partition band grows from 0x6000 to 0x6800 bytes, because

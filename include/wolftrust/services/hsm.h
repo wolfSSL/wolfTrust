@@ -84,6 +84,10 @@ int wt_hsm_guest_init_relay(wt_guest_id_t guest_id);
     defined(WT_INTERFACE_LOCAL_PROVIDER)
 int wt_hsm_relay_set_secure_client(int32_t partition_id,
                                    wt_guest_id_t namespace_id);
+
+/* Wipe and rebuild the provider namespace so a restarted interface partition
+ * inherits no cached keys or DRBG state. */
+int wt_hsm_provider_namespace_reset(void);
 #endif
 
 /* SERVICE_HSM's platform submit hook (matches wt_hsm_relay_submit_fn): map

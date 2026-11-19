@@ -63,7 +63,7 @@ int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
 #define NO_DSA
 #define NO_DES3
 #define NO_MD5
-#define HAVE_PBKDF2
+#define NO_PWDBASED
 #define NO_PKCS12
 #define NO_ASN_TIME
 

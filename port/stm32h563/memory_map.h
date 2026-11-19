@@ -45,10 +45,10 @@
 #define WT_FLASH_TO_S_ALIAS(address) \
     ((address) - WT_FLASH_NS_BASE + WT_FLASH_S_ALIAS_BASE)
 #ifndef WT_GUEST0_FLASH_BASE
-#define WT_GUEST0_FLASH_BASE     0x080A0000u
+#define WT_GUEST0_FLASH_BASE     0x08020000u
 #endif
 #ifndef WT_GUEST1_FLASH_BASE
-#define WT_GUEST1_FLASH_BASE     0x080E0000u
+#define WT_GUEST1_FLASH_BASE     0x08040000u
 #endif
 #ifndef WT_GUEST_FLASH_SIZE
 #define WT_GUEST_FLASH_SIZE      0x00020000u
@@ -56,7 +56,7 @@
 /* Per-guest window sizes; guest0 can grow past guest1's without moving it
  * across the bank-1/bank-2 watermark boundary. */
 #ifndef WT_GUEST0_FLASH_SIZE
-#define WT_GUEST0_FLASH_SIZE     0x00040000u
+#define WT_GUEST0_FLASH_SIZE     WT_GUEST_FLASH_SIZE
 #endif
 #ifndef WT_GUEST1_FLASH_SIZE
 #define WT_GUEST1_FLASH_SIZE     WT_GUEST_FLASH_SIZE

@@ -24,24 +24,12 @@ Both ports keep the public manifest, service, IPC, and PSA API contracts;
 AArch64 manifests add an optional FF-A section. Additional Cortex-M and
 Cortex-A ports are an intended extension point.
 
-Non-secure applications can use PSA Crypto, PKCS#11, or TPM 2.0 as independent
-interfaces through the SPM. `CONFIG_PKCS11=y` routes standard PKCS#11 `C_*`
-calls to wolfPKCS11 inside `SERVICE_PKCS11`. `CONFIG_TPM=y` routes wolfTPM command
-traffic to fwTPM inside `SERVICE_TPM`. Neither needs an additional guest or
-RTOS. Both use FF-M IPC through the port's
-normal client boundary: the same five CMSE gateway veneers as PSA clients on
-Armv8-M, or FF-A through the EL3 SPMD on AArch64. Neither uses the PSA Crypto
-API or depends on the other interface. See the [PKCS#11 Interface](docs/PKCS11.md)
-and [TPM 2.0 Interface](docs/TPM.md). All three interfaces use the same
-`WT_ENGINE=native` (default) or `WT_ENGINE=hsm` selector.
-[Operation profiles](docs/Crypto-Profiles.md) select a small default, the full
-operation set, or individual API operations.
-
-Runtime qualification for these optional interfaces is currently scoped to
-STM32H563 under M33MU and `qemuvirt` under QEMU. MIMXRT700 and Versal have
-compile and absolute-layout gates for both configurations, but this release
-does not claim TPM or PKCS#11 application/service runtime coverage on those
-two targets.
+A Non-secure application can use TPM 2.0 or PKCS#11 instead of PSA Crypto:
+`CONFIG_TPM=y` runs wolfTPM's firmware TPM in `SERVICE_TPM`, and
+`CONFIG_PKCS11=y` runs wolfPKCS11 in `SERVICE_PKCS11`, each as a Secure
+Partition over the selected `WT_ENGINE`. See the
+[TPM 2.0 Interface](docs/TPM.md), the [PKCS#11 Interface](docs/PKCS11.md),
+and [Interface Profiles](docs/Interface-Profiles.md).
 
 ## Architecture
 

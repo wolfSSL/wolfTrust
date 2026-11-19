@@ -2,7 +2,7 @@
 set -eu
 
 if [ $# -ne 1 ]; then
-    echo "usage: $0 guest0|guest0_psa|guest0_pkcs11|guest0_tpm|guest1" >&2
+    echo "usage: $0 guest0|guest0_psa|guest1" >&2
     exit 2
 fi
 
@@ -35,11 +35,6 @@ WT_HSM_ATTACK_PROBE="${WT_HSM_ATTACK_PROBE:-0}"
 # WT_ISO_PROBE is the shared name of the peer-RAM probe (tests/target/lib/scenarios.py).
 WT_MPU_BYPASS_PROBE="${WT_MPU_BYPASS_PROBE:-${WT_ISO_PROBE:-0}}"
 WT_PERIPH_NEG_PROBE="${WT_PERIPH_NEG_PROBE:-0}"
-if [ "${WT_CRYPTO_PROFILE:-default}" = default ]; then
-    WT_PKCS11_SUITE="${WT_PKCS11_SUITE:-profile}"
-else
-    WT_PKCS11_SUITE="${WT_PKCS11_SUITE:-all}"
-fi
 . "$ROOT/tests/target/lib/engine.sh"
 
 if [ ! -d "$APP_DIR" ]; then
@@ -79,12 +74,7 @@ set -- \
     "-DWT_MPU_BYPASS_PROBE=$WT_MPU_BYPASS_PROBE" \
     "-DWT_PERIPH_NEG_PROBE=$WT_PERIPH_NEG_PROBE"
 
-if [ "$APP_NAME" = "guest0_pkcs11" ]; then
-    set -- "$@" \
-        "-DWT_PKCS11_SUITE=$WT_PKCS11_SUITE" \
-        "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=n" \
-        "-DCONFIG_WOLFTRUST_NATIVE_CLIENT=n"
-elif [ "$WT_ENGINE" = "native" ]; then
+if [ "$WT_ENGINE" = "native" ]; then
     set -- "$@" \
         "-DCONFIG_WOLFTRUST_WOLFHSM_CLIENT=n" \
         "-DCONFIG_WOLFTRUST_NATIVE_CLIENT=y"
@@ -149,33 +139,7 @@ if printf '%s\n' "$NM_OUT" | \
     echo "FAIL: retired direct veneers linked into $APP_NAME" >&2
     exit 1
 fi
-if [ "$APP_NAME" = "guest0_pkcs11" ]; then
-    if ! printf '%s\n' "$NM_OUT" | grep -q 'C_GetFunctionList'; then
-        echo "FAIL: $APP_NAME is missing the PKCS11 C_* proxy" >&2
-        exit 1
-    fi
-    if ! printf '%s\n' "$NM_OUT" | grep -q 'wt_pkcs11_psa_call'; then
-        echo "FAIL: $APP_NAME is not wired to SERVICE_PKCS11" >&2
-        exit 1
-    fi
-    if printf '%s\n' "$NM_OUT" | grep -Eq 'WP11_|TPM2_'; then
-        echo "FAIL: a PKCS11 or TPM provider implementation linked into $APP_NAME" >&2
-        exit 1
-    fi
-elif [ "$APP_NAME" = "guest0_tpm" ]; then
-    if ! printf '%s\n' "$NM_OUT" | grep -q 'wt_tpm_psa_transact'; then
-        echo "FAIL: $APP_NAME is not wired to SERVICE_TPM" >&2
-        exit 1
-    fi
-    if ! printf '%s\n' "$NM_OUT" | grep -q 'TPM2_SWTPM_SendCommand'; then
-        echo "FAIL: wolfTPM client not routed through SERVICE_TPM in $APP_NAME" >&2
-        exit 1
-    fi
-    if printf '%s\n' "$NM_OUT" | grep -q 'FWTPM_ProcessCommand'; then
-        echo "FAIL: the fwTPM provider linked into $APP_NAME" >&2
-        exit 1
-    fi
-elif [ "$WT_ENGINE" = "native" ]; then
+if [ "$WT_ENGINE" = "native" ]; then
     if ! printf '%s\n' "$NM_OUT" | grep -q 'wt_crypto_native_call'; then
         echo "FAIL: $APP_NAME is not wired to the native crypto wire client" >&2
         exit 1

@@ -159,19 +159,22 @@ Flash is Secure plus application, in bytes; RAM is reserved Secure RAM.
 
 | Port | Engine | PSA flash | TPM 2.0 flash | PKCS#11 flash | PSA RAM | TPM 2.0 RAM | PKCS#11 RAM |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| STM32H563 | native | 147,137 | 130,280 (-11.5%) | 112,020 (-23.9%) | 48,844 | 83,148 | 98,508 |
-| STM32H563 | hsm | 176,700 | 190,308 (+7.7%) | 146,852 (-16.9%) | 83,932 | 123,868 | 139,228 |
-| MIMXRT700 | native | 147,381 | 130,524 (-11.4%) | 112,268 (-23.8%) | 53,240 | 87,544 | 102,904 |
-| MIMXRT700 | hsm | 176,880 | 190,556 (+7.7%) | 147,132 (-16.8%) | 88,324 | 128,260 | 143,620 |
-| MCX N947 | native | 145,877 | 129,052 (-11.5%) | 110,780 (-24.1%) | 49,040 | 83,344 | 98,704 |
-| MCX N947 | hsm | 175,344 | 189,020 (+7.8%) | 145,612 (-17.0%) | 84,124 | 124,060 | 139,420 |
-| STM32L562 | native | 135,340 | 129,768 (-4.1%) | 111,520 (-17.6%) | 45,244 | 83,132 | 98,492 |
+| STM32H563 | native | 147,137 | 132,784 (-9.8%) | 112,020 (-23.9%) | 48,844 | 83,148 | 98,508 |
+| STM32H563 | hsm | 176,700 | 192,780 (+9.1%) | 146,852 (-16.9%) | 83,932 | 123,868 | 139,228 |
+| MIMXRT700 | native | 147,381 | 132,996 (-9.8%) | 112,268 (-23.8%) | 53,240 | 87,544 | 102,904 |
+| MIMXRT700 | hsm | 176,880 | 193,060 (+9.1%) | 147,132 (-16.8%) | 88,324 | 128,260 | 143,620 |
+| MCX N947 | native | 145,877 | 131,524 (-9.8%) | 110,780 (-24.1%) | 49,040 | 83,344 | 98,704 |
+| MCX N947 | hsm | 175,344 | 191,556 (+9.2%) | 145,612 (-17.0%) | 84,124 | 124,060 | 139,420 |
+| STM32L562 | native | 135,340 | 132,272 (-2.3%) | 111,520 (-17.6%) | 45,244 | 83,132 | 98,492 |
 
 The application shrinks because it no longer links a PSA Crypto client: the
 PKCS#11 proxy is under 8 KB. The Secure image grows by the provider (fwTPM or
 wolfPKCS11) and its private wolfCrypt copy. The wolfTPM client keeps its own
 wolfCrypt for sessions and parameter encryption, and with the hsm engine it also
 links the wolfHSM client, so hsm TPM 2.0 is the one case that grows overall.
+
+TPM 2.0 includes fwTPM dictionary-attack lockout; `WT_TPM_DA=0` saves about
+2.3 KB of Secure flash.
 
 The extra RAM is the interface band above SPM RAM, sized from the `full`
 profile on the STM32H563 with the stack method above:

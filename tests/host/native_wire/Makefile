@@ -74,6 +74,14 @@ _WC_SRCS := \
 
 _TEST_SRCS := main.c
 
+# ASN=1 builds the keyvault as TPM 2.0 and PKCS#11 do, converting r||s through DER.
+ASN ?= 0
+ifeq ($(ASN),1)
+CFLAGS += -DCONFIG_PKCS11=1
+WC_CFLAGS += -DCONFIG_PKCS11=1
+_WC_SRCS += $(WOLFSSL)/wolfcrypt/src/asn.c
+endif
+
 _WT_OBJS   := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
 _WH_OBJS   := $(patsubst %.c,wh_%.o,$(notdir $(_WH_SRCS)))
 _WC_OBJS   := $(patsubst %.c,wc_%.o,$(notdir $(_WC_SRCS)))
@@ -118,6 +126,8 @@ run: $(TEST_BIN)
 	    cat $(BUILD_DIR)/aes_setup_failure.log; exit 1; \
 	fi; \
 	printf '%s\n' 'PASS: AES-GCM setup failure remains a failed test'
+	$(MAKE) --no-print-directory all BUILD_DIR=$(BUILD_DIR)/asn ASN=1
+	$(BUILD_DIR)/asn/test_native_wire
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

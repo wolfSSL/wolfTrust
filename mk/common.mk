@@ -549,7 +549,7 @@ SECURE_CFLAGS += $(WT_SECURE_PSA_CFLAGS)
 HSM_LIB_CFLAGS += $(WT_SECURE_PSA_CFLAGS)
 HSM_WOLFHSM_CFLAGS += $(WT_SECURE_PSA_CFLAGS)
 WOLFPSA_SECURE_SRCS := $(filter-out %/psa_store_posix.c %/psa_attestation.c \
-    %/psa_ffm.c %/psa_its.c %/misc_impl.c %/psa_store_zephyr.c %/psa_tf_psa.c,$(wildcard $(WOLFPSA_DIR)/src/*.c))
+    %/psa_ffm.c %/psa_its.c %/psa_store_zephyr.c %/psa_tf_psa.c,$(wildcard $(WOLFPSA_DIR)/src/*.c))
 WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/native/psa_crypto_service.c
 ifeq ($(WT_SECURE_PSA_PROFILE),compat)
 WOLFCRYPT_SECURE_SRCS += $(WOLFSSL_DIR)/wolfcrypt/src/kdf.c \

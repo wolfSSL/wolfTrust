@@ -30,6 +30,8 @@
 #undef HAVE_ECC
 #endif
 #define WC_ALLOW_ECC_ZERO_HASH
+/* One copy of wolfCrypt's misc.c helpers, built by wolfPSA's misc_impl.c */
+#define NO_INLINE
 /* wolfPSA refuses T-table AES and a GHASH that branches on the hash key. */
 #define WOLFSSL_AES_TOUCH_LINES
 #undef GCM_SMALL

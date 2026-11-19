@@ -31,7 +31,7 @@ ROOT := ../../..
 TARGET ?= mimxrt700
 ARCH ?= armv8m
 WT_ENGINE ?= native
-WT_INTERFACE ?= tpm
+WT_INTERFACE ?= $(if $(filter y,$(CONFIG_PKCS11)),pkcs11,tpm)
 BUILD ?= build
 BUILD_DIR := $(BUILD)
 
@@ -40,6 +40,13 @@ $(error WT_INTERFACE must be tpm or pkcs11)
 endif
 ifeq ($(filter native hsm,$(WT_ENGINE)),)
 $(error WT_ENGINE must be native or hsm)
+endif
+# The layout, profile and Secure image follow the selected interface.
+WT_IF_WANT := $(if $(filter tpm,$(WT_INTERFACE)),y/n,n/y)
+CONFIG_TPM ?= $(firstword $(subst /, ,$(WT_IF_WANT)))
+CONFIG_PKCS11 ?= $(lastword $(subst /, ,$(WT_IF_WANT)))
+ifneq ($(CONFIG_TPM)/$(CONFIG_PKCS11),$(WT_IF_WANT))
+$(error WT_INTERFACE=$(WT_INTERFACE) conflicts with CONFIG_TPM=$(CONFIG_TPM) CONFIG_PKCS11=$(CONFIG_PKCS11))
 endif
 
 include $(ROOT)/mk/target-$(TARGET).mk
@@ -138,7 +145,8 @@ all: $(BUILD)/guest0.bin
 
 $(SECURE_CMSE_IMPLIB): FORCE
 	$(MAKE) -C $(ROOT) ARCH=$(ARCH) TARGET=$(TARGET) TOOLPREFIX=$(TOOLPREFIX) \
-	    WT_ENGINE=$(WT_ENGINE) build/secure_cmse_implib.o
+	    WT_ENGINE=$(WT_ENGINE) CONFIG_TPM=$(CONFIG_TPM) CONFIG_PKCS11=$(CONFIG_PKCS11) \
+	    build/secure_cmse_implib.o
 
 $(WH_CFG_DIR)/wolfhsm_cfg.h: | $(BUILD)
 	mkdir -p $(WH_CFG_DIR)

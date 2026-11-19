@@ -116,9 +116,10 @@ ECC path required for deterministic ECDSA; that dependency is not removed.
 
 The `profile` PKCS#11 reference suite exercises the default operations, capability
 filtering, disabled entry points, forged wire requests and PIN recovery. The
-`all` suite retains the 40-case broader regression. CI tests both profiles across
-both engines on every Cortex-M33 port, with the bare-metal TPM 2.0 and PKCS#11
-applications and their partition-isolation scenarios.
+`all` suite retains the 40-case broader regression. CI tests every engine and profile
+each Cortex-M33 port registers (STM32L562: native engine, default profile), with
+the bare-metal TPM 2.0 and PKCS#11 applications and their partition-isolation
+scenarios.
 
 Run `make test` for the host regressions. The target runner builds the
 interface profile named by `WT_PROFILE` (`default` or `full`) unless

@@ -99,7 +99,7 @@ def discover(root):
              "tpm": {m.group(1) for m in rows}}, signatures, sources, commands)
 
 
-def select(catalog, defaults, profile, custom, enable, disable):
+def select(catalog, defaults, profile, custom, enable, disable, require_tpm=True):
     if not isinstance(custom, dict):
         raise ValueError("profile configuration must be a JSON object")
     for kind, names in custom.items():
@@ -129,7 +129,7 @@ def select(catalog, defaults, profile, custom, enable, disable):
         if unknown:
             raise ValueError("unknown %s operations: %s" %
                              (kind, ", ".join(sorted(unknown))))
-    if not selected["tpm"]:
+    if require_tpm and not selected["tpm"]:
         raise ValueError("a TPM profile requires at least one command")
     if mechanisms is not None and any(not re.fullmatch(r"CKM_[A-Z0-9_]+", n)
                                       for n in mechanisms):
@@ -306,10 +306,11 @@ def hsm_callback_source(root, extra_crypto):
     return prefix + "\n#include " + json.dumps(str(original)) + "\n"
 
 
-def generate(root, output, profile, custom, enable, disable):
+def generate(root, output, profile, custom, enable, disable, interface="tpm"):
     catalog, signatures, sources, commands = discover(root)
     defaults = json.loads((root / "config/crypto-profiles.json").read_text())["default"]
-    selected, mechanisms = select(catalog, defaults, profile, custom, enable, disable)
+    selected, mechanisms = select(catalog, defaults, profile, custom, enable, disable,
+                                  interface == "tpm")
     basic_mechanisms = {"CKM_SHA256", "CKM_EC_KEY_PAIR_GEN", "CKM_ECDSA",
                         "CKM_ECDSA_KEY_PAIR_GEN"}
     extra_crypto = (profile == "full" or mechanisms is None or
@@ -366,6 +367,7 @@ def main():
     parser.add_argument("--config", type=Path)
     parser.add_argument("--enable", action="append", default=[])
     parser.add_argument("--disable", action="append", default=[])
+    parser.add_argument("--interface", choices=("tpm", "pkcs11"), default="tpm")
     parser.add_argument("--list", action="store_true")
     args = parser.parse_args()
     try:
@@ -379,7 +381,8 @@ def main():
             custom = json.loads(config.read_text()) if config else {}
             enable = args.enable + os.environ.get("WT_INTERFACE_ENABLE", "").split()
             disable = args.disable + os.environ.get("WT_INTERFACE_DISABLE", "").split()
-            generate(args.root, args.output, args.profile, custom, enable, disable)
+            generate(args.root, args.output, args.profile, custom, enable, disable,
+                     args.interface)
     except (OSError, ValueError, KeyError) as error:
         parser.error(str(error))
 

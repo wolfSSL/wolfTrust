@@ -89,6 +89,13 @@ class GeneratorTests(unittest.TestCase):
             with self.subTest(custom=custom), self.assertRaises(ValueError):
                 profile.select(self.catalog, self.defaults, "default", custom, [], [])
 
+    def test_empty_tpm_selection_only_for_pkcs11(self):
+        with self.assertRaises(ValueError):
+            profile.select(self.catalog, self.defaults, "default", {"tpm": []}, [], [])
+        selected, _ = profile.select(self.catalog, self.defaults, "default",
+                                     {"tpm": []}, [], [], require_tpm=False)
+        self.assertEqual(selected["tpm"], set())
+
     def test_tpm_table_filters_handlers_and_keeps_auth_metadata(self):
         selected = profile.selected_tpm(self.commands, {"Sign"})
         start, end, rows = profile.tpm_table(selected)

@@ -29,7 +29,8 @@ crypto-profile-force:
 
 $(WT_INTERFACE_PROFILE_HEADER): crypto-profile-force
 	@python3 $(ROOT)/tools/crypto_profile.py --root $(abspath $(ROOT)) \
-		--output $(WT_INTERFACE_PROFILE_DIR) --profile $(WT_INTERFACE_PROFILE)
+		--output $(WT_INTERFACE_PROFILE_DIR) --profile $(WT_INTERFACE_PROFILE) \
+		--interface $(if $(filter y,$(CONFIG_PKCS11)),pkcs11,tpm)
 
 $(WT_INTERFACE_PROFILE_DIR)/fwtpm_command.c: $(WT_INTERFACE_PROFILE_HEADER)
 	@test -f $@

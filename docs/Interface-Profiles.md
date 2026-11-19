@@ -43,8 +43,8 @@ profile's defaults:
 Pass its absolute path with `WT_INTERFACE_CONFIG`. The accepted fields are `psa`,
 `pkcs11`, `tpm`, and `mechanisms`, each a JSON array of names. An empty mechanism
 list exports no crypto mechanisms. Unknown fields and operation names fail the
-build. The TPM service requires at least one selected command; disable the
-interface with `CONFIG_TPM=n` when no TPM commands are needed.
+build. A `CONFIG_TPM=y` build requires at least one selected command; a
+`CONFIG_PKCS11=y` build accepts `"tpm": []`.
 
 Inspect known dependency entry points or generate a selection directly:
 

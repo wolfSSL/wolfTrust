@@ -79,6 +79,8 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
 ifeq ($(WT_M33MU_EXPECT_BKPT),1)
 CFLAGS += -DWT_M33MU_EXPECT_BKPT
 endif
+WT_TPM_DA ?= 1
+CFLAGS += -DWT_TPM_DA=$(WT_TPM_DA)
 
 SRCS := main.c ../psa-guest/guest_libc.c $(ROOT)/src/client/psa_ffm_client.c
 
@@ -146,6 +148,7 @@ all: $(BUILD)/guest0.bin
 $(SECURE_CMSE_IMPLIB): FORCE
 	$(MAKE) -C $(ROOT) ARCH=$(ARCH) TARGET=$(TARGET) TOOLPREFIX=$(TOOLPREFIX) \
 	    WT_ENGINE=$(WT_ENGINE) CONFIG_TPM=$(CONFIG_TPM) CONFIG_PKCS11=$(CONFIG_PKCS11) \
+	    WT_TPM_DA=$(WT_TPM_DA) \
 	    build/secure_cmse_implib.o
 
 $(WH_CFG_DIR)/wolfhsm_cfg.h: | $(BUILD)

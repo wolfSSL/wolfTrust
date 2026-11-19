@@ -238,6 +238,7 @@ PSA is the default application API. These select TPM 2.0 or PKCS#11 instead;
 | `WT_INTERFACE_LOCAL_PROVIDER` | Internal: `1` builds the provider's wolfCrypt into the interface partition with its symbols renamed apart from the crypto partition's copy. `mk/arch-armv8m.mk` sets it. | Not a user setting. |
 | `WT_PKCS11_PIN_MAX_FAILURES` | Consecutive wrong user or SO PINs before that PIN locks; empty keeps `3`. | Must be a positive integer. |
 | `WT_PKCS11_TEST_PBKDF2_ITERATIONS` | Emulator only: lowers the PIN PBKDF2 count from 600,000. | Never set it for a product image; the footprint script refuses it. |
+| `WT_TPM_DA` | `0` compiles out fwTPM dictionary-attack lockout (about 1.4 to 2.3 KB of Secure flash); default `1` locks DA-protected objects after 32 failed authorizations. | `0` or `1`; read only with `CONFIG_TPM=y`. Without NV the counter resets on reboot. |
 | `WT_PROVIDER_ECC_FALLBACK` | `1` keeps software P-256 in the provider of an `hsm` build; default `0` routes every ECC operation through wolfHSM. | `0` or `1`; read only with `WT_ENGINE=hsm`. |
 
 ## Fixed Secure wolfCrypt defines

@@ -104,10 +104,10 @@ callback. No dependency files or structure layouts are changed.
 
 FreeRTOS guest builds use `WT_LTO=1` by default; `WT_LTO=0` disables it.
 RTOS, startup, libc and cross-world transport objects keep their compilation
-boundaries. The default FreeRTOS TPM application uses the TPM for crypto and
-links no application-side wolfCrypt/HSM engine. Set `WT_TPM_CLIENT_WOLFCRYPT=1`
-when a custom application needs local cryptography for HMAC/parameter-encrypted
-sessions or host-side key preparation. Full reference builds retain that support.
+boundaries. The reference TPM application, `tests/firmware/interface-guest`,
+is bare-metal and links wolfTPM's client crypto and wolfCrypt for HMAC and
+parameter-encrypted sessions; with `WT_ENGINE=hsm` it also links the wolfHSM
+client, which is why hsm TPM 2.0 is the one footprint row that grows.
 The TPM service still selects native/HSM normally.
 TPM/PKCS#11 HSM providers omit unused software ECC fallback by default.
 `WT_PROVIDER_ECC_FALLBACK=1` restores it; native builds always retain software

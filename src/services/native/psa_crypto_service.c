@@ -1089,6 +1089,7 @@ static psa_status_t wt_psa_asym_fn(uint32_t fn, wt_psa_call_t* c)
         }
         c->val = (status == PSA_SUCCESS) ? id : 0U;
         break;
+#if defined(PSA_WANT_ALG_RSA_PKCS1V15_CRYPT) || defined(PSA_WANT_ALG_RSA_OAEP)
     case WT_PSA_FN_ASYMMETRIC_ENCRYPT:
         status = psa_asymmetric_encrypt(A(0), A(1), IN(0), INL(0), IN(1),
                                         INL(1), OUT(0), CAP(0), OL(0));
@@ -1097,6 +1098,7 @@ static psa_status_t wt_psa_asym_fn(uint32_t fn, wt_psa_call_t* c)
         status = psa_asymmetric_decrypt(A(0), A(1), IN(0), INL(0), IN(1),
                                         INL(1), OUT(0), CAP(0), OL(0));
         break;
+#endif
     case WT_PSA_FN_SIGN_HASH:
         status = psa_sign_hash(A(0), A(1), IN(0), INL(0), OUT(0), CAP(0),
                                OL(0));

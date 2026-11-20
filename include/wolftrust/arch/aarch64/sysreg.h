@@ -1,0 +1,189 @@
+/* sysreg.h
+ *
+ * Copyright (C) 2026 wolfSSL Inc.
+ *
+ * This file is part of wolfTrust.
+ *
+ * wolfTrust is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License as published by
+ * the Free Software Foundation; either version 3 of the License, or
+ * (at your option) any later version.
+ *
+ * wolfTrust is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License
+ * along with this program; if not, see <https://www.gnu.org/licenses/>.
+ */
+
+#ifndef WOLFTRUST_ARCH_AARCH64_SYSREG_H
+#define WOLFTRUST_ARCH_AARCH64_SYSREG_H
+
+#include <stdint.h>
+
+#define WT_SYSREG_READ(name, reg) \
+    static inline uint64_t wt_read_##name(void) \
+    { \
+        uint64_t value; \
+        __asm__ volatile("mrs %0, " reg : "=r"(value)); \
+        return value; \
+    }
+#define WT_SYSREG_WRITE(name, reg) \
+    static inline void wt_write_##name(uint64_t value) \
+    { \
+        __asm__ volatile("msr " reg ", %0" : : "r"(value) : "memory"); \
+    }
+
+WT_SYSREG_READ(currentel, "CurrentEL")
+WT_SYSREG_READ(mpidr_el1, "MPIDR_EL1")
+WT_SYSREG_READ(cntfrq_el0, "CNTFRQ_EL0")
+WT_SYSREG_READ(cntpct_el0, "CNTPCT_EL0")
+WT_SYSREG_READ(esr_el3, "ESR_EL3")
+WT_SYSREG_READ(far_el3, "FAR_EL3")
+WT_SYSREG_READ(elr_el3, "ELR_EL3")
+WT_SYSREG_READ(spsr_el3, "SPSR_EL3")
+WT_SYSREG_READ(scr_el3, "SCR_EL3")
+WT_SYSREG_READ(mdcr_el3, "MDCR_EL3")
+WT_SYSREG_READ(id_aa64dfr0_el1, "ID_AA64DFR0_EL1")
+WT_SYSREG_WRITE(scr_el3, "SCR_EL3")
+WT_SYSREG_WRITE(elr_el3, "ELR_EL3")
+WT_SYSREG_WRITE(spsr_el3, "SPSR_EL3")
+WT_SYSREG_WRITE(sp_el1, "SP_EL1")
+WT_SYSREG_WRITE(sctlr_el1, "SCTLR_EL1")
+
+/* EL1 context that is not banked by security state on these cores: saved and
+ * restored around a world switch (wt_el3_world_switch). */
+WT_SYSREG_READ(hcr_el2, "HCR_EL2")
+WT_SYSREG_WRITE(hcr_el2, "HCR_EL2")
+WT_SYSREG_READ(sp_el0, "SP_EL0")
+WT_SYSREG_WRITE(sp_el0, "SP_EL0")
+WT_SYSREG_READ(sp_el1, "SP_EL1")
+WT_SYSREG_READ(sctlr_el1, "SCTLR_EL1")
+WT_SYSREG_READ(ttbr0_el1, "TTBR0_EL1")
+WT_SYSREG_WRITE(ttbr0_el1, "TTBR0_EL1")
+WT_SYSREG_READ(ttbr1_el1, "TTBR1_EL1")
+WT_SYSREG_WRITE(ttbr1_el1, "TTBR1_EL1")
+WT_SYSREG_READ(tcr_el1, "TCR_EL1")
+WT_SYSREG_WRITE(tcr_el1, "TCR_EL1")
+WT_SYSREG_READ(mair_el1, "MAIR_EL1")
+WT_SYSREG_WRITE(mair_el1, "MAIR_EL1")
+WT_SYSREG_READ(amair_el1, "AMAIR_EL1")
+WT_SYSREG_WRITE(amair_el1, "AMAIR_EL1")
+WT_SYSREG_READ(vbar_el1, "VBAR_EL1")
+WT_SYSREG_WRITE(vbar_el1, "VBAR_EL1")
+WT_SYSREG_READ(tpidr_el0, "TPIDR_EL0")
+WT_SYSREG_WRITE(tpidr_el0, "TPIDR_EL0")
+WT_SYSREG_READ(tpidrro_el0, "TPIDRRO_EL0")
+WT_SYSREG_WRITE(tpidrro_el0, "TPIDRRO_EL0")
+WT_SYSREG_READ(tpidr_el1, "TPIDR_EL1")
+WT_SYSREG_WRITE(tpidr_el1, "TPIDR_EL1")
+WT_SYSREG_READ(contextidr_el1, "CONTEXTIDR_EL1")
+WT_SYSREG_WRITE(contextidr_el1, "CONTEXTIDR_EL1")
+WT_SYSREG_READ(cpacr_el1, "CPACR_EL1")
+WT_SYSREG_WRITE(cpacr_el1, "CPACR_EL1")
+WT_SYSREG_READ(elr_el1, "ELR_EL1")
+WT_SYSREG_WRITE(elr_el1, "ELR_EL1")
+WT_SYSREG_READ(spsr_el1, "SPSR_EL1")
+WT_SYSREG_WRITE(spsr_el1, "SPSR_EL1")
+WT_SYSREG_READ(esr_el1, "ESR_EL1")
+WT_SYSREG_WRITE(esr_el1, "ESR_EL1")
+WT_SYSREG_READ(far_el1, "FAR_EL1")
+WT_SYSREG_WRITE(far_el1, "FAR_EL1")
+WT_SYSREG_READ(par_el1, "PAR_EL1")
+WT_SYSREG_WRITE(par_el1, "PAR_EL1")
+WT_SYSREG_READ(mdscr_el1, "MDSCR_EL1")
+WT_SYSREG_WRITE(mdscr_el1, "MDSCR_EL1")
+WT_SYSREG_READ(cntkctl_el1, "CNTKCTL_EL1")
+WT_SYSREG_WRITE(cntkctl_el1, "CNTKCTL_EL1")
+
+static inline void wt_isb(void)
+{
+    __asm__ volatile("isb" : : : "memory");
+}
+
+static inline void wt_dsb_sy(void)
+{
+    __asm__ volatile("dsb sy" : : : "memory");
+}
+
+static inline void wt_daif_clear_fiq(void)
+{
+    __asm__ volatile("msr DAIFClr, #1" : : : "memory");
+}
+
+static inline void wt_daif_set_fiq(void)
+{
+    __asm__ volatile("msr DAIFSet, #1" : : : "memory");
+}
+
+static inline uint64_t wt_current_el(void)
+{
+    return (wt_read_currentel() >> 2) & 0x3u;
+}
+
+/* SCR_EL3 */
+#define WT_SCR_NS   (1u << 0)
+#define WT_SCR_IRQ  (1u << 1)
+#define WT_SCR_FIQ  (1u << 2)
+#define WT_SCR_EA   (1u << 3)
+#define WT_SCR_SMD  (1u << 7)
+#define WT_SCR_HCE  (1u << 8)
+#define WT_SCR_SIF  (1u << 9)
+#define WT_SCR_RW   (1u << 10)
+#define WT_SCR_ST   (1u << 11)
+/* Secure world running: EA and the secure timer at S-EL1, FIQ left to S-EL1. */
+#define WT_SCR_EL3_SECURE (WT_SCR_RW | WT_SCR_ST | WT_SCR_EA)
+/* Normal world running: NS, plus FIQ trapped to EL3 so a Secure interrupt can
+ * preempt it (Ch.9). Matches wt_el3_enter_ns. */
+#define WT_SCR_EL3_NS (WT_SCR_NS | WT_SCR_FIQ | WT_SCR_EA | WT_SCR_RW | WT_SCR_ST)
+
+/* HCR_EL2.RW: EL1 is AArch64. Required before an ERET to NS-EL1 AArch64 while
+ * EL2 is implemented, or the state change is illegal (EC 0x0e). */
+#define WT_HCR_EL2_RW (1ull << 31)
+
+/* SCTLR_EL3 and SCTLR_EL1 */
+#define WT_SCTLR_EL3_RES1 0x30C50830u
+#define WT_SCTLR_EL1_RES1 0x30D00800u
+#define WT_SCTLR_M        (1u << 0)
+#define WT_SCTLR_C        (1u << 2)
+#define WT_SCTLR_SA       (1u << 3)
+#define WT_SCTLR_I        (1u << 12)
+
+/* SPSR: EL1h with D, A, I, F masked. */
+#define WT_SPSR_EL1H_DAIF 0x3C5u
+#define WT_SPSR_EL2H_DAIF 0x3C9u
+#define WT_SPSR_M_EL(spsr) ((uint32_t)(((spsr) >> 2) & 0x3u))
+
+/* ESR */
+#define WT_ESR_EC(esr)  ((uint32_t)(((esr) >> 26) & 0x3Fu))
+#define WT_ESR_ISS(esr) ((uint32_t)((esr) & 0x1FFFFFFu))
+#define WT_ESR_FSC(esr) ((uint32_t)((esr) & 0x3Fu))
+#define WT_ESR_EC_UNKNOWN        0x00u
+#define WT_ESR_EC_FP_ACCESS      0x07u
+#define WT_ESR_EC_ILLEGAL_STATE  0x0Eu
+#define WT_ESR_EC_SMC32          0x13u
+#define WT_ESR_EC_SVC64          0x15u
+#define WT_ESR_EC_SMC64          0x17u
+#define WT_ESR_EC_SYSREG         0x18u
+#define WT_ESR_EC_IABT_LOWER     0x20u
+#define WT_ESR_EC_IABT_SAME      0x21u
+#define WT_ESR_EC_PC_ALIGN       0x22u
+#define WT_ESR_EC_DABT_LOWER     0x24u
+#define WT_ESR_EC_DABT_SAME      0x25u
+#define WT_ESR_EC_SP_ALIGN       0x26u
+#define WT_ESR_EC_SERROR         0x2Fu
+#define WT_ESR_EC_BRK            0x3Cu
+#define WT_ESR_FSC_EXTERNAL      0x10u
+/* Synchronous external aborts and parity/ECC errors, on the access itself
+ * or on a translation-table walk at level 0-3. */
+#define WT_ESR_FSC_EXTERNAL_WALK 0x14u
+#define WT_ESR_FSC_PARITY        0x18u
+#define WT_ESR_FSC_PARITY_WALK   0x1Cu
+#define WT_ESR_FSC_IS_EXTERNAL(fsc) \
+    (((fsc) == WT_ESR_FSC_EXTERNAL) || ((fsc) == WT_ESR_FSC_PARITY) || \
+     (((fsc) & 0x3Cu) == WT_ESR_FSC_EXTERNAL_WALK) || \
+     (((fsc) & 0x3Cu) == WT_ESR_FSC_PARITY_WALK))
+
+#endif /* WOLFTRUST_ARCH_AARCH64_SYSREG_H */

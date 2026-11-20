@@ -25,6 +25,8 @@
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/vnet_relay.h"
+#include "wolftrust/services/tpm_relay.h"
+#include "wolftrust/services/pkcs11_relay.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
@@ -203,6 +205,21 @@ int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
                                               wt_vnet_relay_dispatch, NULL);
         (void)vault_ret;
 #endif
+#ifdef PARTITION_TPM_ID
+        /* SERVICE_TPM: the single mediated door to the isolated fwTPM
+         * partition. Fail-closed until the platform installs the submit
+         * hook that reaches the fwTPM responder. */
+        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
+                                              PARTITION_TPM_ID,
+                                              wt_tpm_relay_dispatch, NULL);
+        (void)vault_ret;
+#endif
+#ifdef PARTITION_PKCS11_ID
+        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
+                                              PARTITION_PKCS11_ID,
+                                              wt_pkcs11_relay_dispatch, NULL);
+        (void)vault_ret;
+#endif
     }
     return ret;
 }
@@ -260,6 +277,12 @@ int wt_ffm_boot_start_sched(void)
         ret = wt_spm_vnet_start(&g_ffm_runtime, PARTITION_VNET_ID);
     }
 #endif
+#if defined(WT_INTERFACE_PARTITION_ID)
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_interface_start(&g_ffm_runtime,
+                                     WT_INTERFACE_PARTITION_ID);
+    }
+#endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     /* SERVICE_ATTEST now runs as a scheduled Secure Partition; the inline
      * dispatch registered in wt_ffm_boot_init is replaced by this coroutine. */
@@ -311,6 +334,12 @@ int wt_ffm_boot_start_sched(void)
 #if !defined(WT_SP_LAZY_FIRST_ENTRY)
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_start_all();
+    }
+#endif
+#if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
+    if (ret == WT_FFM_SUCCESS) {
+        wt_spm_sched_prime(PARTITION_HSM_ID);
+        wt_spm_sched_prime(WT_INTERFACE_PARTITION_ID);
     }
 #endif
     return ret;

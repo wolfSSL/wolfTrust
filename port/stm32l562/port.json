@@ -15,9 +15,8 @@
       "native"
     ],
     "attest_cose": 1,
-    "variants": [
-      "conformance"
-    ],
+    "variants": ["conformance", "tpm", "pkcs11"],
+    "variant_profiles": {"tpm": ["default"], "pkcs11": ["default"]},
     "vectors": ""
   },
   "m33mu": {
@@ -133,7 +132,9 @@
         ["bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6", "STM32L562 partition band-to-band isolation, one guest (L3)"],
         ["restartneg1 restartneg2 restartneg3", "STM32L562 partitions restart on a reset band, one guest (L3)"],
         ["manifestneg2 manifestneg3 sealbootneg fpneg", "STM32L562 refused boots and FP isolation, one guest (L3)"],
-        ["sealneg sealhaltneg sealpivotneg mspovfneg xnneg svcneg", "STM32L562 seal, SPM stack, execute-never and SVC, one guest (L3)"]
+        ["sealneg sealhaltneg sealpivotneg mspovfneg xnneg svcneg", "STM32L562 seal, SPM stack, execute-never and SVC, one guest (L3)"],
+         ["tpm tpmneg", "STM32L562 TPM 2.0 interface and isolation, one guest (L3)"],
+         ["pkcs11 pkcs11neg", "STM32L562 PKCS#11 interface and isolation, one guest (L3)"]
       ],
       "l3_exempt": {
         "hsmpinneg": "wolfHSM engine only; the STM32L562 builds the native engine (the wolfHSM bands do not fit 256 KiB of SRAM)",
@@ -160,6 +161,14 @@
       "vnet": [
         "vnet",
         "vnet"
+      ],
+      "tpm": [
+        "interface",
+        "baremetal"
+      ],
+      "pkcs11": [
+        "interface",
+        "baremetal"
       ]
     },
     "guest_end": {},

@@ -36,6 +36,10 @@ static int wt_hsm_relay_default_submit(void* submit_ctx, int32_t client_id,
 static wt_hsm_relay_submit_fn g_relay_submit = NULL;
 static void* g_relay_submit_ctx = NULL;
 static wt_spm_transport_fn g_relay_transport = wt_spm_transport_direct;
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+static int32_t g_relay_secure_client = 0;
+#endif
 static int32_t g_relay_attest_client = 0;
 static wt_hsm_attest_sign_fn g_relay_attest_sign = NULL;
 static wt_hsm_attest_public_key_fn g_relay_attest_public_key = NULL;
@@ -57,6 +61,14 @@ void wt_hsm_relay_set_submit(wt_hsm_relay_submit_fn fn, void* submit_ctx)
     g_relay_submit = fn;
     g_relay_submit_ctx = (fn != NULL) ? submit_ctx : NULL;
 }
+
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+void wt_hsm_relay_set_secure_client_policy(int32_t partition_id)
+{
+    g_relay_secure_client = (partition_id > 0) ? partition_id : 0;
+}
+#endif
 
 void wt_hsm_relay_set_transport(wt_spm_transport_fn fn)
 {
@@ -289,11 +301,23 @@ int wt_hsm_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
 
     if (msg.type == PSA_IPC_CONNECT || msg.type == PSA_IPC_DISCONNECT) {
         reply_status = PSA_SUCCESS;
-    } else if (msg.type == PSA_IPC_CALL) {
-        /* The ordinary crypto wire serves Non-secure clients only. */
-        reply_status = (msg.client_id < 0) ?
-                       wt_hsm_relay_call(runtime, partition_id, &msg) :
-                       PSA_ERROR_NOT_PERMITTED;
+    }
+    else if (msg.type == PSA_IPC_CALL) {
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+        /* Authorize before copying the request. The backend repeats the
+         * identity-to-namespace check before touching wolfHSM state. */
+        if (msg.client_id < 0 ||
+                (g_relay_secure_client > 0 &&
+                 msg.client_id == g_relay_secure_client)) {
+#else
+        if (msg.client_id < 0) {
+#endif
+            reply_status = wt_hsm_relay_call(runtime, partition_id, &msg);
+        }
+        else {
+            reply_status = PSA_ERROR_NOT_PERMITTED;
+        }
     } else if (msg.type == WT_HSM_OP_ATTEST_SIGN ||
                msg.type == WT_HSM_OP_ATTEST_PUBLIC_KEY) {
         reply_status = wt_hsm_relay_attest_call(runtime, partition_id, &msg);

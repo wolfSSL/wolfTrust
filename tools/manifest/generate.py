@@ -123,6 +123,35 @@ MANIFEST_SCHEMA = {
     "partitions": [PARTITION_SCHEMA],
     "limits": LIMITS_SCHEMA,
 }
+# Optional top-level "ffa" section (AArch64 targets): FF-A partition
+# properties per DEN0077A 1.2 Table 5.1, emitted as a separate table so the
+# wolfTrust domain and partition structures are untouched.
+FFA_PARTITION_SCHEMA = {
+    "domain_id": UINT,
+    "ffa_version": STRING,
+    "uuids": [STRING],
+    "execution_contexts": UINT,
+    "runtime_el": STRING,
+    "messaging": STRING,
+    "ns_interrupt_action": STRING,
+    "boot_info_register": STRING,
+}
+FFA_SCHEMA = {
+    "partitions": [FFA_PARTITION_SCHEMA],
+}
+# Only the values the SPMC honours: every manifest partition expects FF-A 1.2,
+# the version the SPMC holds a partition to until it negotiates, runs at S-EL0,
+# takes no FF-A messages (its services are reached through the SPMC's PSA
+# endpoint, so discovery lists neither messaging method), has its Non-secure
+# interrupts signaled, and is handed no FF-A boot information (its entry
+# register carries the partition id, not a blob address).
+FFA_VERSIONS = {"1.2": 0x00010002}
+FFA_RUNTIME_EL = {"S-EL0": 0}
+FFA_MESSAGING = {"none": 0}
+FFA_NS_INTERRUPT_ACTION = {"signaled": 0}
+FFA_BOOT_INFO_REGISTER = {"none": 0xffffffff}
+FFA_MAX_UUIDS = 4
+UUID_RE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
 
 FILE_HEADER = """/* {name}
  *
@@ -238,6 +267,19 @@ MAX_SERVICES = 28
 MAX_DEPENDENCIES = 32
 MAX_SIGNALS = 28
 MAX_NAME = 63
+TABLE_L2_SHIFT = 30
+TABLE_L3_SHIFT = 21
+TABLE_SPARE_PAGES = 3
+# The count is a lower bound (the SPMC's shared fill is not counted per
+# table), so a pool below it fails the build rather than the boot.
+TABLE_POOL_CHECK = (
+    "#if !defined(WT_SPM_TABLE_POOL_PAGES) || \\",
+    "    (WT_SPM_TABLE_POOL_PAGES < WT_GENERATED_TABLE_POOL_PAGES)",
+    "#error \"WT_SPM_TABLE_POOL_PAGES is below this manifest's "
+    "WT_GENERATED_TABLE_POOL_PAGES\"",
+    "#endif",
+    "",
+)
 
 
 def policy_range_end(base, size, word_max, description):
@@ -844,6 +886,88 @@ def emit_partition(lines, partition, index):
     return c_struct(fields)
 
 
+def validate_ffa(ffa, manifest):
+    domain_ids = {domain["id"] for domain in manifest["domains"]}
+    partition_domains = {partition["domain_id"]
+                         for partition in manifest["partitions"]}
+    seen = set()
+    for index, entry in enumerate(ffa["partitions"]):
+        path = "manifest.ffa.partitions[{}]".format(index)
+        if entry["domain_id"] not in domain_ids:
+            policy_error(path + " names an unknown domain")
+        if entry["domain_id"] not in partition_domains:
+            policy_error(path + " names a domain without a partition")
+        if entry["domain_id"] in seen:
+            policy_error(path + " repeats a domain")
+        seen.add(entry["domain_id"])
+        if not entry["uuids"] or len(entry["uuids"]) > FFA_MAX_UUIDS:
+            policy_error(path + " needs 1 to {} UUIDs".format(FFA_MAX_UUIDS))
+        for uuid in entry["uuids"]:
+            if not UUID_RE.match(uuid):
+                policy_error(path + " UUID is not canonical lowercase")
+        if entry["ffa_version"] not in FFA_VERSIONS:
+            policy_error(path + " ffa_version must be 1.2")
+        if entry["execution_contexts"] != 1:
+            policy_error(path + " supports one execution context only")
+        if entry["runtime_el"] not in FFA_RUNTIME_EL:
+            policy_error(path + " runtime_el must be S-EL0")
+        if entry["messaging"] not in FFA_MESSAGING:
+            policy_error(path + " messaging must be none")
+        if entry["ns_interrupt_action"] not in FFA_NS_INTERRUPT_ACTION:
+            policy_error(path + " ns_interrupt_action must be signaled")
+        if entry["boot_info_register"] not in FFA_BOOT_INFO_REGISTER:
+            policy_error(path + " boot_info_register must be none")
+    missing = sorted(partition_domains - seen)
+    if missing:
+        policy_error("manifest.ffa lacks an entry for partition domain {}"
+                     .format(missing[0]))
+
+
+def uuid_bytes(uuid):
+    return bytes.fromhex(uuid.replace("-", ""))
+
+
+def emit_ffa(lines, ffa):
+    entries = []
+    for index, entry in enumerate(ffa["partitions"]):
+        uuids = emit_array(lines,
+            "wt_ffa_uuid_t wt_generated_ffa_uuids_{}[{}]".format(
+                index, len(entry["uuids"])),
+            ["{ { " + ", ".join("0x{:02x}U".format(byte)
+                                 for byte in uuid_bytes(uuid)) + " } }"
+             for uuid in entry["uuids"]])
+        entries.append(c_struct((
+            ("uuids", uuids),
+            ("domain_id", c_uint(entry["domain_id"])),
+            ("uuid_count", c_uint(len(entry["uuids"]))),
+            ("execution_contexts", c_uint(entry["execution_contexts"])),
+            ("runtime_el", c_uint(FFA_RUNTIME_EL[entry["runtime_el"]])),
+            ("messaging", c_uint(FFA_MESSAGING[entry["messaging"]])),
+            ("ns_interrupt_action",
+             c_uint(FFA_NS_INTERRUPT_ACTION[entry["ns_interrupt_action"]])),
+            ("boot_info_register",
+             c_uint(FFA_BOOT_INFO_REGISTER[entry["boot_info_register"]])),
+            ("ffa_version", c_uint(FFA_VERSIONS[entry["ffa_version"]])),
+        )))
+    count = len(entries)
+    if count == 0:
+        # The SPMC always calls the accessor: hand it a real, empty table.
+        entries.append(c_struct(
+            (("uuids", "NULL"),) +
+            tuple((name, c_uint(0)) for name in (
+                "domain_id", "uuid_count", "execution_contexts", "runtime_el",
+                "messaging", "ns_interrupt_action", "boot_info_register",
+                "ffa_version"))))
+    table = emit_array(lines,
+        "wt_ffa_partition_manifest_t wt_generated_ffa_partitions[{}]".format(
+            len(entries)), entries)
+    lines.extend((
+        "const wt_ffa_partition_manifest_t* wt_generated_ffa_partitions_get("
+        "size_t* count)",
+        "{", "    *count = {}U;".format(count),
+        "    return {};".format(table), "}", ""))
+
+
 def platform_asserts(manifest, platform):
     """Bind the platform values this manifest was checked against to the
     port's own macros, and repeat the port binding checks for the compiler."""
@@ -896,10 +1020,12 @@ def platform_asserts(manifest, platform):
 
 
 def generate_source(manifest, digest, platform=None, platform_header=None,
-                    unchecked=False):
+                    unchecked=False, ffa=None, pool_pages=None):
     lines = [FILE_HEADER.format(name="wolftrust_manifest_generated.c"),
              "/* Normalized manifest SHA-256: {} */".format(digest.hex()),
              "#include \"wolftrust_manifest_generated.h\""]
+    if ffa is not None:
+        lines.append("#include \"wolftrust/arch/aarch64/ffa_manifest.h\"")
     if unchecked:
         # Boot cannot redo the linker stack check, so no image takes one.
         lines.extend((
@@ -913,6 +1039,8 @@ def generate_source(manifest, digest, platform=None, platform_header=None,
         lines.extend(platform_asserts(manifest, platform))
     else:
         lines.append("")
+    if pool_pages is not None:
+        lines.extend(TABLE_POOL_CHECK)
     digest_values = ["0x{:02x}U".format(value) for value in digest]
     emit_array(lines, "uint8_t wt_generated_digest[32]", digest_values)
     domain_values = [emit_domain(lines, domain, index)
@@ -949,10 +1077,41 @@ def generate_source(manifest, digest, platform=None, platform_header=None,
         system + ";", "",
         "const wt_system_manifest_t* wt_generated_manifest_get(void)",
         "{", "    return &wt_generated_manifest;", "}", ""))
+    if ffa is not None:
+        emit_ffa(lines, ffa)
     return "\n".join(lines)
 
 
-def generate_header(manifest):
+def count_blocks(regions, shift):
+    intervals = sorted((base >> shift, (base + size - 1) >> shift)
+                       for base, size in regions if size > 0)
+    total = 0
+    end = -1
+    for first, last in intervals:
+        if first > end:
+            total += last - first + 1
+        elif last > end:
+            total += last - end
+        end = max(end, last)
+    return total
+
+
+def table_pool_pages(manifest, spm_table_pages):
+    """Pages for one 4 KB-granule stage-1 table per partition (L1 + one L2 per
+    GB + one L3 per 2 MB of its regions), the SPMC's own table, and a spare set."""
+    domains = {domain["id"]: domain for domain in manifest["domains"]}
+    pages = spm_table_pages + TABLE_SPARE_PAGES
+    for partition in manifest["partitions"]:
+        domain = domains[partition["domain_id"]]
+        regions = [(memory["base"], memory["size"])
+                   for memory in domain["memory_resources"]]
+        regions.append((domain["stack_base"], domain["stack_size"]))
+        pages += (1 + count_blocks(regions, TABLE_L2_SHIFT)
+                  + count_blocks(regions, TABLE_L3_SHIFT))
+    return pages
+
+
+def generate_header(manifest, pool_pages=None):
     lines = [FILE_HEADER.format(name="wolftrust_manifest_generated.h"),
              "#ifndef WOLFTRUST_MANIFEST_GENERATED_H",
              "#define WOLFTRUST_MANIFEST_GENERATED_H", "",
@@ -998,6 +1157,10 @@ def generate_header(manifest):
             lines.append("#define {}_SIGNAL {}U".format(
                 interrupt_prefix, interrupt["signal"]))
         lines.append("")
+    if pool_pages is not None:
+        add_symbol("WT_GENERATED_TABLE_POOL_PAGES")
+        lines.extend(("#define WT_GENERATED_TABLE_POOL_PAGES {}U".format(
+            pool_pages), ""))
     lines.extend((
         "const wt_system_manifest_t* wt_generated_manifest_get(void);", "",
         "#endif", ""))
@@ -1066,6 +1229,10 @@ def generate_partition_header(partition):
             interrupt["signal_name"], interrupt["signal"]))
     lines.extend(("", "#endif", ""))
     return file_name, "\n".join(lines)
+
+
+# Marks an absent "ffa" key, so a present null value still meets FFA_SCHEMA.
+NO_FFA = object()
 
 
 def exclude_partitions(manifest, names):
@@ -1149,6 +1316,8 @@ def main():
     parser.add_argument("--mpu-granule", default="32",
                         type=lambda value: int(value, 0))
     parser.add_argument("--address-bits", choices=("32", "64"), default="32")
+    parser.add_argument("--spm-table-pages", default="0",
+                        type=lambda value: int(value, 0))
     parser.add_argument("--platform-capabilities",
                         type=lambda value: int(value, 0))
     parser.add_argument("--platform-max-domains",
@@ -1176,6 +1345,7 @@ def main():
                              "inputs (host tests only; a target build "
                              "refuses the output)")
     args = parser.parse_args()
+    pool_pages = None
     platform_values = (args.platform_capabilities, args.platform_max_domains,
                        args.platform_max_memory_resources,
                        args.platform_max_interrupts, args.port_capabilities)
@@ -1193,7 +1363,9 @@ def main():
         }
     if args.platform_header is not None and platform is None:
         parser.error("--platform-header needs the platform options")
-    if not args.unchecked:
+    # AArch64 SP stacks and limits come from the manifest the SPMC maps,
+    # not from a linked Armv8-M layout.
+    if not args.unchecked and args.address_bits == "32":
         missing = [name for name, given in (
             ("the platform options", platform is not None),
             ("--ffm-max-partitions", args.ffm_max_partitions is not None),
@@ -1214,6 +1386,7 @@ def main():
         manifest = json.loads(input_bytes.decode("utf-8"),
                               object_pairs_hook=reject_duplicate_keys)
         word_max = (1 << int(args.address_bits)) - 1
+        ffa = manifest.pop("ffa", NO_FFA) if isinstance(manifest, dict) else NO_FFA
         validate(manifest, MANIFEST_SCHEMA, "manifest", word_max)
         if args.exclude_partition:
             exclude_partitions(manifest, args.exclude_partition)
@@ -1224,16 +1397,27 @@ def main():
                         args.supported_framework_version, args.mpu_granule,
                         platform, ffm_limits)
         check_stacks(manifest, args.stack)
+        if ffa is not NO_FFA:
+            if args.address_bits != "64":
+                raise ManifestError("manifest.ffa needs --address-bits 64")
+            validate(ffa, FFA_SCHEMA, "manifest.ffa", word_max)
+            validate_ffa(ffa, manifest)
+        if args.address_bits == "64":
+            pool_pages = table_pool_pages(manifest, args.spm_table_pages)
+            if ffa is NO_FFA:
+                ffa = {"partitions": []}
+        if ffa is NO_FFA:
+            ffa = None
         source = generate_source(manifest, hashlib.sha256(input_bytes).digest(),
                                  platform, args.platform_header,
-                                 args.unchecked)
+                                 args.unchecked, ffa, pool_pages)
         args.output.mkdir(parents=True, exist_ok=True)
         psa_manifest = args.output / "psa_manifest"
         psa_manifest.mkdir(parents=True, exist_ok=True)
         (args.output / "wolftrust_manifest_generated.c").write_text(
             source, encoding="utf-8")
         (args.output / "wolftrust_manifest_generated.h").write_text(
-            generate_header(manifest), encoding="utf-8")
+            generate_header(manifest, pool_pages), encoding="utf-8")
         (psa_manifest / "pid.h").write_text(
             generate_pid_header(manifest), encoding="utf-8")
         (psa_manifest / "sid.h").write_text(

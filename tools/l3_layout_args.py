@@ -22,6 +22,7 @@ BAND_MACROS = (
     "WT_SP_ATTEST_DATA_BASE", "WT_SP_ATTEST_DATA_SIZE",
     "WT_SP_HSM_DATA_BASE", "WT_SP_HSM_DATA_SIZE",
     "WT_CONF_SP_DATA_BASE", "WT_CONF_SERVER_MMIO_BASE",
+    "WT_INTERFACE_DATA_BASE", "WT_INTERFACE_DATA_SIZE",
 )
 SHELL_MACROS = BAND_MACROS + (
     "WT_RAM_S_BASE",
@@ -29,6 +30,7 @@ SHELL_MACROS = BAND_MACROS + (
     "WT_SP_ATTEST_STACK_BASE", "WT_SP_ATTEST_STACK_SIZE",
     "WT_SP_VAULT_STACK_BASE", "WT_SP_VAULT_STACK_SIZE",
     "WT_L3_SPM_PERIPHERAL_BASE", "WT_VNET_DATA_BASE",
+    "WT_SP_INTERFACE_STACK_BASE", "WT_SP_INTERFACE_STACK_SIZE",
 )
 # Each linker MEMORY region of secure_l3_memory.ld: (region, base, size).
 LINK_REGIONS = (
@@ -47,7 +49,8 @@ LINK_REGIONS = (
 )
 LINK_MACROS = tuple(sorted(set(
     name for _, base, size in LINK_REGIONS for name in (base, size) if name)
-    | {"WT_L3_BANDS_BASE"}))
+    | {"WT_L3_BANDS_BASE", "WT_SP_INTERFACE_STACK_BASE",
+       "WT_SP_INTERFACE_STACK_SIZE"}))
 # Each partition's stack in the layout, matched against the manifest.
 STACK_MACROS = (
     ("PARTITION_PS", "WT_SP_PS_STACK_BASE", "WT_SP_PS_STACK_SIZE"),
@@ -63,6 +66,8 @@ STACK_MACROS = (
      "WT_SP_SECURE_STACK_SIZE"),
     ("PARTITION_FWU", "WT_SP_FWU_STACK_BASE", "WT_SP_FWU_STACK_SIZE_RESERVED"),
     ("PARTITION_VNET", "WT_SP_VNET_STACK_BASE", "WT_SP_VNET_STACK_SIZE"),
+    ("PARTITION_TPM", "WT_SP_INTERFACE_STACK_BASE", "WT_SP_INTERFACE_STACK_SIZE"),
+    ("PARTITION_PKCS11", "WT_SP_INTERFACE_STACK_BASE", "WT_SP_INTERFACE_STACK_SIZE"),
 )
 # A port that runs its gateway and flash code from a RAM band places it here;
 # the others leave these undefined and the linker script's band stays out.
@@ -119,6 +124,10 @@ def band_args(v):
                    (band, base, base + v[prefix + "_SIZE"]))
     out.append("--confdata 0x%08X:0x%08X" %
                (v["WT_CONF_SP_DATA_BASE"], v["WT_CONF_SERVER_MMIO_BASE"]))
+    if v["WT_INTERFACE_DATA_SIZE"] != 0:
+        base = v["WT_INTERFACE_DATA_BASE"]
+        out.append("--interface-band 0x%08X:0x%08X" %
+                   (base, base + v["WT_INTERFACE_DATA_SIZE"]))
     return " ".join(out)
 
 
@@ -139,6 +148,10 @@ def shell_vars(v):
          v["WT_SP_VAULT_STACK_BASE"] + v["WT_SP_VAULT_STACK_SIZE"]),
         ("L3_SPM_PERIPHERAL", v["WT_L3_SPM_PERIPHERAL_BASE"]),
         ("L3_VNET_BAND", v["WT_VNET_DATA_BASE"]),
+        ("L3_INTERFACE_BAND", v["WT_INTERFACE_DATA_BASE"]),
+        ("L3_INTERFACE_STACK_LO", v["WT_SP_INTERFACE_STACK_BASE"]),
+        ("L3_INTERFACE_STACK_HI",
+         v["WT_SP_INTERFACE_STACK_BASE"] + v["WT_SP_INTERFACE_STACK_SIZE"]),
     )
     return "\n".join("%s=0x%08x" % pair for pair in pairs)
 
@@ -148,6 +161,10 @@ def link_args(v):
     for region, base, size in LINK_REGIONS[1:]:
         pairs.append(("WT_L3_%s_ORIGIN" % region, v[base]))
         pairs.append(("WT_L3_%s_LENGTH" % region, v[size]))
+    stack = v["WT_SP_INTERFACE_STACK_BASE"] - v["WT_VNET_DATA_BASE"]
+    pairs.append(("WT_L3_INTERFACE_STACK_OFFSET", stack))
+    pairs.append(("WT_L3_INTERFACE_STACK_END",
+                  stack + v["WT_SP_INTERFACE_STACK_SIZE"]))
     if "WT_RAMFUNC_BASE" in v:
         pairs.append(("WT_RAMFUNC_ORIGIN", v["WT_RAMFUNC_BASE"]))
         pairs.append(("WT_RAMFUNC_LENGTH", v["WT_RAMFUNC_SIZE"]))

@@ -25,7 +25,7 @@ jobs:
           git config --global url."https://github.com/".insteadOf git@github.com:
           git submodule update --init --depth 1 --jobs 4 \
             lib/wolfCOSE lib/wolfHSM lib/wolfPSA lib/wolfSSL \
-            lib/wolfhal
+            lib/wolfhal lib/wolfTPM lib/wolfPKCS11
       - name: Build STM32H563 secure firmware
         run: make -C tests/firmware/stm32h563 all TOOLPREFIX=arm-none-eabi-
       - name: Validate the LTO gate, rebuild, and size reduction
@@ -270,7 +270,31 @@ jobs:
                         "port_layout_env; shift; exec \"$@\"")
               for variant in b["variants"]:
                   flags = {"conformance": ["WT_CONFORMANCE=1"],
-                           "vnet": ["CONFIG_VNET=y", "WT_MAX_GUESTS=2"]}[variant]
+                           "vnet": ["CONFIG_VNET=y", "WT_MAX_GUESTS=2"],
+                           "tpm": ["CONFIG_TPM=y"],
+                           "pkcs11": ["CONFIG_PKCS11=y"]}[variant]
                   subprocess.run(["bash", "-c", layout, "_", port] + base + flags +
                                  ["BUILD_DIR=%s_%s" % (out, variant)], check=True)
           '
+
+  interface-footprint:
+    name: tpm_pkcs11_footprint
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25
+    steps:
+      - uses: actions/checkout@v4
+      - name: Initialize firmware dependencies
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git config --global url."https://github.com/".insteadOf git@github.com:
+          git submodule update --init --depth 1 --jobs 4 \
+            lib/wolfCOSE lib/wolfHSM lib/wolfPSA lib/wolfSSL \
+            lib/wolfhal lib/wolfTPM lib/wolfPKCS11
+      - name: Report the PSA, TPM 2.0 and PKCS#11 sizes on every port
+        run: JOBS=4 tools/measure_interface_footprint.sh interface-footprint
+      - uses: actions/upload-artifact@v4
+        with:
+          name: interface-footprint
+          path: interface-footprint/*.csv

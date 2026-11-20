@@ -73,7 +73,8 @@ runner's development life cycle to the `0x2000` an L5 reports under TZEN.
 Flash is `0x08000000` (Non-secure) and `0x0C000000` (Secure). SRAM is
 `0x20000000` and `0x30000000`. The part runs in dual-bank mode (`DBANK=1`):
 two 256 KiB banks of 128 pages of 2 KiB, programmed one 64-bit double-word
-at a time. `WT_CONFORMANCE` picks the layout.
+at a time. `WT_CONFORMANCE`, `CONFIG_TPM=y` or `CONFIG_PKCS11=y` picks the
+conformance layout, whose larger Secure slot holds those images.
 
 | Region | Production | Conformance |
 | --- | ---: | ---: |
@@ -81,7 +82,7 @@ at a time. `WT_CONFORMANCE` picks the layout.
 | wolfTrust Secure slot | `0x0C00C000` (128 KiB) | `0x0C00C000` (160 KiB) |
 | Guest 0 | `0x0802C000` (80 KiB, bank 1) | `0x08034000` (240 KiB, both banks) |
 | Guest 1 | `0x08040000` (64 KiB, bank 2) | `0x08070000` (16 KiB) |
-| wolfBoot update partition | `0x0C050000` (128 KiB) | none used: FWU is not in the manifest |
+| wolfBoot update partition | `0x0C050000` (128 KiB) | none: FWU is not in the conformance manifest, and TPM 2.0 or PKCS#11 builds refuse `WT_FWU=1` |
 | wolfBoot swap | `0x0C070000` | `0x0C074000` |
 | wolfHSM store | `0x0C07A000` (16 KiB) | `0x0C07A000` |
 | Conformance NVM | `0x0C07E000` (8 KiB) | `0x0C07E000` |

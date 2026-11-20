@@ -3,7 +3,8 @@
 This guide builds the currently supported STM32H563 Secure image, the Zephyr
 and FreeRTOS reference guests, and the host tests. See [Building](Building.md) for
 build controls, and read [STM32H5 Guide](STM32H5-Guide.md) before flashing a
-board.
+board. The AArch64 (Cortex-A) images and their QEMU scenarios are covered in
+[Build and run the AArch64 images](#build-and-run-the-aarch64-images).
 
 ## Prerequisites
 
@@ -18,6 +19,9 @@ board.
 - Docker for the supplied CI-container workflows
 - M33MU for emulated Cortex-M33 execution, or a NUCLEO-H563ZI with ST-Link for
   hardware execution
+- For the AArch64 images, an `aarch64-none-elf-` toolchain and
+  `qemu-system-aarch64`; the `ghcr.io/wolfssl/wolfboot-ci-aarch64` container
+  carries both
 
 Guest setup downloads the Zephyr v4.2.0 tag and the FreeRTOS `main` branch by
 default, so it requires network access on its first run and the FreeRTOS
@@ -117,6 +121,30 @@ Hardware runs flash the board and never write option bytes. Configure the
 TrustZone perimeter first as described in [STM32H5 Guide](STM32H5-Guide.md);
 the runner's preflight refuses a board whose guest sectors are
 write-protected and names the provisioning command that clears them.
+
+## Choose an application API
+
+PSA (Crypto, ITS, PS, Attestation and FWU) is the default and the primary
+interface. A product built around an existing TPM 2.0 or PKCS#11 stack can
+select one of those instead, with `CONFIG_TPM=y` or `CONFIG_PKCS11=y`; the
+bare-metal applications in `tests/firmware/interface-guest` show the client
+side on every port. See [TPM 2.0](TPM.md) and [PKCS#11](PKCS11.md).
+
+## Build and run the AArch64 images
+
+```sh
+make ARCH=aarch64 TARGET=qemuvirt
+make test-target-a
+make test-target-a MACHINE=versal-virt
+tests/target/run_suite.sh qemu-a positive confboot ffaacs-memory
+```
+
+The build produces the EL3 monitor (`build/wolftrust_el3.elf`) and the Secure
+EL1 SPMC (`build/wolftrust.elf`) for QEMU `virt`. `make test-target-a` builds
+and boots a quick subset of the QEMU scenarios (`WT_QEMU_A_SCENARIOS`);
+`tests/target/run_suite.sh qemu-a` runs any of them. See
+[Testing](Testing.md#qemu-aarch64-scenarios) for the full list. These targets
+have no wolfBoot port and no authenticated boot yet.
 
 ## Next steps
 

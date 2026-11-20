@@ -3,6 +3,8 @@
 The STM32H563 manifest describes connection-based FF-M 1.0 IPC services. The
 default image contains five Secure services. `WT_FWU=1` adds the update
 service, and `CONFIG_VNET=y` selects a manifest with the network service.
+`CONFIG_TPM=y` and `CONFIG_PKCS11=y` select a manifest with a TPM 2.0 or a
+PKCS#11 service, an application API offered instead of PSA Crypto.
 
 ## Service registry
 
@@ -15,11 +17,15 @@ service, and `CONFIG_VNET=y` selects a manifest with the network service.
 | `SERVICE_FWU` | `0x1005` | Yes, `WT_FWU=1` | PSA Firmware Update staging for wolfBoot |
 | `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door; with `WT_SECURE_PSA=1` it also serves the PSA Crypto API |
 | `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
+| `SERVICE_TPM` | `0x1008` | Yes, `CONFIG_TPM=y` | wolfTPM firmware TPM 2.0 serving one TPM 2.0 command frame per call |
+| `SERVICE_PKCS11` | `0x1009` | Yes, `CONFIG_PKCS11=y` | wolfPKCS11 token serving the PKCS#11 `C_*` API through the client proxy |
 
 All service versions are `1`. ITS and Protected Storage declare a
 dependency on the Secure-only vault. The manifest is rendered for every
 port from `manifest/base.json`; the network variant adds
-`manifest/vnet.json`.
+`manifest/vnet.json`, and the interface variants add `manifest/tpm.json` or
+`manifest/pkcs11.json`. The VNET, TPM 2.0 and PKCS#11 variants share one band
+above SPM RAM, so a build selects at most one of them.
 
 ## Runtime model
 
@@ -207,6 +213,26 @@ transport re-registers a guest's port and MAC on that guest's next TX or
 RX_FETCH. Frames sent to a port before its guest re-registers are dropped, so
 a receiver must keep polling RX_FETCH rather than wait only for the receive
 interrupt.
+
+## Optional TPM 2.0 and PKCS#11 interfaces
+
+PSA is the primary application API. A product that already speaks TPM 2.0 or
+PKCS#11 can select one of them instead: `CONFIG_TPM=y` runs wolfTPM's firmware
+TPM in `SERVICE_TPM`, and `CONFIG_PKCS11=y` runs wolfPKCS11 in
+`SERVICE_PKCS11`. Each runs as a level 3 Secure Partition over the selected
+crypto engine, and the image links no PSA Crypto (`WT_SECURE_PSA=0`). See
+[TPM 2.0](TPM.md), [PKCS#11](PKCS11.md) and [Interface
+Profiles](Interface-Profiles.md).
+
+Both services are instances of one port-neutral message relay
+(`src/services/msg_relay.c`) and one Non-secure client
+(`src/client/msg_client.c`), with one wire ABI
+(`include/wolftrust/msg_relay_abi.h`). A TPM 2.0 frame fits one copied transfer,
+so `SERVICE_TPM` uses the single-call `TRANSACT` operation. A PKCS#11 message
+can reach 4096 bytes, so `SERVICE_PKCS11` stages it with `BEGIN`, `WRITE`,
+`EXECUTE`, `READ` and `ABORT`. A build compiles only the mode its interface
+uses. The two share one interface band, one partition entry, one set of
+isolation probes and one set of build rules; only the provider library differs.
 
 See [API Reference](API-Reference.md) for client signatures and [Macros](Macros.md) for service build
 controls.

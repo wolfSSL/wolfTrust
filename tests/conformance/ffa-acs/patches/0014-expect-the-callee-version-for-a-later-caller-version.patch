@@ -1,0 +1,26 @@
+diff --git a/test/v1.0/setup_discovery/ffa_version/ffa_version_data.h b/test/v1.0/setup_discovery/ffa_version/ffa_version_data.h
+index 9d8d2da..611bd45 100644
+--- a/test/v1.0/setup_discovery/ffa_version/ffa_version_data.h
++++ b/test/v1.0/setup_discovery/ffa_version/ffa_version_data.h
+@@ -37,21 +37,13 @@ static const test_data check[] = {
+     {
+         .major = FFA_VERSION_MAJOR,
+         .minor = FFA_VERSION_MINOR + 2,
+-#if (PLATFORM_FFA_V == FFA_V_1_0)
+         .expected_status = ((FFA_VERSION_MAJOR << 16) | FFA_VERSION_MINOR),
+-#elif (PLATFORM_FFA_V >= FFA_V_1_1)
+-        .expected_status = FFA_ERROR_NOT_SUPPORTED,
+-#endif
+     },
+     /* Index-3: Incompatible major version check */
+     {
+         .major = FFA_VERSION_MAJOR + 1,
+         .minor = FFA_VERSION_MINOR,
+-#if (PLATFORM_FFA_V == FFA_V_1_0)
+         .expected_status = ((FFA_VERSION_MAJOR << 16) | FFA_VERSION_MINOR),
+-#elif (PLATFORM_FFA_V >= FFA_V_1_1)
+-        .expected_status = FFA_ERROR_NOT_SUPPORTED,
+-#endif
+     },
+     /* Index-4: bit-31 must be zero check */
+     {

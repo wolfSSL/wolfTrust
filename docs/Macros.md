@@ -3,7 +3,8 @@
 The Secure build is configured through GNU Make variables. The build turns
 selected values into C preprocessor defines. Defaults below come from
 `mk/target-stm32h563.mk`, `mk/layout.mk`, `mk/arch-armv8m.mk`, and
-`mk/common.mk`.
+`mk/common.mk` unless a row says otherwise; the AArch64 variables are under
+[AArch64 build options](#aarch64-build-options).
 
 ## Build profiles
 
@@ -150,12 +151,12 @@ build `full` only, because their checks assert both guests.
 
 | Define | Description | Requirement |
 | --- | --- | --- |
-| `ARCH` | Architecture build selector; default `armv8m`. | Must match an `mk/arch-<arch>.mk` fragment; `armv8m` is the only architecture today. |
-| `TARGET` | Target build selector; default `stm32h563`. | Must match an `mk/target-<soc>.mk` fragment; the root Makefile includes it, `mk/layout.mk`, the architecture fragment, and `mk/common.mk`. |
-| `TOOLPREFIX` | Cross-tool prefix; default `arm-none-eabi-`. | The prefixed GCC, objcopy, nm, and size tools must be available. |
+| `ARCH` | Architecture build selector; default `armv8m`, or `aarch64`. | Must match an `mk/arch-<arch>.mk` fragment. |
+| `TARGET` | Target build selector; default `stm32h563`; `qemuvirt` or `versal` with `ARCH=aarch64`. | Must match an `mk/target-<soc>.mk` fragment; the root Makefile includes it, `mk/layout.mk`, the architecture fragment, and `mk/common.mk`. |
+| `TOOLPREFIX` | Cross-tool prefix; default `arm-none-eabi-`, or `aarch64-none-elf-` with `ARCH=aarch64`. | The prefixed GCC, objcopy, nm, and size tools must be available. |
 | `BUILD_DIR` | Secure build output directory; default `build`. | Must be writable. |
-| `WT_LTO` | Enable Secure-image link-time optimization; default `1`. | Set to `0` for diagnostics or a non-LTO size comparison. The GNU Arm compiler must support `-flto=auto`. |
-| `WT_ENGINE` | Secure crypto engine: `native` (default) dispatches wolfCrypt directly behind the SERVICE_HSM door with explicitly vault-backed keys stored as `SENSITIVE` and `NONEXPORTABLE` NVM objects; `hsm` links the wolfHSM server as a key-management add-on (server-keystore semantics and an external-HSM offload path). Legacy `WT_ENGINE_HSM=0/1` maps onto the selector. | Both engines share the identical FF-M surface (5 veneers, SIDs, manifest, and L3 bands) and run every applicable CI scenario. Guest builds must use the same engine as the Secure image. See [Crypto Engines](Crypto-Engines.md). |
+| `WT_LTO` | Enable Secure-image link-time optimization; default `1` (`0` on AArch64). | Set to `0` for diagnostics or a non-LTO size comparison. The GNU Arm compiler must support `-flto=auto`. AArch64 builds refuse `1`: their linker script places isolation bands, and the EL3 symbol guard audits the monitor archive, by object name. |
+| `WT_ENGINE` | Secure crypto engine: `native` (default) dispatches wolfCrypt directly behind the SERVICE_HSM door with explicitly vault-backed keys stored as `SENSITIVE` and `NONEXPORTABLE` NVM objects; `hsm` links the wolfHSM server as a key-management add-on (server-keystore semantics and an external-HSM offload path). Legacy `WT_ENGINE_HSM=0/1` maps onto the selector. | Both engines share the identical FF-M surface (5 veneers, SIDs, manifest, and L3 bands) and run every applicable CI scenario. Guest builds must use the same engine as the Secure image. On AArch64 both engines run every QEMU scenario except `hsmattackneg` and `hsmpinneg`, which need wolfHSM. See [Crypto Engines](Crypto-Engines.md). |
 
 ## Core target configuration
 
@@ -185,6 +186,25 @@ build `full` only, because their checks assert both guests.
 | `WT_WOLFCRYPT_STM32_HASH` | STM32 HASH acceleration selector; default `0`. | Must remain `0`: the Makefile rejects other values because wolfHSM SHA state is not compatible with the peripheral representation. |
 | `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | Use only for conformance builds; the default production manifest is selected at `0`. |
 
+## AArch64 build options
+
+Defaults come from `mk/arch-aarch64.mk` and `mk/target-qemuvirt.mk` or
+`mk/target-versal.mk`; the Secure band placement comes from the shared layout
+in `port/common/aarch64/l3_layout.h`.
+
+| Define | Description | Requirement |
+| --- | --- | --- |
+| `WT_CPU` | `-mcpu` for the EL3 and Secure EL1 images; default `cortex-a72`. | The QEMU cells use `cortex-a72` and, on `virt` with GICv2, `cortex-a35`. |
+| `WT_GIC_VERSION` | GIC driver, `2` or `3`; default `3`. | Must match the interrupt controller; `versal` is GICv3. |
+| `WT_PORT_BOOT_CPUS` | Cores the monitor expects at reset; default `2` on `qemuvirt`, `1` on `versal` (the model keeps APU core 1 powered off). The boot core runs the monitor and the rest park at EL3; a declared core that does not park stops the boot. | Must match the cores the loader starts. |
+| `WT_ISOLATION_LEVEL` | The isolation level the build implements; default `3`. It gates the shared level 3 layer in `port/common/aarch64/`. | Must be `3`: no other level is implemented, so any other value stops the build. |
+| `WT_VERSAL_VIRT` | Selects the QEMU `xlnx-versal-virt` model of the `versal` target; default `1`. | Versal silicon needs `0` and a silicon port. |
+| `WT_SPM_IMAGE_PA`, `WT_SPM_RAM_PA`, `WT_SPM_KEYSTORE_PA`, `WT_SPM_RXTX_PA`, `WT_SPM_SHARE_PA` and their `_SIZE` values; `WT_SPM_BOOT_INFO_PA`, `WT_SPM_TABLE_POOL_PA`, `WT_SPM_TABLE_POOL_PAGES` | Secure EL1 band placement: the SPMC image, its RAM, the keystore band, the partition RX/TX pages, the shared page, the boot-information page, and the stage-1 table pool. Placed by `port/common/aarch64/l3_layout.h` from the port's `WT_L3_BAND_BASE` and `WT_RAM_S_BASE`; `WT_SPM_TABLE_POOL_PA` and `WT_SPM_TABLE_POOL_PAGES` may be overridden on the command line. | Must lie in Secure memory that the platform fences from the Normal world, must not overlap, and must hold the linked sections; the linker and the table builder refuse overflow. |
+| `WT_EL3_RESET_LIMIT` | System resets a `virt` run may make before it ends: `1` by default, `256` for conformance images. `xlnx-versal-virt` does not use it: its reset powers the model off, and the runner bounds the power cycles the same way. | Test only. Production builds leave it unset: every reset goes through the port's `wt_platform_board_system_reset`, and a hook that returns panics the monitor. A build that sets it without `WT_PORT_EMULATED=1` fails, since a real machine's `SYSTEM_RESET` is always a cold reset (DEN0022 5.11). |
+| `WT_PORT_EMULATED` | Marks an emulated machine, whose runner stands in for its power cycles; `1` on `qemuvirt`. | A silicon port never sets it. |
+| `WT_QEMU_TEST_ENTROPY` | Seeds the DRBG from a test source; default `1` on the QEMU targets. | Test only. A silicon port must provide a real entropy source and build with `0`. |
+| `WT_EL3_TEST_DRIVER`, `WT_EL3_TEST_HANDOFF`, `WT_FFA_ACS`, `WT_EL3_NS_EL2`, `WT_EL3_EL2_DIRTY_PROBE`, `WT_GIC_SPI_ROUTE_PROBE`, `WT_EL3_BOOT_NEG_PROBE` | Test builds: the monitor's direct-request driver, a synthetic boot handoff record, the Arm FF-A ACS partitions, a Normal world entered at NS-EL2 for the ACS, EL2 state and GICv3 SPI routes left dirty as an earlier boot stage might leave them, and a redistributor read asleep (`1`), a secure tick that never arrives (`2`), or an SPMC boot self-test that fails (`3`). | Never set in production builds; the QEMU runner sets them per scenario. |
+
 ## Image layout
 
 | Define | Description | Requirement |
@@ -197,7 +217,7 @@ build `full` only, because their checks assert both guests.
 | `WT_GUEST0_FLASH_SIZE` | Guest 0 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
 | `WT_GUEST1_FLASH_SIZE` | Guest 1 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
 | `WT_L3_SPM_RAM_SIZE` | SPM-private RAM band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x0004D000`). | Moves every level 3 band above it; the keystore bands, partition stacks and conformance window follow. |
-| `WT_SP_HSM_DATA_SIZE` | Crypto partition data band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x00011800`). | Must hold the engine's working set; the post-link layout check reports an overflow. |
+| `WT_SP_HSM_DATA_SIZE` | Crypto partition data band size; default from the port's `memory_map.h` or `l3_layout.h`: `0x00006000` for the wolfHSM engine (`0x00006800` with `CONFIG_TPM` or `CONFIG_PKCS11`, whose provider holds its own wolfHSM server context), `0x00000600` for native, and sized to the PSA pool when the native engine serves Secure PSA Crypto. | Must hold the engine's working set; the post-link layout check reports an overflow. |
 | `WT_LD_RAM_CODE_BAND` | `1` links the NSC gateway and the flash program code into the RAM code band; default `0` (`1` for `TARGET=mimxrt700`). | The port's `memory_map.h` must define `WT_RAMFUNC_BASE` and `WT_RAMFUNC_SIZE`. |
 
 Every layout input is a Make variable that `mk/layout.mk` resolves once into
@@ -209,9 +229,10 @@ stamp records it, so changing any input regenerates every output.
 `print-build-mode` the stamp; a layout define passed through
 `WT_EXTRA_CFLAGS` is refused.
 
-The target runners used for authenticated boot override standalone addresses
-for the wolfBoot partition layout. Keep bootloader, Secure image, manifest,
-guest linker files, measurement records, and flash commands consistent.
+The Secure-image build checks these guest windows against the selected
+manifest before generating it. Target runners may still override the defaults
+for their authenticated wolfBoot layout; keep the bootloader, guest linker
+files, measurement records, and flash commands consistent with those values.
 
 ## Virtual network options
 
@@ -224,6 +245,22 @@ guest linker files, measurement records, and flash commands consistent.
 | `WT_VNET_RX_IRQ` | Synthetic Non-secure receive interrupt; default `130`. | Must be representable and assigned consistently in the target IRQ policy. |
 | `WT_VNET_TIMEOUT_TICKS` | Frame-expiration threshold in scheduler ticks; default `500`. | When a transmit finds the frame pool full, `SERVICE_VNET` drops queued frames older than this and retries once, so a port that stops fetching cannot hold the pool. Frames are not aged out while the pool has free slots. |
 | `WT_VNET_UNKNOWN_UCAST_FLOOD` | Flood unknown unicast frames when set to `1`; default `0`. | Enable only when the guest-network policy permits it. |
+
+## Application interface options
+
+PSA is the default application API. These select TPM 2.0 or PKCS#11 instead;
+[Footprint](Footprint.md#tpm-20-and-pkcs11) has the cost of each on every port.
+
+| Define | Description | Requirement |
+| --- | --- | --- |
+| `CONFIG_TPM` | `y` adds `SERVICE_TPM` and its manifest overlay, running wolfTPM's firmware TPM in its own partition; default `n`. | Excludes `CONFIG_PKCS11`, `CONFIG_VNET` and `WT_CONFORMANCE`. The port must list `tpm` in its `port.json` `build.variants`. `WT_SECURE_PSA` defaults to `0`, and `1` stops the build. |
+| `CONFIG_PKCS11` | `y` adds `SERVICE_PKCS11` and its manifest overlay, running wolfPKCS11 in its own partition; default `n`. | Excludes `CONFIG_TPM`, `CONFIG_VNET` and `WT_CONFORMANCE`. The port must list `pkcs11` in `build.variants`. `WT_SECURE_PSA` as for `CONFIG_TPM`. |
+| `WT_INTERFACE_PROFILE` | Operation set the TPM 2.0 or PKCS#11 service exports: `default` (RNG, SHA-256, P-256) or `full`. `WT_INTERFACE_CONFIG`, `WT_INTERFACE_ENABLE` and `WT_INTERFACE_DISABLE` edit it. See [Interface Profiles](Interface-Profiles.md). | Read only when `CONFIG_TPM` or `CONFIG_PKCS11` is `y`. Applications must be built with the same profile. |
+| `WT_INTERFACE_LOCAL_PROVIDER` | Internal: `1` builds the provider's wolfCrypt into the interface partition with its symbols renamed apart from the crypto partition's copy. `mk/arch-armv8m.mk` sets it. | Not a user setting. |
+| `WT_PKCS11_PIN_MAX_FAILURES` | Consecutive wrong user or SO PINs before that PIN locks; empty keeps `3`. | Must be a positive integer. |
+| `WT_PKCS11_TEST_PBKDF2_ITERATIONS` | Emulator only: lowers the PIN PBKDF2 count from 600,000. | Never set it for a product image; the footprint script refuses it. |
+| `WT_TPM_DA` | `0` compiles out fwTPM dictionary-attack lockout (about 1.4 to 2.3 KB of Secure flash); default `1` locks DA-protected objects after 32 failed authorizations. | `0` or `1`; read only with `CONFIG_TPM=y`. Without NV the counter resets on reboot. |
+| `WT_PROVIDER_ECC_FALLBACK` | `1` keeps software P-256 in the provider of an `hsm` build; default `0` routes every ECC operation through wolfHSM. | `0` or `1`; read only with `WT_ENGINE=hsm`. |
 
 ## Fixed Secure wolfCrypt defines
 

@@ -237,8 +237,10 @@ use may panic only that partition, after which the recovery policy applies.
 wolfTrust vendors wolfPSA's PSA Crypto 1.4 header. The header is the complete
 API contract; the functions below show the principal signatures used by the
 reference guests. Declarations in the header do not guarantee implementation
-availability. The active `user_settings.h` controls which algorithms and
-optional extensions are built.
+availability. The Secure image's `WT_SECURE_PSA_PROFILE` selects the algorithms when it
+serves PSA Crypto. Guest-local builds select algorithms through the guest's
+wolfCrypt settings. See [Crypto Engines](Crypto-Engines.md) for profiles and
+engine-specific behavior.
 
 ### Initialization and key management
 

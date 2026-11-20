@@ -330,9 +330,9 @@ packet. In the native engine the same SPM-stamped identity becomes the vault
 key namespace's delegated sub-owner. A client-provided communication ID
 therefore cannot select another guest's key namespace in either engine.
 
-By default (`WT_SECURE_PSA=1`) the native engine runs wolfPSA in the crypto
-partition, so PSA key state, operation state and internal intermediate secrets
-stay in Secure memory. APIs whose contract returns secret material, such as
+With `WT_SECURE_PSA=1`, the native engine runs wolfPSA in the crypto
+partition, so PSA key state, operation state and intermediate secrets stay
+in Secure memory. APIs whose contract returns secret material, such as
 `psa_export_key()` of an exportable key, `psa_raw_key_agreement()` and
 `psa_key_derivation_output_bytes()`, still copy that output to the
 Non-secure caller. Keys and operations are bound to the SPM-stamped client ID, handles
@@ -340,9 +340,10 @@ carry a per-boot nonce, and persistent key IDs are namespaced per client and
 limited to the user range. A replacement image in the same guest slot owns
 that slot's persistent keys, matching TF-M's client-ID ownership.
 
-With the `WT_SECURE_PSA=0` opt-out the native guests run wolfPSA and wolfCrypt
-locally. Their ordinary volatile PSA keys then live in Non-secure guest RAM;
-only DRBG seed requests and explicit native-wire vault-key requests cross the
+With `WT_SECURE_PSA=0` (the STM32L562 default), native guests run wolfPSA
+and wolfCrypt locally. Their ordinary volatile PSA keys live in Non-secure
+guest RAM.
+DRBG seed requests and explicit native-wire vault-key requests cross the
 Secure boundary. In the hsm engine, supported guest PSA operations and their
 private key state are routed to the Secure wolfHSM server.
 

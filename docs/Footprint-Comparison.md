@@ -7,41 +7,45 @@ records the framework contract separately.
 
 ## STM32L562 comparison
 
-This comparison was recorded before the current STM32L562 layout and shared
-port layer. It has not been remeasured for this documentation update. The
-[STM32L562 Guide](STM32L562-Guide.md#status) records the current layout and
-validation status. The CI size budget below retains the recorded threshold;
-it is not a claim that every current image has the exact sizes in this table.
-
-Both projects were built for the same board (STM32L562E-DK) at isolation
-level 3 with the same compiler (Arm GNU 15.2.1), each with its own size
-options. These are local builds, not published reference figures.
+Both runtimes were built for STM32L562E-DK at isolation level 3 with
+Arm GNU 15.2.1. The wolfTrust runtime was remeasured on 2026-11-20 with
+the current layout at `6dbd14bc`. The TF-M and bootloader rows retain
+their recorded measurements. See the
+[STM32L562 Guide](STM32L562-Guide.md#status) for board validation.
 
 | Image | Flash | Secure RAM |
 | --- | ---: | ---: |
-| wolfTrust Secure runtime, native default | 69,496 bytes | 45,280 bytes |
+| wolfTrust Secure runtime, guest-local PSA Crypto | 69,924 bytes | 45,244 bytes |
 | TF-M v2.3.1 `tfm_s`, level 3 | 79,680 bytes | 45,728 bytes |
 | wolfBoot, STM32L5 secure application handoff | 27,216 bytes | 2,104 bytes |
 | TF-M BL2 (MCUboot, EC-P256) | 38,744 bytes | 27,408 bytes |
-| Chain: wolfBoot + wolfTrust | 96,712 bytes | |
+| Chain: wolfBoot + wolfTrust | 97,140 bytes | |
 | Chain: BL2 + TF-M | 118,424 bytes | |
 
-The wolfTrust runtime is 10,184 bytes smaller in flash and 448 bytes smaller
-in Secure RAM; the boot chain is 21,712 bytes smaller in flash. Both RAM
-figures include every partition stack (see Methodology). The bootloader's RAM
-is reused by the runtime, so the RAM figures are not summed. The
-cross-compile workflow fails if any port's lean native default image grows
-past TF-M's 79,680 bytes of flash or 45,728 bytes of Secure RAM, plus the RAM
-code band (`WT_RAMFUNC_SIZE`) of a port that runs code from RAM.
+The measured wolfTrust runtime uses 9,756 fewer bytes of flash and 484
+fewer bytes of Secure RAM. The flash totals add the two component images.
+Each runtime reuses its bootloader's RAM. The cross-compile workflow applies
+TF-M's budget to the native guest-local PSA build on every port, with a
+separate allowance for any RAM code band. See [Footprint](Footprint.md).
 
-Both images carry Crypto, Internal Trusted Storage, Protected Storage and
-Initial Attestation with one Non-secure image; TF-M also builds its platform
-service, and neither builds Firmware Update. They differ in how level 3 is applied: TF-M's
-STM32L5 profile runs the PSA RoT partitions (Crypto, ITS, attestation,
-platform) privileged, while wolfTrust runs every
-Secure Partition unprivileged with its own MPU regions. Each wolfTrust
-feature the default leaves out comes back with one Make variable; see
-[Build profiles](Macros.md#build-profiles) for each one's cost.
+Both builds run one Non-secure application and provide Crypto, Internal
+Trusted Storage, Protected Storage and Initial Attestation. TF-M also
+includes its platform service. TF-M's STM32L5 profile runs its PSA Root of
+Trust partitions privileged. wolfTrust runs every Secure Partition
+unprivileged with its own MPU regions.
+
+### Secure PSA Crypto
+
+TF-M serves PSA Crypto from a Secure partition. The native wolfTrust build
+in the STM32L562 table runs PSA Crypto in its guest. On STM32H563, the native
+wolfTrust `standard` profile serves PSA Crypto from a Secure partition and
+measures 103,067 bytes of flash and 48,844 bytes of Secure RAM. It uses
+23,387 more bytes of flash and 3,116 more bytes of RAM than the TF-M
+STM32L562 build above. The recorded breakdown attributes 52,485 bytes
+of flash to wolfTrust's Secure crypto stack and 40,478 bytes to TF-M's
+Crypto partition and Mbed TLS. The boards, storage implementations and
+configured algorithm sets differ. See [Crypto Engines](Crypto-Engines.md) for the
+other Secure PSA profiles and the cost of guest-local PSA.
 
 ### Methodology
 
@@ -62,12 +66,9 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
   length.
 - Neither figure counts Secure RAM a port leaves free.
 
-- wolfTrust: the STM32L562 port on its earlier layout, before the shared port
-  layer landed, built with its defaults (native engine, LTO, one guest):
-  `make TARGET=stm32l562 secure-image` in
-  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. The same defaults give 70,432
-  bytes of flash and 45,260 bytes of Secure RAM for `TARGET=stm32h563` in this
-  tree.
+- wolfTrust STM32L562 uses the native engine, LTO and one guest. Build
+  with `make TARGET=stm32l562 WT_SECURE_PSA=0 secure-image` in
+  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`.
 - wolfBoot: `config/examples/stm32l5-tz-wolftrust.config` (ECC256, SHA256,
   `WOLFBOOT_SECURE_APP=1`).
 - TF-M: v2.3.1, platform `stm/stm32l562e_dk`, `TFM_ISOLATION_LEVEL=3`,
@@ -185,9 +186,7 @@ arm-none-eabi-size build_size_native/wolftrust.elf \
     build_size_hsm/wolftrust.elf
 ```
 
-The measured wolfTrust files were the two `wolftrust.elf` outputs. Their raw
-`text`, `data`, and `bss` values are recorded in
-[Crypto Engines](Crypto-Engines.md).
+The measured wolfTrust files were the two `wolftrust.elf` outputs.
 
 The TF-M source was the `TF-Mv2.1.1-LTS` tag at this commit:
 

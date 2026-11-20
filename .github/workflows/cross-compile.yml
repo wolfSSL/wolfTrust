@@ -127,7 +127,7 @@ jobs:
       # TF-M v2.3.1 level 3 tfm_s on the STM32L562E-DK is 79,680 bytes of
       # flash and 45,728 bytes of RAM, partition stacks included. The
       # guest-local PSA build with attestation enabled must stay within both
-      # budgets (docs/Footprint-Comparison.md). Ports may also reserve linked RAM for code.
+      # budgets (docs/Footprint-Comparison.md). RAM code has its own allowance.
       - name: Check the guest-local PSA footprint against TF-M level 3
         run: |
           budget=79680

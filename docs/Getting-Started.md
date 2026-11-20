@@ -54,9 +54,10 @@ The default STM32H563 cross-build produces:
 - `build/wolftrust.bin`
 - `build/secure_cmse_implib.o`, used when linking Non-secure clients
 
-The default image runs one guest and includes Crypto, ITS, Protected Storage,
-and Initial Attestation. Firmware Update requires `WT_FWU=1`; a second guest
-requires `WT_MAX_GUESTS=2`. See [Build profiles](Macros.md#build-profiles).
+The default STM32H563 image serves PSA Crypto from the Secure image. It
+runs one guest and includes ITS, Protected Storage, and Initial Attestation.
+Enable Firmware Update with `WT_FWU=1` or a second guest with
+`WT_MAX_GUESTS=2`. See [Build profiles](Macros.md#build-profiles).
 
 The standalone binary is not a complete authenticated boot chain. The target
 runners patch guest measurement records into a copy of the Secure binary and
@@ -65,8 +66,10 @@ sign that image with wolfBoot.
 ## Build both PSA guests
 
 The reference pair is a Zephyr guest in slot 0 and a FreeRTOS guest in slot 1.
-Both use wolfPSA entry points and send protected operations through the FF-M
-gateway.
+Both use the standard PSA Crypto API. With the STM32H563 default, the
+guests link the PSA Crypto client and send requests through the FF-M gateway.
+Set `WT_SECURE_PSA=0` for both the Secure image and guests to keep PSA
+Crypto in the guest. See [Crypto Engines](Crypto-Engines.md) for migration.
 
 ```sh
 make -C tests/firmware/zephyr-stm32h5 clone

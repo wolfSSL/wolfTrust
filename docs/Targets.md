@@ -44,7 +44,8 @@ for the current evidence and limitations.
 
 The `armv8m-stm32l562` tuple (`TARGET=stm32l562`) runs on STM32L562E-DK,
 using internal flash and GTZC guest-RAM attribution. It supports the native
-engine only. The M33MU STM32L552 model runs the registered STM32L562 layout
+engine and defaults to guest-local PSA Crypto (`WT_SECURE_PSA=0`). The
+M33MU STM32L552 model runs the registered STM32L562 layout
 and conformance scenarios with a pinned model patch. The current flash
 layout has emulator evidence; earlier DK runs used a different layout and
 do not qualify the current one. See the [STM32L562 Guide](STM32L562-Guide.md)

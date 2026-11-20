@@ -34,7 +34,7 @@ flowchart TB
     subgraph WT[wolfTrust policy and service runtime]
         SPM[Secure Partition Manager<br/>policy, identity, IPC, scheduling, lifecycle, recovery]
         subgraph SP[Secure services]
-            CR["Secure crypto and optional<br/>wolfHSM server"]
+            CR["Secure crypto<br/>PSA Crypto service or wolfHSM server"]
             ST["Internal Trusted Storage (ITS),<br/>Protected Storage, and vault"]
             AT[Initial Attestation]
             FW[Optional Firmware Update]
@@ -48,7 +48,7 @@ flowchart TB
     end
 
     subgraph LIBS[wolfSSL ecosystem components]
-        PSA[wolfPSA<br/>guest wolfCrypt; optional wolfHSM client]
+        PSA[PSA Crypto front end<br/>FF-M client or guest-local wolfPSA]
         WC[Secure wolfCrypt<br/>optional wolfHSM server]
         COSE[wolfCOSE]
         HAL[wolfHAL]
@@ -82,8 +82,8 @@ Zephyr and FreeRTOS PSA guest pair.
 On the STM32H563 reference chain, wolfBoot authenticates wolfTrust, Armv8-M
 TrustZone isolates the Secure runtime from Non-secure guests, and STM32 Global
 TrustZone Controller (GTZC) memory attribution isolates guest RAM. Zephyr and
-FreeRTOS reference guests use wolfPSA's PSA Crypto API through five Cortex-M
-Security Extensions (CMSE) gateway veneers. The Secure side meets PSA FF-M
+FreeRTOS reference guests call the Secure PSA Crypto service through the
+Cortex-M Security Extensions (CMSE) gateway. The Secure side meets PSA FF-M
 isolation level 3 ([Security Model](docs/Security-Model.md#ff-m-isolation-level-3)). Those mechanisms describe the
 current reference port, not a requirement imposed on every intended port.
 
@@ -97,7 +97,9 @@ runners:
 
 Build with `TARGET=<port>` (`stm32h563` is the default). Run the port's
 registered M33MU smoke scenarios with `make test-target TARGET=<port>`.
-STM32L562 supports the native engine; the other ports support both engines.
+STM32L562 supports the native engine and defaults to guest-local PSA Crypto.
+The other ports support both engines and default to Secure PSA Crypto with
+the native engine.
 
 ## Quick start
 
@@ -118,7 +120,7 @@ make test
 
 The Secure build produces `build/wolftrust.elf`,
 `build/wolftrust.bin`, and `build/secure_cmse_implib.o`. `make` builds the
-lean default image: isolation level 3, one Non-secure guest, and the Crypto,
+default image with isolation level 3, one Non-secure guest, and Crypto,
 ITS, Protected Storage and attestation services. Add-ons such as a second
 guest (`WT_MAX_GUESTS=2`) or firmware update (`WT_FWU=1`) are one Make
 variable each; see [Build profiles](docs/Macros.md#build-profiles).

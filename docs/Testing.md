@@ -53,13 +53,13 @@ lifecycle decisions against the production scheduler with simulated architecture
 operations.
 The attestation IAK suite runs wolfHSM NVM with both the default 8-byte and
 STM32H5 16-byte flash programming units.
-The psa_secure_crypto suite runs the PSA client against the Secure PSA service
-in a separate process: cross-client key and operation isolation, stale handles
-after a service restart, persistent keys, quotas, per-guest pool arenas,
-one-shots split over several messages and AEAD tag failures. `run` builds and runs it once per `WT_SECURE_PSA_PROFILE`,
-checking what each profile keeps and what it refuses with
-`PSA_ERROR_NOT_SUPPORTED`; `run-one PROFILE=<name>` runs one. Its `sanitize`
-and `valgrind` targets rerun it under ASan/UBSan and Valgrind.
+The `tests/host/psa_secure_crypto` suite runs the PSA client against the
+Secure service in a separate process. It checks client ownership, service
+restart, persistent keys, per-guest quotas, multipart IPC and invalid AEAD
+authentication tags.
+`run` checks supported operations and `PSA_ERROR_NOT_SUPPORTED` for each
+`WT_SECURE_PSA_PROFILE`. Use `run-one PROFILE=<name>` for one profile,
+`sanitize` for ASan/UBSan or `valgrind` for Valgrind.
 
 Additional host checks:
 

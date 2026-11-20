@@ -12,9 +12,9 @@ RDP. The only RDP write is a typed regression back to level 0.
 ## Status
 
 - **Cross-build:** `make TARGET=stm32l562 secure-image` links both manifests
-  on the native engine, and the layout check passes for each. Production is
-  96,804 bytes of flash (96,096 text, 708 data). Conformance is 150,456 bytes.
-  `WT_ENGINE=hsm` stops at `port/stm32l562/memory_map.h` with an `#error`.
+  on the native engine, and the layout check passes for each. The default
+  keeps PSA Crypto in the guest (`WT_SECURE_PSA=0`). See
+  [Footprint](Footprint.md#measured-sizes) for current production sizes.
 - **Host:** `make test` runs the shared `port_flash` suite over
   `tests/host/port_flash/models/stm32l562.c`, plus the port's own suites:
   - `stm32l562_flash`: program, page erase, ECC, bounded waits and the tamper

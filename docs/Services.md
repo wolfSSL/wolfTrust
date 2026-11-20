@@ -38,10 +38,11 @@ Zephyr and FreeRTOS reference guests expose wolfPSA's PSA Crypto API. The
 wired. Both engines use one input and one output vector, bounded to 384 bytes,
 through the same copied FF-M call.
 
-With the default native engine, wolfPSA and wolfCrypt execute in the crypto
-partition (`WT_SECURE_PSA=1`) and each guest calls PSA Crypto through the
-client library. With `WT_SECURE_PSA=0` they execute in the Non-secure guest,
-and DRBG seed requests use the native client to reach the Secure vault RNG. The native wire also exposes explicit vault-backed P-256 and
+With `WT_SECURE_PSA=1`, wolfPSA and wolfCrypt execute in the Secure crypto
+partition and each guest links the PSA Crypto client. With
+`WT_SECURE_PSA=0`, the libraries execute in the Non-secure guest and reach
+the Secure vault RNG for DRBG seed material. The native wire also exposes
+explicit vault-backed P-256 and
 AES-256 key operations, random generation, and SHA-256. Vault key objects are
 namespaced by the SPM-stamped client ID and stored `SENSITIVE` and
 `NONEXPORTABLE`.
@@ -53,12 +54,10 @@ wolfHSM NVM message groups. The reference build executes the server with
 software wolfCrypt; deployments can configure wolfHSM's external-HSM path.
 
 The cryptographic profile is the Secure image's `WT_SECURE_PSA_PROFILE`
-under `WT_SECURE_PSA=1`, and each guest's wolfCrypt `user_settings.h` under
-`WT_SECURE_PSA=0` or the wolfHSM engine. Consult the vendored
-`lib/wolfPSA/wolfpsa/psa/crypto.h` and the active guest configuration
-before assuming a particular algorithm is available. See
-[Crypto Engines](Crypto-Engines.md) for the protocol, key-protection, and
-footprint differences.
+under `WT_SECURE_PSA=1`. Guest-local and wolfHSM builds select algorithms
+through the guest's wolfCrypt configuration and the selected server
+operations. See [Crypto Engines](Crypto-Engines.md) for the supported
+profiles and key models.
 
 ## Vault
 

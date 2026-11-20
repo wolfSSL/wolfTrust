@@ -13,13 +13,14 @@ The Secure Partition Manager and IPC contract are documented separately in
 [Ports](Ports.md) lists the crypto engines and test coverage available on each
 target. The default image includes Crypto, ITS, Protected Storage, and Initial
 Attestation. Firmware Update requires `WT_FWU=1`; VNET is an optional
-STM32H563 configuration. The STM32L562 port supports the native engine only.
+STM32H563 configuration. STM32L562 supports the native engine and
+defaults to guest-local PSA Crypto.
 
 ## PSA specification sections
 
 | Contract | Normative section | wolfTrust scope |
 | --- | --- | --- |
-| PSA Crypto | [Crypto API 1.4, section 6.1.1](https://arm-software.github.io/psa-api/crypto/1.4/overview/implementation.html) | wolfPSA API; enabled algorithms depend on the selected guest and crypto-engine configuration |
+| PSA Crypto | [Crypto API 1.4, section 6.1.1](https://arm-software.github.io/psa-api/crypto/1.4/overview/implementation.html) | wolfPSA API with algorithms selected by the Secure profile or guest configuration |
 | Internal Trusted Storage and Protected Storage | [Secure Storage API 1.0, sections 5.3 to 5.4](https://arm-software.github.io/psa-api/storage/1.0/api/api.html) | Core operations; storage deviations are listed below |
 | Initial Attestation | [Attestation API 1.0, section 3](https://arm-software.github.io/psa-api/attestation/1.0/overview/report.html) and [section 4](https://arm-software.github.io/psa-api/attestation/1.0/api/api.html) | Token generation and token-size query operations with documented header, status, and token-profile deviations |
 | Firmware Update | [Firmware Update API 1.0, section 4](https://arm-software.github.io/psa-api/fwu/1.0/overview/programming-model.html) and [section 5](https://arm-software.github.io/psa-api/fwu/1.0/api/api.html) | Single-component staging and authenticated reboot with documented limits |
@@ -28,7 +29,7 @@ STM32H563 configuration. The STM32L562 port supports the native engine only.
 
 | API or behavior | Version | Status | Repository evidence |
 | --- | --- | --- | --- |
-| PSA Crypto | 1.4 header | Supported through wolfPSA; algorithms depend on the guest profile | `lib/wolfPSA/wolfpsa/psa/crypto.h` and both reference guest settings |
+| PSA Crypto | 1.4 header | Supported through wolfPSA with the Secure image's `WT_SECURE_PSA_PROFILE` or the guest's wolfCrypt settings | [Crypto Engines](Crypto-Engines.md) and `lib/wolfPSA/wolfpsa/psa/crypto.h` |
 | Internal Trusted Storage | 1.0 | Core set/get/get-info/remove subset; ordinary objects can be updated, while caller-selected `WRITE_ONCE` is enforced without a provisioning exception | `include/psa/internal_trusted_storage.h` and `src/services/storage_service.c` |
 | Protected Storage | 1.0 | Core set/get/get-info/remove subset; optional create/set-extended absent | `include/psa/protected_storage.h` and `src/services/storage_service.c` |
 | Initial Attestation | 1.0 API subset with a nonconformant RFC 9783-derived token | Token generation and token-size query are supported, but the advertised TF-M profile has the claim-semantic deviations below | `lib/wolfPSA/wolfpsa/psa/initial_attestation.h` and `src/services/initial_attestation.c` |
@@ -38,7 +39,7 @@ STM32H563 configuration. The STM32L562 port supports the native engine only.
 
 | Difference | Classification | Reason and impact |
 | --- | --- | --- |
-| PSA Crypto mechanisms are build-selected. | Implementation-profile behavior | The [PSA Crypto implementation profile](https://arm-software.github.io/psa-api/crypto/1.4/overview/implementation.html) may select an API and algorithm subset. The wolfPSA 1.4 header is present, while each guest's wolfCrypt settings determine available keys and algorithms. |
+| PSA Crypto mechanisms are build-selected. | Implementation-profile behavior | The [PSA Crypto implementation profile](https://arm-software.github.io/psa-api/crypto/1.4/overview/implementation.html) may select an API and algorithm subset. The `WT_SECURE_PSA_PROFILE` setting selects the Secure service's algorithms. Guest-local and wolfHSM builds use the guest's wolfCrypt settings and, for wolfHSM, the enabled server operations. |
 | Protected Storage does not implement create or set-extended. | Scoped | `psa_ps_get_support()` returns zero and both optional operations return `PSA_ERROR_NOT_SUPPORTED`. |
 | Protected Storage always applies confidentiality and replay protection even when `NO_CONFIDENTIALITY` or `NO_REPLAY_PROTECTION` is requested. | Known metadata deviation | Objects remain sealed and counter-bound, but `psa_ps_get_info()` echoes the requested hint flags instead of reporting the stronger protection actually applied, which differs from the PSA Secure Storage 1.0 requirement. |
 | Internal Trusted Storage enforces caller-selected `PSA_STORAGE_FLAG_WRITE_ONCE` during provisioning. | Known lifecycle deviation | Ordinary objects can be updated or removed. The ITS request path does not consult lifecycle state, so an object created with the flag cannot be changed during `PSA_ROT_PROVISIONING`, contrary to [PSA Secure Storage 1.0 section 3.2](https://arm-software.github.io/psa-api/storage/1.0/overview/requirements.html). The section 3.2 lifecycle exception is specific to ITS. |
@@ -73,13 +74,20 @@ and token-profile deviations listed above.
    to scheduled Secure Partitions; there is no Non-secure client adapter for it.
 2. Link `src/client/psa_ffm_client.c` and the generated
    `secure_cmse_implib.o` from the selected Secure-image `BUILD_DIR`, then add
-   the adapter required by each API:
-   wolfPSA plus `src/client/crypto_native_client.c` for the native Crypto
-   configuration, or wolfPSA, the wolfHSM client, and
-   `src/client/hsm_psa_transport.c` for the wolfHSM configuration;
-   `src/client/psa_storage_client.c` for ITS and Protected Storage,
-   `src/client/psa_fwu_client.c` for Firmware Update, and
-   `src/client/vnet_psa_transport.c` for optional VNET.
+   the adapters for the required services.
+
+    - Default native Secure PSA (`WT_SECURE_PSA=1`) uses
+      `src/client/psa_crypto_client.c` and wolfPSA's `src/psa_api_stub.c`.
+    - Guest-local native PSA (`WT_SECURE_PSA=0`) uses wolfPSA plus
+      `src/client/crypto_native_client.c`. This is the STM32L562 default.
+    - The wolfHSM engine uses wolfPSA, the wolfHSM client and
+      `src/client/hsm_psa_transport.c`.
+    - Use `src/client/psa_storage_client.c` for ITS and Protected Storage,
+      `src/client/psa_fwu_client.c` for Firmware Update and
+      `src/client/vnet_psa_transport.c` for optional VNET.
+
+    Match the Secure image and guest build settings. See
+    [Crypto Engines](Crypto-Engines.md) for migration and the effects on keys.
 3. Initial Attestation currently has only the Zephyr-specific adapter at
    `tests/firmware/zephyr-stm32h5/module/wolftrust-tee/src/wolftrust_attestation_client.c`.
    The vendored `lib/wolfPSA/src/psa_attestation.c` is a stub that returns

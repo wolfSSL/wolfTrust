@@ -25,17 +25,20 @@ MACROS = (
     "WT_SPM_HSMDATA_PA", "WT_SPM_HSMDATA_SIZE",
     "WT_SPM_RXTX_PA", "WT_SPM_RXTX_SIZE",
     "WT_SPM_SHARE_PA", "WT_SPM_SHARE_SIZE",
+    "WT_SP_INTERFACE_STACK_BASE", "WT_INTERFACE_DATA_BASE",
+    "WT_INTERFACE_DATA_SIZE", "WT_SP_INTERFACE_STACK_SIZE",
     "WT_L3_BAND_BASE", "WT_L3_HANDOFF_PA", "WT_L3_FFA_ACS_PA",
     "WT_L3_SPM_PERIPHERAL_BASE",
 )
 # The C code reads these from -D flags; the rest only through memory_map.h.
-CFLAGS_MACROS = MACROS[:20]
+CFLAGS_MACROS = MACROS[:23]
 LDFLAGS_MACROS = (
     "WT_SPM_IMAGE_PA", "WT_SPM_IMAGE_SIZE", "WT_SPM_RAM_PA", "WT_SPM_RAM_SIZE",
     "WT_SPM_KEYSTORE_PA", "WT_SPM_KEYSTORE_SIZE",
     "WT_SPM_VAULT_PA", "WT_SPM_VAULT_SIZE", "WT_SPM_ATTEST_PA",
     "WT_SPM_ATTEST_SIZE", "WT_SPM_HSMDATA_PA", "WT_SPM_HSMDATA_SIZE",
     "WT_SPM_CONFDATA_PA", "WT_SPM_CONFDATA_SIZE",
+    "WT_INTERFACE_DATA_BASE", "WT_INTERFACE_DATA_SIZE",
 )
 # Each band and the partition whose data wolftrust.ld links into it.
 KEYSTORE_BANDS = (("WT_SPM_VAULT_PA", "WT_SPM_VAULT_SIZE", "PARTITION_VAULT"),
@@ -43,6 +46,7 @@ KEYSTORE_BANDS = (("WT_SPM_VAULT_PA", "WT_SPM_VAULT_SIZE", "PARTITION_VAULT"),
                    "PARTITION_ATTEST"),
                   ("WT_SPM_HSMDATA_PA", "WT_SPM_HSMDATA_SIZE",
                    "PARTITION_HSM"))
+INTERFACE_PARTITIONS = ("PARTITION_TPM", "PARTITION_PKCS11")
 INTEGER = re.compile(r"\b(0[xX][0-9a-fA-F]+|[0-9]+)[uUlL]*\b")
 EXPRESSION = re.compile(r"^[0-9a-fA-FxX+\-*() ]+$")
 
@@ -80,9 +84,9 @@ def evaluate(cc, header, defines, includes):
 
 
 def check_manifest(path, values):
-    """Each keystore band is granted exactly once, to the domain of the
-    partition linked into it, and nothing else is granted inside the
-    keystore window."""
+    """Each keystore band, and the interface band when a TPM 2.0 or PKCS#11
+    partition is present, is granted exactly once, to the domain of the
+    partition linked into it, and nothing else is granted inside them."""
     with open(path, encoding="utf-8") as handle:
         manifest = json.load(handle)
     window = (values["WT_SPM_KEYSTORE_PA"],
@@ -106,6 +110,23 @@ def check_manifest(path, values):
         if grant not in bands:
             errors.append("grant 0x%X+0x%X to domain %s is not its keystore "
                           "band" % grant)
+    interface = (values["WT_INTERFACE_DATA_BASE"],
+                 values["WT_INTERFACE_DATA_SIZE"])
+    interface_owners = [owners[name] for name in INTERFACE_PARTITIONS
+                        if name in owners]
+    touching = []
+    for domain in manifest.get("domains", ()):
+        for resource in domain.get("memory_resources", ()):
+            base, size = resource["base"], resource["size"]
+            if (base < interface[0] + interface[1] and
+                    base + size > interface[0]):
+                touching.append((base, size, domain["id"]))
+    if len(interface_owners) > 1:
+        errors.append("more than one partition owns the interface band")
+    expected = [interface + (owner,) for owner in interface_owners]
+    if touching != expected:
+        errors.append("interface band 0x%X+0x%X grants %s, want %s" %
+                      (interface[0], interface[1], touching, expected))
     if errors:
         raise SystemExit("FAIL: %s: %s" % (path, "; ".join(errors)))
 

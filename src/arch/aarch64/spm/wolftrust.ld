@@ -16,6 +16,7 @@ MEMORY
     ATTESTDATA (rw) : ORIGIN = WT_SPM_ATTEST_PA, LENGTH = WT_SPM_ATTEST_SIZE
     HSMDATA (rw) : ORIGIN = WT_SPM_HSMDATA_PA, LENGTH = WT_SPM_HSMDATA_SIZE
     CONFDATA (rw) : ORIGIN = WT_SPM_CONFDATA_PA, LENGTH = WT_SPM_CONFDATA_SIZE
+    INTERFACEDATA (rw) : ORIGIN = WT_INTERFACE_DATA_BASE, LENGTH = WT_INTERFACE_DATA_SIZE
 }
 
 SECTIONS
@@ -157,6 +158,47 @@ SECTIONS
     } > CONFDATA
     _e_conf_data = .;
 
+    /* The TPM 2.0 or PKCS#11 provider's state, in the band only its partition
+     * is granted. CONFIG_TPM and CONFIG_PKCS11 exclude each other. */
+    .tpm_data : {
+        _s_tpm = .;
+        *wt_sec_tpm*.o(.data .data.*)
+        *tpm_sec_*.o(.data .data.*)
+        *tpm_wc_*.o(.data .data.*)
+        *tpm_wh_*.o(.data .data.*)
+        . = ALIGN(16);
+        _e_tpm_data = .;
+    } > INTERFACEDATA AT > IMAGE
+    _si_tpm = LOADADDR(.tpm_data);
+    .tpm_bss (NOLOAD) : {
+        _s_tpm_bss = .;
+        *wt_sec_tpm*.o(.bss .bss.* COMMON)
+        *tpm_sec_*.o(.bss .bss.* COMMON)
+        *tpm_wc_*.o(.bss .bss.* COMMON)
+        *tpm_wh_*.o(.bss .bss.* COMMON)
+        . = ALIGN(16);
+        _e_tpm = .;
+    } > INTERFACEDATA
+    .pkcs11_data : {
+        _s_pkcs11 = .;
+        *wt_sec_pkcs11*.o(.data .data.*)
+        *p11_sec_*.o(.data .data.*)
+        *p11_wc_*.o(.data .data.*)
+        *p11_wh_*.o(.data .data.*)
+        . = ALIGN(16);
+        _e_pkcs11_data = .;
+    } > INTERFACEDATA AT > IMAGE
+    _si_pkcs11 = LOADADDR(.pkcs11_data);
+    .pkcs11_bss (NOLOAD) : {
+        _s_pkcs11_bss = .;
+        *wt_sec_pkcs11*.o(.bss .bss.* COMMON)
+        *p11_sec_*.o(.bss .bss.* COMMON)
+        *p11_wc_*.o(.bss .bss.* COMMON)
+        *p11_wh_*.o(.bss .bss.* COMMON)
+        . = ALIGN(16);
+        _e_pkcs11 = .;
+    } > INTERFACEDATA
+
     .data : {
         . = ALIGN(16);
         __data_start = .;
@@ -206,6 +248,7 @@ ASSERT(_e_keystore <= WT_SPM_KEYSTORE_PA + WT_SPM_KEYSTORE_SIZE, "keystore band 
 ASSERT(WT_SPM_HSMDATA_PA + WT_SPM_HSMDATA_SIZE == WT_SPM_KEYSTORE_PA + WT_SPM_KEYSTORE_SIZE, "the keystore bands must tile the keystore window")
 ASSERT(_e_conf_data <= WT_SPM_CONFDATA_PA + WT_SPM_CONFDATA_SIZE, "conformance data band overflow")
 ASSERT(_e_conf_bss <= WT_SPM_CONFDATA_PA + 0x1C000, "conformance data reaches the pseudo-MMIO pages")
+ASSERT(_e_pkcs11 <= WT_INTERFACE_DATA_BASE + WT_INTERFACE_DATA_SIZE, "interface data band overflow")
 ASSERT((_s_conf_data & 0xFFF) == 0, "conformance partition segments must be page aligned")
 ASSERT((_e_conf_unowned == _s_conf_unowned) && (_e_conf_bss == _s_conf_bss),
        "a conformance object has writable data no partition owns")

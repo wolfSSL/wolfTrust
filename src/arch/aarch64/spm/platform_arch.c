@@ -129,6 +129,8 @@ void wt_arch_zero_guest_memory(uintptr_t base, size_t size)
 extern uint8_t _si_vault[], _s_vault[], _e_vault_data[];
 extern uint8_t _si_attest[], _s_attest[], _e_attest_data[];
 extern uint8_t _si_hsm[], _s_hsm[], _e_hsm_data[];
+extern uint8_t _si_tpm[], _s_tpm[], _e_tpm_data[];
+extern uint8_t _si_pkcs11[], _s_pkcs11[], _e_pkcs11_data[];
 
 /* A keystore band returns to its link-time image: zeroed, then its .data
  * reloaded; any other band has no load image and only zeroes. */
@@ -138,6 +140,8 @@ void wt_arch_sp_band_reset(uintptr_t base, size_t size)
         { _si_vault, _s_vault, _e_vault_data },
         { _si_attest, _s_attest, _e_attest_data },
         { _si_hsm, _s_hsm, _e_hsm_data },
+        { _si_tpm, _s_tpm, _e_tpm_data },
+        { _si_pkcs11, _s_pkcs11, _e_pkcs11_data },
     };
     size_t i;
 

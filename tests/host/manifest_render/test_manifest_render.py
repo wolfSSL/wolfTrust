@@ -11,6 +11,7 @@ SPM stack, the partition stacks and keystore bands, the conformance IRQ),
 no two partitions share a writable byte and none reaches SPM RAM, and a
 changed layout input moves exactly the windows that depend on it."""
 
+import copy
 import hashlib
 import json
 import os
@@ -271,6 +272,117 @@ def windows(manifest, values, label, variant):
           "%s: the counters do not match the content" % label)
 
 
+# The AArch64 ports render the same interface overlays onto their literal port
+# manifest (render.py --arch aarch64): one S-EL0 domain and its FF-A partition.
+AARCH64_PORTS = ("qemuvirt", "versal")
+AARCH64_UUIDS = {"tpm": "14a60fe3-05ca-583d-a88a-1e9d0a47d74d",
+                 "pkcs11": "ab4f39e1-d12d-5b91-a21c-57d66f7f04ae"}
+L3_LAYOUT = ROOT / "tools" / "aarch64_l3_layout.py"
+
+
+def aarch64_layout(target, mode):
+    result = run([sys.executable, str(L3_LAYOUT), "--cc", CC, "-I",
+                  str(ROOT / "port" / "common" / "aarch64"), "-D",
+                  "WT_ISOLATION_LEVEL=3", "--" + mode,
+                  str(ROOT / "port" / target / "memory_map.h")])
+    check(result.returncode == 0, "%s: aarch64_l3_layout --%s failed: %s" %
+          (target, mode, result.stderr.strip()))
+    return result.stdout
+
+
+def aarch64_render(target, overlay, template=None):
+    flags = "-I%s -I%s %s" % (ROOT / "include", ROOT / "port" / target,
+                              aarch64_layout(target, "cflags").strip())
+    return run([sys.executable, str(RENDER), "--arch", "aarch64", "--cc", CC,
+                "--cflags", flags, "--overlay", str(overlay),
+                str(template or ROOT / "port" / target / "manifest.json")])
+
+
+def aarch64_check_manifest(target, text):
+    with tempfile.TemporaryDirectory() as directory:
+        source = Path(directory) / "manifest.json"
+        source.write_text(text, encoding="utf-8")
+        return run([sys.executable, str(L3_LAYOUT), "--cc", CC, "-I",
+                    str(ROOT / "port" / "common" / "aarch64"), "-D",
+                    "WT_ISOLATION_LEVEL=3", "--check-manifest", str(source),
+                    str(ROOT / "port" / target / "memory_map.h")])
+
+
+def aarch64_checks():
+    for target in AARCH64_PORTS:
+        values = {}
+        for line in aarch64_layout(target, "shell").splitlines():
+            name, separator, text = line.partition("=")
+            if separator:
+                values[name] = int(text, 0)
+        literal = json.loads((ROOT / "port" / target / "manifest.json").read_text())
+        for variant, uuid in AARCH64_UUIDS.items():
+            label = "%s/%s" % (target, variant)
+            result = aarch64_render(target, ROOT / "manifest" / (variant + ".json"))
+            check(result.returncode == 0, "%s: render failed: %s" %
+                  (label, result.stderr.strip()))
+            manifest = json.loads(result.stdout)
+            name = "PARTITION_" + variant.upper()
+            added = [d for d in manifest["domains"]
+                     if d not in literal["domains"]]
+            check(manifest["domains"][:len(literal["domains"])] ==
+                  literal["domains"] and len(added) == 1,
+                  "%s: the port's own domains changed" % label)
+            resources = [(r["base"], r["size"], r["attributes"])
+                         for r in added[0]["memory_resources"]]
+            want = [(values["WT_SPM_IMAGE_PA"], values["WT_SPM_IMAGE_SIZE"], 37),
+                    (values["WT_SP_INTERFACE_STACK_BASE"],
+                     values["WT_SP_INTERFACE_STACK_SIZE"], 19),
+                    (values["WT_INTERFACE_DATA_BASE"],
+                     values["WT_INTERFACE_DATA_SIZE"], 19)]
+            check(resources == want, "%s: domain resources %s, want %s" %
+                  (label, resources, want))
+            check(added[0]["entry_point"] == values["WT_SPM_IMAGE_PA"],
+                  "%s: the partition does not enter at the SPMC image" % label)
+            parts = [p["name"] for p in manifest["partitions"]]
+            check(parts == [p["name"] for p in literal["partitions"]] + [name],
+                  "%s: partitions %s" % (label, parts))
+            ffa = manifest["ffa"]["partitions"]
+            check(ffa[:-1] == literal["ffa"]["partitions"] and
+                  ffa[-1]["uuids"] == [uuid] and
+                  ffa[-1]["domain_id"] == added[0]["id"] and
+                  ffa[-1]["runtime_el"] == "S-EL0",
+                  "%s: FF-A partition %s" % (label, ffa[-1]))
+            check(manifest["profile_capabilities"]["max_domains"] ==
+                  len(manifest["domains"]) and
+                  manifest["limits"]["max_partitions"] ==
+                  len(manifest["partitions"]),
+                  "%s: the counters do not match the content" % label)
+            ok = aarch64_check_manifest(target, result.stdout)
+            check(ok.returncode == 0, "%s: --check-manifest rejects it: %s" %
+                  (label, (ok.stdout + ok.stderr).strip()))
+            # A second domain granted the interface band is refused.
+            shared = json.loads(result.stdout)
+            shared["domains"][1]["memory_resources"].append(
+                dict(added[0]["memory_resources"][2]))
+            bad = aarch64_check_manifest(target, json.dumps(shared))
+            check(bad.returncode != 0, "%s: a shared interface band passed "
+                  "--check-manifest" % label)
+            # Without the overlay, a stray interface grant is refused too.
+            stray = copy.deepcopy(literal)
+            stray["domains"][1]["memory_resources"].append(
+                dict(added[0]["memory_resources"][2]))
+            bad = aarch64_check_manifest(target, json.dumps(stray))
+            check(bad.returncode != 0, "%s: an interface band with no "
+                  "interface partition passed --check-manifest" % label)
+        with tempfile.TemporaryDirectory() as directory:
+            plain = Path(directory) / "plain.json"
+            overlay = json.loads((ROOT / "manifest" / "tpm.json").read_text())
+            overlay.pop("aarch64")
+            plain.write_text(json.dumps(overlay), encoding="utf-8")
+            result = aarch64_render(target, plain)
+            check(result.returncode != 0 and "no aarch64 block" in result.stderr,
+                  "%s: an overlay without an aarch64 block rendered" % target)
+        result = aarch64_render(target, ROOT / "manifest" / "tpm.json", TEMPLATE)
+        check(result.returncode != 0 and "no ffa section" in result.stderr,
+              "%s: --arch aarch64 rendered onto a template without ffa" % target)
+
+
 def main():
     ports = sorted(path.parent.name
                    for path in (ROOT / "port").glob("*/port.json"))
@@ -320,6 +432,7 @@ def main():
                   driver[0]["interrupt_resources"][0]["interrupt"] ==
                   values["WT_CONF_IRQ"] + 1,
                   "%s: %s did not reach the conformance driver" % (target, irq))
+    aarch64_checks()
     missing = set(COMMITTED) - seen
     check(not missing, "committed manifests not reproduced: %s" %
           sorted("%s/%s" % key[:2] for key in missing))

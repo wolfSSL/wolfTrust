@@ -111,6 +111,7 @@ QEMU_A_L3_REQUIRED = frozenset((
     "bandneg4", "bandneg5", "bandneg6", "periphspneg", "restartneg1",
     "restartneg2", "restartneg3", "spbudgetneg", "panicneg", "svcneg",
     "fpneg", "mspovfneg", "xnneg", "secramneg", "periphneg", "hsmpinneg",
+    "tpmneg", "pkcs11neg",
 ))
 
 QEMU_A_SUITE = (
@@ -125,7 +126,8 @@ QEMU_A_SUITE = (
     "guest1", "smcfuzz", "secramneg", "periphneg", "periphspneg",
     "resetneg", "ffa-memneg", "hsmattackneg", "hsmpinneg", "attestneg",
     "vaultrecover", "vaultrecoversec", "confboot", "storage", "devstorage",
-    "devattest", "devattestqcbor", "devcrypto",
+    "devattest", "devattestqcbor", "devcrypto", "tpm", "tpmneg", "pkcs11",
+    "pkcs11neg",
 )
 QEMU_A_ACS = (
     "ffaacs-discovery", "ffaacs-direct", "ffaacs-memory", "ffaacs-notify",

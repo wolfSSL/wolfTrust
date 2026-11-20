@@ -42,8 +42,8 @@ set -euo pipefail
 
 scenario="${1:-}"
 case "$scenario" in
-  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
-  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
+  smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|tpm|tpmneg|pkcs11|pkcs11neg|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts) ;;
+  *) echo "usage: $0 smoke|boot|boot-smp2|parkneg|rdistneg|tickneg|positive-secure|crossdomain|spfaultneg|tablesneg|proofneg|manifestneg|manifestneg2|manifestneg3|keystoreneg|bandneg1|bandneg2|bandneg3|bandneg4|bandneg5|bandneg6|periphspneg|restartneg1|restartneg2|restartneg3|spbudgetneg|panicneg|svcneg|fpneg|mspovfneg|xnneg|ffa-direct|ffa-sint|ns-smoke|ffa-discovery|ffa-guest-direct|psci|psci-el2|el2dirtyneg|ffa-preempt|positive|guest1|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|hsmattackneg|hsmpinneg|attestneg|vaultrecover|vaultrecoversec|confboot|storage|devstorage|devattest|devattestqcbor|devcrypto|tpm|tpmneg|pkcs11|pkcs11neg|ffaacs-discovery|ffaacs-direct|ffaacs-memory|ffaacs-notify|ffaacs-indirect|ffaacs-interrupts" >&2; exit 2 ;;
 esac
 
 # The Arm FF-A ACS runs one test group per scenario: the groups wolfTrust
@@ -88,6 +88,7 @@ case "$scenario" in
   devstorage) QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVSTORAGE:-600}" ;;
   devattest|devattestqcbor|attestneg) QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVATTEST:-600}" ;;
   devcrypto)  QEMU_TIMEOUT="${QEMU_TIMEOUT_DEVCRYPTO:-3600}" ;;
+  tpm|tpmneg|pkcs11|pkcs11neg) QEMU_TIMEOUT="${QEMU_TIMEOUT_INTERFACE:-900}" ;;
   vaultrecover) QEMU_TIMEOUT="${QEMU_TIMEOUT_VAULTRECOVER:-3600}" ;;
   ffaacs-*) QEMU_TIMEOUT="${QEMU_TIMEOUT_FFAACS:-1800}" ;;
 esac
@@ -126,7 +127,7 @@ fi
 # write starts it: the smoke and boot run on core 0 alone and boot-smp2 skips.
 case "$scenario:$MACHINE" in
   smoke:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
-  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|manifestneg2:virt|manifestneg3:virt|keystoreneg:virt|bandneg[1-6]:virt|periphspneg:virt|restartneg1:virt|restartneg2:virt|restartneg3:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|periphneg:virt|ffa-memneg:virt|hsmattackneg:virt|hsmpinneg:virt|vaultrecoversec:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
+  boot:virt|positive-secure:virt|crossdomain:virt|spfaultneg:virt|tablesneg:virt|proofneg:virt|manifestneg:virt|manifestneg2:virt|manifestneg3:virt|keystoreneg:virt|bandneg[1-6]:virt|periphspneg:virt|restartneg1:virt|restartneg2:virt|restartneg3:virt|spbudgetneg:virt|panicneg:virt|svcneg:virt|fpneg:virt|mspovfneg:virt|xnneg:virt|ffa-direct:virt|ffa-sint:virt|ns-smoke:virt|ffa-discovery:virt|ffa-guest-direct:virt|psci-el2:virt|el2dirtyneg:virt|ffa-preempt:virt|positive:virt|smcfuzz:virt|secramneg:virt|periphneg:virt|ffa-memneg:virt|hsmattackneg:virt|hsmpinneg:virt|vaultrecoversec:virt|tpm:virt|tpmneg:virt|pkcs11:virt|pkcs11neg:virt) SMP="${SMP:-1}"; cpus="$SMP" ;;
   boot-smp2:virt) SMP=2; cpus=2 ;;
   # The Normal world probes PSCI with a real parked secondary beside it.
   psci:virt) SMP="${SMP:-2}"; cpus="$SMP" ;;
@@ -205,6 +206,12 @@ else
     ffa-direct|ffa-sint) probe=(WT_EL3_TEST_DRIVER=1) ;;
     ns-smoke|ffa-discovery|psci|positive|smcfuzz|secramneg|periphneg|resetneg|ffa-memneg|storage|hsmattackneg) probe=(WT_EL3_NS_SMOKE=1) ;;
     hsmpinneg) probe=(WT_EL3_NS_SMOKE=1 WT_HSM_PIN_NEG_PROBE=1) ;;
+    # The interface guest links wolfCrypt and a heap: a 2 MB NS window.
+    tpm) probe=(WT_EL3_NS_SMOKE=1 CONFIG_TPM=y WT_PSA_NS_WINDOW_SIZE=0x00200000) ;;
+    tpmneg) probe=(WT_EL3_NS_SMOKE=1 CONFIG_TPM=y WT_TPM_NEG_PROBE=1 WT_PSA_NS_WINDOW_SIZE=0x00200000) ;;
+    # Emulator-only: the PIN KDF at its production cost outlasts the budget.
+    pkcs11) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_PKCS11_TEST_PBKDF2_ITERATIONS=25) ;;
+    pkcs11neg) probe=(WT_EL3_NS_SMOKE=1 CONFIG_PKCS11=y WT_PKCS11_NEG_PROBE=1 WT_PSA_NS_WINDOW_SIZE=0x00200000 WT_PKCS11_TEST_PBKDF2_ITERATIONS=25) ;;
     # The test handoff's unlocked lifecycle leaves the forced SECURED
     # lifecycle as the only thing that refuses the reformat.
     vaultrecoversec) probe=(WT_EL3_NS_SMOKE=1 WT_VAULT_FOREIGN_PROBE=1 WT_VAULT_PROBE_SECURED=1 WT_EL3_TEST_HANDOFF=1) ;;
@@ -238,6 +245,8 @@ else
      [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
      [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
      [ "$scenario" = hsmpinneg ] || \
+     [ "$scenario" = tpm ] || [ "$scenario" = tpmneg ] || \
+     [ "$scenario" = pkcs11 ] || [ "$scenario" = pkcs11neg ] || \
      [ "$scenario" = vaultrecover ] || [ "$scenario" = attestneg ] || \
      [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devattestqcbor ] || [ "$scenario" = devcrypto ]; then
@@ -269,6 +278,13 @@ else
     [ "$scenario" = ffa-memneg ] && ns_memneg=1
     ns_storage=0
     [ "$scenario" = storage ] && ns_storage=1
+    ns_interface=
+    ns_pkcs11_suite=all
+    case "$scenario" in
+      tpm|tpmneg) ns_interface=tpm ;;
+      pkcs11) ns_interface=pkcs11 ;;
+      pkcs11neg) ns_interface=pkcs11; ns_pkcs11_suite=core ;;
+    esac
     # confboot runs Arm's val NSPE from the payload against the conformance
     # image built above (its fetched upstream tree + generated test list).
     ns_conf=0
@@ -306,6 +322,7 @@ else
       WT_NS_GUEST_SECRAM="$ns_secram" WT_NS_SECURE_PROBE_PA="$ns_secure_probe" \
       WT_NS_GUEST_RESET="$ns_reset" WT_NS_GUEST_MEMNEG="$ns_memneg" \
       WT_NS_GUEST_STORAGE="$ns_storage" WT_RUN_CONFORMANCE="$ns_conf" \
+      WT_NS_GUEST_INTERFACE="$ns_interface" WT_PKCS11_FULL_SUITE="$ns_pkcs11_suite" \
       WT_ATTEST_CBOR="$ns_cbor" \
       WT_CONF_SUITE="$ns_suite" WT_NS_ATTEST_NEG="$ns_attest_neg" \
       WT_NS_CONF_UPSTREAM="$build/upstream/psa-arch-tests/api-tests" \
@@ -396,6 +413,8 @@ if [ "$scenario" = ns-smoke ] || [ "$scenario" = ffa-discovery ] || \
    [ "$scenario" = ffa-memneg ] || [ "$scenario" = storage ] || \
    [ "$scenario" = hsmattackneg ] || [ "$scenario" = vaultrecoversec ] || \
    [ "$scenario" = hsmpinneg ] || [ "$scenario" = periphneg ] || \
+   [ "$scenario" = tpm ] || [ "$scenario" = tpmneg ] || \
+   [ "$scenario" = pkcs11 ] || [ "$scenario" = pkcs11neg ] || \
    [ "$scenario" = vaultrecover ] || [ "$scenario" = attestneg ] || \
    [ "$scenario" = confboot ] || [ "$scenario" = devstorage ] || \
      [ "$scenario" = devattest ] || [ "$scenario" = devattestqcbor ] || [ "$scenario" = devcrypto ]; then
@@ -1149,6 +1168,62 @@ case "$scenario" in
         "passed=$passed skipped=$skipped failed=$failed (want $want_p passed, $want_s skipped, 0 failed)"
     fi
     expect "val returned to the payload" "[NS] conformance val_entry returned"
+    expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
+    ;;
+  tpm|tpmneg|pkcs11|pkcs11neg)
+    # The board-neutral TPM 2.0 or PKCS#11 application (tests/firmware/
+    # interface-guest) over FF-A to the provider's own S-EL0 partition.
+    refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'
+    refute_re "no EL3 panic" '\[EL3\] panic'
+    refute_re "no SPMC panic" '\[SPM\] panic'
+    interface_profile="${WT_INTERFACE_PROFILE:-default}"
+    if [ "${scenario#tpm}" != "$scenario" ]; then
+      app=tpm-guest0
+      expect "TPM application guest alive" "$app: alive"
+      expect "fwTPM capabilities match the relay frame limit" "$app: tpm frame caps ok"
+      expect "valid TPM command reaches the advertised frame limit" "$app: tpm max frame ok"
+      if [ "$interface_profile" = default ] && [ "$scenario" = tpm ]; then
+        expect "TPM capabilities match the selected commands" "$app: tpm command capabilities match profile"
+        expect "disabled TPM command refused by the provider" "$app: tpm disabled command rejected"
+      fi
+      expect "repeated bad authorization reaches DA lockout" "$app: tpm lockout ok"
+      expect "wolfTPM round trip through the isolated fwTPM" "$app: tpm round trip ok"
+      what=TPM
+    else
+      app=pkcs11-guest0
+      suite=profile
+      [ "$interface_profile" = default ] || suite=all
+      [ "$interface_profile" != default ] && [ "$scenario" = pkcs11neg ] && suite=core
+      case "$suite" in profile) want=9 ;; core) want=10 ;; *) want=40 ;; esac
+      expect "PKCS#11 application guest alive" "$app: alive"
+      expect "the $suite PKCS#11 suite completed" "$app: suite $suite complete"
+      expect "the PKCS#11 suite reported zero failures" "$app: TOTAL FAILED: 0"
+      expect "the PKCS#11 suite ran every planned case" "$app: TOTAL PASSED: $want"
+      what=PKCS#11
+    fi
+    expect "the Normal-world application completed" "[NS] interface suite complete"
+    if [ "${scenario%neg}" != "$scenario" ]; then
+      band_far=$(printf 'FAR=0x%016x' $((WT_INTERFACE_DATA_BASE)))
+      xn_far=$(printf 'FAR=0x%016x' $((WT_INTERFACE_DATA_BASE + 1)))
+      spm_far=$(printf 'FAR=0x%016x' $((WT_SPM_RAM_PA)))
+      band_faults=$(grep -c "^\[SYNC EL=0 EC=0x24 .*$band_far" "$log" || true)
+      if [ "$band_faults" -eq 2 ]; then
+        check_pass "$what band read then written by the crypto partition (2 data aborts)"
+      else
+        check_fail "$what band isolation" "expected 2 S-EL0 data aborts at $band_far, saw $band_faults"
+      fi
+      expect "$what provider denied SPM private RAM" "[SYNC EL=0 EC=0x24 ISS=0x000000f $spm_far]"
+      expect "$what provider denied execution from its XN data band" \
+        "[SYNC EL=0 EC=0x22 ISS=0x0000000 $xn_far]"
+      partition_faults=$(grep -c '^\[SYNC EL=0' "$log" || true)
+      if [ "$partition_faults" -eq 4 ]; then
+        check_pass "exactly the four deliberate partition faults occurred"
+      else
+        check_fail "$what isolation fault count" "expected 4 deliberate S-EL0 faults, saw $partition_faults"
+      fi
+    else
+      refute_re "no partition fault" '^\[SYNC EL=0'
+    fi
     expect "semihosting exit 0 reached QEMU" "[EXPECT EXIT] Success"
     ;;
   storage)

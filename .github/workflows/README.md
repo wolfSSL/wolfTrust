@@ -103,7 +103,7 @@ full matrix. The cells and the smoke subset live in
 
 | Check name | What it proves |
 |------------|----------------|
-| `el3_<cell>_<engine>` | the EL3 image links under the symbol guard, then the tier's QEMU AArch64 scenarios run through `tests/target/run_suite.sh qemu-a` |
+| `el3_<cell>_<engine>` | the EL3 image links under the symbol guard, the `CONFIG_TPM=y` and `CONFIG_PKCS11=y` Secure images and their Normal-world applications cross-build, then the tier's QEMU AArch64 scenarios run through `tests/target/run_suite.sh qemu-a` (the full tier includes `tpm`, `tpmneg`, `pkcs11`, and `pkcs11neg`) |
 | `ffa_acs_<cell>_<engine>` | the Arm FF-A ACS groups (discovery, direct and indirect messaging, memory, notifications, interrupts) at their asserted floors (full tier only) |
 
 To run a scenario locally, use `tests/target/run_qemu_a_scenario.sh <key>`

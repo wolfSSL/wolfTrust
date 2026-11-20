@@ -47,6 +47,14 @@
 
 #include <stdint.h>
 
+#if defined(WT_INTERFACE_TPM)
+#include "wolfssl/wolfcrypt/settings.h"
+#include "wolfssl/wolfcrypt/random.h"
+#include "tpm_tests.h"
+#elif defined(WT_INTERFACE_PKCS11)
+#include "pkcs11_tests.h"
+#endif
+
 #define UART_DR         0x00u
 #define UART_FR         0x18u
 #define UART_FR_TXFF    (1u << 5)
@@ -99,6 +107,70 @@ static void put_dec(uint32_t value)
     } while (value != 0u && i > 0);
     put_str(&buf[i]);
 }
+
+/* Console and pacing hooks of the board-neutral interface application
+ * (tests/firmware/interface-guest), as its Armv8-M main.c provides them. */
+#if defined(WT_INTERFACE_TPM)
+int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
+{
+    (void)os;
+    return wolftrust_guest_rng_stub((unsigned char*)output, (unsigned int)sz);
+}
+
+void wt_tpm_puts(const char* text)
+{
+    put_str(text);
+}
+
+void wt_tpm_print_i32(int value)
+{
+    if (value < 0) {
+        put_char('-');
+        put_dec((uint32_t)(-(value + 1)) + 1u);
+    }
+    else {
+        put_dec((uint32_t)value);
+    }
+}
+
+void wt_tpm_wait(void)
+{
+    __asm__ volatile("yield");
+}
+
+static int guest_interface_run(void)
+{
+    put_str(WT_TPM_APP_NAME ": alive\r\n");
+    return wt_tpm_run();
+}
+#elif defined(WT_INTERFACE_PKCS11)
+void wt_pkcs11_puts(const char* text)
+{
+    put_str(text);
+}
+
+void wt_pkcs11_print_u32(unsigned int value)
+{
+    put_dec((uint32_t)value);
+}
+
+void wt_pkcs11_wait(void)
+{
+    __asm__ volatile("yield");
+}
+
+static int guest_interface_run(void)
+{
+    int rc;
+
+    put_str(WT_PKCS11_APP_NAME ": alive\r\n");
+    rc = wt_pkcs11_run();
+    put_str(WT_PKCS11_APP_NAME ": suite ");
+    put_str(wt_pkcs11_suite_name());
+    put_str((rc == 0) ? " complete\r\n" : " failed\r\n");
+    return rc;
+}
+#endif
 
 /* One FF-A SMC to the SPMD at the NS physical instance: in0/in1 in x0/x1, the
  * reply x0-x3 written back to out[0..3]. */
@@ -2218,5 +2290,10 @@ void ns_main(void)
 
 #if defined(WT_NS_GUEST_CONF)
     guest_conformance();
+#endif
+
+#if defined(WT_INTERFACE_TPM) || defined(WT_INTERFACE_PKCS11)
+    put_str((guest_interface_run() == 0) ? "[NS] interface suite complete\r\n" :
+                                           "[NS] interface suite FAILED\r\n");
 #endif
 }

@@ -1750,12 +1750,27 @@ ifeq ($(CONFIG_TPM)$(CONFIG_PKCS11),yy)
 $(error CONFIG_TPM=y conflicts with CONFIG_PKCS11=y; select one application API)
 endif
 # A port outside the Armv8-M registry ships its whole manifest and generator
-# options (mk/target-<soc>.mk, mk/arch-<arch>.mk) instead of a render.
+# options (mk/target-<soc>.mk, mk/arch-<arch>.mk); a TPM 2.0 or PKCS#11
+# variant renders the same overlay onto it, from the overlay's $(ARCH) block.
 ifneq ($(WT_PORT_MANIFEST),)
 MANIFEST_VARIANT := $(WT_PORT_MANIFEST)
 MANIFEST_INPUT := $(WT_PORT_MANIFEST)
 MANIFEST_GEN_ARGS := --supported-features 0x1 \
     --supported-framework-version 0x100 $(MANIFEST_ARCH_OPTS)
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+MANIFEST_VARIANT := $(if $(filter y,$(CONFIG_TPM)),tpm,pkcs11)
+ifeq ($(filter $(MANIFEST_VARIANT),$(WT_PORT_VARIANTS)),)
+$(error TARGET=$(TARGET) registers no $(MANIFEST_VARIANT) manifest variant (WT_PORT_VARIANTS in mk/target-$(TARGET).mk))
+endif
+MANIFEST_OVERLAY := $(ROOT)/manifest/$(MANIFEST_VARIANT).json
+MANIFEST_INPUT := $(MANIFEST_DIR)/manifest.json
+$(MANIFEST_INPUT): $(WT_PORT_MANIFEST) $(MANIFEST_OVERLAY) \
+		$(ROOT)/tools/manifest/render.py $(PORT_HEADERS) \
+		$(BUILD_MODE_STAMP) FORCE | $(MANIFEST_DIR)
+	python3 $(ROOT)/tools/manifest/render.py --arch $(ARCH) \
+		--cc $(TOOLPREFIX)gcc --cflags '$(WT_MANIFEST_RENDER_CFLAGS)' \
+		--overlay $(MANIFEST_OVERLAY) --output $@ $(WT_PORT_MANIFEST)
+endif
 else
 MANIFEST_VARIANT := base
 MANIFEST_OVERLAY :=
@@ -2091,7 +2106,8 @@ $(BUILD_DIR)/wt_sec_%.o: $(WOLFCOSE_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_S
 
 define wt_arch_tree_rule
 $(BUILD_DIR)/wt_sec_$(notdir $(basename $(1))).o: $(1) $(PORT_HEADERS) \
-		$(MANIFEST_GEN_H) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+		$(MANIFEST_GEN_H) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) \
+		$(WT_INTERFACE_PROFILE_HEADER) | $(BUILD_DIR)
 	$$(CC) $$(SECURE_CFLAGS) -c -o $$@ $$<
 endef
 $(foreach s,$(ARCH_TREE_SRCS) $(ARCH_ASM_SRCS),$(eval $(call wt_arch_tree_rule,$(s))))

@@ -4,7 +4,9 @@
 manifest/base.json describes the production partitions with every address
 and size written as a memory_map.h expression; a variant overlay
 (manifest/conformance.json, manifest/vnet.json) drops partitions and adds
-its own domains and partitions in the same form. The renderer applies the
+its own domains and partitions in the same form; an overlay's per-arch block
+(--arch) replaces its domains and adds FF-A partitions for that arch's port
+manifest, which is then the template. The renderer applies the
 overlays, evaluates every expression in one preprocessor pass under the
 build's layout configuration (--cflags, the WT_LAYOUT_CFLAGS of
 mk/layout.mk), derives the capability and limit counters from the content
@@ -30,7 +32,15 @@ class RenderError(Exception):
     pass
 
 
-def apply_overlay(manifest, overlay):
+def apply_overlay(manifest, overlay, arch=None):
+    if arch is not None:
+        if arch not in overlay:
+            raise RenderError("overlay has no %s block" % arch)
+        overlay = dict(overlay, **overlay[arch])
+        if "ffa" not in manifest:
+            raise RenderError("the %s template has no ffa section" % arch)
+        manifest["ffa"]["partitions"] += copy.deepcopy(
+            overlay.get("ffa_partitions", []))
     dropped = set(overlay.get("drop_partitions", []))
     unknown = dropped - {part["name"] for part in manifest["partitions"]}
     if unknown:
@@ -118,11 +128,12 @@ def derive_counters(manifest):
         [len(part["dependencies"]) for part in partitions] + [1])
 
 
-def render(template, overlays, cc, cflags):
+def render(template, overlays, cc, cflags, arch=None):
     manifest = json.loads(Path(template).read_text(encoding="utf-8"))
     for overlay in overlays:
         apply_overlay(manifest,
-                      json.loads(Path(overlay).read_text(encoding="utf-8")))
+                      json.loads(Path(overlay).read_text(encoding="utf-8")),
+                      arch)
     found = []
     expressions(manifest, found)
     substitute(manifest, evaluate(cc, cflags, found))
@@ -135,6 +146,8 @@ def main():
     parser.add_argument("template", type=Path)
     parser.add_argument("--overlay", action="append", default=[], type=Path)
     parser.add_argument("--cc", default="arm-none-eabi-gcc")
+    parser.add_argument("--arch", help="apply each overlay's block for this "
+                        "arch to its port manifest template")
     parser.add_argument("--cflags", default="",
                         help="the build's layout defines and include paths")
     parser.add_argument("--output", type=Path,
@@ -142,7 +155,7 @@ def main():
     args = parser.parse_args()
     try:
         text = render(args.template, args.overlay, args.cc,
-                      shlex.split(args.cflags))
+                      shlex.split(args.cflags), args.arch)
     except (RenderError, OSError, json.JSONDecodeError, KeyError) as error:
         print("manifest render failed: %s" % error, file=sys.stderr)
         return 1

@@ -14,6 +14,8 @@ WT_PORT_MANIFEST := $(PORT_DIR)/manifest-conformance.json
 else
 WT_PORT_MANIFEST := $(PORT_DIR)/manifest.json
 endif
+# The manifest variants this port renders (manifest/<variant>.json, aarch64 block).
+WT_PORT_VARIANTS := tpm pkcs11
 
 WT_EL3_TEXT_BASE ?= 0x00000000
 WT_EL3_RAM_BASE ?= 0x0E000000

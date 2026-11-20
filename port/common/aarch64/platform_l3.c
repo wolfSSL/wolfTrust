@@ -105,6 +105,7 @@ size_t wt_platform_conf_shared_regions(wt_memory_region_t* regions,
     (defined(WT_KEYSTORE_NEG_PROBE) && (WT_KEYSTORE_NEG_PROBE == 1)) || \
     (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
     (defined(WT_PERIPH_SP_NEG_PROBE) && (WT_PERIPH_SP_NEG_PROBE == 1)) || \
+    (defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)) || \
     (defined(WT_MANIFEST_NEG_PROBE) && (WT_MANIFEST_NEG_PROBE == 3))
 uintptr_t wt_platform_probe_address(unsigned int target)
 {
@@ -117,6 +118,8 @@ uintptr_t wt_platform_probe_address(unsigned int target)
         return (uintptr_t)WT_SPM_HSMDATA_PA;
     case WT_PROBE_SPM_PERIPHERAL:
         return (uintptr_t)WT_L3_SPM_PERIPHERAL_BASE;
+    case WT_PROBE_INTERFACE_DATA_BAND:
+        return (uintptr_t)WT_INTERFACE_DATA_BASE;
     default:
         return (uintptr_t)WT_SPM_RAM_PA;
     }

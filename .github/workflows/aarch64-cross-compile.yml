@@ -78,7 +78,8 @@ jobs:
       - name: Initialize wolfTrust dependencies
         run: |
           git config --global url."https://github.com/".insteadOf "git@github.com:"
-          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE lib/wolfPSA
+          git submodule update --init --single-branch lib/wolfSSL lib/wolfHSM lib/wolfCOSE lib/wolfPSA \
+            lib/wolfTPM lib/wolfPKCS11
 
       - name: Toolchain and emulator versions
         run: |
@@ -94,6 +95,18 @@ jobs:
       - name: Cross-build the EL3 monitor image (the symbol guard runs at link)
         if: matrix.kind == 'suite'
         run: make ARCH=aarch64 TARGET=${{ matrix.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" BUILD_DIR=build-aarch64-guard el3-image
+
+      - name: Cross-build the TPM 2.0 and PKCS#11 Secure images and Normal-world applications
+        if: matrix.kind == 'suite'
+        run: |
+          for variant in tpm pkcs11; do
+            flag=CONFIG_TPM=y; [ "$variant" = pkcs11 ] && flag=CONFIG_PKCS11=y
+            make ARCH=aarch64 TARGET=${{ matrix.target }} WT_GIC_VERSION="$GIC" WT_CPU="$CPU" \
+              BUILD_DIR=build-aarch64-$variant WT_EL3_NS_SMOKE=1 $flag
+            make -C tests/firmware/aarch64-ns-smoke MACHINE="$MACHINE" \
+              BUILD_DIR=build/ci-$variant WT_NS_GUEST_INTERFACE=$variant \
+              WT_NS_MANIFEST_INC="$PWD/build-aarch64-$variant/manifest"
+          done
 
       - name: Fetch the pinned Arm FF-A ACS once for the six groups
         if: matrix.kind == 'acs'

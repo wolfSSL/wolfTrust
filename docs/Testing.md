@@ -401,12 +401,14 @@ make test-target-a                     # MACHINE=virt GIC=3 CPU=cortex-a72
 make test-target-a MACHINE=versal-virt
 tests/target/run_suite.sh qemu-a positive ffa-memneg
 WT_ENGINE=hsm tests/target/run_qemu_a_scenario.sh hsmattackneg
+WT_ENGINE=native tests/target/run_suite.sh qemu-a tpm tpmneg
+WT_ENGINE=hsm tests/target/run_suite.sh qemu-a pkcs11 pkcs11neg
 ```
 
 `make test-target-a` runs a quick subset (`WT_QEMU_A_SCENARIOS`). CI runs the
-common scenarios below on all three cells under both engines. The TPM 2.0
-and PKCS#11 interfaces are Armv8-M only; the AArch64 ports refuse
-`CONFIG_TPM=y` and `CONFIG_PKCS11=y`.
+common scenarios below on all three cells under both engines, and every
+cell cross-builds the `CONFIG_TPM=y` and `CONFIG_PKCS11=y` Secure images
+with their Normal-world applications.
 
 The runner auto-detects `qemu-system-aarch64` and the `aarch64-none-elf`
 toolchain and skips explicitly otherwise; CI runs it inside
@@ -454,6 +456,8 @@ assert through `tests/target/lib/expect.sh`.
 | `attestneg` | Oversized challenges, empty token buffers, misattributed lifecycles, and tampered tokens are rejected; an untampered token verifies in the guest |
 | `vaultrecover`, `vaultrecoversec` | A foreign vault self-heals under an unlocked lifecycle and is refused, failing closed, under a locked one, where the guest's attestation key query is refused as a reformatted vault would not refuse it |
 | `storage` | The Normal world round-trips Internal Trusted Storage through the vault partition |
+| `tpm`, `tpmneg` | The board-neutral wolfTPM application (`tests/firmware/interface-guest`) runs in the Normal world over FF-A against the fwTPM in its own S-EL0 partition; `tpmneg` adds the crypto partition's read and write of the TPM band, the provider's read of SPM RAM, and its branch into its execute-never band, each a contained S-EL0 fault |
+| `pkcs11`, `pkcs11neg` | The same for the wolfPKCS11 suite: 9 default-profile or 40 full-profile cases, and the same four deliberate faults in `pkcs11neg` |
 | `confboot` | The Arm FF-M IPC suite from the Normal world: 85 passed and 4 skipped on the `virt` cells; 78 and 4 on `xlnx-versal-virt`, where the seven Normal-world fence tests cannot fault without an XMPU model |
 | `devstorage`, `devattest`, `devcrypto` | The Arm dev_apis storage, attestation, and crypto suites from the Normal world over FF-A; the crypto suite (and `vaultrecover`) must total exactly 64 passed and 13 skipped, so a newly skipped test fails the run |
 | `ffaacs-discovery`, `ffaacs-direct`, `ffaacs-memory`, `ffaacs-notify`, `ffaacs-indirect`, `ffaacs-interrupts` | One Arm FF-A ACS test group each, asserted at a floor with no SIM ERROR; see [FF-A Compatibility](FF-A-Compatibility.md) for the counts and by-design deviations |

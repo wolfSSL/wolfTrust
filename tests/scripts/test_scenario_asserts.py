@@ -44,6 +44,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 LIB = os.path.normpath(os.path.join(HERE, "..", "target", "lib"))
 REPO = os.path.normpath(os.path.join(HERE, "..", ".."))
 sys.path.insert(0, LIB)
+import m33mu_console  # noqa: E402
 import scenario_matrix  # noqa: E402
 import scenarios  # noqa: E402
 
@@ -422,6 +423,22 @@ def interleave_problems():
         ctx = scenarios.Ctx("stm32h563", "positive", env, ["zephyr", "freertos"], {})
         if scenarios.Judge(ctx, {"log": text}).run(check) != want:
             out.append("interleaved %s console %r: want %s" % (env, text, want))
+    burst = "[UART] 40004800 attached to stdio\nfreertos_guest1: ffm rng ok\n"
+    ctx = scenarios.Ctx("stm32h563", "hsmattackneg", "emulator", ["zephyr", "freertos"], {})
+    for line, check, want in (
+            ("hsmattackneg forged COMM_INIT client_id=15 rc=0",
+             scenarios.expect("COMM_INIT", "hsmattackneg forged COMM_INIT"), True),
+            ("hsmattackneg IAK sign SUCCEEDED (should have been refused)",
+             scenarios.refute_re("no IAK sign", "hsmattackneg IAK sign SUCCEEDED"), False),
+            ("hsmattackneg IAK sign refused rc=-2104",
+             scenarios.expect_n("one refusal", 1, "hsmattackneg IAK sign refused"), True)):
+        raw = line[:18] + burst + line[18:] + "\n"
+        rejoined = m33mu_console.guest0_console(raw.encode()).decode()
+        for logs, expect in (({"log": raw, "guest0": rejoined}, want),
+                             ({"log": raw, "guest0": raw}, not want)):
+            if scenarios.Judge(ctx, logs).run(check) != expect:
+                out.append("spliced emulator line %r with %s guest0 view: want %s" %
+                           (line, "a rejoined" if logs["guest0"] != raw else "no", expect))
     return out
 
 

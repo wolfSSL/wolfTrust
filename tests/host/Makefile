@@ -53,7 +53,12 @@ UNIT_SUITES := domain manifest manifest_ports lifecycle monitor guest_verify rol
 UNIT_SUITES += $(filter-out $(UNIT_SUITES),$(patsubst %/Makefile,%,$(wildcard \
     $(addsuffix _*/Makefile,$(notdir $(patsubst %/port.json,%,$(wildcard ../../port/*/port.json)))))))
 
-.PHONY: all test test-compilers test-sanitize test-valgrind print-suites clean
+.PHONY: all test test-vault-ccm test-compilers test-sanitize test-valgrind \
+    print-suites clean
+
+# The vault and seal callers rerun with WT_AEAD=ccm after the main pass
+VAULT_CCM_SUITES := native_wire ps_service keystore_ipc negatives nvm_boot \
+    psa_storage_client psa_secure_crypto
 
 all: test
 
@@ -93,6 +98,17 @@ test:
 		echo "PASS: $(TEST_KIND)/$$suite"; \
 	done
 	@echo "PASS: $(TEST_KIND)/all"; echo "LOG: $(LOG_FILE)"
+ifneq ($(TEST_KIND),vault-ccm)
+	@$(MAKE) --no-print-directory test-vault-ccm CC="$(CC)" \
+		BUILD_ROOT="$(BUILD_ROOT)" EXTRA_CFLAGS="$(EXTRA_CFLAGS)"
+endif
+
+test-vault-ccm:
+	@$(MAKE) --no-print-directory test TEST_KIND=vault-ccm CC="$(CC)" \
+		UNIT_SUITES="$(VAULT_CCM_SUITES)" \
+		BUILD_ROOT="$(BUILD_ROOT)/vault-ccm" \
+		LOG_FILE="$(BUILD_ROOT)/vault-ccm/logs/vault-ccm.log" \
+		EXTRA_CFLAGS="$(EXTRA_CFLAGS) -DWT_AEAD_CCM"
 
 test-compilers:
 	$(MAKE) test TEST_KIND=compiler CC="$(CC)" \

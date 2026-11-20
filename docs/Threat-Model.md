@@ -83,7 +83,7 @@ images.
 | Cross-guest key use | The SPM-stamped identity selects the native vault sub-owner; the hsm relay maps guest `N` to forced wolfHSM client ID `N + 1`; with `WT_SECURE_PSA=1` every PSA key and operation is owned by the SPM-stamped client ID and another guest's handle is rejected. |
 | Direct NVM access through a crypto protocol | The native format exposes no general NVM operation; the hsm relay rejects wolfHSM NVM message groups. |
 | Storage object confusion | The vault namespaces objects by front-end partition, stamped client, and UID, and storage requests cannot use its reserved key-object type. |
-| Protected Storage disclosure or edit | AES-256-GCM sealing, a non-exportable device key, authenticated labels, and checked NVM operations. |
+| Protected Storage disclosure or edit | AES-256-GCM sealing (CCM when `WT_AEAD` is `ccm`), a non-exportable device key, authenticated labels, and checked NVM operations. |
 | Stale sealed-object replay | Each sealed write advances a persisted counter used in its nonce; the current slot counter authenticates reads. |
 | Firmware downgrade | Outside assembly-and-test and provisioning, boot checks the Secure-image and recorded-guest floors before first guest execution. Firmware Update separately checks the candidate Secure-image version against its boot-loaded floor before arming wolfBoot. |
 | Malformed update | Bounded aligned writes, staged-image header verification, version binding, and wolfBoot authentication before commit. |

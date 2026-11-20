@@ -280,7 +280,7 @@ int main(void)
         return 1;
     }
     wt_vault_service_set_backend(&wt_hsm_vault_backend);
-    /* PS seals every object; bind the AES-GCM sealer over the same NVM. */
+    /* PS seals every object; bind the AEAD sealer over the same NVM. */
     if (wt_hsm_seal_init(&nvm_ctx) != 0) {
         (void)fprintf(stderr, "wt_hsm_seal_init failed\n");
         return 1;

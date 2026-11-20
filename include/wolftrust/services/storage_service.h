@@ -32,7 +32,7 @@
  * (WT-FFM-0047). Each end client's objects are namespaced by the vault under
  * (partition, client id, uid) via the delegated sub_owner (WT-FFM-0044).
  * The PS instance additionally ORs WT_VAULT_FLAG_SEALED into every request:
- * AES-GCM under the device-unique wolfHSM key plus rollback binding, applied
+ * AES-256 AEAD under the device-unique wolfHSM key plus rollback binding, applied
  * inside the confined vault partition (WT-FFM-0048). */
 
 /* psa_call request types (client face). Ops 1-4 are the shared ITS/PS core;

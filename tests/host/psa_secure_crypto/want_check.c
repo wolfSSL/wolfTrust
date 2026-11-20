@@ -22,9 +22,9 @@
  * PSA_WANT_* surface its service implements. */
 #include "psa/crypto.h"
 
-#if !defined(PSA_WANT_ALG_GCM) || !defined(PSA_WANT_ALG_HKDF) || \
-    !defined(PSA_WANT_ALG_HMAC) || !defined(PSA_WANT_ALG_SHA_256)
-#error "every profile advertises GCM, HKDF, HMAC and SHA-256"
+#if !defined(PSA_WANT_ALG_HKDF) || !defined(PSA_WANT_ALG_HMAC) || \
+    !defined(PSA_WANT_ALG_SHA_256)
+#error "every profile advertises HKDF, HMAC and SHA-256"
 #endif
 
 #ifdef WT_SECURE_PSA_symmetric
@@ -41,11 +41,15 @@
 #endif
 
 #if defined(WT_SECURE_PSA_lean) || defined(WT_SECURE_PSA_symmetric)
-#ifdef PSA_WANT_ALG_CCM
-#error "lean and symmetric advertise CCM"
+#ifdef WT_AEAD_GCM
+#if !defined(PSA_WANT_ALG_GCM) || defined(PSA_WANT_ALG_CCM)
+#error "lean and symmetric with WT_AEAD=gcm advertise GCM and not CCM"
 #endif
-#elif !defined(PSA_WANT_ALG_CCM)
-#error "compat and standard advertise CCM"
+#elif !defined(PSA_WANT_ALG_CCM) || defined(PSA_WANT_ALG_GCM)
+#error "lean and symmetric advertise CCM and not GCM"
+#endif
+#elif !defined(PSA_WANT_ALG_GCM) || !defined(PSA_WANT_ALG_CCM)
+#error "compat and standard advertise GCM and CCM"
 #endif
 
 #ifdef WT_SECURE_PSA_compat

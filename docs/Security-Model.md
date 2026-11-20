@@ -320,7 +320,7 @@ flag. Protected Storage always adds sealing even when a caller supplies
 `NO_CONFIDENTIALITY` or `NO_REPLAY_PROTECTION` hints.
 The current `psa_ps_get_info()` implementation echoes those requested hint
 flags instead of reporting the stronger protection actually applied.
-Sealing uses AES-256-GCM with:
+Sealing uses AES-256-GCM, or AES-256-CCM when `WT_AEAD` is `ccm`, with:
 
 - a device-local non-exportable key stored in the shared Secure NVM store;
 - the object label as authenticated data;

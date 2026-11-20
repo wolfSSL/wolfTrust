@@ -21,7 +21,7 @@
 /* Host proof of the PS partition (P4-S3, WT-FFM-0048): the full sealed
  * storage chain — a Non-secure client calling SERVICE_PS, the PS dispatch
  * forcing WT_VAULT_FLAG_SEALED and forwarding over SP-to-SP FF-M IPC to
- * SERVICE_VAULT, the real wt_hsm_vault backend AES-GCM-sealing every object
+ * SERVICE_VAULT, the real wt_hsm_vault backend AEAD-sealing every object
  * under the device-unique wolfHSM key with the persisted rollback counter as
  * nonce, over the real wolfHSM NVM stack on the RAM flash simulator.
  * Negative evidence: plaintext never at rest, a rolled-back ciphertext fails
@@ -949,7 +949,7 @@ int main(void)
         return 1;
     }
 
-    /* The sealed chain: NS -> PS -> gate -> vault -> AES-GCM -> NVM. */
+    /* The sealed chain: NS -> PS -> gate -> vault -> AEAD -> NVM. */
     status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     secret_v1, sizeof(secret_v1));
     check(status == PSA_SUCCESS,
@@ -964,7 +964,7 @@ int main(void)
     /* WT-FFM-0048: plaintext is never at rest — the stored NVM object is
      * ciphertext + tag, and the secret bytes appear nowhere in flash. */
     check(test_find_stored(sizeof(secret_v1), &stored_id, &meta) == 0,
-          "stored object is plain length + GCM tag");
+          "stored object is plain length + AEAD tag");
     if (stored_id != 0U) {
         check(test_flash_contains(secret_v1, sizeof(secret_v1)) == 0,
               "WT-FFM-0048 secret plaintext absent from flash at rest");

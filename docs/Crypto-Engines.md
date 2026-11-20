@@ -121,7 +121,8 @@ The defined operations are key generate, import, public export, sign, verify,
 encrypt, decrypt, and destroy, plus random generation and SHA-256 hashing.
 Random responses are limited to 256 bytes per request. P-256 signatures use a
 fixed 64-byte `r || s` form and public keys use the 65-byte uncompressed X9.63
-form. AES-256 encrypt and decrypt use AES-GCM and return or consume
+form. AES-256 encrypt and decrypt use AES-GCM, or AES-CCM when `WT_AEAD` is
+`ccm` (the `lean` and `symmetric` default), and return or consume
 `nonce || ciphertext || tag`.
 
 The structures are copied directly between the reference Cortex-M client and
@@ -196,7 +197,7 @@ includes too:
 | --- | --- | ---: |
 | `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, TLS 1.2 PRF | 109,849 / 48,844 |
 | `standard` | `compat` without PBKDF2, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 103,067 / 48,844 |
-| `lean` | `standard` without CCM and AES decryption | 101,403 / 48,844 |
+| `lean` | `standard` with one AEAD, CCM (`WT_AEAD=gcm` swaps it for GCM), and no AES decryption | 101,403 / 48,844 |
 | `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 96,667 / 48,844 |
 
 RAM is the Secure RAM the image reserves. It is the same for every profile:

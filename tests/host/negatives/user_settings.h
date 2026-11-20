@@ -93,6 +93,9 @@
 #define NO_DH
 #define NO_DSA
 #define HAVE_AESGCM
+#ifdef WT_AEAD_CCM
+#define HAVE_AESCCM
+#endif
 #define NO_DES3
 #define NO_RC4
 #define NO_MD4

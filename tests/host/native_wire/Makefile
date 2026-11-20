@@ -54,6 +54,7 @@ WC_CFLAGS := $(filter-out -std=c11 -Werror -pedantic -Wextra,$(CFLAGS))
 _WT_SRCS := \
     $(ROOT)/src/services/native/native_wire.c \
     $(ROOT)/src/services/native/keyvault.c \
+    $(ROOT)/src/services/wolfhsm/wt_hsm_aead.c \
     $(ROOT)/src/services/wolfhsm/wt_hsm_vault.c
 
 _WH_SRCS := \
@@ -137,10 +138,10 @@ run: $(TEST_BIN)
 	if [ "$$result" -ne 1 ]; then \
 	    cat $(BUILD_DIR)/aes_setup_failure.log; exit 1; \
 	fi; \
-	if ! grep -q '^PASS: AES-GCM setup failure returns safely$$' $(BUILD_DIR)/aes_setup_failure.log; then \
+	if ! grep -q '^PASS: AEAD setup failure returns safely$$' $(BUILD_DIR)/aes_setup_failure.log; then \
 	    cat $(BUILD_DIR)/aes_setup_failure.log; exit 1; \
 	fi; \
-	printf '%s\n' 'PASS: AES-GCM setup failure remains a failed test'
+	printf '%s\n' 'PASS: AEAD setup failure remains a failed test'
 	$(MAKE) --no-print-directory all BUILD_DIR=$(BUILD_DIR)/asn ASN=1
 	$(BUILD_DIR)/asn/test_native_wire
 ifneq ($(SP_DIRECT),1)

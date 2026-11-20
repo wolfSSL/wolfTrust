@@ -14,7 +14,7 @@ jobs:
   cortex-m33:
     name: cortex_m33_cross_compile
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     steps:
@@ -198,6 +198,44 @@ jobs:
             WT_PSA_KEY_SLOTS=8 WT_PSA_OP_SLOTS=4 secure-image \
             TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_spsa_sizes
           grep -qx 'WT_PSA_SIZES=8192/8/4/' build_spsa_sizes/secure_build_mode.stamp
+          # lean and symmetric offer one PSA AEAD: CCM unless WT_AEAD=gcm
+          for aead in "" gcm ccm; do
+            dir=build_aead_lean_${aead:-default}
+            used=${aead:-ccm}
+            make WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=lean WT_AEAD=$aead \
+              secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
+            grep -qx "WT_AEAD=$used" $dir/secure_build_mode.stamp
+            if [ "$used" = ccm ]; then want=CCM; drop=GCM; else want=GCM; drop=CCM; fi
+            cfg=$dir/wolfpsa_cfg/crypto_config_generated.h
+            arm-none-eabi-nm $dir/wolftrust.elf > $dir/syms.txt
+            grep -qE "^#define PSA_WANT_ALG_$want\b" $cfg
+            grep -qi " wc_Aes$want" $dir/syms.txt
+            if grep -qE "^#define PSA_WANT_ALG_$drop\b" $cfg || grep -qi " wc_Aes$drop" $dir/syms.txt; then
+              echo "FAIL: lean with WT_AEAD=$used still carries $drop" >&2
+              exit 1
+            fi
+          done
+          make WT_SECURE_PSA=1 WT_AEAD=ccm secure-image TOOLPREFIX=arm-none-eabi- \
+            BUILD_DIR=build_aead_compat_ccm
+          grep -qx 'WT_AEAD=ccm' build_aead_compat_ccm/secure_build_mode.stamp
+          for want in GCM CCM; do
+            grep -qE "^#define PSA_WANT_ALG_$want\b" \
+              build_aead_compat_ccm/wolfpsa_cfg/crypto_config_generated.h
+          done
+          for mode in "WT_ENGINE=hsm" "WT_SECURE_PSA=0"; do
+            # shellcheck disable=SC2086
+            make $mode WT_AEAD=ccm secure-image TOOLPREFIX=arm-none-eabi- \
+              BUILD_DIR=build_aead_mode
+            grep -qx 'WT_AEAD=ccm' build_aead_mode/secure_build_mode.stamp
+            arm-none-eabi-nm build_aead_mode/wolftrust.elf | grep -q ' wc_AesCcm'
+            rm -rf build_aead_mode
+          done
+          if make WT_AEAD=chacha BUILD_DIR=build_spsa_bad secure-image \
+              TOOLPREFIX=arm-none-eabi- 2> spsa.err; then
+            echo "FAIL: WT_AEAD=chacha built" >&2
+            exit 1
+          fi
+          grep -q 'WT_AEAD' spsa.err
           for bad in "WT_PSA_OP_SLOTS=1x" "WT_PSA_OP_SLOTS=300" "WT_PSA_POOL_BYTES=1024"; do
             # shellcheck disable=SC2086
             if make WT_SECURE_PSA=1 $bad BUILD_DIR=build_spsa_bad \

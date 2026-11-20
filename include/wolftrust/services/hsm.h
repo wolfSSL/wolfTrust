@@ -175,14 +175,29 @@ int wt_hsm_vault_init(struct whNvmContext_t* nvm);
 struct wt_vault_backend;
 extern const struct wt_vault_backend wt_hsm_vault_backend;
 
-/* Vault sealer (WT-FFM-0048): AES-GCM confidentiality and rollback binding
+/* Vault sealer (WT-FFM-0048): AEAD confidentiality and rollback binding
  * for WT_VAULT_FLAG_SEALED objects. Operations run in the confined vault SP,
  * with the device-unique key kept in the shared keystore trust band. seal
  * writes pt_len + WT_VAULT_SEAL_TAG_LEN bytes ([ciphertext][tag]); unseal
  * takes ct_len >= tag length and writes ct_len - tag plaintext bytes. The
- * monotonic rollback counter is the GCM nonce, so a replayed (rolled-back)
+ * monotonic rollback counter is the AEAD nonce, so a replayed (rolled-back)
  * ciphertext fails tag authentication. */
 #define WT_VAULT_SEAL_TAG_LEN 16U
+
+/* AES-256 AEAD shared by the vault encrypt service and the sealer: GCM, or
+ * CCM under WT_AEAD_CCM. 12-byte nonce, 16-byte tag. decrypt clears out
+ * on failure and reports a bad tag as PSA_ERROR_INVALID_SIGNATURE. */
+#define WT_HSM_AEAD_KEY_LEN   32U
+#define WT_HSM_AEAD_NONCE_LEN 12U
+#define WT_HSM_AEAD_TAG_LEN   16U
+psa_status_t wt_hsm_aead_encrypt(const uint8_t* key, const uint8_t* nonce,
+                                 const uint8_t* aad, size_t aad_len,
+                                 const uint8_t* in, size_t len, uint8_t* out,
+                                 uint8_t* tag);
+psa_status_t wt_hsm_aead_decrypt(const uint8_t* key, const uint8_t* nonce,
+                                 const uint8_t* aad, size_t aad_len,
+                                 const uint8_t* in, size_t len,
+                                 const uint8_t* tag, uint8_t* out);
 
 /* Device-unique seal key + rollback counter table ids: directly above the
  * vault object window (0x0100..0x011F), never matched by vault lookups. */
@@ -202,7 +217,7 @@ typedef struct wt_vault_sealer {
  * are refused with PSA_ERROR_NOT_SUPPORTED. */
 void wt_hsm_vault_set_sealer(const wt_vault_sealer_t* sealer);
 
-/* wolfCrypt AES-256-GCM sealer over the device-unique key at
+/* wolfCrypt AES-256 AEAD sealer over the device-unique key at
  * WT_HSM_SEAL_KEY_ID (generated on first boot, NONEXPORTABLE and immutable).
  * Only linked into builds that carry wolfCrypt. */
 int wt_hsm_seal_init(struct whNvmContext_t* nvm);

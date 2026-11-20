@@ -24,6 +24,17 @@
 #ifndef WOLFTRUST_SECURE_PSA_PROFILE_H
 #define WOLFTRUST_SECURE_PSA_PROFILE_H
 
+/* The vault's AES AEAD, and the one PSA AEAD of lean and symmetric */
+#if defined(WT_AEAD_GCM) && defined(WT_AEAD_CCM)
+#error "WT_AEAD_GCM and WT_AEAD_CCM are exclusive"
+#endif
+#if defined(WT_SECURE_PSA_lean) || defined(WT_SECURE_PSA_symmetric)
+#define WT_PSA_ONE_AEAD
+#if !defined(WT_AEAD_GCM) && !defined(WT_AEAD_CCM)
+#define WT_AEAD_CCM
+#endif
+#endif
+
 #ifdef WT_SECURE_PSA
 #if defined(WT_PSA_WANT_PROBE) && defined(WT_SECURE_PSA_symmetric)
 /* The vault keeps ECC; the PSA_WANT_* surface of this profile does not. */
@@ -36,9 +47,11 @@
 #define WOLFSSL_AES_TOUCH_LINES
 #undef GCM_SMALL
 #define WOLFSSL_AES_COUNTER
+#if !defined(WT_PSA_ONE_AEAD) || !defined(WT_AEAD_CCM)
 /* wolfPSA's multipart GCM runs on the wolfCrypt GCM streaming calls. */
 #define WOLFSSL_AESGCM_STREAM
-#if !defined(WT_SECURE_PSA_lean) && !defined(WT_SECURE_PSA_symmetric)
+#endif
+#if !defined(WT_PSA_ONE_AEAD) || defined(WT_AEAD_CCM)
 #define HAVE_AESCCM
 /* wolfPSA's multipart CCM runs on the direct AES block calls. */
 #define WOLFSSL_AES_DIRECT
@@ -71,6 +84,14 @@ void* wt_psa_pool_realloc(void* p, unsigned int sz);
 #define XFREE(p, h, t)       do { (void)(h); (void)(t); wt_psa_pool_free(p); } while (0)
 #define XREALLOC(p, n, h, t) ((void)(h), (void)(t), wt_psa_pool_realloc((p), (unsigned int)(n)))
 #endif
+#endif
+
+#if defined(WT_AEAD_CCM) && !defined(HAVE_AESCCM)
+#define HAVE_AESCCM
+#endif
+#ifdef WT_AEAD_CCM
+/* wolfCrypt builds CCM decrypt only with HAVE_AES_DECRYPT; it runs AES forward */
+#undef NO_AES_DECRYPT
 #endif
 
 #endif /* WOLFTRUST_SECURE_PSA_PROFILE_H */

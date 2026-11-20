@@ -31,6 +31,9 @@
 #define NO_TLS
 
 #define HAVE_AESGCM
+#ifdef WT_AEAD_CCM
+#define HAVE_AESCCM
+#endif
 
 #define WOLFSSL_SHA256
 #define HAVE_HASHDRBG

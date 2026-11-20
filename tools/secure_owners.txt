@@ -73,6 +73,7 @@ wh_sec_wh_nvm_flash.o                  vault
 wt_sec_hsm_flash_ctx.o                 vault
 wt_sec_nvm_store.o                     vault
 wt_sec_vault_service.o                 vault
+wt_sec_wt_hsm_aead.o                   shared
 wt_sec_wt_hsm_seal.o                   vault
 wt_sec_wt_hsm_vault.o                  vault
 

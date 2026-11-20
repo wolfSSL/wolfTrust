@@ -21,7 +21,7 @@
 /* Native crypto wire suite: drives wt_native_submit with real request
  * packets over a RAM-backed NVM store, exactly as SERVICE_HSM's relay hands
  * them over on target — every operation, the per-client key namespace, usage
- * and type enforcement, malformed packets, and AES-GCM tamper rejection. */
+ * and type enforcement, malformed packets, and AEAD tamper rejection. */
 
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/types.h"
@@ -332,7 +332,7 @@ static void test_usage_and_type(void)
 
 static void test_aes_gcm(void)
 {
-    static const uint8_t plaintext[] = "native wire AES-GCM round trip";
+    static const uint8_t plaintext[] = "native wire AEAD round trip";
     uint8_t ct[WT_HSM_RELAY_MSG_MAX];
     uint8_t pt[WT_HSM_RELAY_MSG_MAX];
     size_t ct_len = 0U;
@@ -498,7 +498,7 @@ int main(int argc, char* argv[])
         if (g_failures != 1) {
             return 2;
         }
-        (void)printf("PASS: AES-GCM setup failure returns safely\n");
+        (void)printf("PASS: AEAD setup failure returns safely\n");
         return 1;
     }
 

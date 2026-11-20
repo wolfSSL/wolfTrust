@@ -253,6 +253,14 @@ endif
 ifeq ($(WT_DEPUTY_NEG_PROBE),1)
 SECURE_CFLAGS += -DWT_DEPUTY_NEG_PROBE=1
 endif
+# The vault's AES AEAD, and the one PSA AEAD of lean and symmetric (ccm there)
+WT_AEAD ?=
+ifneq ($(filter-out gcm ccm,$(WT_AEAD))$(word 2,$(WT_AEAD)),)
+$(error unsupported WT_AEAD='$(WT_AEAD)' (want gcm or ccm))
+endif
+WT_AEAD_ONE := $(if $(filter 1,$(WT_SECURE_PSA)),$(filter lean symmetric,$(WT_SECURE_PSA_PROFILE)))
+WT_AEAD_USED := $(or $(WT_AEAD),$(if $(WT_AEAD_ONE),ccm,gcm))
+SECURE_CFLAGS += -DWT_AEAD_$(if $(filter ccm,$(WT_AEAD_USED)),CCM,GCM)
 ifeq ($(WT_HSM_PIN_NEG_PROBE),1)
 # Probe lives in the hsm-only wt_hsm.c; defining it for a native build would
 # leave the spm_partitions.c call undefined at link. Native has no tasklet, so
@@ -554,6 +562,11 @@ WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/native/psa_crypto_service.c
 ifeq ($(WT_SECURE_PSA_PROFILE),compat)
 WOLFCRYPT_SECURE_SRCS += $(WOLFSSL_DIR)/wolfcrypt/src/kdf.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/pwdbased.c
+endif
+ifneq ($(WT_AEAD_ONE),)
+ifeq ($(WT_AEAD_USED),ccm)
+WT_PSA_WANT_WITHOUT := --without PSA_WANT_ALG_GCM
+endif
 endif
 endif
 
@@ -1864,6 +1877,7 @@ BUILD_MODE_LINES = \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_SPM_STACK_SIZE=$(WT_SPM_STACK_SIZE)' \
 		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \
+		'WT_AEAD=$(WT_AEAD_USED)' \
 		'WT_WOLFCRYPT_ARMASM=$(WT_WOLFCRYPT_ARMASM)' \
 		'WT_SHA256_FAST=$(WT_SHA256_FAST)' \
 		'WT_WOLFCRYPT_STM32_HASH=$(WT_WOLFCRYPT_STM32_HASH)' \
@@ -1904,7 +1918,7 @@ ifeq ($(WT_SECURE_PSA),1)
 # FORCE: the generator rewrites the header only when the surface changes.
 $(WT_PSA_CONFIG_H): $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) FORCE | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
-	python3 $(WOLFPSA_DIR)/tools/gen-crypto-config.py $@ "$(CC)" \
+	python3 $(WOLFPSA_DIR)/tools/gen-crypto-config.py $(WT_PSA_WANT_WITHOUT) $@ "$(CC)" \
 	    $(WOLFPSA_DIR)/tools/psa_want_probe.c $(HSM_LIB_CFLAGS) -I$(WOLFPSA_DIR)/src \
 	    -DWT_PSA_WANT_PROBE
 $(BUILD_DIR)/wt_sec_psa_crypto_service.o: $(WT_PSA_CONFIG_H)

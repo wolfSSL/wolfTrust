@@ -36,8 +36,8 @@ typedef struct wt_msg_client {
     psa_handle_t handle;
 } wt_msg_client_t;
 
-#define WT_MSG_CLIENT_INIT(sid, version, message_max) \
-    { (sid), (version), (message_max), PSA_NULL_HANDLE }
+#define WT_MSG_CLIENT_INIT(sid, version, message_max) { \
+    (sid), (version), (message_max), PSA_NULL_HANDLE }
 
 /* Sends one request and returns its response; never replays a failed call. */
 int wt_msg_client_call(wt_msg_client_t* client, const uint8_t* request,

@@ -5,8 +5,8 @@ manifest/base.json describes the production partitions with every address
 and size written as a memory_map.h expression; a variant overlay
 (manifest/conformance.json, manifest/vnet.json) drops partitions and adds
 its own domains and partitions in the same form; an overlay's per-arch block
-(--arch) replaces its domains and adds FF-A partitions for that arch's port
-manifest, which is then the template. The renderer applies the
+(--arch) overrides its one domain's entry point and code window and adds FF-A
+partitions for that arch's port manifest, which is then the template. The renderer applies the
 overlays, evaluates every expression in one preprocessor pass under the
 build's layout configuration (--cflags, the WT_LAYOUT_CFLAGS of
 mk/layout.mk), derives the capability and limit counters from the content
@@ -36,11 +36,25 @@ def apply_overlay(manifest, overlay, arch=None):
     if arch is not None:
         if arch not in overlay:
             raise RenderError("overlay has no %s block" % arch)
-        overlay = dict(overlay, **overlay[arch])
+        block = overlay[arch]
+        unknown = set(block) - {"domain", "ffa_partitions"}
+        if unknown:
+            raise RenderError("the %s block has unknown key(s): %s" %
+                              (arch, ", ".join(sorted(unknown))))
+        override = block.get("domain", {})
+        domains = copy.deepcopy(overlay.get("domains", []))
+        if override and len(domains) != 1:
+            raise RenderError("the %s domain override needs exactly one "
+                              "overlay domain" % arch)
+        if "entry_point" in override:
+            domains[0]["entry_point"] = override["entry_point"]
+        if "code_resource" in override:
+            domains[0]["memory_resources"][0] = dict(override["code_resource"])
+        overlay = dict(overlay, domains=domains)
         if "ffa" not in manifest:
             raise RenderError("the %s template has no ffa section" % arch)
         manifest["ffa"]["partitions"] += copy.deepcopy(
-            overlay.get("ffa_partitions", []))
+            block.get("ffa_partitions", []))
     dropped = set(overlay.get("drop_partitions", []))
     unknown = dropped - {part["name"] for part in manifest["partitions"]}
     if unknown:

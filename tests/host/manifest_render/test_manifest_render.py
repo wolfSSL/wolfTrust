@@ -378,6 +378,12 @@ def aarch64_checks():
             result = aarch64_render(target, plain)
             check(result.returncode != 0 and "no aarch64 block" in result.stderr,
                   "%s: an overlay without an aarch64 block rendered" % target)
+            overlay = json.loads((ROOT / "manifest" / "tpm.json").read_text())
+            overlay["aarch64"]["domains"] = overlay["domains"]
+            plain.write_text(json.dumps(overlay), encoding="utf-8")
+            result = aarch64_render(target, plain)
+            check(result.returncode != 0 and "unknown key" in result.stderr,
+                  "%s: an aarch64 block replacing the domains rendered" % target)
         result = aarch64_render(target, ROOT / "manifest" / "tpm.json", TEMPLATE)
         check(result.returncode != 0 and "no ffa section" in result.stderr,
               "%s: --arch aarch64 rendered onto a template without ffa" % target)

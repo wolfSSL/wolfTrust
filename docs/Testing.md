@@ -408,7 +408,9 @@ WT_ENGINE=hsm tests/target/run_suite.sh qemu-a pkcs11 pkcs11neg
 `make test-target-a` runs a quick subset (`WT_QEMU_A_SCENARIOS`). CI runs the
 common scenarios below on all three cells under both engines, and every
 cell cross-builds the `CONFIG_TPM=y` and `CONFIG_PKCS11=y` Secure images
-with their Normal-world applications.
+with their Normal-world applications. The full tier also runs the four
+interface scenarios under `WT_INTERFACE_PROFILE=full` on every cell and engine;
+their application markers come from `tests/target/lib/scenarios.py`, as on M33MU.
 
 The runner auto-detects `qemu-system-aarch64` and the `aarch64-none-elf`
 toolchain and skips explicitly otherwise; CI runs it inside

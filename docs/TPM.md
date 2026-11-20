@@ -103,5 +103,5 @@ port builds, and each profile the port registers, from the port registry's
 layout has no update partition for the full profile's `WT_FWU=1`. The
 cross-compile workflow builds the `CONFIG_TPM=y` Secure image on every port
 and engine, and the host manifest suite validates its rendered manifest.
-The AArch64 workflow runs `tpm` and `tpmneg` on every QEMU cell and engine
-and cross-builds the TPM image and application in every job.
+The AArch64 workflow runs `tpm` and `tpmneg` on every QEMU cell, engine and
+profile, and cross-builds the TPM image and application in every job.

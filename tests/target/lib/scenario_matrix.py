@@ -129,6 +129,8 @@ QEMU_A_SUITE = (
     "devattest", "devattestqcbor", "devcrypto", "tpm", "tpmneg", "pkcs11",
     "pkcs11neg",
 )
+# The full interface profile's TPM 2.0 and PKCS#11 runs (the suite runs the default).
+QEMU_A_INTERFACE = ("tpm", "tpmneg", "pkcs11", "pkcs11neg")
 QEMU_A_ACS = (
     "ffaacs-discovery", "ffaacs-direct", "ffaacs-memory", "ffaacs-notify",
     "ffaacs-indirect", "ffaacs-interrupts",
@@ -194,14 +196,16 @@ def load_ports(root=PORT_ROOT):
 PORTS = load_ports()
 
 
-def qemu_a_entry(cell, engine, kind, tier, scenarios):
-    job = "%s_%s_%s" % ("el3" if kind == "suite" else "ffa_acs",
+def qemu_a_entry(cell, engine, kind, tier, scenarios, profile="default"):
+    job = "%s_%s_%s" % ({"suite": "el3", "acs": "ffa_acs",
+                         "interface": "interface_full"}[kind],
                         cell["slug"], engine)
     return {"kind": kind, "tier": tier, "cell": cell["name"],
             "slug": cell["slug"], "machine": cell["machine"],
             "target": cell["target"], "gic": cell["gic"], "cpu": cell["cpu"],
             "smp": cell["smp"], "engine": engine, "image": QEMU_A_IMAGE,
-            "scenarios": " ".join(scenarios), "job": job}
+            "scenarios": " ".join(scenarios), "job": job,
+            "interface_profile": profile}
 
 
 def qemu_a_cell_suite(cell):
@@ -215,6 +219,8 @@ def qemu_a_full(cell):
         out.append(qemu_a_entry(cell, engine, "suite", "full",
                                 qemu_a_cell_suite(cell)))
         out.append(qemu_a_entry(cell, engine, "acs", "full", QEMU_A_ACS))
+        out.append(qemu_a_entry(cell, engine, "interface", "full",
+                                QEMU_A_INTERFACE, "full"))
     return out
 
 
@@ -565,6 +571,13 @@ def qemu_a_l3_gaps():
             if not cell.get("l3_exempt", {}).get(scenario, "").strip():
                 gaps.append("%s does not plan level 3 scenario %s" %
                             (cell["name"], scenario))
+        profiled = [e for e in qemu_a_full(cell) if e["kind"] == "interface"]
+        if sorted(e["engine"] for e in profiled) != sorted(ENGINES) or \
+                any(e["interface_profile"] != "full" or
+                    e["scenarios"].split() != list(QEMU_A_INTERFACE)
+                    for e in profiled):
+            gaps.append("%s does not plan the full-profile interface runs" %
+                        cell["name"])
         for scenario, reason in sorted(cell.get("l3_exempt", {}).items()):
             if scenario not in QEMU_A_L3_REQUIRED:
                 gaps.append("%s exempts %s, which is not a level 3 scenario" %

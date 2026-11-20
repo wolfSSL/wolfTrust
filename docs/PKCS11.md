@@ -200,5 +200,5 @@ the port builds, and each profile the port registers, from the port registry's
 `m33mu.groups`: nine default-profile cases and 40 full-profile cases. The
 STM32L562 runs the default profile only. The cross-compile
 workflow builds the `CONFIG_PKCS11=y` Secure image on every port and engine.
-The AArch64 workflow runs `pkcs11` and `pkcs11neg` on every QEMU cell and
-engine and cross-builds the image and application in every job.
+The AArch64 workflow runs `pkcs11` and `pkcs11neg` on every QEMU cell, engine
+and profile and cross-builds the image and application in every job.

@@ -69,6 +69,7 @@ jobs:
       GIC: ${{ matrix.gic }}
       CPU: ${{ matrix.cpu }}
       SMP: ${{ matrix.smp }}
+      WT_INTERFACE_PROFILE: ${{ matrix.interface_profile }}
     steps:
       - uses: actions/checkout@v4
 

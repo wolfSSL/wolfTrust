@@ -1176,31 +1176,15 @@ case "$scenario" in
     refute_re "no synchronous exception reached EL3" '^\[SYNC EL=1'
     refute_re "no EL3 panic" '\[EL3\] panic'
     refute_re "no SPMC panic" '\[SPM\] panic'
-    interface_profile="${WT_INTERFACE_PROFILE:-default}"
-    if [ "${scenario#tpm}" != "$scenario" ]; then
-      app=tpm-guest0
-      expect "TPM application guest alive" "$app: alive"
-      expect "fwTPM capabilities match the relay frame limit" "$app: tpm frame caps ok"
-      expect "valid TPM command reaches the advertised frame limit" "$app: tpm max frame ok"
-      if [ "$interface_profile" = default ] && [ "$scenario" = tpm ]; then
-        expect "TPM capabilities match the selected commands" "$app: tpm command capabilities match profile"
-        expect "disabled TPM command refused by the provider" "$app: tpm disabled command rejected"
-      fi
-      expect "repeated bad authorization reaches DA lockout" "$app: tpm lockout ok"
-      expect "wolfTPM round trip through the isolated fwTPM" "$app: tpm round trip ok"
-      what=TPM
-    else
-      app=pkcs11-guest0
-      suite=profile
-      [ "$interface_profile" = default ] || suite=all
-      [ "$interface_profile" != default ] && [ "$scenario" = pkcs11neg ] && suite=core
-      case "$suite" in profile) want=9 ;; core) want=10 ;; *) want=40 ;; esac
-      expect "PKCS#11 application guest alive" "$app: alive"
-      expect "the $suite PKCS#11 suite completed" "$app: suite $suite complete"
-      expect "the PKCS#11 suite reported zero failures" "$app: TOTAL FAILED: 0"
-      expect "the PKCS#11 suite ran every planned case" "$app: TOTAL PASSED: $want"
-      what=PKCS#11
-    fi
+    # The application's own markers are the ones the M33 judge checks.
+    app_checks=$(python3 "$repo/tests/target/lib/scenarios.py" --interface-app "$scenario" \
+      --profile "${WT_INTERFACE_PROFILE:-default}") || app_checks=
+    [ -n "$app_checks" ] || check_fail "interface application markers" "scenarios.py --interface-app failed"
+    while IFS=$'\t' read -r desc text; do
+      [ -n "$desc" ] && expect "$desc" "$text"
+    done <<< "$app_checks"
+    what=TPM
+    [ "${scenario#pkcs11}" != "$scenario" ] && what=PKCS#11
     expect "the Normal-world application completed" "[NS] interface suite complete"
     if [ "${scenario%neg}" != "$scenario" ]; then
       band_far=$(printf 'FAR=0x%016x' $((WT_INTERFACE_DATA_BASE)))

@@ -177,79 +177,20 @@ endif
 ifeq ($(WT_NS_GUEST_STORAGE),1)
 CFLAGS += -DWT_NS_GUEST_STORAGE=1
 endif
-# The same sources and settings as the Armv8-M interface guest, on 64-bit SP math.
-IF_GUEST_DIR := $(ROOT)/tests/firmware/interface-guest
-WOLFTPM_DIR ?= $(ROOT)/lib/wolfTPM
-WOLFPKCS11_DIR ?= $(ROOT)/lib/wolfPKCS11
-IF_WIRED :=
-IF_ABSENT :=
+# The board-neutral interface application, as the Armv8-M guest builds it,
+# on 64-bit C SP math with the payload's console, heap and string helpers.
 ifneq ($(WT_NS_GUEST_INTERFACE),)
-ifeq ($(filter tpm pkcs11,$(WT_NS_GUEST_INTERFACE)),)
-$(error WT_NS_GUEST_INTERFACE must be tpm or pkcs11)
-endif
-CONFIG_PKCS11 := $(if $(filter pkcs11,$(WT_NS_GUEST_INTERFACE)),y,n)
+WT_INTERFACE := $(WT_NS_GUEST_INTERFACE)
+CONFIG_PKCS11 := $(if $(filter pkcs11,$(WT_INTERFACE)),y,n)
 include $(ROOT)/mk/crypto-profile.mk
-WT_PKCS11_FULL_SUITE ?= all
-WT_PKCS11_SUITE ?= $(if $(filter default,$(WT_INTERFACE_PROFILE)),profile,$(WT_PKCS11_FULL_SUITE))
-WT_TPM_DA ?= 1
-CFLAGS += -I$(IF_GUEST_DIR) -I$(WOLFSSL_DIR) -DWOLFSSL_USER_SETTINGS \
-    $(WT_INTERFACE_PROFILE_FLAGS) \
-    -DSP_WORD_SIZE=64 -DHAVE___UINT128_T=1 -DWOLFSSL_USE_ALIGN \
-    -DWT_NS_GUEST_INTERFACE=1 -DWT_TPM_DA=$(WT_TPM_DA) \
-    -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter \
-    -Wno-type-limits
-SRCS += $(ROOT)/src/client/msg_client.c
-ifeq ($(WT_NS_GUEST_INTERFACE),tpm)
-CFLAGS += -I$(WOLFTPM_DIR) -DWOLFTPM_USER_SETTINGS -DWT_TPM_ROLE_APP \
-    -DWOLFTPM_SWTPM -DWOLF_CRYPTO_CB -DWOLFTPM_SMALL_STACK \
-    '-DXSLEEP_MS(ms)=((void)(ms))' \
-    -DWT_INTERFACE_TPM -DWT_TPM_APP_NAME=\"tpm-guest0\" \
-    -DNO_ERROR_STRINGS -DWOLFSSL_PUBLIC_MP -DWC_RSA_DIRECT \
-    -DWC_RESEED_INTERVAL=1000000 -DWT_WOLFHSM_CLIENT_ID=1u \
-    -DWT_MSG_RELAY_ONESHOT=1
-SRCS += $(IF_GUEST_DIR)/tpm_tests.c $(ROOT)/src/client/tpm_psa_transport.c \
-    crypto/ns_crypto_port.c \
-    $(addprefix $(WOLFTPM_DIR)/src/, tpm2.c tpm2_util.c tpm2_packet.c \
-        tpm2_wrap.c tpm2_asn.c tpm2_crypto.c tpm2_param_enc.c tpm2_cryptocb.c) \
-    $(addprefix $(WOLFSSL_DIR)/wolfcrypt/src/, aes.c cryptocb.c ecc.c \
-        random.c sha256.c asn.c coding.c error.c hash.c hmac.c memory.c sha.c \
-        sp_c64.c sp_int.c wolfmath.c wc_port.c sha512.c kdf.c pwdbased.c)
-ifeq ($(WT_ENGINE),native)
-CFLAGS += -DWT_ENGINE_NATIVE=1
-SRCS += $(ROOT)/src/client/crypto_native_client.c
-else
+IF_SP_MATH := sp_c64.c
+IF_SP_MATH_CFLAGS := -DSP_WORD_SIZE=64 -DHAVE___UINT128_T=1 -DWOLFSSL_USE_ALIGN \
+    '-DXSLEEP_MS(ms)=((void)(ms))'
 IF_WH_CFG_DIR := $(BUILD_DIR)/wh_include
-CFLAGS += -DWT_ENGINE_HSM=1 -DWOLFHSM_CFG -I$(WOLFHSM_DIR) \
-    -I$(ROOT)/tests/firmware/stm32h563/nonsecure -I$(IF_WH_CFG_DIR)
-SRCS += $(ROOT)/src/client/hsm_psa_transport.c \
-    $(ROOT)/tests/firmware/zephyr-stm32h5/module/wolfhsm-client/src/wolfhsm_client_glue.c \
-    $(addprefix $(WOLFHSM_DIR)/src/, wh_client.c wh_client_crypto.c \
-        wh_client_cryptocb.c wh_comm.c wh_crypto.c wh_keyid.c \
-        wh_message_comm.c wh_message_crypto.c wh_message_keystore.c \
-        wh_message_nvm.c wh_message_customcb.c wh_message_counter.c \
-        wh_utils.c)
-endif
-IF_WIRED := wt_tpm_psa_transact TPM2_SWTPM_SendCommand
-LDFLAGS += -Wl,-u,wt_tpm_psa_transact,-u,TPM2_SWTPM_SendCommand
-IF_ABSENT := 'fwTPM|FWTPM_|WP11_'
-else
-SUITE_DEF := $(strip \
-    $(if $(filter profile,$(WT_PKCS11_SUITE)),WT_PKCS11_SUITE_PROFILE) \
-    $(if $(filter core,$(WT_PKCS11_SUITE)),WT_PKCS11_SUITE_CORE) \
-    $(if $(filter all,$(WT_PKCS11_SUITE)),WT_PKCS11_SUITE_ALL))
-ifeq ($(SUITE_DEF),)
-$(error WT_PKCS11_SUITE must be profile, core, or all)
-endif
-CFLAGS += -I$(WOLFPKCS11_DIR) -DWOLFPKCS11_USER_SETTINGS -DWOLFPKCS11_NO_ENV \
-    -DWT_INTERFACE_PKCS11 -D$(SUITE_DEF)=1 \
-    -DWT_PKCS11_APP_NAME=\"pkcs11-guest0\" -DWT_MSG_RELAY_CHUNKED=1
-SRCS += $(IF_GUEST_DIR)/pkcs11_tests.c $(ROOT)/src/client/pkcs11_proxy.c \
-    $(ROOT)/src/pkcs11/pkcs11_wire.c $(ROOT)/src/client/pkcs11_psa_transport.c \
-    crypto/ns_crypto_port.c
-IF_WIRED := C_GetFunctionList wt_pkcs11_psa_call
-LDFLAGS += -Wl,-u,C_GetFunctionList,-u,wt_pkcs11_psa_call
-IF_ABSENT := 'WP11_|wolfTPM|TPM2_|wc_'
-endif
+include $(ROOT)/tests/firmware/interface-guest/interface.mk
+CFLAGS += $(IF_CFLAGS)
+LDFLAGS += $(IF_KEEP)
+SRCS += $(IF_SRCS) crypto/ns_crypto_port.c
 endif
 # The memneg guest names memory it lent away in ITS calls.
 ifneq ($(filter 1,$(WT_NS_GUEST_STORAGE) $(WT_NS_GUEST_MEMNEG)),)
@@ -411,24 +352,13 @@ $(addprefix $(BUILD_DIR)/conf/,UsefulBuf.o qcbor_encode.o qcbor_decode.o ieee754
 endif
 
 ifneq ($(WT_NS_GUEST_INTERFACE),)
-$(ELF): $(WT_INTERFACE_PROFILE_HEADER)
-ifeq ($(WT_NS_GUEST_INTERFACE)/$(WT_ENGINE),tpm/hsm)
-$(IF_WH_CFG_DIR)/wolfhsm_cfg.h:
-	mkdir -p $(IF_WH_CFG_DIR)
-	printf '#include "%s"\n' "wh_settings_guest.h" > $@
-	printf '#include "%s"\n' "wh_settings_guest.h" > $(IF_WH_CFG_DIR)/wolfhsm_guest_cfg.h
-$(ELF): $(IF_WH_CFG_DIR)/wolfhsm_cfg.h
-endif
+$(ELF): $(WT_INTERFACE_PROFILE_HEADER) $(IF_WH_CFG_DIR)/wolfhsm_cfg.h
 endif
 
 $(ELF): $(SRCS) $(CONF_OBJS) ns.ld | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRCS) $(CONF_OBJS) -lgcc
 ifneq ($(WT_NS_GUEST_INTERFACE),)
-	@for sym in $(IF_WIRED); do \
-	    $(NM) --defined-only $@ | grep -q " $$sym$$" || \
-	    { echo "FAIL: $@ lacks $$sym" >&2; rm -f $@; exit 1; }; done
-	@if $(NM) --defined-only $@ | grep -Eq $(IF_ABSENT); then \
-	    echo "FAIL: provider code linked into $@" >&2; rm -f $@; exit 1; fi
+	$(call wt_interface_link_check,$@)
 endif
 
 $(BIN): $(ELF)

@@ -68,49 +68,15 @@
     }
   ],
   "aarch64": {
-    "domains": [
-      {
-        "id": 9,
-        "domain_class": 1,
-        "rot_role": 2,
-        "security_state": 0,
-        "privilege_state": 1,
-        "initial_lifecycle": 0,
-        "entry_point": "WT_SPM_IMAGE_PA",
-        "stack_base": "WT_SP_INTERFACE_STACK_BASE",
-        "stack_size": "WT_SP_INTERFACE_STACK_SIZE",
-        "memory_resources": [
-          {
-            "base": "WT_SPM_IMAGE_PA",
-            "size": "WT_SPM_IMAGE_SIZE",
-            "attributes": 37,
-            "share_id": 3
-          },
-          {
-            "base": "WT_SP_INTERFACE_STACK_BASE",
-            "size": "WT_SP_INTERFACE_STACK_SIZE",
-            "attributes": 19,
-            "share_id": 0
-          },
-          {
-            "base": "WT_INTERFACE_DATA_BASE",
-            "size": "WT_INTERFACE_DATA_SIZE",
-            "attributes": 19,
-            "share_id": 0
-          }
-        ],
-        "interrupt_resources": [],
-        "restart_policy": {
-          "action": 1,
-          "restart_limit": 3,
-          "restart_window_ticks": 8000,
-          "initial_delay_ticks": 1
-        },
-        "required_capabilities": 80,
-        "launch_required": 0,
-        "launch_min_version": 0
+    "domain": {
+      "entry_point": "WT_SPM_IMAGE_PA",
+      "code_resource": {
+        "base": "WT_SPM_IMAGE_PA",
+        "size": "WT_SPM_IMAGE_SIZE",
+        "attributes": 37,
+        "share_id": 3
       }
-    ],
+    },
     "ffa_partitions": [
       {
         "domain_id": 9,

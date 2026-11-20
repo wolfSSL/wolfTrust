@@ -9,7 +9,7 @@
 	url = git@github.com:wolfSSL/wolfhal.git
 [submodule "lib/wolfPSA"]
 	path = lib/wolfPSA
-	url = https://github.com/aidangarske/wolfPSA.git
+	url = https://github.com/wolfSSL/wolfPSA.git
 [submodule "lib/wolfIP"]
 	path = lib/wolfIP
 	url = git@github.com:wolfSSL/wolfip.git

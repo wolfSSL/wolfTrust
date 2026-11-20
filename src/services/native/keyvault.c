@@ -561,6 +561,70 @@ psa_status_t wt_hsm_keyvault_destroy(int32_t owner, int32_t sub, uint64_t uid)
     return PSA_SUCCESS;
 }
 
+#ifdef WT_SECURE_PSA
+psa_status_t wt_hsm_keyvault_rec_put(int32_t owner, int32_t sub, uint64_t uid,
+                                     const uint8_t* data, size_t len)
+{
+    if (g_kv_nvm == NULL) {
+        return PSA_ERROR_NOT_SUPPORTED;
+    }
+    if (data == NULL || len == 0U || len > WT_VAULT_OBJECT_MAX) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    return wt_hsm_kv_store(owner, sub, uid, WT_HSM_KEY_TYPE_PSA_RECORD, 0U,
+                           data, len);
+}
+
+/* Reads len bytes at offset; total reports the record size. */
+psa_status_t wt_hsm_keyvault_rec_get(int32_t owner, int32_t sub, uint64_t uid,
+                                     uint32_t offset, uint8_t* data,
+                                     size_t len, size_t* total)
+{
+    whNvmMetadata meta;
+    whNvmId id = WH_NVM_ID_INVALID;
+    uint32_t flags;
+    psa_status_t status;
+
+    if (g_kv_nvm == NULL) {
+        return PSA_ERROR_NOT_SUPPORTED;
+    }
+    status = wt_hsm_vault_lookup_in(g_kv_nvm, owner, sub, uid, &id, &meta,
+                                    NULL);
+    if (status == PSA_SUCCESS) {
+        flags = wt_hsm_vault_flags_of(meta.label);
+        if ((flags & WT_VAULT_FLAG_KEY) == 0U ||
+                WT_HSM_KEY_TYPE_OF(flags) != WT_HSM_KEY_TYPE_PSA_RECORD) {
+            status = PSA_ERROR_NOT_PERMITTED;
+        }
+    }
+    if (status == PSA_SUCCESS && total != NULL) {
+        *total = meta.len;
+    }
+    if (status == PSA_SUCCESS && len != 0U) {
+        if (data == NULL || offset > meta.len || len > meta.len - offset) {
+            status = PSA_ERROR_INVALID_ARGUMENT;
+        }
+        else if (wh_Nvm_Read(g_kv_nvm, id, (whNvmSize)offset, (whNvmSize)len,
+                             data) != WH_ERROR_OK) {
+            status = PSA_ERROR_STORAGE_FAILURE;
+        }
+    }
+    return status;
+}
+
+psa_status_t wt_hsm_keyvault_rec_remove(int32_t owner, int32_t sub,
+                                        uint64_t uid)
+{
+    psa_status_t status = wt_hsm_keyvault_rec_get(owner, sub, uid, 0U, NULL,
+                                                  0U, NULL);
+
+    if (status == PSA_SUCCESS) {
+        status = wt_hsm_keyvault_destroy(owner, sub, uid);
+    }
+    return status;
+}
+#endif
+
 const wt_vault_key_backend_t wt_hsm_key_backend = {
     wt_hsm_kv_generate,
     wt_hsm_kv_import,

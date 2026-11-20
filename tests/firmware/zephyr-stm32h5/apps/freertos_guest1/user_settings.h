@@ -40,6 +40,9 @@
 
 /* AES-CBC + AES-CTR for the mediated PSA crypto path. */
 #define WOLFSSL_AES_COUNTER
+/* wolfPSA requires constant-time AES; the Thumb-2 assembly is T-table. */
+#define WOLFSSL_AES_TOUCH_LINES
+#define WC_ALLOW_ECC_ZERO_HASH
 
 /* HMAC + HKDF kept on. */
 #define HAVE_HKDF

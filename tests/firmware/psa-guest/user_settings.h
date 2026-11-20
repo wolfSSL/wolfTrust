@@ -48,8 +48,15 @@
 
 #define NO_SHA
 #define WOLFSSL_AES_COUNTER
+/* wolfPSA requires constant-time AES; the Thumb-2 assembly is T-table. */
+#define WOLFSSL_AES_TOUCH_LINES
+#define WC_ALLOW_ECC_ZERO_HASH
 #define HAVE_AESGCM
+/* wolfPSA's multipart GCM runs on the wolfCrypt GCM streaming calls. */
+#define WOLFSSL_AESGCM_STREAM
 #define HAVE_AESCCM
+/* wolfPSA's multipart CCM runs on the direct AES block calls. */
+#define WOLFSSL_AES_DIRECT
 #define HAVE_HKDF
 #define HAVE_PBKDF2
 #define WOLFSSL_HAVE_PRF

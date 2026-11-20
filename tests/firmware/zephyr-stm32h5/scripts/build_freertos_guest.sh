@@ -48,6 +48,7 @@ fi
 mkdir -p "${BUILD_DIR}"
 
 GUEST_CC="${GUEST_CC:-arm-none-eabi-gcc}"
+WT_SECURE_PSA="${WT_SECURE_PSA:-$([ "${WT_ENGINE:-native}" = native ] && echo 1 || echo 0)}"
 GUEST_OBJCOPY="${GUEST_OBJCOPY:-arm-none-eabi-objcopy}"
 
 # Sources -- everything compiled as one TU set fed to gcc.
@@ -75,9 +76,7 @@ ${WOLFSSL_DIR}/wolfcrypt/src/sha.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/sp_cortexm.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/sp_int.c \
 ${WOLFSSL_DIR}/wolfcrypt/src/wolfmath.c \
-${WOLFSSL_DIR}/wolfcrypt/src/wc_port.c \
-${WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c \
-${WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c"
+${WOLFSSL_DIR}/wolfcrypt/src/wc_port.c"
 
 # wolfPSA subset for the PSA Crypto front-end (psa_crypto_init /
 # psa_generate_random / psa_hash_compute); the rest of the API rides the
@@ -118,6 +117,9 @@ ${ROOT}/src/client/crypto_native_client.c"
 
 GUEST_GLUE_SRCS="\
 ${BAREMETAL_NS_DIR}/libc_stubs_guest.c"
+if [ "${WT_SECURE_PSA}" = "1" ]; then
+WOLFPSA_SRCS="${ROOT}/src/client/psa_crypto_client.c ${WOLFPSA_DIR}/src/psa_api_stub.c"
+fi
 else
 WT_CLIENT_SRCS="\
 ${ROOT}/src/client/psa_ffm_client.c \
@@ -139,6 +141,10 @@ printf '#include "%s"\n' "${BAREMETAL_NS_DIR}/wh_settings_guest.h" \
     > "${WH_CFG_DIR}/wolfhsm_guest_cfg.h"
 
 APP_SRCS="${APP_DIR}/main.c"
+PSA_CFG_DIR="${BUILD_DIR}/wolfpsa_cfg"
+if [ "${WT_SECURE_PSA}" = "1" ]; then
+    PSA_CFG_DIR="$(dirname "${SECURE_CMSE_IMPLIB}")/wolfpsa_cfg"
+fi
 
 if [ "${WT_ENGINE}" = "native" ]; then
 WT_ENGINE_DEFS="-DWT_ENGINE_NATIVE=1"
@@ -163,6 +169,7 @@ CFLAGS="\
 -I${WOLFPSA_DIR}/src \
 -I${BAREMETAL_NS_DIR} \
 -I${WH_CFG_DIR} \
+-I${PSA_CFG_DIR} \
 -I${ROOT}/port/stm32h563 \
 -DWOLFSSL_USER_SETTINGS \
 -DWOLFSSL_PSA_ENGINE \
@@ -171,8 +178,6 @@ ${WT_ENGINE_DEFS} \
 -DWC_RESEED_INTERVAL=1000000 \
 -include ${SUBTREE_DIR}/module/wolfpsa/wolfpsa_no_trace.h \
 -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8 \
--DWOLFSSL_ARMASM -DWOLFSSL_ARMASM_NO_HW_CRYPTO -DWOLFSSL_ARMASM_INLINE \
--DWOLFSSL_ARMASM_NO_NEON -DWOLFSSL_ARMASM_THUMB2 \
 -DNO_ERROR_STRINGS \
 -DWOLFSSL_PUBLIC_MP \
 -DWC_RSA_DIRECT \
@@ -185,6 +190,21 @@ LDFLAGS="\
 -Wl,--defsym=GUEST_RAM_ORIGIN=${WT_GUEST1_RAM_BASE} \
 -Wl,--defsym=GUEST_RAM_LENGTH=${WT_GUEST_RAM_SIZE} \
 -Wl,--gc-sections"
+
+# <psa/crypto.h> takes its PSA_WANT_* surface from whoever serves PSA Crypto:
+# the Secure image's profile, or this guest's own wolfCrypt set.
+if [ "${WT_SECURE_PSA}" = "1" ]; then
+    if [ ! -s "${PSA_CFG_DIR}/crypto_config_generated.h" ]; then
+        echo "missing ${PSA_CFG_DIR}/crypto_config_generated.h: build the Secure image first" >&2
+        exit 1
+    fi
+else
+    mkdir -p "${PSA_CFG_DIR}"
+    # shellcheck disable=SC2086
+    python3 "${WOLFPSA_DIR}/tools/gen-crypto-config.py" \
+        "${PSA_CFG_DIR}/crypto_config_generated.h" "${GUEST_CC}" \
+        "${WOLFPSA_DIR}/tools/psa_want_probe.c" ${CFLAGS}
+fi
 
 # shellcheck disable=SC2086
 ${GUEST_CC} ${CFLAGS} ${LDFLAGS} \
@@ -213,6 +233,11 @@ if [ "${WT_ENGINE}" = "native" ]; then
     fi
     if printf '%s\n' "${NM_OUT}" | grep -q "wh_Client"; then
         echo "FAIL: wolfHSM client linked into a native-engine guest1" >&2
+        exit 1
+    fi
+    if [ "${WT_SECURE_PSA}" = "1" ] && \
+            printf '%s\n' "${NM_OUT}" | grep -Eq ' (wc_error_to_psa_status|wolfpsa_get_key_data)$'; then
+        echo "FAIL: wolfPSA linked into a WT_SECURE_PSA guest1" >&2
         exit 1
     fi
 elif ! printf '%s\n' "${NM_OUT}" | grep -q "wt_hsm_psa_transport_cb"; then

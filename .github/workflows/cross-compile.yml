@@ -125,20 +125,20 @@ jobs:
               { echo "WT_MANIFEST_RUNTIME_CHECK=$check linked=$linked" >&2; exit 1; }
           done
       # TF-M v2.3.1 level 3 tfm_s on the STM32L562E-DK is 79,680 bytes of
-      # flash and 45,728 bytes of RAM, partition stacks included; the lean
-      # default, attestation included as in TF-M, must stay below both
-      # (docs/TF-M-Compatibility.md). A port's linked RAM code band is allowed.
-      - name: Check the lean default footprint against TF-M level 3
+      # flash and 45,728 bytes of RAM, partition stacks included; the
+      # guest-local PSA build, attestation included as in TF-M, must stay below
+      # both (docs/TF-M-Compatibility.md). A port's linked RAM code band is allowed.
+      - name: Check the guest-local PSA footprint against TF-M level 3
         run: |
           budget=79680
           for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
-            make TARGET=$target WT_ENGINE=native WT_ATTEST_COSE=1 secure-image \
+            make TARGET=$target WT_ENGINE=native WT_ATTEST_COSE=1 WT_SECURE_PSA=0 secure-image \
               TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_budget_$target
             flash=$(arm-none-eabi-size build_budget_$target/wolftrust.elf \
               | awk 'NR == 2 { print $1 + $2 }')
-            echo "$target native default flash: $flash bytes (budget $budget)"
+            echo "$target guest-local PSA flash: $flash bytes (budget $budget)"
             test "$flash" -le "$budget" || \
-              { echo "FAIL: $target lean default exceeds the TF-M level 3 budget" >&2; exit 1; }
+              { echo "FAIL: $target guest-local PSA build exceeds the TF-M level 3 budget" >&2; exit 1; }
             python3 tools/secure_ram.py --base-max 45728 \
               build_budget_$target/wolftrust.map
           done
@@ -164,12 +164,89 @@ jobs:
             for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
               for engine in $(python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines); do
                 dir=build_addon_${target}_${engine}_${flag%%=*}
-                make TARGET=$target WT_ENGINE=$engine $flag secure-image \
+                # The Thumb-2 AES is not constant time, so it builds with the opt-out.
+                spsa=
+                if [ "$flag" = WT_WOLFCRYPT_ARMASM=1 ]; then spsa=WT_SECURE_PSA=0; fi
+                # shellcheck disable=SC2086
+                make TARGET=$target WT_ENGINE=$engine $flag $spsa secure-image \
                   TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
                 grep -qx "$flag" $dir/secure_build_mode.stamp
+                if [ -n "$spsa" ]; then grep -qx "$spsa" $dir/secure_build_mode.stamp; fi
               done
             done
           done
+      - name: Build every port with PSA Crypto in the Secure image (WT_SECURE_PSA=1, every profile)
+        run: |
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            for profile in compat standard lean symmetric; do
+              dir=build_spsa_${target}_$profile
+              make TARGET=$target WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=$profile \
+                secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
+              grep -qx 'WT_SECURE_PSA=1' $dir/secure_build_mode.stamp
+              grep -qx "WT_SECURE_PSA_PROFILE=$profile" $dir/secure_build_mode.stamp
+            done
+          done
+          for bad in "WT_SECURE_PSA=1 WT_ENGINE=hsm" "WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=bogus" "WT_SECURE_PSA=2" "WT_SECURE_PSA=1 WT_WOLFCRYPT_ARMASM=1"; do
+            # shellcheck disable=SC2086
+            if make $bad BUILD_DIR=build_spsa_bad secure-image TOOLPREFIX=arm-none-eabi- 2> spsa.err; then
+              echo "FAIL: $bad built" >&2
+              exit 1
+            fi
+            grep -q 'WT_SECURE_PSA' spsa.err
+          done
+          make WT_SECURE_PSA=1 WT_PSA_POOL_BYTES=8192 \
+            WT_PSA_KEY_SLOTS=8 WT_PSA_OP_SLOTS=4 secure-image \
+            TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_spsa_sizes
+          grep -qx 'WT_PSA_SIZES=8192/8/4/' build_spsa_sizes/secure_build_mode.stamp
+          for bad in "WT_PSA_OP_SLOTS=1x" "WT_PSA_OP_SLOTS=300" "WT_PSA_POOL_BYTES=1024"; do
+            # shellcheck disable=SC2086
+            if make WT_SECURE_PSA=1 $bad BUILD_DIR=build_spsa_bad \
+                secure-image TOOLPREFIX=arm-none-eabi- > spsa.err 2>&1; then
+              echo "FAIL: $bad built" >&2
+              exit 1
+            fi
+            grep -qE 'WT_PSA_(OP_SLOTS|POOL_BYTES)' spsa.err
+          done
+      - name: Verify the Secure PSA guest links the client and no wolfPSA
+        run: |
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            rm -rf build
+            make TARGET=$target WT_SECURE_PSA=1 secure-image TOOLPREFIX=arm-none-eabi-
+            make -C tests/firmware/psa-guest clean
+            make -C tests/firmware/psa-guest TARGET=$target WT_SECURE_PSA=1 \
+              WT_EXPECTED_LIFECYCLE=0x1000u
+            syms=tests/firmware/psa-guest/build/guest0.elf
+            if arm-none-eabi-nm $syms | grep -qE ' (wc_error_to_psa_status|wolfpsa_get_key_data|wt_psa_service_call)$'; then
+              echo "FAIL: the $target WT_SECURE_PSA guest still links wolfPSA" >&2
+              exit 1
+            fi
+            arm-none-eabi-nm $syms | grep -q ' psa_sign_hash$'
+          done
+          make -C tests/firmware/psa-guest clean
+          rm -rf build
+      - name: Verify the default is Secure PSA and WT_SECURE_PSA=0 links wolfPSA in the guest
+        run: |
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            # A port may keep PSA in its guests by default (WT_SECURE_PSA ?= 0)
+            want=1
+            if grep -qx 'WT_SECURE_PSA ?= 0' mk/target-$target.mk; then want=0; fi
+            make TARGET=$target secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_spsa_dflt
+            grep -qx "WT_SECURE_PSA=$want" build_spsa_dflt/secure_build_mode.stamp
+            if python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines | grep -qw hsm; then
+              make TARGET=$target WT_ENGINE=hsm secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_spsa_hsm
+              grep -qx 'WT_SECURE_PSA=0' build_spsa_hsm/secure_build_mode.stamp
+            fi
+            rm -rf build build_spsa_dflt build_spsa_hsm
+            make TARGET=$target WT_SECURE_PSA=0 secure-image TOOLPREFIX=arm-none-eabi-
+            grep -qx 'WT_SECURE_PSA=0' build/secure_build_mode.stamp
+            make -C tests/firmware/psa-guest clean
+            make -C tests/firmware/psa-guest TARGET=$target WT_SECURE_PSA=0 \
+              WT_EXPECTED_LIFECYCLE=0x1000u
+            arm-none-eabi-nm tests/firmware/psa-guest/build/guest0.elf | \
+              grep -q ' wolfpsa_get_key_data$'
+          done
+          make -C tests/firmware/psa-guest clean
+          rm -rf build
       - name: Build every registered port (both engines, every variant, .vectors check)
         run: |
           python3 tests/target/lib/scenario_matrix.py --build-plan | python3 -c '

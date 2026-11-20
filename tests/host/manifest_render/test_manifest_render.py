@@ -40,19 +40,19 @@ H5_COMMITTED = ("WT_GUEST0_FLASH_BASE=0x080A0000", "WT_GUEST1_FLASH_BASE=0x080E0
 # pinned so a layout or template change is a reviewed change.
 COMMITTED = {
     ("mimxrt700", "base", ()):
-        "f1d2e3f48abc89ed60357afaded9d2854c84ed4922b90405e59d9533ca54ea43",
+        "a29087bd0d88b219b57d242aba5118e60aa84d347cf995ad18eb02a686c890d6",
     ("mimxrt700", "conformance", ()):
-        "aad2bcff6fed6947589e41464b6e67caf5da2c4f1172152b70c18a8ca3ec6477",
+        "47aa6cf705f92301aeb94d1c59aa15502e31c3246aef921fadaf2d65ba5b9c96",
     ("mcxn947", "base", ()):
-        "82e7a587c0aca10e33bf241d8c1e5265b11c4041736861f2ce1188e1d2d9e1c9",
+        "058de906b0d66891eaa81911626acced63b69c8e07e6108170ec08f4a1fbdce4",
     ("mcxn947", "conformance", ()):
-        "048932c132dd12d9acabb248dad5508888992af2764fdbe40680f05c6633127b",
+        "6c31e082b00cf5a659dd60ecb4e28d30e7f059867470e70e6cd8aa1892729fa8",
     ("stm32h563", "base", H5_COMMITTED):
-        "86f4026a9af68862af59263c3081c71508cbbe0489c7e4911b2ce4a540455385",
+        "ba52a4776e93a42e59f927485cbda8dfd8f7b0359e113e52f74eb93c496c210f",
     ("stm32h563", "conformance", H5_COMMITTED):
-        "aa895ef647df739dff74ae2e98990acf0a156953b0b7e190783aaa1ae396b2aa",
+        "1ace9388c4c4d26ca254719fb873cbe393b59938c32803e6d4357114c8168f84",
     ("stm32h563", "vnet", H5_COMMITTED):
-        "f73ececaa88988def0287796ccde11c8dc10e58dd174c9101b56a0f08e45bc01",
+        "f3c6c1b87037517c71834c2c3dacacb3a9fa5fe699d5555406be0e079abee397",
 }
 WINDOW_MACROS = (
     "WT_SECURE_FLASH_BASE", "WT_RAM_S_BASE", "WT_SP_CODE_BASE",

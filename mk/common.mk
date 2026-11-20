@@ -417,6 +417,42 @@ WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/services/native/keyvault.c
 endif
 
+WT_SECURE_PSA_PROFILE ?= compat
+WT_PSA_SIZE_VARS := WT_PSA_POOL_BYTES WT_PSA_KEY_SLOTS WT_PSA_OP_SLOTS
+$(foreach v,$(WT_PSA_SIZE_VARS),$(if $(filter-out 0 1 2 3 4 5 6 7 8 9,$(subst 0,0 ,$(subst 1,1 ,$(subst 2,2 ,$(subst 3,3 ,$(subst 4,4 ,$(subst 5,5 ,$(subst 6,6 ,$(subst 7,7 ,$(subst 8,8 ,$(subst 9,9 ,$($(v)))))))))))))$(word 2,$($(v))),$(error unsupported $(v)='$($(v))' (want a decimal count))))
+WOLFPSA_DIR := $(ROOT)/lib/wolfPSA
+WOLFPSA_SECURE_SRCS :=
+ifneq ($(filter-out 0 1,$(WT_SECURE_PSA))$(words $(WT_SECURE_PSA)),1)
+$(error unsupported WT_SECURE_PSA='$(WT_SECURE_PSA)' (want 0 or 1))
+endif
+ifeq ($(WT_SECURE_PSA),1)
+ifneq ($(WT_ENGINE),native)
+$(error WT_SECURE_PSA=1 requires WT_ENGINE=native)
+endif
+ifneq ($(filter-out compat standard lean symmetric,$(WT_SECURE_PSA_PROFILE))$(words $(WT_SECURE_PSA_PROFILE)),1)
+$(error unsupported WT_SECURE_PSA_PROFILE='$(WT_SECURE_PSA_PROFILE)' (want compat, standard, lean or symmetric))
+endif
+ifeq ($(WT_WOLFCRYPT_ARMASM),1)
+$(error WT_SECURE_PSA=1 needs constant-time AES, and WT_WOLFCRYPT_ARMASM=1 builds the T-table Thumb-2 AES)
+endif
+WT_SECURE_PSA_CFLAGS := -DWT_SECURE_PSA=1 -DWT_SECURE_PSA_$(WT_SECURE_PSA_PROFILE)=1 \
+    -DWOLFSSL_PSA_ENGINE -DWOLFPSA_CUSTOM_STORE -DWOLFPSA_NO_TRACE -DWOLFPSA_AEAD_BORROW \
+    -DWOLFPSA_AEAD_STREAM_AAD \
+    -I$(WOLFPSA_DIR) -I$(WOLFPSA_DIR)/wolfpsa -I$(BUILD_DIR)/wolfpsa_cfg \
+    $(foreach v,$(WT_PSA_SIZE_VARS),$(if $($(v)),-D$(v)=$($(v))U))
+WT_PSA_CONFIG_H := $(BUILD_DIR)/wolfpsa_cfg/crypto_config_generated.h
+SECURE_CFLAGS += $(WT_SECURE_PSA_CFLAGS)
+HSM_LIB_CFLAGS += $(WT_SECURE_PSA_CFLAGS)
+HSM_WOLFHSM_CFLAGS += $(WT_SECURE_PSA_CFLAGS)
+WOLFPSA_SECURE_SRCS := $(filter-out %/psa_store_posix.c %/psa_attestation.c \
+    %/psa_ffm.c %/psa_its.c %/misc_impl.c %/psa_store_zephyr.c %/psa_tf_psa.c,$(wildcard $(WOLFPSA_DIR)/src/*.c))
+WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/native/psa_crypto_service.c
+ifeq ($(WT_SECURE_PSA_PROFILE),compat)
+WOLFCRYPT_SECURE_SRCS += $(WOLFSSL_DIR)/wolfcrypt/src/kdf.c \
+    $(WOLFSSL_DIR)/wolfcrypt/src/pwdbased.c
+endif
+endif
+
 ifeq ($(WT_ATTEST_COSE),1)
 WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/services/attestation_service.c \
@@ -454,6 +490,7 @@ HSM_SECURE_BASE_OBJS := $(patsubst %.c,$(BUILD_DIR)/sec_%.o,$(notdir $(SECURE_SR
 HSM_WOLFHSM_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wh_sec_%.o,$(notdir $(WOLFHSM_SECURE_SRCS)))
 HSM_WOLFCRYPT_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wc_sec_%.o,$(notdir $(WOLFCRYPT_SECURE_SRCS)))
 HSM_WT_EXTRA_OBJS := $(patsubst %.c,$(BUILD_DIR)/wt_sec_%.o,$(notdir $(WT_SECURE_EXTRA_SRCS)))
+WOLFPSA_SEC_OBJS := $(patsubst %.c,$(BUILD_DIR)/wp_sec_%.o,$(notdir $(WOLFPSA_SECURE_SRCS)))
 MANIFEST_OBJ := $(BUILD_DIR)/wt_sec_wolftrust_manifest_generated.o
 # Arch sources that live in subdirectories of src/arch/<arch>/ (C or assembly);
 # each gets its own rule below because the pattern rules key on one directory.
@@ -466,6 +503,7 @@ ALL_SECURE_OBJS := $(strip \
     $(HSM_WOLFHSM_SEC_OBJS) \
     $(HSM_WOLFCRYPT_SEC_OBJS) \
     $(HSM_WT_EXTRA_OBJS) \
+    $(WOLFPSA_SEC_OBJS) \
     $(ARCH_TREE_OBJS) \
     $(MANIFEST_OBJ))
 
@@ -1558,6 +1596,9 @@ BUILD_MODE_LINES = \
 		'WT_ENGINE_HSM=$(WT_ENGINE_HSM)' \
 		'WT_LTO=$(WT_LTO)' \
 		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
+		'WT_SECURE_PSA=$(WT_SECURE_PSA)' \
+		'WT_SECURE_PSA_PROFILE=$(if $(filter 1,$(WT_SECURE_PSA)),$(WT_SECURE_PSA_PROFILE))' \
+		'WT_PSA_SIZES=$(if $(filter 1,$(WT_SECURE_PSA)),$(subst / ,/,$(foreach v,$(WT_PSA_SIZE_VARS),$($(v))/)))' \
 		'WT_CONFORMANCE=$(WT_CONFORMANCE)' \
 		'CONFIG_VNET=$(CONFIG_VNET)' \
 		'WT_VNET_TIMEOUT_TICKS=$(WT_VNET_TIMEOUT_TICKS)' \
@@ -1619,6 +1660,20 @@ $(BUILD_DIR)/wh_sec_%.o: $(WOLFHSM_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_ST
 
 $(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wp_sec_%.o: $(WOLFPSA_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) $(WT_PSA_CONFIG_H) | $(BUILD_DIR)
+	$(CC) $(HSM_LIB_CFLAGS) -DWT_PSA_POOL_TU -I$(WOLFPSA_DIR)/src -c -o $@ $<
+
+ifeq ($(WT_SECURE_PSA),1)
+# wolfPSA's PSA_WANT_* surface comes from the Secure image's own wolfCrypt set.
+# FORCE: the generator rewrites the header only when the surface changes.
+$(WT_PSA_CONFIG_H): $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) FORCE | $(BUILD_DIR)
+	@mkdir -p $(dir $@)
+	python3 $(WOLFPSA_DIR)/tools/gen-crypto-config.py $@ "$(CC)" \
+	    $(WOLFPSA_DIR)/tools/psa_want_probe.c $(HSM_LIB_CFLAGS) -I$(WOLFPSA_DIR)/src \
+	    -DWT_PSA_WANT_PROBE
+$(BUILD_DIR)/wt_sec_psa_crypto_service.o: $(WT_PSA_CONFIG_H)
+endif
 
 $(BUILD_DIR)/wc_sec_%.o: $(WOLFSSL_DIR)/wolfcrypt/src/port/arm/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(HSM_LIB_CFLAGS) -c -o $@ $<

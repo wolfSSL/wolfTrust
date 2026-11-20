@@ -19,19 +19,22 @@ independent TF-M Level 3 code and data isolation.
 | | Native crypto engine | wolfHSM engine |
 | --- | --- | --- |
 | Selector | `WT_ENGINE=native` (default) | `WT_ENGINE=hsm` |
-| Guest PSA Crypto | wolfPSA and wolfCrypt execute in the Non-secure guest; DRBG seed requests cross into the Secure vault | wolfPSA routes supported operations through the wolfHSM client and `SERVICE_HSM` to a per-guest Secure wolfHSM server |
+| Guest PSA Crypto | wolfPSA and wolfCrypt execute in the Secure image and the guest links only a client (default). With `WT_SECURE_PSA=0` they execute in the Non-secure guest and only DRBG seed requests cross into the Secure vault | wolfPSA routes supported operations through the wolfHSM client and `SERVICE_HSM` to a per-guest Secure wolfHSM server |
 | Secure key service | Native request format dispatches wolfCrypt directly; explicitly vault-backed keys are NVM objects | wolfHSM request format dispatches the wolfHSM server and its keystore |
-| Guest volatile PSA keys | Held in the guest's Non-secure memory | Keys for supported offloaded operations are held by the Secure wolfHSM server |
+| Guest volatile PSA keys | Held in the Secure image, or in the guest's Non-secure memory with `WT_SECURE_PSA=0` | Keys for supported offloaded operations are held by the Secure wolfHSM server |
 | Persistent Secure keys | Native vault objects marked `SENSITIVE` and `NONEXPORTABLE` | wolfHSM server-keystore objects with wolfHSM key policy |
 | Attestation IAK | Vault-backed P-256 key used directly by wolfCrypt | Committed wolfHSM server-keystore key |
 | External HSM path | Not provided by this engine | Available through the wolfHSM server model when a deployment configures a backend; the reference build uses software wolfCrypt |
 | Secure-image footprint | Lower | Adds the wolfHSM protocol, server, per-guest contexts, and per-guest server stacks |
 
-The native engine is not a mode in which every guest PSA key automatically
-moves into the Secure vault. In the reference guests, ordinary wolfPSA
-operations and volatile keys remain local to the Non-secure guest. The native
-wire is a separate explicit interface for vault-backed key operations. Secure
-services such as attestation use that vault backend directly.
+By default the native engine serves all of PSA Crypto, its keys and its
+operation state from the Secure image
+([`WT_SECURE_PSA=1`](#psa-crypto-in-the-secure-image-wt_secure_psa1)), as
+TF-M's Crypto partition does. `WT_SECURE_PSA=0` is the smaller opt-out: the
+guest runs wolfPSA and wolfCrypt itself, so its volatile keys stay in
+Non-secure memory. The native wire is a separate explicit interface for
+vault-backed key operations. Secure services such as attestation use that vault
+backend directly.
 
 ## One service seam
 
@@ -70,9 +73,11 @@ but not the wolfHSM server, communication layer, or message layer.
 
 The reference guest configuration behaves as follows:
 
-- wolfPSA and wolfCrypt execute locally in each Non-secure guest;
-- wolfCrypt DRBG seed material comes from the Secure vault RNG through one
-  `SERVICE_HSM` call;
+- by default (`WT_SECURE_PSA=1`), wolfPSA and wolfCrypt execute in the crypto
+  partition and each guest links only the PSA Crypto client; with
+  `WT_SECURE_PSA=0` they execute locally in each Non-secure guest instead;
+- a guest-local wolfCrypt DRBG takes its seed material from the Secure vault
+  RNG through one `SERVICE_HSM` call;
 - ITS, Protected Storage, attestation, and firmware update continue to use
   their normal Secure services; and
 - clients that need a vault-backed key can use the native request format
@@ -123,6 +128,115 @@ The structures are copied directly between the reference Cortex-M client and
 Secure image. This is a target-local ABI, not a versioned network protocol.
 The header and operation values are declared in
 `include/wolftrust/services/crypto_native.h`.
+
+## PSA Crypto in the Secure image (`WT_SECURE_PSA=1`)
+
+The native engine's default, `WT_SECURE_PSA=1`, links wolfPSA into the
+crypto partition and serves the whole PSA Crypto API from the Secure image.
+The wolfHSM engine defaults to `0` and refuses `1`. The guest links `src/client/psa_crypto_client.c` in place of wolfPSA:
+each `psa_*` call becomes one or more `SERVICE_HSM` requests with operation
+`WT_CRYPTO_OP_PSA`, and no key, operation state or intermediate secret is
+held in Non-secure memory.
+
+`make WT_SECURE_PSA=0 secure-image` opts out, and a port can set
+`WT_SECURE_PSA ?= 0` in its `mk/target-<soc>.mk` when its Secure RAM cannot
+hold the larger crypto partition. Build every guest with the Secure image's
+value; the M33MU runner exports it from the image's build stamp.
+
+Ownership and lifetime:
+
+- Every key and operation belongs to the SPM-stamped client ID of the guest
+  that created it; another guest's handle fails as an invalid handle.
+- Operation handles are opaque tokens carrying a 24-bit slot generation and
+  a per-boot nonce, so a handle from before a service restart never
+  validates. A slot whose generations are spent is retired until the service
+  restarts rather than reusing a token.
+- Volatile keys and operations are limited per client (`WT_PSA_KEY_SLOTS`,
+  default 16, and `WT_PSA_OP_SLOTS`, default 8, split across the guests);
+  each client's operations come from its own slot range.
+- Key IDs map to vault uids in a reserved range that the native key wire
+  refuses, so a native key can neither take nor remove a PSA key's record.
+- The client is not thread-safe: a large call is several relay messages, so
+  a guest serializes its PSA calls, as the reference guests do.
+- `psa_crypto_init()` from a client releases that client's volatile keys and
+  operations.
+- Persistent keys accept only `PSA_KEY_ID_USER_MIN..PSA_KEY_ID_USER_MAX` and
+  are stored as vault objects namespaced by client ID, so two guests can use
+  the same key ID. A new image in the same guest slot inherits that slot's
+  persistent keys, as in TF-M. Builtin and vendor key IDs, including the IAK,
+  are not reachable from the Non-secure side.
+
+Transport and memory:
+
+- Every call fits one 384-byte relay message. The client runs a one-shot
+  hash, MAC, cipher or AEAD that does not fit as the matching multi-part
+  sequence, and splits multi-part updates, random output and key derivation
+  output into message-sized pieces. A failed split call leaves no partial
+  output. A long message to sign or verify is hashed first and handled as a
+  hash, so the key must allow hash signing. Key import, asymmetric
+  encryption and key derivation input stay single-message and fail larger
+  inputs with `PSA_ERROR_INSUFFICIENT_MEMORY`.
+- wolfPSA allocates from a pool private to the crypto partition's isolation
+  band, `WT_PSA_POOL_BYTES`, split into one arena per guest (2,048 bytes
+  each by default). A call allocates only from its caller's arena, so one
+  guest's keys and operations cannot starve another guest. Blocks are
+  scrubbed on free and no other partition can reach the allocator. A full
+  arena fails the call with `PSA_ERROR_INSUFFICIENT_MEMORY`.
+- HKDF output is streamed from the previous block, one-shot GCM and CCM
+  read the message in place, and multi-part GCM and ChaCha20-Poly1305 take
+  additional data straight into the stream, so none of them copies the
+  message, the additional data or the derivation into the pool.
+
+`WT_SECURE_PSA_PROFILE` picks the algorithm set compiled into the Secure
+image. The wolfCrypt side lives in
+`src/services/wolfhsm/runner/secure_psa_profile.h`, which the host suite
+includes too:
+
+| Profile | Algorithms | STM32H563 Secure flash / RAM |
+| --- | --- | ---: |
+| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, TLS 1.2 PRF | 109,849 / 48,844 |
+| `standard` | `compat` without PBKDF2, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 103,067 / 48,844 |
+| `lean` | `standard` without CCM and AES decryption | 101,403 / 48,844 |
+| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 96,667 / 48,844 |
+
+RAM is the Secure RAM the image reserves. It is the same for every profile:
+the crypto partition's stack grows from 5 to 6 KiB for wolfPSA's ECDSA, and its
+data band from 1.5 KiB to `WT_PSA_POOL_BYTES` plus 2 KiB. The opt-out,
+`WT_SECURE_PSA=0`, is 70,400 / 45,260 bytes. The PSA
+guest drops from 65,384 to 34,600 bytes of flash; it keeps wolfCrypt only for
+the attestation token verifier. For comparison, TF-M v2.3.1 at isolation
+level 3 on the STM32L562 with its Medium crypto set is 79,680 bytes of flash
+and 45,728 bytes of RAM; of that flash, its Crypto partition and Mbed TLS
+are 40,478 bytes, against 55,021 for wolfCrypt, wolfPSA, the service and the
+key glue in `standard`.
+
+wolfPSA refuses AES or GHASH whose timing depends on the key or the data, so
+the Secure image runs AES on wolfCrypt's touch-lines C core and GHASH on its
+masked multiply, and `WT_WOLFCRYPT_ARMASM=1` is refused with `WT_SECURE_PSA=1`.
+
+Moving an existing guest-local application to the `WT_SECURE_PSA=1` default:
+
+- Build the Secure image and every guest with the same value: under `1` the
+  reference guests (`tests/firmware/psa-guest`, the Zephyr module's
+  `CONFIG_WOLFTRUST_SECURE_PSA` and the FreeRTOS guest) then link
+  `psa_crypto_client.c` and wolfPSA's `psa_api_stub.c` in place of wolfPSA.
+- Application `psa_*` calls stay unchanged; only `psa/crypto.h` is needed.
+- Keys created before the switch lived in guest RAM and are not migrated.
+  Persistent keys must be imported or generated again through the Secure
+  service.
+- Each call is one or more IPC round trips. The M33MU crypto API suite takes
+  about 2.6 times the cycles of the guest-local build.
+- Code that calls wolfCrypt directly, like the reference attestation token
+  verifier, still needs wolfCrypt in the guest.
+- To keep the earlier behavior, build the Secure image and the guests with
+  `WT_SECURE_PSA=0` (Zephyr: `CONFIG_WOLFTRUST_SECURE_PSA=n`).
+
+`WT_SECURE_PSA=1` covers Non-secure callers. Secure partitions keep using the
+vault backend directly. CMAC is not compiled in, so PSA API test c047 stays
+skipped as in the guest build. Host coverage is `tests/host/psa_secure_crypto`,
+the M33MU `devcrypto` scenario runs the PSA crypto API tests against the
+Secure service, and `devcryptolocal` runs them against the `WT_SECURE_PSA=0`
+guest.
 
 ## Shared NVM object store
 
@@ -185,8 +299,8 @@ wolfHSM server integration point for a deployment that supplies one.
 
 Use the native crypto engine when:
 
-- Secure flash or SRAM is constrained;
-- guest-local wolfPSA and wolfCrypt execution is acceptable;
+- Secure flash or SRAM is constrained (with `WT_SECURE_PSA=0` when guest-local
+  wolfPSA and wolfCrypt execution is acceptable);
 - the application only needs Secure entropy, the explicit vault-key
   interface, and the other wolfTrust Secure services; or
 - the deployment does not need the wolfHSM client/server protocol.
@@ -234,15 +348,16 @@ The Secure image and both guest images must use the same engine. See
 
 ## Measured Secure-image cost
 
-These Secure-image measurements were taken on 2026-11-13 with Arm GNU 15.2.1
+These Secure-image measurements were taken on 2026-11-17 with Arm GNU 15.2.1
 in `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`, LTO on, and the repository
 defaults other than the engine, the profile and the output directory:
 
 ```sh
 make BUILD_DIR=build_size_native WT_ENGINE=native secure-image
+make BUILD_DIR=build_size_optout WT_SECURE_PSA=0 secure-image
 make BUILD_DIR=build_size_hsm WT_ENGINE=hsm secure-image
 arm-none-eabi-size build_size_native/wolftrust.elf \
-    build_size_hsm/wolftrust.elf
+    build_size_optout/wolftrust.elf build_size_hsm/wolftrust.elf
 ```
 
 Flash is `text + data`. Secure RAM is everything the image reserves: `data +
@@ -255,10 +370,13 @@ wolfBoot and Non-secure guest images are not included.
 
 | Engine and profile | `text` | `data` | `bss` | Flash | Secure RAM |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Native, default | 70,048 bytes | 384 bytes | 18,340 bytes | 70,432 bytes | 45,260 bytes |
+| Native, default (`WT_SECURE_PSA=1`, `compat`) | 109,453 bytes | 396 bytes | 20,732 bytes | 109,849 bytes | 48,844 bytes |
+| Native, `WT_SECURE_PSA=1` `standard` | 102,675 bytes | 392 bytes | 20,732 bytes | 103,067 bytes | 48,844 bytes |
+| Native, `WT_SECURE_PSA=0` | 70,016 bytes | 384 bytes | 18,340 bytes | 70,400 bytes | 45,260 bytes |
 | wolfHSM, default | 97,916 bytes | 392 bytes | 40,648 bytes | 98,308 bytes | 83,932 bytes |
-| wolfHSM overhead, default | 27,868 bytes | 8 bytes | 22,308 bytes | 27,876 bytes | 38,672 bytes |
-| Native, `full` | 79,120 bytes | 720 bytes | 27,392 bytes | 79,840 bytes | 58,748 bytes |
+| wolfHSM over native `WT_SECURE_PSA=0` | 27,900 bytes | 8 bytes | 22,308 bytes | 27,908 bytes | 38,672 bytes |
+| Native, `full` | 118,556 bytes | 732 bytes | 31,832 bytes | 119,288 bytes | 64,380 bytes |
+| Native, `full`, `WT_SECURE_PSA=0` | 79,120 bytes | 720 bytes | 27,392 bytes | 79,840 bytes | 58,748 bytes |
 | wolfHSM, `full` | 107,304 bytes | 728 bytes | 66,504 bytes | 108,032 bytes | 107,916 bytes |
 
 ### Stack contribution

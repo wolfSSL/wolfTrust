@@ -24,9 +24,9 @@ if(CONFIG_WOLFPSA)
   set(WT_WOLFSSL_SETTINGS_DIR
       ${WT_REPO_ROOT}/tests/firmware/zephyr-stm32h5/module/wolfhsm-client/include/wolftrust/wolfhsm)
 
-  # wolfPSA derives its consumer-visible PSA_WANT_* surface from the wolfCrypt
-  # features compiled into this guest. Generate the header during configure,
-  # using the same settings header and Zephyr configuration as the real build.
+  # The consumer-visible PSA_WANT_* surface is the Secure image's under
+  # WOLFTRUST_SECURE_PSA; otherwise it is generated at configure time from the
+  # wolfCrypt features compiled into this guest.
   if(DEFINED AUTOCONF_H)
     set(WT_WOLFPSA_AUTOCONF ${AUTOCONF_H})
   else()
@@ -35,30 +35,47 @@ if(CONFIG_WOLFPSA)
   endif()
   set(WT_WOLFPSA_GEN_DIR ${CMAKE_CURRENT_BINARY_DIR}/wolfpsa_gen)
   set(WT_WOLFPSA_GEN_HDR ${WT_WOLFPSA_GEN_DIR}/crypto_config_zephyr.h)
-  set(WT_WOLFPSA_PROBE ${WT_WOLFPSA_DIR}/zephyr/gen/psa_want_probe.c)
-  set(WT_WOLFPSA_GEN_PY ${WT_WOLFPSA_DIR}/zephyr/gen/gen-crypto-config.py)
+  set(WT_WOLFPSA_PROBE ${WT_WOLFPSA_DIR}/tools/psa_want_probe.c)
+  set(WT_WOLFPSA_GEN_PY ${WT_WOLFPSA_DIR}/tools/gen-crypto-config.py)
   file(MAKE_DIRECTORY ${WT_WOLFPSA_GEN_DIR})
-  execute_process(
-    COMMAND ${PYTHON_EXECUTABLE} ${WT_WOLFPSA_GEN_PY}
-            ${WT_WOLFPSA_GEN_HDR} ${CMAKE_C_COMPILER} ${WT_WOLFPSA_PROBE}
-            -D__ZEPHYR__=1
-            -DWOLFSSL_USER_SETTINGS
-            -DWOLFSSL_ZEPHYR
-            -DWOLFSSL_ECDSA_DETERMINISTIC_K
-            -I${WT_WOLFPSA_DIR}
-            -I${WT_WOLFPSA_DIR}/wolfpsa
-            -I${WT_WOLFSSL_DIR}
-            -I${WT_WOLFSSL_SETTINGS_DIR}
-            -imacros ${WT_WOLFPSA_AUTOCONF}
-    RESULT_VARIABLE WT_WOLFPSA_GEN_RC)
-  if(NOT WT_WOLFPSA_GEN_RC EQUAL 0)
-    message(FATAL_ERROR
-      "wolfPSA: failed to generate the PSA_WANT surface (rc=${WT_WOLFPSA_GEN_RC})")
+  if(CONFIG_WOLFTRUST_SECURE_PSA)
+    # The Secure image serves PSA Crypto, so its profile's surface is the one.
+    if(DEFINED WOLFTRUST_CMSE_IMPLIB)
+      get_filename_component(WT_SECURE_BUILD_DIR ${WOLFTRUST_CMSE_IMPLIB} DIRECTORY)
+    else()
+      set(WT_SECURE_BUILD_DIR ${WT_REPO_ROOT}/build)
+    endif()
+    set(WT_SECURE_PSA_HDR ${WT_SECURE_BUILD_DIR}/wolfpsa_cfg/crypto_config_generated.h)
+    if(NOT EXISTS ${WT_SECURE_PSA_HDR})
+      message(FATAL_ERROR
+        "wolfPSA: missing ${WT_SECURE_PSA_HDR}: build the Secure image first")
+    endif()
+    configure_file(${WT_SECURE_PSA_HDR} ${WT_WOLFPSA_GEN_HDR} COPYONLY)
+  else()
+    # __ASSEMBLER__: settings.h then skips the Zephyr kernel headers.
+    execute_process(
+      COMMAND ${PYTHON_EXECUTABLE} ${WT_WOLFPSA_GEN_PY}
+              ${WT_WOLFPSA_GEN_HDR} ${CMAKE_C_COMPILER} ${WT_WOLFPSA_PROBE}
+              -D__ZEPHYR__=1
+              -D__ASSEMBLER__
+              -DWOLFSSL_USER_SETTINGS
+              -DWOLFSSL_ZEPHYR
+              -DWOLFSSL_ECDSA_DETERMINISTIC_K
+              -I${WT_WOLFPSA_DIR}
+              -I${WT_WOLFPSA_DIR}/wolfpsa
+              -I${WT_WOLFSSL_DIR}
+              -I${WT_WOLFSSL_SETTINGS_DIR}
+              -imacros ${WT_WOLFPSA_AUTOCONF}
+      RESULT_VARIABLE WT_WOLFPSA_GEN_RC)
+    if(NOT WT_WOLFPSA_GEN_RC EQUAL 0)
+      message(FATAL_ERROR
+        "wolfPSA: failed to generate the PSA_WANT surface (rc=${WT_WOLFPSA_GEN_RC})")
+    endif()
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+      ${WT_WOLFPSA_PROBE}
+      ${WT_WOLFPSA_GEN_PY}
+      ${WT_WOLFSSL_SETTINGS_DIR}/user_settings.h)
   endif()
-  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
-    ${WT_WOLFPSA_PROBE}
-    ${WT_WOLFPSA_GEN_PY}
-    ${WT_WOLFSSL_SETTINGS_DIR}/user_settings.h)
 
   # Expose wolfPSA's public headers globally. Apps that #include <psa/crypto.h>
   # will resolve to lib/wolfPSA/wolfpsa/psa/crypto.h (NOT mbedTLS's copy —
@@ -83,6 +100,13 @@ if(CONFIG_WOLFPSA)
 
   zephyr_library_named(wolftrust_wolfpsa)
 
+  if(CONFIG_WOLFTRUST_SECURE_PSA)
+  zephyr_library_sources(
+    ${WT_REPO_ROOT}/src/client/psa_crypto_client.c
+    ${WT_WOLFPSA_DIR}/src/psa_api_stub.c
+    ${WT_MODULE_DIR}/src/wolfpsa_zephyr_init.c
+  )
+  else()
   # Compile every wolfPSA src/*.c EXCEPT psa_store_posix.c (POSIX-only).
   file(GLOB WOLFPSA_SRCS ${WT_WOLFPSA_DIR}/src/*.c)
   list(FILTER WOLFPSA_SRCS EXCLUDE REGEX "psa_store_posix\\.c$")
@@ -115,5 +139,6 @@ if(CONFIG_WOLFPSA)
     PROPERTIES COMPILE_OPTIONS
       "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter;-Wno-type-limits"
   )
+  endif()
 
 endif()

@@ -1603,6 +1603,11 @@ int main(void)
 #if defined(WT_WRITE_ONCE_RESET_PROBE)
 	exercise_write_once_reset();
 #endif
+#if defined(WT_MPU_BYPASS_PROBE)
+	/* Probe first: each relaunch would otherwise replay Secure ECDSA and
+	 * starve the peer guest the scenario watches. */
+	exercise_mpu_bypass_probe();
+#endif
 	exercise_tee_driver();
 	exercise_ffm_crypto();
 	exercise_ffm_its();
@@ -1612,9 +1617,6 @@ int main(void)
 	exercise_ffm_negatives();
 #if defined(WT_HSM_ATTACK_PROBE)
 	exercise_hsm_attack_probe();
-#endif
-#if defined(WT_MPU_BYPASS_PROBE)
-	exercise_mpu_bypass_probe();
 #endif
 #if defined(WT_PERIPH_NEG_PROBE)
 	exercise_periph_neg_probe();

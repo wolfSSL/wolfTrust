@@ -13,7 +13,7 @@ service, and `CONFIG_VNET=y` selects a manifest with the network service.
 | `SERVICE_ITS` | `0x1003` | Yes | PSA Internal Trusted Storage |
 | `SERVICE_PS` | `0x1004` | Yes | PSA Protected Storage |
 | `SERVICE_FWU` | `0x1005` | Yes, `WT_FWU=1` | PSA Firmware Update staging for wolfBoot |
-| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door |
+| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door; with `WT_SECURE_PSA=1` it also serves the PSA Crypto API |
 | `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
 
 All service versions are `1`. ITS and Protected Storage declare a
@@ -36,9 +36,10 @@ Zephyr and FreeRTOS reference guests expose wolfPSA's PSA Crypto API. The
 wired. Both engines use one input and one output vector, bounded to 384 bytes,
 through the same copied FF-M call.
 
-With the default native engine, wolfPSA and wolfCrypt execute in the
-Non-secure guest. DRBG seed requests use the native client to reach the Secure
-vault RNG. The native wire also exposes explicit vault-backed P-256 and
+With the default native engine, wolfPSA and wolfCrypt execute in the crypto
+partition (`WT_SECURE_PSA=1`) and each guest calls PSA Crypto through the
+client library. With `WT_SECURE_PSA=0` they execute in the Non-secure guest,
+and DRBG seed requests use the native client to reach the Secure vault RNG. The native wire also exposes explicit vault-backed P-256 and
 AES-256 key operations, random generation, and SHA-256. Vault key objects are
 namespaced by the SPM-stamped client ID and stored `SENSITIVE` and
 `NONEXPORTABLE`.
@@ -49,8 +50,9 @@ dedicated server, forces server client ID `N + 1`, and rejects guest-facing
 wolfHSM NVM message groups. The reference build executes the server with
 software wolfCrypt; deployments can configure wolfHSM's external-HSM path.
 
-The reference cryptographic profile is controlled by each guest's wolfCrypt
-`user_settings.h`. Consult the vendored
+The cryptographic profile is the Secure image's `WT_SECURE_PSA_PROFILE`
+under `WT_SECURE_PSA=1`, and each guest's wolfCrypt `user_settings.h` under
+`WT_SECURE_PSA=0` or the wolfHSM engine. Consult the vendored
 `lib/wolfPSA/wolfpsa/psa/crypto.h` and the active guest configuration
 before assuming a particular algorithm is available. See
 [Crypto Engines](Crypto-Engines.md) for the protocol, key-protection, and

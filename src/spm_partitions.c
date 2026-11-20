@@ -49,6 +49,9 @@
 #endif
 #ifndef WT_ENGINE_HSM
 #include "wolftrust/services/crypto_native.h"
+#ifdef WT_SECURE_PSA
+#include "wolftrust/services/psa_crypto_service.h"
+#endif
 #endif
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/storage_service.h"
@@ -231,6 +234,11 @@ static int wt_spm_hsm_bind(int32_t partition_id)
     if (wt_native_bind_nvm(wt_nvm_client_partition_nvm()) != 0) {
         return WT_FFM_ERROR_STATE;
     }
+#ifdef WT_SECURE_PSA
+    if (wt_psa_service_init() != 0) {
+        return WT_FFM_ERROR_STATE;
+    }
+#endif
     wt_hsm_relay_set_submit(wt_native_submit, (void*)(intptr_t)partition_id);
 #endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)

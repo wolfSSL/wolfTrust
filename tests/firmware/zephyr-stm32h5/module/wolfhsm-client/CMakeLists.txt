@@ -50,11 +50,6 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     WOLFSSL_SP_ARM_CORTEX_M_ASM
     WOLFSSL_ARM_ARCH=8
     WOLFSSL_ECDSA_DETERMINISTIC_K
-    WOLFSSL_ARMASM
-    WOLFSSL_ARMASM_NO_HW_CRYPTO
-    WOLFSSL_ARMASM_INLINE
-    WOLFSSL_ARMASM_NO_NEON
-    WOLFSSL_ARMASM_THUMB2
     NO_ERROR_STRINGS
     # gcc supports anonymous unions/structs even under -std=c99; the
     # wolfCrypt auto-detect (types.h) defaults this off in C99, but wolfHSM
@@ -106,8 +101,6 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_int.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/wolfmath.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/wc_port.c
-    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c
-    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
   )
 
   # Local glue + Zephyr init, plus the OS-neutral FF-M client core and the
@@ -153,8 +146,6 @@ if(CONFIG_WOLFTRUST_WOLFHSM_CLIENT)
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_int.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/wolfmath.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/wc_port.c
-    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c
-    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
     PROPERTIES COMPILE_OPTIONS
       "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter;-Wno-type-limits"
   )
@@ -185,11 +176,6 @@ if(CONFIG_WOLFTRUST_NATIVE_CLIENT)
     WOLFSSL_SP_ARM_CORTEX_M_ASM
     WOLFSSL_ARM_ARCH=8
     WOLFSSL_ECDSA_DETERMINISTIC_K
-    WOLFSSL_ARMASM
-    WOLFSSL_ARMASM_NO_HW_CRYPTO
-    WOLFSSL_ARMASM_INLINE
-    WOLFSSL_ARMASM_NO_NEON
-    WOLFSSL_ARMASM_THUMB2
     NO_ERROR_STRINGS
     HAVE_ANONYMOUS_INLINE_AGGREGATES=1
     WOLFSSL_ZEPHYR
@@ -214,8 +200,6 @@ if(CONFIG_WOLFTRUST_NATIVE_CLIENT)
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_int.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/wolfmath.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/wc_port.c
-    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c
-    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
   )
 
   zephyr_library_sources(
@@ -240,8 +224,6 @@ if(CONFIG_WOLFTRUST_NATIVE_CLIENT)
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/sp_int.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/wolfmath.c
     ${WT_WOLFSSL_DIR}/wolfcrypt/src/wc_port.c
-    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-aes-asm_c.c
-    ${WT_WOLFSSL_DIR}/wolfcrypt/src/port/arm/thumb2-sha256-asm_c.c
     PROPERTIES COMPILE_OPTIONS
       "-Wno-unused-function;-Wno-unused-variable;-Wno-unused-parameter;-Wno-type-limits"
   )

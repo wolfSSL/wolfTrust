@@ -182,6 +182,11 @@ SCENARIOS = {
                    end="bkpt:0x7f", timeout=7200, quit_on_faults=False,
                    blocks=("conformance_boot", "devcrypto"),
                 hw_blocks=("hw_no_escalation", "hw_devsuite"), hw_secure="WT_CONF_DIAG_TRAP=0"),
+    "devcryptolocal": S(secure="WT_CONFORMANCE=1 WT_SECURE_PSA=0", role="conformance",
+                       guest_flags=CONF + " WT_CONF_SUITE=crypto " + SP_PROBE_FLAGS,
+                       end="bkpt:0x7f", timeout=7200, quit_on_faults=False,
+                       blocks=("conformance_boot", "devcrypto"),
+                       engines=("native",), envs=("emulator",)),
     "devattest": S(secure="WT_CONFORMANCE=1", role="conformance",
                    guest_flags=CONF + " WT_CONF_SUITE=attestation " + SP_PROBE_FLAGS,
                    end="bkpt:0x7f", timeout=900,
@@ -198,7 +203,7 @@ SCENARIOS = {
     "nativewire": S(role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
                     end="bkpt:0x7f", engines=("native",),
                     blocks=("no_faults", "psa_lifecycle", "nativewire")),
-    "nativewireasm": S(secure="WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1",
+    "nativewireasm": S(secure="WT_SECURE_PSA=0 WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1",
                        role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
                        end="bkpt:0x7f", engines=("native",),
                        blocks=("no_faults", "psa_lifecycle", "nativewire")),
@@ -1485,6 +1490,14 @@ class Judge(object):
             raise SystemExit("no %s evidence was given" % where)
         return self.logs[where]
 
+    def views(self, where):
+        # Guest1 records can splice a raw emulator line; m33mu_console.py rejoins it
+        text = self.text(where)
+        if where == "log" and self.ctx.env == "emulator" and \
+                self.logs.get("guest0", text) != text:
+            return (text, self.logs["guest0"])
+        return (text,)
+
     def sub(self, s):
         return substitute(s, self.ctx.var)
 
@@ -1580,7 +1593,10 @@ class Judge(object):
                 return self.report(False, check["desc"], "%s was not recorded for psa-arch-tests %s" % (want, rev))
             got = []
             num = None
-            for m in re.finditer(r"Num=([0-9]+)|Result=([A-Za-z]+)", self.text("guest0" if "guest0" in self.logs else "log")):
+            # On a shared UART another guest's lines can land inside a Result= token
+            conf = re.sub(r"wolfTrust [^\n]*guest[1-9][0-9]*: [^\n]*\n", "",
+                          self.text("guest0" if "guest0" in self.logs else "log"))
+            for m in re.finditer(r"Num=([0-9]+)|Result=([A-Za-z]+)", conf):
                 if m.group(1) is not None:
                     num = m.group(1)
                 elif num is not None:
@@ -1596,24 +1612,27 @@ class Judge(object):
             return self.report(got == wanted, check["desc"],
                                "per-test results differ from %s" % want)
         text = self.text(check["where"])
+        views = self.views(check["where"])
         if op == "expect":
             needle = self.sub(check["text"])
-            ok = needle in text or (self.ctx.env == "hardware" and interleaved(text, needle))
+            ok = any(needle in v for v in views) or \
+                (self.ctx.env == "hardware" and interleaved(text, needle))
             return self.report(ok, check["desc"], "missing: %s" % needle)
         if op == "expect_n":
             needle = self.sub(check["text"])
-            n = count_text(text, needle)
+            n = max(count_text(v, needle) for v in views)
             return self.report(n == check["n"], "%s (%d)" % (check["desc"], n), "want %d of: %s" % (check["n"], needle))
         if op == "expect_re":
             pat = self.sub(check["re"])
-            return self.report(count_re(text, pat) >= 1, check["desc"], "missing: %s" % pat)
+            return self.report(any(count_re(v, pat) >= 1 for v in views), check["desc"], "missing: %s" % pat)
         if op == "expect_n_re":
             pat = self.sub(check["re"])
-            n = count_re(text, pat)
+            n = max(count_re(v, pat) for v in views)
             return self.report(n == check["n"], "%s (%d)" % (check["desc"], n), "want %d of: %s" % (check["n"], pat))
         if op == "refute_re":
             pat = self.sub(check["re"])
-            return self.report(count_re(text, pat) == 0, check["desc"], "unexpected: %s" % pat)
+            n = max(count_re(v, pat) for v in views)
+            return self.report(n == 0, check["desc"], "unexpected: %s" % pat)
         if op == "faults_at":
             if not check["addr"]:
                 return self.report(False, check["desc"], "no layout address")

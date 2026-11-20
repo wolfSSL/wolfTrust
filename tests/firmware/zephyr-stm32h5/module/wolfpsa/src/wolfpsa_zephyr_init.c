@@ -57,6 +57,8 @@ static int wolfpsa_zephyr_sys_init(void)
 
 #ifdef CONFIG_WOLFTRUST_WOLFHSM_CLIENT
     LOG_INF("wolfPSA up; default devId=0x%08x", (unsigned)WH_DEV_ID);
+#elif defined(CONFIG_WOLFTRUST_SECURE_PSA)
+    LOG_INF("PSA Crypto up; served by the Secure image");
 #else
     LOG_INF("wolfPSA up; native engine (Non-secure wolfCrypt)");
 #endif

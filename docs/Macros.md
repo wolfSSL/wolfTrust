@@ -17,9 +17,12 @@ Costs are over the default image, built with Arm GNU 15.2.1 in
 `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO and read with
 `make size-report`: flash is `text + data`, and RAM is the Secure RAM the image
 reserves, partition stacks and bands included ([Footprint](Footprint.md#how-sizes-are-measured)).
-The default native images are 70,432 bytes of flash and 45,260 bytes of RAM
-on the STM32H563, and 69,496 and 45,280 bytes on the STM32L562 (measured on
-the STM32L562 port, which is under review and not yet in this tree).
+The default native image serves PSA Crypto from the Secure image and is
+109,849 bytes of flash and 48,844 bytes of RAM on the STM32H563, with wolfCrypt
+built as portable C. The other rows are measured over the `WT_SECURE_PSA=0`
+image, 70,400 and 45,260 bytes on the STM32H563, and 69,496 and 45,280 bytes
+on the STM32L562 (measured on the STM32L562 port, which is under review and not
+yet in this tree).
 [Footprint](Footprint.md) logs the sizes of every port and engine.
 
 | Option | Brings back | STM32H563 flash / RAM | STM32L562 flash / RAM | Enable |
@@ -29,6 +32,7 @@ the STM32L562 port, which is under review and not yet in this tree).
 | [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator | +3,316 / 0 | +3,284 / 0 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
 | [`WT_SHA256_FAST=1`](#wt_sha256_fast-unrolled-sha-256) | The unrolled SHA-256 transform, faster hashing for boot and guest measurement | +384 / 0 | +416 / 0 | `make WT_SHA256_FAST=1 secure-image` |
 | [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +27,876 / +38,672 | not supported | `make WT_ENGINE=hsm secure-image` |
+| [`WT_SECURE_PSA=0`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1) | Removes PSA Crypto from the Secure image and runs wolfPSA in the guest again; saves 41,369 / 7,680 against the `compat` default (`standard` is +35,193 / +7,680 over it) | -41,369 / -7,680 | not measured | `make WT_SECURE_PSA=0 secure-image` |
 | `full` profile | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` together | +9,408 / +13,488 | +9,432 / +13,500 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image` |
 
 The RAM figures include every stack and band an option adds, the 4 KiB FWU
@@ -133,7 +137,7 @@ build `full` only, because their checks assert both guests.
   `hsm` links the wolfHSM server instead, with server-keystore semantics and
   an external-HSM offload path. The FF-M surface does not change.
 - Cost: STM32H563 +27,876 bytes flash and +38,672 bytes RAM over the native
-  default, including the wolfHSM server's 10 KiB crypto partition stack and
+  `WT_SECURE_PSA=0` image, including the wolfHSM server's 10 KiB crypto partition stack and
   24 KiB data band. Part of it is AES block decryption, which the wolfHSM server
   serves to clients and the native engine leaves out. The STM32L562 builds the native engine only; its 256 KiB of SRAM
   does not hold the wolfHSM bands.
@@ -172,8 +176,12 @@ build `full` only, because their checks assert both guests.
 | `WT_GUEST_FLASH_WRP` | When `1`, verify the port's hardware write protection of each guest window before launch; a port with no guest flash fence then refuses every guest. Default `0`. | Set to `1` for hardened images, after provisioning the port's fence as its guide describes. |
 | `WT_ENGINE_HSM` | Legacy engine selector; unset by default. `0` maps to `WT_ENGINE=native` and `1` maps to `WT_ENGINE=hsm` when the public selector is not supplied. The build also derives this internal value from `WT_ENGINE`. | Prefer `WT_ENGINE` for new builds and do not supply conflicting selectors. The guest and Secure image must select the same engine. |
 | `WT_ATTEST_COSE` | Build the COSE attestation token service; default `1`. CI compile-checks `0`, and builds each port with its `port.json` `attest_cose` value. | `1` requires the wolfCOSE submodule and the configured attestation key backend. |
+| `WT_SECURE_PSA` | When `1`, serve PSA Crypto from the Secure image: wolfPSA runs in the crypto partition and the guest links the PSA client instead of wolfPSA. Default `1` with the native engine and `0` with wolfHSM; a port may default it to `0` in its `mk/target-<soc>.mk`. See [Crypto Engines](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1). | `1` requires `WT_ENGINE=native`; build every guest with the Secure image's value. |
+| `WT_SECURE_PSA_PROFILE` | Algorithm set of a `WT_SECURE_PSA=1` image: `compat` (default), `standard`, `lean` or `symmetric`. | Any other value stops the build. |
+| `WT_PSA_POOL_BYTES` | Make variable: size of the crypto partition's private wolfPSA pool, split evenly into one arena per guest; empty keeps 2,048 bytes per guest. | A smaller arena fails calls that hold more with `PSA_ERROR_INSUFFICIENT_MEMORY`; below 1,536 bytes per guest stops the build. A pool past the crypto partition's band fails the link. |
+| `WT_PSA_KEY_SLOTS`, `WT_PSA_OP_SLOTS` | Make variables: volatile keys and live operations the Secure PSA service tracks, split evenly across the guests; empty keeps `16` and `8`. | Fewer slots than guests, more than 256 operation slots, or a non-number stops the build. Each slot's state is allocated from `WT_PSA_POOL_BYTES`. |
 | `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `0`, the portable C `sp_c32.c`, which is smaller. `1` trades flash for faster ECC and, on the native engine, raises the crypto partition stack from 5 KiB to 9 KiB for its deeper P-256 verify. | `1` requires compatible Armv8-M assembly sources and toolchain. |
-| `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `0`, portable C AES with small tables. `1` trades flash for faster AES and SHA-256. | `1` requires a compatible GNU Arm toolchain. [`WT_SHA256_FAST`](#wt_sha256_fast-unrolled-sha-256) picks the SHA-256 transform either way. |
+| `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `0`, portable C AES with small tables. `1` trades flash for faster AES and SHA-256. | `1` requires a compatible GNU Arm toolchain and `WT_SECURE_PSA=0`: the Thumb-2 AES is not constant time, which wolfPSA refuses. [`WT_SHA256_FAST`](#wt_sha256_fast-unrolled-sha-256) picks the SHA-256 transform either way. |
 | `WT_WOLFCRYPT_STM32_HASH` | STM32 HASH acceleration selector; default `0`. | Must remain `0`: the Makefile rejects other values because wolfHSM SHA state is not compatible with the peripheral representation. |
 | `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | Use only for conformance builds; the default production manifest is selected at `0`. |
 

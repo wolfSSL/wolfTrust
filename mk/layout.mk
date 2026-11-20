@@ -57,6 +57,16 @@ WT_LAYOUT_DEFS := \
     -DWT_GUEST1_FLASH_BASE=$(WT_GUEST1_FLASH_BASE) \
     -DWT_GUEST0_FLASH_SIZE=$(WT_GUEST0_FLASH_SIZE) \
     -DWT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE)
+# The native engine serves PSA Crypto from the Secure image unless the build or
+# the target sets WT_SECURE_PSA=0; the wolfHSM engine cannot.
+WT_SECURE_PSA ?= $(if $(or $(filter hsm,$(WT_ENGINE)),$(filter 1,$(WT_ENGINE_HSM))),0,1)
+# A Secure PSA crypto band holds the wolfPSA pool (2 KB per guest) plus about
+# 1.4 KB of slot tables and service state; its crypto stack peaks at 4,836 B (7,240 B asm).
+ifeq ($(WT_SECURE_PSA),1)
+WT_SP_HSM_DATA_SIZE ?= $(shell echo $$(( ($(or $(WT_PSA_POOL_BYTES),\
+    $(or $(WT_MAX_GUESTS),1) * 2048) + 2048 + 31) / 32 * 32 )) 2>/dev/null)
+WT_SP_CRYPTO_STACK_SIZE ?= 0x00001800u
+endif
 WT_LAYOUT_DEFS += $(foreach v,$(WT_LAYOUT_OPTIONAL_INPUTS),\
     $(if $(strip $($(v))),-D$(v)=$($(v))))
 # The bands a build mode adds or resizes: the update stack (WT_FWU), the

@@ -544,6 +544,109 @@ static void test_isolation(void)
           "the native key wire cannot create in the PSA uid range");
 }
 
+static void refused(psa_status_t st, const char* what)
+{
+    check(st == PSA_ERROR_INVALID_HANDLE, what);
+}
+
+/* Every wire call that names a key, from the client that does not own it */
+static void test_foreign_key(void)
+{
+    psa_key_attributes_t attr = psa_key_attributes_init();
+    psa_mac_operation_t mop = PSA_MAC_OPERATION_INIT;
+    psa_cipher_operation_t cop = PSA_CIPHER_OPERATION_INIT;
+    psa_aead_operation_t aop = PSA_AEAD_OPERATION_INIT;
+    psa_key_derivation_operation_t kop = PSA_KEY_DERIVATION_OPERATION_INIT;
+    const psa_algorithm_t hmac = PSA_ALG_HMAC(PSA_ALG_SHA_256);
+    uint8_t in[32];
+    uint8_t out[80];
+    uint8_t nonce[13];
+    psa_key_id_t k;
+    psa_key_id_t id = PSA_KEY_ID_NULL;
+    psa_status_t st;
+    size_t len = 0U;
+
+    (void)memset(in, 0x3C, sizeof(in));
+    (void)memset(out, 0x5A, sizeof(out));
+    (void)memset(nonce, 0x11, sizeof(nonce));
+    wt_test_set_client(GUEST0);
+    k = aes_key(PSA_KEY_ID_NULL, 0x44, &st);
+    check(st == PSA_SUCCESS, "guest0 imports the key guest1 will name");
+
+    wt_test_set_client(GUEST1);
+    refused(psa_get_key_attributes(k, &attr), "foreign key: get attributes");
+    refused(psa_export_public_key(k, out, sizeof(out), &len),
+            "foreign key: export public key");
+    refused(psa_purge_key(k), "foreign key: purge");
+    psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_EXPORT);
+    refused(psa_copy_key(k, &attr, &id), "foreign key: copy");
+    refused(psa_mac_compute(k, hmac, in, 16U, out, sizeof(out), &len),
+            "foreign key: MAC compute");
+    refused(psa_mac_verify(k, hmac, in, 16U, in, 32U),
+            "foreign key: MAC verify");
+    refused(psa_mac_sign_setup(&mop, k, hmac), "foreign key: MAC sign setup");
+    (void)psa_mac_abort(&mop);
+    refused(psa_mac_verify_setup(&mop, k, hmac),
+            "foreign key: MAC verify setup");
+    (void)psa_mac_abort(&mop);
+    refused(psa_cipher_encrypt(k, PSA_ALG_ECB_NO_PADDING, in, 16U, out,
+                               sizeof(out), &len), "foreign key: cipher encrypt");
+    refused(psa_cipher_decrypt(k, PSA_ALG_ECB_NO_PADDING, in, 16U, out,
+                               sizeof(out), &len), "foreign key: cipher decrypt");
+    refused(psa_cipher_encrypt_setup(&cop, k, PSA_ALG_ECB_NO_PADDING),
+            "foreign key: cipher encrypt setup");
+    (void)psa_cipher_abort(&cop);
+    refused(psa_cipher_decrypt_setup(&cop, k, PSA_ALG_ECB_NO_PADDING),
+            "foreign key: cipher decrypt setup");
+    (void)psa_cipher_abort(&cop);
+    refused(psa_aead_encrypt(k, PSA_ALG_GCM, nonce, 12U, in, 8U, in, 16U, out,
+                             sizeof(out), &len), "foreign key: AEAD encrypt");
+    refused(psa_aead_decrypt(k, PSA_ALG_GCM, nonce, 12U, in, 8U, in, 32U, out,
+                             sizeof(out), &len), "foreign key: AEAD decrypt");
+    refused(psa_aead_encrypt_setup(&aop, k, PSA_ALG_GCM),
+            "foreign key: AEAD encrypt setup");
+    (void)psa_aead_abort(&aop);
+    refused(psa_aead_decrypt_setup(&aop, k, PSA_ALG_GCM),
+            "foreign key: AEAD decrypt setup");
+    (void)psa_aead_abort(&aop);
+    if (psa_key_derivation_setup(&kop, PSA_ALG_HKDF(PSA_ALG_SHA_256)) ==
+            PSA_SUCCESS) {
+        refused(psa_key_derivation_input_key(&kop,
+                PSA_KEY_DERIVATION_INPUT_SECRET, k), "foreign key: KDF input");
+        refused(psa_key_derivation_verify_key(&kop, k),
+                "foreign key: KDF verify key");
+#ifndef WT_SECURE_PSA_symmetric
+        refused(psa_key_derivation_key_agreement(&kop,
+                PSA_KEY_DERIVATION_INPUT_SECRET, k, out, 65U),
+                "foreign key: KDF key agreement");
+#endif
+        (void)psa_key_derivation_abort(&kop);
+    }
+#ifndef WT_SECURE_PSA_symmetric
+    refused(psa_sign_hash(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), in, 32U, out,
+                          sizeof(out), &len), "foreign key: sign hash");
+    refused(psa_verify_hash(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), in, 32U, out,
+                            64U), "foreign key: verify hash");
+    refused(psa_sign_message(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), in, 16U, out,
+                             sizeof(out), &len), "foreign key: sign message");
+    refused(psa_verify_message(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), in, 16U, out,
+                               64U), "foreign key: verify message");
+    refused(psa_asymmetric_encrypt(k, PSA_ALG_RSA_PKCS1V15_CRYPT, in, 16U,
+                                   NULL, 0U, out, sizeof(out), &len),
+            "foreign key: asymmetric encrypt");
+    refused(psa_asymmetric_decrypt(k, PSA_ALG_RSA_PKCS1V15_CRYPT, in, 16U,
+                                   NULL, 0U, out, sizeof(out), &len),
+            "foreign key: asymmetric decrypt");
+    refused(psa_raw_key_agreement(PSA_ALG_ECDH, k, out, 65U, in, sizeof(in),
+                                  &len), "foreign key: raw key agreement");
+    refused(psa_key_agreement(k, out, 65U, PSA_ALG_ECDH, &attr, &id),
+            "foreign key: key agreement");
+#endif
+
+    wt_test_set_client(GUEST0);
+    check(psa_destroy_key(k) == PSA_SUCCESS, "guest0 still owns the key");
+}
+
 static void test_quota_and_reset(void)
 {
     psa_key_id_t keys[10];
@@ -656,6 +759,7 @@ int main(void)
     test_basic();
     test_profile();
     test_isolation();
+    test_foreign_key();
     test_quota_and_reset();
     test_service_restart();
     test_token_exhaustion();

@@ -115,6 +115,9 @@ def scan_file(path: Path) -> list[tuple[Path, int, int, str | None]]:
     for index, line in enumerate(lines):
         if not BRACE_LINE.match(line):
             continue
+        # A brace continuing a #define is the macro's body, not a scope.
+        if index > 0 and lines[index - 1].rstrip().endswith("\\"):
+            continue
         previous = previous_code_line(lines, index)
         previous_text = previous[1] if previous else None
         if is_allowed_open_brace(previous_text):

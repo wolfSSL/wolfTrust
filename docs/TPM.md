@@ -28,7 +28,7 @@ refused). The application reaches the SPM through the CMSE gateway.
 ## Build and run
 
 All three application interfaces use `WT_ENGINE=native` (default) or
-`WT_ENGINE=hsm`. TPM's native configuration does not need wolfHSM crypto.
+`WT_ENGINE=hsm`. For TPM 2.0 the engine changes only the Secure image.
 `WT_INTERFACE_PROFILE=default` exports RNG, SHA-256, P-256 key generation,
 signing, verification, and their required lifecycle commands. `full` retains
 the broader supported command set, including PCR operations. Individual
@@ -53,7 +53,8 @@ has the Secure image and application sizes for every port and engine.
 ## Service boundary
 
 The application links the wolfTPM client and `SERVICE_TPM` transport. It does
-not link fwTPM. The Secure partition owns the `FWTPM_CTX`, keys, command
+not link fwTPM or a crypto engine client: its wolfCrypt RNG reads
+`TPM2_GetRandom` over `SERVICE_TPM` (`wt_tpm_psa_random`). The Secure partition owns the `FWTPM_CTX`, keys, command
 buffers, and stack. Native operations run wolfCrypt in this domain; the HSM
 configuration registers the wolfHSM callback and calls the existing HSM
 service from the Secure partition.

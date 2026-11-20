@@ -56,12 +56,8 @@ include $(ROOT)/mk/crypto-profile.mk
 
 SECURE_CMSE_IMPLIB := $(ROOT)/build/secure_cmse_implib.o
 WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
-WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
 WOLFTPM_DIR := $(ROOT)/lib/wolfTPM
 WOLFPKCS11_DIR := $(ROOT)/lib/wolfPKCS11
-NS_SETTINGS_DIR := $(ROOT)/tests/firmware/stm32h563/nonsecure
-WOLFHSM_MODULE_DIR := $(ROOT)/tests/firmware/zephyr-stm32h5/module/wolfhsm-client
-WH_CFG_DIR := $(BUILD)/wh_include
 
 WT_M33MU_EXPECT_BKPT ?= 0
 # The default profile trims the token, so only the profile suite fits it.
@@ -100,23 +96,9 @@ SRCS += tpm_tests.c $(ROOT)/src/client/tpm_psa_transport.c \
     $(addprefix $(WOLFSSL_DIR)/wolfcrypt/src/, aes.c cryptocb.c ecc.c \
         random.c sha256.c asn.c coding.c error.c hash.c hmac.c memory.c sha.c \
         sp_cortexm.c sp_int.c wolfmath.c wc_port.c sha512.c kdf.c pwdbased.c)
-ifeq ($(WT_ENGINE),native)
-CFLAGS += -DWT_ENGINE_NATIVE=1
-SRCS += $(ROOT)/src/client/crypto_native_client.c
-else
-CFLAGS += -DWT_ENGINE_HSM=1 -DWOLFHSM_CFG -I$(WOLFHSM_DIR) \
-    -I$(NS_SETTINGS_DIR) -I$(WH_CFG_DIR)
-SRCS += $(ROOT)/src/client/hsm_psa_transport.c \
-    $(WOLFHSM_MODULE_DIR)/src/wolfhsm_client_glue.c \
-    $(addprefix $(WOLFHSM_DIR)/src/, wh_client.c wh_client_crypto.c \
-        wh_client_cryptocb.c wh_comm.c wh_crypto.c wh_keyid.c \
-        wh_message_comm.c wh_message_crypto.c wh_message_keystore.c \
-        wh_message_nvm.c wh_message_customcb.c wh_message_counter.c \
-        wh_utils.c)
-endif
 KEEP := -Wl,-u,wt_tpm_psa_transact,-u,TPM2_SWTPM_SendCommand
-WIRED := wt_tpm_psa_transact TPM2_SWTPM_SendCommand
-ABSENT := 'fwTPM|FWTPM_|WP11_'
+WIRED := wt_tpm_psa_transact TPM2_SWTPM_SendCommand wt_tpm_psa_random
+ABSENT := 'fwTPM|FWTPM_|WP11_|wh_Client|wt_crypto_native'
 else
 APP_NAME := pkcs11-guest0
 SUITE_DEF := $(strip \
@@ -151,12 +133,7 @@ $(SECURE_CMSE_IMPLIB): FORCE
 	    WT_TPM_DA=$(WT_TPM_DA) \
 	    build/secure_cmse_implib.o
 
-$(WH_CFG_DIR)/wolfhsm_cfg.h: | $(BUILD)
-	mkdir -p $(WH_CFG_DIR)
-	printf '#include "%s"\n' "wh_settings_guest.h" > $@
-	printf '#include "%s"\n' "wh_settings_guest.h" > $(WH_CFG_DIR)/wolfhsm_guest_cfg.h
-
-$(BUILD)/%.o: %.c $(WH_CFG_DIR)/wolfhsm_cfg.h $(WT_INTERFACE_PROFILE_HEADER) | $(BUILD)
+$(BUILD)/%.o: %.c $(WT_INTERFACE_PROFILE_HEADER) | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD)/guest0.elf: $(OBJS) $(SECURE_CMSE_IMPLIB) ../psa-guest/guest.ld

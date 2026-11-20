@@ -751,7 +751,8 @@ def _interface_checks(ctx, block):
         out = _interface_neg(v, "TPM") if block == "tpmneg" else []
         out += [expect("TPM application guest alive", app + ": alive"),
                 expect("fwTPM capabilities match the relay frame limit", app + ": tpm frame caps ok"),
-                expect("valid TPM command reaches the advertised frame limit", app + ": tpm max frame ok")]
+                expect("valid TPM command reaches the advertised frame limit", app + ": tpm max frame ok"),
+                expect("wolfCrypt RNG draws entropy from fwTPM", app + ": tpm wolfcrypt rng ok")]
         if not full and block == "tpm":
             out += [expect("TPM capabilities match the selected commands",
                            app + ": tpm command capabilities match profile"),

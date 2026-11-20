@@ -24,6 +24,7 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_wrap.h>
+#include <wolfssl/wolfcrypt/random.h>
 
 #include "wolftrust/tpm_psa_transport.h"
 
@@ -122,6 +123,30 @@ static int tpm_command_capabilities(void)
     return found_sign ? 0 : -1;
 }
 #endif
+
+/* 48 bytes spans two GetRandom chunks; the second must hold entropy too. */
+static int tpm_wolfcrypt_rng(void)
+{
+    WC_RNG rng;
+    byte buf[48];
+    byte tail = 0U;
+    word32 i;
+    int rc;
+
+    (void)memset(buf, 0, sizeof(buf));
+    rc = wc_InitRng(&rng);
+    if (rc == 0) {
+        rc = wc_RNG_GenerateBlock(&rng, buf, (word32)sizeof(buf));
+        (void)wc_FreeRng(&rng);
+    }
+    for (i = 32U; i < (word32)sizeof(buf); i++) {
+        tail |= buf[i];
+    }
+    if (rc == 0 && tail == 0U) {
+        rc = -1;
+    }
+    return rc;
+}
 
 static int tpm_max_frame_hash(void)
 {
@@ -235,6 +260,13 @@ int wt_tpm_run(void)
         return -1;
     }
     app_line("tpm random ok");
+
+    rc = tpm_wolfcrypt_rng();
+    if (rc != 0) {
+        app_line_i32("tpm wolfcrypt rng FAILED rc=", rc);
+        return -1;
+    }
+    app_line("tpm wolfcrypt rng ok");
 
     rc = wolfTPM2_GetKeyTemplate_ECC(&g_pub,
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |

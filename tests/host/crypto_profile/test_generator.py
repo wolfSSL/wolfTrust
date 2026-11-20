@@ -96,6 +96,12 @@ class GeneratorTests(unittest.TestCase):
                                      {"tpm": []}, [], [], require_tpm=False)
         self.assertEqual(selected["tpm"], set())
 
+    def test_tpm_selection_requires_startup(self):
+        for custom, disable in (({"tpm": ["GetCapability"]}, []), ({}, ["tpm:Startup"])):
+            with self.subTest(custom=custom, disable=disable), self.assertRaises(ValueError):
+                profile.select(self.catalog, self.defaults, "default", custom, [], disable)
+        profile.select(self.catalog, self.defaults, "default", {"tpm": ["Startup"]}, [], [])
+
     def test_generate_rejects_psa_selections(self):
         with tempfile.TemporaryDirectory(dir=BUILD_DIR) as temporary:
             for custom, enable, disable in (({"psa": []}, [], []),

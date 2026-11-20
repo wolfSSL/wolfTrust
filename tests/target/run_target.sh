@@ -264,7 +264,12 @@ judge_args=(--log "$log" --syms build/wolftrust-signed.syms
             --var "v2_measurement=$v2_measurement"
             --var "conf_want=$repo/tests/target/ffm_ipc_results.txt"
             --var "conf_rev=$(cat "$repo/tests/upstream/psa-arch-tests.rev")"
-            --var "interface_profile=$WT_INTERFACE_PROFILE")
+            --var "interface_profile=$WT_INTERFACE_PROFILE"
+            --var "tpm_da=${WT_TPM_DA:-1}")
+if [ -f build/crypto-profile/selected_profile.h ]; then
+  judge_args+=(--var "interface_ops=$(sed -n 's/^#define WT_PROFILE_\([A-Za-z0-9_]*\) 1$/\1/p' \
+    build/crypto-profile/selected_profile.h | tr '\n' ' ')")
+fi
 if [ "$SC_GUEST0" = "zephyr" ]; then
   # Both H5 guests write USART3: guest1's records can splice a guest0 line, so
   # guest0's markers are read from the reconstructed view.

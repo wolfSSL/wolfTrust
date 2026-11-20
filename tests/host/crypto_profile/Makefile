@@ -64,6 +64,9 @@ run: $(TEST_BIN)
 		PROFILE_ARGS="--interface pkcs11 --disable pkcs11:C_GetInfo \
 		--disable pkcs11:C_GetTokenInfo --disable pkcs11:C_GetSessionInfo"
 	$(BUILD_DIR)/noinfo/test_crypto_profile
+	$(MAKE) --no-print-directory all BUILD_DIR=$(BUILD_DIR)/nofinalize \
+		PROFILE_ARGS="--interface pkcs11 --disable pkcs11:C_Finalize"
+	$(BUILD_DIR)/nofinalize/test_crypto_profile
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

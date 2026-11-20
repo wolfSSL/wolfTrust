@@ -76,6 +76,10 @@
 #define wt_spm_interface_dispatch      wt_pkcs11_relay_dispatch
 #define wt_spm_interface_restart_probe wt_pkcs11_relay_restart_probe
 #endif
+#if (defined(CONFIG_TPM) || defined(CONFIG_PKCS11)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+#include "wolftrust/services/interface_client.h"
+#endif
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
 
@@ -884,6 +888,17 @@ int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 #ifndef WT_INTERFACE_APP_GUEST
 #define WT_INTERFACE_APP_GUEST 0
 #endif
+
+void wt_spm_interface_client_departed(uint32_t guest_id)
+{
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (guest_id == (uint32_t)WT_INTERFACE_APP_GUEST) {
+        g_wt_interface_client_epoch++;
+    }
+#else
+    (void)guest_id;
+#endif
+}
 
 #if defined(CONFIG_TPM)
 /* The partition runs fwTPM in its own protection domain. */

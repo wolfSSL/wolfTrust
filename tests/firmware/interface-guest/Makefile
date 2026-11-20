@@ -77,6 +77,10 @@ CFLAGS += -DWT_M33MU_EXPECT_BKPT
 endif
 WT_TPM_DA ?= 1
 CFLAGS += -DWT_TPM_DA=$(WT_TPM_DA)
+WT_TPM_RESET_PROBE ?= 0
+CFLAGS += -DWT_TPM_RESET_PROBE=$(WT_TPM_RESET_PROBE)
+WT_PKCS11_RESET_PROBE ?= 0
+CFLAGS += -DWT_PKCS11_RESET_PROBE=$(WT_PKCS11_RESET_PROBE)
 
 SRCS := main.c ../psa-guest/guest_libc.c $(ROOT)/src/client/psa_ffm_client.c
 
@@ -116,11 +120,23 @@ CFLAGS += -I$(WOLFPKCS11_DIR) -DWOLFPKCS11_USER_SETTINGS -DWOLFPKCS11_NO_ENV \
 CFLAGS += -DWT_MSG_RELAY_CHUNKED=1
 SRCS += pkcs11_tests.c $(ROOT)/src/client/pkcs11_proxy.c $(ROOT)/src/client/msg_client.c \
     $(ROOT)/src/pkcs11/pkcs11_wire.c $(ROOT)/src/client/pkcs11_psa_transport.c
+ifeq ($(WT_PKCS11_RESET_PROBE),1)
+WT_RESET_PROBE_ITS := 1
+endif
 KEEP := -Wl,-u,C_GetFunctionList,-u,wt_pkcs11_psa_call
 WIRED := C_GetFunctionList wt_pkcs11_psa_call
 ABSENT := 'WP11_|wolfTPM|TPM2_|wc_'
 endif
 CFLAGS += -DGUEST_APP_NAME=\"$(APP_NAME)\"
+
+ifeq ($(WT_TPM_RESET_PROBE),1)
+WT_RESET_PROBE_ITS := 1
+endif
+ifeq ($(WT_RESET_PROBE_ITS),1)
+# A reset probe marks its first launch in ITS, which outlives the guest.
+CFLAGS += -I$(ROOT)/tests/firmware/psa-guest/manifest
+SRCS += $(ROOT)/src/client/psa_storage_client.c
+endif
 
 OBJS := $(patsubst %.c,$(BUILD)/%.o,$(notdir $(SRCS)))
 vpath %.c $(sort $(dir $(SRCS)))

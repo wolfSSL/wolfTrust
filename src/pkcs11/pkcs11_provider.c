@@ -21,6 +21,7 @@
 #include "wolftrust/pkcs11_provider.h"
 #include "wolftrust/pkcs11/pkcs11_abi.h"
 #include "wolftrust/pkcs11/pkcs11_wire.h"
+#include "wolftrust/services/interface_client.h"
 #include "wolftrust/zeroize.h"
 
 #include "wolfpkcs11/pkcs11.h"
@@ -42,6 +43,12 @@ static CK_RV provider_backend_token_info(CK_SLOT_ID slot,
     CK_TOKEN_INFO_PTR info)
 {
     return C_GetTokenInfo(slot, info);
+}
+
+/* A departed client's references go even when its profile disables C_Finalize. */
+static CK_RV provider_backend_finalize(void)
+{
+    return C_Finalize(NULL);
 }
 
 static CK_RV provider_backend_info(CK_INFO_PTR info)
@@ -82,6 +89,9 @@ typedef struct wt_provider_pin_state {
 /* WOLFPKCS11_NO_TIME compiles out wolfPKCS11's clock-based lockout, so the
  * provider keeps its own count. It lives in RAM like the NO_STORE token. */
 static wt_provider_pin_state_t g_provider_pin[WT_P11_PIN_SLOTS];
+static uint32_t g_provider_client_epoch;
+static unsigned int g_provider_client_inits;
+volatile uint32_t g_wt_interface_client_epoch;
 
 typedef struct wt_provider_mechanism {
     CK_MECHANISM mechanism;
@@ -778,6 +788,22 @@ static void provider_token_pin_flags(CK_SLOT_ID slot, CK_TOKEN_INFO* info)
     }
 }
 
+/* A departed client releases its C_Initialize references, as a process exit
+ * would; the client could do the same with C_Finalize. */
+static int provider_client_reset(void)
+{
+    CK_RV rv = CKR_OK;
+
+    while (rv == CKR_OK && g_provider_client_inits > 0U) {
+        rv = provider_backend_finalize();
+        if (rv == CKR_OK) {
+            g_provider_client_inits--;
+        }
+    }
+    provider_pin_finalized();
+    return rv == CKR_OK ? 0 : -1;
+}
+
 int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
                                 uint8_t* response, size_t response_cap,
                                 size_t* response_len, void* context)
@@ -817,11 +843,19 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
     size_t attribute_wire_overhead;
     int attribute_output_status;
     int has_attribute_output;
+    uint32_t epoch;
 
     (void)context;
     if (request == NULL || request_len == 0U || response == NULL ||
             response_cap < 12U || response_len == NULL) {
         return -1;
+    }
+    epoch = g_wt_interface_client_epoch;
+    if (epoch != g_provider_client_epoch) {
+        if (provider_client_reset() != 0) {
+            return -1;
+        }
+        g_provider_client_epoch = epoch;
     }
     wt_forceZero(g_provider_data, sizeof(g_provider_data));
     (void)memset(attributes, 0, sizeof(attributes));
@@ -857,11 +891,17 @@ int wt_pkcs11_provider_dispatch(uint8_t* request, size_t request_len,
             rv = provider_request_valid(&reader) ?
                 C_Initialize(bad_reserved != 0U ? &init : NULL) :
                 CKR_ARGUMENTS_BAD;
+            if (rv == CKR_OK) {
+                g_provider_client_inits++;
+            }
             break;
         }
         case WT_P11_FINALIZE:
             if (provider_request_valid(&reader)) {
                 rv = C_Finalize(NULL);
+                if (rv == CKR_OK && g_provider_client_inits > 0U) {
+                    g_provider_client_inits--;
+                }
                 provider_pin_finalized();
             }
             break;

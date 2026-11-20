@@ -144,6 +144,11 @@ void wt_tpm_wait(void)
     guest_spin();
 }
 
+void wt_tpm_fault(void)
+{
+    (void)*(volatile const uint32_t*)GUEST_SECURE_RAM_ADDR;
+}
+
 static int guest_run(void)
 {
     return wt_tpm_run();
@@ -162,6 +167,11 @@ void wt_pkcs11_print_u32(unsigned int value)
 void wt_pkcs11_wait(void)
 {
     guest_spin();
+}
+
+void wt_pkcs11_fault(void)
+{
+    (void)*(volatile const uint32_t*)GUEST_SECURE_RAM_ADDR;
 }
 
 static int guest_run(void)

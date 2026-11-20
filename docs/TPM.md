@@ -71,6 +71,12 @@ use the service; unrelated Non-secure clients and Secure Partitions are
 refused. Command and response staging is wiped after every successful or failed
 execution. There are no submit/poll/fetch/respond worker operations.
 
+When the monitor restarts or quarantines the application guest, the next
+command first gets a TPM Reset: fwTPM runs `TPM2_Startup(TPM_SU_CLEAR)`, which
+flushes the old client's objects, sessions, hash sequences, and PCRs. The
+partition itself does not restart. The dictionary-attack count carries over,
+so a guest restart cannot clear a lockout.
+
 The volatile `FWTPM_NO_NV` configuration has no heap. Keys and PCR values do
 not survive reboot. The linker and MPU assign the handler a private state
 region and stack in the interface band above SPM RAM. Native builds share
@@ -88,6 +94,10 @@ The full suite also checks PCR extend/read and broader object operations.
 `tpmneg` proves that another Secure Partition cannot read or write TPM state,
 that the TPM partition cannot read SPM-private RAM or execute its writable
 state, that each fault is contained, and that commands succeed after recovery.
+`tpmreset` faults the application after it loads a key and fails one
+authorization; profiles with PCR commands also extend a PCR. The relaunched
+guest must find no object and the same dictionary-attack count, and on those
+profiles the PCR reset.
 The host suite drives the production client/service protocol through a real
 FF-M runtime and checks bounds, caller identity, wiping, and no replay.
 

@@ -110,5 +110,7 @@ int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
 #define WT_INTERFACE_PARTITION_ID PARTITION_PKCS11_ID
 #endif
 int wt_spm_interface_start(wt_ffm_runtime_t* runtime, int32_t partition_id);
+/* The guest that owns the interface left; its provider state must not carry. */
+void wt_spm_interface_client_departed(uint32_t guest_id);
 
 #endif /* WOLFTRUST_SPM_SCHED_H */

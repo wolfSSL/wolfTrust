@@ -33,6 +33,7 @@ endif
 TEST := $(BUILD_DIR)/test_monitor
 TEST_ONE := $(BUILD_DIR)/test_monitor_one_guest
 TEST_VNET := $(BUILD_DIR)/test_monitor_vnet
+TEST_IFACE := $(BUILD_DIR)/test_monitor_interface
 VNET_SRCS := $(ROOT)/src/services/vnet/vnet_service.c \
     $(ROOT)/src/vnet/vnet_switch.c $(ROOT)/src/vnet/vnet_fdb.c \
     $(ROOT)/src/vnet/vnet_mac.c $(ROOT)/src/vnet/vnet_pool.c \
@@ -42,7 +43,7 @@ FIXTURE := $(BUILD_DIR)/manifest.json
 GENERATED := $(BUILD_DIR)/wolftrust_manifest_generated.h
 
 .PHONY: all run sanitize valgrind clean
-all: $(TEST) $(TEST_ONE) $(TEST_VNET)
+all: $(TEST) $(TEST_ONE) $(TEST_VNET) $(TEST_IFACE)
 $(FIXTURE): $(WT_MANIFEST_RENDER_DEPS)
 	mkdir -p $(BUILD_DIR)
 	$(WT_MANIFEST_RENDER) --output $@ $(WT_MANIFEST_TEMPLATE)
@@ -59,10 +60,14 @@ $(TEST_VNET): main.c $(ROOT)/src/monitor.c $(ROOT)/src/restart_policy.c \
     $(VNET_SRCS) $(GENERATED)
 	$(CC) $(CFLAGS) -DWT_MAX_GUESTS=2 -DCONFIG_VNET $(GC_FLAGS) $(EXTRA_LDFLAGS) -o $@ \
 		main.c $(ROOT)/src/restart_policy.c $(VNET_SRCS)
-run: $(TEST) $(TEST_ONE) $(TEST_VNET)
+$(TEST_IFACE): main.c $(ROOT)/src/monitor.c $(ROOT)/src/restart_policy.c $(GENERATED)
+	$(CC) $(CFLAGS) -DWT_MAX_GUESTS=2 -DCONFIG_TPM $(GC_FLAGS) $(EXTRA_LDFLAGS) -o $@ \
+		main.c $(ROOT)/src/restart_policy.c
+run: $(TEST) $(TEST_ONE) $(TEST_VNET) $(TEST_IFACE)
 	$(TEST)
 	$(TEST_ONE)
 	$(TEST_VNET)
+	$(TEST_IFACE)
 	! $(CC) $(CFLAGS) -fsyntax-only -UWT_GUEST_HANDLER_SLICE_LIMIT \
 		-DWT_GUEST_HANDLER_SLICE_LIMIT=0 main.c \
 		2>$(BUILD_DIR)/limit0.log
@@ -80,9 +85,10 @@ sanitize:
 	$(MAKE) run CC=clang BUILD_DIR=$(BUILD_DIR)/sanitize \
 		EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
 		EXTRA_LDFLAGS="-fsanitize=address,undefined"
-valgrind: $(TEST) $(TEST_ONE) $(TEST_VNET)
+valgrind: $(TEST) $(TEST_ONE) $(TEST_VNET) $(TEST_IFACE)
 	valgrind --error-exitcode=1 --leak-check=full $(TEST)
 	valgrind --error-exitcode=1 --leak-check=full $(TEST_ONE)
 	valgrind --error-exitcode=1 --leak-check=full $(TEST_VNET)
+	valgrind --error-exitcode=1 --leak-check=full $(TEST_IFACE)
 clean:
 	rm -rf $(BUILD_DIR)

@@ -46,7 +46,8 @@ Pass its absolute path with `WT_INTERFACE_CONFIG`. The accepted fields are
 PKCS#11 builds link no PSA Crypto, so a `psa` field or `psa:` override fails.
 An empty mechanism list exports no crypto mechanisms. Unknown fields and
 operation names fail the build. A `CONFIG_TPM=y` build requires at least one selected command; a
-`CONFIG_PKCS11=y` build accepts `"tpm": []`.
+`CONFIG_PKCS11=y` build accepts `"tpm": []`. A TPM selection must keep
+`Startup`: the provider also sends it to reset a departed client.
 
 Inspect known dependency entry points or generate a selection directly:
 

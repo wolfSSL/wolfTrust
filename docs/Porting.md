@@ -13,11 +13,13 @@ and board-specific execution. The registered ports, each with its guide and
 its validation status, are in [Ports](Ports.md); every one reuses the Armv8-M
 architecture adapter unchanged.
 
-Cortex-A support is an architectural goal, not a current capability. It will
-require a new adapter and changes to current internal execution and protection
-contracts. The design goal is to preserve the public manifest, service, IPC,
-and PSA API contracts. Every new port must report its actual capabilities and
-must not claim security properties until they are tested on that target.
+No AArch64 architecture adapter or target is implemented or validated in the
+current release. An AArch64 port needs a separate architecture layer and device
+port; the common contracts describe its intended boundary, not an available
+build.
+
+Every new port must report its actual capabilities and must not claim security
+properties until they are tested on that target.
 
 ## Port layers
 
@@ -395,6 +397,11 @@ A port is its own files and nothing else:
 (`tools/gen-port-docs.py`), so a port PR carries their regenerated copies and
 no other shared file.
 
+Add the board guide to `mkdocs.yml`, the documentation list in `README.md`,
+and the index at `docs/index.md` in the same change. Keep its evidence and
+limitations in the guide and link it from [supported targets](Targets.md).
+The manual adapter checks that every Markdown page appears in its navigation.
+
 `tools/new-port/new-port.sh <soc> --from <port>` scaffolds every file from
 the closest registered port with a stub on every value the reference manual
 must settle, and `--check` reports the stubs still open and runs the registry
@@ -454,10 +461,10 @@ a `lock` step behind the typed acceptance, or refused outright by the port.
 - Run `make test` for common policy and service behavior.
 - Run `WT_SPLIT_STRICT=1 tools/check-core-port-split.sh` and resolve
   hard core-to-architecture leaks (arch or port headers, CMSE, inline
-  assembly, retired names, M-profile or A-profile register vocabulary in
+  assembly, retired names, architecture-specific register vocabulary in
   core code, and `wt_arch_*` definitions inside a port).
-- Run `tools/check-docs-no-internal-links.sh`; `docs/` is published to the
-  wiki and must not reference internal ledgers or developer paths.
+- Run `tools/check-docs-no-internal-links.sh`; `docs/` is published as the
+  manual and must not reference internal ledgers or developer paths.
 - Cross-build the Secure image with warnings enabled.
 - On the current Armv8-M port, inspect `nm` output and confirm only the five
   FF-M veneers are Non-secure-callable.

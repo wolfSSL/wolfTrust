@@ -1,7 +1,8 @@
 # Getting Started
 
-This guide builds the currently supported STM32H563 Secure image, the Zephyr
-and FreeRTOS reference guests, and the host tests. See [Building](Building.md) for
+This guide starts with the STM32H563 Secure image, the Zephyr and FreeRTOS
+reference guests, and the host tests. Other registered ports are listed in
+[Ports and supported targets](Targets.md). See [Building](Building.md) for
 build controls, and read [STM32H5 Guide](STM32H5-Guide.md) before flashing a
 board.
 
@@ -34,8 +35,12 @@ access.
 ```sh
 git clone --recurse-submodules https://github.com/wolfSSL/wolfTrust.git
 cd wolfTrust
-git submodule update --init --recursive
 ```
+
+The repository and its six pinned submodules are public and use HTTPS URLs.
+No GitHub account or SSH key is needed to clone them. If you already have a
+checkout with older submodule URLs, run `git submodule sync --recursive` before
+`git submodule update --init --recursive`.
 
 ## Build the Secure image
 
@@ -49,6 +54,11 @@ The default STM32H563 cross-build produces:
 - `build/wolftrust.bin`
 - `build/secure_cmse_implib.o`, used when linking Non-secure clients
 
+The default STM32H563 image serves PSA Crypto from the Secure image. It
+runs one guest and includes ITS, Protected Storage, and Initial Attestation.
+Enable Firmware Update with `WT_FWU=1` or a second guest with
+`WT_MAX_GUESTS=2`. See [Build profiles](Macros.md#build-profiles).
+
 The standalone binary is not a complete authenticated boot chain. The target
 runners patch guest measurement records into a copy of the Secure binary and
 sign that image with wolfBoot.
@@ -56,8 +66,10 @@ sign that image with wolfBoot.
 ## Build both PSA guests
 
 The reference pair is a Zephyr guest in slot 0 and a FreeRTOS guest in slot 1.
-Both use wolfPSA entry points and send protected operations through the FF-M
-gateway.
+Both use the standard PSA Crypto API. With the STM32H563 default, the
+guests link the PSA Crypto client and send requests through the FF-M gateway.
+Set `WT_SECURE_PSA=0` for both the Secure image and guests to keep PSA
+Crypto in the guest. See [Crypto Engines](Crypto-Engines.md) for migration.
 
 ```sh
 make -C tests/firmware/zephyr-stm32h5 clone
@@ -67,7 +79,7 @@ make -C tests/firmware/zephyr-stm32h5 \
 
 The first command creates ignored workspaces under
 `tests/firmware/zephyr-stm32h5/.workspace/`. The second command also
-builds the matching Secure image and CMSE import library.
+builds the matching two-guest Secure image and CMSE import library.
 
 ## Run host tests
 
@@ -117,6 +129,37 @@ Hardware runs flash the board and never write option bytes. Configure the
 TrustZone perimeter first as described in [STM32H5 Guide](STM32H5-Guide.md);
 the runner's preflight refuses a board whose guest sectors are
 write-protected and names the provisioning command that clears them.
+
+## Run on MIMXRT700
+
+Pass `TARGET=mimxrt700` to build and test the RT700 port:
+
+```sh
+make TARGET=mimxrt700 secure-image
+make test-target TARGET=mimxrt700
+make test-hardware TARGET=mimxrt700
+```
+
+`test-target` runs the RT700 emulator scenarios and `test-hardware` runs the
+EVK suite on the host that owns the probe. See the
+[MIMXRT700 Guide](MIMXRT700-Guide.md) for the rig and flash layout.
+
+## Run on MCXN947 or STM32L562
+
+Use the same build and test entry points with the selected port:
+
+```sh
+make TARGET=mcxn947 secure-image
+make test-target TARGET=mcxn947
+make TARGET=stm32l562 secure-image
+make test-target TARGET=stm32l562
+```
+
+The [MCXN947 Guide](MCXN947-Guide.md) and
+[STM32L562 Guide](STM32L562-Guide.md) cover board setup, memory layouts,
+emulator coverage, and hardware status. STM32L562 supports only the native
+crypto engine. Run emulator tests inside the port's container listed in
+[Ports](Ports.md); NXP ports also need the SDK setup described in their guides.
 
 ## Next steps
 

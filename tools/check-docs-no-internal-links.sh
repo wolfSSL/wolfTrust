@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Docs guard. docs/ is published to the wiki, so the public tree must never
+# Docs guard. docs/ is published as the manual, so the public tree must never
 # point at the internal ledger or at a developer's home directory.
 #
 #   tools/check-docs-no-internal-links.sh [path...]

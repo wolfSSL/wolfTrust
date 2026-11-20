@@ -10,29 +10,27 @@ The engine choice does not change the actual Non-secure-to-Secure boundary.
 Both builds use the same five CMSE veneers, generated manifest, service IDs,
 SPM-owned caller identity, copied IOVEC rules, isolation bands, storage
 services, attestation service, firmware-update service, and Secure Partition
-recovery path. The STM32H563 manifest requests isolation profile 3 in both
-builds. That value is wolfTrust's validated policy profile, not proof of
-independent TF-M Level 3 code and data isolation.
+recovery path. Both engines meet FF-M isolation level 3; see
+[Security Model](Security-Model.md#ff-m-isolation-level-3).
 
 ## At a glance
 
 | | Native crypto engine | wolfHSM engine |
 | --- | --- | --- |
 | Selector | `WT_ENGINE=native` (default) | `WT_ENGINE=hsm` |
-| Guest PSA Crypto | wolfPSA and wolfCrypt execute in the Secure image and the guest links only a client (default). With `WT_SECURE_PSA=0` they execute in the Non-secure guest and only DRBG seed requests cross into the Secure vault | wolfPSA routes supported operations through the wolfHSM client and `SERVICE_HSM` to a per-guest Secure wolfHSM server |
+| Guest PSA Crypto | The guest calls wolfPSA and wolfCrypt in the Secure image. With `WT_SECURE_PSA=0`, they execute in the Non-secure guest and request DRBG seed material from the Secure vault | wolfPSA routes supported operations through the wolfHSM client and `SERVICE_HSM` to a per-guest Secure wolfHSM server |
 | Secure key service | Native request format dispatches wolfCrypt directly; explicitly vault-backed keys are NVM objects | wolfHSM request format dispatches the wolfHSM server and its keystore |
 | Guest volatile PSA keys | Held in the Secure image, or in the guest's Non-secure memory with `WT_SECURE_PSA=0` | Keys for supported offloaded operations are held by the Secure wolfHSM server |
 | Persistent Secure keys | Native vault objects marked `SENSITIVE` and `NONEXPORTABLE` | wolfHSM server-keystore objects with wolfHSM key policy |
 | Attestation IAK | Vault-backed P-256 key used directly by wolfCrypt | Committed wolfHSM server-keystore key |
 | External HSM path | Not provided by this engine | Available through the wolfHSM server model when a deployment configures a backend; the reference build uses software wolfCrypt |
-| Secure-image footprint | Lower | Adds the wolfHSM protocol, server, per-guest contexts, and per-guest server stacks |
+| Secure-image footprint | Depends on PSA Crypto placement and profile | Adds the wolfHSM protocol, server, per-guest contexts, and per-guest server stacks |
 
-By default the native engine serves all of PSA Crypto, its keys and its
-operation state from the Secure image
-([`WT_SECURE_PSA=1`](#psa-crypto-in-the-secure-image-wt_secure_psa1)), as
-TF-M's Crypto partition does. `WT_SECURE_PSA=0` is the smaller opt-out: the
-guest runs wolfPSA and wolfCrypt itself, so its volatile keys stay in
-Non-secure memory. The native wire is a separate explicit interface for
+The native engine serves PSA Crypto from the Secure image on STM32H563,
+MIMXRT700 and MCXN947 by default
+([`WT_SECURE_PSA=1`](#psa-crypto-in-the-secure-image-wt_secure_psa1)).
+STM32L562 defaults to `WT_SECURE_PSA=0`. In that configuration the guest
+runs wolfPSA and wolfCrypt and keeps its volatile PSA keys in Non-secure RAM. The native wire is a separate explicit interface for
 vault-backed key operations. Secure services such as attestation use that vault
 backend directly.
 
@@ -55,9 +53,11 @@ SPM: caller identity + manifest policy + copied IOVECs
   v
 SERVICE_HSM protocol-opaque relay
   |
-  +-- WT_ENGINE=native --> native request --> wolfCrypt + vault key backend
+  +-- WT_ENGINE=native
+  |     +-- native key request --> wolfCrypt + vault key backend
+  |     `-- PSA request --> wolfPSA (WT_SECURE_PSA=1)
   |
-  `-- WT_ENGINE=hsm ----> wolfHSM packet --> per-guest wolfHSM server
+  `-- WT_ENGINE=hsm --> wolfHSM packet --> per-guest wolfHSM server
 ```
 
 The binding is the `wt_hsm_relay_set_submit()` call in
@@ -131,12 +131,13 @@ The header and operation values are declared in
 
 ## PSA Crypto in the Secure image (`WT_SECURE_PSA=1`)
 
-The native engine's default, `WT_SECURE_PSA=1`, links wolfPSA into the
-crypto partition and serves the whole PSA Crypto API from the Secure image.
-The wolfHSM engine defaults to `0` and refuses `1`. The guest links `src/client/psa_crypto_client.c` in place of wolfPSA:
-each `psa_*` call becomes one or more `SERVICE_HSM` requests with operation
-`WT_CRYPTO_OP_PSA`, and no key, operation state or intermediate secret is
-held in Non-secure memory.
+`WT_SECURE_PSA=1` links wolfPSA into the native crypto partition. The
+profile controls which PSA Crypto operations it serves. The guest links
+`src/client/psa_crypto_client.c` and sends `WT_CRYPTO_OP_PSA` requests
+through `SERVICE_HSM`. The Secure service holds the key and operation
+state. PSA calls that export key material or return derived bytes copy
+that output back to the caller. The wolfHSM engine requires
+`WT_SECURE_PSA=0`.
 
 `make WT_SECURE_PSA=0 secure-image` opts out, and a port can set
 `WT_SECURE_PSA ?= 0` in its `mk/target-<soc>.mk` when its Secure RAM cannot
@@ -201,14 +202,12 @@ includes too:
 
 RAM is the Secure RAM the image reserves. It is the same for every profile:
 the crypto partition's stack grows from 5 to 6 KiB for wolfPSA's ECDSA, and its
-data band from 1.5 KiB to `WT_PSA_POOL_BYTES` plus 2 KiB. The opt-out,
-`WT_SECURE_PSA=0`, is 70,400 / 45,260 bytes. The PSA
-guest drops from 65,384 to 34,600 bytes of flash; it keeps wolfCrypt only for
-the attestation token verifier. For comparison, TF-M v2.3.1 at isolation
-level 3 on the STM32L562 with its Medium crypto set is 79,680 bytes of flash
-and 45,728 bytes of RAM; of that flash, its Crypto partition and Mbed TLS
-are 40,478 bytes, against 55,021 for wolfCrypt, wolfPSA, the service and the
-key glue in `standard`.
+data band from 1.5 KiB to `WT_PSA_POOL_BYTES` plus 2 KiB. With `WT_SECURE_PSA=0`, the STM32H563 Secure image uses 70,400 bytes of
+flash and 45,260 bytes of Secure RAM. In the recorded guest measurement,
+moving PSA Crypto into the Secure image reduced guest flash from 65,384 to
+34,600 bytes. The guest still links wolfCrypt for attestation verification.
+See [Footprint Comparison](Footprint-Comparison.md#secure-psa-crypto) for the
+comparison with TF-M.
 
 wolfPSA refuses AES or GHASH whose timing depends on the key or the data, so
 the Secure image runs AES on wolfCrypt's touch-lines C core and GHASH on its
@@ -320,11 +319,11 @@ three reasons, in rough order of how often they apply:
   the wolfHSM client wire (`wh_Client_CryptoCb`), where reworking the guest to
   the native request format is not worth it.
 
-If none of those apply, prefer the native engine: it is smaller, keeps keys
-non-exportable in the vault, and needs no wolfHSM server. The wolfHSM engine
-adds this key-management and offload model on top of the same isolation
-boundary. The native engine is not a weaker FF-M gateway or a reduced-isolation
-build.
+Use the native Secure PSA configuration for a standard PSA client with
+Secure key and operation state. If Secure memory is limited, the native
+guest-local configuration uses the least Secure RAM. Both engines use
+the same FF-M gateway and isolation policy. See [Footprint](Footprint.md)
+for the costs of each configuration.
 
 ## Selecting the engine
 
@@ -343,14 +342,16 @@ engine. The legacy selector remains accepted:
 | `WT_ENGINE_HSM=0` | `WT_ENGINE=native` |
 | `WT_ENGINE_HSM=1` | `WT_ENGINE=hsm` |
 
-The Secure image and both guest images must use the same engine. See
+Use the same `WT_ENGINE` and `WT_SECURE_PSA` settings for the Secure
+image and its guests. See
 [Building](Building.md) for the Zephyr and FreeRTOS guest settings.
 
 ## Measured Secure-image cost
 
-These Secure-image measurements were taken on 2026-11-17 with Arm GNU 15.2.1
-in `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`, LTO on, and the repository
-defaults other than the engine, the profile and the output directory:
+The STM32H563 Secure images were measured on 2026-11-20 from `6dbd14bc`
+with Arm GNU 15.2.1 and LTO enabled.
+[Footprint](Footprint.md) records measurements and configurations for each port.
+To reproduce the engine builds:
 
 ```sh
 make BUILD_DIR=build_size_native WT_ENGINE=native secure-image
@@ -404,7 +405,7 @@ of allocation headroom over the tested peak. It is not a precise high-water
 measurement or a guarantee for different workloads. This is a fixed
 allocation, not a heap or a claim that every run consumes all 10 KiB.
 
-See [TF-M Compatibility](TF-M-Compatibility.md) for the complete local
+See [Footprint Comparison](Footprint-Comparison.md) for the complete local
 footprint comparison and methodology.
 
 ## Build invariants
@@ -414,10 +415,15 @@ Both engine builds enforce the following after linking:
 1. `mk/arch-armv8m.mk` runs `arm-none-eabi-nm` and writes the complete symbol
    list to `BUILD_DIR/nsc-syms.txt`.
 2. The link check rejects any `__acle_se_*` symbol outside this exact `nm`
-   set: `__acle_se_WolfTrust_FFM_FrameworkVersion`,
-   `__acle_se_WolfTrust_FFM_ServiceVersion`,
-   `__acle_se_WolfTrust_FFM_Connect`, `__acle_se_WolfTrust_FFM_Call`, and
-   `__acle_se_WolfTrust_FFM_Close`.
+   set:
+
+   ```text
+   __acle_se_WolfTrust_FFM_FrameworkVersion
+   __acle_se_WolfTrust_FFM_ServiceVersion
+   __acle_se_WolfTrust_FFM_Connect
+   __acle_se_WolfTrust_FFM_Call
+   __acle_se_WolfTrust_FFM_Close
+   ```
 3. A separate count check requires exactly five `__acle_se_*` symbols, so a
    missing veneer also fails the build.
 4. The same symbol list is searched for `malloc`, `free`, `calloc`,

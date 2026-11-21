@@ -56,7 +56,7 @@ _SRV_WT := \
 
 _SRV_WH := wh_nvm wh_nvm_flash wh_flash_ramsim wh_flash_unit wh_utils
 _SRV_WC := aes coding ecc sp_int wolfmath sha256 random memory error logging \
-    hash wc_port misc hmac kdf pwdbased
+    hash wc_port misc hmac kdf pwdbased sp_c32 sp_c64
 _SRV_WP := $(notdir $(basename $(filter-out %/psa_store_posix.c \
     %/psa_store_zephyr.c %/psa_attestation.c %/psa_ffm.c %/psa_its.c \
     %/misc_impl.c %/psa_tf_psa.c,$(wildcard $(WOLFPSA)/src/*.c))))

@@ -44,6 +44,10 @@
 #define WOLFSSL_AES_DIRECT
 #endif
 #define HAVE_ECC_DHE
+/* wolfPSA's direct P-256 path is randomized ECDSA only, so compat keeps ecc.c */
+#ifndef WT_SECURE_PSA_compat
+#define WOLFPSA_ECC_SP_DIRECT
+#endif
 #if defined(WT_SECURE_PSA_compat) || defined(WT_SECURE_PSA_standard)
 #undef NO_AES_DECRYPT
 #endif

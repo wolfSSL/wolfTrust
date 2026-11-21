@@ -13,7 +13,7 @@
   "build": {
     "engines": ["native", "hsm"],
     "attest_cose": 0,
-    "variants": ["conformance"],
+    "variants": ["conformance", "tpm", "pkcs11"],
     "vectors": "10040400"
   },
   "m33mu": {
@@ -43,7 +43,9 @@
       ["restartneg1 restartneg2 restartneg3", "MCXN947 partitions restart on a reset band (L3)"],
       ["periphspneg manifestneg2 manifestneg3", "MCXN947 SPM peripheral and manifest level negatives (L3)"],
       ["sealneg sealhaltneg sealpivotneg", "MCXN947 stack seal containment and halt (L3)"],
-      ["mspovfneg xnneg svcneg", "MCXN947 SPM stack, execute-never and SVC misuse (L3)"]
+      ["mspovfneg xnneg svcneg", "MCXN947 SPM stack, execute-never and SVC misuse (L3)"],
+      ["tpm tpmneg tpmreset", "MCXN947 TPM 2.0 interface, isolation and client reset (L3)"],
+      ["pkcs11 pkcs11neg pkcs11reset", "MCXN947 PKCS#11 interface, isolation and client reset (L3)"]
     ],
     "l3_exempt": {},
     "default": {
@@ -61,11 +63,13 @@
         ["bandneg1 bandneg2 bandneg3 bandneg4 bandneg5 bandneg6", "MCXN947 partition band-to-band isolation, one guest (L3)"],
         ["restartneg1 restartneg2 restartneg3", "MCXN947 partitions restart on a reset band, one guest (L3)"],
         ["manifestneg2 manifestneg3 sealbootneg fpneg", "MCXN947 refused boots and FP isolation, one guest (L3)"],
-        ["sealneg sealhaltneg sealpivotneg mspovfneg xnneg svcneg", "MCXN947 seal, SPM stack, execute-never and SVC, one guest (L3)"]
+        ["sealneg sealhaltneg sealpivotneg mspovfneg xnneg svcneg", "MCXN947 seal, SPM stack, execute-never and SVC, one guest (L3)"],
+         ["tpm tpmneg tpmreset", "MCXN947 TPM 2.0 interface, isolation and client reset, one guest (L3)"],
+         ["pkcs11 pkcs11neg pkcs11reset", "MCXN947 PKCS#11 interface, isolation and client reset, one guest (L3)"]
       ],
       "l3_exempt": {"hsmfaultneg": "the tasklet fault scenario ends on the second guest's breakpoint, so it runs on the full profile only"}
     },
-    "guests": {"hwpsa": ["psa", "psa"], "lifecycle": ["baremetal", "baremetal"], "psa": ["psa", "psa"], "conformance": ["psa", "baremetal"], "vnet": ["vnet", "vnet"]},
+    "guests": {"hwpsa": ["psa", "psa"], "lifecycle": ["baremetal", "baremetal"], "psa": ["psa", "psa"], "conformance": ["psa", "baremetal"], "vnet": ["vnet", "vnet"], "tpm": ["interface", "baremetal"], "pkcs11": ["interface", "baremetal"]},
     "guest_end": {},
     "timeouts": {"psa": 180, "conformance": 900},
     "guest_flags": {"fwustage": "WT_FWU_PROBE_STREAM_BYTES=0x21000u WT_FWU_PROBE_SEQUENTIAL=1 WT_FWU_PROBE_TAIL_BYTES=27u"},

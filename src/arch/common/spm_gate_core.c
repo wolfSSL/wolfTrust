@@ -43,6 +43,10 @@
 #include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+#include "wolftrust/provider_crypto.h"
+#endif
 #include "wolftrust/services/crypto_native.h"
 #include "wolftrust/services/nvm_client.h"
 #include "wolftrust/sync/mutex.h"
@@ -207,6 +211,12 @@ static void wt_spm_fault_release(void* ctx)
         wt_initial_attest_hsm_restarted();
     }
 #endif
+#if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
+    defined(WT_INTERFACE_LOCAL_PROVIDER)
+    if (c->slot->partition_id == g_spm_hsm_partition_id) {
+        wt_provider_crypto_hsm_restarted();
+    }
+#endif
 }
 
 static void wt_spm_fault_messages(void* ctx)
@@ -279,7 +289,8 @@ static int wt_spm_fault_restart(void* ctx)
     arg = (void*)((intptr_t)slot->arg | WT_SP_FAULT_PROBE_RESTARTED);
 #endif
 #if (defined(WT_VNET_NEG_PROBE) && (WT_VNET_NEG_PROBE == 1)) || \
-    (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0))
+    (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
+    (defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1))
     /* Two-stage probe progression persists in slot->arg: fault 1 arms
      * RESTARTED, fault 2 arms SECOND, the third run serves normally. */
     if (((intptr_t)slot->arg & WT_SP_FAULT_PROBE_RESTARTED) != 0) {
@@ -587,6 +598,16 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
         pinned = wt_spm_keystore_op_pinned(call->op, slot->partition_id,
                                            PARTITION_VAULT_ID,
                                            PARTITION_HSM_ID);
+#if defined(WT_INTERFACE_LOCAL_PROVIDER)
+        if (!pinned && call->op == WT_SPM_OP_KEYSTORE_ENTROPY) {
+#ifdef PARTITION_TPM_ID
+            pinned = slot->partition_id == PARTITION_TPM_ID;
+#endif
+#ifdef PARTITION_PKCS11_ID
+            pinned = slot->partition_id == PARTITION_PKCS11_ID;
+#endif
+        }
+#endif
         if (!pinned) {
             g_wt_ks_reject_pid = (uint32_t)slot->partition_id;
             g_wt_ks_reject_count++;
@@ -1171,7 +1192,8 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
 }
 
 #if (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
-    (defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0))
+    (defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)) || \
+    (defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1))
 /* Run the probing partition at boot until its probes have faulted and its
  * next entry parks in the service loop, so no client request is lost to the
  * deliberate faults. Never built into production images. */

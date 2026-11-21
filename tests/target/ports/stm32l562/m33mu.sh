@@ -20,11 +20,12 @@ SIGN_SECTOR_SIZE=0x800
 # The byte authneg flips after the digest is pinned: past the vector table.
 TAMPER_OFFSET=0x40
 
-# The conformance layout's 160 KiB slot and bank-spanning guest 0 move the
-# wolfBoot update slot so its trailer page stays erased; it never swaps.
+# The conformance layout, also used by TPM 2.0 and PKCS#11: its 160 KiB slot
+# and bank-spanning guest 0 move the wolfBoot update slot so its trailer page
+# stays erased; it never swaps.
 stm32l562_layout() {
     case " ${SC_SECURE:-} " in
-        *" WT_CONFORMANCE=1 "*) echo conformance ;;
+        *" WT_CONFORMANCE=1 "*|*" CONFIG_TPM=y "*|*" CONFIG_PKCS11=y "*) echo conformance ;;
         *) echo production ;;
     esac
 }

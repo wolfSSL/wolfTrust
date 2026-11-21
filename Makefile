@@ -8,6 +8,8 @@ WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
 WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
 WOLFHAL_DIR := $(ROOT)/lib/wolfhal
 WOLFCOSE_DIR := $(ROOT)/lib/wolfCOSE
+WOLFTPM_DIR := $(ROOT)/lib/wolfTPM
+WOLFPKCS11_DIR := $(ROOT)/lib/wolfPKCS11
 
 ifeq ($(wildcard mk/target-$(TARGET).mk),)
 $(error unsupported secure build target TARGET=$(TARGET))
@@ -65,10 +67,14 @@ C99_CC_VERSION := $(shell $(CC) --version 2>/dev/null)
 ifneq ($(findstring clang,$(C99_CC_VERSION)),)
 C99_CFLAGS += -Wno-newline-eof \
 	--system-header-prefix=wolfssl/ \
-	--system-header-prefix=wolfhsm/
+	--system-header-prefix=wolfhsm/ \
+	--system-header-prefix=wolftpm/ \
+	--system-header-prefix=wolfpkcs11/
 else
 C99_CFLAGS += -isystem $(abspath $(WOLFSSL_DIR)) \
-	-isystem $(abspath $(WOLFHSM_DIR))
+	-isystem $(abspath $(WOLFHSM_DIR)) \
+	-isystem $(abspath $(WOLFTPM_DIR)) \
+	-isystem $(abspath $(WOLFPKCS11_DIR))
 endif
 
 c99-check:

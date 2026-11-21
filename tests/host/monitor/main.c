@@ -271,6 +271,33 @@ static void test_vnet_guest_reset(void)
 }
 #endif
 
+#ifdef CONFIG_TPM
+static unsigned int g_departures;
+static uint32_t g_departed[4];
+
+void wt_spm_interface_client_departed(uint32_t guest_id)
+{
+    if (g_departures < 4U) {
+        g_departed[g_departures] = guest_id;
+    }
+    g_departures++;
+}
+
+static void test_interface_client_departed(void)
+{
+    g_departures = 0U;
+    setup(2U, 2U);
+    wt_monitor_quarantine_guest(1U);
+    check(g_departures == 1U && g_departed[0] == 1U,
+          "quarantine reports the departed interface client");
+    setup(2U, 2U);
+    g_runtime[1].state = WT_GUEST_READY;
+    check(fault_current() == DISPATCHED && g_departures == 2U &&
+          g_departed[1] == 0U,
+          "guest restart reports the departed interface client");
+}
+#endif
+
 #if WT_MAX_GUESTS == 1
 /* With no peer, a Thread-mode tick never switches or re-dispatches. */
 static void test_one_guest_ticks(void)
@@ -546,6 +573,9 @@ int main(void)
 
 #ifdef CONFIG_VNET
     test_vnet_guest_reset();
+#endif
+#ifdef CONFIG_TPM
+    test_interface_client_departed();
 #endif
     return g_failures == 0 ? 0 : 1;
 }

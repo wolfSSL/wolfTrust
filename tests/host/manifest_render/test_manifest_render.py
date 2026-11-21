@@ -72,6 +72,8 @@ WINDOW_MACROS = (
     "WT_SP_ATTEST_DATA_SIZE", "WT_SP_HSM_DATA_BASE", "WT_SP_HSM_DATA_SIZE",
     "WT_VNET_DATA_BASE", "WT_VNET_DATA_SIZE", "WT_CONF_SP_DATA_BASE",
     "WT_CONF_SP_DATA_SIZE", "WT_L3_BANDS_BASE",
+    "WT_SP_INTERFACE_STACK_BASE", "WT_SP_INTERFACE_STACK_SIZE",
+    "WT_INTERFACE_DATA_BASE", "WT_INTERFACE_DATA_SIZE",
 )
 STACKS = {
     "PARTITION_ATTEST": ("WT_SP_ATTEST_STACK_BASE", "WT_SP_ATTEST_STACK_SIZE"),
@@ -81,6 +83,8 @@ STACKS = {
     "PARTITION_PS": ("WT_SP_PS_STACK_BASE", "WT_SP_PS_STACK_SIZE"),
     "PARTITION_FWU": ("WT_SP_FWU_STACK_BASE", "WT_SP_FWU_STACK_SIZE"),
     "PARTITION_VNET": ("WT_SP_VNET_STACK_BASE", "WT_SP_VNET_STACK_SIZE"),
+    "PARTITION_TPM": ("WT_SP_INTERFACE_STACK_BASE", "WT_SP_INTERFACE_STACK_SIZE"),
+    "PARTITION_PKCS11": ("WT_SP_INTERFACE_STACK_BASE", "WT_SP_INTERFACE_STACK_SIZE"),
     "SERVER_PARTITION": ("WT_SP_FF_SERVER_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
     "DRIVER_PARTITION": ("WT_SP_FF_DRIVER_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
     "CLIENT_PARTITION": ("WT_SP_FF_CLIENT_STACK_BASE", "WT_SP_SECURE_STACK_SIZE"),
@@ -90,11 +94,13 @@ BANDS = {
     "PARTITION_HSM": ("WT_SP_HSM_DATA_BASE", "WT_SP_HSM_DATA_SIZE"),
     "PARTITION_VAULT": ("WT_SP_VAULT_DATA_BASE", "WT_SP_VAULT_DATA_SIZE"),
     "PARTITION_VNET": ("WT_VNET_DATA_BASE", "WT_VNET_DATA_SIZE"),
+    "PARTITION_TPM": ("WT_INTERFACE_DATA_BASE", "WT_INTERFACE_DATA_SIZE"),
+    "PARTITION_PKCS11": ("WT_INTERFACE_DATA_BASE", "WT_INTERFACE_DATA_SIZE"),
 }
 SLOTS = {"PARTITION_ATTEST": 0, "PARTITION_HSM": 1, "SERVER_PARTITION": 2,
          "DRIVER_PARTITION": 3, "CLIENT_PARTITION": 4, "PARTITION_VAULT": 5,
          "PARTITION_ITS": 6, "PARTITION_PS": 7, "PARTITION_FWU": 8,
-         "PARTITION_VNET": 9}
+         "PARTITION_VNET": 9, "PARTITION_TPM": 9, "PARTITION_PKCS11": 9}
 WRITABLE = 0x02
 checks = 0
 
@@ -157,7 +163,9 @@ def layout(flags):
 # stack, the conformance window and the VNET band only in the modes that use
 # them, and the base template carries the update partition.
 MODE = {"base": ("WT_FWU=1",), "conformance": ("WT_CONFORMANCE=1",),
-        "vnet": ("CONFIG_VNET=y", "WT_MAX_GUESTS=2", "WT_FWU=1")}
+        "vnet": ("CONFIG_VNET=y", "WT_MAX_GUESTS=2", "WT_FWU=1"),
+        "tpm": ("CONFIG_TPM=y", "WT_FWU=1"),
+        "pkcs11": ("CONFIG_PKCS11=y", "WT_FWU=1")}
 
 
 def render(flags, variant):
@@ -170,14 +178,24 @@ def render(flags, variant):
     return result.stdout
 
 
-def generator_accepts(text, label):
+def mode(target, variant):
+    """A variant a port limits to the default profile builds without FWU."""
+    result = run([sys.executable, str(ROOT / "tests/target/lib/scenario_matrix.py"),
+                  "--port", target, "--get", "build.variant_profiles." + variant])
+    if result.returncode == 0 and "full" not in result.stdout.split():
+        return tuple(f for f in MODE[variant] if f != "WT_FWU=1"), True
+    return MODE[variant], False
+
+
+def generator_accepts(text, label, no_fwu=False):
     with tempfile.TemporaryDirectory() as directory:
         source = Path(directory) / "manifest.json"
         source.write_text(text, encoding="utf-8")
         result = run([sys.executable, str(GENERATE), str(source),
                       str(Path(directory) / "out"), "--supported-features",
                       "0x1", "--supported-framework-version", "0x100",
-                      "--address-bits", "32", "--unchecked"])
+                      "--address-bits", "32", "--unchecked"] +
+                     (["--exclude-partition", "PARTITION_FWU"] if no_fwu else []))
         check(result.returncode == 0, "%s: the generator rejects the rendered "
               "manifest: %s" % (label, result.stderr.strip()))
 
@@ -243,8 +261,8 @@ def windows(manifest, values, label, variant):
         expect |= {"SERVER_PARTITION", "DRIVER_PARTITION", "CLIENT_PARTITION"}
     else:
         expect.add("PARTITION_FWU")
-    if variant == "vnet":
-        expect.add("PARTITION_VNET")
+    if variant in ("vnet", "tpm", "pkcs11"):
+        expect.add("PARTITION_" + variant.upper())
     check(names == expect, "%s: partitions %s, want %s" %
           (label, sorted(names), sorted(expect)))
     caps = manifest["profile_capabilities"]
@@ -261,16 +279,17 @@ def main():
     for target in ports:
         variants = registry(target)
         for variant in variants:
-            flags = cflags(target, *MODE[variant])
+            settings, no_fwu = mode(target, variant)
+            flags = cflags(target, *settings)
             text = render(flags, variant)
             label = "%s/%s" % (target, variant)
-            generator_accepts(text, label)
+            generator_accepts(text, label, no_fwu)
             windows(json.loads(text), layout(flags), label, variant)
             for key, digest in COMMITTED.items():
                 port, committed_variant, settings = key
                 if (port, committed_variant) != (target, variant):
                     continue
-                pinned = render(cflags(target, *(settings + MODE[variant])),
+                pinned = render(cflags(target, *(settings + mode(target, variant)[0])),
                                 variant)
                 check(hashlib.sha256(pinned.encode()).hexdigest() == digest,
                       "%s: rendered under %s differs from the committed "

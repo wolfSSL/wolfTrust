@@ -197,7 +197,7 @@ build `full` only, because their checks assert both guests.
 | `WT_GUEST0_FLASH_SIZE` | Guest 0 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
 | `WT_GUEST1_FLASH_SIZE` | Guest 1 flash window; default `0x00020000`. | Must contain the signed record's image size and use valid target alignment. |
 | `WT_L3_SPM_RAM_SIZE` | SPM-private RAM band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x0004D000`). | Moves every level 3 band above it; the keystore bands, partition stacks and conformance window follow. |
-| `WT_SP_HSM_DATA_SIZE` | Crypto partition data band size; default from the port's `memory_map.h` or `l3_layout.h` (`0x00011800`). | Must hold the engine's working set; the post-link layout check reports an overflow. |
+| `WT_SP_HSM_DATA_SIZE` | Crypto partition data band size; default from the port's `memory_map.h` or `l3_layout.h`: `0x00006000` for the wolfHSM engine (`0x00006800` with `CONFIG_TPM` or `CONFIG_PKCS11`, whose provider holds its own wolfHSM server context), `0x00000600` for native, and sized to the PSA pool when the native engine serves Secure PSA Crypto. | Must hold the engine's working set; the post-link layout check reports an overflow. |
 | `WT_LD_RAM_CODE_BAND` | `1` links the NSC gateway and the flash program code into the RAM code band; default `0` (`1` for `TARGET=mimxrt700`). | The port's `memory_map.h` must define `WT_RAMFUNC_BASE` and `WT_RAMFUNC_SIZE`. |
 
 Every layout input is a Make variable that `mk/layout.mk` resolves once into
@@ -224,6 +224,22 @@ guest linker files, measurement records, and flash commands consistent.
 | `WT_VNET_RX_IRQ` | Synthetic Non-secure receive interrupt; default `130`. | Must be representable and assigned consistently in the target IRQ policy. |
 | `WT_VNET_TIMEOUT_TICKS` | Frame-expiration threshold in scheduler ticks; default `500`. | When a transmit finds the frame pool full, `SERVICE_VNET` drops queued frames older than this and retries once, so a port that stops fetching cannot hold the pool. Frames are not aged out while the pool has free slots. |
 | `WT_VNET_UNKNOWN_UCAST_FLOOD` | Flood unknown unicast frames when set to `1`; default `0`. | Enable only when the guest-network policy permits it. |
+
+## Application interface options
+
+PSA is the default application API. These select TPM 2.0 or PKCS#11 instead;
+[Footprint](Footprint.md#tpm-20-and-pkcs11) has the cost of each on every port.
+
+| Define | Description | Requirement |
+| --- | --- | --- |
+| `CONFIG_TPM` | `y` adds `SERVICE_TPM` and its manifest overlay, running wolfTPM's firmware TPM in its own partition; default `n`. | Excludes `CONFIG_PKCS11`, `CONFIG_VNET` and `WT_CONFORMANCE`. The port must list `tpm` in its `port.json` `build.variants`. `WT_SECURE_PSA` defaults to `0`, and `1` stops the build. |
+| `CONFIG_PKCS11` | `y` adds `SERVICE_PKCS11` and its manifest overlay, running wolfPKCS11 in its own partition; default `n`. | Excludes `CONFIG_TPM`, `CONFIG_VNET` and `WT_CONFORMANCE`. The port must list `pkcs11` in `build.variants`. `WT_SECURE_PSA` as for `CONFIG_TPM`. |
+| `WT_INTERFACE_PROFILE` | Operation set the TPM 2.0 or PKCS#11 service exports: `default` (RNG, SHA-256, P-256) or `full`. `WT_INTERFACE_CONFIG`, `WT_INTERFACE_ENABLE` and `WT_INTERFACE_DISABLE` edit it. See [Interface Profiles](Interface-Profiles.md). | Read only when `CONFIG_TPM` or `CONFIG_PKCS11` is `y`. Applications must be built with the same profile. |
+| `WT_INTERFACE_LOCAL_PROVIDER` | Internal: `1` builds the provider's wolfCrypt into the interface partition with its symbols renamed apart from the crypto partition's copy. `mk/arch-armv8m.mk` sets it. | Not a user setting. |
+| `WT_PKCS11_PIN_MAX_FAILURES` | Consecutive wrong user or SO PINs before that PIN locks; empty keeps `3`. | Must be a positive integer. |
+| `WT_PKCS11_TEST_PBKDF2_ITERATIONS` | Emulator only: lowers the PIN PBKDF2 count from 600,000. | Never set it for a product image; the footprint script refuses it. |
+| `WT_TPM_DA` | `0` compiles out fwTPM dictionary-attack lockout (about 1.4 to 2.3 KB of Secure flash); default `1` locks DA-protected objects after 32 failed authorizations. | `0` or `1`; read only with `CONFIG_TPM=y`. Without NV the counter resets on reboot. |
+| `WT_PROVIDER_ECC_FALLBACK` | `1` keeps software P-256 in the provider of an `hsm` build; default `0` routes every ECC operation through wolfHSM. | `0` or `1`; read only with `WT_ENGINE=hsm`. |
 
 ## Fixed Secure wolfCrypt defines
 

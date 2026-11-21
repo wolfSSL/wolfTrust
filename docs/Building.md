@@ -102,7 +102,8 @@ The manifest is rendered into the build directory from the shared template
 in it is the port's `memory_map.h` value for that build. `CONFIG_VNET=y`
 applies the `manifest/vnet.json` overlay and `WT_CONFORMANCE=1` the
 `manifest/conformance.json` overlay; a port registers the variants it
-supports in `port/<soc>/port.json` (`build.variants`).
+supports in `port/<soc>/port.json` (`build.variants`), and
+`build.variant_profiles` limits a variant to the profiles its layout fits.
 
 ```sh
 make CONFIG_VNET=y WT_MAX_GUESTS=2

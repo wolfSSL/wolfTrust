@@ -551,6 +551,15 @@ def validate_policy(manifest, supported_features, word_max,
             policy_error("domain entry point is outside executable memory")
         if not stack_found:
             policy_error("domain stack is outside private writable memory")
+        # The fault scrub keeps one data band beside the stack's resource.
+        if domain_class == 1 and sum(
+                1 for memory in memories
+                if memory["attributes"] & 0x10 and
+                not memory["attributes"] & (0x08 | 0x20) and
+                not (memory["base"] <= domain["stack_base"] and
+                     stack_end <= memory["base"] + memory["size"])) > 1:
+            policy_error("Secure Partition has more than one restart-clear "
+                         "data band")
 
     for index, (owner, first) in enumerate(all_memory):
         for other_owner, second in all_memory[index + 1:]:
@@ -1103,6 +1112,31 @@ def exclude_partitions(manifest, names):
                            if domain["id"] not in removed]
 
 
+def check_spm_private(manifest, ranges, word_max):
+    """Each BASE:SIZE is SPM-private RAM the MPU cover protects; no Secure
+    Partition resource may reach into it."""
+    private = []
+    for item in ranges:
+        base, colon, size = item.partition(":")
+        try:
+            value = (int(base, 0), int(size, 0))
+        except ValueError:
+            value = None
+        if not colon or value is None or value[1] == 0:
+            policy_error("--spm-private {!r} is not BASE:SIZE".format(item))
+        policy_range_end(value[0], value[1], word_max, "SPM-private range")
+        private.append(value)
+    for domain in manifest["domains"]:
+        if domain["domain_class"] != 1:
+            continue
+        for memory in domain["memory_resources"]:
+            for base, size in private:
+                if ranges_overlap(memory["base"], memory["size"], base, size):
+                    policy_error("Secure Partition memory 0x{:08X}+0x{:X} "
+                                 "overlaps SPM-private RAM".format(
+                                     memory["base"], memory["size"]))
+
+
 def check_stacks(manifest, stacks):
     """Each NAME=BASE:SIZE names where the linked layout put that partition's
     stack; a manifest that disagrees would confine it to the wrong RAM. With
@@ -1171,6 +1205,9 @@ def main():
     parser.add_argument("--stack", action="append", default=[],
                         metavar="NAME=BASE:SIZE",
                         help="the layout's stack for partition NAME")
+    parser.add_argument("--spm-private", action="append", default=[],
+                        metavar="BASE:SIZE",
+                        help="SPM-private RAM no partition may overlap")
     parser.add_argument("--unchecked", action="store_true",
                         help="allow missing platform, FF-M limit and stack "
                              "inputs (host tests only; a target build "
@@ -1198,7 +1235,8 @@ def main():
             ("the platform options", platform is not None),
             ("--ffm-max-partitions", args.ffm_max_partitions is not None),
             ("--ffm-max-services", args.ffm_max_services is not None),
-            ("--stack", bool(args.stack))) if not given]
+            ("--stack", bool(args.stack)),
+            ("--spm-private", bool(args.spm_private))) if not given]
         if missing:
             parser.error("boot trusts this manifest, so the generator needs "
                          "%s; --unchecked is for host tests only" %
@@ -1224,6 +1262,7 @@ def main():
                         args.supported_framework_version, args.mpu_granule,
                         platform, ffm_limits)
         check_stacks(manifest, args.stack)
+        check_spm_private(manifest, args.spm_private, word_max)
         source = generate_source(manifest, hashlib.sha256(input_bytes).digest(),
                                  platform, args.platform_header,
                                  args.unchecked)

@@ -102,7 +102,7 @@ class GeneratorTest(unittest.TestCase):
                 check=False, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             for name in ("the platform options", "--ffm-max-partitions",
-                         "--ffm-max-services", "--stack"):
+                         "--ffm-max-services", "--stack", "--spm-private"):
                 self.assertIn(name, result.stderr)
             self.assertFalse((Path(temporary) / "output").exists())
 
@@ -597,6 +597,81 @@ class GeneratorTest(unittest.TestCase):
 
 # Runs the boot-time checks this build-time generator replaces, on a manifest
 # the generator itself would refuse to emit.
+
+    def test_spm_private_overlap_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+
+            def run(name, *ranges):
+                extra = []
+                for item in ranges:
+                    extra += ["--spm-private", item]
+                return self.run_generator(FIXTURE, root / name,
+                                          extra=tuple(extra))
+
+            self.assertEqual(run("clear", "0x20000:0x1000").returncode, 0)
+            guest = run("guest", "0x3000:0x20")
+            self.assertEqual(guest.returncode, 0, guest.stderr)
+            for name, item in (("stack", "0x7800:0x20"),
+                               ("edge", "0x6000:0x1001"),
+                               ("second", "0x20000:0x1000")):
+                extra = (item,) if name != "second" else (item, "0xB000:0x20")
+                result = run(name, *extra)
+                self.assertNotEqual(result.returncode, 0, name)
+                self.assertIn("overlaps SPM-private RAM", result.stderr)
+                self.assertFalse((root / name).exists())
+            for index, item in enumerate(("0x7000", "x:0x20", "0x7000:y",
+                                          "0x7000:0", ":0x20")):
+                result = run("malformed%d" % index, item)
+                self.assertNotEqual(result.returncode, 0, item)
+                self.assertIn("is not BASE:SIZE", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+            print("PASS: WT-FFM-0011 a Secure Partition resource inside "
+                  "SPM-private RAM stops generation")
+
+    def test_second_restart_clear_band_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["profile_capabilities"][
+                "max_memory_resources_per_domain"] = 4
+            band = {"base": 0xD000, "size": 0x400, "attributes": 0x13,
+                    "share_id": 0}
+            manifest["domains"][1]["memory_resources"].append(band)
+            one = root / "one.json"
+            one.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_generator(one, root / "one-out")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest["domains"][1]["memory_resources"].append(
+                dict(band, base=0xE000))
+            two = root / "two.json"
+            two.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_generator(two, root / "two-out")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("more than one restart-clear data band",
+                          result.stderr)
+            self.assertFalse((root / "two-out").exists())
+            print("PASS: WT-SYS-0008 a Secure Partition with two restart-clear "
+                  "data bands stops generation")
+
+    def test_two_regions_holding_the_stack_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["profile_capabilities"][
+                "max_memory_resources_per_domain"] = 3
+            manifest["domains"][1]["memory_resources"].append(
+                {"base": 0x7800, "size": 0x400, "attributes": 0x03,
+                 "share_id": 0})
+            source = root / "stack.json"
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_generator(source, root / "output")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("overlap", result.stderr)
+            print("PASS: WT-FFM-0011 exactly one private resource holds a "
+                  "partition's stack")
+
+
 RUNTIME_HARNESS = r"""
 #include "wolftrust_manifest_generated.h"
 #include "wolftrust/ffm.h"

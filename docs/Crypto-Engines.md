@@ -195,21 +195,22 @@ includes too:
 
 | Profile | Algorithms | STM32H563 Secure flash / RAM |
 | --- | --- | ---: |
-| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, TLS 1.2 PRF | 109,849 / 48,844 |
-| `standard` | `compat` without PBKDF2, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 103,067 / 48,844 |
-| `lean` | `standard` with one AEAD, CCM (`WT_AEAD=gcm` swaps it for GCM), and no AES decryption | 101,403 / 48,844 |
-| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 96,667 / 48,844 |
+| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, TLS 1.2 PRF | 108,697 / 48,844 |
+| `standard` | `compat` without PBKDF2, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 97,451 / 48,844 |
+| `lean` | `standard` with one AEAD, CCM (`WT_AEAD=gcm` swaps it for GCM), and no AES decryption | 94,927 / 48,844 |
+| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 91,207 / 48,844 |
+
+Every profile but `compat` signs, verifies and agrees keys on wolfPSA's direct
+P-256 path over wolfCrypt's SP code, so `ecc.c` and the multi-precision math
+leave the image; `compat` keeps them for deterministic ECDSA. With
+`WT_AEAD=gcm`, `lean` is 95,787 bytes and `symmetric` 92,099.
 
 RAM is the Secure RAM the image reserves. It is the same for every profile:
 the crypto partition's stack grows from 5 to 6 KiB for wolfPSA's ECDSA, and its
 data band from 1.5 KiB to `WT_PSA_POOL_BYTES` plus 2 KiB. The opt-out,
-`WT_SECURE_PSA=0`, is 70,400 / 45,260 bytes. The PSA
+`WT_SECURE_PSA=0`, is 70,432 / 45,260 bytes. The PSA
 guest drops from 65,384 to 34,600 bytes of flash; it keeps wolfCrypt only for
-the attestation token verifier. For comparison, TF-M v2.3.1 at isolation
-level 3 on the STM32L562 with its Medium crypto set is 79,680 bytes of flash
-and 45,728 bytes of RAM; of that flash, its Crypto partition and Mbed TLS
-are 40,478 bytes, against 55,021 for wolfCrypt, wolfPSA, the service and the
-key glue in `standard`.
+the attestation token verifier.
 
 wolfPSA refuses AES or GHASH whose timing depends on the key or the data, so
 the Secure image runs AES on wolfCrypt's touch-lines C core and GHASH on its
@@ -371,14 +372,15 @@ wolfBoot and Non-secure guest images are not included.
 
 | Engine and profile | `text` | `data` | `bss` | Flash | Secure RAM |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Native, default (`WT_SECURE_PSA=1`, `compat`) | 109,453 bytes | 396 bytes | 20,732 bytes | 109,849 bytes | 48,844 bytes |
-| Native, `WT_SECURE_PSA=1` `standard` | 102,675 bytes | 392 bytes | 20,732 bytes | 103,067 bytes | 48,844 bytes |
-| Native, `WT_SECURE_PSA=0` | 70,016 bytes | 384 bytes | 18,340 bytes | 70,400 bytes | 45,260 bytes |
-| wolfHSM, default | 97,916 bytes | 392 bytes | 40,648 bytes | 98,308 bytes | 83,932 bytes |
+| Native, default (`WT_SECURE_PSA=1`, `compat`) | 108,301 bytes | 396 bytes | 20,732 bytes | 108,697 bytes | 48,844 bytes |
+| Native, `WT_SECURE_PSA=1` `standard` | 97,059 bytes | 392 bytes | 20,732 bytes | 97,451 bytes | 48,844 bytes |
+| Native, `WT_SECURE_PSA=1` `lean` | 94,535 bytes | 392 bytes | 20,732 bytes | 94,927 bytes | 48,844 bytes |
+| Native, `WT_SECURE_PSA=0` | 70,048 bytes | 384 bytes | 18,340 bytes | 70,432 bytes | 45,260 bytes |
+| wolfHSM, default | 98,044 bytes | 392 bytes | 40,648 bytes | 98,436 bytes | 83,932 bytes |
 | wolfHSM over native `WT_SECURE_PSA=0` | 27,900 bytes | 8 bytes | 22,308 bytes | 27,908 bytes | 38,672 bytes |
-| Native, `full` | 118,556 bytes | 732 bytes | 31,832 bytes | 119,288 bytes | 64,380 bytes |
+| Native, `full` | 117,756 bytes | 732 bytes | 31,832 bytes | 118,488 bytes | 64,380 bytes |
 | Native, `full`, `WT_SECURE_PSA=0` | 79,120 bytes | 720 bytes | 27,392 bytes | 79,840 bytes | 58,748 bytes |
-| wolfHSM, `full` | 107,304 bytes | 728 bytes | 66,504 bytes | 108,032 bytes | 107,916 bytes |
+| wolfHSM, `full` | 107,432 bytes | 728 bytes | 66,504 bytes | 108,160 bytes | 107,916 bytes |
 
 ### Stack contribution
 

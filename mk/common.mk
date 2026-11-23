@@ -1269,7 +1269,7 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 		> $(MANIFEST_DIR)/psa_manifest/server_partition_psa.h
 	printf '#include "client_partition.h"\n' \
 		> $(MANIFEST_DIR)/psa_manifest/client_partition_psa.h
-	printf '#include "driver_partition.h"\n#define DRIVER_UART_INTR_SIG DRIVER_UART_INTR_SIG_SIGNAL\n' \
+	printf '#include "driver_partition.h"\n' \
 		> $(MANIFEST_DIR)/psa_manifest/driver_partition_psa.h
 	mkdir -p $(MANIFEST_DIR)/ns
 	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py ipc \

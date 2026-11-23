@@ -239,10 +239,30 @@ class GeneratorTest(unittest.TestCase):
             self.assertIn("#define SERVICE_ALPHA_SID 4096U", sid)
             self.assertIn("#define SERVICE_BETA_VERSION 2U", sid)
             self.assertIn("#define SERVICE_ALPHA_SIGNAL 16U", alpha)
+            self.assertIn("#define ALPHA_IRQ 32U", alpha)
             self.assertIn("#define ALPHA_IRQ_SIGNAL 32U", alpha)
             self.assertIn("#define SERVICE_BETA_SIGNAL 16U", beta)
+            self.assertIn("#define BETA_IRQ 32U", beta)
             self.assertIn("#define BETA_IRQ_SIGNAL 32U", beta)
             print("PASS: WT-FFM-0004 generated PSA headers")
+
+    def test_irq_macro_names_are_unique(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "irq.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            for name in ("BETA_IRQ_SIGNAL", "PARTITION_BETA_ID",
+                         "PSA_MANIFEST_PARTITION_ALPHA_H",
+                         "WT_GENERATED_PARTITION_ALPHA_DOMAIN_ID"):
+                with self.subTest(name=name):
+                    manifest["partitions"][0]["interrupts"][0]["signal_name"] = (
+                        name)
+                    source.write_text(json.dumps(manifest), encoding="utf-8")
+                    result = self.run_generator(source, root / "output")
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("generated symbol is duplicated",
+                                  result.stderr)
+                    self.assertFalse((root / "output").exists())
 
     def test_excluded_partition_leaves_no_symbols(self):
         with tempfile.TemporaryDirectory() as temporary:

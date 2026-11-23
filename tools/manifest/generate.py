@@ -259,7 +259,7 @@ def policy_name_valid(name):
 
 def policy_generated_symbols(manifest):
     symbols = set()
-    reserved = []
+    reserved = ["PSA_MANIFEST_PID_H", "PSA_MANIFEST_SID_H"]
     raw_names = set()
     partition_names = {partition["name"] for partition in manifest["partitions"]}
 
@@ -276,6 +276,8 @@ def policy_generated_symbols(manifest):
     for partition in manifest["partitions"]:
         prefix = "WT_GENERATED_" + partition["name"]
         raw_names.add(partition["name"])
+        reserve(partition["name"] + "_ID")
+        reserve(generated_guard(partition["name"]))
         for suffix in ("_DOMAIN_ID", "_FRAMEWORK_VERSION", "_MODEL"):
             add(prefix + suffix)
         if partition["framework_version"] == 0x101:
@@ -297,9 +299,10 @@ def policy_generated_symbols(manifest):
                 policy_error("interrupt signal name is a partition name: " +
                              interrupt["signal_name"])
             raw_names.add(interrupt["signal_name"])
+            reserve(interrupt["signal_name"] + "_SIGNAL")
             add("WT_GENERATED_" + interrupt["signal_name"] + "_SIGNAL")
 
-    if set(reserved) & raw_names:
+    if (set(reserved) | symbols) & raw_names:
         policy_error("generated symbol is duplicated")
 
 
@@ -1062,8 +1065,10 @@ def generate_partition_header(partition):
             lines.append("#define {}_SIGNAL {}U".format(
                 service["name"], service["signal"]))
     for interrupt in partition["interrupts"]:
-        lines.append("#define {}_SIGNAL {}U".format(
-            interrupt["signal_name"], interrupt["signal"]))
+        name = interrupt["signal_name"]
+        signal = interrupt["signal"]
+        lines.append("#define {} {}U".format(name, signal))
+        lines.append("#define {}_SIGNAL {}U".format(name, signal))
     lines.extend(("", "#endif", ""))
     return file_name, "\n".join(lines)
 

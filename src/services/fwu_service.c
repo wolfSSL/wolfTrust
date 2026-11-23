@@ -366,7 +366,9 @@ static int wt_fwu_read_in(wt_fwu_service_ctx_t* ctx, wt_ffm_runtime_t* runtime,
         call.vec_idx = 0U;
         call.buffer = buffer + len;
         call.num_bytes = capacity - len;
-        if (ctx->transport(runtime, &call) != WT_FFM_SUCCESS) {
+        if (ctx->transport(runtime, &call) != WT_FFM_SUCCESS ||
+                call.ret_int != WT_FFM_SUCCESS ||
+                call.ret_size > capacity - len) {
             return WT_FFM_ERROR_STATE;
         }
         if (call.ret_size == 0U) {
@@ -433,30 +435,18 @@ static psa_status_t wt_fwu_force_reset(wt_fwu_service_ctx_t* ctx)
     return PSA_SUCCESS;
 }
 
-static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
-                                        wt_ffm_runtime_t* runtime,
-                                        int32_t partition_id,
-                                        const psa_msg_t* msg,
-                                        uint32_t now_tick)
+static psa_status_t wt_fwu_process_request(wt_fwu_service_ctx_t* ctx,
+                                           wt_ffm_runtime_t* runtime,
+                                           int32_t partition_id,
+                                           const psa_msg_t* msg,
+                                           uint32_t now_tick,
+                                           const uint8_t* buffer,
+                                           size_t in_len)
 {
-    uint8_t buffer[sizeof(wt_fwu_req_t) + WT_FWU_BLOCK_MAX];
     wt_fwu_req_t req;
     psa_fwu_component_info_t info;
-    size_t in_len = 0U;
     psa_status_t status;
 
-    if (msg->in_size[0] < sizeof(req)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
-    }
-    /* An input larger than the header plus the maximum block is malformed. */
-    if (msg->in_size[0] > sizeof(buffer)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
-    }
-    if (wt_fwu_read_in(ctx, runtime, partition_id, msg->handle, buffer,
-                       sizeof(buffer), &in_len) != WT_FFM_SUCCESS ||
-            in_len < sizeof(req)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
-    }
     (void)memcpy(&req, buffer, sizeof(req));
 
     /* Reclaim a session whose owner has gone idle past the timeout so one
@@ -548,6 +538,31 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
          * clock in its own case. */
         ctx->owner_tick = now_tick;
     }
+    return status;
+}
+
+static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
+                                        wt_ffm_runtime_t* runtime,
+                                        int32_t partition_id,
+                                        const psa_msg_t* msg,
+                                        uint32_t now_tick)
+{
+    uint8_t buffer[sizeof(wt_fwu_req_t) + WT_FWU_BLOCK_MAX];
+    size_t request_size = msg->in_size[0];
+    size_t in_len = 0U;
+    psa_status_t status = PSA_ERROR_INVALID_ARGUMENT;
+
+    if (request_size < sizeof(wt_fwu_req_t) || request_size > sizeof(buffer)) {
+        return status;
+    }
+    if (wt_fwu_read_in(ctx, runtime, partition_id, msg->handle, buffer,
+                       request_size, &in_len) == WT_FFM_SUCCESS &&
+            in_len == request_size) {
+        status = wt_fwu_process_request(ctx, runtime, partition_id, msg,
+                                        now_tick, buffer, in_len);
+    }
+    /* The transport may have copied part of the request before failing. */
+    wt_forceZero(buffer, request_size);
     return status;
 }
 

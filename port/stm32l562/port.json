@@ -133,8 +133,8 @@
         ["restartneg1 restartneg2 restartneg3", "STM32L562 partitions restart on a reset band, one guest (L3)"],
         ["manifestneg2 manifestneg3 sealbootneg fpneg", "STM32L562 refused boots and FP isolation, one guest (L3)"],
         ["sealneg sealhaltneg sealpivotneg mspovfneg xnneg svcneg", "STM32L562 seal, SPM stack, execute-never and SVC, one guest (L3)"],
-         ["tpm tpmneg tpmreset", "STM32L562 TPM 2.0 interface, isolation and client reset, one guest (L3)"],
-         ["pkcs11 pkcs11neg pkcs11reset", "STM32L562 PKCS#11 interface, isolation and client reset, one guest (L3)"]
+        ["tpm tpmneg tpmreset", "STM32L562 TPM 2.0 interface, isolation and client reset, one guest (L3)"],
+        ["pkcs11 pkcs11neg pkcs11reset", "STM32L562 PKCS#11 interface, isolation and client reset, one guest (L3)"]
       ],
       "l3_exempt": {
         "hsmpinneg": "wolfHSM engine only; the STM32L562 builds the native engine (the wolfHSM bands do not fit 256 KiB of SRAM)",

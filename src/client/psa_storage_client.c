@@ -53,7 +53,6 @@ typedef struct {
 #define WT_ITS_WIRE_GET_INFO    3
 #define WT_ITS_WIRE_REMOVE      4
 #define WT_PS_WIRE_CREATE       5
-#define WT_PS_WIRE_SET_EXTENDED 6
 #define WT_PS_WIRE_GET_SUPPORT  7
 
 /* The vault refuses objects larger than its copied-transfer bound; the
@@ -244,9 +243,12 @@ psa_status_t psa_ps_create(psa_storage_uid_t uid, size_t capacity,
 psa_status_t psa_ps_set_extended(psa_storage_uid_t uid, size_t data_offset,
                                  size_t data_length, const void* p_data)
 {
-    return wt_storage_ns_write(SERVICE_PS_SID, WT_PS_WIRE_SET_EXTENDED, uid,
-                               0U, (uint32_t)data_offset, p_data,
-                               data_length);
+    (void)uid;
+    (void)data_offset;
+    if (p_data == NULL && data_length != 0U) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    return PSA_ERROR_NOT_SUPPORTED;
 }
 
 uint32_t psa_ps_get_support(void)

@@ -430,6 +430,9 @@ int main(void)
     status = psa_ps_set_extended(0x5555ULL, 0U, sizeof(ps_object), ps_object);
     check(status == PSA_ERROR_NOT_SUPPORTED,
           "psa_ps_set_extended is refused NOT_SUPPORTED");
+    status = psa_ps_set_extended(0x5555ULL, 0U, sizeof(big), big);
+    check(status == PSA_ERROR_NOT_SUPPORTED,
+          "psa_ps_set_extended reports unsupported for a large request");
 
     if (g_failures != 0) {
         (void)printf("FAIL: psa_storage_client (%d failures)\n", g_failures);

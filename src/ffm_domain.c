@@ -243,10 +243,11 @@ int wt_ffm_compose_secure_partition_table(const wt_secure_domain_t* domain,
     out_table->domain_id = WT_DOMAIN_ID_INVALID;
     out_table->region_count = 0U;
 
-    total = shared_count + domain->region_count;
-    if (shared_count > WT_MAX_MEMORY_REGIONS || total > WT_MAX_MEMORY_REGIONS) {
+    if (shared_count > WT_MAX_MEMORY_REGIONS ||
+            domain->region_count > WT_MAX_MEMORY_REGIONS - shared_count) {
         return WT_SECURE_DOMAIN_ERROR_CAPACITY;
     }
+    total = shared_count + domain->region_count;
 
     for (i = 0U; i < shared_count; i++) {
         out_table->regions[i] = shared[i];

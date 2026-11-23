@@ -207,6 +207,9 @@ static void test_composed_isolation(void)
 
 int main(void)
 {
+    static const wt_memory_region_t shared[WT_MAX_MEMORY_REGIONS] = {
+        {SEC_CODE_BASE, SEC_CODE_SIZE, WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC}
+    };
     wt_secure_domain_t sp1;
     wt_secure_domain_t sp2;
     wt_secure_domain_t scratch;
@@ -297,9 +300,15 @@ int main(void)
     check(result == WT_SECURE_DOMAIN_ERROR_ARGUMENT,
           "null shared with count rejected");
 
+    result = wt_ffm_compose_secure_partition_table(&sp1, shared,
+        WT_MAX_MEMORY_REGIONS - sp1.region_count, &table);
+    check(result == WT_SECURE_DOMAIN_OK &&
+          table.region_count == WT_MAX_MEMORY_REGIONS,
+          "WT-FFM-0011 composition accepts exactly the region capacity");
+
     /* Overflowing the MPU fails closed with an empty table. */
-    result = wt_ffm_compose_secure_partition_table(&sp1, secure_code,
-        WT_MAX_MEMORY_REGIONS, &table);
+    result = wt_ffm_compose_secure_partition_table(&sp1, shared,
+        WT_MAX_MEMORY_REGIONS - sp1.region_count + 1U, &table);
     check(result == WT_SECURE_DOMAIN_ERROR_CAPACITY,
           "oversized composition rejected");
     check(table.region_count == 0U, "oversized composition leaves empty");

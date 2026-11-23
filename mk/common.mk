@@ -1154,7 +1154,8 @@ CONF_UPSTREAM_SRCS := \
 
 $(CONF_UPSTREAM_SRCS): $(UPSTREAM_STAMP) ;
 
-$(UPSTREAM_STAMP): | $(BUILD_DIR)
+$(UPSTREAM_STAMP): $(ROOT)/tests/upstream/fetch_psa_arch_tests.sh \
+    $(ROOT)/tests/upstream/psa-arch-tests-storage-flags.patch | $(BUILD_DIR)
 	$(ROOT)/tests/upstream/fetch_psa_arch_tests.sh \
 		$(BUILD_DIR)/upstream/psa-arch-tests
 	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply --reverse --check \

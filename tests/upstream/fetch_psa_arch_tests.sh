@@ -43,4 +43,11 @@ if [ "$actual" != "$revision" ]; then
     echo "PSA architecture test revision mismatch" >&2
     exit 1
 fi
+
+# Arm psa-arch-tests issue #125: get_info reports the applied protections.
+storage_patch="$script_dir/psa-arch-tests-storage-flags.patch"
+if ! git -C "$destination" apply --reverse --check "$storage_patch" \
+        2>/dev/null; then
+    git -C "$destination" apply "$storage_patch"
+fi
 printf '%s\n' "$destination"

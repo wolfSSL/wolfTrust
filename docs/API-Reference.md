@@ -444,9 +444,9 @@ Every Protected Storage object created through the public shim is likewise
 limited to 512 bytes. The underlying Secure vault still uses a 1024-byte object
 buffer and caps one copied vault response at 1000 bytes.
 Objects remain sealed and counter-bound when callers request the
-`NO_CONFIDENTIALITY` or `NO_REPLAY_PROTECTION` hints. The current
-`psa_ps_get_info` behavior echoes those requested flags instead of reporting
-the stronger protection actually applied.
+`NO_CONFIDENTIALITY` or `NO_REPLAY_PROTECTION` hints.
+`psa_ps_get_info()` reports the protection applied and preserves the
+object's write-once flag.
 
 ## Firmware Update
 

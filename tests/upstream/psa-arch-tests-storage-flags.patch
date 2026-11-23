@@ -1,0 +1,24 @@
+diff --git a/api-tests/dev_apis/storage/test_s006/test_s006.c b/api-tests/dev_apis/storage/test_s006/test_s006.c
+--- a/api-tests/dev_apis/storage/test_s006/test_s006.c
++++ b/api-tests/dev_apis/storage/test_s006/test_s006.c
+@@ -36,14 +36,15 @@ static int32_t psa_sst_remove_api(storage_function_code_t    fCode,
+                                   psa_storage_create_flags_t create_flag)
+ {
+     int32_t status;
++    psa_storage_create_flags_t optional = create_flag &
++        (PSA_STORAGE_FLAG_NO_CONFIDENTIALITY |
++         PSA_STORAGE_FLAG_NO_REPLAY_PROTECTION);
+
+     /* Call the get_info function and match the attributes */
+     status = STORAGE_FUNCTION(s006_data[VAL_TEST_IDX2].api[fCode], uid, &info);
+     TEST_ASSERT_EQUAL(status, s006_data[VAL_TEST_IDX2].status, TEST_CHECKPOINT_NUM(1));
+-    if ((create_flag != PSA_STORAGE_FLAG_NO_CONFIDENTIALITY) ||
+-        (create_flag != PSA_STORAGE_FLAG_NO_REPLAY_PROTECTION))
+-    {
+-        TEST_ASSERT_EQUAL(info.flags, create_flag, TEST_CHECKPOINT_NUM(2));
+-    }
++    /* The implementation can apply stronger protection than requested. */
++    TEST_ASSERT_EQUAL(info.flags & ~optional, (create_flag & ~optional),
++                      TEST_CHECKPOINT_NUM(2));
+
+     /* Remove the UID  */

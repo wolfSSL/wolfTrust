@@ -128,9 +128,8 @@ non-exportable key in the shared NVM store. A persisted write counter supplies
 the nonce and the object label is authenticated data. Confidentiality and
 replay-protection hint flags do not weaken storage: Protected Storage still
 seals and counter-binds the object.
-The current `psa_ps_get_info()` behavior echoes the requested flags instead of
-reporting the stronger protection actually applied, which differs from the PSA
-Secure Storage 1.0 recommendation.
+`psa_ps_get_info()` reports the protection applied and preserves the
+object's write-once flag.
 
 ## Initial Attestation
 

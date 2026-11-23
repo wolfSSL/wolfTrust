@@ -318,8 +318,7 @@ vault key is:
 ITS supports the core set/get/get-info/remove interface and the write-once
 flag. Protected Storage always adds sealing even when a caller supplies
 `NO_CONFIDENTIALITY` or `NO_REPLAY_PROTECTION` hints.
-The current `psa_ps_get_info()` implementation echoes those requested hint
-flags instead of reporting the stronger protection actually applied.
+`psa_ps_get_info()` reports the protection applied to the object.
 Sealing uses AES-256-GCM with:
 
 - a device-local non-exportable key stored in the shared Secure NVM store;

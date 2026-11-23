@@ -271,6 +271,11 @@ static psa_status_t wt_storage_service_call(wt_storage_service_ctx_t* ctx,
                                                NULL, 0U, &info, sizeof(info),
                                                NULL);
                 if (status == PSA_SUCCESS) {
+                    if ((info.flags & WT_VAULT_FLAG_SEALED) != 0U) {
+                        /* Sealed objects have both protections. */
+                        info.flags &= ~(WT_VAULT_FLAG_NO_CONFIDENTIALITY |
+                                        WT_VAULT_FLAG_NO_REPLAY);
+                    }
                     /* Hide the frontend's internal sealing flag. */
                     info.flags &= ~ctx->vault_flags;
                 }

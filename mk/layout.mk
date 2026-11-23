@@ -62,12 +62,14 @@ WT_LAYOUT_DEFS := \
 # PKCS#11 guests use their own API, so those builds default it off.
 WT_SECURE_PSA ?= $(if $(or $(filter hsm,$(WT_ENGINE)),$(filter 1,$(WT_ENGINE_HSM)),\
     $(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11))),0,1)
-# A Secure PSA crypto band holds the wolfPSA pool (2 KB per guest) plus about
-# 1.4 KB of slot tables and service state; its crypto stack peaks at 4,836 B (7,240 B asm).
+# A Secure PSA crypto band holds the wolfPSA pool (2 KB per guest) plus 1,376 B of
+# slot tables and service state. Crypto stack peaks: compat 4,804 B (ecc.c), standard
+# and lean 4,028 B, symmetric 3,664 B (direct P-256 for the vault's native wire keys).
 ifeq ($(WT_SECURE_PSA),1)
 WT_SP_HSM_DATA_SIZE ?= $(shell echo $$(( ($(or $(WT_PSA_POOL_BYTES),\
-    $(or $(WT_MAX_GUESTS),1) * 2048) + 2048 + 31) / 32 * 32 )) 2>/dev/null)
-WT_SP_CRYPTO_STACK_SIZE ?= 0x00001800u
+    $(or $(WT_MAX_GUESTS),1) * 2048) + 1536 + 31) / 32 * 32 )) 2>/dev/null)
+WT_SP_CRYPTO_STACK_SIZE ?= $(strip $(if $(filter compat,$(or $(WT_SECURE_PSA_PROFILE),compat)),\
+    0x00001800u,0x00001400u))
 endif
 WT_LAYOUT_DEFS += $(foreach v,$(WT_LAYOUT_OPTIONAL_INPUTS),\
     $(if $(strip $($(v))),-D$(v)=$($(v))))

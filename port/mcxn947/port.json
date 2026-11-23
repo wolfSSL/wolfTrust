@@ -77,7 +77,7 @@
     "periph_probe": "faults",
     "caps_absent": {"dma_probe": "the M33MU MCXN947 model has no DMA; the NS eDMA copies out of Secure memory are the FRDM run's to show", "idcode": "no silicon revision gate on this port", "bootupdate": "the MCXN947 emulator chain does not stage a wolfBoot update candidate yet", "vnet": "no wolfIP network guests for this port", "idle_scheduler": "the single-guest idle backoff scenario is not wired for this port", "busfault": "M33MU at the pinned ref does not vector a precise data BusFault", "guest_fence": "the MCXN947 first stage arms no guest flash fence (wrpoff proves the refusal)", "handler_overrun": "the Non-secure handler overrun scenario is not wired for this port"},
     "faults_by_design": {"periphneg": "the bare-metal probe's NS read of the ELS faults on every launch and the monitor contains it", "crossdomain": "the storage SP's probe faults on its first wake while both guests finish; the trace boot names the fault", "keystoreneg": "the storage SP's probe faults on its first wake while both guests finish; the trace boot names the fault", "periphspneg": "the storage SP's probe faults on its first wake while the PSA guest finishes"},
-    "exempt": {}
+    "exempt": {"nativewirelean": "the Secure PSA crypto stack sizes are one shared layout over portable C on every port; the STM32H563 runs it"}
   },
   "hardware": {
       "qualification": [],

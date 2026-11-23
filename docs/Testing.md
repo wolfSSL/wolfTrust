@@ -275,8 +275,9 @@ requires both isolation faults and recovery.
 The full CI scenario list adds `engine: [native, hsm]` as a matrix dimension.
 Every scenario runs with both engines except the engine-specific ones listed
 in `ENGINE_ONLY` in `tests/target/lib/scenario_matrix.py`: the wolfHSM-only
-scenarios run under hsm only, and `nativewire` and `nativewireasm`, which
-drive the native wire, under native only.
+scenarios run under hsm only, and `nativewire`, `nativewireasm` and
+`nativewirelean` (the `lean` profile's smaller crypto stack), which drive the
+native wire, under native only.
 The generator is the source of truth for the exact list:
 `python3 tests/target/lib/scenario_matrix.py --port stm32h563 --tier full --json`.
 

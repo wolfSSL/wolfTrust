@@ -195,20 +195,20 @@ includes too:
 
 | Profile | Algorithms | STM32H563 Secure flash / RAM |
 | --- | --- | ---: |
-| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, TLS 1.2 PRF | 108,697 / 48,844 |
-| `standard` | `compat` without PBKDF2, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 97,451 / 48,844 |
-| `lean` | `standard` with one AEAD, CCM (`WT_AEAD=gcm` swaps it for GCM), and no AES decryption | 94,927 / 48,844 |
-| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 91,207 / 48,844 |
+| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, TLS 1.2 PRF | 108,697 / 48,332 |
+| `standard` | `compat` without PBKDF2, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 97,451 / 47,308 |
+| `lean` | `standard` with one AEAD, CCM (`WT_AEAD=gcm` swaps it for GCM), and no AES decryption | 94,927 / 47,308 |
+| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 91,207 / 47,308 |
 
 Every profile but `compat` signs, verifies and agrees keys on wolfPSA's direct
 P-256 path over wolfCrypt's SP code, so `ecc.c` and the multi-precision math
 leave the image; `compat` keeps them for deterministic ECDSA. With
 `WT_AEAD=gcm`, `lean` is 95,787 bytes and `symmetric` 92,099.
 
-RAM is the Secure RAM the image reserves. It is the same for every profile:
-the crypto partition's stack grows from 5 to 6 KiB for wolfPSA's ECDSA, and its
-data band from 1.5 KiB to `WT_PSA_POOL_BYTES` plus 2 KiB. The opt-out,
-`WT_SECURE_PSA=0`, is 70,432 / 45,260 bytes. The PSA
+RAM is the Secure RAM the image reserves. The crypto partition's stack is 6 KiB
+in `compat` for `ecc.c`'s ECDSA and 5 KiB in the other profiles, as with
+`WT_SECURE_PSA=0`; its data band grows from 1.5 KiB to `WT_PSA_POOL_BYTES` plus
+1.5 KiB. The opt-out, `WT_SECURE_PSA=0`, is 70,432 / 45,260 bytes. The PSA
 guest drops from 65,384 to 34,600 bytes of flash; it keeps wolfCrypt only for
 the attestation token verifier.
 
@@ -372,13 +372,13 @@ wolfBoot and Non-secure guest images are not included.
 
 | Engine and profile | `text` | `data` | `bss` | Flash | Secure RAM |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Native, default (`WT_SECURE_PSA=1`, `compat`) | 108,301 bytes | 396 bytes | 20,732 bytes | 108,697 bytes | 48,844 bytes |
-| Native, `WT_SECURE_PSA=1` `standard` | 97,059 bytes | 392 bytes | 20,732 bytes | 97,451 bytes | 48,844 bytes |
-| Native, `WT_SECURE_PSA=1` `lean` | 94,535 bytes | 392 bytes | 20,732 bytes | 94,927 bytes | 48,844 bytes |
+| Native, default (`WT_SECURE_PSA=1`, `compat`) | 108,301 bytes | 396 bytes | 20,732 bytes | 108,697 bytes | 48,332 bytes |
+| Native, `WT_SECURE_PSA=1` `standard` | 97,059 bytes | 392 bytes | 20,732 bytes | 97,451 bytes | 47,308 bytes |
+| Native, `WT_SECURE_PSA=1` `lean` | 94,535 bytes | 392 bytes | 20,732 bytes | 94,927 bytes | 47,308 bytes |
 | Native, `WT_SECURE_PSA=0` | 70,048 bytes | 384 bytes | 18,340 bytes | 70,432 bytes | 45,260 bytes |
 | wolfHSM, default | 98,044 bytes | 392 bytes | 40,648 bytes | 98,436 bytes | 83,932 bytes |
 | wolfHSM over native `WT_SECURE_PSA=0` | 27,900 bytes | 8 bytes | 22,308 bytes | 27,908 bytes | 38,672 bytes |
-| Native, `full` | 117,756 bytes | 732 bytes | 31,832 bytes | 118,488 bytes | 64,380 bytes |
+| Native, `full` | 117,756 bytes | 732 bytes | 31,832 bytes | 118,488 bytes | 63,868 bytes |
 | Native, `full`, `WT_SECURE_PSA=0` | 79,120 bytes | 720 bytes | 27,392 bytes | 79,840 bytes | 58,748 bytes |
 | wolfHSM, `full` | 107,432 bytes | 728 bytes | 66,504 bytes | 108,160 bytes | 107,916 bytes |
 

@@ -87,7 +87,7 @@
         ["hsmattackneg", "wolfHSM cross-namespace + NVM relay negatives, one guest"],
         ["authneg rollbackneg remeasureneg manifestneg spbudgetneg", "Launch, rollback, re-measure, manifest and SP budget verdicts, one guest"],
         ["periphneg revneg", "NS peripheral access and engineering-sample refusal, one guest"],
-        ["nativewire nativewireasm", "Every native wire key op from the guest, portable C and assembly, one guest"],
+        ["nativewire nativewireasm nativewirelean", "Every native wire key op from the guest, portable C, assembly and the lean profile's 5 KiB crypto stack, one guest"],
         ["tpm tpmneg tpmreset", "TPM 2.0 interface, isolation and client reset, one guest (L3)"],
         ["pkcs11 pkcs11neg pkcs11reset", "PKCS#11 interface, isolation and client reset, one guest (L3)"]
       ],

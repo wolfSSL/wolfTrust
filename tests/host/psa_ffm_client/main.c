@@ -51,7 +51,7 @@ WT_STATIC_ASSERT(sizeof(wt_fwu_req_t) + PSA_FWU_MAX_WRITE_SIZE <=
 
 #include <wolfssl/wolfcrypt/sha256.h>
 
-#define TEST_HSM_SID    4102U
+#define TEST_HSM_SID    262U
 #define TEST_FWU_PARTITION 8
 #define TEST_NS_CLIENT  (-1)
 

@@ -93,7 +93,7 @@ volatile uint32_t g_guest0_lifecycle __attribute__((used));
 #define WOLFTRUST_FN_FFM_CLOSE   5u
 #define WT_ITS_SID    4099u
 #define WT_PS_SID     4100u
-#define WT_SERVICE_HSM_SID 4102u
+#define WT_SERVICE_HSM_SID 262u
 
 #ifndef WT_EXPECTED_MEASUREMENT_HEX
 #define WT_EXPECTED_MEASUREMENT_HEX ""

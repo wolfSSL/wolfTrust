@@ -38,7 +38,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define TEST_VNET_SID   4103U
+#define TEST_VNET_SID   263U
 #define TEST_NVM        2U
 #define TEST_GUEST0     (-1)
 #define TEST_GUEST1     (-2)
@@ -227,7 +227,7 @@ static const wt_service_descriptor_t g_vnet_services[] = {
 
 static const wt_service_descriptor_t g_hsm_services[] = {
     {
-        "SERVICE_HSM", 4102U, 1U, WT_SERVICE_VERSION_RELAXED,
+        "SERVICE_HSM", 262U, 1U, WT_SERVICE_VERSION_RELAXED,
         0x20U, 0U, 1U, 1U
     }
 };

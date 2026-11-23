@@ -92,8 +92,8 @@
 #define TEST_VAULT_PARTITION  5
 #define TEST_ROGUE_PARTITION  6
 #define TEST_ATTEST_SID       4096U
-#define TEST_VAULT_SID        4098U
-#define TEST_HSM_SID          4102U
+#define TEST_VAULT_SID        258U
+#define TEST_HSM_SID          262U
 #define TEST_ROGUE_SID        4200U
 #define TEST_NS_CLIENT        (-1)
 

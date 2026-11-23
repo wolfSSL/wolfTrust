@@ -55,7 +55,7 @@
 #include "psa/client.h"
 
 #define TEST_HSM_PARTITION 2
-#define TEST_HSM_SID       4102U
+#define TEST_HSM_SID       262U
 #define TEST_NS_CLIENT     (-1)
 
 static int g_failures;

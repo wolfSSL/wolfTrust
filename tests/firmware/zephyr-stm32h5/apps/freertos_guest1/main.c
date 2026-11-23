@@ -40,7 +40,7 @@
 
 /* SERVICE_HSM (manifest/base.json): the single mediated door to
  * the secure crypto engine — the same path guest0 uses. */
-#define WT_SERVICE_HSM_SID 4102u
+#define WT_SERVICE_HSM_SID 262u
 
 #if defined(WT_ENGINE_HSM)
 /* wolfHSM client glue (module/wolfhsm-client/src/wolfhsm_client_glue.c). */

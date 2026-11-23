@@ -29,7 +29,7 @@
 #include "wolfssl/wolfcrypt/cryptocb.h"
 #include "wolftrust/hsm_psa_transport.h"
 
-#define WT_SERVICE_HSM_SID     4102U
+#define WT_SERVICE_HSM_SID     262U
 #define WT_SERVICE_HSM_VERSION 1U
 
 static wt_hsm_psa_transport_ctx_t g_transport;

@@ -11,14 +11,14 @@ PKCS#11 service, an application API offered instead of PSA Crypto.
 | Service | SID | Non-secure clients | Purpose |
 | --- | ---: | --- | --- |
 | `SERVICE_ATTEST` | `0x1000` | Yes | PSA Initial Attestation token generation |
-| `SERVICE_VAULT` | `0x1002` | No | Secure-only persistent objects, sealing, and randomness |
+| `SERVICE_VAULT` | `0x0102` | No | Secure-only persistent objects, sealing, and randomness |
 | `SERVICE_ITS` | `0x1003` | Yes | PSA Internal Trusted Storage |
 | `SERVICE_PS` | `0x1004` | Yes | PSA Protected Storage |
 | `SERVICE_FWU` | `0x1005` | Yes, `WT_FWU=1` | PSA Firmware Update staging for wolfBoot |
-| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door; with `WT_SECURE_PSA=1` it also serves the PSA Crypto API |
-| `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
-| `SERVICE_TPM` | `0x1008` | Yes, `CONFIG_TPM=y` | wolfTPM firmware TPM 2.0 serving one TPM 2.0 command frame per call |
-| `SERVICE_PKCS11` | `0x1009` | Yes, `CONFIG_PKCS11=y` | wolfPKCS11 token serving the PKCS#11 `C_*` API through the client proxy |
+| `SERVICE_HSM` | `0x0106` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door; with `WT_SECURE_PSA=1` it also serves the PSA Crypto API |
+| `SERVICE_VNET` | `0x0107` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
+| `SERVICE_TPM` | `0x0108` | Yes, `CONFIG_TPM=y` | wolfTPM firmware TPM 2.0 serving one TPM 2.0 command frame per call |
+| `SERVICE_PKCS11` | `0x0109` | Yes, `CONFIG_PKCS11=y` | wolfPKCS11 token serving the PKCS#11 `C_*` API through the client proxy |
 
 All service versions are `1`. ITS and Protected Storage declare a
 dependency on the Secure-only vault. The manifest is rendered for every

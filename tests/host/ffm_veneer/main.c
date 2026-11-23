@@ -40,7 +40,7 @@
 
 #include <wolfssl/wolfcrypt/sha256.h>
 
-#define TEST_HSM_SID    4102U
+#define TEST_HSM_SID    262U
 #define TEST_NS_CLIENT  (-1)
 
 static uint8_t g_large_buffer[65568U];

@@ -83,7 +83,7 @@ extern int32_t val_entry(void);
 #define WT_EXPECTED_LIFECYCLE 0x3000u
 #endif
 
-#define GUEST_SERVICE_HSM_SID   4102u
+#define GUEST_SERVICE_HSM_SID   262u
 #define GUEST_SERVICE_FWU_SID   4101u
 #define GUEST_SERVICE_VERSION   1u
 #define GUEST_UNKNOWN_SID       0x4200u

@@ -35,7 +35,7 @@
 /* SERVICE_HSM SID from the platform manifest, same door the wolfHSM client
  * glue connects to in the hsm engine. */
 #ifndef WT_CRYPTO_NATIVE_SID
-#define WT_CRYPTO_NATIVE_SID 4102u
+#define WT_CRYPTO_NATIVE_SID 262u
 #endif
 #ifndef WT_CRYPTO_NATIVE_SID_VERSION
 #define WT_CRYPTO_NATIVE_SID_VERSION 1u

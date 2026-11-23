@@ -138,7 +138,7 @@
       "services": [
         {
           "name": "SERVICE_ALPHA",
-          "sid": 4096,
+          "sid": 256,
           "version": 1,
           "version_policy": 0,
           "signal": 16,
@@ -148,7 +148,7 @@
         }
       ],
       "dependencies": [
-        8192
+        512
       ],
       "interrupts": [
         {
@@ -167,7 +167,7 @@
       "services": [
         {
           "name": "SERVICE_BETA",
-          "sid": 8192,
+          "sid": 512,
           "version": 2,
           "version_policy": 1,
           "signal": 16,

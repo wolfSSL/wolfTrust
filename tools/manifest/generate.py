@@ -237,6 +237,9 @@ MAX_PARTITIONS = 32
 MAX_SERVICES = 28
 MAX_DEPENDENCIES = 32
 MAX_SIGNALS = 28
+# FF-M reserves SID vendor IDs 0x00001-0x0000E for standard RoT services.
+STANDARD_SIDS = {"SERVICE_ATTEST": 0x1000, "SERVICE_ITS": 0x1003,
+                 "SERVICE_PS": 0x1004, "SERVICE_FWU": 0x1005}
 MAX_NAME = 63
 
 
@@ -662,6 +665,9 @@ def validate_policy(manifest, supported_features, word_max,
                 policy_error("service identity is duplicated")
             if service["sid"] == 0 or service["version"] == 0:
                 policy_error("service identity or version is invalid")
+            if 0x1 <= (service["sid"] >> 12) <= 0xE and \
+                    STANDARD_SIDS.get(service_name) != service["sid"]:
+                policy_error("service SID uses a reserved vendor ID")
             # FF-M defines exactly STRICT (0) and RELAXED (1); the IR's
             # UNSPECIFIED (2) accept-any policy is not generatable.
             if service["version_policy"] not in (0, 1):

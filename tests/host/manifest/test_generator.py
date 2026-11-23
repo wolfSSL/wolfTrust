@@ -219,7 +219,7 @@ class GeneratorTest(unittest.TestCase):
             header = (output / "wolftrust_manifest_generated.h").read_text(
                 encoding="utf-8")
             self.assertIn("WT_GENERATED_PARTITION_ALPHA_DOMAIN_ID 1U", header)
-            self.assertIn("WT_GENERATED_SERVICE_ALPHA_SID 4096U", header)
+            self.assertIn("WT_GENERATED_SERVICE_ALPHA_SID 256U", header)
             self.assertIn("WT_GENERATED_SERVICE_BETA_HANDLE 1U", header)
 
     def test_standard_psa_manifest_headers(self):
@@ -236,7 +236,7 @@ class GeneratorTest(unittest.TestCase):
 
             self.assertIn("#define PARTITION_ALPHA_ID 1", pid)
             self.assertIn("#define PARTITION_BETA_ID 2", pid)
-            self.assertIn("#define SERVICE_ALPHA_SID 4096U", sid)
+            self.assertIn("#define SERVICE_ALPHA_SID 256U", sid)
             self.assertIn("#define SERVICE_BETA_VERSION 2U", sid)
             self.assertIn("#define SERVICE_ALPHA_SIGNAL 16U", alpha)
             self.assertIn("#define ALPHA_IRQ 32U", alpha)
@@ -499,12 +499,34 @@ class GeneratorTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("granule", result.stderr)
 
+    def test_reserved_vendor_sid_is_standard_only(self):
+        for name, sid, accepted in (("SERVICE_ALPHA", 0x1006, False),
+                                    ("SERVICE_ALPHA", 0xE000, False),
+                                    ("SERVICE_ITS", 0x1004, False),
+                                    ("SERVICE_ITS", 0x1003, True),
+                                    ("SERVICE_ALPHA", 0xF001, True)):
+            with self.subTest(name=name, sid=sid), \
+                    tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = root / "sid.json"
+                manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+                manifest["partitions"][0]["services"][0]["name"] = name
+                manifest["partitions"][0]["services"][0]["sid"] = sid
+                source.write_text(json.dumps(manifest), encoding="utf-8")
+
+                result = self.run_generator(source, root / "output")
+                if accepted:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("reserved vendor ID", result.stderr)
+
     def test_dependency_cycle_is_rejected_before_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "cycle.json"
             manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
-            manifest["partitions"][1]["dependencies"] = [0x1000]
+            manifest["partitions"][1]["dependencies"] = [256]
             source.write_text(json.dumps(manifest), encoding="utf-8")
 
             result = self.run_generator(source, root / "output")

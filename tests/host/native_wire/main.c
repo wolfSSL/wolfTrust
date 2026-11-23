@@ -27,6 +27,7 @@
 #include "wolfssl/wolfcrypt/types.h"
 #include "wolfssl/wolfcrypt/error-crypt.h"
 #include "wolfssl/wolfcrypt/random.h"
+#include "wolfssl/wolfcrypt/sha256.h"
 
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_nvm.h"
@@ -64,6 +65,7 @@ static whNvmContext g_nvm_ctx;
 static int g_failures;
 static int g_rng_failure;
 static int g_nvm_read_failure;
+static int g_hash_init_failure;
 static void* g_scratch;
 static size_t g_scratch_size;
 static int g_scratch_wiped;
@@ -76,6 +78,16 @@ int wt_test_generate_block(WC_RNG* rng, byte* output, word32 length)
         return RNG_FAILURE_E;
     }
     return wc_RNG_GenerateBlock(rng, output, length);
+}
+
+int wt_test_init_sha256(wc_Sha256* sha, void* heap, int dev_id)
+{
+    g_scratch = sha;
+    g_scratch_size = sizeof(*sha);
+    if (g_hash_init_failure != 0) {
+        return MEMORY_E;
+    }
+    return wc_InitSha256_ex(sha, heap, dev_id);
 }
 
 static int test_nvm_read(void* context, whNvmId id, whNvmSize offset,
@@ -227,11 +239,24 @@ static void test_random_and_hash(void)
     check(rc == 0 && status == PSA_ERROR_INVALID_ARGUMENT && got == 0U,
           "RANDOM refuses a request above the per-call cap");
 
+    g_scratch_wiped = 0;
     rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_HASH, 0U, 0U, 0U,
               (const uint8_t*)"abc", 3U, out, sizeof(out), &got, &status);
+    g_scratch = NULL;
     check(rc == 0 && status == PSA_SUCCESS && got == sizeof(abc_digest) &&
           memcmp(out, abc_digest, sizeof(abc_digest)) == 0,
           "HASH returns the SHA-256 known answer");
+    check(g_scratch_wiped != 0, "HASH wipes its SHA-256 context");
+
+    g_hash_init_failure = 1;
+    g_scratch_wiped = 0;
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_HASH, 0U, 0U, 0U,
+              (const uint8_t*)"abc", 3U, out, sizeof(out), &got, &status);
+    g_hash_init_failure = 0;
+    g_scratch = NULL;
+    check(rc == 0 && status == PSA_ERROR_GENERIC_ERROR && got == 0U,
+          "HASH reports a SHA-256 initialization failure");
+    check(g_scratch_wiped != 0, "failed HASH wipes its SHA-256 context");
 }
 
 static void test_p256_lifecycle(void)

@@ -34,6 +34,7 @@
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/vault_service.h"
 #include "wolftrust/services/crypto_native.h"
+#include "wolftrust/zeroize.h"
 
 #include <string.h>
 #include <stdint.h>
@@ -62,10 +63,12 @@ static psa_status_t wt_native_hash(const uint8_t* input, size_t input_len,
     rc = wc_InitSha256_ex(&sha, NULL, INVALID_DEVID);
     if (rc == 0) {
         rc = wc_Sha256Update(&sha, input, (word32)input_len);
+        if (rc == 0) {
+            rc = wc_Sha256Final(&sha, out);
+        }
+        wc_Sha256Free(&sha);
     }
-    if (rc == 0) {
-        rc = wc_Sha256Final(&sha, out);
-    }
+    wt_forceZero(&sha, sizeof(sha));
     if (rc != 0) {
         return PSA_ERROR_GENERIC_ERROR;
     }

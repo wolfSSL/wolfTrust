@@ -13,6 +13,7 @@ wolftrust_manifest_generated.
 import argparse
 import copy
 import json
+import re
 import sys
 from pathlib import Path
 
@@ -22,6 +23,13 @@ import generate  # noqa: E402  (reuse validated header emitters)
 MODEL_IPC = 0
 SIGNAL_FIRST = 0x10
 SIGNAL_MAX = 0x80000000
+FRAMEWORK_VERSION_1_0 = 0x0100
+
+PRIORITY = {
+    "LOW": 0,
+    "NORMAL": 1,
+    "HIGH": 2,
+}
 
 VERSION_POLICY = {
     "STRICT": 0,
@@ -32,6 +40,8 @@ VERSION_POLICY = {
 # layout reserves for them (port/common/armv8m/l3_layout.h), by index.
 SP_CODE_SIZE = "WT_SP_CODE_SLOT_SIZE"
 SP_STACK_SIZE = "WT_SP_SECURE_STACK_SIZE"
+# The fixed slot in l3_layout.h. The ingest test checks it against the layout.
+SP_STACK_CAPACITY = 0x2000
 CONFORMANCE_SLOTS = (
     ("WT_SP_CODE_BASE + 2 * WT_SP_CODE_SLOT_SIZE", "WT_SP_FF_SERVER_STACK_BASE"),
     ("WT_SP_CODE_BASE + 3 * WT_SP_CODE_SLOT_SIZE", "WT_SP_FF_DRIVER_STACK_BASE"),
@@ -83,6 +93,20 @@ def normalize_partition(source, domain_id):
     if "heap_size" in source:
         raise IngestError("partition {} requests heap_size, but private heaps "
                           "are unsupported".format(source["name"]))
+    framework = source.get("psa_framework_version")
+    if type(framework) not in (int, float) or framework != 1.0:
+        raise IngestError("psa_framework_version must be 1.0")
+    priority = source.get("priority")
+    if not isinstance(priority, str) or priority not in PRIORITY:
+        raise IngestError("priority must be LOW, NORMAL, or HIGH")
+    stack_size = source.get("stack_size")
+    if isinstance(stack_size, str) and re.fullmatch(r"0[xX][0-9a-fA-F]+",
+                                                   stack_size):
+        stack_size = int(stack_size, 16)
+    if type(stack_size) is not int or not 0 < stack_size <= SP_STACK_CAPACITY:
+        raise IngestError("stack_size must be a positive integer or "
+                          "hexadecimal string up to {:#x}".format(
+                              SP_STACK_CAPACITY))
 
     services = []
     signal = SIGNAL_FIRST
@@ -120,7 +144,9 @@ def normalize_partition(source, domain_id):
     return {
         "name": source["name"],
         "domain_id": domain_id,
+        "framework_version": FRAMEWORK_VERSION_1_0,
         "model": MODEL_IPC,
+        "priority": PRIORITY[priority],
         "services": services,
         "interrupts": interrupts,
     }
@@ -235,9 +261,9 @@ def emit_overlay(base_path, arm_paths):
         overlay["partitions"].append({
             "name": part["name"],
             "domain_id": domain_id,
-            "framework_version": 256,
+            "framework_version": part["framework_version"],
             "model": MODEL_IPC,
-            "priority": 1,
+            "priority": part["priority"],
             "services": [full_service(s) for s in part["services"]],
             "dependencies": dependencies,
             "interrupts": part["interrupts"],

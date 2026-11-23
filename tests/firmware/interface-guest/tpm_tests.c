@@ -393,8 +393,14 @@ int wt_tpm_run(void)
     int sig_size = (int)sizeof(sig);
     int pcr_size = (int)sizeof(pcr);
     int tries;
-    int rc = -1;
+    int rc;
 
+    rc = wt_tpm_psa_register();
+    if (rc != 0) {
+        app_line_i32("tpm transport FAILED rc=", rc);
+        return -1;
+    }
+    rc = -1;
     for (tries = 0; tries < 50 && rc != 0; tries++) {
         rc = wolfTPM2_Init(&g_dev, NULL, NULL);
         if (rc != 0) {

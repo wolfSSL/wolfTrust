@@ -24,7 +24,7 @@ CC ?= cc
 BUILD_DIR ?= build
 
 CFLAGS := \
-	-DWOLFTPM_SWTPM \
+	-DWOLFTPM_USER_TRANSPORT \
 	-DWOLFTPM_USER_SETTINGS \
 	-DWOLFTPM2_NO_WOLFCRYPT \
 	-DSINGLE_THREADED \
@@ -46,10 +46,11 @@ endif
 _SRCS := \
 	$(ROOT)/src/client/tpm_psa_transport.c \
 	$(WOLFTPM)/src/tpm2.c \
+	$(WOLFTPM)/src/tpm2_packet.c \
 	$(WOLFTPM)/src/tpm2_util.c \
 	main.c
 
-_OBJS := $(addprefix $(BUILD_DIR)/,msg_client.o tpm_psa_transport.o tpm2.o tpm2_util.o main.o)
+_OBJS := $(addprefix $(BUILD_DIR)/,msg_client.o tpm_psa_transport.o tpm2.o tpm2_packet.o tpm2_util.o main.o)
 TEST_BIN := $(BUILD_DIR)/test_tpm_client
 
 .PHONY: all run compilers sanitize valgrind clean
@@ -66,6 +67,9 @@ $(BUILD_DIR)/msg_client.o: $(ROOT)/src/client/msg_client.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/tpm2.o: $(WOLFTPM)/src/tpm2.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/tpm2_packet.o: $(WOLFTPM)/src/tpm2_packet.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/tpm2_util.o: $(WOLFTPM)/src/tpm2_util.c | $(BUILD_DIR)

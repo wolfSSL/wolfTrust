@@ -63,8 +63,9 @@ class GeneratorTest(unittest.TestCase):
              "--address-bits", "32", "--unchecked"] + list(extra),
             check=False, capture_output=True, text=True)
 
-    def compile_generated(self, output, executable):
+    def compile_generated(self, output, executable, extra=()):
         command = shlex.split(os.environ.get("CC", "cc"))
+        command.extend(extra)
         command.extend([
             "-std=c99", "-Wall", "-Wextra", "-Werror", "-pedantic",
             "-I" + str(ROOT / "include"), "-I" + str(output),
@@ -258,6 +259,7 @@ class GeneratorTest(unittest.TestCase):
                     "    { 2, 0x00000000U, 0x00000038U },",
                     "    { 21U, 32U, 0U },",
                     "    { 22U, 32U, 1U },",
+                    "WT_STATIC_ASSERT(2U <= WT_SPM_TRANSFERS,",
                     "const uint8_t g_wt_spm_service_count = 2U;",
                     "const uint8_t g_wt_spm_irq_count = 2U;",
                     "    0x101U > PSA_FRAMEWORK_VERSION ? "
@@ -266,8 +268,13 @@ class GeneratorTest(unittest.TestCase):
             executable = Path(temporary) / "generated"
             result = self.compile_generated(output, executable)
             self.assertEqual(result.returncode, 0, result.stderr)
+            result = self.compile_generated(output, executable,
+                                            ("-DWT_SPM_TRANSFERS=1U",))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("2U <= WT_SPM_TRANSFERS", result.stderr)
             print("PASS: SPM tables carry each service, the dependency bit "
-                  "of every reachable service and every partition IRQ")
+                  "of every reachable service and every partition IRQ, and "
+                  "a transfer pool shallower than the call chain fails")
 
     def test_excluded_partition_leaves_no_symbols(self):
         with tempfile.TemporaryDirectory() as temporary:

@@ -338,7 +338,7 @@ def validate_platform(manifest, platform):
 
 
 def validate_ffm_runtime(manifest, ffm_limits):
-    """Mirror the activation checks wt_ffm_init makes on every boot."""
+    """Mirror the checks wt_spm_tables_derive makes on a manifest."""
     partitions = manifest["partitions"]
     if ffm_limits.get("ipc_only") and any(
             partition["model"] != 0 for partition in partitions):
@@ -889,6 +889,14 @@ def emit_spm_tables(lines, manifest):
                 interrupt["interrupt"], interrupt["signal"], index))
         sp_rows.append("{{ {}, 0x{:08x}U, 0x{:08x}U }}".format(
             partition["domain_id"], deps, signals))
+    # A call into p holds one transfer while p's deepest dependency call runs.
+    callees = [{services[sid_index[sid]][0]
+                for sid in partition["dependencies"] if sid in sid_index}
+               - {index} for index, partition in enumerate(partitions)]
+    depth = [1] * len(partitions)
+    for _ in partitions:
+        depth = [1 + max((depth[callee] for callee in callees[index]),
+                         default=0) for index in range(len(partitions))]
     version = 0x100
     if (manifest["features"] & FEATURES_1_1) != 0 or any(
             partition["framework_version"] == 0x101
@@ -898,7 +906,11 @@ def emit_spm_tables(lines, manifest):
                   "#include \"wolftrust/static_assert.h\"", "",
                   "WT_STATIC_ASSERT({}U <= WT_SPM_MAX_SPS,".format(
                       len(partitions)),
-                  "    \"more partitions than the SPM core tracks\");", ""))
+                  "    \"more partitions than the SPM core tracks\");",
+                  "WT_STATIC_ASSERT({}U <= WT_SPM_TRANSFERS,".format(
+                      max(depth, default=1)),
+                  "    \"a call chain needs more transfers than the SPM "
+                  "core holds\");", ""))
     for declaration, rows in (
             ("wt_spm_service_t g_wt_spm_services", service_rows),
             ("wt_spm_sp_ipc_t g_wt_spm_sps", sp_rows),

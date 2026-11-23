@@ -112,6 +112,12 @@ WT_HANDLER_IRQ_PROBE ?= 0
 WT_REMEASURE_PROBE ?= 0
 WT_BOOTUPDATE_PROBE ?= 0
 WT_CONFORMANCE ?= 0
+# Fault recovery: restart a faulted Secure Partition, or a faulted guest.
+WT_SP_RESTART ?= 1
+WT_GUEST_RESTART ?= 1
+ifneq ($(words $(WT_SP_RESTART) $(WT_GUEST_RESTART))/$(filter 0 1,$(WT_SP_RESTART))/$(filter 0 1,$(WT_GUEST_RESTART)),2/$(WT_SP_RESTART)/$(WT_GUEST_RESTART))
+$(error WT_SP_RESTART and WT_GUEST_RESTART take 0 or 1)
+endif
 # PSA Firmware Update partition (SERVICE_FWU) and its 4 KiB stack.
 WT_FWU ?= 0
 ifneq ($(words $(WT_FWU))/$(filter 0 1,$(WT_FWU)),1/$(WT_FWU))
@@ -321,6 +327,8 @@ ifneq ($(strip \
     $(filter 1 2 3 4,$(WT_SEAL_NEG_PROBE))),)
 SECURE_CFLAGS += -DWT_SP_LAZY_FIRST_ENTRY=1
 endif
+SECURE_CFLAGS += -DWT_SP_RESTART=$(WT_SP_RESTART) \
+    -DWT_GUEST_RESTART=$(WT_GUEST_RESTART)
 ifeq ($(WT_FWU),1)
 SECURE_CFLAGS += -DWT_FWU=1
 MANIFEST_EXCLUDE :=
@@ -358,11 +366,9 @@ SECURE_SRCS := \
     $(WOLFHSM_RUNNER_DIR)/runtime.c \
     $(TARGET_PLATFORM_SRC) \
     $(ROOT)/src/domain.c \
-    $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_boot.c \
     $(ROOT)/src/ffm_domain.c \
     $(ROOT)/src/guest_verify.c \
-    $(ROOT)/src/ipc.c \
     $(ROOT)/src/restart_policy.c \
     $(ROOT)/src/rollback.c \
     $(ROOT)/src/sp_recovery.c \
@@ -680,6 +686,9 @@ WT_IF_WOLFHSM_RAW_OBJS := $(patsubst %.c,$(BUILD_DIR)/$(WT_IF)_wh_raw_%.o,$(notd
 WT_IF_WOLFHSM_OBJS := $(patsubst %.c,$(BUILD_DIR)/$(WT_IF)_wh_%.o,$(notdir $(WT_IF_WOLFHSM_SRCS)))
 WT_IF_NAMESPACE_MAP := $(BUILD_DIR)/$(WT_IF)_wc_symbols.map
 MANIFEST_OBJ := $(BUILD_DIR)/wt_sec_wolftrust_manifest_generated.o
+# The arch-neutral SPM in src/spm/, named sec_spm_<file>.o.
+SPM_CORE_SRCS := $(ROOT)/src/spm/core.c
+SPM_CORE_OBJS := $(patsubst %.c,$(BUILD_DIR)/sec_spm_%.o,$(notdir $(SPM_CORE_SRCS)))
 # Arch sources that live in subdirectories of src/arch/<arch>/ (C or assembly);
 # each gets its own rule below because the pattern rules key on one directory.
 ARCH_TREE_SRCS ?=
@@ -688,6 +697,7 @@ ARCH_TREE_OBJS := $(foreach s,$(ARCH_TREE_SRCS) $(ARCH_ASM_SRCS),$(BUILD_DIR)/wt
 
 ALL_SECURE_OBJS := $(strip \
     $(HSM_SECURE_BASE_OBJS) \
+    $(SPM_CORE_OBJS) \
     $(HSM_WOLFHSM_SEC_OBJS) \
     $(HSM_WOLFCRYPT_SEC_OBJS) \
     $(HSM_WT_EXTRA_OBJS) \
@@ -1751,8 +1761,8 @@ $(MANIFEST_INPUT): $(MANIFEST_OVERLAY) $(WT_MANIFEST_RENDER_DEPS) \
 # The generator checks the manifest against the port's platform limits and the
 # FF-M runtime's compiled limits, read from the headers that size it.
 wt_header_value = $(strip $(shell sed -n -E 's/^.define $(1)[[:space:]]+(0x[0-9A-Fa-f]+|[0-9]+)U.*/\1/p' $(2)))
-WT_FFM_MAX_PARTITIONS_VALUE := $(call wt_header_value,WT_FFM_MAX_PARTITIONS,$(ROOT)/include/wolftrust/ffm.h)
-WT_FFM_MAX_SERVICES_VALUE := $(call wt_header_value,WT_FFM_MAX_SERVICES,$(ROOT)/include/wolftrust/ffm.h)
+WT_FFM_MAX_PARTITIONS_VALUE := $(call wt_header_value,WT_SPM_MAX_SPS,$(ROOT)/include/wolftrust/spm_core.h)
+WT_FFM_MAX_SERVICES_VALUE := $(call wt_header_value,WT_SPM_MAX_SERVICES,$(ROOT)/include/wolftrust/spm_tables.h)
 WT_PSA_FRAMEWORK_VERSION_VALUE := $(call wt_header_value,PSA_FRAMEWORK_VERSION,$(ROOT)/include/psa/client.h)
 ifeq ($(words $(WT_FFM_MAX_PARTITIONS_VALUE) $(WT_FFM_MAX_SERVICES_VALUE) $(WT_PSA_FRAMEWORK_VERSION_VALUE)),3)
 else
@@ -1860,6 +1870,8 @@ BUILD_MODE_LINES = \
 		'WT_REMEASURE_PROBE=$(WT_REMEASURE_PROBE)' \
 		'WT_BOOTUPDATE_PROBE=$(WT_BOOTUPDATE_PROBE)' \
 		'WT_FWU=$(WT_FWU)' \
+		'WT_SP_RESTART=$(WT_SP_RESTART)' \
+		'WT_GUEST_RESTART=$(WT_GUEST_RESTART)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_SPM_STACK_SIZE=$(WT_SPM_STACK_SIZE)' \
@@ -2045,6 +2057,10 @@ $(foreach s,$(ARCH_TREE_SRCS) $(ARCH_ASM_SRCS),$(eval $(call wt_arch_tree_rule,$
 
 $(BUILD_DIR)/sec_monitor.o: $(ROOT)/src/monitor.c $(MANIFEST_GEN_H) \
 		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(SPM_CORE_OBJS): $(BUILD_DIR)/sec_spm_%.o: $(ROOT)/src/spm/%.c \
+		$(MANIFEST_GEN_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/sec_ffm_boot.o: $(ROOT)/src/ffm_boot.c $(MANIFEST_GEN_H) \

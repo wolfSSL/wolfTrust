@@ -1,4 +1,4 @@
-/* ffm_api.h
+/* psa_binding.h
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,19 +18,20 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef WOLFTRUST_FFM_API_H
-#define WOLFTRUST_FFM_API_H
+/* The psa_* client and service calls for host code, on the SPM core and its
+ * fixture: the caller and the running partition come from identity ops. */
 
-#include "wolftrust/ffm.h"
+#ifndef WOLFTRUST_TESTS_PSA_BINDING_H
+#define WOLFTRUST_TESTS_PSA_BINDING_H
 
-typedef struct wt_ffm_identity_ops {
+#include "spm_host.h"
+
+typedef struct wt_psa_host_identity {
     psa_client_id_t (*current_client)(void* context);
     int32_t (*current_partition)(void* context);
-} wt_ffm_identity_ops_t;
+} wt_psa_host_identity_t;
 
-int wt_ffm_api_bind(wt_ffm_runtime_t* runtime,
-                    const wt_ffm_identity_ops_t* identity_ops,
-                    void* identity_context);
-void wt_ffm_api_unbind(void);
+int wt_psa_host_bind(const wt_psa_host_identity_t* identity, void* context);
+void wt_psa_host_unbind(void);
 
-#endif /* WOLFTRUST_FFM_API_H */
+#endif /* WOLFTRUST_TESTS_PSA_BINDING_H */

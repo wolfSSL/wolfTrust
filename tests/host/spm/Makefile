@@ -45,7 +45,7 @@ PRODUCTION_C := $(PRODUCTION_DIR)/wolftrust_manifest_generated.c
 PRODUCTION_H := $(PRODUCTION_DIR)/wolftrust_manifest_generated.h
 PRODUCTION_TEST := $(BUILD_DIR)/test_production_manifest
 PRODUCTION_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
-    $(ROOT)/src/spm.c $(ROOT)/src/ffm.c $(ROOT)/src/ipc.c \
+    $(ROOT)/src/spm.c $(ROOT)/src/spm/core.c \
     $(ROOT)/src/ffm_domain.c \
     $(ROOT)/port/common/armv8m/partitions.c \
     $(ROOT)/src/partition.c \

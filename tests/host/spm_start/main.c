@@ -42,9 +42,7 @@ static struct wt_co g_co[TEST_SPS];
 static int g_script[TEST_SPS][4];
 static unsigned int g_runs[TEST_SPS];
 static wt_domain_descriptor_t g_domains[TEST_SPS];
-static wt_partition_manifest_t g_parts[TEST_SPS];
 static wt_system_manifest_t g_manifest;
-static wt_ffm_runtime_t g_rt;
 static wt_scheduler_state_t g_sched;
 static int g_failures;
 
@@ -94,14 +92,14 @@ uint32_t wt_co_run(wt_co_t* co)
         return 1U;
     }
     if (step == STEP_WAKE_NEXT && i + 1U < TEST_SPS) {
-        g_rt.partitions[i + 1U].asserted_signals |= 1U;
+        g_wt_spm.asserted[i + 1U] |= 1U;
     }
     if (step == STEP_WAKE_FIRST) {
-        g_rt.partitions[0].asserted_signals |= 1U;
+        g_wt_spm.asserted[0] |= 1U;
     }
     g_spm_sp[i].wait_kind = WT_SPM_WAIT_SIG;
     g_spm_sp[i].wait_mask = 1U;
-    g_rt.partitions[i].asserted_signals = 0U;
+    g_wt_spm.asserted[i] = 0U;
     return 1U;
 }
 
@@ -145,11 +143,27 @@ int wt_arch_secure_irq_claim(uint32_t irq)
     return 0;
 }
 
-int wt_ffm_msg_complete(const wt_ffm_runtime_t* runtime, uint16_t msg_index)
+/* The core as the scheduler sees it: signals only, no messages. */
+wt_spm_core_t g_wt_spm;
+const wt_spm_irq_t g_wt_spm_irqs[1];
+const uint8_t g_wt_spm_irq_count = 0U;
+
+psa_signal_t wt_spm_pending(uint8_t sp)
 {
-    (void)runtime;
-    (void)msg_index;
+    return g_wt_spm.asserted[sp];
+}
+
+int wt_spm_done(uint8_t slot, psa_client_id_t caller, int32_t kind)
+{
+    (void)slot;
+    (void)caller;
+    (void)kind;
     return 0;
+}
+
+const wt_system_manifest_t* wt_ffm_boot_manifest(void)
+{
+    return &g_manifest;
 }
 
 void wt_arch_secure_irq_disable(uint32_t irq)
@@ -169,11 +183,9 @@ void wt_arch_zero_guest_memory(uintptr_t base, size_t size)
     (void)size;
 }
 
-int wt_ffm_partition_restarted(wt_ffm_runtime_t* runtime,
-                               int32_t partition_id, psa_status_t status)
+int wt_spm_sp_restarted(uint8_t sp, psa_status_t status)
 {
-    (void)runtime;
-    (void)partition_id;
+    (void)sp;
     (void)status;
     return WT_FFM_SUCCESS;
 }
@@ -209,7 +221,7 @@ static void test_setup(int s0, int s1, int s2)
     (void)memset(g_script, 0, sizeof(g_script));
     (void)memset(g_runs, 0, sizeof(g_runs));
     (void)memset(g_spm_sp, 0, sizeof(g_spm_sp));
-    (void)memset(&g_rt, 0, sizeof(g_rt));
+    (void)memset(&g_wt_spm, 0, sizeof(g_wt_spm));
     (void)memset(&g_manifest, 0, sizeof(g_manifest));
     g_script[0][0] = s0;
     g_script[1][0] = s1;
@@ -217,7 +229,6 @@ static void test_setup(int s0, int s1, int s2)
     for (i = 0U; i < TEST_SPS; i++) {
         g_domains[i].id = (wt_domain_id_t)(i + 1U);
         g_co[i].state = WT_CO_BLOCKED;
-        g_rt.partitions[i].manifest = &g_parts[i];
         g_spm_sp[i].co = &g_co[i];
         g_spm_sp[i].partition_id = (int32_t)(i + 1U);
         g_spm_sp[i].partition_index = (uint16_t)i;
@@ -225,10 +236,7 @@ static void test_setup(int s0, int s1, int s2)
     }
     g_manifest.domains = g_domains;
     g_manifest.domain_count = TEST_SPS;
-    g_rt.manifest = &g_manifest;
-    g_rt.partition_count = TEST_SPS;
     g_spm_sp_count = TEST_SPS;
-    g_spm_svc_runtime = &g_rt;
 }
 
 int main(void)
@@ -240,7 +248,7 @@ int main(void)
 
     test_setup(STEP_WAIT, STEP_WAIT, STEP_WAKE_FIRST);
     check(wt_spm_sched_start_all() == WT_FFM_SUCCESS &&
-          g_runs[0] == 2U && g_rt.partitions[0].asserted_signals == 0U,
+          g_runs[0] == 2U && g_wt_spm.asserted[0] == 0U,
           "WT-FFM-0013 start-up IPC is drained before the NSPE starts");
 
     test_setup(STEP_WAKE_NEXT, STEP_FAULT, STEP_WAIT);
@@ -259,10 +267,6 @@ int main(void)
     test_setup(STEP_WAIT, STEP_WAIT_REPLY, STEP_WAIT);
     check(wt_spm_sched_start_all() == WT_FFM_ERROR_STATE,
           "WT-FFM-0013 a partition left waiting on a reply refuses the boot");
-
-    g_spm_svc_runtime = NULL;
-    check(wt_spm_sched_start_all() == WT_FFM_ERROR_STATE,
-          "start-up before the SPM runtime exists is refused");
 
     if (g_failures != 0) {
         return 1;

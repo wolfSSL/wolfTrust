@@ -50,8 +50,9 @@ CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ARM_API)/platform/targets/common/nspe
 CFLAGS += $(EXTRA_CFLAGS)
 TEST := $(BUILD_DIR)/test_psa_ff_upstream
-SRCS := $(ROOT)/src/ffm.c $(ROOT)/src/ffm_api.c $(ROOT)/src/ipc.c \
-    main.c $(ARM_TESTS)
+include $(ROOT)/tests/host/support/spm_host.mk
+SRCS := $(SPM_HOST_SRCS) psa_binding.c main.c \
+    $(ARM_TESTS)
 LOG_FILE ?= $(BUILD_DIR)/logs/conformance.log
 
 .PHONY: all run clean

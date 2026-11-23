@@ -40,7 +40,7 @@ CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
 
 PORT_SRCS := $(ROOT)/port/common/hsm_flash.c $(ROOT)/port/common/hsm_flash_ctx.c \
     $(ROOT)/port/$(TARGET)/flash_drv.c
-WT_SRCS := $(ROOT)/src/ffm.c $(ROOT)/src/ffm_domain.c $(ROOT)/src/ipc.c \
+WT_SRCS := $(ROOT)/src/ffm_domain.c \
     $(ROOT)/src/spm_gate.c $(ROOT)/src/services/fwu_service.c
 WH_SRCS := $(WOLFHSM)/src/wh_nvm.c $(WOLFHSM)/src/wh_nvm_flash.c \
     $(WOLFHSM)/src/wh_flash_unit.c $(WOLFHSM)/src/wh_utils.c
@@ -50,6 +50,8 @@ OBJS := $(addprefix $(BUILD_DIR)/,$(patsubst %.c,port_%.o,$(notdir $(PORT_SRCS))
     $(patsubst %.c,wt_%.o,$(notdir $(WT_SRCS))) \
     $(patsubst %.c,wh_%.o,$(notdir $(WH_SRCS))) \
     $(patsubst %.c,%.o,$(notdir $(TEST_SRCS))))
+include $(ROOT)/tests/host/support/spm_host.mk
+OBJS += $(SPM_HOST_OBJS)
 TEST_BIN := $(BUILD_DIR)/test_port_flash_$(TARGET)
 
 .PHONY: all run run-one compilers sanitize valgrind valgrind-one clean

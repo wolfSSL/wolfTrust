@@ -58,7 +58,7 @@ typedef struct vnet_rx_meta {
 #define WT_VNET_SERVICE_VERSION  1U
 
 /* Mediated link MTU: one frame plus the RX metadata must fit a single
- * psa_call's copied-transfer budget (WT_FFM_TRANSFER_BYTES). OPEN reports
+ * psa_call's copied-transfer budget (WT_SPM_TRANSFER_BYTES). OPEN reports
  * this value and the relay refuses larger frames. */
 #define WT_VNET_PSA_MTU          1000U
 

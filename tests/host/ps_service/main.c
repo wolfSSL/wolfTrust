@@ -27,6 +27,7 @@
  * Negative evidence: plaintext never at rest, a rolled-back ciphertext fails
  * authentication, and key + counters survive a simulated reboot. */
 
+#include "spm_host.h"
 #include "wolftrust/ffm.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
@@ -128,7 +129,7 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     return WT_FFM_ERROR_STATE;
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_port_ops = {
     test_check_read,
     test_check_write,
     test_dispatch,
@@ -219,11 +220,11 @@ static int test_nvm_up(int reboot)
 static int test_runtime_up(wt_ffm_runtime_t* runtime,
                            wt_storage_service_ctx_t* ps_ctx)
 {
-    if (wt_ffm_init(runtime, &g_manifest, &g_port_ops, NULL) !=
+    if (wt_spm_host_init(&g_manifest, &g_port_ops, NULL) !=
             WT_FFM_SUCCESS) {
         return -1;
     }
-    if (wt_ffm_register_partition(runtime, TEST_VAULT_PARTITION,
+    if (wt_spm_host_bind(TEST_VAULT_PARTITION,
                                   wt_vault_service_dispatch, NULL) !=
             WT_FFM_SUCCESS) {
         return -1;
@@ -237,7 +238,7 @@ static int test_runtime_up(wt_ffm_runtime_t* runtime,
                                 WT_VAULT_FLAG_NO_REPLAY;
     ps_ctx->vault_flags = WT_VAULT_FLAG_SEALED;
     ps_ctx->caps = 0U;
-    if (wt_ffm_register_partition(runtime, TEST_PS_PARTITION,
+    if (wt_spm_host_bind(TEST_PS_PARTITION,
                                   wt_storage_service_dispatch, ps_ctx) !=
             WT_FFM_SUCCESS) {
         return -1;
@@ -264,7 +265,7 @@ static psa_status_t ps_set(wt_ffm_runtime_t* runtime, int32_t caller,
     (void)memcpy(buffer + sizeof(req), data, len);
     in_vec[0].base = buffer;
     in_vec[0].len = sizeof(req) + len;
-    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_SET,
+    return wt_spm_host_call(caller, handle, WT_ITS_OP_SET,
                        in_vec, 1U, NULL, 0U);
 }
 
@@ -285,7 +286,7 @@ static psa_status_t ps_get(wt_ffm_runtime_t* runtime, int32_t caller,
     in_vec[0].len = sizeof(req);
     out_vec[0].base = data;
     out_vec[0].len = size;
-    status = wt_ffm_call(runtime, caller, handle, WT_ITS_OP_GET,
+    status = wt_spm_host_call(caller, handle, WT_ITS_OP_GET,
                          in_vec, 1U, out_vec, 1U);
     if (out_len != NULL) {
         *out_len = out_vec[0].len;
@@ -307,7 +308,7 @@ static psa_status_t ps_get_info(wt_ffm_runtime_t* runtime, int32_t caller,
     in_vec[0].len = sizeof(req);
     out_vec[0].base = info;
     out_vec[0].len = sizeof(*info);
-    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_GET_INFO,
+    return wt_spm_host_call(caller, handle, WT_ITS_OP_GET_INFO,
                        in_vec, 1U, out_vec, 1U);
 }
 
@@ -321,7 +322,7 @@ static psa_status_t ps_remove(wt_ffm_runtime_t* runtime, int32_t caller,
     req.uid = uid;
     in_vec[0].base = &req;
     in_vec[0].len = sizeof(req);
-    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_REMOVE,
+    return wt_spm_host_call(caller, handle, WT_ITS_OP_REMOVE,
                        in_vec, 1U, NULL, 0U);
 }
 
@@ -335,7 +336,7 @@ static psa_status_t ps_create(wt_ffm_runtime_t* runtime, int32_t caller,
     req.uid = uid;
     in_vec[0].base = &req;
     in_vec[0].len = sizeof(req);
-    return wt_ffm_call(runtime, caller, handle, WT_PS_OP_CREATE,
+    return wt_spm_host_call(caller, handle, WT_PS_OP_CREATE,
                        in_vec, 1U, NULL, 0U);
 }
 
@@ -346,7 +347,7 @@ static psa_status_t ps_get_support(wt_ffm_runtime_t* runtime, int32_t caller,
 
     out_vec[0].base = caps;
     out_vec[0].len = sizeof(*caps);
-    return wt_ffm_call(runtime, caller, handle, WT_PS_OP_GET_SUPPORT,
+    return wt_spm_host_call(caller, handle, WT_PS_OP_GET_SUPPORT,
                        NULL, 0U, out_vec, 1U);
 }
 
@@ -907,7 +908,7 @@ int main(void)
     whNvmCb incompatible_cb = WH_NVM_FLASH_CB;
     whNvmContext incompatible_nvm;
     whNvmId stored_id = 0U;
-    wt_ffm_runtime_t runtime;
+    wt_ffm_runtime_t* runtime = &g_wt_spm;
     wt_storage_service_ctx_t ps_ctx;
     psa_handle_t handle_g0;
     psa_handle_t handle_g1;
@@ -930,32 +931,32 @@ int main(void)
           "vault rejects an incompatible NVM capacity contract");
     check(wt_hsm_vault_init(&g_nvm_ctx) == 0,
           "vault accepts the flash backend with a RAM simulator");
-    if (test_runtime_up(&runtime, &ps_ctx) != 0) {
+    if (test_runtime_up(runtime, &ps_ctx) != 0) {
         (void)fprintf(stderr, "runtime bring-up failed\n");
         return 1;
     }
 
     /* WT-FFM-0047: the vault stays SP-only with PS in front of it. */
-    handle_direct = wt_ffm_connect(&runtime, TEST_NS_GUEST0, TEST_VAULT_SID,
+    handle_direct = wt_spm_host_connect(TEST_NS_GUEST0, TEST_VAULT_SID,
                                    1U);
     check(!PSA_HANDLE_IS_VALID(handle_direct),
           "WT-FFM-0047 direct NS access to SERVICE_VAULT still refused");
 
-    handle_g0 = wt_ffm_connect(&runtime, TEST_NS_GUEST0, TEST_PS_SID, 1U);
+    handle_g0 = wt_spm_host_connect(TEST_NS_GUEST0, TEST_PS_SID, 1U);
     check(PSA_HANDLE_IS_VALID(handle_g0), "NS guest0 connects to SERVICE_PS");
-    handle_g1 = wt_ffm_connect(&runtime, TEST_NS_GUEST1, TEST_PS_SID, 1U);
+    handle_g1 = wt_spm_host_connect(TEST_NS_GUEST1, TEST_PS_SID, 1U);
     check(PSA_HANDLE_IS_VALID(handle_g1), "NS guest1 connects to SERVICE_PS");
     if (!PSA_HANDLE_IS_VALID(handle_g0) || !PSA_HANDLE_IS_VALID(handle_g1)) {
         return 1;
     }
 
     /* The sealed chain: NS -> PS -> gate -> vault -> AES-GCM -> NVM. */
-    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_set(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     secret_v1, sizeof(secret_v1));
     check(status == PSA_SUCCESS,
           "WT-FFM-0048 guest0 ps_set seals through the gate");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_get(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == sizeof(secret_v1) &&
           memcmp(buffer, secret_v1, sizeof(secret_v1)) == 0,
@@ -970,7 +971,7 @@ int main(void)
               "WT-FFM-0048 secret plaintext absent from flash at rest");
     }
 
-    status = ps_get_info(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL,
+    status = ps_get_info(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL,
                          &info);
     check(status == PSA_SUCCESS && info.size == sizeof(secret_v1) &&
           info.flags == 0U,
@@ -978,14 +979,14 @@ int main(void)
 
     /* Offset read decrypts the whole object, then slices. */
     (void)memset(buffer, 0, sizeof(buffer));
-    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 4U,
+    status = ps_get(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 4U,
                     buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == sizeof(secret_v1) - 4U &&
           memcmp(buffer, secret_v1 + 4U, got) == 0,
           "guest0 ps_get(offset 4) returns the tail");
 
     /* WT-FFM-0044 at end-client granularity on the PS face. */
-    status = ps_get(&runtime, TEST_NS_GUEST1, handle_g1, 0x5001ULL, 0U,
+    status = ps_get(runtime, TEST_NS_GUEST1, handle_g1, 0x5001ULL, 0U,
                     buffer, sizeof(buffer), &got);
     check(status == PSA_ERROR_DOES_NOT_EXIST,
           "WT-FFM-0044 guest1 cannot see guest0's sealed uid");
@@ -996,23 +997,23 @@ int main(void)
     check(wh_Nvm_Read(&g_nvm_ctx, stored_id, 0U, old_meta.len, old_ct) ==
               WH_ERROR_OK, "captured v1 ciphertext for replay");
     g_fail_add_id = stored_id;
-    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_set(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     secret_v2, sizeof(secret_v2));
     check(status == PSA_ERROR_STORAGE_FAILURE,
           "failed replacement reports storage failure");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_get(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == sizeof(secret_v1) &&
           memcmp(buffer, secret_v1, sizeof(secret_v1)) == 0,
           "failed replacement rolls back to the prior object");
 
-    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_set(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     secret_v2, sizeof(secret_v2));
     check(status == PSA_SUCCESS, "guest0 ps_set commits v2");
     g_fail_add_id = WT_HSM_VAULT_TABLE_ID;
     g_fail_add_skips = 1U;
-    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_set(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     secret_v3, sizeof(secret_v3));
     check(status == PSA_ERROR_STORAGE_FAILURE,
           "interrupted replacement reports storage failure");
@@ -1021,7 +1022,7 @@ int main(void)
     check(test_nvm_up(1) == 0,
           "reinitialized NVM with an incomplete replacement");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_get(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == sizeof(secret_v2) &&
           memcmp(buffer, secret_v2, sizeof(secret_v2)) == 0,
@@ -1029,57 +1030,57 @@ int main(void)
     check(wh_Nvm_AddObjectWithReclaim(&g_nvm_ctx, &old_meta, old_meta.len,
                                       old_ct) == WH_ERROR_OK,
           "replayed v1 ciphertext into the NVM object");
-    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_get(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     buffer, sizeof(buffer), &got);
     check(status == PSA_ERROR_INVALID_SIGNATURE,
           "WT-FFM-0048 rolled-back ciphertext fails authentication");
-    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_set(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     secret_v2, sizeof(secret_v2));
     check(status == PSA_SUCCESS, "guest0 recovers by rewriting v2");
 
     /* WT-FFM-0045 on the sealed face. */
-    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL,
+    status = ps_set(runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL,
                     WT_VAULT_FLAG_WRITE_ONCE, secret_wo, sizeof(secret_wo));
     check(status == PSA_SUCCESS, "guest0 ps_set(WRITE_ONCE) sealed");
-    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL, 0U,
+    status = ps_set(runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL, 0U,
                     secret_v1, sizeof(secret_v1));
     check(status == PSA_ERROR_NOT_PERMITTED,
           "WT-FFM-0045 sealed WRITE_ONCE uid refuses a second ps_set");
-    status = ps_remove(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL);
+    status = ps_remove(runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL);
     check(status == PSA_ERROR_NOT_PERMITTED,
           "WT-FFM-0045 sealed WRITE_ONCE uid refuses ps_remove");
 
     /* Optional-feature gating: nothing advertised, nothing silently faked. */
-    status = ps_get_support(&runtime, TEST_NS_GUEST0, handle_g0, &caps);
+    status = ps_get_support(runtime, TEST_NS_GUEST0, handle_g0, &caps);
     check(status == PSA_SUCCESS && caps == 0U,
           "psa_ps_get_support advertises no optional features");
-    status = ps_create(&runtime, TEST_NS_GUEST0, handle_g0, 0x5003ULL);
+    status = ps_create(runtime, TEST_NS_GUEST0, handle_g0, 0x5003ULL);
     check(status == PSA_ERROR_NOT_SUPPORTED,
           "psa_ps_create refused NOT_SUPPORTED");
 
     /* Reboot persistence: tear the runtime + NVM stack down, re-init over
      * the same flash — device key and rollback counters must survive. */
-    if (wt_ffm_close(&runtime, TEST_NS_GUEST0, handle_g0) != WT_FFM_SUCCESS ||
-            wt_ffm_close(&runtime, TEST_NS_GUEST1, handle_g1) !=
+    if (wt_spm_host_close(TEST_NS_GUEST0, handle_g0) != WT_FFM_SUCCESS ||
+            wt_spm_host_close(TEST_NS_GUEST1, handle_g1) !=
                 WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "psa_close(SERVICE_PS) failed\n");
         return 1;
     }
-    if (test_nvm_up(1) != 0 || test_runtime_up(&runtime, &ps_ctx) != 0) {
+    if (test_nvm_up(1) != 0 || test_runtime_up(runtime, &ps_ctx) != 0) {
         (void)fprintf(stderr, "reboot bring-up failed\n");
         return 1;
     }
-    handle_g0 = wt_ffm_connect(&runtime, TEST_NS_GUEST0, TEST_PS_SID, 1U);
+    handle_g0 = wt_spm_host_connect(TEST_NS_GUEST0, TEST_PS_SID, 1U);
     check(PSA_HANDLE_IS_VALID(handle_g0),
           "guest0 reconnects to SERVICE_PS after reboot");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_get(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == sizeof(secret_v2) &&
           memcmp(buffer, secret_v2, sizeof(secret_v2)) == 0,
           "WT-FFM-0048 sealed object unseals after reboot (key + counters persist)");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL, 0U,
+    status = ps_get(runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL, 0U,
                     buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS &&
           memcmp(buffer, secret_wo, sizeof(secret_wo)) == 0,
@@ -1087,7 +1088,7 @@ int main(void)
 
     check(test_fill_to_available(4U) == 0,
           "prepared exact replacement transaction capacity");
-    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_set(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     secret_v3, sizeof(secret_v3));
     check(status == PSA_SUCCESS,
           "sealed replacement uses exact transaction capacity");
@@ -1095,18 +1096,18 @@ int main(void)
           "prepared exact rollback transaction capacity");
     g_fail_add_id = WT_HSM_VAULT_TABLE_ID;
     g_fail_add_skips = 1U;
-    status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_set(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     secret_v2, sizeof(secret_v2));
     check(status == PSA_ERROR_STORAGE_FAILURE,
           "near-capacity interrupted replacement reports failure");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = ps_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
+    status = ps_get(runtime, TEST_NS_GUEST0, handle_g0, 0x5001ULL, 0U,
                     buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == sizeof(secret_v3) &&
           memcmp(buffer, secret_v3, sizeof(secret_v3)) == 0,
           "near-capacity recovery preserves the prior object");
 
-    if (wt_ffm_close(&runtime, TEST_NS_GUEST0, handle_g0) != WT_FFM_SUCCESS) {
+    if (wt_spm_host_close(TEST_NS_GUEST0, handle_g0) != WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "psa_close after reboot failed\n");
         return 1;
     }

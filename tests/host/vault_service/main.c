@@ -26,6 +26,7 @@
  * refuses modify/remove), and the WT-FFM-0047 authorization gate
  * (dependencies[] admits, absence refuses, Non-secure refused). */
 
+#include "spm_host.h"
 #include "wolftrust/ffm.h"
 #include "wolftrust/services/vault_service.h"
 #include "wolftrust/services/hsm.h"
@@ -85,7 +86,7 @@ static void test_panic(void* context, int32_t partition_id)
     (void)partition_id;
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_port_ops = {
     test_check_read,
     test_check_write,
     wt_vault_service_dispatch,
@@ -161,7 +162,7 @@ static psa_status_t vault_set(wt_ffm_runtime_t* runtime, int32_t caller,
     in_vec[0].len = sizeof(req);
     in_vec[1].base = data;
     in_vec[1].len = len;
-    return wt_ffm_call(runtime, caller, handle, WT_VAULT_OP_SET,
+    return wt_spm_host_call(caller, handle, WT_VAULT_OP_SET,
                        in_vec, 2U, NULL, 0U);
 }
 
@@ -182,7 +183,7 @@ static psa_status_t vault_get(wt_ffm_runtime_t* runtime, int32_t caller,
     in_vec[0].len = sizeof(req);
     out_vec[0].base = data;
     out_vec[0].len = size;
-    status = wt_ffm_call(runtime, caller, handle, WT_VAULT_OP_GET,
+    status = wt_spm_host_call(caller, handle, WT_VAULT_OP_GET,
                          in_vec, 1U, out_vec, 1U);
     if (out_len != NULL) {
         *out_len = out_vec[0].len;
@@ -204,7 +205,7 @@ static psa_status_t vault_get_info(wt_ffm_runtime_t* runtime, int32_t caller,
     in_vec[0].len = sizeof(req);
     out_vec[0].base = info;
     out_vec[0].len = sizeof(*info);
-    return wt_ffm_call(runtime, caller, handle, WT_VAULT_OP_GET_INFO,
+    return wt_spm_host_call(caller, handle, WT_VAULT_OP_GET_INFO,
                        in_vec, 1U, out_vec, 1U);
 }
 
@@ -218,7 +219,7 @@ static psa_status_t vault_remove(wt_ffm_runtime_t* runtime, int32_t caller,
     req.uid = uid;
     in_vec[0].base = &req;
     in_vec[0].len = sizeof(req);
-    return wt_ffm_call(runtime, caller, handle, WT_VAULT_OP_REMOVE,
+    return wt_spm_host_call(caller, handle, WT_VAULT_OP_REMOVE,
                        in_vec, 1U, NULL, 0U);
 }
 
@@ -311,7 +312,7 @@ int main(void)
     whNvmContext nvm_ctx;
     whNvmMetadata key_meta;
     whNvmId key_id = WH_NVM_ID_INVALID;
-    wt_ffm_runtime_t runtime;
+    wt_ffm_runtime_t* runtime = &g_wt_spm;
     psa_handle_t handle_a;
     psa_handle_t handle_b;
     psa_handle_t handle_ns;
@@ -353,7 +354,7 @@ int main(void)
     }
     wt_vault_service_set_backend(&wt_hsm_vault_backend);
 
-    if (wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL) !=
+    if (wt_spm_host_init(&g_manifest, &g_port_ops, NULL) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "wt_ffm_init failed\n");
         return 1;
@@ -361,16 +362,16 @@ int main(void)
 
     /* WT-FFM-0047: only manifest-authorized Secure Partitions reach the
      * vault. NS clients and dependency-less partitions are refused. */
-    handle_ns = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_VAULT_SID, 1U);
+    handle_ns = wt_spm_host_connect(TEST_NS_CLIENT, TEST_VAULT_SID, 1U);
     check(!PSA_HANDLE_IS_VALID(handle_ns),
           "WT-FFM-0047 Non-secure client refused by SERVICE_VAULT");
-    handle_c = wt_ffm_connect(&runtime, TEST_CLIENT_C, TEST_VAULT_SID, 1U);
+    handle_c = wt_spm_host_connect(TEST_CLIENT_C, TEST_VAULT_SID, 1U);
     check(!PSA_HANDLE_IS_VALID(handle_c),
           "WT-FFM-0047 partition without dependencies[] refused");
-    handle_a = wt_ffm_connect(&runtime, TEST_CLIENT_A, TEST_VAULT_SID, 1U);
+    handle_a = wt_spm_host_connect(TEST_CLIENT_A, TEST_VAULT_SID, 1U);
     check(PSA_HANDLE_IS_VALID(handle_a),
           "WT-FFM-0047 dependencies[] admits CLIENT_A through the gate");
-    handle_b = wt_ffm_connect(&runtime, TEST_CLIENT_B, TEST_VAULT_SID, 1U);
+    handle_b = wt_spm_host_connect(TEST_CLIENT_B, TEST_VAULT_SID, 1U);
     check(PSA_HANDLE_IS_VALID(handle_b),
           "WT-FFM-0047 dependencies[] admits CLIENT_B through the gate");
     if (!PSA_HANDLE_IS_VALID(handle_a) || !PSA_HANDLE_IS_VALID(handle_b)) {
@@ -378,67 +379,67 @@ int main(void)
     }
 
     /* SET/GET round trip through the real NVM backend. */
-    status = vault_set(&runtime, TEST_CLIENT_A, handle_a, 0x11ULL, 0U,
+    status = vault_set(runtime, TEST_CLIENT_A, handle_a, 0x11ULL, 0U,
                        data_a, sizeof(data_a));
     check(status == PSA_SUCCESS, "owner A set(uid 0x11)");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = vault_get(&runtime, TEST_CLIENT_A, handle_a, 0x11ULL, 0U,
+    status = vault_get(runtime, TEST_CLIENT_A, handle_a, 0x11ULL, 0U,
                        buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == sizeof(data_a) &&
           memcmp(buffer, data_a, sizeof(data_a)) == 0,
           "owner A get(uid 0x11) returns the stored object");
-    status = vault_get_info(&runtime, TEST_CLIENT_A, handle_a, 0x11ULL,
+    status = vault_get_info(runtime, TEST_CLIENT_A, handle_a, 0x11ULL,
                             &info);
     check(status == PSA_SUCCESS && info.size == sizeof(data_a) &&
           info.flags == 0U,
           "owner A get_info(uid 0x11) reports size and flags");
 
     /* WT-FFM-0044: the SPM-stamped owner namespaces every object. */
-    status = vault_get(&runtime, TEST_CLIENT_B, handle_b, 0x11ULL, 0U,
+    status = vault_get(runtime, TEST_CLIENT_B, handle_b, 0x11ULL, 0U,
                        buffer, sizeof(buffer), &got);
     check(status == PSA_ERROR_DOES_NOT_EXIST,
           "WT-FFM-0044 owner B cannot see owner A's uid");
-    status = vault_set(&runtime, TEST_CLIENT_B, handle_b, 0x11ULL, 0U,
+    status = vault_set(runtime, TEST_CLIENT_B, handle_b, 0x11ULL, 0U,
                        data_b, sizeof(data_b));
     check(status == PSA_SUCCESS,
           "WT-FFM-0044 owner B owns the same uid independently");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = vault_get(&runtime, TEST_CLIENT_A, handle_a, 0x11ULL, 0U,
+    status = vault_get(runtime, TEST_CLIENT_A, handle_a, 0x11ULL, 0U,
                        buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS &&
           memcmp(buffer, data_a, sizeof(data_a)) == 0,
           "WT-FFM-0044 owner A's object unchanged by owner B's set");
 
     /* WT-FFM-0045: WRITE_ONCE refuses modify and remove. */
-    status = vault_set(&runtime, TEST_CLIENT_A, handle_a, 0x22ULL,
+    status = vault_set(runtime, TEST_CLIENT_A, handle_a, 0x22ULL,
                        WT_VAULT_FLAG_WRITE_ONCE, data_a, sizeof(data_a));
     check(status == PSA_SUCCESS, "owner A set(uid 0x22, WRITE_ONCE)");
-    status = vault_set(&runtime, TEST_CLIENT_A, handle_a, 0x22ULL, 0U,
+    status = vault_set(runtime, TEST_CLIENT_A, handle_a, 0x22ULL, 0U,
                        data_b, sizeof(data_b));
     check(status == PSA_ERROR_NOT_PERMITTED,
           "WT-FFM-0045 WRITE_ONCE object refuses a second set");
-    status = vault_remove(&runtime, TEST_CLIENT_A, handle_a, 0x22ULL);
+    status = vault_remove(runtime, TEST_CLIENT_A, handle_a, 0x22ULL);
     check(status == PSA_ERROR_NOT_PERMITTED,
           "WT-FFM-0045 WRITE_ONCE object refuses remove");
-    status = vault_get_info(&runtime, TEST_CLIENT_A, handle_a, 0x22ULL,
+    status = vault_get_info(runtime, TEST_CLIENT_A, handle_a, 0x22ULL,
                             &info);
     check(status == PSA_SUCCESS &&
           info.flags == WT_VAULT_FLAG_WRITE_ONCE,
           "WT-FFM-0045 WRITE_ONCE flag is reported by get_info");
 
     /* Offset read + remove lifecycle. */
-    status = vault_set(&runtime, TEST_CLIENT_A, handle_a, 0x33ULL, 0U,
+    status = vault_set(runtime, TEST_CLIENT_A, handle_a, 0x33ULL, 0U,
                        data_seq, sizeof(data_seq) - 1U);
     check(status == PSA_SUCCESS, "owner A set(uid 0x33) sequence");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = vault_get(&runtime, TEST_CLIENT_A, handle_a, 0x33ULL, 4U,
+    status = vault_get(runtime, TEST_CLIENT_A, handle_a, 0x33ULL, 4U,
                        buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == 6U &&
           memcmp(buffer, "456789", 6U) == 0,
           "owner A get(uid 0x33, offset 4) returns the tail");
-    status = vault_remove(&runtime, TEST_CLIENT_A, handle_a, 0x33ULL);
+    status = vault_remove(runtime, TEST_CLIENT_A, handle_a, 0x33ULL);
     check(status == PSA_SUCCESS, "owner A remove(uid 0x33)");
-    status = vault_get(&runtime, TEST_CLIENT_A, handle_a, 0x33ULL, 0U,
+    status = vault_get(runtime, TEST_CLIENT_A, handle_a, 0x33ULL, 0U,
                        buffer, sizeof(buffer), &got);
     check(status == PSA_ERROR_DOES_NOT_EXIST,
           "removed uid is gone");
@@ -459,7 +460,7 @@ int main(void)
                             WT_VAULT_FLAG_KEY | WT_VAULT_KEY_USAGE_VERIFY);
     check(wh_Nvm_AddObject(&nvm_ctx, &key_meta, key_meta.len, data_a) ==
           WH_ERROR_OK, "created key object in shared vault window");
-    status = vault_remove(&runtime, TEST_CLIENT_A, handle_a, 0x44ULL);
+    status = vault_remove(runtime, TEST_CLIENT_A, handle_a, 0x44ULL);
     check(status == PSA_ERROR_NOT_PERMITTED &&
           wh_Nvm_GetMetadata(&nvm_ctx, key_id, &key_meta) == WH_ERROR_OK,
           "storage remove cannot delete a key object");
@@ -468,13 +469,13 @@ int main(void)
     (void)memset(short_req, 0, sizeof(short_req));
     bad_vec.base = short_req;
     bad_vec.len = sizeof(short_req);
-    status = wt_ffm_call(&runtime, TEST_CLIENT_A, handle_a,
+    status = wt_spm_host_call(TEST_CLIENT_A, handle_a,
                          WT_VAULT_OP_GET, &bad_vec, 1U, NULL, 0U);
     check(status == PSA_ERROR_INVALID_ARGUMENT,
           "undersized request header refused");
 
-    if (wt_ffm_close(&runtime, TEST_CLIENT_A, handle_a) != WT_FFM_SUCCESS ||
-            wt_ffm_close(&runtime, TEST_CLIENT_B, handle_b) !=
+    if (wt_spm_host_close(TEST_CLIENT_A, handle_a) != WT_FFM_SUCCESS ||
+            wt_spm_host_close(TEST_CLIENT_B, handle_b) !=
                 WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "psa_close(SERVICE_VAULT) failed\n");
         return 1;

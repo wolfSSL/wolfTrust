@@ -49,7 +49,6 @@ static bool g_ns_active;
 static bool g_retire_pending;
 static unsigned int g_handler_drops;
 static uint32_t g_enables_applied;
-static wt_ffm_runtime_t g_ffm;
 
 static void check(int ok, const char* name)
 {
@@ -94,7 +93,6 @@ static void setup(size_t count, uint32_t delay)
     g_retire_pending = false;
     g_handler_drops = 0U;
     g_enables_applied = 0U;
-    (void)memset(&g_ffm, 0, sizeof(g_ffm));
     g_handler_slices = 0U;
 }
 
@@ -194,9 +192,9 @@ void wt_platform_log_fault(wt_guest_id_t id, wt_fault_reason_t r,
 { (void)id; (void)r; (void)a; (void)pc; }
 void wt_platform_all_guests_faulted(void) { finish(HALTED); }
 void wt_platform_panic(void) { finish(PANICKED); }
-wt_ffm_runtime_t* wt_ffm_boot_runtime_mut(void) { return &g_ffm; }
-int wt_ffm_fail_client_connections(wt_ffm_runtime_t* r, psa_client_id_t id)
-{ (void)r; (void)id; return 0; }
+#if defined(WT_SPM_CLIENT_SWEEP)
+void wt_spm_client_gone(psa_client_id_t caller) { (void)caller; }
+#endif
 
 void wt_partition_reset_runtime(const wt_guest_config_t* c,
                                 wt_guest_runtime_t* r)

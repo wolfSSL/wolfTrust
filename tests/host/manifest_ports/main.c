@@ -20,54 +20,15 @@
 
 #include "wolftrust/spm.h"
 #include "wolftrust/partition.h"
-#include "wolftrust/ffm.h"
+#include "wolftrust/spm_tables.h"
 #include "wolftrust_manifest_generated.h"
 
 #include <stdio.h>
+#include <string.h>
 
-static int ports_check_read(void* context, psa_client_id_t caller,
-                            const void* address, size_t size)
-{
-    (void)context;
-    (void)caller;
-    (void)address;
-    (void)size;
-    return 0;
-}
-
-static int ports_check_write(void* context, psa_client_id_t caller,
-                             void* address, size_t size)
-{
-    (void)context;
-    (void)caller;
-    (void)address;
-    (void)size;
-    return 0;
-}
-
-static int ports_dispatch(void* context, wt_ffm_runtime_t* runtime,
-                          int32_t partition_id)
-{
-    (void)context;
-    (void)runtime;
-    (void)partition_id;
-    return WT_FFM_ERROR_STATE;
-}
-
-static void ports_panic(void* context, int32_t partition_id)
-{
-    (void)context;
-    (void)partition_id;
-}
-
-static const wt_ffm_port_ops_t g_ports_ffm_ops = {
-    ports_check_read,
-    ports_check_write,
-    ports_dispatch,
-    ports_panic
-};
-
-static wt_ffm_runtime_t g_ports_ffm_runtime;
+static wt_spm_service_t g_ports_services[WT_SPM_MAX_SERVICES];
+static wt_spm_sp_ipc_t g_ports_sps[WT_SPM_MAX_SPS];
+static wt_spm_irq_t g_ports_irqs[WT_SPM_MAX_SERVICES];
 
 static int ports_fail(const char* what, int result)
 {
@@ -84,6 +45,7 @@ int main(void)
     const wt_guest_config_t* configs;
     const wt_domain_descriptor_t* domain;
     wt_spm_t spm;
+    wt_spm_tables_t tables;
     size_t count;
     size_t i;
     size_t j;
@@ -124,10 +86,14 @@ int main(void)
             return ports_fail("rejected by the port profile", result);
     }
 
-    result = wt_ffm_init(&g_ports_ffm_runtime, manifest, &g_ports_ffm_ops,
-                         NULL);
-    if (result != WT_FFM_SUCCESS)
-        return ports_fail("rejected by wt_ffm_init", result);
+    (void)memset(&tables, 0, sizeof(tables));
+    tables.services = g_ports_services;
+    tables.sps = g_ports_sps;
+    tables.irqs = g_ports_irqs;
+    tables.irq_cap = WT_SPM_MAX_SERVICES;
+    result = wt_spm_tables_derive(manifest, &tables);
+    if (result != WT_SPM_OK)
+        return ports_fail("rejected by wt_spm_tables_derive", result);
 
     (void)printf("PASS: %s validated with the port's capabilities: "
                  "domains=%u partitions=%u\n", WT_TEST_MANIFEST,

@@ -37,11 +37,9 @@ CFLAGS += $(EXTRA_CFLAGS)
 include ../vendor_c99.mk
 
 _WT_SRCS := \
-    $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_boot.c \
     $(ROOT)/src/arch/common/ffm_gateway.c \
     $(ROOT)/src/ffm_domain.c \
-    $(ROOT)/src/ipc.c \
     $(ROOT)/src/spm_gate.c \
     $(ROOT)/src/services/hsm_relay_service.c \
     $(ROOT)/src/services/storage_service.c \
@@ -66,7 +64,10 @@ _WT_OBJS   := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
 _WC_OBJS   := $(patsubst %.c,wc_%.o,$(notdir $(_WC_SRCS)))
 _TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
+include $(ROOT)/tests/host/support/spm_host.mk
+
 ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WC_OBJS) $(_TEST_OBJS))
+ALL_OBJS += $(SPM_HOST_OBJS)
 TEST_BIN := $(BUILD_DIR)/test_ffm_veneer
 
 .PHONY: all run compilers sanitize valgrind clean

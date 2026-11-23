@@ -76,6 +76,7 @@
 #include "wolfhsm/wh_nvm_flash.h"
 #include "wolfhsm/wh_flash_ramsim.h"
 
+#include "spm_host.h"
 #include "wolftrust/ffm.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
@@ -116,7 +117,7 @@ static const whNvmCb g_nvm_cb[1] = {WH_NVM_FLASH_CB};
 static whNvmConfig g_nvm_cfg;
 static whNvmContext g_store;
 
-static wt_ffm_runtime_t g_runtime;
+static wt_ffm_runtime_t* g_runtime = &g_wt_spm;
 static int g_failures;
 static unsigned int g_panics;
 static int32_t g_fault_partition;
@@ -258,7 +259,7 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     return WT_FFM_ERROR_STATE;
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_port_ops = {
     test_check_read,
     test_check_write,
     test_dispatch,
@@ -271,8 +272,8 @@ static const wt_ffm_port_ops_t g_port_ops = {
  * told the partition restarted. */
 static void test_partition_restart(int32_t partition_id)
 {
-    (void)wt_ffm_fail_partition_messages(&g_runtime, partition_id,
-                                         PSA_ERROR_COMMUNICATION_FAILURE);
+    (void)wt_spm_host_restarted(partition_id,
+                                PSA_ERROR_COMMUNICATION_FAILURE);
     if (partition_id == TEST_VAULT_PARTITION) {
         wt_nvm_client_vault_restarted(g_fault_client);
     }
@@ -298,7 +299,7 @@ static int test_sp_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
             g_fault_partition = 0;
         }
         else {
-            (void)wt_ffm_dispatch_pending(runtime, call->pending_msg);
+            wt_spm_run();
         }
         status = wt_spm_gate(runtime, NULL, call);
         guard++;
@@ -403,25 +404,25 @@ static int attest_dispatch(void* context, wt_ffm_runtime_t* runtime,
 
 static int runtime_up(void)
 {
-    if (wt_ffm_init(&g_runtime, &g_manifest, &g_port_ops, NULL) !=
+    if (wt_spm_host_init(&g_manifest, &g_port_ops, NULL) !=
             WT_FFM_SUCCESS) {
         return -1;
     }
-    if (wt_ffm_register_partition(&g_runtime, TEST_VAULT_PARTITION,
+    if (wt_spm_host_bind(TEST_VAULT_PARTITION,
                                   wt_vault_service_dispatch, NULL) !=
             WT_FFM_SUCCESS) {
         return -1;
     }
-    if (wt_ffm_register_partition(&g_runtime, TEST_HSM_PARTITION,
+    if (wt_spm_host_bind(TEST_HSM_PARTITION,
                                   wt_hsm_relay_dispatch, NULL) !=
             WT_FFM_SUCCESS) {
         return -1;
     }
-    if (wt_ffm_register_partition(&g_runtime, TEST_ATTEST_PARTITION,
+    if (wt_spm_host_bind(TEST_ATTEST_PARTITION,
                                   attest_dispatch, NULL) != WT_FFM_SUCCESS) {
         return -1;
     }
-    if (wt_ffm_register_partition(&g_runtime, TEST_ROGUE_PARTITION,
+    if (wt_spm_host_bind(TEST_ROGUE_PARTITION,
                                   attest_dispatch, NULL) != WT_FFM_SUCCESS) {
         return -1;
     }
@@ -484,7 +485,7 @@ static void test_nvm_door(void)
     int rc;
 
     check(wt_nvm_client_bind(&client, &view, test_sp_transport,
-                             &g_runtime, TEST_HSM_PARTITION,
+                             g_runtime, TEST_HSM_PARTITION,
                              TEST_VAULT_SID) == 0,
           "crypto partition binds its store view to SERVICE_VAULT");
     g_fault_client = &client;
@@ -641,7 +642,7 @@ static void test_nvm_door(void)
 
     /* D6: only the registered crypto partition passes the door. */
     check(wt_nvm_client_bind(&rogue, &rogue_view, wt_spm_transport_direct,
-                             &g_runtime, TEST_ROGUE_PARTITION,
+                             g_runtime, TEST_ROGUE_PARTITION,
                              TEST_VAULT_SID) == 0,
           "D6 another partition binds a store view");
     meta_init(&meta, TEST_KEYSTORE_ID, 48U);
@@ -688,7 +689,7 @@ static void test_nvm_door(void)
           "R2 the next request reconnects and is served");
 
     /* R3: dropped connections are closed, not leaked. */
-    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS + 2U; i++) {
+    for (i = 0U; i < WT_SPM_SLOTS + 2U; i++) {
         test_partition_restart(TEST_VAULT_PARTITION);
         rc = wh_Nvm_GetMetadata(&view, TEST_KEYSTORE_ID, &got);
         if (rc != WH_ERROR_OK) {
@@ -703,7 +704,7 @@ static void test_nvm_door(void)
     g_fault_client = NULL;
 
     /* L1: the declared length must match the transferred object. */
-    handle = wt_ffm_connect(&g_runtime, TEST_HSM_PARTITION, TEST_VAULT_SID,
+    handle = wt_spm_host_connect(TEST_HSM_PARTITION, TEST_VAULT_SID,
                             1U);
     check(PSA_HANDLE_IS_VALID(handle), "L1 the crypto partition connects");
     (void)memset(&nreq, 0, sizeof(nreq));
@@ -714,20 +715,20 @@ static void test_nvm_door(void)
     in_vec[1].base = key_bytes;
     in_vec[1].len = sizeof(key_bytes);
     nreq.len = (uint32_t)sizeof(key_bytes) - 1U;
-    status = wt_ffm_call(&g_runtime, TEST_HSM_PARTITION, handle,
+    status = wt_spm_host_call(TEST_HSM_PARTITION, handle,
                          WT_VAULT_OP_NVM_ADD_OBJECT, in_vec, 2U, NULL, 0U);
     check(status == PSA_ERROR_INVALID_ARGUMENT,
           "L1 a declared length shorter than the object is refused");
     nreq.len = (uint32_t)sizeof(key_bytes) + 1U;
-    status = wt_ffm_call(&g_runtime, TEST_HSM_PARTITION, handle,
+    status = wt_spm_host_call(TEST_HSM_PARTITION, handle,
                          WT_VAULT_OP_NVM_ADD_OBJECT, in_vec, 2U, NULL, 0U);
     check(status == PSA_ERROR_INVALID_ARGUMENT,
           "L1 a declared length longer than the object is refused");
     nreq.len = (uint32_t)sizeof(key_bytes);
-    status = wt_ffm_call(&g_runtime, TEST_HSM_PARTITION, handle,
+    status = wt_spm_host_call(TEST_HSM_PARTITION, handle,
                          WT_VAULT_OP_NVM_ADD_OBJECT, in_vec, 2U, NULL, 0U);
     check(status == PSA_SUCCESS, "L1 the matching declared length is accepted");
-    (void)wt_ffm_close(&g_runtime, TEST_HSM_PARTITION, handle);
+    (void)wt_spm_host_close(TEST_HSM_PARTITION, handle);
     id = (whNvmId)(TEST_KEYSTORE_ID + 3U);
     rc = wh_Nvm_DestroyObjects(&view, 1U, &id);
     check(rc == WH_ERROR_OK, "L1 the object is destroyed");
@@ -735,9 +736,9 @@ static void test_nvm_door(void)
     /* C1: cleanup releases the connection, so rebinding never exhausts
      * the crypto partition's connection slots. */
     rc = WH_ERROR_ABORTED;
-    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS + 2U; i++) {
+    for (i = 0U; i < WT_SPM_SLOTS + 2U; i++) {
         if (wt_nvm_client_bind(&cycle, &cycle_view, test_sp_transport,
-                               &g_runtime, TEST_HSM_PARTITION,
+                               g_runtime, TEST_HSM_PARTITION,
                                TEST_VAULT_SID) != 0) {
             rc = WH_ERROR_ABORTED;
             break;
@@ -773,7 +774,7 @@ static void test_nvm_door(void)
     rc = wh_Nvm_DestroyObjects(&view, 1U, &id);
     check(rc == WH_ERROR_OK, "Z1 the probe object is destroyed");
 
-    handle = wt_ffm_connect(&g_runtime, TEST_ROGUE_PARTITION,
+    handle = wt_spm_host_connect(TEST_ROGUE_PARTITION,
                             TEST_VAULT_SID, 1U);
     check(PSA_HANDLE_IS_VALID(handle), "Z2 a storage owner connects");
     (void)memset(&vreq, 0, sizeof(vreq));
@@ -784,12 +785,12 @@ static void test_nvm_door(void)
     in_vec[1].len = sizeof(g_probe_pattern);
     g_wipe_checks = 0U;
     g_wipe_dirty = 0U;
-    status = wt_ffm_call(&g_runtime, TEST_ROGUE_PARTITION, handle,
+    status = wt_spm_host_call(TEST_ROGUE_PARTITION, handle,
                          WT_VAULT_OP_SET, in_vec, 2U, NULL, 0U);
     (void)memset(out, 0, sizeof(out));
     out_vec[0].base = out;
     out_vec[0].len = sizeof(g_probe_pattern);
-    rc = (wt_ffm_call(&g_runtime, TEST_ROGUE_PARTITION, handle,
+    rc = (wt_spm_host_call(TEST_ROGUE_PARTITION, handle,
                       WT_VAULT_OP_GET, in_vec, 1U, out_vec, 1U) ==
           PSA_SUCCESS) ? WH_ERROR_OK : WH_ERROR_ABORTED;
     check(status == PSA_SUCCESS && rc == WH_ERROR_OK &&
@@ -797,7 +798,7 @@ static void test_nvm_door(void)
           "Z2 the probe object round-trips through the storage face");
     check(g_wipe_checks >= 4U && g_wipe_dirty == 0U,
           "Z2 the storage face's copied buffers are zeroed before release");
-    (void)wt_ffm_close(&g_runtime, TEST_ROGUE_PARTITION, handle);
+    (void)wt_spm_host_close(TEST_ROGUE_PARTITION, handle);
     check(wt_hsm_vault_backend.remove(TEST_ROGUE_PARTITION, 0,
                                       0x5A5AULL) == PSA_SUCCESS,
           "Z2 the probe object is removed");
@@ -860,7 +861,7 @@ static void test_attest_door(void)
           "A1 unbound, the attestation partition has no signer");
 
     /* A2 */
-    check(wt_initial_attest_bind_hsm(test_sp_transport, &g_runtime,
+    check(wt_initial_attest_bind_hsm(test_sp_transport, g_runtime,
                                      TEST_ATTEST_PARTITION, TEST_HSM_SID) ==
               WT_ATTEST_SUCCESS,
           "A2 attestation binds its signer to SERVICE_HSM");
@@ -909,54 +910,54 @@ static void test_attest_door(void)
     in_vec[0].len = sizeof(digest);
     out_vec[0].base = signature;
     out_vec[0].len = sizeof(signature);
-    handle = wt_ffm_connect(&g_runtime, TEST_NS_CLIENT, TEST_HSM_SID, 1U);
+    handle = wt_spm_host_connect(TEST_NS_CLIENT, TEST_HSM_SID, 1U);
     check(PSA_HANDLE_IS_VALID(handle), "A3 a Non-secure client reaches SERVICE_HSM");
-    status = wt_ffm_call(&g_runtime, TEST_NS_CLIENT, handle,
+    status = wt_spm_host_call(TEST_NS_CLIENT, handle,
                          WT_HSM_OP_ATTEST_SIGN, in_vec, 1U, out_vec, 1U);
     check(status == PSA_ERROR_NOT_PERMITTED,
           "A3 a Non-secure client is refused at the attestation door");
-    status = wt_ffm_call(&g_runtime, TEST_NS_CLIENT, handle,
+    status = wt_spm_host_call(TEST_NS_CLIENT, handle,
                          WT_HSM_OP_ATTEST_PUBLIC_KEY, NULL, 0U, out_vec, 1U);
     check(status == PSA_ERROR_NOT_PERMITTED,
           "A3 a Non-secure client cannot read the public key door");
-    (void)wt_ffm_close(&g_runtime, TEST_NS_CLIENT, handle);
+    (void)wt_spm_host_close(TEST_NS_CLIENT, handle);
 
-    handle = wt_ffm_connect(&g_runtime, TEST_ROGUE_PARTITION, TEST_HSM_SID,
+    handle = wt_spm_host_connect(TEST_ROGUE_PARTITION, TEST_HSM_SID,
                             1U);
     check(PSA_HANDLE_IS_VALID(handle), "A3 another partition reaches SERVICE_HSM");
-    status = wt_ffm_call(&g_runtime, TEST_ROGUE_PARTITION, handle,
+    status = wt_spm_host_call(TEST_ROGUE_PARTITION, handle,
                          WT_HSM_OP_ATTEST_SIGN, in_vec, 1U, out_vec, 1U);
     check(status == PSA_ERROR_NOT_PERMITTED,
           "A3 another partition is refused at the attestation door");
-    (void)wt_ffm_close(&g_runtime, TEST_ROGUE_PARTITION, handle);
+    (void)wt_spm_host_close(TEST_ROGUE_PARTITION, handle);
 
-    handle = wt_ffm_connect(&g_runtime, TEST_ATTEST_PARTITION, TEST_HSM_SID,
+    handle = wt_spm_host_connect(TEST_ATTEST_PARTITION, TEST_HSM_SID,
                             1U);
     check(PSA_HANDLE_IS_VALID(handle), "A3 the attestation partition connects");
     in_vec[0].len = sizeof(digest) - 1U;
-    status = wt_ffm_call(&g_runtime, TEST_ATTEST_PARTITION, handle,
+    status = wt_spm_host_call(TEST_ATTEST_PARTITION, handle,
                          WT_HSM_OP_ATTEST_SIGN, in_vec, 1U, out_vec, 1U);
     check(status == PSA_ERROR_INVALID_ARGUMENT,
           "A3 a malformed digest is refused at the attestation door");
     in_vec[0].len = sizeof(digest);
     out_vec[0].len = sizeof(signature) - 1U;
-    status = wt_ffm_call(&g_runtime, TEST_ATTEST_PARTITION, handle,
+    status = wt_spm_host_call(TEST_ATTEST_PARTITION, handle,
                          WT_HSM_OP_ATTEST_SIGN, in_vec, 1U, out_vec, 1U);
     check(status == PSA_ERROR_INVALID_ARGUMENT,
           "A3 a short signature buffer is refused at the attestation door");
     out_vec[0].len = sizeof(signature);
     g_sign_calls = 0U;
-    status = wt_ffm_call(&g_runtime, TEST_ATTEST_PARTITION, handle,
+    status = wt_spm_host_call(TEST_ATTEST_PARTITION, handle,
                          WT_HSM_OP_ATTEST_SIGN, in_vec, 1U, out_vec, 1U);
     check(status == PSA_SUCCESS && g_sign_calls == 1U &&
           memcmp(g_last_digest, digest, sizeof(digest)) == 0,
           "A3 the attestation partition's own request is served");
-    (void)wt_ffm_close(&g_runtime, TEST_ATTEST_PARTITION, handle);
+    (void)wt_spm_host_close(TEST_ATTEST_PARTITION, handle);
 }
 
 static void test_pool_reserve(void)
 {
-    psa_handle_t ns_handles[WT_FFM_MAX_CONNECTIONS];
+    psa_handle_t ns_handles[WT_SPM_SLOTS];
     wt_nvm_client_t client;
     whNvmContext view;
     psa_handle_t handle = PSA_NULL_HANDLE;
@@ -968,32 +969,31 @@ static void test_pool_reserve(void)
     size_t i;
 
     /* S1: two Non-secure clients take everything the pool lets them. */
-    for (i = 0U; i < WT_FFM_MAX_CONNECTIONS; i++) {
-        handle = wt_ffm_connect(&g_runtime,
-                                (i & 1U) != 0U ? -2 : TEST_NS_CLIENT,
+    for (i = 0U; i < WT_SPM_SLOTS; i++) {
+        handle = wt_spm_host_connect((i & 1U) != 0U ? -2 : TEST_NS_CLIENT,
                                 TEST_HSM_SID, 1U);
         if (!PSA_HANDLE_IS_VALID(handle)) {
             break;
         }
         ns_handles[taken++] = handle;
     }
-    check(taken == WT_FFM_MAX_NS_CONNECTIONS &&
+    check(taken == WT_SPM_NS_SLOTS &&
           handle == (psa_handle_t)PSA_ERROR_CONNECTION_BUSY,
           "S1 Non-secure clients are refused once their share is taken");
-    check(wt_nvm_client_bind(&client, &view, test_sp_transport, &g_runtime,
+    check(wt_nvm_client_bind(&client, &view, test_sp_transport, g_runtime,
                              TEST_HSM_PARTITION, TEST_VAULT_SID) == 0 &&
           wh_Nvm_GetAvailable(&view, &avail_size, &avail_objects,
                               &reclaim_size, &reclaim_objects) ==
               WH_ERROR_OK && g_panics == 0U,
           "S1 the keystore door still connects for the crypto partition");
-    handle = wt_ffm_connect(&g_runtime, TEST_ATTEST_PARTITION, TEST_HSM_SID,
+    handle = wt_spm_host_connect(TEST_ATTEST_PARTITION, TEST_HSM_SID,
                             1U);
     check(PSA_HANDLE_IS_VALID(handle),
           "S1 the attestation partition still reaches SERVICE_HSM");
-    (void)wt_ffm_close(&g_runtime, TEST_ATTEST_PARTITION, handle);
+    (void)wt_spm_host_close(TEST_ATTEST_PARTITION, handle);
     (void)wh_Nvm_Cleanup(&view);
     for (i = 0U; i < taken; i++) {
-        (void)wt_ffm_close(&g_runtime, (i & 1U) != 0U ? -2 : TEST_NS_CLIENT,
+        (void)wt_spm_host_close((i & 1U) != 0U ? -2 : TEST_NS_CLIENT,
                            ns_handles[i]);
     }
 }
@@ -1012,7 +1012,7 @@ static void test_vault_random_face(void)
     /* V1: the face is installed before its DRBG is seeded (as the engines
      * install it at boot) and fails closed, not unsupported, until then. */
     wt_vault_service_set_rng(wt_hsm_vault_random);
-    handle = wt_ffm_connect(&g_runtime, TEST_ROGUE_PARTITION, TEST_VAULT_SID,
+    handle = wt_spm_host_connect(TEST_ROGUE_PARTITION, TEST_VAULT_SID,
                             1U);
     check(PSA_HANDLE_IS_VALID(handle), "V1 a partition reaches SERVICE_VAULT");
     (void)memset(&req, 0, sizeof(req));
@@ -1021,20 +1021,20 @@ static void test_vault_random_face(void)
     (void)memset(out, 0, sizeof(out));
     out_vec[0].base = out;
     out_vec[0].len = sizeof(out);
-    status = wt_ffm_call(&g_runtime, TEST_ROGUE_PARTITION, handle,
+    status = wt_spm_host_call(TEST_ROGUE_PARTITION, handle,
                          WT_VAULT_OP_RANDOM, in_vec, 1U, out_vec, 1U);
     check(status == PSA_ERROR_BAD_STATE,
           "V1 RANDOM fails closed while the vault DRBG is unseeded");
     check(wt_hsm_vault_rng_init() == 0, "V1 the band bring-up seeds the DRBG");
     out_vec[0].len = sizeof(out);
-    status = wt_ffm_call(&g_runtime, TEST_ROGUE_PARTITION, handle,
+    status = wt_spm_host_call(TEST_ROGUE_PARTITION, handle,
                          WT_VAULT_OP_RANDOM, in_vec, 1U, out_vec, 1U);
     for (i = 0U; i < sizeof(out); i++) {
         nonzero |= out[i];
     }
     check(status == PSA_SUCCESS && out_vec[0].len == sizeof(out) &&
           nonzero != 0, "V1 RANDOM serves once the DRBG is seeded");
-    (void)wt_ffm_close(&g_runtime, TEST_ROGUE_PARTITION, handle);
+    (void)wt_spm_host_close(TEST_ROGUE_PARTITION, handle);
     wt_vault_service_set_rng(NULL);
 }
 
@@ -1053,7 +1053,7 @@ static void test_door_confinement(void)
     /* K1: the crypto partition holds a vault connection for the keystore
      * door only; every ordinary face refuses it. */
     wt_vault_service_set_rng(wt_hsm_vault_random);
-    handle = wt_ffm_connect(&g_runtime, TEST_HSM_PARTITION, TEST_VAULT_SID,
+    handle = wt_spm_host_connect(TEST_HSM_PARTITION, TEST_VAULT_SID,
                             1U);
     check(PSA_HANDLE_IS_VALID(handle),
           "K1 the crypto partition connects to SERVICE_VAULT");
@@ -1063,7 +1063,7 @@ static void test_door_confinement(void)
     in_vec[0].len = sizeof(req);
     in_vec[1].base = blob;
     in_vec[1].len = sizeof(blob);
-    status = wt_ffm_call(&g_runtime, TEST_HSM_PARTITION, handle,
+    status = wt_spm_host_call(TEST_HSM_PARTITION, handle,
                          WT_VAULT_OP_SET, in_vec, 2U, NULL, 0U);
     check(status == PSA_ERROR_NOT_PERMITTED &&
           wt_hsm_vault_backend.get(TEST_HSM_PARTITION, 0, 0x4B31ULL, 0U, out,
@@ -1072,20 +1072,20 @@ static void test_door_confinement(void)
           "K1 a storage set from the crypto partition is refused, no object");
     out_vec[0].base = out;
     out_vec[0].len = sizeof(out);
-    status = wt_ffm_call(&g_runtime, TEST_HSM_PARTITION, handle,
+    status = wt_spm_host_call(TEST_HSM_PARTITION, handle,
                          WT_VAULT_OP_GET, in_vec, 1U, out_vec, 1U);
     check(status == PSA_ERROR_NOT_PERMITTED,
           "K1 a storage get from the crypto partition is refused");
     out_vec[0].len = sizeof(out);
-    status = wt_ffm_call(&g_runtime, TEST_HSM_PARTITION, handle,
+    status = wt_spm_host_call(TEST_HSM_PARTITION, handle,
                          WT_VAULT_OP_RANDOM, in_vec, 1U, out_vec, 1U);
     check(status == PSA_ERROR_NOT_PERMITTED,
           "K1 RANDOM from the crypto partition is refused");
-    status = wt_ffm_call(&g_runtime, TEST_HSM_PARTITION, handle,
+    status = wt_spm_host_call(TEST_HSM_PARTITION, handle,
                          WT_VAULT_OP_KEY_GENERATE, in_vec, 1U, NULL, 0U);
     check(status == PSA_ERROR_NOT_PERMITTED,
           "K1 a key face request from the crypto partition is refused");
-    (void)wt_ffm_close(&g_runtime, TEST_HSM_PARTITION, handle);
+    (void)wt_spm_host_close(TEST_HSM_PARTITION, handle);
     wt_vault_service_set_rng(NULL);
 
     /* K2: SERVICE_HSM's ordinary wire is for Non-secure clients. */
@@ -1096,30 +1096,30 @@ static void test_door_confinement(void)
     out_vec[0].base = out;
     out_vec[0].len = sizeof(out);
     g_submit_calls = 0U;
-    handle = wt_ffm_connect(&g_runtime, TEST_ATTEST_PARTITION, TEST_HSM_SID,
+    handle = wt_spm_host_connect(TEST_ATTEST_PARTITION, TEST_HSM_SID,
                             1U);
     check(PSA_HANDLE_IS_VALID(handle),
           "K2 the attestation partition connects to SERVICE_HSM");
-    status = wt_ffm_call(&g_runtime, TEST_ATTEST_PARTITION, handle,
+    status = wt_spm_host_call(TEST_ATTEST_PARTITION, handle,
                          PSA_IPC_CALL, in_vec, 1U, out_vec, 1U);
     check(status == PSA_ERROR_NOT_PERMITTED && g_submit_calls == 0U,
           "K2 the attestation partition is refused on the ordinary wire");
-    (void)wt_ffm_close(&g_runtime, TEST_ATTEST_PARTITION, handle);
-    handle = wt_ffm_connect(&g_runtime, TEST_ROGUE_PARTITION, TEST_HSM_SID,
+    (void)wt_spm_host_close(TEST_ATTEST_PARTITION, handle);
+    handle = wt_spm_host_connect(TEST_ROGUE_PARTITION, TEST_HSM_SID,
                             1U);
-    status = wt_ffm_call(&g_runtime, TEST_ROGUE_PARTITION, handle,
+    status = wt_spm_host_call(TEST_ROGUE_PARTITION, handle,
                          PSA_IPC_CALL, in_vec, 1U, out_vec, 1U);
     check(status == PSA_ERROR_NOT_PERMITTED && g_submit_calls == 0U,
           "K2 another partition is refused on the ordinary wire");
-    (void)wt_ffm_close(&g_runtime, TEST_ROGUE_PARTITION, handle);
-    handle = wt_ffm_connect(&g_runtime, TEST_NS_CLIENT, TEST_HSM_SID, 1U);
+    (void)wt_spm_host_close(TEST_ROGUE_PARTITION, handle);
+    handle = wt_spm_host_connect(TEST_NS_CLIENT, TEST_HSM_SID, 1U);
     out_vec[0].len = sizeof(out);
-    status = wt_ffm_call(&g_runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+    status = wt_spm_host_call(TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                          in_vec, 1U, out_vec, 1U);
     check(status == PSA_SUCCESS && g_submit_calls == 1U &&
           out_vec[0].len == 1U && out[0] == 0x5AU,
           "K2 a Non-secure client is served on the ordinary wire");
-    (void)wt_ffm_close(&g_runtime, TEST_NS_CLIENT, handle);
+    (void)wt_spm_host_close(TEST_NS_CLIENT, handle);
     wt_hsm_relay_set_submit(NULL, NULL);
 }
 

@@ -28,7 +28,8 @@ CFLAGS := -std=c99 -O1 -g -Wall -Wextra -pedantic -I$(ROOT)/include \
 LDFLAGS := -fsanitize=fuzzer,address $(EXTRA_LDFLAGS)
 
 TARGET := $(BUILD_DIR)/wt_spm_fuzz
-SRCS := $(ROOT)/src/ffm.c $(ROOT)/src/ipc.c wt_spm_fuzz.c
+include $(ROOT)/tests/host/support/spm_host.mk
+SRCS := $(SPM_HOST_SRCS) $(ROOT)/src/arch/common/ffm_gateway.c wt_spm_fuzz.c
 
 .PHONY: all run corpus clean
 

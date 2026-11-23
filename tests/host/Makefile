@@ -34,7 +34,7 @@ endif
 UNIT_SUITES := domain manifest manifest_ports lifecycle monitor guest_verify rollback sp_recovery \
     fabric_windows periph irq_claim rt700_trng rt700_xspi rt700_lifecycle \
     mcxn947_flash mcxn947_lifecycle mcxn947_rng \
-    ipc ffm spm \
+    spm \
     vnet wolfhsm_loopback wolfhsm_relay tpm_relay pkcs11_relay \
     tpm_client tpm_local_provider pkcs11_client pkcs11_proxy pkcs11_provider \
     crypto_profile asn_codec pkcs11_secure_heap native_wire \

@@ -30,13 +30,11 @@ CFLAGS := \
     -Wno-unused-function -Wno-unused-parameter
 CFLAGS += $(EXTRA_CFLAGS)
 
-# The relay is port-free: the FF-M runtime plus tpm_relay_service.c run here
+# The relay is port-free: the SPM core plus tpm_relay_service.c run here
 # exactly as SERVICE_TPM's dispatch drives them on target. No wolfHSM or
 # wolfCrypt dependency; the handler seam supplies deterministic responses.
 _WT_SRCS := \
-    $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_domain.c \
-    $(ROOT)/src/ipc.c \
     $(ROOT)/src/spm_gate.c
 
 _WTS_SRCS := \
@@ -49,7 +47,10 @@ _WT_OBJS   := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
 _WTS_OBJS  := $(patsubst %.c,wts_%.o,$(notdir $(_WTS_SRCS)))
 _TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
+include $(ROOT)/tests/host/support/spm_host.mk
+
 ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WTS_OBJS) $(_TEST_OBJS))
+ALL_OBJS += $(SPM_HOST_OBJS)
 TEST_BIN := $(BUILD_DIR)/test_tpm_relay
 
 .PHONY: all run compilers sanitize valgrind clean

@@ -29,6 +29,7 @@
  * PSA Storage 1.0 argument rules before any IPC — with no operating-system
  * dependency. */
 
+#include "spm_host.h"
 #include "wolftrust/ffm.h"
 #include "wolftrust/ffm_veneer.h"
 #include "wolftrust/services/storage_service.h"
@@ -120,7 +121,7 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     return WT_FFM_ERROR_STATE;
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_port_ops = {
     test_check_read,
     test_check_write,
     test_dispatch,
@@ -130,12 +131,12 @@ static const wt_ffm_port_ops_t g_port_ops = {
 /* ---- host stubs for the Armv8-M NS->S veneers: route to the runtime ---- */
 int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version)
 {
-    return (int32_t)wt_ffm_connect(g_rt, TEST_NS_CLIENT, sid, version);
+    return (int32_t)wt_spm_host_connect(TEST_NS_CLIENT, sid, version);
 }
 
 void WolfTrust_FFM_Close(int32_t handle)
 {
-    (void)wt_ffm_close(g_rt, TEST_NS_CLIENT, handle);
+    (void)wt_spm_host_close(TEST_NS_CLIENT, handle);
 }
 
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
@@ -148,7 +149,7 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
 
     if (iv->in_count > WT_FFM_VENEER_IOVEC_MAX ||
             iv->out_count > WT_FFM_VENEER_IOVEC_MAX) {
-        wt_ffm_call_refuse(g_rt, TEST_NS_CLIENT, handle);
+        wt_spm_call_refuse(TEST_NS_CLIENT, handle);
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
     memset(in, 0, sizeof(in));
@@ -161,7 +162,7 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
         out[i].base = iv->out[i].base;
         out[i].len = iv->out[i].len;
     }
-    st = wt_ffm_call(g_rt, TEST_NS_CLIENT, handle, type, in, iv->in_count,
+    st = wt_spm_host_call(TEST_NS_CLIENT, handle, type, in, iv->in_count,
                      out, iv->out_count);
     for (i = 0u; i < iv->out_count; i++) {
         iv->out[i].len = (uint32_t)out[i].len;
@@ -243,7 +244,7 @@ int main(void)
     static const whNvmCb nvm_cb[1] = {WH_NVM_FLASH_CB};
     whNvmConfig nvm_cfg;
     whNvmContext nvm_ctx;
-    wt_ffm_runtime_t runtime;
+    wt_ffm_runtime_t* runtime = &g_wt_spm;
     wt_storage_service_ctx_t its_ctx;
     wt_storage_service_ctx_t ps_ctx;
     struct psa_storage_info_t info;
@@ -287,12 +288,12 @@ int main(void)
     }
     wt_hsm_vault_set_sealer(&wt_hsm_sealer);
 
-    if (wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL) !=
+    if (wt_spm_host_init(&g_manifest, &g_port_ops, NULL) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "wt_ffm_init failed\n");
         return 1;
     }
-    if (wt_ffm_register_partition(&runtime, TEST_VAULT_PARTITION,
+    if (wt_spm_host_bind(TEST_VAULT_PARTITION,
                                   wt_vault_service_dispatch, NULL) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "vault register failed\n");
@@ -303,7 +304,7 @@ int main(void)
     its_ctx.vault_sid = TEST_VAULT_SID;
     its_ctx.vault_handle = 0;
     its_ctx.client_flags_mask = WT_VAULT_FLAG_WRITE_ONCE;
-    if (wt_ffm_register_partition(&runtime, TEST_ITS_PARTITION,
+    if (wt_spm_host_bind(TEST_ITS_PARTITION,
                                   wt_storage_service_dispatch, &its_ctx) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "ITS register failed\n");
@@ -318,13 +319,13 @@ int main(void)
                                WT_VAULT_FLAG_NO_REPLAY;
     ps_ctx.vault_flags = WT_VAULT_FLAG_SEALED;
     ps_ctx.caps = 0U;
-    if (wt_ffm_register_partition(&runtime, TEST_PS_PARTITION,
+    if (wt_spm_host_bind(TEST_PS_PARTITION,
                                   wt_storage_service_dispatch, &ps_ctx) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "PS register failed\n");
         return 1;
     }
-    g_rt = &runtime;
+    g_rt = runtime;
 
     /* ---- ITS through the public client ---- */
     status = psa_its_set(0x1111ULL, sizeof(object), object, 0U);
@@ -349,7 +350,7 @@ int main(void)
     /* A destination larger than one copied transfer still reads the object. */
     (void)memset(large, 0, sizeof(large));
     status = psa_its_get(0x1111ULL, 0U,
-                         WT_FFM_TRANSFER_BYTES - sizeof(wt_vault_req_t) + 4U,
+                         WT_SPM_TRANSFER_BYTES - sizeof(wt_vault_req_t) + 4U,
                          large, &got);
     check(status == PSA_SUCCESS && got == sizeof(object) &&
           memcmp(large, object, sizeof(object)) == 0,

@@ -127,8 +127,7 @@ void wt_boot_run(void)
 #endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     if (g_wt_boot_handoff_ret == 0) {
-        wt_ffm_set_lifecycle(wt_ffm_boot_runtime_mut(),
-                             g_wt_boot_handoff.lifecycle);
+        g_wt_spm.lifecycle = g_wt_boot_handoff.lifecycle;
     }
 #endif
     /* P1t: the service partitions become scheduled unprivileged coroutines.

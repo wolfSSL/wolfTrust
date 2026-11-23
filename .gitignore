@@ -9,7 +9,6 @@ tests/host/wolfhsm_loopback/test_loopback
 tests/host/domain/build/
 tests/host/manifest/build/
 tests/host/lifecycle/build/
-tests/host/ipc/build/
 tests/host/spm/build/
 tests/host/build/
 tests/host/*/build/

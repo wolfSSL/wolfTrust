@@ -25,7 +25,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "wolftrust/ffm.h"
+#include "spm_host.h"
 #include "wolftrust/pkcs11_psa_transport.h"
 #include "wolftrust/services/pkcs11_relay.h"
 #include "psa/client.h"
@@ -37,7 +37,6 @@
 #define TEST_SP_CLIENT        3
 
 static int g_failures;
-static wt_ffm_runtime_t g_runtime;
 static int32_t g_transport_fail_op;
 static int32_t g_transport_repeat_fail_op;
 static unsigned int g_transport_repeat_failures;
@@ -63,12 +62,12 @@ psa_handle_t psa_connect(uint32_t sid, uint32_t version)
             version != WT_PKCS11_SERVICE_VERSION) {
         return PSA_ERROR_CONNECTION_REFUSED;
     }
-    return wt_ffm_connect(&g_runtime, TEST_APP_CLIENT, sid, version);
+    return wt_spm_host_connect(TEST_APP_CLIENT, sid, version);
 }
 
 void psa_close(psa_handle_t handle)
 {
-    (void)wt_ffm_close(&g_runtime, TEST_APP_CLIENT, handle);
+    (void)wt_spm_host_close(TEST_APP_CLIENT, handle);
 }
 
 psa_status_t psa_call(psa_handle_t handle, int32_t type,
@@ -84,7 +83,7 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
         g_transport_repeat_failures--;
         return PSA_ERROR_COMMUNICATION_FAILURE;
     }
-    return wt_ffm_call(&g_runtime, TEST_APP_CLIENT, handle, type,
+    return wt_spm_host_call(TEST_APP_CLIENT, handle, type,
                        in_vec, in_len, out_vec, out_len);
 }
 
@@ -170,7 +169,7 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     return wt_pkcs11_relay_dispatch(NULL, runtime, partition_id);
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_host_ops = {
     test_check_read,
     test_check_write,
     test_dispatch,
@@ -210,7 +209,7 @@ static psa_status_t p11_op(int32_t client_id, int32_t op, const void* input,
     psa_handle_t handle;
     psa_status_t status;
 
-    handle = wt_ffm_connect(&g_runtime, client_id, WT_PKCS11_SERVICE_SID,
+    handle = wt_spm_host_connect(client_id, WT_PKCS11_SERVICE_SID,
                             WT_PKCS11_SERVICE_VERSION);
     if (!PSA_HANDLE_IS_VALID(handle)) {
         return PSA_ERROR_CONNECTION_REFUSED;
@@ -219,7 +218,7 @@ static psa_status_t p11_op(int32_t client_id, int32_t op, const void* input,
     iv[0].len = input_len;
     ov[0].base = output;
     ov[0].len = output_cap;
-    status = wt_ffm_call(&g_runtime, client_id, handle, op,
+    status = wt_spm_host_call(client_id, handle, op,
                          input != NULL ? iv : NULL,
                          input != NULL ? 1U : 0U,
                          output != NULL ? ov : NULL,
@@ -227,7 +226,7 @@ static psa_status_t p11_op(int32_t client_id, int32_t op, const void* input,
     if (output_len != NULL && output != NULL) {
         *output_len = ov[0].len;
     }
-    (void)wt_ffm_close(&g_runtime, client_id, handle);
+    (void)wt_spm_host_close(client_id, handle);
     return status;
 }
 
@@ -369,7 +368,7 @@ static void test_direct_execution(void)
     size_t i;
     unsigned int calls;
 
-    check(wt_ffm_init(&g_runtime, &g_manifest, &g_port_ops, NULL) ==
+    check(wt_spm_host_init(&g_manifest, &g_host_ops, NULL) ==
               WT_FFM_SUCCESS, "WT-FFM-0054 direct PKCS11 runtime initializes");
     for (i = 0U; i < sizeof(request); i++) {
         request[i] = (uint8_t)i;

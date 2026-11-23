@@ -24,10 +24,6 @@
 #include "wolftrust/manifest.h"
 #include "wolftrust/spm_core.h"
 
-#if (defined(WT_GUEST_RESTART) && (WT_GUEST_RESTART == 1)) || \
-    (defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)) || (WT_MAX_GUESTS > 1)
-#define TEST_CLIENT_SWEEP
-#endif
 
 #define NS1 (-1)
 #define NS2 (-2)
@@ -132,7 +128,8 @@ static psa_handle_t serve_connect(uint8_t sp, psa_signal_t signal,
     CHECK(wt_spm_get(sp, signal, &msg) == PSA_SUCCESS);
     CHECK(msg.type == PSA_IPC_CONNECT);
     CHECK(wt_spm_reply(sp, msg.handle, status) == WT_SPM_OK);
-    CHECK(wt_spm_done(slot));
+    CHECK(wt_spm_done(slot, g_wt_spm.slot[slot].caller, PSA_IPC_CONNECT) ==
+          1);
     return wt_spm_connect_finish(slot);
 }
 
@@ -183,7 +180,10 @@ static void test_connect_policy(void)
     CHECK(wt_spm_service_version(SP_A, 0x200U) == 2U);
 
     CHECK(connect_begin(SP_A, 0x200U, 1U, &slot) == PSA_SUCCESS);
-    CHECK(!wt_spm_done(slot));
+    CHECK(wt_spm_done(slot, SP_A, PSA_IPC_CONNECT) == 0);
+    CHECK(wt_spm_done(slot, NS1, PSA_IPC_CONNECT) < 0);
+    CHECK(wt_spm_done(slot, SP_A, PSA_IPC_CALL) < 0);
+    CHECK(wt_spm_done(slot, SP_A, PSA_IPC_DISCONNECT) < 0);
     CHECK((wt_spm_pending(1U) & 0x20U) != 0U);
     handle = serve_connect(1U, 0x20U, slot, PSA_ERROR_CONNECTION_REFUSED);
     CHECK(handle == PSA_ERROR_CONNECTION_REFUSED);
@@ -236,7 +236,9 @@ static void test_call_io(void)
           WT_SPM_E_ARGUMENT);
     CHECK(wt_spm_reply(0U, msg.handle, 42) == WT_SPM_OK);
     CHECK(wt_spm_reply(0U, msg.handle, 42) == WT_SPM_E_HANDLE);
-    CHECK(wt_spm_done(slot));
+    CHECK(wt_spm_done(slot, g_wt_spm.slot[slot].caller, PSA_IPC_CALL) == 1);
+    CHECK(wt_spm_done(slot, g_wt_spm.slot[slot].caller, PSA_IPC_CONNECT) <
+          0);
     CHECK(call_finish(slot, out_len) == 42);
     CHECK(out_len[0] == 4U && memcmp(out, "wxyz", 4U) == 0);
     CHECK(out_len[1] == 0U);
@@ -330,7 +332,7 @@ static void test_quotas(void)
     }
     CHECK(call_begin(i < WT_SPM_SLOTS_PER_CLIENT ? NS1 : NS2, handle[i], 0,
                      vec, 0U, 0U, &slot) == PSA_ERROR_INSUFFICIENT_MEMORY);
-#if defined(TEST_CLIENT_SWEEP)
+#if defined(WT_SPM_CLIENT_SWEEP)
     wt_spm_client_gone(NS1);
     wt_spm_client_gone(NS2);
     for (i = 0U; i < WT_SPM_SLOTS; i++) {
@@ -369,7 +371,7 @@ static void test_detach(void)
     CHECK(g_wt_spm.slot[slot].state == 0U);
     CHECK(g_wt_spm.xfer[0].used == 0U);
 
-#if defined(TEST_CLIENT_SWEEP)
+#if defined(WT_SPM_CLIENT_SWEEP)
     handle = connect_ns(NS1);
     CHECK(call_begin(NS1, handle, 0, vec, 0U, 1U, &slot) ==
           PSA_SUCCESS);
@@ -447,7 +449,7 @@ static void test_restart(void)
     CHECK(wt_spm_notify(SP_A) == WT_SPM_OK);
     CHECK(wt_spm_sp_restarted(0U, PSA_ERROR_CONNECTION_REFUSED) == 1);
     CHECK(wt_spm_reply(0U, msg.handle, PSA_SUCCESS) == WT_SPM_E_HANDLE);
-    CHECK(wt_spm_done(slot));
+    CHECK(wt_spm_done(slot, NS1, PSA_IPC_CALL) == 1);
     CHECK(call_finish(slot, out_len) == PSA_ERROR_CONNECTION_REFUSED);
     CHECK(out_len[0] == 0U && out[0] == 0);
     CHECK(wt_spm_pending(0U) == 0U);
@@ -639,7 +641,7 @@ static void test_abandon(void)
     CHECK(wt_spm_get(0U, 0x10U, &msg) == PSA_SUCCESS);
     wt_spm_abandon(slot);
     CHECK(wt_spm_reply(0U, msg.handle, PSA_SUCCESS) == WT_SPM_OK);
-    CHECK(!wt_spm_done(slot));
+    CHECK(wt_spm_done(slot, NS1, PSA_IPC_CONNECT) != 1);
     CHECK(wt_spm_get(0U, 0x10U, &msg) == PSA_SUCCESS);
     CHECK(msg.type == PSA_IPC_DISCONNECT);
     CHECK(wt_spm_reply(0U, msg.handle, PSA_SUCCESS) == WT_SPM_OK);
@@ -651,11 +653,11 @@ static void test_abandon(void)
     CHECK(wt_spm_get(0U, 0x10U, &msg) == PSA_SUCCESS);
     wt_spm_abandon(slot);
     CHECK(wt_spm_reply(0U, msg.handle, PSA_SUCCESS) == WT_SPM_OK);
-    CHECK(!wt_spm_done(slot) && transfers_clean());
+    CHECK(wt_spm_done(slot, NS1, PSA_IPC_CALL) != 1 && transfers_clean());
     CHECK(call_begin(NS1, handle, 0, vec, 0U, 0U, &slot) ==
           PSA_ERROR_PROGRAMMER_ERROR);
     close_handle(NS1, handle, 0U, 0x10U);
-    CHECK(!wt_spm_done(WT_SPM_NO_SLOT));
+    CHECK(wt_spm_done(WT_SPM_NO_SLOT, NS1, PSA_IPC_CALL) < 0);
     wt_spm_abandon(WT_SPM_NO_SLOT);
     CHECK(transfers_clean());
 }

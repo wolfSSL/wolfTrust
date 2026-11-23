@@ -61,7 +61,7 @@ typedef struct {
 #define WT_NS_STORAGE_MAX 512U
 
 /* One psa_call copies at most this many bytes in and out together
- * (WT_FFM_TRANSFER_BYTES on the Secure side). */
+ * (WT_SPM_TRANSFER_BYTES on the Secure side). */
 #define WT_NS_STORAGE_TRANSFER 1024U
 
 /* Map the SERVICE reply (a PSA status) to the ITS/PS return type. Both PSA

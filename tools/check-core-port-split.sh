@@ -30,6 +30,9 @@ ASM='__asm|asm[[:space:]]+volatile'
 RETIRED='\bwt_mpu_region(_t)?\b|\bWT_MAX_MPU_REGIONS\b|\bmpu_region(s|_count)\b|\bWT_BOOT_HANDOFF_ADDRESS\b'
 RETIRED="$RETIRED"'|\bwt_platform_(start_secure_timer|mask_all_guest_irqs|apply_irq_mask|quarantine_pending_irqs|program_ns_mpu|program_secure_partition_domain|program_sp_thread_domain|restore_spm_domain|prepare_guest_return|capture_guest_context|trap_pc|restore_guest_context|svc_guest_return|in_handler_mode|ns_thread_mode_trap|secure_psp_thread_trap|return_to_secure_thread|zero_guest_memory|read_fault_address|restore_ns_bank|secure_irq_(en|dis)able|active_guest_id|configure_ns_irq|set_ns_irq_pending|dmb|dsb|guest_context_ready)\b|\bwt_spm_thread_unprivileged\b|\bwt_ffm_nsc_install\b|__ARM_FEATURE_CMSE'
 PORT_ARCH_DEF='^[A-Za-z_][A-Za-z0-9_ *]*[[:space:]*]wt_arch_[a-z0-9_]+[[:space:]]*\('
+# The arch-neutral SPM (src/spm/) reaches the rest of wolfTrust only here.
+SPM_INCLUDE='^[[:space:]]*#[[:space:]]*include[[:space:]]*"'
+SPM_ALLOWED='"(psa/[a-z_]+|wolftrust/(spm_[a-z_]+|manifest|types|static_assert|zeroize|arch|platform))\.h"'
 
 # Replace every block comment with newlines so line numbers survive.
 strip_comments() { # file
@@ -38,6 +41,14 @@ strip_comments() { # file
 
 HARD=0
 SOFT=0
+
+spm_includes() { # files...: quoted includes outside SPM_ALLOWED
+  local f
+  for f in "$@"; do
+    grep -nE "$SPM_INCLUDE" "$f" | grep -vE "$SPM_ALLOWED" | sed "s|^|$f:|"
+  done
+  return 0
+}
 
 scan() { # kind(hard|soft)  label  regex  files...
   local kind="$1" label="$2" re="$3" hits count
@@ -72,6 +83,10 @@ selftest() {
   printf '/* SysTick and PendSV are explained here only */\nint ok;\n' > "$dir/ok.c"
   printf 'void wt_arch_init(void)\n{\n}\n' > "$dir/portdef.c"
   printf 'static void x(void)\n{\n    wt_arch_init();\n}\n' > "$dir/portcall.c"
+  printf '#include "wolftrust/spm_core.h"\n#include "wolftrust/arch.h"\n' > "$dir/spm_ok.c"
+  printf '#include "wolftrust/ffm_boot.h"\n' > "$dir/spm_bad.c"
+  [ -z "$(spm_includes "$dir/spm_ok.c")" ] || { echo "SELFTEST FAIL: spm_ok.c flagged"; fails=$((fails + 1)); }
+  [ -n "$(spm_includes "$dir/spm_bad.c")" ] || { echo "SELFTEST FAIL: spm_bad.c passed"; fails=$((fails + 1)); }
   check() { # expect(hit|clean) regex file
     local got
     got="$(strip_comments "$3" | grep -cE "$2" || true)"
@@ -112,6 +127,13 @@ scan hard 'retired pre-split contract names in core' "$RETIRED" $core $common
 scan_code hard 'M-profile register or instruction vocabulary in core code' "$M_VOCAB" $core $common
 scan_code hard 'A-profile register or instruction vocabulary in core code' "$A_VOCAB" $core $common
 scan_code hard 'port defines an architecture operation (belongs in src/arch/)' "$PORT_ARCH_DEF" $ports
+spm="$(printf '%s\n' $core | grep -E '^src/spm/' || true)"
+hits="$(spm_includes $spm)"
+if [ -n "$hits" ]; then
+  count=$(printf '%s\n' "$hits" | wc -l | tr -d ' ')
+  printf '\n== hard: src/spm/ includes beyond the core, arch.h and platform.h (%s hits) ==\n%s\n' "$count" "$hits"
+  HARD=$((HARD + count))
+fi
 scan soft 'M-profile vocabulary in core comments' "$M_VOCAB" $core
 scan soft 'raw peripheral or system-control addresses in core' '\b0x(E00[0-9A-Fa-f]{5}|[45]0[0-9A-Fa-f]{6}|F[0-9A-Fa-f]{7})[uU]?\b' $core
 

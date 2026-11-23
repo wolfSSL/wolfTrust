@@ -20,19 +20,21 @@
 
 /* libFuzzer harness for the Non-secure to SPM boundary.
  *
- * Drives fuzzer bytes through the FF-M runtime the way a Non-secure client
- * reaches it: psa_connect / psa_call / psa_close with attacker-controlled
- * service ids, handles (including forged ones), call types, and input/output
- * vector lengths and contents. Exercises handle decode and ownership, vector
- * preparation and bounds, message routing, and the read/skip/write transfer
- * math under AddressSanitizer.
+ * Drives fuzzer bytes through the NS gateway the veneers call: connect, call
+ * and close with attacker-controlled service ids, handles (including forged
+ * ones), call types, vector counts, lengths and contents. Exercises the iovec
+ * snapshot and checks, handle decode and ownership, message routing, and the
+ * read/skip/write transfer math in the SPM core under AddressSanitizer.
  *
  * Build: make -C tests/fuzz
  * Run:   ./tests/fuzz/wt_spm_fuzz corpus/ -max_len=4096 -timeout=30
  */
 
-#include "wolftrust/ffm.h"
+#include "spm_host.h"
+#include "wolftrust/arch.h"
+#include "wolftrust/ffm_gateway.h"
 #include "wolftrust/manifest.h"
+#include "wolftrust/platform.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -49,7 +51,6 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size);
 #define FUZZ_CONN_SID    0x2000U
 #define FUZZ_STRICT_SID  0x2001U
 #define FUZZ_PARTITION   1
-#define FUZZ_NS_CLIENT   (-1)
 
 static const wt_service_descriptor_t g_fuzz_services[] = {
     { "fuzz_conn", FUZZ_CONN_SID, 2U, WT_SERVICE_VERSION_RELAXED,
@@ -77,7 +78,6 @@ static const wt_system_manifest_t g_fuzz_manifest = {
         sizeof(g_fuzz_partitions) / sizeof(g_fuzz_partitions[0])
 };
 
-static wt_ffm_runtime_t g_runtime;
 static uint32_t g_iterations;
 static int g_ready;
 
@@ -124,73 +124,70 @@ static int fuzz_dispatch(void* context, wt_ffm_runtime_t* runtime,
     size_t i;
 
     (void)context;
-    if (wt_ffm_wait(runtime, partition_id, PSA_WAIT_ANY, &asserted) !=
+    (void)runtime;
+    if (wt_spm_host_wait(partition_id, PSA_WAIT_ANY, &asserted) !=
             WT_FFM_SUCCESS) {
         return -1;
     }
-    if (wt_ffm_get(runtime, partition_id, asserted, &message) != PSA_SUCCESS) {
+    if (wt_spm_host_get(partition_id, asserted, &message) != PSA_SUCCESS) {
         return -1;
     }
 
     if (message.type >= 0) {
         for (i = 0U; i < PSA_MAX_IOVEC; i++) {
-            while (wt_ffm_read(runtime, partition_id, message.handle,
+            while (wt_spm_host_read(partition_id, message.handle,
                     (uint32_t)i, scratch, sizeof(scratch)) == sizeof(scratch)) {
                 /* drain */
             }
-            (void)wt_ffm_skip(runtime, partition_id, message.handle,
-                              (uint32_t)i, 1U);
+            (void)wt_spm_host_skip(partition_id, message.handle,
+                                   (uint32_t)i, 1U);
         }
         for (i = 0U; i < PSA_MAX_IOVEC; i++) {
-            (void)wt_ffm_write(runtime, partition_id, message.handle,
-                               (uint32_t)i, reply, sizeof(reply));
+            (void)wt_spm_host_write(partition_id, message.handle,
+                                    (uint32_t)i, reply, sizeof(reply));
         }
     }
 
-    (void)wt_ffm_reply(runtime, partition_id, message.handle, PSA_SUCCESS);
+    (void)wt_spm_host_reply(partition_id, message.handle, PSA_SUCCESS);
     return 0;
 }
 
-static int fuzz_check_mem(void* context, psa_client_id_t caller,
-                          const void* address, size_t size)
+/* The arch layer as one guest sees it: every non-NULL range is its own. */
+uint32_t wt_arch_active_guest_id(void)
 {
-    (void)context;
-    (void)caller;
-    return (size == 0U) || (address != NULL);
+    return 0U;
 }
 
-static int fuzz_check_read(void* context, psa_client_id_t caller,
-                           const void* address, size_t size)
+int wt_arch_ns_check_read(wt_guest_id_t guest_id, const void* address,
+                          size_t size)
 {
-    return fuzz_check_mem(context, caller, address, size);
+    (void)guest_id;
+    return size == 0U || address != NULL;
 }
 
-static int fuzz_check_write(void* context, psa_client_id_t caller,
-                            void* address, size_t size)
+int wt_arch_ns_check_write(wt_guest_id_t guest_id, void* address,
+                           size_t size)
 {
-    return fuzz_check_mem(context, caller, address, size);
+    (void)guest_id;
+    return size == 0U || address != NULL;
 }
 
-static void fuzz_panic(void* context, int32_t partition_id)
+int wt_arch_ns_check_writable(const void* address, size_t size)
 {
-    (void)context;
-    (void)partition_id;
+    return size == 0U || address != NULL;
 }
 
-static const wt_ffm_port_ops_t g_fuzz_ops = {
-    fuzz_check_read,
-    fuzz_check_write,
-    fuzz_dispatch,
-    fuzz_panic
-};
+/* Only a nested gateway entry panics, and the harness never nests one. */
+void wt_platform_panic(void)
+{
+    __builtin_trap();
+}
 
 static void fuzz_reset(void)
 {
-    (void)memset(&g_runtime, 0, sizeof(g_runtime));
-    if (wt_ffm_init(&g_runtime, &g_fuzz_manifest, &g_fuzz_ops, NULL) ==
-            WT_FFM_SUCCESS) {
-        (void)wt_ffm_register_partition(&g_runtime, FUZZ_PARTITION,
-                                        fuzz_dispatch, NULL);
+    if (wt_spm_host_init(&g_fuzz_manifest, NULL, NULL) == WT_FFM_SUCCESS &&
+            wt_spm_host_bind(FUZZ_PARTITION, fuzz_dispatch, NULL) ==
+                WT_FFM_SUCCESS) {
         g_ready = 1;
     }
     else {
@@ -209,8 +206,7 @@ int LLVMFuzzerInitialize(int* argc, char*** argv)
 int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
 {
     fuzz_cursor_t cursor;
-    psa_invec in_vec[PSA_MAX_IOVEC];
-    psa_outvec out_vec[PSA_MAX_IOVEC];
+    wt_ffm_veneer_iovec_t iov;
     uint8_t out_buf[PSA_MAX_IOVEC][64];
     psa_handle_t handles[4];
     size_t handle_count = 0U;
@@ -243,15 +239,13 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
         uint32_t sid;
         int32_t type;
         psa_handle_t handle;
-        size_t in_len;
-        size_t out_len;
 
         switch (selector & 0x07U) {
         case 0: /* connect: real sid sometimes, fuzzed sid otherwise */
             sid = ((selector & 0x08U) != 0U) ? (uint32_t)fuzz_u32(&cursor) :
                   (((selector & 0x10U) != 0U) ? FUZZ_CONN_SID : FUZZ_STRICT_SID);
-            handle = wt_ffm_connect(&g_runtime, FUZZ_NS_CLIENT, sid,
-                                    fuzz_u32(&cursor));
+            handle = (psa_handle_t)wt_ffm_gateway_connect(sid,
+                                                          fuzz_u32(&cursor));
             if (PSA_HANDLE_IS_VALID(handle) &&
                     handle_count < (sizeof(handles) / sizeof(handles[0]))) {
                 handles[handle_count] = handle;
@@ -267,8 +261,9 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
                 handle = (psa_handle_t)fuzz_u32(&cursor);
             }
             type = (int32_t)fuzz_u32(&cursor);
-            in_len = (size_t)(fuzz_u8(&cursor) % (PSA_MAX_IOVEC + 2U));
-            out_len = (size_t)(fuzz_u8(&cursor) % (PSA_MAX_IOVEC + 2U));
+            iov.in_count = (uint32_t)(fuzz_u8(&cursor) % (PSA_MAX_IOVEC + 2U));
+            iov.out_count = (uint32_t)(fuzz_u8(&cursor) %
+                                       (PSA_MAX_IOVEC + 2U));
             for (i = 0U; i < PSA_MAX_IOVEC; i++) {
                 uint8_t vlen = fuzz_u8(&cursor);
                 size_t take = (size_t)(vlen % 33U);
@@ -276,14 +271,14 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
                 if (cursor.pos + take > cursor.size) {
                     take = cursor.size - cursor.pos;
                 }
-                in_vec[i].base = (take != 0U) ? &cursor.data[cursor.pos] : NULL;
-                in_vec[i].len = take;
+                iov.in[i].base = (take != 0U) ? &cursor.data[cursor.pos] :
+                                                NULL;
+                iov.in[i].len = (uint32_t)take;
                 cursor.pos += take;
-                out_vec[i].base = out_buf[i];
-                out_vec[i].len = (size_t)(fuzz_u8(&cursor) % 65U);
+                iov.out[i].base = out_buf[i];
+                iov.out[i].len = (uint32_t)(fuzz_u8(&cursor) % 65U);
             }
-            (void)wt_ffm_call(&g_runtime, FUZZ_NS_CLIENT, handle, type,
-                              in_vec, in_len, out_vec, out_len);
+            (void)wt_ffm_gateway_call((int32_t)handle, type, &iov);
             break;
         case 3: /* close a held handle */
             if (handle_count > 0U) {
@@ -292,16 +287,14 @@ int LLVMFuzzerTestOneInput(const uint8_t* data, size_t size)
             else {
                 handle = (psa_handle_t)fuzz_u32(&cursor);
             }
-            (void)wt_ffm_close(&g_runtime, FUZZ_NS_CLIENT, handle);
+            wt_ffm_gateway_close((int32_t)handle);
             break;
         case 4: /* version query with a fuzzed sid */
-            (void)wt_ffm_service_version(&g_runtime, FUZZ_NS_CLIENT,
-                                         fuzz_u32(&cursor));
+            (void)wt_ffm_gateway_service_version(fuzz_u32(&cursor));
             break;
         default: /* close a forged handle, then framework-version probe */
-            (void)wt_ffm_close(&g_runtime, FUZZ_NS_CLIENT,
-                               (psa_handle_t)fuzz_u32(&cursor));
-            (void)wt_ffm_framework_version(&g_runtime);
+            wt_ffm_gateway_close((int32_t)fuzz_u32(&cursor));
+            (void)wt_ffm_gateway_framework_version();
             break;
         }
     }

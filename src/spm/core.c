@@ -46,13 +46,6 @@ enum {
     WT_SLOT_CLOSING
 };
 
-enum {
-    WT_MSG_NONE = 0,
-    WT_MSG_QUEUED,
-    WT_MSG_ACTIVE,
-    WT_MSG_DONE
-};
-
 /* Detached: the client left this message; REPLY keeps the connection for a
  * later close, CLOSE releases it once the service has seen a DISCONNECT. */
 enum {
@@ -142,7 +135,7 @@ static void wt_xfer_free(wt_spm_slot_t* slot)
 static void wt_end_msg(wt_spm_slot_t* slot)
 {
     wt_xfer_free(slot);
-    slot->msg = WT_MSG_NONE;
+    slot->msg = WT_SPM_MSG_NONE;
     slot->detached = WT_DETACH_NONE;
 }
 
@@ -165,7 +158,7 @@ static void wt_release(wt_spm_slot_t* slot)
 static void wt_queue(wt_spm_slot_t* slot, int32_t type)
 {
     slot->type = type;
-    slot->msg = WT_MSG_QUEUED;
+    slot->msg = WT_SPM_MSG_QUEUED;
     slot->ticket = g_wt_spm.ticket++;
 }
 
@@ -210,7 +203,7 @@ static int wt_msg_slot(uint8_t sp, psa_handle_t handle)
         return WT_SPM_E_HANDLE;
     }
     slot = &g_wt_spm.slot[index];
-    if (slot->msg != WT_MSG_ACTIVE || slot->mgen != tag ||
+    if (slot->msg != WT_SPM_MSG_ACTIVE || slot->mgen != tag ||
             g_wt_spm_services[slot->svc].sp != sp) {
         return WT_SPM_E_HANDLE;
     }
@@ -356,9 +349,17 @@ int32_t wt_spm_close_begin(psa_client_id_t caller, psa_handle_t handle)
     return index;
 }
 
-int wt_spm_done(uint8_t slot)
+int wt_spm_done(uint8_t index, psa_client_id_t caller, int32_t kind)
 {
-    return slot < WT_SPM_SLOTS && g_wt_spm.slot[slot].msg == WT_MSG_DONE;
+    const wt_spm_slot_t* slot = &g_wt_spm.slot[index % WT_SPM_SLOTS];
+
+    if (index >= WT_SPM_SLOTS || slot->state == WT_SLOT_FREE ||
+            slot->caller != caller || slot->detached != WT_DETACH_NONE ||
+            (kind >= PSA_IPC_CALL ? slot->type < PSA_IPC_CALL :
+                                    slot->type != kind)) {
+        return WT_SPM_E_HANDLE;
+    }
+    return slot->msg == WT_SPM_MSG_DONE;
 }
 
 psa_handle_t wt_spm_connect_finish(uint8_t index)
@@ -366,7 +367,7 @@ psa_handle_t wt_spm_connect_finish(uint8_t index)
     wt_spm_slot_t* slot = &g_wt_spm.slot[index];
     psa_status_t status = slot->status;
 
-    slot->msg = WT_MSG_NONE;
+    slot->msg = WT_SPM_MSG_NONE;
     if (status != PSA_SUCCESS) {
         wt_release(slot);
         return (psa_handle_t)status;
@@ -417,7 +418,7 @@ void wt_spm_abandon(uint8_t index)
         return;
     }
     slot = &g_wt_spm.slot[index];
-    if (slot->type == PSA_IPC_DISCONNECT || slot->msg != WT_MSG_QUEUED) {
+    if (slot->type == PSA_IPC_DISCONNECT || slot->msg != WT_SPM_MSG_QUEUED) {
         wt_detach(slot, slot->type >= PSA_IPC_CALL ? WT_DETACH_REPLY :
                                                      WT_DETACH_CLOSE);
         if (slot->type >= PSA_IPC_CALL) {
@@ -442,7 +443,7 @@ psa_signal_t wt_spm_pending(uint8_t sp)
     for (i = 0U; i < WT_SPM_SLOTS; i++) {
         const wt_spm_slot_t* slot = &g_wt_spm.slot[i];
 
-        if (slot->msg == WT_MSG_QUEUED &&
+        if (slot->msg == WT_SPM_MSG_QUEUED &&
                 g_wt_spm_services[slot->svc].sp == sp) {
             set |= g_wt_spm_services[slot->svc].signal;
         }
@@ -475,7 +476,7 @@ psa_status_t wt_spm_get(uint8_t sp, psa_signal_t signal, psa_msg_t* msg)
         wt_spm_slot_t* slot = &g_wt_spm.slot[i];
         uint32_t age = (uint16_t)(g_wt_spm.ticket - slot->ticket);
 
-        if (slot->msg == WT_MSG_QUEUED &&
+        if (slot->msg == WT_SPM_MSG_QUEUED &&
                 g_wt_spm_services[slot->svc].sp == sp &&
                 g_wt_spm_services[slot->svc].signal == signal &&
                 (best == NULL || age > best_age)) {
@@ -487,7 +488,7 @@ psa_status_t wt_spm_get(uint8_t sp, psa_signal_t signal, psa_msg_t* msg)
     if (best == NULL) {
         return PSA_ERROR_DOES_NOT_EXIST;
     }
-    best->msg = WT_MSG_ACTIVE;
+    best->msg = WT_SPM_MSG_ACTIVE;
     (void)memset(msg, 0, sizeof(*msg));
     msg->handle = wt_handle(WT_HANDLE_MSG, best_index, best->mgen);
     msg->type = best->type;
@@ -602,7 +603,7 @@ int wt_spm_reply(uint8_t sp, psa_handle_t msg, psa_status_t status)
                        slot->latch != 0U) ? WT_SLOT_ERROR : WT_SLOT_IDLE;
     }
     slot->status = status;
-    slot->msg = WT_MSG_DONE;
+    slot->msg = WT_SPM_MSG_DONE;
     slot->mgen++;
     if (slot->detached != WT_DETACH_NONE) {
         wt_detached_reply(slot);
@@ -663,8 +664,7 @@ int wt_spm_irq_assert(uint32_t irq)
     return WT_SPM_E_POLICY;
 }
 
-#if (defined(WT_GUEST_RESTART) && (WT_GUEST_RESTART == 1)) || \
-    (defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)) || (WT_MAX_GUESTS > 1)
+#if defined(WT_SPM_CLIENT_SWEEP)
 void wt_spm_client_gone(psa_client_id_t caller)
 {
     uint32_t i;
@@ -675,7 +675,7 @@ void wt_spm_client_gone(psa_client_id_t caller)
         if (slot->state == WT_SLOT_FREE || slot->caller != caller) {
             continue;
         }
-        if (slot->msg == WT_MSG_ACTIVE) {
+        if (slot->msg == WT_SPM_MSG_ACTIVE) {
             /* The service holds the message: release after its reply. */
             wt_detach(slot, WT_DETACH_CLOSE);
             slot->state = WT_SLOT_CLOSING;
@@ -705,12 +705,12 @@ int wt_spm_sp_restarted(uint8_t sp, psa_status_t status)
         }
         slot->rhandle = 0U;
         slot->state = WT_SLOT_ERROR;
-        if (slot->msg != WT_MSG_QUEUED && slot->msg != WT_MSG_ACTIVE) {
+        if (slot->msg != WT_SPM_MSG_QUEUED && slot->msg != WT_SPM_MSG_ACTIVE) {
             continue;
         }
         failed++;
         slot->status = status;
-        slot->msg = WT_MSG_DONE;
+        slot->msg = WT_SPM_MSG_DONE;
         slot->mgen++;
         if (slot->xfer != NULL) {
             /* Output the faulted server staged is discarded, not published. */

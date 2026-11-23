@@ -35,6 +35,9 @@
 #ifndef WT_FFM_SP_RHANDLE
 #define WT_FFM_SP_RHANDLE 1
 #endif
+#ifndef WT_FFM_SP_SKIP
+#define WT_FFM_SP_SKIP 1
+#endif
 
 #ifndef WT_SPM_SLOTS
 #define WT_SPM_SLOTS              16U
@@ -57,7 +60,7 @@
 #endif
 #endif
 
-typedef enum wt_spm_result {
+typedef enum wt_spm_status {
     WT_SPM_OK = 0,
     WT_SPM_E_ARGUMENT = -600,
     WT_SPM_E_POLICY = -602,
@@ -65,7 +68,7 @@ typedef enum wt_spm_result {
     WT_SPM_E_STATE = -605,
     WT_SPM_E_NOT_READY = -606,
     WT_SPM_E_BUFFER = -607
-} wt_spm_result_t;
+} wt_spm_status_t;
 
 /* Generated, one row per RoT Service. */
 typedef struct wt_spm_service {
@@ -92,13 +95,17 @@ typedef struct wt_spm_sp_ipc {
     psa_signal_t signals;
 } wt_spm_sp_ipc_t;
 
-extern const wt_spm_service_t g_wt_spm_services[];
-extern const uint8_t g_wt_spm_service_count;
-extern const wt_spm_sp_ipc_t g_wt_spm_sps[];
-extern const uint8_t g_wt_spm_sp_count;
-extern const wt_spm_irq_t g_wt_spm_irqs[];
-extern const uint8_t g_wt_spm_irq_count;
-extern const uint32_t g_wt_spm_framework_version;
+/* Host fixtures derive the tables at run time and build with it empty. */
+#ifndef WT_SPM_TABLE
+#define WT_SPM_TABLE const
+#endif
+extern WT_SPM_TABLE wt_spm_service_t g_wt_spm_services[];
+extern WT_SPM_TABLE uint8_t g_wt_spm_service_count;
+extern WT_SPM_TABLE wt_spm_sp_ipc_t g_wt_spm_sps[];
+extern WT_SPM_TABLE uint8_t g_wt_spm_sp_count;
+extern WT_SPM_TABLE wt_spm_irq_t g_wt_spm_irqs[];
+extern WT_SPM_TABLE uint8_t g_wt_spm_irq_count;
+extern WT_SPM_TABLE uint32_t g_wt_spm_framework_version;
 
 typedef struct wt_spm_vec {
     void* base;
@@ -116,6 +123,14 @@ typedef struct wt_spm_xfer {
     uint8_t used;
     uint8_t buf[WT_SPM_TRANSFER_BYTES];
 } wt_spm_xfer_t;
+
+/* wt_spm_slot_t msg: where the slot's message is. */
+enum {
+    WT_SPM_MSG_NONE = 0,
+    WT_SPM_MSG_QUEUED,
+    WT_SPM_MSG_ACTIVE,
+    WT_SPM_MSG_DONE
+};
 
 /* One slot is a connection and its single in-flight message. gen and mgen
  * tag its handles and stay last: a release clears everything before them. */
@@ -171,7 +186,9 @@ int32_t wt_spm_call_begin(psa_client_id_t caller, psa_handle_t handle,
 /* WT_SPM_NO_SLOT: closed with nothing to wait for. */
 int32_t wt_spm_close_begin(psa_client_id_t caller, psa_handle_t handle);
 void wt_spm_call_refuse(psa_client_id_t caller, psa_handle_t handle);
-int wt_spm_done(uint8_t slot);
+/* 1 once the reply is in, 0 while waiting, negative unless slot holds a
+ * message of kind (CONNECT, DISCONNECT, or any call type) from caller. */
+int wt_spm_done(uint8_t slot, psa_client_id_t caller, int32_t kind);
 psa_handle_t wt_spm_connect_finish(uint8_t slot);
 /* Writes the bytes produced into the len of every output entry of vec. */
 psa_status_t wt_spm_call_finish(uint8_t slot, wt_spm_vec_t* vec);
@@ -197,9 +214,11 @@ int wt_spm_clear(uint8_t sp, psa_signal_t signal);
 int wt_spm_irq_of(uint8_t sp, psa_signal_t irq_signal, uint32_t* irq);
 int wt_spm_irq_assert(uint32_t irq);
 
-/* Abnormal termination: a client that left, a partition that restarted. */
+/* Abnormal termination: a client that left, a partition that restarted.
+ * One guest that never restarts leaves no client the sweep could help. */
 #if (defined(WT_GUEST_RESTART) && (WT_GUEST_RESTART == 1)) || \
     (defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)) || (WT_MAX_GUESTS > 1)
+#define WT_SPM_CLIENT_SWEEP 1
 void wt_spm_client_gone(psa_client_id_t caller);
 #endif
 #if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)

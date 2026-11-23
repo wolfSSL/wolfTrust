@@ -32,9 +32,8 @@ include mk/common.mk
 		test-vnet test-vnet-target test-vnet-hardware \
 		test-lifecycle-host test-lifecycle-compilers test-lifecycle-sanitize \
 		test-lifecycle-valgrind \
-		test-ipc-host test-ipc-compilers test-ipc-sanitize \
-		test-ipc-valgrind test-ffm-host test-ffm-compilers \
-		test-ffm-sanitize test-ffm-valgrind \
+		test-spm-core-host test-spm-core-compilers \
+		test-spm-core-sanitize test-spm-core-valgrind \
 		test-spm-host test-spm-compilers \
 		test-spm-sanitize test-spm-valgrind \
 		test-wolfcose-host \
@@ -174,8 +173,7 @@ clean:
 	$(MAKE) -C tests/host/domain clean
 	$(MAKE) -C tests/host/manifest clean
 	$(MAKE) -C tests/host/lifecycle clean
-	$(MAKE) -C tests/host/ipc clean
-	$(MAKE) -C tests/host/ffm clean
+	$(MAKE) -C tests/host/spm_core clean
 	$(MAKE) -C tests/host/ffm_domain clean
 	$(MAKE) -C tests/host/ffm_veneer clean
 	$(MAKE) -C tests/host/sp_layout clean
@@ -221,29 +219,17 @@ test-lifecycle-sanitize:
 test-lifecycle-valgrind:
 	$(MAKE) -C tests/host/lifecycle valgrind
 
-test-ipc-host:
-	$(MAKE) -C tests/host/ipc run
+test-spm-core-host:
+	$(MAKE) -C tests/host/spm_core run
 
-test-ipc-compilers:
-	$(MAKE) -C tests/host/ipc compilers
+test-spm-core-compilers:
+	$(MAKE) -C tests/host/spm_core compilers
 
-test-ipc-sanitize:
-	$(MAKE) -C tests/host/ipc sanitize
+test-spm-core-sanitize:
+	$(MAKE) -C tests/host/spm_core sanitize
 
-test-ipc-valgrind:
-	$(MAKE) -C tests/host/ipc valgrind
-
-test-ffm-host:
-	$(MAKE) -C tests/host/ffm run
-
-test-ffm-compilers:
-	$(MAKE) -C tests/host/ffm compilers
-
-test-ffm-sanitize:
-	$(MAKE) -C tests/host/ffm sanitize
-
-test-ffm-valgrind:
-	$(MAKE) -C tests/host/ffm valgrind
+test-spm-core-valgrind:
+	$(MAKE) -C tests/host/spm_core valgrind
 
 test-spm-host:
 	$(MAKE) -C tests/host/spm run

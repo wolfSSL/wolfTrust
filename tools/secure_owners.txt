@@ -12,11 +12,9 @@
 
 sec_boot.o                             spm
 sec_domain.o                           spm
-sec_ffm.o                              spm
 sec_ffm_boot.o                         spm
 sec_ffm_domain.o                       spm
 sec_guest_verify.o                     spm
-sec_ipc.o                              spm
 sec_irq_claim.o                        spm
 sec_ivt.o                              spm
 sec_manifest.o                         spm
@@ -35,6 +33,7 @@ sec_rollback.o                         spm
 sec_runtime.o                          spm
 sec_sp_recovery.o                      spm
 sec_spm.o                              spm
+sec_spm_core.o                         spm
 sec_spm_gate.o                         spm
 sec_spm_partitions.o                   spm
 wc_sec_wc_port.o                       spm

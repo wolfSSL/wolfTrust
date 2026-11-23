@@ -18,7 +18,7 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "wolftrust/ffm_api.h"
+#include "psa_binding.h"
 
 #include "val_interfaces.h"
 
@@ -35,7 +35,6 @@ typedef struct test_context {
     unsigned int failures;
 } test_context_t;
 
-static wt_ffm_runtime_t g_runtime;
 static test_context_t g_context;
 
 /* Selects which test's server behavior test_dispatch() provides (0 =
@@ -271,49 +270,48 @@ static int test_check_write(void* context, psa_client_id_t caller,
  * read/skip, with every expected value the little-endian slice of the
  * client's documented data at the current cursor. A mismatch replies a
  * negative status, which fails the client call. */
-static psa_status_t dispatch_i003_read_skip(wt_ffm_runtime_t* runtime,
-                                            int32_t partition_id,
+static psa_status_t dispatch_i003_read_skip(int32_t partition_id,
                                             psa_handle_t handle)
 {
     int a = 0;
 
-    if (wt_ffm_read(runtime, partition_id, handle, 0, &a, sizeof(int)) !=
+    if (wt_spm_host_read(partition_id, handle, 0, &a, sizeof(int)) !=
             sizeof(int) || a != 0xaa)
         return -3;
-    if (wt_ffm_read(runtime, partition_id, handle, 1, &a, sizeof(int)) !=
+    if (wt_spm_host_read(partition_id, handle, 1, &a, sizeof(int)) !=
             sizeof(int) || a != 0xbb)
         return -4;
     /* invec 2, cursor 0: the first four LE bytes of 0x1122334455667788. */
-    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 4U) != 4U ||
+    if (wt_spm_host_read(partition_id, handle, 2, &a, 4U) != 4U ||
             a != 0x55667788)
         return -5;
     /* Skip two, then a three-byte read truncates to the two remaining. */
-    if (wt_ffm_skip(runtime, partition_id, handle, 2, 2U) != 2U)
+    if (wt_spm_host_skip(partition_id, handle, 2, 2U) != 2U)
         return -6;
     a = 0;
-    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 3U) != 2U ||
+    if (wt_spm_host_read(partition_id, handle, 2, &a, 3U) != 2U ||
             a != 0x1122)
         return -7;
     /* Exhausted: skip clamps to zero and a zero-length read reads nothing. */
-    if (wt_ffm_skip(runtime, partition_id, handle, 2, 5U) != 0U)
+    if (wt_spm_host_skip(partition_id, handle, 2, 5U) != 0U)
         return -8;
-    if (wt_ffm_read(runtime, partition_id, handle, 2, &a, 0U) != 0U ||
+    if (wt_spm_host_read(partition_id, handle, 2, &a, 0U) != 0U ||
             a != 0x1122)
         return -9;
     /* invec 3: a zero-length skip moves nothing. */
-    if (wt_ffm_skip(runtime, partition_id, handle, 3, 0U) != 0U)
+    if (wt_spm_host_skip(partition_id, handle, 3, 0U) != 0U)
         return -10;
-    if (wt_ffm_read(runtime, partition_id, handle, 3, &a, 4U) != 4U ||
+    if (wt_spm_host_read(partition_id, handle, 3, &a, 4U) != 4U ||
             a != 0x50607080)
         return -11;
     /* Skip one, then a four-byte read truncates to the three remaining. */
-    if (wt_ffm_skip(runtime, partition_id, handle, 3, 1U) != 1U)
+    if (wt_spm_host_skip(partition_id, handle, 3, 1U) != 1U)
         return -12;
     a = 0;
-    if (wt_ffm_read(runtime, partition_id, handle, 3, &a, 4U) != 3U ||
+    if (wt_spm_host_read(partition_id, handle, 3, &a, 4U) != 3U ||
             a != 0x102030)
         return -13;
-    if (wt_ffm_skip(runtime, partition_id, handle, 3, 5U) != 0U)
+    if (wt_spm_host_skip(partition_id, handle, 3, 5U) != 0U)
         return -14;
     return PSA_SUCCESS;
 }
@@ -321,7 +319,7 @@ static psa_status_t dispatch_i003_read_skip(wt_ffm_runtime_t* runtime,
 /* Per-check server for Arm FF-M test i003 (invec/outvec data plane). Each
  * client check runs its own connect/call/close; g_i003_check selects the
  * matching server behavior. */
-static int dispatch_i003(wt_ffm_runtime_t* runtime, int32_t partition_id,
+static int dispatch_i003(int32_t partition_id,
                          const psa_msg_t* message)
 {
     static int rhandle_a = 5;
@@ -337,10 +335,10 @@ static int dispatch_i003(wt_ffm_runtime_t* runtime, int32_t partition_id,
     if (message->type == PSA_IPC_CONNECT) {
         if (g_i003_check == 5)
             call_seq = 0;
-        return wt_ffm_reply(runtime, partition_id, handle, reply);
+        return wt_spm_host_reply(partition_id, handle, reply);
     }
     if (message->type == PSA_IPC_DISCONNECT)
-        return wt_ffm_reply(runtime, partition_id, handle, PSA_SUCCESS);
+        return wt_spm_host_reply(partition_id, handle, PSA_SUCCESS);
 
     values[0] = 0xaa;
     values[1] = 0xbb;
@@ -349,43 +347,43 @@ static int dispatch_i003(wt_ffm_runtime_t* runtime, int32_t partition_id,
     values[4] = 0xee;
     switch (g_i003_check) {
     case 1:
-        if (wt_ffm_read(runtime, partition_id, handle, 2, &values[0],
+        if (wt_spm_host_read(partition_id, handle, 2, &values[0],
                 sizeof(int)) != sizeof(int))
             reply = -1;
         else
-            (void)wt_ffm_write(runtime, partition_id, handle, 0, &values[0],
+            (void)wt_spm_host_write(partition_id, handle, 0, &values[0],
                 sizeof(int));
         break;
     case 2:
-        if (wt_ffm_read(runtime, partition_id, handle, 0, &values[0],
+        if (wt_spm_host_read(partition_id, handle, 0, &values[0],
                 sizeof(int)) != sizeof(int))
             reply = -1;
         else
-            (void)wt_ffm_write(runtime, partition_id, handle, 2, &values[0],
+            (void)wt_spm_host_write(partition_id, handle, 2, &values[0],
                 sizeof(int));
         break;
     case 3:
-        reply = dispatch_i003_read_skip(runtime, partition_id, handle);
+        reply = dispatch_i003_read_skip(partition_id, handle);
         break;
     case 4:
         for (i = 0; i < 3; i++)
-            (void)wt_ffm_write(runtime, partition_id, handle, (uint32_t)i,
+            (void)wt_spm_host_write(partition_id, handle, (uint32_t)i,
                 &values[i], sizeof(int));
-        (void)wt_ffm_write(runtime, partition_id, handle, 3, &values[3], 0U);
-        (void)wt_ffm_write(runtime, partition_id, handle, 3, &values[3], 1U);
-        (void)wt_ffm_write(runtime, partition_id, handle, 3, &values[4], 1U);
+        (void)wt_spm_host_write(partition_id, handle, 3, &values[3], 0U);
+        (void)wt_spm_host_write(partition_id, handle, 3, &values[3], 1U);
+        (void)wt_spm_host_write(partition_id, handle, 3, &values[4], 1U);
         break;
     case 5:
         if (call_seq == 0) {
             if (message->rhandle != NULL)
                 reply = -102;
-            (void)wt_ffm_set_rhandle(runtime, partition_id, handle,
+            (void)wt_spm_host_set_rhandle(partition_id, handle,
                 &rhandle_a);
         }
         else if (call_seq == 1) {
             if (message->rhandle != &rhandle_a)
                 reply = -103;
-            (void)wt_ffm_set_rhandle(runtime, partition_id, handle,
+            (void)wt_spm_host_set_rhandle(partition_id, handle,
                 &rhandle_b);
         }
         else if (message->rhandle != &rhandle_b) {
@@ -396,20 +394,20 @@ static int dispatch_i003(wt_ffm_runtime_t* runtime, int32_t partition_id,
     case 6:
         values[0] = 0x22;
         values[1] = 0x33;
-        (void)wt_ffm_write(runtime, partition_id, handle, 0, &values[0], 1U);
-        (void)wt_ffm_read(runtime, partition_id, handle, 0, &values[2], 1U);
-        (void)wt_ffm_write(runtime, partition_id, handle, 1, &values[1], 1U);
+        (void)wt_spm_host_write(partition_id, handle, 0, &values[0], 1U);
+        (void)wt_spm_host_read(partition_id, handle, 0, &values[2], 1U);
+        (void)wt_spm_host_write(partition_id, handle, 1, &values[1], 1U);
         break;
     default:
         break;
     }
-    return wt_ffm_reply(runtime, partition_id, handle, reply);
+    return wt_spm_host_reply(partition_id, handle, reply);
 }
 
 /* Per-check server for Arm FF-M test i002 (connection lifecycle). Checks 2, 3,
  * and 5 accept every connection and call; later checks add per-message
  * behavior keyed on g_i002_check. */
-static int dispatch_i002(wt_ffm_runtime_t* runtime, int32_t partition_id,
+static int dispatch_i002(int32_t partition_id,
                          const psa_msg_t* message)
 {
     static const psa_status_t status_codes[] = {
@@ -440,9 +438,9 @@ static int dispatch_i002(wt_ffm_runtime_t* runtime, int32_t partition_id,
         if (message->type == PSA_IPC_CONNECT)
             id_at_connect = message->client_id;
         else if (message->type >= PSA_IPC_CALL) {
-            (void)wt_ffm_write(runtime, partition_id, handle, 0,
+            (void)wt_spm_host_write(partition_id, handle, 0,
                 &id_at_connect, sizeof(int32_t));
-            (void)wt_ffm_write(runtime, partition_id, handle, 1,
+            (void)wt_spm_host_write(partition_id, handle, 1,
                 &message->client_id, sizeof(int32_t));
         }
         break;
@@ -459,7 +457,7 @@ static int dispatch_i002(wt_ffm_runtime_t* runtime, int32_t partition_id,
          * on the runtime returning CONNECTION_BUSY when the pool is full. */
         break;
     }
-    return wt_ffm_reply(runtime, partition_id, handle, reply);
+    return wt_spm_host_reply(partition_id, handle, reply);
 }
 
 static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
@@ -471,33 +469,34 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     int32_t saved_partition;
     int rc;
 
+    (void)runtime;
     saved_partition = test->partition;
     test->partition = partition_id;
-    if (wt_ffm_wait(runtime, partition_id, PSA_WAIT_ANY, &asserted) !=
+    if (wt_spm_host_wait(partition_id, PSA_WAIT_ANY, &asserted) !=
             WT_FFM_SUCCESS ||
-            wt_ffm_get(runtime, partition_id, asserted, &message) !=
+            wt_spm_host_get(partition_id, asserted, &message) !=
                 PSA_SUCCESS) {
         test->partition = saved_partition;
         return WT_FFM_ERROR_STATE;
     }
     if (g_active_test == 2)
-        rc = dispatch_i002(runtime, partition_id, &message);
+        rc = dispatch_i002(partition_id, &message);
     else if (g_active_test == 3)
-        rc = dispatch_i003(runtime, partition_id, &message);
+        rc = dispatch_i003(partition_id, &message);
     else if (g_active_test == 27)
         /* i027: the RoT service drops the connection by replying
          * PROGRAMMER_ERROR to the call; connect/disconnect reply success. */
-        rc = wt_ffm_reply(runtime, partition_id, message.handle,
+        rc = wt_spm_host_reply(partition_id, message.handle,
                 message.type >= PSA_IPC_CALL ? PSA_ERROR_PROGRAMMER_ERROR :
                                                PSA_SUCCESS);
     else if (g_active_test == 63)
         /* i063: the RoT service refuses both connects (the client asserts
          * CONNECTION_REFUSED on each). Server-side signal-mask semantics
          * need a real multi-signal scheduler and ride the M33MU suite. */
-        rc = wt_ffm_reply(runtime, partition_id, message.handle,
+        rc = wt_spm_host_reply(partition_id, message.handle,
                           PSA_ERROR_CONNECTION_REFUSED);
     else
-        rc = wt_ffm_reply(runtime, partition_id, message.handle,
+        rc = wt_spm_host_reply(partition_id, message.handle,
                           PSA_SUCCESS);
     test->partition = saved_partition;
     return rc == WT_FFM_SUCCESS ? WT_FFM_SUCCESS : WT_FFM_ERROR_STATE;
@@ -521,14 +520,14 @@ static int32_t test_current_partition(void* context)
     return ((test_context_t*)context)->partition;
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_port_ops = {
     test_check_read,
     test_check_write,
     test_dispatch,
     test_panic
 };
 
-static const wt_ffm_identity_ops_t g_identity_ops = {
+static const wt_psa_host_identity_t g_identity_ops = {
     test_current_client,
     test_current_partition
 };
@@ -554,9 +553,9 @@ int main(void)
     int32_t status;
 
     (void)memset(&g_context, 0, sizeof(g_context));
-    if (wt_ffm_init(&g_runtime, &g_manifest, &g_port_ops, &g_context) !=
+    if (wt_spm_host_init(&g_manifest, &g_port_ops, &g_context) !=
             WT_FFM_SUCCESS ||
-            wt_ffm_api_bind(&g_runtime, &g_identity_ops, &g_context) !=
+            wt_psa_host_bind(&g_identity_ops, &g_context) !=
                 WT_FFM_SUCCESS) {
         return 1;
     }
@@ -786,7 +785,7 @@ int main(void)
         status = report("i008", "secure_access_only_connection (secure)",
                         status);
     }
-    wt_ffm_api_unbind();
+    wt_psa_host_unbind();
     if (status != VAL_STATUS_SUCCESS || g_context.failures != 0U)
         return 1;
 

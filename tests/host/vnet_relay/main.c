@@ -26,7 +26,7 @@
  * the port, and that spoofed sources, unknown destinations, malformed
  * vectors, and out-of-range identities are refused. */
 
-#include "wolftrust/ffm_boot.h"
+#include "spm_host.h"
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/vnet_relay.h"
 #include "wolftrust/vnet/vnet_errors.h"
@@ -96,19 +96,29 @@ int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 }
 
 /* ---- host memcheck standing in for the Armv8-M CMSE checker ---- */
-static int test_ns_check_read(wt_guest_id_t guest_id, const void* address,
-                              size_t size)
+static int g_ns_check_on = 1;
+
+static int test_ns_check_read(void* context, psa_client_id_t caller,
+                              const void* address, size_t size)
 {
-    (void)guest_id;
-    return size == 0U || address != NULL;
+    (void)context;
+    (void)caller;
+    (void)size;
+    return g_ns_check_on && address != NULL;
 }
 
-static int test_ns_check_write(wt_guest_id_t guest_id, void* address,
-                               size_t size)
+static int test_ns_check_write(void* context, psa_client_id_t caller,
+                               void* address, size_t size)
 {
-    (void)guest_id;
-    return size == 0U || address != NULL;
+    (void)context;
+    (void)caller;
+    (void)size;
+    return g_ns_check_on && address != NULL;
 }
+
+static const wt_spm_host_ops_t g_host_ops = {
+    test_ns_check_read, test_ns_check_write, NULL, NULL
+};
 
 /* ---- host veneer stubs: the active simulated guest selects the
  * SPM-stamped client identity, exactly as the CMSE gateway does from the
@@ -117,13 +127,12 @@ static int32_t g_active_client = TEST_GUEST0;
 
 int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version)
 {
-    return (int32_t)wt_ffm_connect(wt_ffm_boot_runtime_mut(),
-                                   g_active_client, sid, version);
+    return (int32_t)wt_spm_host_connect(g_active_client, sid, version);
 }
 
 void WolfTrust_FFM_Close(int32_t handle)
 {
-    (void)wt_ffm_close(wt_ffm_boot_runtime_mut(), g_active_client, handle);
+    (void)wt_spm_host_close(g_active_client, handle);
 }
 
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
@@ -144,7 +153,7 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
         out[i].base = iv->out[i].base;
         out[i].len = iv->out[i].len;
     }
-    st = wt_ffm_call(wt_ffm_boot_runtime_mut(), g_active_client, handle,
+    st = wt_spm_host_call(g_active_client, handle,
                      type, in, iv->in_count, out, iv->out_count);
     for (i = 0u; i < iv->out_count; i++) {
         iv->out[i].len = (uint32_t)out[i].len;
@@ -258,8 +267,7 @@ static void build_frame(uint8_t* f, const uint8_t* dst, const uint8_t* src,
  * partition drops and the switch returns to its boot state. */
 static int test_vnet_restart(void)
 {
-    if (wt_ffm_partition_restarted(wt_ffm_boot_runtime_mut(),
-                                   PARTITION_VNET_ID,
+    if (wt_spm_host_restarted(PARTITION_VNET_ID,
                                    PSA_ERROR_COMMUNICATION_FAILURE) < 0) {
         return -1;
     }
@@ -294,12 +302,10 @@ int main(void)
         g_rings[i] = g_ring_storage[i];
     }
 
-    check(wt_ffm_boot_init(&g_manifest) == WT_FFM_SUCCESS,
+    check(wt_spm_host_init(&g_manifest, &g_host_ops, NULL) == WT_FFM_SUCCESS,
           "WT-FFM-0056 boot core initializes from the manifest");
-    wt_ffm_boot_set_memcheck(test_ns_check_read, test_ns_check_write);
 
-    check(wt_ffm_register_partition(wt_ffm_boot_runtime_mut(),
-                                    PARTITION_VNET_ID,
+    check(wt_spm_host_bind(PARTITION_VNET_ID,
                                     wt_vnet_relay_dispatch,
                                     NULL) == WT_FFM_SUCCESS,
           "WT-FFM-0056 SERVICE_VNET partition registers with the SPM");

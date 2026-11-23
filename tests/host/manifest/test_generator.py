@@ -699,41 +699,15 @@ class GeneratorTest(unittest.TestCase):
 
 RUNTIME_HARNESS = r"""
 #include "wolftrust_manifest_generated.h"
-#include "wolftrust/ffm.h"
 #include "wolftrust/partition.h"
+#include "wolftrust/spm_tables.h"
 
 #include <stdio.h>
 #include <string.h>
 
-static int check_read(void* context, psa_client_id_t caller,
-                      const void* address, size_t size)
-{
-    (void)context; (void)caller; (void)address; (void)size;
-    return 0;
-}
-
-static int check_write(void* context, psa_client_id_t caller, void* address,
-                       size_t size)
-{
-    (void)context; (void)caller; (void)address; (void)size;
-    return 0;
-}
-
-static int dispatch(void* context, wt_ffm_runtime_t* runtime,
-                    int32_t partition_id)
-{
-    (void)context; (void)runtime; (void)partition_id;
-    return WT_FFM_ERROR_STATE;
-}
-
-static void panic(void* context, int32_t partition_id)
-{
-    (void)context; (void)partition_id;
-}
-
-static const wt_ffm_port_ops_t ops = { check_read, check_write, dispatch,
-                                       panic };
-static wt_ffm_runtime_t runtime;
+static wt_spm_service_t services[WT_SPM_MAX_SERVICES];
+static wt_spm_sp_ipc_t sps[WT_SPM_MAX_SPS];
+static wt_spm_irq_t irqs[WT_SPM_MAX_SERVICES];
 
 int main(void)
 {
@@ -741,10 +715,16 @@ int main(void)
     wt_profile_capabilities_t platform = { TP_CAPS, TP_DOMAINS, TP_MEMORY,
                                            TP_IRQS };
     wt_guest_config_t config;
+    wt_spm_tables_t tables;
     size_t i;
     int binding = 0;
 
     (void)memset(&config, 0, sizeof(config));
+    (void)memset(&tables, 0, sizeof(tables));
+    tables.services = services;
+    tables.sps = sps;
+    tables.irqs = irqs;
+    tables.irq_cap = WT_SPM_MAX_SERVICES;
     config.vector_table = 0x1000U;
     config.memory_region_count = 1U;
     config.port.required_capabilities = TP_PORT;
@@ -760,7 +740,7 @@ int main(void)
     }
     (void)printf("%d %d %d %d\n",
                  wt_manifest_validate(manifest, TP_FEATURES, &platform),
-                 wt_ffm_init(&runtime, manifest, &ops, NULL),
+                 wt_spm_tables_derive(manifest, &tables),
                  wt_partition_validate_profile(&platform, TP_PORT), binding);
     return 0;
 }
@@ -805,9 +785,9 @@ class BuildTimeParityTest(unittest.TestCase):
         cls.objects = []
         work = Path(cls.temporary.name)
         command = shlex.split(os.environ.get("CC", "cc"))
-        for name in ("domain.c", "manifest.c", "partition.c", "ffm.c",
-                     "ipc.c", "ffm_domain.c"):
-            obj = work / (name + ".o")
+        for name in ("domain.c", "manifest.c", "partition.c",
+                     "spm/tables.c", "ffm_domain.c"):
+            obj = work / (name.replace("/", "_") + ".o")
             subprocess.run(command + ["-std=c99", "-c",
                                       "-DWT_MANIFEST_RUNTIME_CHECK=1",
                                       "-I" + str(ROOT / "include"),

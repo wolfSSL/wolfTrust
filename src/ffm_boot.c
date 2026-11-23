@@ -20,18 +20,7 @@
 
 #include "wolftrust/ffm_boot.h"
 
-#include "wolftrust/platform.h"
 #include "wolftrust/spm_sched.h"
-#include "wolftrust/services/hsm_relay.h"
-#include "wolftrust/services/fwu_service.h"
-#include "wolftrust/services/vnet_relay.h"
-#include "wolftrust/services/tpm_relay.h"
-#include "wolftrust/services/pkcs11_relay.h"
-#include "wolftrust/services/storage_service.h"
-#include "wolftrust/services/vault_service.h"
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
-#include "wolftrust/services/attestation_service.h"
-#endif
 #include "psa_manifest/pid.h"
 
 /* The manifest carries the update partition exactly when WT_FWU builds it;
@@ -44,184 +33,21 @@
 #error "WT_FWU=1 but the manifest has no PARTITION_FWU"
 #endif
 
-static wt_ffm_runtime_t g_ffm_runtime;
+static const wt_system_manifest_t* g_ffm_manifest;
 
-/* WT-FFM-0012: the SPM validates every external memory reference before
- * an API transfer: a Non-secure guest (caller < 0) against its Non-secure
- * window, a Secure Partition (caller > 0) against its composed table. */
-static int wt_ffm_boot_caller_guest(psa_client_id_t caller,
-                                    wt_guest_id_t* guest_id)
-{
-    if (caller >= 0) {
-        return 0;
-    }
-    *guest_id = (wt_guest_id_t)(-caller - 1);
-    return 1;
-}
-
-/* Secure Partition callers are checked against their composed table, which
- * only a target build schedules; a host runtime has no table to check. */
-static int wt_ffm_boot_check_partition(psa_client_id_t caller,
-                                       const void* address, size_t size,
-                                       int need_write)
-{
-#if defined(WT_TARGET_BUILD)
-    return wt_spm_partition_memory_ok((int32_t)caller, address, size,
-                                      need_write);
-#else
-    (void)caller;
-    (void)address;
-    (void)size;
-    (void)need_write;
-    return 1;
-#endif
-}
-
-/* NS-window checks are installed by the architecture port (Armv8-M:
- * wt_ffm_gateway_install). NULL fails closed: every NS window is rejected until
- * a port provides its checker. */
-static wt_ffm_ns_check_read_fn g_ns_check_read;
-static wt_ffm_ns_check_write_fn g_ns_check_write;
-
-void wt_ffm_boot_set_memcheck(wt_ffm_ns_check_read_fn check_read,
-                              wt_ffm_ns_check_write_fn check_write)
-{
-    g_ns_check_read = check_read;
-    g_ns_check_write = check_write;
-}
-
-static int wt_ffm_boot_check_read(void* context, psa_client_id_t caller,
-                                  const void* address, size_t size)
-{
-    wt_guest_id_t guest_id;
-
-    (void)context;
-    if (caller > 0) {
-        return wt_ffm_boot_check_partition(caller, address, size, 0);
-    }
-    if (!wt_ffm_boot_caller_guest(caller, &guest_id)) {
-        return 0;
-    }
-    if (g_ns_check_read == NULL) {
-        return 0;
-    }
-    return g_ns_check_read(guest_id, address, size);
-}
-
-static int wt_ffm_boot_check_write(void* context, psa_client_id_t caller,
-                                   void* address, size_t size)
-{
-    wt_guest_id_t guest_id;
-
-    (void)context;
-    if (caller > 0) {
-        return wt_ffm_boot_check_partition(caller, address, size, 1);
-    }
-    if (!wt_ffm_boot_caller_guest(caller, &guest_id)) {
-        return 0;
-    }
-    if (g_ns_check_write == NULL) {
-        return 0;
-    }
-    return g_ns_check_write(guest_id, address, size);
-}
-
-/* Fail-closed fallback for a partition with no registered service loop.
- * Services bind their dispatch handler through wt_ffm_register_partition in
- * wt_ffm_boot_init, so the manifest-bound partition table routes each message
- * rather than a per-PID branch here. */
-static int wt_ffm_boot_dispatch(void* context, wt_ffm_runtime_t* runtime,
-                                int32_t partition_id)
-{
-    (void)context;
-    (void)runtime;
-    (void)partition_id;
-    return WT_FFM_ERROR_STATE;
-}
-
-static void wt_ffm_boot_panic(void* context, int32_t partition_id)
-{
-    (void)context;
-    (void)partition_id;
-    wt_platform_panic();
-}
-
-static const wt_ffm_port_ops_t g_ffm_port_ops = {
-    wt_ffm_boot_check_read,
-    wt_ffm_boot_check_write,
-    wt_ffm_boot_dispatch,
-    wt_ffm_boot_panic
-};
-
-/* The direct src/ffm_api.c psa_* binding is host-only: on target every
- * psa_* call from a Secure Partition crosses the SVC gate instead
- * (src/arch/armv8m/spm_sp_api.c), so nothing binds the identity ops here. */
 int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
 {
-    int ret;
-    int vault_ret;
+    if (manifest == NULL) {
+        return WT_FFM_ERROR_ARGUMENT;
+    }
+    wt_spm_core_init();
+    g_ffm_manifest = manifest;
+    return WT_FFM_SUCCESS;
+}
 
-    ret = wt_ffm_init(&g_ffm_runtime, manifest, &g_ffm_port_ops, NULL);
-    if (ret == WT_FFM_SUCCESS) {
-        /* SERVICE_HSM: the single mediated door to the wolfHSM server
-         * (WT-FFM-0054). Fail-closed until the platform installs the relay
-         * submit hook. */
-        ret = wt_ffm_register_partition(&g_ffm_runtime, PARTITION_HSM_ID,
-                                        wt_hsm_relay_dispatch, NULL);
-    }
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
-    if (ret == WT_FFM_SUCCESS) {
-        ret = wt_ffm_register_partition(&g_ffm_runtime, PARTITION_ATTEST_ID,
-                                        wt_attestation_service_dispatch, NULL);
-    }
-#endif
-    if (ret == WT_FFM_SUCCESS) {
-        /* Manifest-optional vault + ITS: host fixtures without these
-         * partitions run without them (the services fail closed); target
-         * boot enforces scheduling in wt_ffm_boot_start_sched. */
-        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
-                                              PARTITION_VAULT_ID,
-                                              wt_vault_service_dispatch, NULL);
-        (void)vault_ret;
-        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
-                                              PARTITION_ITS_ID,
-                                              wt_storage_service_dispatch,
-                                              NULL);
-        (void)vault_ret;
-        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
-                                              PARTITION_PS_ID,
-                                              wt_storage_service_dispatch,
-                                              NULL);
-        (void)vault_ret;
-#ifdef PARTITION_FWU_ID
-        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
-                                              PARTITION_FWU_ID,
-                                              wt_fwu_service_dispatch, NULL);
-        (void)vault_ret;
-#endif
-#ifdef PARTITION_VNET_ID
-        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
-                                              PARTITION_VNET_ID,
-                                              wt_vnet_relay_dispatch, NULL);
-        (void)vault_ret;
-#endif
-#ifdef PARTITION_TPM_ID
-        /* SERVICE_TPM: the single mediated door to the isolated fwTPM
-         * partition. Fail-closed until the platform installs the submit
-         * hook that reaches the fwTPM responder. */
-        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
-                                              PARTITION_TPM_ID,
-                                              wt_tpm_relay_dispatch, NULL);
-        (void)vault_ret;
-#endif
-#ifdef PARTITION_PKCS11_ID
-        vault_ret = wt_ffm_register_partition(&g_ffm_runtime,
-                                              PARTITION_PKCS11_ID,
-                                              wt_pkcs11_relay_dispatch, NULL);
-        (void)vault_ret;
-#endif
-    }
-    return ret;
+const wt_system_manifest_t* wt_ffm_boot_manifest(void)
+{
+    return g_ffm_manifest;
 }
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
@@ -257,50 +83,49 @@ int wt_ffm_boot_start_sched(void)
     /* Launch by compile-time entry function, never by domain->entry_point: in
      * this single-image build entry_point holds the domain's flash base (a boot
      * integrity gate, not a linked address), so branching through it faults. */
-    ret = wt_spm_hsm_start(&g_ffm_runtime, PARTITION_HSM_ID);
+    ret = wt_spm_hsm_start(&g_wt_spm, PARTITION_HSM_ID);
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_vault_start(&g_ffm_runtime, PARTITION_VAULT_ID);
+        ret = wt_spm_vault_start(&g_wt_spm, PARTITION_VAULT_ID);
     }
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_its_start(&g_ffm_runtime, PARTITION_ITS_ID);
+        ret = wt_spm_its_start(&g_wt_spm, PARTITION_ITS_ID);
     }
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_ps_start(&g_ffm_runtime, PARTITION_PS_ID);
+        ret = wt_spm_ps_start(&g_wt_spm, PARTITION_PS_ID);
     }
 #ifdef PARTITION_FWU_ID
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_fwu_start(&g_ffm_runtime, PARTITION_FWU_ID);
+        ret = wt_spm_fwu_start(&g_wt_spm, PARTITION_FWU_ID);
     }
 #endif
 #ifdef PARTITION_VNET_ID
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_vnet_start(&g_ffm_runtime, PARTITION_VNET_ID);
+        ret = wt_spm_vnet_start(&g_wt_spm, PARTITION_VNET_ID);
     }
 #endif
 #if defined(WT_INTERFACE_PARTITION_ID)
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_interface_start(&g_ffm_runtime,
-                                     WT_INTERFACE_PARTITION_ID);
+        ret = wt_spm_interface_start(&g_wt_spm, WT_INTERFACE_PARTITION_ID);
     }
 #endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     /* SERVICE_ATTEST now runs as a scheduled Secure Partition; the inline
      * dispatch registered in wt_ffm_boot_init is replaced by this coroutine. */
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_attest_start(&g_ffm_runtime, PARTITION_ATTEST_ID);
+        ret = wt_spm_attest_start(&g_wt_spm, PARTITION_ATTEST_ID);
     }
 #endif
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_sched_add(&g_ffm_runtime, SERVER_PARTITION_ID,
+        ret = wt_spm_sched_add(&g_wt_spm, SERVER_PARTITION_ID,
                                wt_conformance_server_entry, NULL);
     }
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_sched_add(&g_ffm_runtime, CLIENT_PARTITION_ID,
+        ret = wt_spm_sched_add(&g_wt_spm, CLIENT_PARTITION_ID,
                                wt_conformance_client_entry, NULL);
     }
     if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_sched_add(&g_ffm_runtime, DRIVER_PARTITION_ID,
+        ret = wt_spm_sched_add(&g_wt_spm, DRIVER_PARTITION_ID,
                                wt_conformance_driver_entry, NULL);
     }
 #endif
@@ -331,26 +156,16 @@ int wt_ffm_boot_start_sched(void)
 #endif
     }
 #endif
-#if !defined(WT_SP_LAZY_FIRST_ENTRY)
-    if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_sched_start_all();
-    }
-#endif
 #if defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1)
     if (ret == WT_FFM_SUCCESS) {
         wt_spm_sched_prime(PARTITION_HSM_ID);
         wt_spm_sched_prime(WT_INTERFACE_PARTITION_ID);
     }
 #endif
+#if !defined(WT_SP_LAZY_FIRST_ENTRY)
+    if (ret == WT_FFM_SUCCESS) {
+        ret = wt_spm_sched_start_all();
+    }
+#endif
     return ret;
-}
-
-const wt_ffm_runtime_t* wt_ffm_boot_runtime(void)
-{
-    return &g_ffm_runtime;
-}
-
-wt_ffm_runtime_t* wt_ffm_boot_runtime_mut(void)
-{
-    return &g_ffm_runtime;
 }

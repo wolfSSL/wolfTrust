@@ -25,7 +25,8 @@ CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
 TEST := $(BUILD_DIR)/test_spm_gate
-SRCS := $(ROOT)/src/spm_gate.c $(ROOT)/src/ffm.c $(ROOT)/src/ipc.c \
+include $(ROOT)/tests/host/support/spm_host.mk
+SRCS := $(ROOT)/src/spm_gate.c $(SPM_HOST_SRCS) \
     $(ROOT)/src/ffm_domain.c main.c
 
 .PHONY: all run compilers compiler-gcc compiler-clang sanitize valgrind \

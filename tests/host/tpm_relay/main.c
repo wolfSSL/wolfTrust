@@ -22,7 +22,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#include "wolftrust/ffm.h"
+#include "spm_host.h"
 #include "wolftrust/services/tpm_relay.h"
 #include "psa/client.h"
 
@@ -43,9 +43,6 @@ static void check(int ok, const char* what)
         g_failures++;
     }
 }
-
-/* ---- in-process FF-M runtime fixture ---- */
-static wt_ffm_runtime_t g_runtime;
 
 static int test_check_read(void* context, psa_client_id_t caller,
                            const void* address, size_t size)
@@ -76,7 +73,7 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     return wt_tpm_relay_dispatch(NULL, runtime, partition_id);
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_host_ops = {
     test_check_read,
     test_check_write,
     test_dispatch,
@@ -117,7 +114,7 @@ static psa_status_t tpm_op(int32_t client_id, int32_t op, const uint8_t* in,
     int32_t handle;
     psa_status_t st;
 
-    handle = (int32_t)wt_ffm_connect(&g_runtime, client_id,
+    handle = (int32_t)wt_spm_host_connect(client_id,
                                      WT_TPM_SERVICE_SID, 1U);
     if (!PSA_HANDLE_IS_VALID(handle)) {
         return PSA_ERROR_CONNECTION_REFUSED;
@@ -126,13 +123,13 @@ static psa_status_t tpm_op(int32_t client_id, int32_t op, const uint8_t* in,
     iv[0].len = in_len;
     ov[0].base = out;
     ov[0].len = out_cap;
-    st = wt_ffm_call(&g_runtime, client_id, handle, op,
+    st = wt_spm_host_call(client_id, handle, op,
                      (in != NULL) ? iv : NULL, (in != NULL) ? 1U : 0U,
                      (out != NULL) ? ov : NULL, (out != NULL) ? 1U : 0U);
     if (out_len != NULL) {
         *out_len = ov[0].len;
     }
-    (void)wt_ffm_close(&g_runtime, client_id, handle);
+    (void)wt_spm_host_close(client_id, handle);
     return st;
 }
 
@@ -178,7 +175,7 @@ static void test_direct_exchange(void)
     int exact = 1;
     int scrubbed = 1;
 
-    check(wt_ffm_init(&g_runtime, &g_manifest, &g_port_ops, NULL) ==
+    check(wt_spm_host_init(&g_manifest, &g_host_ops, NULL) ==
               WT_FFM_SUCCESS, "WT-FFM-0054 direct TPM runtime initializes");
     check(tpm_op(TEST_APP_CLIENT, WT_TPM_OP_TRANSACT, command, 1U,
               response, sizeof(response), &length) == PSA_ERROR_NOT_SUPPORTED,

@@ -28,6 +28,7 @@
  * and its authenticated-launch/anti-rollback gate on the next boot ride the
  * full boot-and-update gate (P6-S6). */
 
+#include "spm_host.h"
 #include "wolftrust/ffm.h"
 #include "wolftrust/services/fwu_service.h"
 
@@ -494,7 +495,7 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     return WT_FFM_ERROR_STATE;
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_port_ops = {
     test_check_read,
     test_check_write,
     test_dispatch,
@@ -528,10 +529,10 @@ static psa_status_t fwu_call(wt_ffm_runtime_t* runtime, psa_handle_t handle,
     if (out != NULL) {
         out_vec[0].base = out;
         out_vec[0].len = out_cap;
-        return wt_ffm_call(runtime, TEST_NS_GUEST0, handle, op, in_vec, 1U,
+        return wt_spm_host_call(TEST_NS_GUEST0, handle, op, in_vec, 1U,
                            out_vec, 1U);
     }
-    return wt_ffm_call(runtime, TEST_NS_GUEST0, handle, op, in_vec, 1U,
+    return wt_spm_host_call(TEST_NS_GUEST0, handle, op, in_vec, 1U,
                        NULL, 0U);
 }
 
@@ -540,7 +541,7 @@ static void test_ipc_round_trip(void)
     wt_fwu_backend_t backend;
     mock_backend_t mem;
     wt_fwu_service_ctx_t fwu_ctx;
-    wt_ffm_runtime_t runtime;
+    wt_ffm_runtime_t* runtime = &g_wt_spm;
     psa_fwu_component_info_t info;
     psa_handle_t handle;
     uint8_t blk0[32];
@@ -553,13 +554,13 @@ static void test_ipc_round_trip(void)
     mock_backend_init(&backend, &mem);
     ctx_init(&fwu_ctx, &backend, &mem, 3u);
 
-    if (wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL) !=
+    if (wt_spm_host_init(&g_manifest, &g_port_ops, NULL) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "wt_ffm_init failed\n");
         g_failures++;
         return;
     }
-    if (wt_ffm_register_partition(&runtime, TEST_FWU_PARTITION,
+    if (wt_spm_host_bind(TEST_FWU_PARTITION,
                                   wt_fwu_service_dispatch, &fwu_ctx) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "FWU register failed\n");
@@ -567,7 +568,7 @@ static void test_ipc_round_trip(void)
         return;
     }
 
-    handle = wt_ffm_connect(&runtime, TEST_NS_GUEST0, TEST_FWU_SID, 1U);
+    handle = wt_spm_host_connect(TEST_NS_GUEST0, TEST_FWU_SID, 1U);
     check(PSA_HANDLE_IS_VALID(handle),
           "WT-FWU-0001 NS client connects to SERVICE_FWU through the gate");
     if (!PSA_HANDLE_IS_VALID(handle)) {
@@ -575,14 +576,14 @@ static void test_ipc_round_trip(void)
     }
 
     /* A write before start is refused over IPC with no partial effect. */
-    status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 0u, 32u, 0u, blk0,
+    status = fwu_call(runtime, handle, WT_FWU_OP_WRITE, 0u, 32u, 0u, blk0,
                       sizeof(blk0), NULL, 0U);
     check(status == PSA_ERROR_BAD_STATE && mem.begin_calls == 0u,
           "WT-FWU-0003 IPC write before start is refused, nothing staged");
 
     /* A reboot without an armed STAGED candidate must never reach the
      * platform reset. */
-    status = fwu_call(&runtime, handle, WT_FWU_OP_REBOOT, 0u, 0u, 0u, NULL,
+    status = fwu_call(runtime, handle, WT_FWU_OP_REBOOT, 0u, 0u, 0u, NULL,
                       0U, NULL, 0U);
     check(status == PSA_ERROR_BAD_STATE,
           "WT-FWU-0003 reboot from READY is refused");
@@ -590,57 +591,57 @@ static void test_ipc_round_trip(void)
     /* A peer's doorbell is absorbed by the dispatcher, never handed to
      * psa_get where it would be a must-panic programmer error, and the
      * service keeps serving afterwards. */
-    check(wt_ffm_notify(&runtime, TEST_FWU_PARTITION) == WT_FFM_SUCCESS,
+    check(wt_spm_notify(TEST_FWU_PARTITION) == WT_FFM_SUCCESS,
           "WT-FFM-0031 doorbell asserted on the FWU partition");
-    check(wt_fwu_service_dispatch(&fwu_ctx, &runtime, TEST_FWU_PARTITION) ==
+    check(wt_fwu_service_dispatch(&fwu_ctx, runtime, TEST_FWU_PARTITION) ==
               WT_FFM_SUCCESS,
           "WT-FFM-0031 dispatcher absorbs the doorbell without a panic");
 
     (void)memset(&info, 0, sizeof(info));
-    status = fwu_call(&runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
+    status = fwu_call(runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
                       &info, sizeof(info));
     check(status == PSA_SUCCESS && info.state == PSA_FWU_READY,
           "WT-FWU-0001 IPC query returns READY");
 
-    status = fwu_call(&runtime, handle, WT_FWU_OP_START, 0u, 0u, 7u, NULL, 0U,
+    status = fwu_call(runtime, handle, WT_FWU_OP_START, 0u, 0u, 7u, NULL, 0U,
                       NULL, 0U);
     check(status == PSA_SUCCESS && mem.begin_calls == 1u,
           "WT-FWU-0002 IPC start erases the update partition");
 
-    status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 0u, 32u, 0u, blk0,
+    status = fwu_call(runtime, handle, WT_FWU_OP_WRITE, 0u, 32u, 0u, blk0,
                       sizeof(blk0), NULL, 0U);
     check(status == PSA_SUCCESS,
           "WT-FWU-0002 IPC write stages the first block");
-    status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 32u, 16u, 0u, blk1,
+    status = fwu_call(runtime, handle, WT_FWU_OP_WRITE, 32u, 16u, 0u, blk1,
                       sizeof(blk1), NULL, 0U);
     check(status == PSA_ERROR_INVALID_ARGUMENT && mem.image[32] != 0x22,
           "WT-FWU-0003 declared size below the vector tail is refused");
-    status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 32u, 48u, 0u, blk1,
+    status = fwu_call(runtime, handle, WT_FWU_OP_WRITE, 32u, 48u, 0u, blk1,
                       sizeof(blk1), NULL, 0U);
     check(status == PSA_ERROR_INVALID_ARGUMENT && mem.image[32] != 0x22,
           "WT-FWU-0003 declared size above the vector tail is refused");
-    status = fwu_call(&runtime, handle, WT_FWU_OP_REBOOT, 0u, 0u, 0u, NULL,
+    status = fwu_call(runtime, handle, WT_FWU_OP_REBOOT, 0u, 0u, 0u, NULL,
                       0U, NULL, 0U);
     check(status == PSA_ERROR_BAD_STATE,
           "WT-FWU-0003 reboot while WRITING is refused");
-    status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 32u, 32u, 0u, blk1,
+    status = fwu_call(runtime, handle, WT_FWU_OP_WRITE, 32u, 32u, 0u, blk1,
                       sizeof(blk1), NULL, 0U);
     check(status == PSA_SUCCESS && mem.image[0] == 0x11 && mem.image[32] ==
               0x22,
           "WT-FWU-0002 IPC write stages the second block into flash");
 
-    status = fwu_call(&runtime, handle, WT_FWU_OP_FINISH, 0u, 0u, 0u, NULL,
+    status = fwu_call(runtime, handle, WT_FWU_OP_FINISH, 0u, 0u, 0u, NULL,
                       0U, NULL, 0U);
     check(status == PSA_SUCCESS, "WT-FWU-0002 IPC finish accepts the candidate");
 
-    status = fwu_call(&runtime, handle, WT_FWU_OP_INSTALL, 0u, 0u, 0u, NULL,
+    status = fwu_call(runtime, handle, WT_FWU_OP_INSTALL, 0u, 0u, 0u, NULL,
                       0U, NULL, 0U);
     check(status == PSA_SUCCESS_REBOOT && mem.armed == 1u &&
               mem.armed_size == 64u && mem.armed_version == 7u,
           "WT-FWU-0002 IPC install arms the swap and returns SUCCESS_REBOOT");
 
     (void)memset(&info, 0, sizeof(info));
-    status = fwu_call(&runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
+    status = fwu_call(runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
                       &info, sizeof(info));
     check(status == PSA_SUCCESS && info.state == PSA_FWU_STAGED,
           "WT-FWU-0001 IPC query reports STAGED after install");
@@ -650,14 +651,14 @@ static void test_ipc_round_trip(void)
     fwu_ctx.owner = 42;
     fwu_ctx.owner_tick = (uint32_t)(0U - WT_FWU_OWNER_IDLE_TIMEOUT_TICKS);
     mem.fail_disarm = 1;
-    status = fwu_call(&runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
+    status = fwu_call(runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
                       &info, sizeof(info));
     check(status == PSA_ERROR_STORAGE_FAILURE && fwu_ctx.armed == 1u &&
               mem.armed == 1u && fwu_ctx.owner == 42 &&
               fwu_ctx.state == PSA_FWU_STAGED,
           "WT-FWU-0003 failed disarm preserves the staged update and owner");
     mem.fail_disarm = 0;
-    status = fwu_call(&runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
+    status = fwu_call(runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
                       &info, sizeof(info));
     check(status == PSA_SUCCESS && info.state == PSA_FWU_READY &&
               mem.armed == 0u && fwu_ctx.owner == 0,

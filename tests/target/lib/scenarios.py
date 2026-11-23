@@ -1041,7 +1041,7 @@ def block_checks(ctx, block, end):
         pre = "guest0: " if k0 == "psa" else ""
         return [expect("attestation baseline token verified", pre + "wolfTrust attestation: COSE_Sign1 verified"),
                 expect("oversized challenge rejected st=-135", pre + "attestneg oversized challenge rejected st=-135"),
-                expect("zero token buffer rejected st=-135", pre + "attestneg zero token buffer rejected st=-135"),
+                expect("zero token buffer rejected st=-138", pre + "attestneg zero token buffer rejected st=-138"),
                 expect("tampered token fails the guest verify", pre + "attestneg tampered token rejected"),
                 expect("misattributed lifecycle fails the guest verify", pre + "attestneg lifecycle mismatch rejected"),
                 expect("attestation negatives verified", pre + "wolfTrust attestation negatives verified")]

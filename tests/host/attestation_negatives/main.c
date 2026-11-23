@@ -227,10 +227,12 @@ int main(void)
         WT_ATTEST_CHALLENGE_SIZE_32, token, sizeof(token), &tokenSize);
     check(ret == WT_ATTEST_ERROR_INVALID_ARGUMENT,
           "out-of-range guest id is rejected");
+    token[0] = 0xA5u;
+    tokenSize = 1u;
     ret = wt_initial_attest_get_token(0u, challenge, WT_ATTEST_CHALLENGE_SIZE_32,
                                       token, 0u, &tokenSize);
-    check(ret == WT_ATTEST_ERROR_INVALID_ARGUMENT,
-          "zero-capacity token buffer is rejected");
+    check(ret == WT_ATTEST_ERROR_BUFFER_TOO_SMALL && tokenSize == 0u &&
+          token[0] == 0xA5u, "zero-capacity token buffer is too small");
 
     /* A good token binds the boot measurement. */
     ret = wt_initial_attest_get_token(0u, challenge,

@@ -708,7 +708,7 @@ static void exercise_attestation_negatives(void)
     st = psa_initial_attest_get_token(challenge,
                                       PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32,
                                       token, 0u, &token_size);
-    if (st != PSA_ERROR_INVALID_ARGUMENT) {
+    if (st != PSA_ERROR_BUFFER_TOO_SMALL) {
         guest_line_i32("attestneg zero token buffer not rejected st=",
                        (int32_t)st);
         return;

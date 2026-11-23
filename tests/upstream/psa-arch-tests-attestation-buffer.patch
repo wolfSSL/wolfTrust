@@ -1,0 +1,12 @@
+diff --git a/api-tests/dev_apis/initial_attestation/test_a001/test_data.h b/api-tests/dev_apis/initial_attestation/test_a001/test_data.h
+--- a/api-tests/dev_apis/initial_attestation/test_a001/test_data.h
++++ b/api-tests/dev_apis/initial_attestation/test_a001/test_data.h
+@@ -58,7 +58,7 @@ static const test_data check1[] = {
+
+ {"Test psa_initial_attestation_get_token with zero as token size\n",
+  PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32-1, PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32,
+- 0, PSA_ERROR_INVALID_ARGUMENT
++ 0, PSA_ERROR_BUFFER_TOO_SMALL
+ },
+
+ {"Test psa_initial_attestation_get_token with small token size\n",

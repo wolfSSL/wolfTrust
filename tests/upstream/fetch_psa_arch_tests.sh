@@ -45,9 +45,12 @@ if [ "$actual" != "$revision" ]; then
 fi
 
 # Arm psa-arch-tests issue #125: get_info reports the applied protections.
-storage_patch="$script_dir/psa-arch-tests-storage-flags.patch"
-if ! git -C "$destination" apply --reverse --check "$storage_patch" \
-        2>/dev/null; then
-    git -C "$destination" apply "$storage_patch"
-fi
+# Arm IHI 0085 section 4.5.1: a zero-capacity token buffer is too small.
+for correction in "$script_dir/psa-arch-tests-storage-flags.patch" \
+                  "$script_dir/psa-arch-tests-attestation-buffer.patch"; do
+    if ! git -C "$destination" apply --reverse --check "$correction" \
+            2>/dev/null; then
+        git -C "$destination" apply "$correction"
+    fi
+done
 printf '%s\n' "$destination"

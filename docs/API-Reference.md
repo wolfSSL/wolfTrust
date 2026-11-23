@@ -495,9 +495,8 @@ Accepted challenge sizes are 32, 48, and 64 bytes. The token is a tagged
 COSE_Sign1 object using ES256. The implementation limit is 640 bytes, although
 the vendored public header does not currently define
 `PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE`. The size query returns the exact encoded
-size without producing a signature. A non-NULL token buffer with zero capacity
-returns `PSA_ERROR_INVALID_ARGUMENT`; other undersized buffers return
-`PSA_ERROR_BUFFER_TOO_SMALL`.
+size without producing a signature. An undersized token buffer returns
+`PSA_ERROR_BUFFER_TOO_SMALL`, including a non-NULL buffer with zero capacity.
 
 The token advertises `tag:psacertified.org,2023:psa#tfm` but has the
 token-profile deviations listed in [TF-M Compatibility](TF-M-Compatibility.md) and must not be

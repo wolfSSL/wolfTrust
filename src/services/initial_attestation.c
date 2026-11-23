@@ -569,15 +569,18 @@ int wt_initial_attest_get_token(wt_guest_id_t guestId,
     int keyReady = 0;
     int ret;
 
-    if ((challenge == NULL) || (token == NULL) || (tokenSize == NULL) ||
-        (tokenCapacity == 0u)) {
+    if ((challenge == NULL) || (token == NULL) || (tokenSize == NULL)) {
         return WT_ATTEST_ERROR_INVALID_ARGUMENT;
     }
     *tokenSize = 0u;
-    if ((challengeSize != WT_ATTEST_CHALLENGE_SIZE_32) &&
-        (challengeSize != WT_ATTEST_CHALLENGE_SIZE_48) &&
-        (challengeSize != WT_ATTEST_CHALLENGE_SIZE_64)) {
+    if ((guestId >= WT_MAX_GUESTS) ||
+        ((challengeSize != WT_ATTEST_CHALLENGE_SIZE_32) &&
+         (challengeSize != WT_ATTEST_CHALLENGE_SIZE_48) &&
+         (challengeSize != WT_ATTEST_CHALLENGE_SIZE_64))) {
         return WT_ATTEST_ERROR_INVALID_ARGUMENT;
+    }
+    if (tokenCapacity == 0u) {
+        return WT_ATTEST_ERROR_BUFFER_TOO_SMALL;
     }
 
     ret = wt_attest_prepare();

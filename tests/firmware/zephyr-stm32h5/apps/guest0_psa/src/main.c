@@ -1428,15 +1428,35 @@ volatile uint32_t g_guest0_periph_probe;
 static volatile uint32_t g_periph_src[4];
 static volatile uint32_t g_periph_dst[4];
 
+/* The attacker is the privileged NS kernel, so it drops its own MPU. A guest
+ * switch restores the guest's MPU, so each window stays short and no log
+ * output runs inside one. */
+static uint32_t periph_mpu_off(void)
+{
+	uint32_t ctrl = *PERIPH_MPU_CTRL_NS;
+
+	*PERIPH_MPU_CTRL_NS = 0u;
+	__asm volatile("dsb; isb" ::: "memory");
+	return ctrl;
+}
+
+static void periph_mpu_restore(uint32_t ctrl)
+{
+	*PERIPH_MPU_CTRL_NS = ctrl;
+	__asm volatile("dsb; isb" ::: "memory");
+}
+
 /* One word-wide copy on a freshly reset channel 0; returns the final status. */
 static uint32_t periph_dma_copy(uint32_t src)
 {
 	uint32_t sr = 0u;
+	uint32_t mpu_ctrl;
 	size_t i;
 
 	for (i = 0; i < ARRAY_SIZE(g_periph_dst); i++) {
 		g_periph_dst[i] = PERIPH_SENTINEL;
 	}
+	mpu_ctrl = periph_mpu_off();
 	*PERIPH_CH0(0x14u) = 0u;
 	*PERIPH_CH0(0x0Cu) = PERIPH_SR_FLAGS;
 	*PERIPH_CH0(0x40u) = 2u | (1u << 3) | (2u << 16) | (1u << 19);
@@ -1455,6 +1475,7 @@ static uint32_t periph_dma_copy(uint32_t src)
 	}
 	*PERIPH_CH0(0x14u) = 0u;
 	__asm volatile("dsb" ::: "memory");
+	periph_mpu_restore(mpu_ctrl);
 	LOG_INF("wolfTrust periph probe: DMA from 0x%08x sr=0x%08x word0=0x%08x",
 		src, sr, g_periph_dst[0]);
 	return sr;
@@ -1520,26 +1541,30 @@ static void exercise_periph_neg_probe(void)
 	uint32_t mpu_ctrl;
 	int leaked = 0;
 	int inconclusive = 0;
+	int rng_read;
+	int rng_write;
 	int rc;
 
 	g_guest0_periph_probe = 1u;
-	/* The attacker is the privileged NS kernel, so drop its own MPU first. */
-	mpu_ctrl = *PERIPH_MPU_CTRL_NS;
-	*PERIPH_MPU_CTRL_NS = 0u;
-	__asm volatile("dsb; isb");
+	mpu_ctrl = periph_mpu_off();
 	*PERIPH_RCC_AHB1ENR |= 1u;
-	if (*PERIPH_RNG_CR_NS != 0u) {
-		LOG_ERR("wolfTrust periph probe: Secure RNG readable from NS");
-		leaked = 1;
-	}
+	rng_read = (*PERIPH_RNG_CR_NS != 0u);
 	/* A NS-writable alias reads back what NS wrote, whatever the Secure
 	 * side has CR set to; RAZ/WI reads 0. */
 	*PERIPH_RNG_CR_NS = PERIPH_RNG_CR_IE;
 	__asm volatile("dsb");
-	if ((*PERIPH_RNG_CR_NS & PERIPH_RNG_CR_IE) != 0u) {
+	rng_write = ((*PERIPH_RNG_CR_NS & PERIPH_RNG_CR_IE) != 0u);
+	if (rng_write != 0) {
+		*PERIPH_RNG_CR_NS = 0u;
+	}
+	periph_mpu_restore(mpu_ctrl);
+	if (rng_read != 0) {
+		LOG_ERR("wolfTrust periph probe: Secure RNG readable from NS");
+		leaked = 1;
+	}
+	if (rng_write != 0) {
 		LOG_ERR("wolfTrust periph probe: Secure RNG writable from NS");
 		leaked = 1;
-		*PERIPH_RNG_CR_NS = 0u;
 	}
 	if (periph_dma_control_ok() == 0) {
 		LOG_ERR("wolfTrust periph probe: NS DMA control copy failed");
@@ -1554,8 +1579,6 @@ static void exercise_periph_neg_probe(void)
 		leaked |= (rc == PERIPH_DMA_LEAKED);
 		inconclusive |= (rc == PERIPH_DMA_INCONCLUSIVE);
 	}
-	*PERIPH_MPU_CTRL_NS = mpu_ctrl;
-	__asm volatile("dsb; isb");
 	memset(out, 0, sizeof(out));
 	st = psa_generate_random(out, sizeof(out));
 	if (st != PSA_SUCCESS) {

@@ -52,6 +52,11 @@ EXPECT_DRIVER_SIGNAL = {
     "DRIVER_UART_INTR_SIG_SIGNAL": 0x100,
 }
 
+ACS_UNUSED_HEAPS = {
+    "server_partition_psa.json": "0x100",
+    "driver_partition_psa.json": "0x100",
+}
+
 DEFINE = re.compile(r"#define\s+(\S+)\s+(\S+?)U?$", re.MULTILINE)
 
 
@@ -80,6 +85,41 @@ def main():
             print("missing upstream manifest: {}".format(path), file=sys.stderr)
             return 2
 
+    with tempfile.TemporaryDirectory() as directory:
+        adapted = []
+        for path in inputs:
+            source = json.loads(path.read_text(encoding="utf-8"))
+            if path.name not in ACS_UNUSED_HEAPS:
+                adapted.append(path)
+                continue
+            if source.get("heap_size") != ACS_UNUSED_HEAPS[path.name]:
+                print("unexpected ACS heap request in {}".format(path),
+                      file=sys.stderr)
+                return 1
+            # These pinned ACS fixtures declare private heaps but do not use
+            # them. Adapt temporary manifest copies for the fixed-slot port.
+            del source["heap_size"]
+            fixture = Path(directory) / path.name
+            fixture.write_text(json.dumps(source), encoding="utf-8")
+            adapted.append(fixture)
+
+        rejected = subprocess.run(
+            [sys.executable, str(INGESTER), str(inputs[0]),
+             "--output", directory,
+             "--base", str(REPO / "manifest" / "base.json"),
+             "--emit-overlay", str(Path(directory) / "conformance.json")],
+            capture_output=True, text=True)
+        if rejected.returncode != 1 or "requests heap_size" not in \
+                rejected.stderr or (Path(directory) / "psa_manifest").exists() \
+                or (Path(directory) / "conformance.json").exists():
+            print("heap request was not refused: {}".format(rejected.stderr),
+                  file=sys.stderr)
+            return 1
+
+        return check_ingest(adapted)
+
+
+def check_ingest(inputs):
     failures = 0
 
     server = ingest_psa_arch.normalize_partition(

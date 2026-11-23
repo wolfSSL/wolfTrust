@@ -80,6 +80,9 @@ def next_signal(bit):
 def normalize_partition(source, domain_id):
     if "name" not in source or "services" not in source:
         raise IngestError("manifest missing name or services")
+    if "heap_size" in source:
+        raise IngestError("partition {} requests heap_size, but private heaps "
+                          "are unsupported".format(source["name"]))
 
     services = []
     signal = SIGNAL_FIRST

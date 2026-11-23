@@ -260,7 +260,7 @@ int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         reply_status = wt_attestation_service_public_key(runtime,
                            partition_id, &msg);
     } else {
-        reply_status = PSA_ERROR_NOT_SUPPORTED;
+        reply_status = PSA_ERROR_PROGRAMMER_ERROR;
     }
 
     (void)memset(&call, 0, sizeof(call));

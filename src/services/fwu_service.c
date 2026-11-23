@@ -525,7 +525,7 @@ static psa_status_t wt_fwu_process_request(wt_fwu_service_ctx_t* ctx,
         status = PSA_ERROR_NOT_SUPPORTED;
         break;
     default:
-        status = PSA_ERROR_NOT_SUPPORTED;
+        status = PSA_ERROR_PROGRAMMER_ERROR;
         break;
     }
     /* The transaction is over once no update is in progress (cancel, clean, or
@@ -602,7 +602,7 @@ int wt_fwu_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         reply_status = wt_fwu_service_call(ctx, runtime, partition_id, &msg,
                                            call.ret_tick);
     } else {
-        reply_status = PSA_ERROR_NOT_SUPPORTED;
+        reply_status = PSA_ERROR_PROGRAMMER_ERROR;
     }
 
     (void)memset(&call, 0, sizeof(call));

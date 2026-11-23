@@ -502,8 +502,11 @@ int main(void)
 
     g_active_client = TEST_GUEST0;
     status = psa_call(h0, 99, NULL, 0U, NULL, 0U);
-    check(status == PSA_ERROR_NOT_SUPPORTED,
-          "WT-FFM-0056 an unknown operation is refused");
+    check(status == PSA_ERROR_PROGRAMMER_ERROR,
+          "WT-FFM-0056 an unknown operation reports a programmer error");
+    status = psa_call(h0, WT_VNET_OP_IRQ_ACK, NULL, 0U, NULL, 0U);
+    check(status == PSA_ERROR_PROGRAMMER_ERROR,
+          "WT-FFM-0056 a connection with a programmer error refuses calls");
 
     /* An identity beyond the port table has no port to operate on. */
     g_active_client = -3;

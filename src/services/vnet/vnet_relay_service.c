@@ -314,7 +314,7 @@ static psa_status_t wt_vnet_relay_op(wt_ffm_runtime_t* runtime,
             rc = vnet_switch_irq_ack(sw, vm);
             return (rc != WT_VNET_OK) ? (psa_status_t)rc : PSA_SUCCESS;
         default:
-            return PSA_ERROR_NOT_SUPPORTED;
+            return PSA_ERROR_PROGRAMMER_ERROR;
     }
 }
 
@@ -348,8 +348,11 @@ int wt_vnet_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
 
     if (msg.type == PSA_IPC_CONNECT || msg.type == PSA_IPC_DISCONNECT) {
         reply_status = PSA_SUCCESS;
-    } else {
+    } else if (msg.type >= WT_VNET_OP_OPEN &&
+               msg.type <= WT_VNET_OP_IRQ_ACK) {
         reply_status = wt_vnet_relay_op(runtime, partition_id, &msg);
+    } else {
+        reply_status = PSA_ERROR_PROGRAMMER_ERROR;
     }
     g_wt_vnet_dispatch_count++;
     g_wt_vnet_last_reply = ((uint32_t)msg.type << 24) |

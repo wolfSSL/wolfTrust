@@ -488,6 +488,21 @@ static void wt_jump_to_ns(uint32_t msp_ns __attribute__((unused)),
         "msr psplim_ns, r2  \n"
         "msr msplim_ns, r2  \n"
         WT_ASM_ARM_ARRIVING_SYSTICK
+        /* Hand-written BXNS gets no compiler CMSE clearing: scrub by hand. */
+        "movs r0, #0        \n"
+        "movs r1, #0        \n"
+        "movs r2, #0        \n"
+        "movs r3, #0        \n"
+        "mov r5, #0         \n"
+        "mov r6, #0         \n"
+        "mov r7, #0         \n"
+        "mov r8, #0         \n"
+        "mov r9, #0         \n"
+        "mov r10, #0        \n"
+        "mov r11, #0        \n"
+        "mov r12, #0        \n"
+        "mov lr, #0         \n"
+        "msr apsr_nzcvqg, r0 \n"
         "isb 0xF            \n"
         "bxns r4            \n"
     );

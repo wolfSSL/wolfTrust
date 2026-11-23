@@ -172,9 +172,8 @@ is never exported.
 `SERVICE_FWU` is an add-on: it exists only in images built with `WT_FWU=1`
 (see [Macros](Macros.md#wt_fwu-psa-firmware-update)). It exposes a
 single-component subset of PSA Firmware Update 1.0.
-It pads an unaligned block size to the backend write alignment and returns
-`PSA_ERROR_INVALID_ARGUMENT` rather than `PSA_ERROR_DOES_NOT_EXIST` for an
-unknown component ID. The normal flow is:
+It pads unaligned blocks to the backend write alignment and returns
+`PSA_ERROR_DOES_NOT_EXIST` for an unknown component ID. The normal flow is:
 
 ```text
 READY -> WRITING -> CANDIDATE -> STAGED -> authenticated reboot

@@ -181,9 +181,18 @@ static void test_state_machine(void)
               info.state == PSA_FWU_READY && info.max_size == MOCK_CAPACITY,
           "WT-FWU-0001 query reports READY and the component capacity");
 
-    /* Bad component id is rejected. */
-    check(wt_fwu_start(&ctx, 7u, 5u) == PSA_ERROR_INVALID_ARGUMENT,
-          "WT-FWU-0001 start on an unknown component is rejected");
+    check(wt_fwu_start(&ctx, 7u, 5u) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 start reports an unknown component");
+    check(wt_fwu_write(&ctx, 7u, 0u, block, 16u) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 write reports an unknown component");
+    check(wt_fwu_finish(&ctx, 7u) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 finish reports an unknown component");
+    check(wt_fwu_cancel(&ctx, 7u) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 cancel reports an unknown component");
+    check(wt_fwu_clean(&ctx, 7u) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 clean reports an unknown component");
+    check(wt_fwu_query(&ctx, 7u, &info) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 query reports an unknown component");
 
     /* Ops out of order fail closed with BAD_STATE, no partial effect. */
     check(wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block, 16u) ==

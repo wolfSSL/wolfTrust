@@ -65,7 +65,7 @@ psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
         return PSA_ERROR_BAD_STATE;
     }
     if (!wt_fwu_component_ok(component)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+        return PSA_ERROR_DOES_NOT_EXIST;
     }
     if (ctx->state != PSA_FWU_READY) {
         return PSA_ERROR_BAD_STATE;
@@ -100,8 +100,11 @@ psa_status_t wt_fwu_write(wt_fwu_service_ctx_t* ctx, uint32_t component,
     if (ctx == NULL || ctx->backend == NULL) {
         status = PSA_ERROR_BAD_STATE;
     }
-    else if (!wt_fwu_component_ok(component) || data == NULL || size == 0u) {
+    else if (data == NULL || size == 0u) {
         status = PSA_ERROR_INVALID_ARGUMENT;
+    }
+    else if (!wt_fwu_component_ok(component)) {
+        status = PSA_ERROR_DOES_NOT_EXIST;
     }
     else if (ctx->state != PSA_FWU_WRITING) {
         status = PSA_ERROR_BAD_STATE;
@@ -171,7 +174,7 @@ psa_status_t wt_fwu_finish(wt_fwu_service_ctx_t* ctx, uint32_t component)
         return PSA_ERROR_BAD_STATE;
     }
     if (!wt_fwu_component_ok(component)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+        return PSA_ERROR_DOES_NOT_EXIST;
     }
     if (ctx->state != PSA_FWU_WRITING) {
         return PSA_ERROR_BAD_STATE;
@@ -243,7 +246,7 @@ psa_status_t wt_fwu_cancel(wt_fwu_service_ctx_t* ctx, uint32_t component)
         return PSA_ERROR_BAD_STATE;
     }
     if (!wt_fwu_component_ok(component)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+        return PSA_ERROR_DOES_NOT_EXIST;
     }
     if (ctx->state != PSA_FWU_WRITING && ctx->state != PSA_FWU_CANDIDATE) {
         return PSA_ERROR_BAD_STATE;
@@ -260,7 +263,7 @@ psa_status_t wt_fwu_clean(wt_fwu_service_ctx_t* ctx, uint32_t component)
         return PSA_ERROR_BAD_STATE;
     }
     if (!wt_fwu_component_ok(component)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+        return PSA_ERROR_DOES_NOT_EXIST;
     }
     if (ctx->state != PSA_FWU_FAILED && ctx->state != PSA_FWU_UPDATED) {
         return PSA_ERROR_BAD_STATE;
@@ -332,7 +335,7 @@ psa_status_t wt_fwu_query(wt_fwu_service_ctx_t* ctx, uint32_t component,
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     if (!wt_fwu_component_ok(component)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+        return PSA_ERROR_DOES_NOT_EXIST;
     }
     (void)memset(info, 0, sizeof(*info));
     info->state = (uint8_t)ctx->state;

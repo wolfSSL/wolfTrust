@@ -32,11 +32,11 @@
 
 struct whNvmContext_t;
 
-/* Initialise the wolfHSM service: wolfCrypt static memory pool,
- * target-backed NVM, shared lock, the per-guest crypto contexts, but NOT
- * the per-guest relay transport (wired by wt_hsm_guest_init_relay for each
- * guest). Call once at boot, before the per-guest relay init. Returns 0 on
- * success, negative on failure. Failure is fatal — the caller should panic. */
+/* Initialise the wolfHSM service: wolfCrypt, the shared NVM lock and the
+ * target-backed vault NVM binding. Each guest's crypto context, server and
+ * relay transport are set up later by wt_hsm_guest_init_relay. Call once at
+ * boot, before the per-guest relay init. Returns 0 on success, negative on
+ * failure. Failure is fatal; the caller should panic. */
 int wt_hsm_init(void);
 
 /* Record the PSA lifecycle wolfBoot handed off, before wt_hsm_init. It gates

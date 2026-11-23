@@ -104,6 +104,7 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
 | Firmware Update | 1.0 subset | Single-component staging and authenticated reboot supported | `include/psa/update.h` and `src/services/fwu_service.c` |
 | RoT lifecycle query | FF-M 1.0 | Secure Partition only; there is no Non-secure adapter or veneer | `include/psa/lifecycle.h` and `src/arch/common/spm_sp_api.c` |
 | Secure Partition signals and IRQ APIs | FF-M 1.0 plus one wolfTrust-specific beta-extension backport | The 1.0 signal APIs and `psa_eoi` are supported; only `psa_irq_enable()` is backported from the FF-M 1.1 Extension Beta, Issue 0, while `psa_irq_status_t`, `psa_irq_is_enabled`, `psa_irq_disable`, and `psa_irq_restore` are absent | `include/psa/service.h` and the Armv8-M SVC implementation |
+| Secure Partition hardware IRQ routing | Port-specific | Conformance builds route the port's `WT_CONF_IRQ`. Production manifests must leave partition IRQs empty. | `port/common/armv8m/platform_caps.h` and `tools/manifest/generate.py` |
 | Guest identity | FF-M convention | Non-secure guest `N` is client `-(N + 1)` | `src/arch/armv8m/ffm_nsc.c` |
 
 ## Intentional differences

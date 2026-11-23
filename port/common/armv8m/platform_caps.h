@@ -25,6 +25,8 @@
 #ifndef WOLFTRUST_ARMV8M_PLATFORM_CAPS_H
 #define WOLFTRUST_ARMV8M_PLATFORM_CAPS_H
 
+#include <stdint.h>
+
 #include "wolftrust/partition.h"
 #include "memory_map.h"
 
@@ -36,6 +38,15 @@
 #define WT_PLATFORM_MAX_DOMAINS          11U
 #define WT_PLATFORM_MAX_MEMORY_RESOURCES 3U
 #define WT_PLATFORM_MAX_INTERRUPTS       1U
+
+/* The build sets WT_PLATFORM_SP_IRQ (mk/layout.mk); this is its default. */
+#ifndef WT_PLATFORM_SP_IRQ
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+#define WT_PLATFORM_SP_IRQ WT_CONF_IRQ
+#else
+#define WT_PLATFORM_SP_IRQ UINT32_MAX
+#endif
+#endif
 
 /* Enforcement every Armv8-M port provides (WT-PORT-0008): the fabric filter
  * is the per-dispatch SAU window; a port that provides more or less defines

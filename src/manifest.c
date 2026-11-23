@@ -19,6 +19,9 @@
  */
 
 #include "wolftrust/manifest.h"
+#if defined(WT_TARGET_BUILD)
+#include "wolftrust/arch.h"
+#endif
 
 static int wt_manifest_name_valid(const char* name)
 {
@@ -512,6 +515,11 @@ static int wt_manifest_validate_interrupt(
     size_t i;
     int found = 0;
 
+#if defined(WT_TARGET_BUILD)
+    if (!wt_arch_secure_irq_routed(interrupt->interrupt)) {
+        return WT_MANIFEST_ERROR_INTERRUPT;
+    }
+#endif
     if (!wt_manifest_name_valid(interrupt->signal_name) ||
             !wt_manifest_signal_valid(interrupt->signal)) {
         return WT_MANIFEST_ERROR_SIGNAL;

@@ -353,6 +353,11 @@ def validate_ffm_runtime(manifest, ffm_limits):
             sum(len(partition["services"]) for partition in partitions) >
                 ffm_limits["max_services"]):
         policy_error("service count exceeds the FF-M runtime")
+    routed_irq = ffm_limits.get("routed_irq")
+    if routed_irq is not None and any(
+            interrupt["interrupt"] != routed_irq
+            for partition in partitions for interrupt in partition["interrupts"]):
+        policy_error("Secure Partition interrupt is not routed by this build")
 
 
 def validate_policy(manifest, supported_features, word_max,
@@ -880,6 +885,10 @@ def platform_asserts(manifest, platform):
          "WT_PORT_CAPABILITY_TZ_FILTER) != 0U",
          "domain isolation needs a TZ filter"),
     ]
+    if platform.get("routed_irq") is not None:
+        checks.append(("WT_PLATFORM_SP_IRQ == {}U".format(
+            platform["routed_irq"]),
+            "routed Secure Partition interrupt differs from the manifest input"))
     if guests:
         checks.append((
             "(WT_PLATFORM_PORT_CAPABILITIES &\n"
@@ -1170,6 +1179,8 @@ def main():
     parser.add_argument("--ffm-max-services",
                         type=lambda value: int(value, 0))
     parser.add_argument("--ffm-ipc-only", action="store_true")
+    parser.add_argument("--ffm-routed-irq", type=lambda value: int(value, 0),
+                        help="the routed Secure Partition IRQ, or 0xffffffff")
     parser.add_argument("--exclude-partition", action="append", default=[],
                         metavar="NAME",
                         help="leave this partition and its domain out")
@@ -1181,6 +1192,9 @@ def main():
                              "inputs (host tests only; a target build "
                              "refuses the output)")
     args = parser.parse_args()
+    if (args.ffm_routed_irq is not None and args.ffm_routed_irq != 0xFFFFFFFF
+            and not 0 <= args.ffm_routed_irq < SECURE_VECTOR_IRQS):
+        parser.error("--ffm-routed-irq must name a Secure vector or 0xffffffff")
     platform_values = (args.platform_capabilities, args.platform_max_domains,
                        args.platform_max_memory_resources,
                        args.platform_max_interrupts, args.port_capabilities)
@@ -1195,6 +1209,7 @@ def main():
                 args.platform_max_memory_resources,
             "max_interrupts_per_domain": args.platform_max_interrupts,
             "port_capabilities": args.port_capabilities,
+            "routed_irq": args.ffm_routed_irq,
         }
     if args.platform_header is not None and platform is None:
         parser.error("--platform-header needs the platform options")
@@ -1203,6 +1218,7 @@ def main():
             ("the platform options", platform is not None),
             ("--ffm-max-partitions", args.ffm_max_partitions is not None),
             ("--ffm-max-services", args.ffm_max_services is not None),
+            ("--ffm-routed-irq", args.ffm_routed_irq is not None),
             ("--stack", bool(args.stack))) if not given]
         if missing:
             parser.error("boot trusts this manifest, so the generator needs "
@@ -1212,6 +1228,7 @@ def main():
         "max_partitions": args.ffm_max_partitions,
         "max_services": args.ffm_max_services,
         "ipc_only": args.ffm_ipc_only,
+        "routed_irq": args.ffm_routed_irq,
     }
 
     try:

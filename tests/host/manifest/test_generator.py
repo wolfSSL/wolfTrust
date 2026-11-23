@@ -262,6 +262,26 @@ class GeneratorTest(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("generated symbol is duplicated",
                                   result.stderr)
+
+    def test_partition_irq_requires_platform_route(self):
+        manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        manifest["partitions"][1]["interrupts"] = []
+        manifest["domains"][2]["interrupt_resources"] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "manifest.json"
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+            for route in ("21", "22", "0xffffffff"):
+                with self.subTest(route=route):
+                    output = root / route
+                    result = self.run_generator(source, output,
+                        extra=("--ffm-routed-irq", route))
+                    if route == "21":
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("interrupt is not routed", result.stderr)
+                        self.assertFalse(output.exists())
                     self.assertFalse((root / "output").exists())
 
     def test_excluded_partition_leaves_no_symbols(self):

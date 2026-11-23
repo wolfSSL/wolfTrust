@@ -43,11 +43,6 @@ int wt_arch_ns_check_write(wt_guest_id_t guest_id, void* address, size_t size)
            wt_cmse_check_in_guest_ns_ram(guest_id, address, size);
 }
 
-int wt_arch_ns_check_writable(const void* address, size_t size)
-{
-    return wt_cmse_check_ns_rw(address, size);
-}
-
 /* No Non-secure handler may preempt an entry and re-enter the FF-M core;
  * the Secure timer band, Secure IRQs and faults stay above the mask. */
 static uint32_t wt_ns_entry_mask(void)

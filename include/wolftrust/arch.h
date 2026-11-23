@@ -123,7 +123,6 @@ void wt_arch_sp_panic(uint32_t op, uint32_t code, uint32_t extra)
 int wt_arch_ns_check_read(wt_guest_id_t guest_id,
                           const void* address, size_t size);
 int wt_arch_ns_check_write(wt_guest_id_t guest_id, void* address, size_t size);
-int wt_arch_ns_check_writable(const void* address, size_t size);
 
 #ifdef WT_TARGET_BUILD
 int wt_arch_thread_unprivileged(void);

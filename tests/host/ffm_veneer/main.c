@@ -44,21 +44,16 @@ static int g_panics;
 static int g_reads_seen;
 static int g_writes_seen;
 static wt_guest_id_t g_last_guest;
+static const void* g_readonly_descriptor;
 
 /* ---- arch seam the NS gateway reads: the caller is always guest 0 ---- */
 extern volatile uint32_t g_wt_ffm_call_trace;
 
 uint32_t wt_arch_active_guest_id(void);
-int wt_arch_ns_check_writable(const void* address, size_t size);
 
 uint32_t wt_arch_active_guest_id(void)
 {
     return 0U;
-}
-
-int wt_arch_ns_check_writable(const void* address, size_t size)
-{
-    return size == 0U || address != NULL;
 }
 
 /* Nested-entry seam: the relay submit runs mid-dispatch, standing in for a
@@ -160,7 +155,8 @@ static int test_ns_check_write(wt_guest_id_t guest_id, void* address,
 {
     g_writes_seen++;
     g_last_guest = guest_id;
-    return size == 0U || address != NULL;
+    return size == 0U ||
+           (address != NULL && address != g_readonly_descriptor);
 }
 
 int wt_arch_ns_check_read(wt_guest_id_t guest_id, const void* address,
@@ -347,6 +343,16 @@ int main(void)
           memcmp(digest, expected, sizeof(expected)) == 0 &&
           rt->ns_entry_caller == 0,
           "WT-FFM-0012 a gateway call completes and releases the entry");
+
+    g_readonly_descriptor = &iov;
+    status = wt_ffm_gateway_call((int32_t)handle, PSA_IPC_CALL, &iov);
+    g_readonly_descriptor = NULL;
+    check(status == PSA_ERROR_PROGRAMMER_ERROR && rt->ns_entry_caller == 0,
+          "WT-FFM-0012 the descriptor must pass the caller's write policy");
+    wt_ffm_gateway_close((int32_t)handle);
+    handle = (psa_handle_t)wt_ffm_gateway_connect(TEST_HSM_SID, 1U);
+    check(handle > 0, "NS client reconnects after a refused descriptor");
+
     live = test_live_connections(rt);
     panics = g_panics;
     g_nest_armed = 1;

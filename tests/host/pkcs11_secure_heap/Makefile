@@ -11,6 +11,7 @@ BUILD_DIR ?= build
 
 CFLAGS := \
 	-I$(ROOT)/include \
+	-DWT_PKCS11_HEAP_SIZE=0x60000U \
 	-std=c11 -O0 -g -Wall -Wextra -Werror -pedantic
 CFLAGS += $(EXTRA_CFLAGS)
 

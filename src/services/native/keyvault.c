@@ -173,7 +173,7 @@ static psa_status_t wt_hsm_kv_store(int32_t owner, int32_t sub, uint64_t uid,
 /* Load key material for one operation: the object must be a key of the
  * expected type carrying the required usage bit. The plain (non-Checked)
  * read is the privileged domain's internal path — NONEXPORTABLE blocks
- * every Checked consumer. Caller zeroizes obj after use. */
+ * every Checked consumer. The caller zeroizes obj after a successful load. */
 static psa_status_t wt_hsm_kv_load(int32_t owner, int32_t sub, uint64_t uid,
                                    uint32_t type, uint32_t usage_needed,
                                    uint8_t* obj, size_t obj_len)
@@ -204,6 +204,7 @@ static psa_status_t wt_hsm_kv_load(int32_t owner, int32_t sub, uint64_t uid,
     }
     if (wh_Nvm_Read(g_kv_nvm, id, 0U, (whNvmSize)obj_len, obj) !=
             WH_ERROR_OK) {
+        wt_hsm_kv_zeroize(obj, obj_len);
         return PSA_ERROR_STORAGE_FAILURE;
     }
     return PSA_SUCCESS;

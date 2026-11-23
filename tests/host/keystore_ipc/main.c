@@ -824,6 +824,7 @@ static int token_carries_door_signature(const uint8_t* token, size_t len)
 
 static void test_attest_door(void)
 {
+    static const uint8_t boot_seed[WT_ATTEST_BOOT_SEED_SIZE] = { 0xA5u };
     wt_boot_handoff_t handoff;
     uint8_t challenge[WT_ATTEST_CHALLENGE_SIZE_32];
     uint8_t token[WT_ATTEST_MAX_TOKEN_SIZE];
@@ -851,7 +852,7 @@ static void test_attest_door(void)
     handoff.hash_algorithm = WT_BOOT_HANDOFF_HASH_SHA256;
     handoff.measurement_size = WT_BOOT_HANDOFF_DIGEST_SIZE;
     (void)memset(handoff.measurement, 0xAB, sizeof(handoff.measurement));
-    check(wt_initial_attest_init(&handoff) == WT_ATTEST_SUCCESS,
+    check(wt_initial_attest_init(&handoff, boot_seed) == WT_ATTEST_SUCCESS,
           "attestation state initialised from the boot handoff");
 
     /* A1 */

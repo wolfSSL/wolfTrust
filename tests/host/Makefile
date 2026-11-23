@@ -47,7 +47,7 @@ UNIT_SUITES := domain manifest manifest_ports lifecycle monitor guest_verify rol
     flash_nvm ffm_veneer secure_layout \
     vault_service storage_service ps_service keystore_ipc negatives qcbor_shim \
     fwu_service runtime_verify psa_ffm_client psa_storage_client vnet_relay \
-    psa_headers nvm_boot conf_nvm_sync fwu_restore spm_start layout_config \
+    psa_headers nvm_boot conf_nvm_sync fwu_restore spm_start layout_config boot_seed \
     manifest_render port_flash h5_rng fabric_sau ns_entry_scrub
 # A registered port's own suites (tests/host/<soc>_*/) run without a shared edit.
 UNIT_SUITES += $(filter-out $(UNIT_SUITES),$(patsubst %/Makefile,%,$(wildcard \

@@ -103,6 +103,7 @@ int wt_hsm_attest_public_key(uint8_t* publicKey, size_t publicKeyCapacity,
 
 int main(void)
 {
+    static const uint8_t bootSeed[WT_ATTEST_BOOT_SEED_SIZE] = { 0xA5u };
     wt_boot_handoff_t handoff;
     wt_boot_handoff_t bad;
     uint8_t challenge[WT_ATTEST_CHALLENGE_SIZE_64 + 1u];
@@ -143,7 +144,7 @@ int main(void)
           "get_token_size before any handoff is refused (NOT_READY)");
 
     /* Garbage DICE handoffs are rejected and must not arm the state. */
-    ret = wt_initial_attest_init(NULL);
+    ret = wt_initial_attest_init(NULL, bootSeed);
     check(ret == WT_ATTEST_ERROR_INVALID_ARGUMENT,
           "NULL handoff is rejected");
 
@@ -153,24 +154,24 @@ int main(void)
     bad.lifecycle = 0x3000u;
     bad.hash_algorithm = 0xEEEEu;
     bad.measurement_size = WT_BOOT_HANDOFF_DIGEST_SIZE;
-    ret = wt_initial_attest_init(&bad);
+    ret = wt_initial_attest_init(&bad, bootSeed);
     check(ret == WT_ATTEST_ERROR_INVALID_ARGUMENT,
           "handoff with an unknown hash algorithm is rejected");
 
     bad.hash_algorithm = WT_BOOT_HANDOFF_HASH_SHA256;
     bad.measurement_size = 16u;
-    ret = wt_initial_attest_init(&bad);
+    ret = wt_initial_attest_init(&bad, bootSeed);
     check(ret == WT_ATTEST_ERROR_INVALID_ARGUMENT,
           "handoff with a truncated measurement is rejected");
 
     bad.measurement_size = WT_BOOT_HANDOFF_DIGEST_SIZE;
     bad.lifecycle = 0x10000u;
-    ret = wt_initial_attest_init(&bad);
+    ret = wt_initial_attest_init(&bad, bootSeed);
     check(ret == WT_ATTEST_ERROR_INVALID_ARGUMENT,
           "handoff with an out-of-range lifecycle is rejected");
 
     bad.lifecycle = 0x7000u;
-    ret = wt_initial_attest_init(&bad);
+    ret = wt_initial_attest_init(&bad, bootSeed);
     check(ret == WT_ATTEST_ERROR_INVALID_ARGUMENT,
           "handoff with an unsupported lifecycle state is rejected");
 
@@ -195,7 +196,7 @@ int main(void)
     }
     measHex[64] = '\0';
     wrongHex[64] = '\0';
-    ret = wt_initial_attest_init(&handoff);
+    ret = wt_initial_attest_init(&handoff, bootSeed);
     check(ret == WT_ATTEST_SUCCESS, "valid handoff is accepted");
 
     /* Invalid challenge sizes are rejected at runtime, 65 (>64) included. */

@@ -31,6 +31,7 @@
 #include "wolftrust/monitor.h"
 #include "wolftrust/platform.h"
 #include "wolftrust/periph.h"
+#include "wolftrust/rng.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/sched/coroutine.h"
 #include "wolftrust/sched/coroutine_internal.h"
@@ -130,8 +131,6 @@ extern const wt_fwu_backend_t wt_fwu_flash_backend;
  * singleton (hsm_flash.c) and the TRNG entropy source (rng_entropy.c). */
 extern const whFlashCb g_wt_hsm_flash_cb;
 void *wt_hsm_flash_context(void);
-int wolftrust_rng_generate_block_direct(unsigned char *output,
-                                        unsigned int sz);
 
 /* Keystore-gate forensics, SWD-readable on target: silent -146 storage
  * failures on silicon are undebuggable from the interleaved console, so latch

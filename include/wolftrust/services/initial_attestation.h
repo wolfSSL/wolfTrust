@@ -37,10 +37,13 @@
 #define WT_ATTEST_CHALLENGE_SIZE_32 32u
 #define WT_ATTEST_CHALLENGE_SIZE_48 48u
 #define WT_ATTEST_CHALLENGE_SIZE_64 64u
+#define WT_ATTEST_BOOT_SEED_SIZE 32u
 #define WT_ATTEST_IAK_PUBLIC_KEY_SIZE 65u
 #define WT_ATTEST_MAX_TOKEN_SIZE 640u
 
-int wt_initial_attest_init(const wt_boot_handoff_t* handoff);
+/* The SPM supplies the public random value retained for the current boot. */
+int wt_initial_attest_init(const wt_boot_handoff_t* handoff,
+    const uint8_t bootSeed[WT_ATTEST_BOOT_SEED_SIZE]);
 
 int wt_initial_attest_get_token_size(size_t challengeSize,
     size_t* tokenSize);

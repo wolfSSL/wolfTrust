@@ -140,9 +140,10 @@ by the selected engine's protected attestation key. wolfCOSE performs the COSE
 encoding.
 
 The token uses the `tag:psacertified.org,2023:psa#tfm` identifier from
-RFC 9783. The boot seed repeats across equivalent boots. The signer ID and
-implementation ID are software-label hashes. These claims are known deviations
-from the profile's signer and hardware identity requirements.
+RFC 9783. The SPM generates a public 32-byte boot seed from the platform RNG at
+system boot and retains it across attestation partition restarts. The signer
+ID and implementation ID are software-label hashes. These claims are known
+deviations from the profile's signer and hardware identity requirements.
 [RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html)
 
 The compatibility register records the token-profile and API deviations.

@@ -434,13 +434,8 @@ static int wt_spm_attest_bind(int32_t partition_id)
 
 static int wt_spm_attest_restore(int32_t partition_id)
 {
-    const wt_boot_handoff_t* handoff = wt_boot_handoff_retained();
-
-    /* As at boot, a handoff the partition cannot take leaves attestation
-     * degraded (every request fails closed), not the restart refused. */
-    if (handoff != NULL) {
-        (void)wt_initial_attest_init(handoff);
-    }
+    /* As at boot, attestation stays degraded if restoration fails. */
+    (void)wt_boot_restore_attestation();
     return wt_spm_attest_bind(partition_id);
 }
 

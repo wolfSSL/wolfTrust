@@ -154,12 +154,12 @@ static int cose_recover(const uint8_t* token, size_t tokenSize,
     return ret;
 }
 
-/* The claim map must not carry a boot-seed claim (268): the emitted set is
- * the profile-2 shape, where boot_seed is not a mandatory claim. */
-static int has_claim_label(const uint8_t* payload, size_t payloadSize,
-    int64_t wanted)
+static int has_claim(const uint8_t* payload, size_t payloadSize,
+    int64_t wanted, const uint8_t* expected, size_t expectedSize)
 {
     WOLFCOSE_CBOR_CTX cbor;
+    const uint8_t* value;
+    size_t valueSize;
     size_t mapCount;
     size_t i;
     int64_t label;
@@ -172,10 +172,15 @@ static int has_claim_label(const uint8_t* payload, size_t payloadSize,
     ret = wc_CBOR_DecodeMapStart(&cbor, &mapCount);
     for (i = 0u; (ret == 0) && (i < mapCount); ++i) {
         ret = wc_CBOR_DecodeInt(&cbor, &label);
-        if ((ret == 0) && (label == wanted)) {
-            found = 1;
+        if ((ret == 0) && (label == wanted) && (expected != NULL)) {
+            ret = wc_CBOR_DecodeBstr(&cbor, &value, &valueSize);
+            found = (ret == 0) && (valueSize == expectedSize) &&
+                    (memcmp(value, expected, valueSize) == 0);
         }
-        if (ret == 0) {
+        else if (ret == 0) {
+            if (label == wanted) {
+                found = 1;
+            }
             ret = wc_CBOR_Skip(&cbor);
         }
     }
@@ -184,6 +189,8 @@ static int has_claim_label(const uint8_t* payload, size_t payloadSize,
 
 int main(void)
 {
+    static const uint8_t bootSeedA[WT_ATTEST_BOOT_SEED_SIZE] = { 0xA5u };
+    static const uint8_t bootSeedB[WT_ATTEST_BOOT_SEED_SIZE] = { 0x5Au };
     wt_boot_handoff_t handoff;
     uint8_t challenge[WT_ATTEST_CHALLENGE_SIZE_32];
     uint8_t tokenA[WT_ATTEST_MAX_TOKEN_SIZE];
@@ -225,12 +232,14 @@ int main(void)
     (void)memset(handoff.measurement, 0xAB, sizeof(handoff.measurement));
     (void)memset(challenge, 0x2A, sizeof(challenge));
 
-    ret = wt_initial_attest_init(&handoff);
+    ret = wt_initial_attest_init(&handoff, bootSeedA);
     check(ret == WT_ATTEST_SUCCESS, "wt_initial_attest_init succeeds");
 
     ret = wt_initial_attest_get_token(0u, challenge, sizeof(challenge),
                                       tokenA, sizeof(tokenA), &sizeA);
     check(ret == WT_ATTEST_SUCCESS, "first get_token succeeds");
+    ret = wt_initial_attest_init(&handoff, bootSeedA);
+    check(ret == WT_ATTEST_SUCCESS, "restore accepts the current boot seed");
     ret = wt_initial_attest_get_token(0u, challenge, sizeof(challenge),
                                       tokenB, sizeof(tokenB), &sizeB);
     check(ret == WT_ATTEST_SUCCESS, "second get_token succeeds");
@@ -266,12 +275,26 @@ int main(void)
           (memcmp(payloadA, g_golden_payload, payloadLenA) == 0),
           "claim set bytes match the golden vector");
 
-    check(has_claim_label(payloadA, payloadLenA, 10) == 1,
-          "nonce claim (10) present");
-    check(has_claim_label(payloadA, payloadLenA, WT_EAT_CLAIM_PROFILE) == 1,
+    check(has_claim(payloadA, payloadLenA, 10, challenge,
+                    sizeof(challenge)) == 1, "nonce claim (10) matches");
+    check(has_claim(payloadA, payloadLenA, WT_EAT_CLAIM_PROFILE,
+                    NULL, 0u) == 1,
           "profile claim (265) present");
-    check(has_claim_label(payloadA, payloadLenA, WT_EAT_CLAIM_BOOT_SEED) == 1,
-          "boot-seed claim (268) present");
+    check(has_claim(payloadA, payloadLenA, WT_EAT_CLAIM_BOOT_SEED,
+                    bootSeedA, sizeof(bootSeedA)) == 1,
+          "boot-seed claim (268) matches the retained value");
+
+    ret = wt_initial_attest_init(&handoff, bootSeedB);
+    check(ret == WT_ATTEST_SUCCESS, "same measured image accepts a new boot");
+    ret = wt_initial_attest_get_token(0u, challenge, sizeof(challenge),
+                                      tokenB, sizeof(tokenB), &sizeB);
+    check(ret == WT_ATTEST_SUCCESS, "get_token succeeds on the new boot");
+    ret = cose_recover(tokenB, sizeB, payloadB, sizeof(payloadB),
+                       &payloadLenB);
+    check(ret == 0 &&
+          has_claim(payloadB, payloadLenB, WT_EAT_CLAIM_BOOT_SEED,
+                    bootSeedB, sizeof(bootSeedB)) == 1,
+          "same measured image emits the new boot seed");
 
     wc_ecc_free(&g_iak);
     wc_FreeRng(&g_rng);

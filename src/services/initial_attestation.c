@@ -63,7 +63,7 @@ static const uint8_t g_signer_name[] = "wolfBoot";
 
 static wt_boot_handoff_t g_boot_handoff;
 static uint8_t g_ueid[33];
-static uint8_t g_boot_seed[WC_SHA256_DIGEST_SIZE];
+static uint8_t g_boot_seed[WT_ATTEST_BOOT_SEED_SIZE];
 static uint8_t g_implementation_id[WC_SHA256_DIGEST_SIZE];
 static uint8_t g_signer_id[WC_SHA256_DIGEST_SIZE];
 static bool g_handoff_ready;
@@ -258,7 +258,6 @@ static int wt_attest_prepare(void)
     uint8_t publicKey[WT_ATTEST_IAK_PUBLIC_KEY_SIZE];
     uint8_t digest[WC_SHA256_DIGEST_SIZE];
     size_t publicKeySize = sizeof(publicKey);
-    wc_Sha256 sha;
     int ret;
 
     if (g_attest_ready) {
@@ -288,28 +287,6 @@ static int wt_attest_prepare(void)
     if (ret == 0) {
         g_ueid[0] = WT_UEID_TYPE_RANDOM;
         (void)memcpy(&g_ueid[1], digest, sizeof(digest));
-    }
-    /* Boot-seed binds the token to this measured boot of this device: it hashes
-     * the boot measurement with the device instance id, so it is stable across
-     * a boot cycle and reproducible for the golden conformance vector. */
-    if (ret == 0) {
-        ret = wc_InitSha256(&sha);
-    }
-    if (ret == 0) {
-        ret = wc_Sha256Update(&sha, g_boot_handoff.measurement,
-                              (word32)g_boot_handoff.measurement_size);
-        if (ret == 0) {
-            ret = wc_Sha256Update(&sha, g_ueid, sizeof(g_ueid));
-        }
-        if (ret == 0) {
-            ret = wc_Sha256Final(&sha, g_boot_seed);
-        }
-        wc_Sha256Free(&sha);
-        if (ret != 0) {
-            ret = WT_ATTEST_ERROR_CRYPTO;
-        }
-    }
-    if (ret == 0) {
         g_attest_ready = true;
     }
 
@@ -470,11 +447,12 @@ static int wt_attest_lifecycle_valid(uint32_t lifecycle)
             (major == PSA_LIFECYCLE_DECOMMISSIONED)) ? 1 : 0;
 }
 
-int wt_initial_attest_init(const wt_boot_handoff_t* handoff)
+int wt_initial_attest_init(const wt_boot_handoff_t* handoff,
+    const uint8_t bootSeed[WT_ATTEST_BOOT_SEED_SIZE])
 {
     int ret;
 
-    if (handoff == NULL) {
+    if (handoff == NULL || bootSeed == NULL) {
         return WT_ATTEST_ERROR_INVALID_ARGUMENT;
     }
     if ((handoff->hash_algorithm != WT_BOOT_HANDOFF_HASH_SHA256) ||
@@ -496,9 +474,9 @@ int wt_initial_attest_init(const wt_boot_handoff_t* handoff)
     }
     if (ret == 0) {
         (void)memcpy(&g_boot_handoff, handoff, sizeof(g_boot_handoff));
+        (void)memcpy(g_boot_seed, bootSeed, sizeof(g_boot_seed));
         g_handoff_ready = true;
-        /* Drop the cached UEID and boot-seed so a new handoff re-derives them;
-         * a stale boot-binding must never be carried into a signed token. */
+        /* Refresh the cached UEID from the signer when next used. */
         g_attest_ready = false;
     }
 

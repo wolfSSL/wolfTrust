@@ -22,6 +22,7 @@
 #include <stddef.h>
 #include "wolftrust/vnet/vnet_pool.h"
 #include "wolftrust/vnet/vnet_errors.h"
+#include "wolftrust/zeroize.h"
 
 void vnet_pool_init(vnet_pool_t *p, vnet_frame_t *storage, uint16_t count)
 {
@@ -31,6 +32,7 @@ void vnet_pool_init(vnet_pool_t *p, vnet_frame_t *storage, uint16_t count)
     p->slot_count = (storage == NULL) ? 0U : count;
     p->in_use_count = 0U;
     for (i = 0U; i < p->slot_count; ++i) {
+        wt_forceZero(p->slots[i].data, sizeof(p->slots[i].data));
         p->slots[i].refcnt = 0U;
         p->slots[i].gen = 0U;
         p->slots[i].len = 0U;
@@ -78,6 +80,19 @@ int vnet_pool_ref(vnet_pool_t *p, uint16_t slot, uint16_t gen)
     return WT_VNET_OK;
 }
 
+static void free_frame(vnet_pool_t *p, vnet_frame_t *f)
+{
+    size_t len = f->len;
+
+    if (len > sizeof(f->data)) {
+        len = sizeof(f->data);
+    }
+    wt_forceZero(f->data, len);
+    f->len = 0U;
+    f->refcnt = 0U;
+    if (p->in_use_count > 0U) p->in_use_count--;
+}
+
 int vnet_pool_release(vnet_pool_t *p, uint16_t slot, uint16_t gen)
 {
     vnet_frame_t *f;
@@ -86,11 +101,11 @@ int vnet_pool_release(vnet_pool_t *p, uint16_t slot, uint16_t gen)
     f = &p->slots[slot];
     if (f->gen != gen) return WT_VNET_E_STALE_COOKIE;
     if (f->refcnt == 0U) return WT_VNET_E_DOUBLE_RELEASE;
-    f->refcnt = (uint16_t)(f->refcnt - 1U);
-    if (f->refcnt == 0U) {
-        if (p->in_use_count > 0U) p->in_use_count--;
+    if (f->refcnt == 1U) {
+        free_frame(p, f);
         return 1;
     }
+    f->refcnt = (uint16_t)(f->refcnt - 1U);
     return 0;
 }
 
@@ -101,8 +116,7 @@ int vnet_pool_force_free(vnet_pool_t *p, uint16_t slot)
     if (slot >= p->slot_count) return WT_VNET_E_BADARG;
     f = &p->slots[slot];
     if (f->refcnt == 0U) return WT_VNET_E_DOUBLE_RELEASE;
-    f->refcnt = 0U;
-    if (p->in_use_count > 0U) p->in_use_count--;
+    free_frame(p, f);
     return WT_VNET_OK;
 }
 
@@ -120,8 +134,7 @@ uint16_t vnet_pool_drop_expired(vnet_pool_t *p,
         if (f->refcnt == 0U) continue;
         age = now_tick - f->born_tick;
         if (age >= timeout_ticks) {
-            f->refcnt = 0U;
-            if (p->in_use_count > 0U) p->in_use_count--;
+            free_frame(p, f);
             freed++;
         }
     }

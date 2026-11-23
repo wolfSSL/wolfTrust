@@ -19,6 +19,7 @@
  * Foundation, Inc., 51 Franklin Street, Fifth Floor, Boston, MA 02110-1335, USA
  */
 
+#include <string.h>
 #include "test_vnet.h"
 #include "wolftrust/vnet/vnet_pool.h"
 #include "wolftrust/vnet/vnet_errors.h"
@@ -26,12 +27,15 @@
 #define POOL_N 4
 
 static vnet_frame_t g_storage[POOL_N];
+static const uint8_t cleared_payload[64];
 
 static int test_pool_init_and_alloc(void)
 {
     vnet_pool_t p;
     uint16_t s0, s1, s2, s3, s_full;
+    memset(g_storage[0].data, 0xA5, sizeof(g_storage[0].data));
     vnet_pool_init(&p, g_storage, POOL_N);
+    T_EQ_INT(g_storage[0].data[sizeof(g_storage[0].data) - 1U], 0);
     T_EQ_INT(vnet_pool_free_count(&p), POOL_N);
     T_EQ_INT(vnet_pool_in_use_count(&p), 0);
 
@@ -63,6 +67,8 @@ static int test_pool_release_lifecycle(void)
     T_CHECK(slot != VNET_POOL_BAD_SLOT);
     gen0 = g_storage[slot].gen;
     T_EQ_INT(g_storage[slot].refcnt, 1);
+    g_storage[slot].len = sizeof(cleared_payload);
+    memset(g_storage[slot].data, 0xA5, sizeof(cleared_payload));
 
     /* Two extra refs (delivery to additional destinations). */
     T_EQ_INT(vnet_pool_ref(&p, slot, gen0), WT_VNET_OK);
@@ -76,11 +82,14 @@ static int test_pool_release_lifecycle(void)
     rc = vnet_pool_release(&p, slot, gen0);
     T_EQ_INT(rc, 0);
     T_EQ_INT(g_storage[slot].refcnt, 1);
+    T_EQ_INT(g_storage[slot].data[0], 0xA5);
 
     rc = vnet_pool_release(&p, slot, gen0);
     T_EQ_INT(rc, 1);
     T_EQ_INT(g_storage[slot].refcnt, 0);
     T_EQ_INT(vnet_pool_in_use_count(&p), 0);
+    T_EQ_INT(memcmp(g_storage[slot].data, cleared_payload,
+                    sizeof(cleared_payload)), 0);
     return 0;
 }
 
@@ -143,6 +152,10 @@ static int test_pool_drop_expired(void)
     s1 = vnet_pool_alloc(&p, 400);
     T_CHECK(s0 != VNET_POOL_BAD_SLOT);
     T_CHECK(s1 != VNET_POOL_BAD_SLOT);
+    g_storage[s0].len = sizeof(cleared_payload);
+    g_storage[s1].len = sizeof(cleared_payload);
+    memset(g_storage[s0].data, 0xA5, sizeof(cleared_payload));
+    memset(g_storage[s1].data, 0xA5, sizeof(cleared_payload));
 
     /* now=500, timeout=500: age(s0)=400, age(s1)=100 — neither expired. */
     freed = vnet_pool_drop_expired(&p, 500, 500);
@@ -153,6 +166,9 @@ static int test_pool_drop_expired(void)
     T_EQ_INT(freed, 1);
     T_EQ_INT(g_storage[s0].refcnt, 0);
     T_EQ_INT(g_storage[s1].refcnt, 1);
+    T_EQ_INT(memcmp(g_storage[s0].data, cleared_payload,
+                    sizeof(cleared_payload)), 0);
+    T_EQ_INT(g_storage[s1].data[0], 0xA5);
 
     /* now=1000: age(s1)=600 (expired). */
     freed = vnet_pool_drop_expired(&p, 1000, 500);
@@ -171,6 +187,8 @@ static int test_pool_force_free(void)
 
     slot = vnet_pool_alloc(&p, 5);
     gen = g_storage[slot].gen;
+    g_storage[slot].len = sizeof(cleared_payload);
+    memset(g_storage[slot].data, 0xA5, sizeof(cleared_payload));
     vnet_pool_ref(&p, slot, gen);
     vnet_pool_ref(&p, slot, gen);
     T_EQ_INT(g_storage[slot].refcnt, 3);
@@ -178,6 +196,8 @@ static int test_pool_force_free(void)
     T_EQ_INT(vnet_pool_force_free(&p, slot), WT_VNET_OK);
     T_EQ_INT(g_storage[slot].refcnt, 0);
     T_EQ_INT(vnet_pool_in_use_count(&p), 0);
+    T_EQ_INT(memcmp(g_storage[slot].data, cleared_payload,
+                    sizeof(cleared_payload)), 0);
 
     T_EQ_INT(vnet_pool_force_free(&p, slot), WT_VNET_E_DOUBLE_RELEASE);
     return 0;

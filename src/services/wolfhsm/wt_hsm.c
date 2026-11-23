@@ -822,6 +822,7 @@ int wt_hsm_relay_reinit_servers(void)
                 wt_hsm_release_locks(tasklet);
                 wt_tasklet_mark_faulted(tasklet);
             }
+            wt_hsm_priv_wipe_stack(gid);
             g->ready = false;
             break;
         }

@@ -117,6 +117,7 @@ wt_sec_hsm_relay_service.o             hsm
 wt_sec_keyvault.o                      hsm
 wt_sec_native_wire.o                   hsm
 wt_sec_psa_crypto_service.o            hsm
+wp_sec_psa_aead.o                      shared
 wp_sec_*                               hsm
 wc_sec_kdf.o                           hsm
 wc_sec_pwdbased.o                      hsm

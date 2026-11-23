@@ -31,6 +31,7 @@
 #include "wolftrust/crypto_native_client.h"
 #include "wolftrust/services/crypto_native.h"
 #include "wolftrust/services/psa_crypto_wire.h"
+#include "wolftrust/services/vault_service.h"
 #include "transport.h"
 
 #define GUEST0 (-1)
@@ -768,6 +769,54 @@ static void test_token_exhaustion(void)
           "a service restart gives guest0 fresh slots");
 }
 
+/* The vault's AES-256 key ops run its AEAD, which is wolfPSA's streaming CCM
+ * when WT_AEAD_CCM builds with WT_SECURE_PSA. */
+static void test_vault_aead(void)
+{
+    static const uint8_t msg[] = "vault AEAD in the Secure PSA image";
+    wt_crypto_wire_req_t hdr;
+    uint8_t ct[sizeof(msg) + WT_VAULT_KEY_NONCE_LEN + WT_VAULT_KEY_TAG_LEN];
+    uint8_t pt[sizeof(msg)];
+    size_t ct_len = 0U;
+    size_t pt_len = 0U;
+    psa_status_t st;
+    int ok;
+
+    (void)memset(&hdr, 0, sizeof(hdr));
+    hdr.uid = 0x3001ULL;
+    hdr.op = WT_CRYPTO_OP_KEY_GENERATE;
+    hdr.usage = WT_VAULT_KEY_USAGE_ENCRYPT | WT_VAULT_KEY_USAGE_DECRYPT;
+    hdr.key_type = WT_VAULT_KEY_AES256;
+    st = wt_crypto_native_call(&hdr, NULL, 0U, NULL, 0U, &pt_len);
+    check(st == PSA_SUCCESS, "vault AES-256 key generates");
+
+    hdr.usage = 0U;
+    hdr.key_type = 0U;
+    hdr.op = WT_CRYPTO_OP_KEY_ENCRYPT;
+    st = wt_crypto_native_call(&hdr, msg, sizeof(msg), ct, sizeof(ct),
+                               &ct_len);
+    ok = (st == PSA_SUCCESS && ct_len == sizeof(ct));
+    check(ok, "vault encrypt frames nonce || ciphertext || tag");
+    hdr.op = WT_CRYPTO_OP_KEY_DECRYPT;
+    if (!ok) {
+        hdr.op = WT_CRYPTO_OP_KEY_DESTROY;
+        (void)wt_crypto_native_call(&hdr, NULL, 0U, NULL, 0U, &pt_len);
+        return;
+    }
+    st = wt_crypto_native_call(&hdr, ct, ct_len, pt, sizeof(pt), &pt_len);
+    check(st == PSA_SUCCESS && pt_len == sizeof(msg) &&
+          memcmp(pt, msg, sizeof(msg)) == 0,
+          "vault decrypt recovers the plaintext");
+    ct[ct_len - 1U] ^= 0x01U;
+    pt_len = 1U;
+    st = wt_crypto_native_call(&hdr, ct, ct_len, pt, sizeof(pt), &pt_len);
+    check(st == PSA_ERROR_INVALID_SIGNATURE && pt_len == 0U,
+          "vault decrypt rejects a tampered tag and returns no plaintext");
+    hdr.op = WT_CRYPTO_OP_KEY_DESTROY;
+    check(wt_crypto_native_call(&hdr, NULL, 0U, NULL, 0U, &pt_len) ==
+          PSA_SUCCESS, "vault AES-256 key destroys");
+}
+
 int main(void)
 {
     wt_test_set_client(GUEST0);
@@ -781,6 +830,7 @@ int main(void)
     test_lost_message();
     test_malformed_reply();
     test_arena_isolation();
+    test_vault_aead();
     (void)printf("%s: %d failure(s)\n", g_failures ? "FAIL" : "PASS",
                  g_failures);
     return g_failures ? 1 : 0;

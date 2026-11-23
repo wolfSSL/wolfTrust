@@ -35,6 +35,46 @@
 #if !defined(WT_AEAD_CCM) && !defined(HAVE_AESGCM)
 #error "the vault AEAD needs HAVE_AESGCM, or WT_AEAD_CCM"
 #endif
+/* With wolfPSA in the image, CCM runs on its streaming CCM, so wolfCrypt's
+ * one-shot CCM is not linked twice over. */
+#if defined(WT_AEAD_CCM) && defined(WT_SECURE_PSA)
+#define WT_AEAD_WOLFPSA_CCM
+#include "wolfpsa/psa_ccm.h"
+#endif
+
+#ifdef WT_AEAD_WOLFPSA_CCM
+psa_status_t wt_hsm_aead_encrypt(const uint8_t* key, const uint8_t* nonce,
+                                 const uint8_t* aad, size_t aad_len,
+                                 const uint8_t* in, size_t len, uint8_t* out,
+                                 uint8_t* tag)
+{
+    int rc;
+
+    rc = wolfPSA_AesCcmEncrypt(key, WT_HSM_AEAD_KEY_LEN, nonce,
+                               WT_HSM_AEAD_NONCE_LEN, aad, (word32)aad_len, in,
+                               (word32)len, out, tag, WT_HSM_AEAD_TAG_LEN);
+    return (rc == 0) ? PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
+}
+
+psa_status_t wt_hsm_aead_decrypt(const uint8_t* key, const uint8_t* nonce,
+                                 const uint8_t* aad, size_t aad_len,
+                                 const uint8_t* in, size_t len,
+                                 const uint8_t* tag, uint8_t* out)
+{
+    int rc;
+
+    rc = wolfPSA_AesCcmDecrypt(key, WT_HSM_AEAD_KEY_LEN, nonce,
+                               WT_HSM_AEAD_NONCE_LEN, aad, (word32)aad_len, in,
+                               (word32)len, tag, WT_HSM_AEAD_TAG_LEN, out);
+    if (rc == 0) {
+        return PSA_SUCCESS;
+    }
+    /* No unauthenticated plaintext may survive a failed decrypt */
+    wt_forceZero(out, len);
+    return (rc == AES_CCM_AUTH_E) ? PSA_ERROR_INVALID_SIGNATURE :
+        PSA_ERROR_GENERIC_ERROR;
+}
+#else
 
 psa_status_t wt_hsm_aead_encrypt(const uint8_t* key, const uint8_t* nonce,
                                  const uint8_t* aad, size_t aad_len,
@@ -109,3 +149,4 @@ psa_status_t wt_hsm_aead_decrypt(const uint8_t* key, const uint8_t* nonce,
     }
     return status;
 }
+#endif /* WT_AEAD_WOLFPSA_CCM */

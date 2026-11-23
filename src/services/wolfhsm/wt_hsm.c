@@ -757,6 +757,51 @@ int wt_hsm_attest_bootstrap(void)
     return g_hsm_attest_ready ? WH_ERROR_OK : g_hsm_attest_init_status;
 }
 
+static void wt_hsm_attest_clear_contexts(void)
+{
+    wt_hsm_force_zero(&g_hsm_attest_server, sizeof(g_hsm_attest_server));
+    wt_hsm_force_zero(&g_hsm_attest_crypto, sizeof(g_hsm_attest_crypto));
+}
+
+/* Call after the signer's RNG was successfully initialized. */
+static void wt_hsm_attest_stop(bool server_open)
+{
+    if (server_open) {
+        (void)wh_Server_Cleanup(&g_hsm_attest_server);
+    }
+    (void)wc_FreeRng(g_hsm_attest_crypto.rng);
+    wt_hsm_attest_clear_contexts();
+}
+
+static int wt_hsm_attest_server_connect(void)
+{
+    int rc = wh_Server_Init(&g_hsm_attest_server, &g_hsm_attest_server_cfg);
+
+    if (rc == WH_ERROR_OK) {
+        g_hsm_attest_server.comm->client_id = WH_CLIENT_ID_MAX;
+        rc = wh_Server_SetConnected(&g_hsm_attest_server, WH_COMM_CONNECTED);
+        if (rc != WH_ERROR_OK) {
+            (void)wh_Server_Cleanup(&g_hsm_attest_server);
+        }
+    }
+    return rc;
+}
+
+static int wt_hsm_attest_start(void)
+{
+    int rc = wc_InitRng_ex(g_hsm_attest_crypto.rng, NULL, INVALID_DEVID);
+
+    if (rc != 0) {
+        wt_hsm_attest_clear_contexts();
+        return rc;
+    }
+    rc = wt_hsm_attest_server_connect();
+    if (rc != WH_ERROR_OK) {
+        wt_hsm_attest_stop(false);
+    }
+    return rc;
+}
+
 /* =========================================================================
  * wt_hsm_signal_fault
  *
@@ -770,16 +815,8 @@ static int wt_hsm_attest_server_rebuild(void)
 {
     int rc;
 
-    (void)wh_Server_Cleanup(&g_hsm_attest_server);
-    (void)wc_FreeRng(g_hsm_attest_crypto.rng);
-    rc = wc_InitRng_ex(g_hsm_attest_crypto.rng, NULL, INVALID_DEVID);
-    if (rc == 0) {
-        rc = wh_Server_Init(&g_hsm_attest_server, &g_hsm_attest_server_cfg);
-    }
-    if (rc == 0) {
-        g_hsm_attest_server.comm->client_id = WH_CLIENT_ID_MAX;
-        rc = wh_Server_SetConnected(&g_hsm_attest_server, WH_COMM_CONNECTED);
-    }
+    wt_hsm_attest_stop(true);
+    rc = wt_hsm_attest_start();
     if (rc != 0) {
         /* Fail closed: a signer that could not be rebuilt reports not-ready
          * from here on, never the bootstrap's success status. */
@@ -1089,13 +1126,7 @@ static int wt_hsm_attest_generate_key(void)
 /* Bring up the signer's own server on the bound store. */
 static int wt_hsm_attest_server_open(void)
 {
-    int ret;
-
     (void)memset(&g_hsm_attest_crypto, 0, sizeof(g_hsm_attest_crypto));
-    ret = wc_InitRng_ex(g_hsm_attest_crypto.rng, NULL, INVALID_DEVID);
-    if (ret != 0) {
-        return ret;
-    }
 
     (void)memset(&g_hsm_attest_comm_cfg, 0, sizeof(g_hsm_attest_comm_cfg));
     g_hsm_attest_comm_cfg.transport_cb = &g_hsm_attest_transport_cb;
@@ -1109,12 +1140,7 @@ static int wt_hsm_attest_server_open(void)
     g_hsm_attest_server_cfg.devId = INVALID_DEVID;
 #endif
 
-    ret = wh_Server_Init(&g_hsm_attest_server, &g_hsm_attest_server_cfg);
-    if (ret == WH_ERROR_OK) {
-        g_hsm_attest_server.comm->client_id = WH_CLIENT_ID_MAX;
-        ret = wh_Server_SetConnected(&g_hsm_attest_server, WH_COMM_CONNECTED);
-    }
-    return ret;
+    return wt_hsm_attest_start();
 }
 
 int wt_hsm_attest_restore(const uint8_t* publicKey, size_t publicKeySize)
@@ -1139,6 +1165,7 @@ int wt_hsm_attest_restore(const uint8_t* publicKey, size_t publicKeySize)
 int wt_hsm_attest_init(void)
 {
     int ret;
+    bool server_open;
 
 #if defined(WT_VAULT_FOREIGN_PROBE) && defined(WT_VAULT_PROBE_SECURED)
     wt_hsm_set_boot_lifecycle(PSA_LIFECYCLE_SECURED);
@@ -1153,6 +1180,7 @@ int wt_hsm_attest_init(void)
 
     ret = wt_hsm_attest_server_open();
     if (ret == WH_ERROR_OK) {
+        server_open = true;
         ret = wt_hsm_attest_export_public();
 #if defined(WT_VAULT_FOREIGN_PROBE)
         /* Force the existing key to look unreadable so the generate path runs
@@ -1180,14 +1208,10 @@ int wt_hsm_attest_init(void)
                     /* vault_format re-inited the store under the attest server;
                      * rebind the server to the fresh store before re-provisioning
                      * so its keystore view is not stale. */
-                    ret = wh_Server_Init(&g_hsm_attest_server,
-                                         &g_hsm_attest_server_cfg);
-                    if (ret == WH_ERROR_OK) {
-                        g_hsm_attest_server.comm->client_id = WH_CLIENT_ID_MAX;
-                        ret = wh_Server_SetConnected(&g_hsm_attest_server,
-                                                     WH_COMM_CONNECTED);
-                    }
-                    if (ret == WH_ERROR_OK) {
+                    (void)wh_Server_Cleanup(&g_hsm_attest_server);
+                    ret = wt_hsm_attest_server_connect();
+                    server_open = (ret == WH_ERROR_OK);
+                    if (server_open) {
                         ret = wt_hsm_attest_generate_key();
                     }
                 }
@@ -1195,6 +1219,9 @@ int wt_hsm_attest_init(void)
             if (ret == WH_ERROR_OK) {
                 ret = wt_hsm_attest_export_public();
             }
+        }
+        if (ret != WH_ERROR_OK) {
+            wt_hsm_attest_stop(server_open);
         }
     }
 

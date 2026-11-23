@@ -22,11 +22,16 @@
  * real wolfHSM NVM stack on the RAM flash simulator: the floor persists on a
  * store whose directory has no free entry but reclaimable ones. */
 
+#include "wolfssl/wolfcrypt/settings.h"
+#include "wolfssl/wolfcrypt/error-crypt.h"
+#include "wolfssl/wolfcrypt/random.h"
+
 #include "wolftrust/monitor.h"
 #include "wolftrust/rollback.h"
 #include "wolftrust/spm_gate.h"
 #include "wolftrust/sync/mutex.h"
 #include "wolftrust/services/hsm.h"
+#include "wolftrust/zeroize.h"
 #include "psa/lifecycle.h"
 
 #include "wolfhsm/wh_error.h"
@@ -59,8 +64,28 @@ static whNvmConfig g_nvm_cfg;
 static wt_scheduler_state_t g_sched;
 static unsigned int g_quarantined;
 static int g_failures;
+static int g_seal_rng_failure;
+static int g_seal_rng_calls;
+static int g_seal_key_wipes;
 
 const whFlashCb g_wt_hsm_flash_cb = WH_FLASH_RAMSIM_CB;
+
+int wt_test_init_seal_rng(WC_RNG* rng, void* heap, int dev_id)
+{
+    if (g_seal_rng_failure != 0) {
+        g_seal_rng_calls++;
+        return RNG_FAILURE_E;
+    }
+    return wc_InitRng_ex(rng, heap, dev_id);
+}
+
+void wt_test_forceZero(void* memory, size_t size)
+{
+    wt_forceZero(memory, size);
+    if (g_seal_rng_failure != 0 && size == 32U) {
+        g_seal_key_wipes++;
+    }
+}
 
 void* wt_hsm_flash_context(void)
 {
@@ -358,6 +383,23 @@ static void test_version_zero_boot_writes_table(void)
           "WT-FFM-0050 the first floor advance lands on a full vault");
 }
 
+static void test_seal_setup_failure(void)
+{
+    int ret;
+
+    ret = test_nvm_up();
+    check(ret == 0, "set up the RAM-backed NVM store for sealer setup");
+    if (ret != 0) {
+        return;
+    }
+    g_seal_rng_failure = 1;
+    ret = wt_hsm_seal_init(&g_wt_nvm_ctx);
+    g_seal_rng_failure = 0;
+    check(ret != 0 && g_seal_rng_calls == 1,
+          "sealer setup reports an unavailable RNG");
+    check(g_seal_key_wipes == 1, "failed sealer setup wipes the key slot");
+}
+
 int main(void)
 {
     (void)memset(&g_sched, 0, sizeof(g_sched));
@@ -366,6 +408,7 @@ int main(void)
     test_floor_store_on_full_directory();
     test_floor_create_keeps_supersede_room();
     test_version_zero_boot_writes_table();
+    test_seal_setup_failure();
 
     if (g_failures != 0) {
         return 1;

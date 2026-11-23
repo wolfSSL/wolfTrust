@@ -26,11 +26,16 @@
 #include <string.h>
 
 #include "wolftrust/manifest.h"
+#include "wolftrust/static_assert.h"
 #include "wolftrust/zeroize.h"
 
 #define WT_HANDLE_CONN  1U
 #define WT_HANDLE_MSG   2U
 #define WT_HANDLE_SHIFT 7U
+
+WT_STATIC_ASSERT(WT_SPM_SLOTS <= 31U, "a handle holds a 5-bit slot index");
+WT_STATIC_ASSERT(WT_SPM_TRANSFER_BYTES <= 0xFFFFU,
+    "transfer offsets and lengths are 16-bit");
 
 enum {
     WT_SLOT_FREE = 0,
@@ -109,7 +114,7 @@ static int wt_allowed(psa_client_id_t caller, int svc)
         return g_wt_spm_services[svc].ns_ok != 0U;
     }
     sp = wt_spm_sp_index(caller);
-    return sp >= 0 && (g_wt_spm_sps[sp].deps & (1UL << (uint32_t)svc)) != 0U;
+    return sp >= 0 && ((g_wt_spm_sps[sp].deps >> (uint32_t)svc) & 1U) != 0U;
 }
 
 static int wt_version_ok(const wt_spm_service_t* svc, uint32_t version)
@@ -128,10 +133,9 @@ static int wt_version_ok(const wt_spm_service_t* svc, uint32_t version)
 
 static void wt_xfer_free(wt_spm_slot_t* slot)
 {
-    if (slot->xfer != 0U) {
-        wt_forceZero(&g_wt_spm.xfer[slot->xfer - 1U],
-                     sizeof(g_wt_spm.xfer[0]));
-        slot->xfer = 0U;
+    if (slot->xfer != NULL) {
+        wt_forceZero(slot->xfer, sizeof(*slot->xfer));
+        slot->xfer = NULL;
     }
 }
 
@@ -145,20 +149,17 @@ static void wt_end_msg(wt_spm_slot_t* slot)
 /* The client will never collect output: forget where it would have gone. */
 static void wt_detach(wt_spm_slot_t* slot, uint8_t how)
 {
-    if (slot->xfer != 0U) {
-        (void)memset(g_wt_spm.xfer[slot->xfer - 1U].dst, 0,
-                     sizeof(g_wt_spm.xfer[0].dst));
+    if (slot->xfer != NULL) {
+        (void)memset(slot->xfer->dst, 0, sizeof(slot->xfer->dst));
     }
     slot->detached = how;
 }
 
 static void wt_release(wt_spm_slot_t* slot)
 {
-    uint16_t gen = (uint16_t)(slot->gen + 1U);
-
     wt_xfer_free(slot);
-    (void)memset(slot, 0, sizeof(*slot));
-    slot->gen = gen;
+    (void)memset(slot, 0, offsetof(wt_spm_slot_t, gen));
+    slot->gen++;
 }
 
 static void wt_queue(wt_spm_slot_t* slot, int32_t type)
@@ -177,7 +178,7 @@ uint32_t wt_spm_service_version(psa_client_id_t caller, uint32_t sid)
 {
     int svc = wt_find_service(sid);
 
-    if (svc < 0 || caller == 0 || !wt_allowed(caller, svc)) {
+    if (svc < 0 || !wt_allowed(caller, svc)) {
         return PSA_VERSION_NONE;
     }
     return g_wt_spm_services[svc].version;
@@ -216,8 +217,8 @@ static int wt_msg_slot(uint8_t sp, psa_handle_t handle)
     return index;
 }
 
-psa_status_t wt_spm_connect_begin(psa_client_id_t caller, uint32_t sid,
-                                  uint32_t version, uint8_t* out)
+int32_t wt_spm_connect_begin(psa_client_id_t caller, uint32_t sid,
+                             uint32_t version)
 {
     int svc = wt_find_service(sid);
     uint32_t mine = 0U;
@@ -226,9 +227,6 @@ psa_status_t wt_spm_connect_begin(psa_client_id_t caller, uint32_t sid,
     int i;
     wt_spm_slot_t* slot;
 
-    if (caller == 0) {
-        return PSA_ERROR_INVALID_ARGUMENT;
-    }
     if (svc < 0 || !wt_allowed(caller, svc) ||
             !wt_version_ok(&g_wt_spm_services[svc], version)) {
         return PSA_ERROR_CONNECTION_REFUSED;
@@ -256,8 +254,7 @@ psa_status_t wt_spm_connect_begin(psa_client_id_t caller, uint32_t sid,
     slot->svc = (uint8_t)svc;
     slot->state = WT_SLOT_CONNECTING;
     wt_queue(slot, PSA_IPC_CONNECT);
-    *out = (uint8_t)free_slot;
-    return PSA_SUCCESS;
+    return free_slot;
 }
 
 static void wt_drop(wt_spm_slot_t* slot)
@@ -274,19 +271,20 @@ void wt_spm_call_refuse(psa_client_id_t caller, psa_handle_t handle)
 {
     int index = wt_conn_slot(caller, handle);
 
-    if (caller != 0 && index >= 0) {
+    if (index >= 0) {
         wt_drop(&g_wt_spm.slot[index]);
     }
 }
 
-psa_status_t wt_spm_call_begin(psa_client_id_t caller, psa_handle_t handle,
-                               int32_t type, const wt_spm_vec_t* vec,
-                               size_t in_len, size_t out_len, uint8_t* out)
+int32_t wt_spm_call_begin(psa_client_id_t caller, psa_handle_t handle,
+                          int32_t type, const wt_spm_vec_t* vec,
+                          size_t in_len, size_t out_len)
 {
-    int index = caller == 0 ? WT_SPM_E_ARGUMENT : wt_conn_slot(caller, handle);
+    int index = wt_conn_slot(caller, handle);
     wt_spm_slot_t* slot;
     wt_spm_xfer_t* xfer = NULL;
     size_t total = 0U;
+    size_t len;
     size_t i;
     uint32_t x;
 
@@ -299,12 +297,6 @@ psa_status_t wt_spm_call_begin(psa_client_id_t caller, psa_handle_t handle,
         wt_drop(slot);
         return PSA_ERROR_PROGRAMMER_ERROR;
     }
-    for (i = 0U; i < in_len + out_len; i++) {
-        if (vec[i].len > WT_SPM_TRANSFER_BYTES - total) {
-            return PSA_ERROR_INVALID_ARGUMENT;
-        }
-        total += vec[i].len;
-    }
     for (x = 0U; x < WT_SPM_TRANSFERS && xfer == NULL; x++) {
         if (g_wt_spm.xfer[x].used == 0U) {
             xfer = &g_wt_spm.xfer[x];
@@ -313,39 +305,40 @@ psa_status_t wt_spm_call_begin(psa_client_id_t caller, psa_handle_t handle,
     if (xfer == NULL) {
         return PSA_ERROR_INSUFFICIENT_MEMORY;
     }
-    total = 0U;
-    for (i = 0U; i < in_len + out_len; i++) {
+    slot->xfer = xfer;
+    for (i = 0U; i < WT_SPM_VECS; i++) {
+        /* FF-M: a vector past its count has zero length. */
+        len = i < (i < PSA_MAX_IOVEC ? in_len : PSA_MAX_IOVEC + out_len) ?
+              vec[i].len : 0U;
+        if (len > WT_SPM_TRANSFER_BYTES - total) {
+            wt_xfer_free(slot);
+            return PSA_ERROR_INVALID_ARGUMENT;
+        }
         xfer->off[i] = (uint16_t)total;
-        xfer->len[i] = (uint16_t)vec[i].len;
-        if (i >= in_len) {
-            xfer->dst[i - in_len] = vec[i].base;
-        }
-        else if (vec[i].len != 0U) {
-            (void)memcpy(&xfer->buf[total], vec[i].base, vec[i].len);
-        }
-        total += vec[i].len;
+        xfer->len[i] = (uint16_t)len;
+        total += len;
     }
-    xfer->in_count = (uint8_t)in_len;
-    xfer->out_count = (uint8_t)out_len;
+    for (i = 0U; i < PSA_MAX_IOVEC; i++) {
+        if (xfer->len[i] != 0U) {
+            (void)memcpy(&xfer->buf[xfer->off[i]], vec[i].base, xfer->len[i]);
+        }
+        xfer->dst[i] = vec[PSA_MAX_IOVEC + i].base;
+    }
     xfer->used = 1U;
-    slot->xfer = (uint8_t)x;
     slot->state = WT_SLOT_BUSY;
     wt_queue(slot, type);
-    *out = (uint8_t)index;
-    return PSA_SUCCESS;
+    return index;
 }
 
-psa_status_t wt_spm_close_begin(psa_client_id_t caller, psa_handle_t handle,
-                                uint8_t* out)
+int32_t wt_spm_close_begin(psa_client_id_t caller, psa_handle_t handle)
 {
     int index;
     wt_spm_slot_t* slot;
 
-    *out = WT_SPM_NO_SLOT;
     if (handle == PSA_NULL_HANDLE) {
-        return PSA_SUCCESS;
+        return (int32_t)WT_SPM_NO_SLOT;
     }
-    index = caller == 0 ? WT_SPM_E_ARGUMENT : wt_conn_slot(caller, handle);
+    index = wt_conn_slot(caller, handle);
     if (index < 0) {
         return index;
     }
@@ -357,11 +350,10 @@ psa_status_t wt_spm_close_begin(psa_client_id_t caller, psa_handle_t handle,
     if (slot->detached == WT_DETACH_REPLY) {
         /* The service still holds the abandoned call: disconnect after it. */
         slot->detached = WT_DETACH_CLOSE;
-        return PSA_SUCCESS;
+        return (int32_t)WT_SPM_NO_SLOT;
     }
     wt_queue(slot, PSA_IPC_DISCONNECT);
-    *out = (uint8_t)index;
-    return PSA_SUCCESS;
+    return index;
 }
 
 int wt_spm_done(uint8_t slot)
@@ -382,33 +374,31 @@ psa_handle_t wt_spm_connect_finish(uint8_t index)
     return wt_handle(WT_HANDLE_CONN, index, slot->gen);
 }
 
-psa_status_t wt_spm_call_finish(uint8_t index, size_t out_len[PSA_MAX_IOVEC])
+psa_status_t wt_spm_call_finish(uint8_t index, wt_spm_vec_t* vec)
 {
     wt_spm_slot_t* slot = &g_wt_spm.slot[index];
-    wt_spm_xfer_t* xfer = &g_wt_spm.xfer[slot->xfer - 1U];
+    wt_spm_xfer_t* xfer = slot->xfer;
     psa_status_t status = slot->status;
+    size_t len;
     uint32_t o;
-    uint32_t v;
 
     /* Publish all output or none: check every destination first. */
-    for (o = 0U; o < xfer->out_count; o++) {
-        v = xfer->in_count + o;
-        if (xfer->pos[v] != 0U && !wt_spm_caller_can_write(slot->caller,
-                xfer->dst[o], xfer->pos[v])) {
+    for (o = 0U; o < PSA_MAX_IOVEC; o++) {
+        len = xfer->pos[PSA_MAX_IOVEC + o];
+        if (len != 0U && !wt_spm_caller_can_write(slot->caller, xfer->dst[o],
+                                                  len)) {
             status = PSA_ERROR_PROGRAMMER_ERROR;
             slot->state = WT_SLOT_ERROR;
         }
     }
     for (o = 0U; o < PSA_MAX_IOVEC; o++) {
-        v = xfer->in_count + o;
-        out_len[o] = 0U;
-        if (status != PSA_ERROR_PROGRAMMER_ERROR && o < xfer->out_count) {
-            if (xfer->pos[v] != 0U) {
-                (void)memcpy(xfer->dst[o], &xfer->buf[xfer->off[v]],
-                             xfer->pos[v]);
-            }
-            out_len[o] = xfer->pos[v];
+        len = status != PSA_ERROR_PROGRAMMER_ERROR ?
+              xfer->pos[PSA_MAX_IOVEC + o] : 0U;
+        if (len != 0U) {
+            (void)memcpy(xfer->dst[o],
+                         &xfer->buf[xfer->off[PSA_MAX_IOVEC + o]], len);
         }
+        vec[PSA_MAX_IOVEC + o].len = len;
     }
     wt_end_msg(slot);
     return status;
@@ -421,8 +411,12 @@ void wt_spm_close_finish(uint8_t index)
 
 void wt_spm_abandon(uint8_t index)
 {
-    wt_spm_slot_t* slot = &g_wt_spm.slot[index];
+    wt_spm_slot_t* slot;
 
+    if (index >= WT_SPM_SLOTS) {
+        return;
+    }
+    slot = &g_wt_spm.slot[index];
     if (slot->type == PSA_IPC_DISCONNECT || slot->msg != WT_MSG_QUEUED) {
         wt_detach(slot, slot->type >= PSA_IPC_CALL ? WT_DETACH_REPLY :
                                                      WT_DETACH_CLOSE);
@@ -479,7 +473,7 @@ psa_status_t wt_spm_get(uint8_t sp, psa_signal_t signal, psa_msg_t* msg)
     }
     for (i = 0U; i < WT_SPM_SLOTS; i++) {
         wt_spm_slot_t* slot = &g_wt_spm.slot[i];
-        uint32_t age = (uint8_t)(g_wt_spm.ticket - slot->ticket);
+        uint32_t age = (uint16_t)(g_wt_spm.ticket - slot->ticket);
 
         if (slot->msg == WT_MSG_QUEUED &&
                 g_wt_spm_services[slot->svc].sp == sp &&
@@ -499,19 +493,18 @@ psa_status_t wt_spm_get(uint8_t sp, psa_signal_t signal, psa_msg_t* msg)
     msg->type = best->type;
     msg->client_id = best->caller;
     msg->rhandle = (void*)best->rhandle;
-    if (best->xfer != 0U) {
-        const wt_spm_xfer_t* xfer = &g_wt_spm.xfer[best->xfer - 1U];
+    if (best->xfer != NULL) {
+        const wt_spm_xfer_t* xfer = best->xfer;
 
-        for (i = 0U; i < xfer->in_count; i++) {
+        for (i = 0U; i < PSA_MAX_IOVEC; i++) {
             msg->in_size[i] = xfer->len[i];
-        }
-        for (i = 0U; i < xfer->out_count; i++) {
-            msg->out_size[i] = xfer->len[xfer->in_count + i];
+            msg->out_size[i] = xfer->len[PSA_MAX_IOVEC + i];
         }
     }
     return PSA_SUCCESS;
 }
 
+#if defined(WT_FFM_SP_RHANDLE) && (WT_FFM_SP_RHANDLE == 1)
 int wt_spm_set_rhandle(uint8_t sp, psa_handle_t msg, void* rhandle)
 {
     int index = wt_msg_slot(sp, msg);
@@ -524,6 +517,7 @@ int wt_spm_set_rhandle(uint8_t sp, psa_handle_t msg, void* rhandle)
     }
     return WT_SPM_OK;
 }
+#endif
 
 int wt_spm_copy(uint8_t sp, psa_handle_t msg, uint32_t idx, void* buffer,
                 size_t len, int write, size_t* done)
@@ -531,7 +525,6 @@ int wt_spm_copy(uint8_t sp, psa_handle_t msg, uint32_t idx, void* buffer,
     int index = idx >= PSA_MAX_IOVEC ? WT_SPM_E_ARGUMENT :
                                        wt_msg_slot(sp, msg);
     wt_spm_xfer_t* xfer;
-    uint32_t count;
     uint32_t v;
     size_t left;
     uint8_t* at;
@@ -543,11 +536,10 @@ int wt_spm_copy(uint8_t sp, psa_handle_t msg, uint32_t idx, void* buffer,
     if (g_wt_spm.slot[index].type < PSA_IPC_CALL) {
         return WT_SPM_E_STATE;
     }
-    xfer = &g_wt_spm.xfer[g_wt_spm.slot[index].xfer - 1U];
-    count = write ? xfer->out_count : xfer->in_count;
-    v = write ? xfer->in_count + idx : idx;
-    /* FF-M: an omitted vector has zero capacity. */
-    left = idx < count ? (size_t)xfer->len[v] - xfer->pos[v] : 0U;
+    xfer = g_wt_spm.slot[index].xfer;
+    v = write ? PSA_MAX_IOVEC + idx : idx;
+    /* FF-M: an omitted vector has zero capacity, which call_begin stored. */
+    left = (size_t)xfer->len[v] - xfer->pos[v];
     if (!write && len > left) {
         len = left;
     }
@@ -558,9 +550,7 @@ int wt_spm_copy(uint8_t sp, psa_handle_t msg, uint32_t idx, void* buffer,
         at = &xfer->buf[xfer->off[v] + xfer->pos[v]];
         (void)memcpy(write ? at : buffer, write ? buffer : at, len);
     }
-    if (len != 0U) {
-        xfer->pos[v] = (uint16_t)(xfer->pos[v] + len);
-    }
+    xfer->pos[v] = (uint16_t)(xfer->pos[v] + len);
     *done = len;
     return WT_SPM_OK;
 }
@@ -620,6 +610,7 @@ int wt_spm_reply(uint8_t sp, psa_handle_t msg, psa_status_t status)
     return WT_SPM_OK;
 }
 
+#if defined(WT_FFM_SP_DOORBELL) && (WT_FFM_SP_DOORBELL == 1)
 int wt_spm_notify(int32_t pid)
 {
     int sp = wt_spm_sp_index(pid);
@@ -630,19 +621,15 @@ int wt_spm_notify(int32_t pid)
     g_wt_spm.asserted[sp] |= PSA_DOORBELL;
     return WT_SPM_OK;
 }
+#endif
 
-static int wt_clear_signal(uint8_t sp, psa_signal_t signal)
+int wt_spm_clear(uint8_t sp, psa_signal_t signal)
 {
     if ((g_wt_spm.asserted[sp] & signal) == 0U) {
         return WT_SPM_E_STATE;
     }
     g_wt_spm.asserted[sp] &= ~signal;
     return WT_SPM_OK;
-}
-
-int wt_spm_clear(uint8_t sp)
-{
-    return wt_clear_signal(sp, PSA_DOORBELL);
 }
 
 int wt_spm_irq_of(uint8_t sp, psa_signal_t irq_signal, uint32_t* irq)
@@ -663,14 +650,6 @@ int wt_spm_irq_of(uint8_t sp, psa_signal_t irq_signal, uint32_t* irq)
     return WT_SPM_E_POLICY;
 }
 
-int wt_spm_eoi(uint8_t sp, psa_signal_t irq_signal)
-{
-    uint32_t irq;
-    int ret = wt_spm_irq_of(sp, irq_signal, &irq);
-
-    return ret != WT_SPM_OK ? ret : wt_clear_signal(sp, irq_signal);
-}
-
 int wt_spm_irq_assert(uint32_t irq)
 {
     uint32_t i;
@@ -684,6 +663,8 @@ int wt_spm_irq_assert(uint32_t irq)
     return WT_SPM_E_POLICY;
 }
 
+#if (defined(WT_GUEST_RESTART) && (WT_GUEST_RESTART == 1)) || \
+    (defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)) || (WT_MAX_GUESTS > 1)
 void wt_spm_client_gone(psa_client_id_t caller)
 {
     uint32_t i;
@@ -707,6 +688,7 @@ void wt_spm_client_gone(psa_client_id_t caller)
         g_wt_spm.ns_entry_caller = 0;
     }
 }
+#endif
 
 #if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)
 int wt_spm_sp_restarted(uint8_t sp, psa_status_t status)
@@ -730,10 +712,9 @@ int wt_spm_sp_restarted(uint8_t sp, psa_status_t status)
         slot->status = status;
         slot->msg = WT_MSG_DONE;
         slot->mgen++;
-        if (slot->xfer != 0U) {
+        if (slot->xfer != NULL) {
             /* Output the faulted server staged is discarded, not published. */
-            (void)memset(g_wt_spm.xfer[slot->xfer - 1U].pos, 0,
-                         sizeof(g_wt_spm.xfer[0].pos));
+            (void)memset(slot->xfer->pos, 0, sizeof(slot->xfer->pos));
         }
         if (slot->detached == WT_DETACH_CLOSE) {
             wt_release(slot);

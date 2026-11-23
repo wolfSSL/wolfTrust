@@ -28,12 +28,24 @@
 #include "psa/service.h"
 #include "wolftrust/types.h"
 
+/* Trims default on; a build turns one off with -D<name>=0. */
+#ifndef WT_FFM_SP_DOORBELL
+#define WT_FFM_SP_DOORBELL 1
+#endif
+#ifndef WT_FFM_SP_RHANDLE
+#define WT_FFM_SP_RHANDLE 1
+#endif
+
+#ifndef WT_SPM_SLOTS
 #define WT_SPM_SLOTS              16U
+#endif
 #define WT_SPM_SLOTS_PER_CLIENT   (WT_SPM_SLOTS / 2U)
 /* Slots Non-secure clients can never take, kept for Secure dependencies. */
 #define WT_SPM_SECURE_RESERVED    4U
 #define WT_SPM_NS_SLOTS           (WT_SPM_SLOTS - WT_SPM_SECURE_RESERVED)
+#ifndef WT_SPM_TRANSFER_BYTES
 #define WT_SPM_TRANSFER_BYTES     1024U
+#endif
 #define WT_SPM_NO_SLOT            0xFFU
 
 #ifndef WT_SPM_TRANSFERS
@@ -49,7 +61,6 @@ typedef enum wt_spm_result {
     WT_SPM_OK = 0,
     WT_SPM_E_ARGUMENT = -600,
     WT_SPM_E_POLICY = -602,
-    WT_SPM_E_RESOURCE = -603,
     WT_SPM_E_HANDLE = -604,
     WT_SPM_E_STATE = -605,
     WT_SPM_E_NOT_READY = -606,
@@ -94,43 +105,48 @@ typedef struct wt_spm_vec {
     size_t len;
 } wt_spm_vec_t;
 
+/* Vector v is input v below PSA_MAX_IOVEC, else output v - PSA_MAX_IOVEC. */
+#define WT_SPM_VECS (2U * PSA_MAX_IOVEC)
+
 typedef struct wt_spm_xfer {
     void* dst[PSA_MAX_IOVEC];
-    uint16_t len[PSA_MAX_IOVEC];
-    uint16_t pos[PSA_MAX_IOVEC];
-    uint16_t off[PSA_MAX_IOVEC];
-    uint8_t in_count;
-    uint8_t out_count;
+    uint16_t len[WT_SPM_VECS];
+    uint16_t pos[WT_SPM_VECS];
+    uint16_t off[WT_SPM_VECS];
     uint8_t used;
     uint8_t buf[WT_SPM_TRANSFER_BYTES];
 } wt_spm_xfer_t;
 
-/* One slot is a connection and its single in-flight message. */
+/* One slot is a connection and its single in-flight message. gen and mgen
+ * tag its handles and stay last: a release clears everything before them. */
 typedef struct wt_spm_slot {
     uintptr_t rhandle;
+    wt_spm_xfer_t* xfer;
     psa_client_id_t caller;
     psa_status_t status;
     int32_t type;
-    uint16_t gen;
-    uint16_t mgen;
+    uint16_t ticket;
     uint8_t state;
     uint8_t msg;
     uint8_t svc;
-    uint8_t ticket;
-    uint8_t xfer;
     uint8_t latch;
     uint8_t detached;
+    uint16_t gen;
+    uint16_t mgen;
 } wt_spm_slot_t;
 
+#ifndef WT_SPM_MAX_SPS
 #define WT_SPM_MAX_SPS 9U
+#endif
 
+/* The transfers go last so every other field keeps a short offset. */
 typedef struct wt_spm_core {
     wt_spm_slot_t slot[WT_SPM_SLOTS];
-    wt_spm_xfer_t xfer[WT_SPM_TRANSFERS];
     psa_signal_t asserted[WT_SPM_MAX_SPS];
-    uint8_t ticket;
     uint32_t lifecycle;
     volatile psa_client_id_t ns_entry_caller;
+    uint16_t ticket;
+    wt_spm_xfer_t xfer[WT_SPM_TRANSFERS];
 } wt_spm_core_t;
 
 extern wt_spm_core_t g_wt_spm;
@@ -142,20 +158,23 @@ void wt_spm_core_init(void);
 int wt_spm_sp_index(int32_t pid);
 uint32_t wt_spm_service_version(psa_client_id_t caller, uint32_t sid);
 
-/* Client side: begin queues a message on a slot, done reports its reply,
- * finish harvests it and abandon detaches a client that will not wait. */
-psa_status_t wt_spm_connect_begin(psa_client_id_t caller, uint32_t sid,
-                                  uint32_t version, uint8_t* slot);
-/* vec holds in_len inputs then out_len outputs, already access-checked. */
-psa_status_t wt_spm_call_begin(psa_client_id_t caller, psa_handle_t handle,
-                               int32_t type, const wt_spm_vec_t* vec,
-                               size_t in_len, size_t out_len, uint8_t* slot);
-psa_status_t wt_spm_close_begin(psa_client_id_t caller, psa_handle_t handle,
-                                uint8_t* slot);
+/* Client side: begin queues a message and returns its slot (0 or more) or a
+ * negative status; done reports the reply, finish harvests it and abandon
+ * detaches a client that will not wait. */
+int32_t wt_spm_connect_begin(psa_client_id_t caller, uint32_t sid,
+                             uint32_t version);
+/* vec holds WT_SPM_VECS entries, inputs in the first half and outputs in the
+ * second, already access-checked; entries past a count are ignored. */
+int32_t wt_spm_call_begin(psa_client_id_t caller, psa_handle_t handle,
+                          int32_t type, const wt_spm_vec_t* vec,
+                          size_t in_len, size_t out_len);
+/* WT_SPM_NO_SLOT: closed with nothing to wait for. */
+int32_t wt_spm_close_begin(psa_client_id_t caller, psa_handle_t handle);
 void wt_spm_call_refuse(psa_client_id_t caller, psa_handle_t handle);
 int wt_spm_done(uint8_t slot);
 psa_handle_t wt_spm_connect_finish(uint8_t slot);
-psa_status_t wt_spm_call_finish(uint8_t slot, size_t out_len[PSA_MAX_IOVEC]);
+/* Writes the bytes produced into the len of every output entry of vec. */
+psa_status_t wt_spm_call_finish(uint8_t slot, wt_spm_vec_t* vec);
 void wt_spm_close_finish(uint8_t slot);
 void wt_spm_abandon(uint8_t slot);
 
@@ -163,19 +182,26 @@ void wt_spm_abandon(uint8_t slot);
 psa_signal_t wt_spm_pending(uint8_t sp);
 int wt_spm_wait(uint8_t sp, psa_signal_t mask, psa_signal_t* asserted);
 psa_status_t wt_spm_get(uint8_t sp, psa_signal_t signal, psa_msg_t* msg);
+#if defined(WT_FFM_SP_RHANDLE) && (WT_FFM_SP_RHANDLE == 1)
 int wt_spm_set_rhandle(uint8_t sp, psa_handle_t msg, void* rhandle);
+#endif
 /* psa_read (buffer NULL for psa_skip) or psa_write on vector idx. */
 int wt_spm_copy(uint8_t sp, psa_handle_t msg, uint32_t idx, void* buffer,
                 size_t len, int write, size_t* done);
 int wt_spm_reply(uint8_t sp, psa_handle_t msg, psa_status_t status);
+#if defined(WT_FFM_SP_DOORBELL) && (WT_FFM_SP_DOORBELL == 1)
 int wt_spm_notify(int32_t pid);
-int wt_spm_clear(uint8_t sp);
-int wt_spm_eoi(uint8_t sp, psa_signal_t irq_signal);
+#endif
+/* psa_clear passes PSA_DOORBELL; psa_eoi the signal wt_spm_irq_of accepted. */
+int wt_spm_clear(uint8_t sp, psa_signal_t signal);
 int wt_spm_irq_of(uint8_t sp, psa_signal_t irq_signal, uint32_t* irq);
 int wt_spm_irq_assert(uint32_t irq);
 
 /* Abnormal termination: a client that left, a partition that restarted. */
+#if (defined(WT_GUEST_RESTART) && (WT_GUEST_RESTART == 1)) || \
+    (defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)) || (WT_MAX_GUESTS > 1)
 void wt_spm_client_gone(psa_client_id_t caller);
+#endif
 #if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)
 int wt_spm_sp_restarted(uint8_t sp, psa_status_t status);
 #endif

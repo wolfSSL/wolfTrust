@@ -263,6 +263,13 @@ static void wt_hsm_tasklet_main(void *arg)
     }
 }
 
+static int wt_hsm_guest_init_failure(wt_hsm_guest_t* g, int rc)
+{
+    wt_hsm_force_zero(&g->server, sizeof(g->server));
+    wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
+    return rc;
+}
+
 /* =========================================================================
  * wt_hsm_guest_init
  * ====================================================================== */
@@ -307,7 +314,7 @@ static int wt_hsm_guest_init(wt_guest_id_t guest_id)
      * ---------------------------------------------------------------- */
     rc = wc_InitRng_ex(g->crypto.rng, NULL, INVALID_DEVID);
     if (rc != 0) {
-        return rc;
+        return wt_hsm_guest_init_failure(g, rc);
     }
 
     /* ------------------------------------------------------------------
@@ -335,7 +342,7 @@ static int wt_hsm_guest_init(wt_guest_id_t guest_id)
     rc = wh_Server_Init(&g->server, &g->server_cfg);
     if (rc != WH_ERROR_OK) {
         wc_FreeRng(g->crypto.rng);
-        return rc;
+        return wt_hsm_guest_init_failure(g, rc);
     }
 
     /* Mark the server connected so HandleRequestMessage does not reject
@@ -344,7 +351,7 @@ static int wt_hsm_guest_init(wt_guest_id_t guest_id)
     if (rc != WH_ERROR_OK) {
         wh_Server_Cleanup(&g->server);
         wc_FreeRng(g->crypto.rng);
-        return rc;
+        return wt_hsm_guest_init_failure(g, rc);
     }
 
     /* ------------------------------------------------------------------
@@ -361,7 +368,7 @@ static int wt_hsm_guest_init(wt_guest_id_t guest_id)
         if (tasklet == NULL) {
             wh_Server_Cleanup(&g->server);
             wc_FreeRng(g->crypto.rng);
-            return WH_ERROR_ABORTED;
+            return wt_hsm_guest_init_failure(g, WH_ERROR_ABORTED);
         }
         wt_hsm_priv_register(guest_id, tasklet);
     }

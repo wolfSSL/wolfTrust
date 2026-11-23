@@ -21,6 +21,7 @@
 #include "wolftrust/services/vnet_relay.h"
 #include "wolftrust/vnet/vnet_errors.h"
 #include "wolftrust/vnet/vnet_config.h"
+#include "wolftrust/zeroize.h"
 
 #include <string.h>
 
@@ -195,25 +196,25 @@ static psa_status_t wt_vnet_relay_tx(wt_ffm_runtime_t* runtime,
                                      vnet_switch_t* sw, uint32_t vm,
                                      const psa_msg_t* msg)
 {
+    size_t frame_len = msg->in_size[0];
     size_t len = 0U;
     uint32_t tick;
     int rc;
 
-    if (msg->in_size[0] == 0U ||
-            msg->in_size[0] > (size_t)WT_VNET_PSA_MTU) {
+    if (frame_len == 0U || frame_len > (size_t)WT_VNET_PSA_MTU ||
+            frame_len > sizeof(g_vnet_tx_scratch)) {
         /* OPEN advertises WT_VNET_PSA_MTU as the link MTU; refuse larger
          * frames here so an oversized frame can never enter a peer's queue
          * and wedge a receiver sized to the advertised MTU. */
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    if (msg->in_size[0] < (size_t)WT_VNET_FRAME_MIN) {
+    if (frame_len < (size_t)WT_VNET_FRAME_MIN) {
         return (psa_status_t)WT_VNET_E_FRAME_LEN;
     }
     if (wt_vnet_relay_read_vec(runtime, partition_id, msg->handle, 0U,
-                               g_vnet_tx_scratch,
-                               sizeof(g_vnet_tx_scratch),
-                               &len) != WT_FFM_SUCCESS ||
-            len != msg->in_size[0]) {
+                               g_vnet_tx_scratch, frame_len,
+                               &len) != WT_FFM_SUCCESS || len != frame_len) {
+        wt_forceZero(g_vnet_tx_scratch, frame_len);
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     tick = wt_vnet_relay_now();
@@ -224,10 +225,8 @@ static psa_status_t wt_vnet_relay_tx(wt_ffm_runtime_t* runtime,
             vnet_switch_drop_expired(sw, tick, WT_VNET_TIMEOUT_TICKS) > 0U) {
         rc = vnet_switch_tx(sw, vm, g_vnet_tx_scratch, (uint16_t)len, tick);
     }
-    if (rc != WT_VNET_OK) {
-        return (psa_status_t)rc;
-    }
-    return PSA_SUCCESS;
+    wt_forceZero(g_vnet_tx_scratch, len);
+    return (rc == WT_VNET_OK) ? PSA_SUCCESS : (psa_status_t)rc;
 }
 
 /* Dequeue one frame: poll, copy the payload out, release the slot, then return
@@ -269,23 +268,21 @@ static psa_status_t wt_vnet_relay_rx_fetch(wt_ffm_runtime_t* runtime,
     }
     rc = vnet_switch_release_rx(sw, vm, g_vnet_meta_scratch.token_slot,
                                 g_vnet_meta_scratch.token_gen);
-    if (rc != WT_VNET_OK) {
-        return (psa_status_t)rc;
+    if (rc == WT_VNET_OK) {
+        g_vnet_meta_scratch.len = (uint16_t)n;
+        if (wt_vnet_relay_write_vec(runtime, partition_id, msg->handle, 0U,
+                                    &g_vnet_meta_scratch,
+                                    sizeof(g_vnet_meta_scratch)) !=
+                WT_FFM_SUCCESS ||
+                (n > 0 &&
+                 wt_vnet_relay_write_vec(runtime, partition_id, msg->handle,
+                                         1U, g_vnet_rx_scratch, (size_t)n) !=
+                     WT_FFM_SUCCESS)) {
+            rc = PSA_ERROR_GENERIC_ERROR;
+        }
     }
-    g_vnet_meta_scratch.len = (uint16_t)n;
-    if (wt_vnet_relay_write_vec(runtime, partition_id, msg->handle, 0U,
-                                &g_vnet_meta_scratch,
-                                sizeof(g_vnet_meta_scratch)) !=
-            WT_FFM_SUCCESS) {
-        return PSA_ERROR_GENERIC_ERROR;
-    }
-    if (n > 0 &&
-            wt_vnet_relay_write_vec(runtime, partition_id, msg->handle, 1U,
-                                    g_vnet_rx_scratch,
-                                    (size_t)n) != WT_FFM_SUCCESS) {
-        return PSA_ERROR_GENERIC_ERROR;
-    }
-    return PSA_SUCCESS;
+    wt_forceZero(g_vnet_rx_scratch, (size_t)n);
+    return (rc == WT_VNET_OK) ? PSA_SUCCESS : (psa_status_t)rc;
 }
 
 static psa_status_t wt_vnet_relay_op(wt_ffm_runtime_t* runtime,

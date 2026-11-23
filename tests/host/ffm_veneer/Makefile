@@ -39,6 +39,7 @@ include ../vendor_c99.mk
 _WT_SRCS := \
     $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_boot.c \
+    $(ROOT)/src/arch/armv8m/cmse.c \
     $(ROOT)/src/arch/common/ffm_gateway.c \
     $(ROOT)/src/ffm_domain.c \
     $(ROOT)/src/ipc.c \
@@ -83,6 +84,9 @@ $(BUILD_DIR)/wt_%.o: $(ROOT)/src/services/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_%.o: $(ROOT)/src/arch/common/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/wt_cmse.o: $(ROOT)/src/arch/armv8m/cmse.c arm_cmse.h | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wc_%.o: $(WOLFSSL)/wolfcrypt/src/%.c | $(BUILD_DIR)

@@ -27,9 +27,12 @@
 
 #include "wolftrust/ffm_boot.h"
 #include "wolftrust/ffm_gateway.h"
+#include "wolftrust/arch/armv8m/cmse.h"
+#include "wolftrust/partition.h"
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/hsm_relay.h"
 #include "psa_manifest/pid.h"
+#include "arm_cmse.h"
 
 #include <setjmp.h>
 #include <stdio.h>
@@ -39,6 +42,32 @@
 
 #define TEST_HSM_SID    4102U
 #define TEST_NS_CLIENT  (-1)
+
+static uint8_t g_large_buffer[65568U];
+static const wt_guest_config_t g_guest = {
+    .guest_id = 0U,
+    .memory_windows = {
+        { .base = (uintptr_t)g_large_buffer, .size = sizeof(g_large_buffer),
+          .attributes = WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE }
+    },
+    .memory_window_count = 1U
+};
+
+const wt_guest_config_t* wt_partitions_config_table(size_t* count)
+{
+    *count = 1U;
+    return &g_guest;
+}
+
+void* cmse_check_address_range(void* address, size_t size, int flags)
+{
+    if (address == g_large_buffer && size <= sizeof(g_large_buffer) &&
+            (flags == (CMSE_NONSECURE | CMSE_MPU_READ) ||
+             flags == (CMSE_NONSECURE | CMSE_MPU_READWRITE))) {
+        return address;
+    }
+    return NULL;
+}
 
 static int g_panics;
 static int g_reads_seen;
@@ -147,6 +176,10 @@ static int test_ns_check_read(wt_guest_id_t guest_id, const void* address,
 {
     g_reads_seen++;
     g_last_guest = guest_id;
+    if (address == g_large_buffer) {
+        return wt_cmse_check_ns_ro(address, size) &&
+               wt_cmse_check_in_guest_ns_addr(guest_id, address, size);
+    }
     return size == 0U || address != NULL;
 }
 
@@ -155,6 +188,10 @@ static int test_ns_check_write(wt_guest_id_t guest_id, void* address,
 {
     g_writes_seen++;
     g_last_guest = guest_id;
+    if (address == g_large_buffer) {
+        return wt_cmse_check_ns_rw(address, size) &&
+               wt_cmse_check_in_guest_ns_ram(guest_id, address, size);
+    }
     return size == 0U ||
            (address != NULL && address != g_readonly_descriptor);
 }
@@ -394,6 +431,30 @@ int main(void)
     check(rt->ns_entry_caller == 0 && handle > 0 && g_panics == panics,
           "WT-FFM-0026 client restart cleanup releases the gateway entry");
     wt_ffm_gateway_close((int32_t)handle);
+
+    handle = wt_ffm_connect(rt, TEST_NS_CLIENT, TEST_HSM_SID, 1U);
+    in_vec.base = g_large_buffer;
+    in_vec.len = sizeof(g_large_buffer);
+    status = wt_ffm_call(rt, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                         &in_vec, 1U, NULL, 0U);
+    check(status == PSA_ERROR_INVALID_ARGUMENT,
+          "An owned large input reaches the FF-M transfer limit");
+    out_vec.base = g_large_buffer;
+    out_vec.len = sizeof(g_large_buffer);
+    status = wt_ffm_call(rt, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                         NULL, 0U, &out_vec, 1U);
+    check(status == PSA_ERROR_INVALID_ARGUMENT,
+          "An owned large output reaches the FF-M transfer limit");
+    in_vec.base = input;
+    in_vec.len = sizeof(input) - 1U;
+    out_vec.base = digest;
+    out_vec.len = sizeof(digest);
+    status = wt_ffm_call(rt, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                         &in_vec, 1U, &out_vec, 1U);
+    check(status == PSA_SUCCESS &&
+          memcmp(digest, expected, sizeof(expected)) == 0,
+          "Transfer limit errors leave the connection usable");
+    (void)wt_ffm_close(rt, TEST_NS_CLIENT, handle);
 
     /* FF-M start-up order: every partition runs to idle after the isolation
      * check and before the NSPE starts; a partition that cannot refuses boot. */

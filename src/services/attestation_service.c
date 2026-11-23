@@ -150,7 +150,7 @@ static psa_status_t wt_attestation_map_status(int ret)
             st = PSA_ERROR_BUFFER_TOO_SMALL;
             break;
         case WT_ATTEST_ERROR_NOT_READY:
-            st = PSA_ERROR_BAD_STATE;
+            st = PSA_ERROR_SERVICE_FAILURE;
             break;
         default:
             st = PSA_ERROR_GENERIC_ERROR;

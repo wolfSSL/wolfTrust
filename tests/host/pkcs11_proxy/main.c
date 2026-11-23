@@ -602,6 +602,27 @@ static void test_info_selectors(CK_FUNCTION_LIST_PTR fn)
           "an all-ones session handle is forwarded");
 }
 
+static void test_combined_local(CK_FUNCTION_LIST_PTR fn)
+{
+    CK_BYTE buffer[4] = { 0U, 0U, 0U, 0U };
+    CK_ULONG length = sizeof(buffer);
+
+    g_request_len = 0U;
+    check(fn->C_DigestEncryptUpdate(1U, buffer, sizeof(buffer), buffer,
+                                    &length) == CKR_FUNCTION_NOT_SUPPORTED &&
+              fn->C_DecryptDigestUpdate(1U, buffer, sizeof(buffer), buffer,
+                                        &length) ==
+                  CKR_FUNCTION_NOT_SUPPORTED &&
+              fn->C_SignEncryptUpdate(1U, buffer, sizeof(buffer), buffer,
+                                      &length) ==
+                  CKR_FUNCTION_NOT_SUPPORTED &&
+              fn->C_DecryptVerifyUpdate(1U, buffer, sizeof(buffer), buffer,
+                                        &length) ==
+                  CKR_FUNCTION_NOT_SUPPORTED &&
+              g_request_len == 0U,
+          "dual-function updates make no transport call");
+}
+
 int main(void)
 {
     CK_FUNCTION_LIST_PTR functions = NULL;
@@ -617,6 +638,7 @@ int main(void)
         test_mechanisms(functions);
         test_null_pointers(functions);
         test_info_selectors(functions);
+        test_combined_local(functions);
     }
     if (g_failures != 0) {
         return 1;

@@ -1203,20 +1203,22 @@ static CK_RV proxy_C_VerifyRecover(CK_SESSION_HANDLE session,
     return proxy_unsupported(WT_P11_VERIFY_RECOVER);
 }
 
-#define WT_PROXY_COMBINED(name, id) \
+/* No profile can enable the dual-function updates, so they stay local stubs
+ * like every other disabled entry. */
+#define WT_PROXY_COMBINED(name) \
 static CK_RV name(CK_SESSION_HANDLE session, CK_BYTE_PTR input, \
                   CK_ULONG input_len, CK_BYTE_PTR output, \
                   CK_ULONG_PTR output_len) \
 { \
     (void)session; (void)input; (void)input_len; (void)output; \
     (void)output_len; \
-    return proxy_unsupported(id); \
+    return CKR_FUNCTION_NOT_SUPPORTED; \
 }
 
-WT_PROXY_COMBINED(proxy_C_DigestEncryptUpdate, WT_P11_DIGEST_ENCRYPT_UPDATE)
-WT_PROXY_COMBINED(proxy_C_DecryptDigestUpdate, WT_P11_DECRYPT_DIGEST_UPDATE)
-WT_PROXY_COMBINED(proxy_C_SignEncryptUpdate, WT_P11_SIGN_ENCRYPT_UPDATE)
-WT_PROXY_COMBINED(proxy_C_DecryptVerifyUpdate, WT_P11_DECRYPT_VERIFY_UPDATE)
+WT_PROXY_COMBINED(proxy_C_DigestEncryptUpdate)
+WT_PROXY_COMBINED(proxy_C_DecryptDigestUpdate)
+WT_PROXY_COMBINED(proxy_C_SignEncryptUpdate)
+WT_PROXY_COMBINED(proxy_C_DecryptVerifyUpdate)
 
 static CK_RV proxy_C_WrapKey(CK_SESSION_HANDLE session,
         CK_MECHANISM_PTR mechanism, CK_OBJECT_HANDLE wrapping_key,

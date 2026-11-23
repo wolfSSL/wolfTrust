@@ -62,7 +62,7 @@ NEEDS_FULL = frozenset((
 # Scenarios whose Secure-image probe or client wire lives only in the wolfHSM
 # engine: the native engine does not link it, so the behaviour under test does
 # not exist there.
-HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
+HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg", "hsmrestartneg"))
 NATIVE_ONLY = frozenset(("nativewire", "nativewireasm", "devcryptolocal"))
 ENGINE_ONLY = {"hsm": HSM_ONLY, "native": NATIVE_ONLY}
 

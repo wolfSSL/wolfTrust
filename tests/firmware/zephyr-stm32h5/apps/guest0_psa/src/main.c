@@ -54,6 +54,10 @@
 
 /* The hsmattackneg probe drives the raw wolfHSM client; only that probe
  * build (hsm engine) links the client, so the headers gate with it. */
+#if defined(WT_HSM_RESTART_PROBE)
+#include "wolfhsm/wh_error.h"
+#include "wolfhsm/wh_client.h"
+#endif
 #if defined(WT_HSM_ATTACK_PROBE)
 #include "wolfssl/wolfcrypt/ecc.h"
 #include "wolfhsm/wh_error.h"
@@ -1079,7 +1083,7 @@ static void exercise_attestation_negatives(void)
 }
 #endif
 
-#if defined(WT_GUEST_FAULT_PROBE)
+#if defined(WT_GUEST_FAULT_PROBE) || defined(WT_HSM_RESTART_PROBE)
 /* Test-only restart probe: a Non-secure read of Secure RAM raises a SecureFault
  * that escalates to the wolfTrust monitor, exercising the manifest restart_limit
  * on target. Immediate logging flushes the banner before the fault. */
@@ -1090,6 +1094,39 @@ static void wt_guest_fault_probe(void)
 
 	sink = *secure_ram;
 	(void)sink;
+}
+#endif
+
+#if defined(WT_HSM_RESTART_PROBE)
+/* Test-only: a key one launch caches must be gone when the guest relaunches. */
+extern whClientContext *wolfhsm_guest_client(void);
+
+#define WT_HSM_RESTART_KEY_ID 0x21u
+
+static void exercise_hsm_restart_probe(void)
+{
+	whClientContext *ctx = wolfhsm_guest_client();
+	uint8_t key[16];
+	uint16_t key_sz = (uint16_t)sizeof(key);
+	uint16_t key_id = WT_HSM_RESTART_KEY_ID;
+	int rc;
+
+	rc = wh_Client_KeyExport(ctx, WT_HSM_RESTART_KEY_ID, NULL, 0u, key,
+				 &key_sz);
+	if (rc == WH_ERROR_OK) {
+		LOG_ERR("hsmrestartneg cached key survived the restart");
+	} else {
+		LOG_INF("hsmrestartneg key cache empty at launch");
+	}
+	(void)memset(key, 0x5A, sizeof(key));
+	rc = wh_Client_KeyCache(ctx, 0u, NULL, 0u, key, (uint16_t)sizeof(key),
+				&key_id);
+	if (rc == WH_ERROR_OK) {
+		LOG_INF("hsmrestartneg cached key ok");
+	} else {
+		LOG_ERR("hsmrestartneg key cache failed rc=%d", rc);
+	}
+	wt_guest_fault_probe();
 }
 #endif
 
@@ -1600,6 +1637,9 @@ int main(void)
 			wt_zephyr_client_status_string(rc));
 	}
 
+#if defined(WT_HSM_RESTART_PROBE)
+	exercise_hsm_restart_probe();
+#endif
 #if defined(WT_WRITE_ONCE_RESET_PROBE)
 	exercise_write_once_reset();
 #endif

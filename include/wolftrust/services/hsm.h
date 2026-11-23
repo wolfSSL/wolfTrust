@@ -136,6 +136,11 @@ struct wt_mutex *wt_hsm_nvm_lock_mutex(void);
  * re-init fails stays down. */
 int wt_hsm_relay_reinit_servers(void);
 
+/* Wipe guest_id's wolfHSM server, key cache and crypto context and rebuild
+ * them empty, for a guest restart or quarantine. A request in flight finishes
+ * first. Fails closed like wt_hsm_relay_reinit_servers. */
+int wt_hsm_reset_guest(wt_guest_id_t guest_id);
+
 /* Bind the crypto partition's wolfHSM servers to nvm and rebuild them on it.
  * Boot provisions the IAK on the direct store; before the scheduler starts,
  * the servers are rebound to the crypto partition's IPC-backed NVM context

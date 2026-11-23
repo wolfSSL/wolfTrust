@@ -215,6 +215,10 @@ SCENARIOS = {
                       blocks=("no_faults", "psa_lifecycle", "hsmattackneg"),
                       engines=("hsm",),
                 hw_blocks=("hw_no_faults", "hw_hsmattack")),
+    "hsmrestartneg": S(role="psa", guest_flags="WT_HSM_RESTART_PROBE=1",
+                       end="timeout", timeout=60, quit_on_faults=False,
+                       blocks=("hsmrestartneg",), engines=("hsm",),
+                       envs=("emulator",)),
     "authneg": S(end="timeout", timeout=40, blocks=("no_faults", "authneg"),
                  tamper=True, hw=True,
                 hw_blocks=("hw_no_faults", "hw_authneg", "hw_peer_alive")),
@@ -1058,6 +1062,14 @@ def block_checks(ctx, block, end):
                 expect("own-namespace crypto still works", pre + "hsmattackneg own-namespace crypto still works"),
                 refute_re("IAK sign never succeeded", "hsmattackneg IAK sign SUCCEEDED"),
                 refute_re("NVM group never succeeded", "hsmattackneg rollback NVM group SUCCEEDED")]
+    if block == "hsmrestartneg":
+        faults = ctx.restart_limit() + 1
+        return [expect_n("guest0 relaunched through its restart budget", faults, ctx.g0["started"]),
+                expect_n("every launch cached a key in its wolfHSM server", faults,
+                         "hsmrestartneg cached key ok"),
+                expect_n("every launch began with an empty wolfHSM key cache", faults,
+                         "hsmrestartneg key cache empty at launch"),
+                refute_re("no cached key reached a relaunched guest", "hsmrestartneg cached key survived")]
     if block == "fwustage":
         pre = "guest0: " if k0 == "psa" else ""
         where = "guest0" if k0 == "zephyr" else "log"

@@ -200,6 +200,7 @@
       "periphspneg": "the storage SP's probe faults on its first wake while the PSA guest finishes"
     },
     "exempt": {
+      "hsmrestartneg": "wolfHSM engine only; the STM32L562 builds the native engine",
       "devcryptolocal": "the STM32L562 defaults to WT_SECURE_PSA=0, so devcrypto already runs the guest-local PSA it checks",
       "hsmattackneg": "wolfHSM engine only; the STM32L562 builds the native engine (the wolfHSM bands do not fit 256 KiB of SRAM)",
       "hsmpinneg": "wolfHSM engine only; the STM32L562 builds the native engine (the wolfHSM bands do not fit 256 KiB of SRAM)",

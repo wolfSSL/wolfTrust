@@ -48,8 +48,8 @@
 #define WT_ATTEST_PAYLOAD_SIZE 512u
 #define WT_ATTEST_SCRATCH_SIZE 768u
 
-static const uint8_t g_measurement_type[] = "sha-256";
-static const uint8_t g_measurement_description[] = "wolftrust";
+static const uint8_t g_measurement_type[] = "PRoT";
+static const uint8_t g_measurement_description[] = "sha-256";
 #ifdef WT_ATTEST_CERT_REFERENCE
 static const uint8_t g_cert_reference[] = WT_ATTEST_CERT_REFERENCE;
 #endif

@@ -139,14 +139,14 @@ a tagged COSE_Sign1 token signed with ES256 through an external signer backed
 by the selected engine's protected attestation key. wolfCOSE performs the COSE
 encoding.
 
-The emitted token is derived from [RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html)
-but is not conformant with its advertised
-`tag:psacertified.org,2023:psa#tfm` profile. Its boot seed is deterministic
-across equivalent boots, its software-component measurement type and
-description values are reversed, its signer ID hashes the literal name
-`wolfBoot` rather than identifying the signing key, and its implementation ID
-hashes a software label rather than identifying the immutable PSA RoT hardware
-assembly. [TF-M Compatibility](TF-M-Compatibility.md) records these token-profile and API deviations.
+The token uses the `tag:psacertified.org,2023:psa#tfm` identifier from
+RFC 9783. The boot seed repeats across equivalent boots. The signer ID and
+implementation ID are software-label hashes. These claims are known deviations
+from the profile's signer and hardware identity requirements.
+[RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html)
+
+The compatibility register records the token-profile and API deviations.
+[TF-M Compatibility](TF-M-Compatibility.md)
 
 The EAT/PSA claim set binds:
 

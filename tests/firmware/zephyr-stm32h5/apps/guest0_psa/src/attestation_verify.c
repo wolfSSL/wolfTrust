@@ -86,8 +86,8 @@ static int wt_decode_measurement(const char* hex, uint8_t* measurement)
 static int wt_verify_software_component(WOLFCOSE_CBOR_CTX* cbor,
     const uint8_t* expectedMeasurement, uint8_t* tokenMeasurement)
 {
-    static const uint8_t type[] = "sha-256";
-    static const uint8_t description[] = "wolftrust";
+    static const uint8_t type[] = "PRoT";
+    static const uint8_t description[] = "sha-256";
     const uint8_t* data;
     size_t dataSize;
     size_t arrayCount;

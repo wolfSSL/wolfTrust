@@ -58,8 +58,27 @@ int wt_fwu_staged_extent_ok(uint32_t staged_size, uint32_t programmed_end,
            programmed_end - staged_size < align;
 }
 
-psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
-                          uint32_t version)
+/* Clear an abandoned update before starting a new one. Keep the previous
+ * update intact if its pending swap cannot be disarmed. */
+static psa_status_t wt_fwu_force_reset(wt_fwu_service_ctx_t* ctx)
+{
+    if (ctx->armed != 0u &&
+            (ctx->backend->disarm == NULL ||
+             ctx->backend->disarm(ctx->backend_ctx) != 0)) {
+        return PSA_ERROR_STORAGE_FAILURE;
+    }
+    ctx->state = PSA_FWU_READY;
+    ctx->write_high = 0u;
+    ctx->candidate_version = 0u;
+    ctx->armed = 0u;
+    ctx->error = PSA_SUCCESS;
+    ctx->owner = 0;
+    return PSA_SUCCESS;
+}
+
+static psa_status_t wt_fwu_start_update(wt_fwu_service_ctx_t* ctx,
+                                       uint32_t component, uint32_t version,
+                                       int reclaim)
 {
     if (ctx == NULL || ctx->backend == NULL) {
         return PSA_ERROR_BAD_STATE;
@@ -67,13 +86,19 @@ psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
     if (!wt_fwu_component_ok(component)) {
         return PSA_ERROR_DOES_NOT_EXIST;
     }
-    if (ctx->state != PSA_FWU_READY) {
+    if (ctx->state != PSA_FWU_READY && !reclaim) {
         return PSA_ERROR_BAD_STATE;
     }
     /* Reject a rolled-back candidate before the update partition is touched;
      * an undeclared version is bound from the image header at FINISH. */
     if (version != WT_FWU_VERSION_UNDECLARED && version < ctx->version_floor) {
         return PSA_ERROR_NOT_PERMITTED;
+    }
+    if (reclaim) {
+        psa_status_t status = wt_fwu_force_reset(ctx);
+        if (status != PSA_SUCCESS) {
+            return status;
+        }
     }
     if (ctx->backend->begin != NULL &&
             ctx->backend->begin(ctx->backend_ctx) != 0) {
@@ -84,6 +109,12 @@ psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
     ctx->candidate_version = version;
     ctx->armed = 0u;
     return PSA_SUCCESS;
+}
+
+psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
+                          uint32_t version)
+{
+    return wt_fwu_start_update(ctx, component, version, 0);
 }
 
 psa_status_t wt_fwu_write(wt_fwu_service_ctx_t* ctx, uint32_t component,
@@ -417,24 +448,6 @@ int wt_fwu_owner_expired(psa_client_id_t owner, uint32_t owner_tick,
     return 0;
 }
 
-/* Reclaim an abandoned session: disarm any pending swap and return to READY so
- * a new client may start. Never advances the version floor or arms a swap. */
-static psa_status_t wt_fwu_force_reset(wt_fwu_service_ctx_t* ctx)
-{
-    if (ctx->armed != 0u &&
-            (ctx->backend == NULL || ctx->backend->disarm == NULL ||
-             ctx->backend->disarm(ctx->backend_ctx) != 0)) {
-        return PSA_ERROR_STORAGE_FAILURE;
-    }
-    ctx->state = PSA_FWU_READY;
-    ctx->write_high = 0u;
-    ctx->candidate_version = 0u;
-    ctx->armed = 0u;
-    ctx->error = PSA_SUCCESS;
-    ctx->owner = 0;
-    return PSA_SUCCESS;
-}
-
 static psa_status_t wt_fwu_process_request(wt_fwu_service_ctx_t* ctx,
                                            wt_ffm_runtime_t* runtime,
                                            int32_t partition_id,
@@ -449,21 +462,8 @@ static psa_status_t wt_fwu_process_request(wt_fwu_service_ctx_t* ctx,
 
     (void)memcpy(&req, buffer, sizeof(req));
 
-    /* Reclaim a session whose owner has gone idle past the timeout so one
-     * client that opens an update and stops cannot wedge updates for everyone
-     * (DoS). An active owner refreshes its clock on every op below. */
-    if (wt_fwu_owner_expired(ctx->owner, ctx->owner_tick, now_tick,
-                             msg->client_id)) {
-        status = wt_fwu_force_reset(ctx);
-        if (status != PSA_SUCCESS) {
-            return status;
-        }
-    }
-
-    /* Per-transaction owner: only the client that opened the update (START)
-     * may drive or reboot it, so one guest cannot hijack, monopolize, arm, or
-     * reboot another guest's update (CWE-862). QUERY is read-only; START binds
-     * a new owner (and wt_fwu_start itself refuses a second concurrent one). */
+    /* Only the owner may drive an update or reboot to finish it. Other
+     * clients can query state and can start a new update after expiration. */
     if (msg->type != WT_FWU_OP_QUERY && msg->type != WT_FWU_OP_START &&
             ctx->owner != 0 && msg->client_id != ctx->owner) {
         return PSA_ERROR_NOT_PERMITTED;
@@ -480,9 +480,12 @@ static psa_status_t wt_fwu_process_request(wt_fwu_service_ctx_t* ctx,
                                  &info, sizeof(info)) != WT_FFM_SUCCESS) {
             status = PSA_ERROR_GENERIC_ERROR;
         }
-        break;
+        return status;
     case WT_FWU_OP_START:
-        status = wt_fwu_start(ctx, req.component, req.version);
+        status = wt_fwu_start_update(ctx, req.component, req.version,
+                                     wt_fwu_owner_expired(ctx->owner,
+                                         ctx->owner_tick, now_tick,
+                                         msg->client_id));
         if (status == PSA_SUCCESS) {
             ctx->owner = msg->client_id;
             ctx->owner_tick = now_tick;
@@ -531,11 +534,8 @@ static psa_status_t wt_fwu_process_request(wt_fwu_service_ctx_t* ctx,
     if (ctx->state == PSA_FWU_READY) {
         ctx->owner = 0;
     } else if (ctx->owner != 0 && msg->client_id == ctx->owner &&
-               msg->type != WT_FWU_OP_QUERY && msg->type != WT_FWU_OP_START) {
-        /* Refresh the idle clock only on owner progress (a state-mutating op),
-         * never on a read-only QUERY, so an owner cannot keep an abandoned
-         * session pinned by polling status under the timeout. START binds the
-         * clock in its own case. */
+               msg->type != WT_FWU_OP_START) {
+        /* START binds the clock. QUERY returns without refreshing it. */
         ctx->owner_tick = now_tick;
     }
     return status;

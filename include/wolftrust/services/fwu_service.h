@@ -118,13 +118,12 @@ typedef struct wt_fwu_service_ctx {
 } wt_fwu_service_ctx_t;
 
 /* Scheduler ticks (each ~one timeslice) an owned update may sit idle before a
- * different client may reclaim it. Generous: every owner operation refreshes
- * the clock, so this bounds only true abandonment, not a slow legitimate write. */
+ * different client may reclaim it with START. Owner progress refreshes the
+ * clock and QUERY leaves it unchanged. */
 #define WT_FWU_OWNER_IDLE_TIMEOUT_TICKS 30000u
 
-/* Reclaim predicate: non-zero when an owned session should be taken from an
- * idle owner because a different client is asking and the owner has been idle
- * past WT_FWU_OWNER_IDLE_TIMEOUT_TICKS. Neutral and host-tested. */
+/* Reports expiration for a different caller after the owner has been idle
+ * for WT_FWU_OWNER_IDLE_TIMEOUT_TICKS. */
 int wt_fwu_owner_expired(psa_client_id_t owner, uint32_t owner_tick,
                          uint32_t now_tick, psa_client_id_t caller);
 

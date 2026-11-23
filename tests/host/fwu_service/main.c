@@ -709,23 +709,41 @@ static void test_ipc_round_trip(void)
     check(status == PSA_SUCCESS && info.state == PSA_FWU_STAGED,
           "WT-FWU-0001 IPC query reports STAGED after install");
 
-    /* A timed-out owner cannot be reclaimed while disarming the pending
-     * update fails. A later retry can safely return the service to READY. */
+    /* Status remains readable while a staged update is waiting for reboot. */
     fwu_ctx.owner = 42;
     fwu_ctx.owner_tick = (uint32_t)(0U - WT_FWU_OWNER_IDLE_TIMEOUT_TICKS);
     mem.fail_disarm = 1;
+    (void)memset(&info, 0, sizeof(info));
     status = fwu_call(&runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
                       &info, sizeof(info));
+    check(status == PSA_SUCCESS && info.state == PSA_FWU_STAGED &&
+              mem.armed == 1u && fwu_ctx.owner == 42,
+          "WT-FWU-0001 IPC status query leaves the staged update intact");
+    status = fwu_call(&runtime, handle, WT_FWU_OP_FINISH, 0u, 0u, 0u, NULL,
+                      0U, NULL, 0U);
+    check(status == PSA_ERROR_NOT_PERMITTED && mem.armed == 1u &&
+              fwu_ctx.owner == 42 && fwu_ctx.state == PSA_FWU_STAGED,
+          "WT-FWU-0003 IPC finish requires the current owner");
+    status = fwu_call(&runtime, handle, WT_FWU_OP_START, 0u, 0u, 2u, NULL,
+                      0U, NULL, 0U);
+    check(status == PSA_ERROR_NOT_PERMITTED && mem.armed == 1u &&
+              fwu_ctx.owner == 42 && fwu_ctx.state == PSA_FWU_STAGED,
+          "WT-FWU-0003 IPC start checks the version floor before cleanup");
+
+    /* A new update cannot begin until the previous swap is disarmed. */
+    status = fwu_call(&runtime, handle, WT_FWU_OP_START, 0u, 0u, 8u, NULL,
+                      0U, NULL, 0U);
     check(status == PSA_ERROR_STORAGE_FAILURE && fwu_ctx.armed == 1u &&
               mem.armed == 1u && fwu_ctx.owner == 42 &&
               fwu_ctx.state == PSA_FWU_STAGED,
           "WT-FWU-0003 failed disarm preserves the staged update and owner");
     mem.fail_disarm = 0;
-    status = fwu_call(&runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
-                      &info, sizeof(info));
-    check(status == PSA_SUCCESS && info.state == PSA_FWU_READY &&
-              mem.armed == 0u && fwu_ctx.owner == 0,
-          "WT-FWU-0003 disarm retry reclaims the staged update");
+    status = fwu_call(&runtime, handle, WT_FWU_OP_START, 0u, 0u, 8u, NULL,
+                      0U, NULL, 0U);
+    check(status == PSA_SUCCESS && fwu_ctx.state == PSA_FWU_WRITING &&
+              mem.armed == 0u && mem.begin_calls == 2u &&
+              fwu_ctx.owner == TEST_NS_GUEST0,
+          "WT-FWU-0003 IPC start can begin a new update after disarm");
 }
 
 /* WT-FWU-0002: the wolfBoot update trigger the FWU backend arms into the

@@ -694,6 +694,8 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
         *resp_len = buf->resp_len;
         rc = WH_ERROR_OK;
     }
+    wt_hsm_force_zero(g->server.comm->packet,
+                      sizeof(g->server.comm->packet));
     wt_hsm_force_zero(buf, sizeof(*buf));
     return rc;
 }

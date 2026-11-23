@@ -143,11 +143,16 @@
 #define NO_ECC521
 
 /* -------------------------------------------------------------------------
- * AES-GCM for the vault sealer (WT-FFM-0048). GCM_SMALL keeps the GHASH
- * tables out of flash; sealed-storage writes are rare, so speed is moot.
+ * AES-GCM for the vault sealer (WT-FFM-0048). The seal key is device-wide,
+ * so AES touches every table line and GHASH runs the masked word multiply.
  * ---------------------------------------------------------------------- */
 #define HAVE_AESGCM
+/* ARMASM's table AES is not constant time, so keep its GHASH small. */
+#ifdef WOLFSSL_ARMASM
 #define GCM_SMALL
+#else
+#define WOLFSSL_AES_TOUCH_LINES
+#endif
 #if defined(WT_INTERFACE_LOCAL_PROVIDER) || \
     (defined(WT_ENGINE_HSM) && (defined(CONFIG_TPM) || defined(CONFIG_PKCS11)))
 /* fwTPM's common crypto helpers require CFB declarations. */
@@ -250,5 +255,11 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
  * ---------------------------------------------------------------------- */
 
 #include "secure_psa_profile.h"
+
+/* WT_WOLFCRYPT_ARMASM=1 opts into the Thumb-2 table AES instead. */
+#if !defined(WOLFSSL_ARMASM) && (!defined(WOLFSSL_AES_TOUCH_LINES) || \
+    defined(GCM_SMALL) || defined(GCM_TABLE) || defined(GCM_TABLE_4BIT))
+#error "the portable C vault sealer needs constant-time AES and GHASH"
+#endif
 
 #endif /* WOLFTRUST_SECURE_USER_SETTINGS_H */

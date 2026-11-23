@@ -92,7 +92,8 @@ int wt_secure_domain_contains(const wt_secure_domain_t* domain,
     uintptr_t end;
     size_t i;
 
-    if (domain == NULL || len == 0U) {
+    if (domain == NULL || domain->region_count > WT_MAX_MEMORY_REGIONS ||
+            len == 0U) {
         return 0;
     }
     if (addr > (UINTPTR_MAX - len)) {

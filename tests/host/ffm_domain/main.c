@@ -185,6 +185,8 @@ static void test_composed_isolation(void)
     a.region_count = WT_MAX_MEMORY_REGIONS + 1U;
     check(wt_secure_domains_isolated(&a, &b, NULL, 0U) == 0,
           "oversized table refused");
+    check(wt_secure_domain_contains(&a, WINDOW_BASE, 4U, 1) == 0,
+          "WT-FFM-0012 oversized table grants no access");
 
     /* SPM-private RAM is out of every partition's reach, read or write. */
     compose(&a, BAND_A_BASE, BAND_A_SIZE, rw);

@@ -244,6 +244,31 @@ class GeneratorTest(unittest.TestCase):
             self.assertIn("#define BETA_IRQ_SIGNAL 32U", beta)
             print("PASS: WT-FFM-0004 generated PSA headers")
 
+    def test_spm_tables_flatten_services_dependencies_and_irqs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "output"
+            result = self.run_generator(FIXTURE, output)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            source = (output / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            for line in (
+                    "    { 0x1000U, 1U, 0x10U, 0U, 0U, 1U, 1U },",
+                    "    { 0x2000U, 2U, 0x10U, 1U, 1U, 0U, 0U },",
+                    "    { 1, 0x00000002U, 0x00000038U },",
+                    "    { 2, 0x00000000U, 0x00000038U },",
+                    "    { 21U, 32U, 0U },",
+                    "    { 22U, 32U, 1U },",
+                    "const uint8_t g_wt_spm_service_count = 2U;",
+                    "const uint8_t g_wt_spm_irq_count = 2U;",
+                    "    0x101U > PSA_FRAMEWORK_VERSION ? "
+                    "PSA_FRAMEWORK_VERSION : 0x101U;"):
+                self.assertIn(line, source)
+            executable = Path(temporary) / "generated"
+            result = self.compile_generated(output, executable)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            print("PASS: SPM tables carry each service, the dependency bit "
+                  "of every reachable service and every partition IRQ")
+
     def test_excluded_partition_leaves_no_symbols(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -853,6 +853,69 @@ def emit_partition(lines, partition, index):
     return c_struct(fields)
 
 
+PSA_DOORBELL = 0x8
+FEATURES_1_1 = (1 << 1) | (1 << 2) | (1 << 3)
+
+
+def emit_spm_tables(lines, manifest):
+    """Emit the flat constant tables the SPM core reads at run time."""
+    partitions = manifest["partitions"]
+    services = [(index, service) for index, partition in enumerate(partitions)
+                for service in partition["services"]]
+    if len(services) > 32:
+        raise ManifestError("the SPM tables hold at most 32 services")
+    sid_index = {service["sid"]: index
+                 for index, (_, service) in enumerate(services)}
+    service_rows = ["{{ 0x{:x}U, {}U, 0x{:x}U, {}U, {}U, {}U, {}U }}".format(
+        service["sid"],
+        service["version"], service["signal"], owner,
+        service["version_policy"], int(service["nonsecure_clients"]),
+        int(service["connection_based"]))
+        for owner, service in services]
+    sp_rows = []
+    irq_rows = []
+    for index, partition in enumerate(partitions):
+        deps = 0
+        for sid in partition["dependencies"]:
+            # A partition never calls its own services, so the bit is left out.
+            if sid in sid_index and services[sid_index[sid]][0] != index:
+                deps |= 1 << sid_index[sid]
+        signals = PSA_DOORBELL
+        for service in partition["services"]:
+            signals |= service["signal"]
+        for interrupt in partition["interrupts"]:
+            signals |= interrupt["signal"]
+            irq_rows.append("{{ {}U, {}U, {}U }}".format(
+                interrupt["interrupt"], interrupt["signal"], index))
+        sp_rows.append("{{ {}, 0x{:08x}U, 0x{:08x}U }}".format(
+            partition["domain_id"], deps, signals))
+    version = 0x100
+    if (manifest["features"] & FEATURES_1_1) != 0 or any(
+            partition["framework_version"] == 0x101
+            for partition in partitions):
+        version = 0x101
+    lines.extend(("#include \"wolftrust/spm_core.h\"",
+                  "#include \"wolftrust/static_assert.h\"", "",
+                  "WT_STATIC_ASSERT({}U <= WT_SPM_MAX_SPS,".format(
+                      len(partitions)),
+                  "    \"more partitions than the SPM core tracks\");", ""))
+    for declaration, rows in (
+            ("wt_spm_service_t g_wt_spm_services", service_rows),
+            ("wt_spm_sp_ipc_t g_wt_spm_sps", sp_rows),
+            ("wt_spm_irq_t g_wt_spm_irqs", irq_rows)):
+        lines.append("const {}[{}] = {{".format(declaration,
+                                                max(len(rows), 1)))
+        lines.extend("    {},".format(row) for row in rows or ["{ 0 }"])
+        lines.extend(("};", ""))
+    lines.extend((
+        "const uint8_t g_wt_spm_service_count = {}U;".format(len(services)),
+        "const uint8_t g_wt_spm_sp_count = {}U;".format(len(partitions)),
+        "const uint8_t g_wt_spm_irq_count = {}U;".format(len(irq_rows)),
+        "const uint32_t g_wt_spm_framework_version =",
+        "    0x{0:x}U > PSA_FRAMEWORK_VERSION ? PSA_FRAMEWORK_VERSION : "
+        "0x{0:x}U;".format(version), ""))
+
+
 def platform_asserts(manifest, platform):
     """Bind the platform values this manifest was checked against to the
     port's own macros, and repeat the port binding checks for the compiler."""
@@ -951,6 +1014,7 @@ def generate_source(manifest, digest, platform=None, platform_header=None,
         ("partition_count", c_uint(len(partition_values))),
         ("limits", limits),
     ))
+    emit_spm_tables(lines, manifest)
     lines.extend((
         "static const wt_profile_capabilities_t wt_generated_capabilities =",
         capabilities + ";", "",

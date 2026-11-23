@@ -610,6 +610,8 @@ static void test_ipc_round_trip(void)
                       &info, sizeof(info));
     check(status == PSA_SUCCESS && info.state == PSA_FWU_READY,
           "WT-FWU-0001 IPC query returns READY");
+    check((info.flags & PSA_FWU_FLAG_VOLATILE_STAGING) != 0u,
+          "WT-FWU-0001 IPC query advertises volatile staging");
 
     status = fwu_call(&runtime, handle, WT_FWU_OP_START, 0u, 0u, 7u, NULL, 0U,
                       NULL, 0U);

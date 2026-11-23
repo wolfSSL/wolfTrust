@@ -345,6 +345,7 @@ psa_status_t wt_fwu_query(wt_fwu_service_ctx_t* ctx, uint32_t component,
      * slot); the declared candidate stays private in the service context. */
     info->version.build = ctx->active_version;
     info->max_size = ctx->backend->capacity;
+    info->flags = PSA_FWU_FLAG_VOLATILE_STAGING;
     info->impl.staged_size = ctx->write_high;
     return PSA_SUCCESS;
 }

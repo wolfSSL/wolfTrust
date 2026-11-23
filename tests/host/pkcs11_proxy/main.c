@@ -568,6 +568,40 @@ static void test_null_pointers(CK_FUNCTION_LIST_PTR fn)
           "a NULL template is forwarded as NULL");
 }
 
+static void test_info_selectors(CK_FUNCTION_LIST_PTR fn)
+{
+    CK_INFO info;
+    CK_SLOT_INFO slot_info;
+    CK_TOKEN_INFO token_info;
+    CK_SESSION_INFO session_info;
+    wt_pkcs11_reader_t reader;
+
+    g_reply = REPLY_ARGUMENTS_BAD;
+    check(fn->C_GetInfo(&info) == CKR_ARGUMENTS_BAD &&
+              request_begin(&reader, WT_P11_GET_INFO) &&
+              request_done(&reader),
+          "GetInfo sends no selector");
+
+    check(fn->C_GetSlotInfo(0xFFFFFFFFU, &slot_info) == CKR_ARGUMENTS_BAD &&
+              request_begin(&reader, WT_P11_GET_SLOT_INFO) &&
+              wt_pkcs11_get_u32(&reader) == 0xFFFFFFFFU &&
+              request_done(&reader),
+          "an all-ones slot ID is forwarded");
+
+    check(fn->C_GetTokenInfo(0xFFFFFFFFU, &token_info) == CKR_ARGUMENTS_BAD &&
+              request_begin(&reader, WT_P11_GET_TOKEN_INFO) &&
+              wt_pkcs11_get_u32(&reader) == 0xFFFFFFFFU &&
+              request_done(&reader),
+          "an all-ones token slot ID is forwarded");
+
+    check(fn->C_GetSessionInfo(0xFFFFFFFFU, &session_info) ==
+              CKR_ARGUMENTS_BAD &&
+              request_begin(&reader, WT_P11_GET_SESSION_INFO) &&
+              wt_pkcs11_get_u32(&reader) == 0xFFFFFFFFU &&
+              request_done(&reader),
+          "an all-ones session handle is forwarded");
+}
+
 int main(void)
 {
     CK_FUNCTION_LIST_PTR functions = NULL;
@@ -582,6 +616,7 @@ int main(void)
         test_partial_attribute_statuses(functions);
         test_mechanisms(functions);
         test_null_pointers(functions);
+        test_info_selectors(functions);
     }
     if (g_failures != 0) {
         return 1;

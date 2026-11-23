@@ -45,6 +45,7 @@
 #include "wolftrust/services/vault_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/crypto_native.h"
+#include "wolftrust/zeroize.h"
 
 #include <string.h>
 
@@ -96,12 +97,7 @@ int wt_hsm_keyvault_init(whNvmContext* nvm)
 
 static void wt_hsm_kv_zeroize(uint8_t* buf, size_t len)
 {
-    volatile uint8_t* p = buf;
-    size_t i;
-
-    for (i = 0U; i < len; i++) {
-        p[i] = 0U;
-    }
+    wt_forceZero(buf, len);
 }
 
 static psa_status_t wt_hsm_kv_rng(WC_RNG** out)
@@ -289,11 +285,13 @@ static psa_status_t wt_hsm_kv_generate(int32_t owner, int32_t sub,
         return status;
     }
     if (type == WT_VAULT_KEY_AES256) {
-        if (wc_RNG_GenerateBlock(rng, d, WT_VAULT_KEY_MATERIAL_LEN) != 0) {
-            return PSA_ERROR_GENERIC_ERROR;
+        if (wc_RNG_GenerateBlock(rng, d, WT_VAULT_KEY_MATERIAL_LEN) == 0) {
+            status = wt_hsm_kv_store(owner, sub, uid, type, usage, d,
+                                     WT_HSM_KEY_AES_OBJ_LEN);
         }
-        status = wt_hsm_kv_store(owner, sub, uid, type, usage, d,
-                                 WT_HSM_KEY_AES_OBJ_LEN);
+        else {
+            status = PSA_ERROR_GENERIC_ERROR;
+        }
         wt_hsm_kv_zeroize(d, sizeof(d));
         return status;
     }

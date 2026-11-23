@@ -25,6 +25,8 @@
 
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/types.h"
+#include "wolfssl/wolfcrypt/error-crypt.h"
+#include "wolfssl/wolfcrypt/random.h"
 
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_nvm.h"
@@ -35,6 +37,7 @@
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/vault_service.h"
 #include "wolftrust/services/crypto_native.h"
+#include "wolftrust/zeroize.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -59,6 +62,27 @@ static whNvmConfig g_nvm_cfg;
 static whNvmContext g_nvm_ctx;
 
 static int g_failures;
+static int g_rng_failure;
+static uint8_t* g_rng_scratch;
+static int g_rng_scratch_wiped;
+
+int wt_test_generate_block(WC_RNG* rng, byte* output, word32 length)
+{
+    if (g_rng_failure != 0) {
+        g_rng_scratch = output;
+        return RNG_FAILURE_E;
+    }
+    return wc_RNG_GenerateBlock(rng, output, length);
+}
+
+void wt_test_forceZero(void* memory, size_t size)
+{
+    wt_forceZero(memory, size);
+    if (memory == g_rng_scratch && size == WT_VAULT_KEY_MATERIAL_LEN) {
+        g_rng_scratch = NULL;
+        g_rng_scratch_wiped = 1;
+    }
+}
 
 static int check(int ok, const char* what)
 {
@@ -330,6 +354,24 @@ static void test_usage_and_type(void)
           "an AES key cannot be used to sign");
 }
 
+static void test_aes_rng_failure(void)
+{
+    size_t got = 0U;
+    psa_status_t status = PSA_SUCCESS;
+    int rc;
+
+    g_rng_failure = 1;
+    g_rng_scratch_wiped = 0;
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_GENERATE, 0x2005ULL,
+              WT_VAULT_KEY_USAGE_ENCRYPT | WT_VAULT_KEY_USAGE_DECRYPT,
+              WT_VAULT_KEY_AES256, NULL, 0U, NULL, 0U, &got, &status);
+    g_rng_failure = 0;
+    g_rng_scratch = NULL;
+    check(rc == 0 && status == PSA_ERROR_GENERIC_ERROR && got == 0U,
+          "AES key generation reports an RNG failure");
+    check(g_rng_scratch_wiped != 0, "AES key generation wipes RNG scratch");
+}
+
 static void test_aes_gcm(void)
 {
     static const uint8_t plaintext[] = "native wire AES-GCM round trip";
@@ -505,6 +547,7 @@ int main(int argc, char* argv[])
     test_random_and_hash();
     test_p256_lifecycle();
     test_usage_and_type();
+    test_aes_rng_failure();
     test_aes_gcm();
     test_import();
     test_malformed();

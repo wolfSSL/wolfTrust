@@ -107,7 +107,7 @@ static psa_status_t wt_storage_ns_write(uint32_t sid, int32_t op, uint64_t uid,
 }
 
 static psa_status_t wt_storage_ns_read(uint32_t sid, int32_t op, uint64_t uid,
-                                       uint32_t offset, void* out,
+                                       size_t offset, void* out,
                                        size_t out_cap, size_t* out_len)
 {
     wt_its_wire_t hdr;
@@ -123,6 +123,11 @@ static psa_status_t wt_storage_ns_read(uint32_t sid, int32_t op, uint64_t uid,
     if (out_len == NULL || (out == NULL && out_cap != 0U)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
+#if SIZE_MAX > UINT32_MAX
+    if (offset > UINT32_MAX) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+#endif
     /* The transfer cap below hides the full range from the SPM write check. */
     if (out_cap > (size_t)(SIZE_MAX - (uintptr_t)out)) {
         return PSA_ERROR_INVALID_ARGUMENT;
@@ -132,7 +137,7 @@ static psa_status_t wt_storage_ns_read(uint32_t sid, int32_t op, uint64_t uid,
     }
     hdr.uid = uid;
     hdr.flags = 0U;
-    hdr.offset = offset;
+    hdr.offset = (uint32_t)offset;
     handle = psa_connect(sid, 1U);
     if (handle <= 0) {
         return PSA_ERROR_GENERIC_ERROR;
@@ -186,8 +191,7 @@ psa_status_t psa_its_get(psa_storage_uid_t uid, size_t data_offset,
                          size_t* p_data_length)
 {
     return wt_storage_ns_read(SERVICE_ITS_SID, WT_ITS_WIRE_GET, uid,
-                              (uint32_t)data_offset, p_data, data_size,
-                              p_data_length);
+                              data_offset, p_data, data_size, p_data_length);
 }
 
 psa_status_t psa_its_get_info(psa_storage_uid_t uid,
@@ -215,8 +219,7 @@ psa_status_t psa_ps_get(psa_storage_uid_t uid, size_t data_offset,
                         size_t* p_data_length)
 {
     return wt_storage_ns_read(SERVICE_PS_SID, WT_ITS_WIRE_GET, uid,
-                              (uint32_t)data_offset, p_data, data_size,
-                              p_data_length);
+                              data_offset, p_data, data_size, p_data_length);
 }
 
 psa_status_t psa_ps_get_info(psa_storage_uid_t uid,

@@ -1037,6 +1037,60 @@ def generate_source(manifest, digest, platform=None, platform_header=None,
     return "\n".join(lines)
 
 
+GUEST_IRQ_WORDS = 8
+
+
+def guest_macros(domain):
+    """The constant guest row the port builds from a Non-secure domain:
+    windows, NS MPU regions and IRQ mask, in manifest order."""
+    prefix = "WT_GEN_GUEST{}".format(domain["id"] - 1)
+    memories = domain["memory_resources"]
+    windows = [m for m in memories if not m["attributes"] & 0x08]
+    devices = [m for m in memories if m["attributes"] & 0x08]
+    executable = [m for m in memories if m["attributes"] & 0x04]
+    if len(devices) > 1 or not executable:
+        policy_error("a guest maps one executable window and at most one "
+                     "console")
+    words = [0] * GUEST_IRQ_WORDS
+    for interrupt in domain["interrupt_resources"]:
+        if interrupt["interrupt"] >= 32 * GUEST_IRQ_WORDS:
+            policy_error("a guest interrupt is outside the IRQ mask")
+        words[interrupt["interrupt"] // 32] |= \
+            1 << (interrupt["interrupt"] % 32)
+    edges = [edge for m in windows if m["attributes"] & 0x02
+             for edge in (m["base"], m["base"] + m["size"])]
+    restart = domain["restart_policy"]
+    device = devices[0] if devices else {"base": 0, "size": 0}
+    values = (
+        ("ENTRY", c_uint(domain["entry_point"])),
+        ("MSP", c_uint(domain["stack_base"] + domain["stack_size"])),
+        ("PRIVILEGE", c_uint(domain["privilege_state"])),
+        ("RESTART_ACTION", c_uint(restart["action"])),
+        ("RESTART", ", ".join(c_uint(restart[name]) for name in (
+            "restart_limit", "restart_window_ticks",
+            "initial_delay_ticks"))),
+        ("LIFECYCLE", c_uint(domain["initial_lifecycle"])),
+        ("LAUNCH_REQUIRED", c_uint(domain["launch_required"])),
+        ("LAUNCH_MIN_VERSION", c_uint(domain["launch_min_version"])),
+        ("WINDOWS", ", ".join("{{ {}U, {}U, {}U, {}U }}".format(
+            m["base"], m["size"], m["attributes"], m["share_id"])
+            for m in windows)),
+        ("WINDOW_COUNT", c_uint(len(windows))),
+        ("REGIONS", ", ".join("{{ {}U, {}U, {}U }}".format(
+            m["base"], m["size"], m["attributes"] & 0x0F)
+            for m in memories)),
+        ("REGION_COUNT", c_uint(len(memories))),
+        ("DEVICE_BASE", c_uint(device["base"])),
+        ("DEVICE_SIZE", c_uint(device["size"])),
+        ("WRITE_EDGES", " | ".join(c_uint(e) for e in edges) or "0U"),
+        ("EXEC_BASE", c_uint(executable[0]["base"])),
+        ("EXEC_SIZE", c_uint(executable[0]["size"])),
+    ) + tuple(("IRQ_WORD{}".format(index), c_uint(word))
+              for index, word in enumerate(words))
+    return ["#define {}_{} {}".format(prefix, name, value)
+            for name, value in values] + [""]
+
+
 def generate_header(manifest):
     lines = [FILE_HEADER.format(name="wolftrust_manifest_generated.h"),
              "#ifndef WOLFTRUST_MANIFEST_GENERATED_H",
@@ -1083,6 +1137,9 @@ def generate_header(manifest):
             lines.append("#define {}_SIGNAL {}U".format(
                 interrupt_prefix, interrupt["signal"]))
         lines.append("")
+    for domain in manifest["domains"]:
+        if domain["domain_class"] == 2:
+            lines.extend(guest_macros(domain))
     lines.extend((
         "const wt_system_manifest_t* wt_generated_manifest_get(void);", "",
         "#endif", ""))

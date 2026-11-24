@@ -22,6 +22,7 @@
 #include "wolftrust/spm.h"
 #include "wolftrust/partition.h"
 #include "wolftrust/ffm.h"
+#include "wolftrust/spm_sp_mem.h"
 #include "secure_domain_resolve.h"
 #include "wolftrust_manifest_generated.h"
 #include "psa_manifest/sid.h"
@@ -36,6 +37,108 @@ int wt_spm_caller_can_write(psa_client_id_t caller, void* base, size_t len)
     (void)caller;
     (void)base;
     (void)len;
+    return 0;
+}
+
+#define SP_PRIVATE_EXCLUDED (WT_MEMORY_ATTR_DEVICE | WT_MEMORY_ATTR_SHARED)
+#define SP_REGION_ATTRS     (WT_MEMORY_ATTR_READ | WT_MEMORY_ATTR_WRITE | \
+    WT_MEMORY_ATTR_EXECUTE | SP_PRIVATE_EXCLUDED | WT_MEMORY_ATTR_RESTART_CLEAR)
+
+static const wt_domain_descriptor_t* find_domain(
+    const wt_system_manifest_t* manifest, wt_domain_id_t id)
+{
+    size_t i;
+
+    for (i = 0U; i < manifest->domain_count; i++) {
+        if (manifest->domains[i].id == id) {
+            return &manifest->domains[i];
+        }
+    }
+    return NULL;
+}
+
+/* 0 when row matches the domain: its regions, the private writable resource
+ * holding the declared stack, the RESTART_CLEAR band beside it, the policy. */
+static int sp_mem_row_matches(const wt_spm_sp_mem_t* row,
+                              const wt_domain_descriptor_t* domain)
+{
+    const wt_memory_resource_t* res = domain->memory_resources;
+    const wt_memory_resource_t* stack = NULL;
+    const wt_memory_resource_t* band = NULL;
+    size_t i;
+
+    if (row->region_count != domain->memory_resource_count) {
+        return 1;
+    }
+    for (i = 0U; i < domain->memory_resource_count; i++) {
+        if (row->regions[i].base != res[i].base ||
+                row->regions[i].size != res[i].size ||
+                row->regions[i].attributes !=
+                    (res[i].attributes & SP_REGION_ATTRS)) {
+            return 1;
+        }
+        if ((res[i].attributes & WT_MEMORY_ATTR_WRITE) != 0U &&
+                (res[i].attributes & SP_PRIVATE_EXCLUDED) == 0U &&
+                domain->stack_base >= res[i].base &&
+                domain->stack_size <= res[i].size &&
+                domain->stack_base - res[i].base <=
+                    res[i].size - domain->stack_size) {
+            stack = &res[i];
+        }
+    }
+    for (i = 0U; i < domain->memory_resource_count; i++) {
+        if (&res[i] != stack &&
+                (res[i].attributes & WT_MEMORY_ATTR_WRITE) != 0U &&
+                (res[i].attributes & SP_PRIVATE_EXCLUDED) == 0U &&
+                (res[i].attributes & WT_MEMORY_ATTR_RESTART_CLEAR) != 0U) {
+            band = &res[i];
+        }
+    }
+    if (stack == NULL || row->stack_base != stack->base ||
+            row->stack_size != stack->size) {
+        return 1;
+    }
+    if (band != NULL ? (row->band_base != band->base ||
+                        row->band_size != band->size) :
+                       (row->band_base != 0U || row->band_size != 0U)) {
+        return 1;
+    }
+    return row->restart_action != (uint8_t)domain->restart_policy.action ||
+           row->restart_limit != domain->restart_policy.restart_limit ||
+           row->restart_window_ticks !=
+               domain->restart_policy.restart_window_ticks;
+}
+
+/* WT-FFM-0011: the generated rows the SPM programs into the MPU are the
+ * ones the descriptive manifest declares, partition by partition. */
+static int check_sp_mem_rows(const wt_system_manifest_t* manifest)
+{
+    const wt_domain_descriptor_t* domain;
+    wt_spm_sp_mem_t corrupt;
+    size_t i;
+
+    for (i = 0U; i < manifest->partition_count; i++) {
+        domain = find_domain(manifest, manifest->partitions[i].domain_id);
+        if (domain == NULL ||
+                sp_mem_row_matches(&g_wt_spm_sp_mems[i], domain) != 0) {
+            (void)fprintf(stderr, "generated memory row %zu does not match "
+                          "the manifest\n", i);
+            return 1;
+        }
+    }
+    domain = find_domain(manifest, manifest->partitions[0].domain_id);
+    corrupt = g_wt_spm_sp_mems[0];
+    corrupt.stack_size += 32U;
+    if (sp_mem_row_matches(&corrupt, domain) == 0) {
+        (void)fprintf(stderr, "a stack size mismatch was accepted\n");
+        return 1;
+    }
+    corrupt = g_wt_spm_sp_mems[0];
+    corrupt.restart_limit++;
+    if (sp_mem_row_matches(&corrupt, domain) == 0) {
+        (void)fprintf(stderr, "a restart limit mismatch was accepted\n");
+        return 1;
+    }
     return 0;
 }
 
@@ -312,6 +415,10 @@ int main(void)
     invalid_domains[1].memory_resource_count--;
     invalid_domains[1].memory_resources =
         wt_spm_manifest(&spm)->domains[1].memory_resources;
+
+    if (check_sp_mem_rows(wt_spm_manifest(&spm)) != 0) {
+        return 1;
+    }
 
     /* The real manifest matches the rows; its guests declare READY. */
     if (wt_partitions_check_manifest(wt_spm_manifest(&spm)) != 0) {

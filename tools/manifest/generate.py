@@ -1149,7 +1149,9 @@ def generate_header(manifest):
              "#define WOLFTRUST_MANIFEST_GENERATED_H", "",
              "#include \"wolftrust/manifest.h\"", "",
              "#define WT_GEN_MANIFEST_FEATURES 0x{:x}U".format(
-                 manifest["features"]), ""]
+                 manifest["features"]),
+             "#define WT_GEN_SP_COUNT {}U".format(
+                 len(manifest["partitions"])), ""]
     symbols = set()
 
     def add_symbol(name):

@@ -22,12 +22,10 @@
 #define WOLFTRUST_FFM_BOOT_H
 
 #include "wolftrust/ffm.h"
-#include "wolftrust/manifest.h"
 
-int wt_ffm_boot_init(const wt_system_manifest_t* manifest);
+void wt_ffm_boot_init(void);
 /* Starts every Secure Partition as a scheduled unprivileged coroutine, once
  * the coroutine scheduler is up. */
 int wt_ffm_boot_start_sched(void);
-const wt_system_manifest_t* wt_ffm_boot_manifest(void);
 
 #endif /* WOLFTRUST_FFM_BOOT_H */

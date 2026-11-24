@@ -266,9 +266,7 @@ int main(void)
     int panics;
     int kind;
 
-    check(wt_ffm_boot_init(&g_manifest) == WT_FFM_SUCCESS &&
-              wt_ffm_boot_manifest() == &g_manifest,
-          "WT-FFM-0012 boot core initializes from the manifest");
+    wt_ffm_boot_init();
     check(wt_spm_host_init(&g_manifest, NULL, NULL) == WT_FFM_SUCCESS &&
               wt_spm_host_bind(PARTITION_HSM_ID, wt_hsm_relay_dispatch,
                                NULL) == WT_FFM_SUCCESS,

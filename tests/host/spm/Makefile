@@ -24,7 +24,7 @@ BUILD_DIR ?= build
 include $(ROOT)/tests/host/layout.mk
 
 # Built with the default WT_MANIFEST_RUNTIME_CHECK=0: wt_spm_init() must still
-# validate, and only wt_spm_init_generated() binds without it.
+# validate.
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)

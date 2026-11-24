@@ -25,6 +25,7 @@
 #include "wolftrust/monitor.h"
 #include "wolftrust/restart_policy.h"
 #include "wolftrust/spm.h"
+#include "wolftrust/static_assert.h"
 #include "wolftrust_manifest_generated.h"
 
 #include <stdbool.h>
@@ -44,7 +45,14 @@ void wt_platform_launch_debug(int code, uint32_t guest);
 #endif
 
 static wt_scheduler_state_t g_scheduler;
+#if WT_MANIFEST_RUNTIME_CHECK
 static wt_spm_t g_spm;
+#else
+/* Without the runtime validator only the generator vouches for features. */
+WT_STATIC_ASSERT((WT_GEN_MANIFEST_FEATURES & WT_MANIFEST_FEATURE_IPC) != 0U &&
+                 (WT_GEN_MANIFEST_FEATURES & ~WT_MANIFEST_FEATURE_IPC) == 0U,
+                 "the manifest needs features the SPM does not provide");
+#endif
 #if defined(WT_MANIFEST_NEG_PROBE) && \
     ((WT_MANIFEST_NEG_PROBE == 1) || (WT_MANIFEST_NEG_PROBE == 2))
 #if !WT_MANIFEST_RUNTIME_CHECK
@@ -531,7 +539,9 @@ void wt_monitor_init(void)
 {
     size_t count;
     size_t i;
+#if WT_MANIFEST_RUNTIME_CHECK
     int spm_result;
+#endif
     int launch_ret;
 
     wt_platform_init();
@@ -556,12 +566,12 @@ void wt_monitor_init(void)
     spm_result = wt_spm_init(&g_spm, wt_generated_manifest_get(),
                              WT_MANIFEST_FEATURE_IPC,
                              wt_partitions_profile_capabilities());
-#else
-    spm_result = wt_spm_init_generated(&g_spm, WT_MANIFEST_FEATURE_IPC);
 #endif
+#if WT_MANIFEST_RUNTIME_CHECK
     if (spm_result != WT_SPM_VALID) {
         wt_platform_panic();
     }
+#endif
 
     g_scheduler.configs = wt_partitions_config_table(&count);
     g_scheduler.runtime = wt_partitions_runtime_table(&count);
@@ -578,9 +588,7 @@ void wt_monitor_init(void)
         }
     }
 #endif
-    if (wt_ffm_boot_init(wt_spm_manifest(&g_spm)) != WT_FFM_SUCCESS) {
-        wt_platform_panic();
-    }
+    wt_ffm_boot_init();
     g_scheduler.guest_count = count;
     g_scheduler.current_guest = 0U;
     g_scheduler.current_rep = WT_SCHED_REP_NS;

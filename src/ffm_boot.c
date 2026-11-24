@@ -33,21 +33,9 @@
 #error "WT_FWU=1 but the manifest has no PARTITION_FWU"
 #endif
 
-static const wt_system_manifest_t* g_ffm_manifest;
-
-int wt_ffm_boot_init(const wt_system_manifest_t* manifest)
+void wt_ffm_boot_init(void)
 {
-    if (manifest == NULL) {
-        return WT_FFM_ERROR_ARGUMENT;
-    }
     wt_spm_core_init();
-    g_ffm_manifest = manifest;
-    return WT_FFM_SUCCESS;
-}
-
-const wt_system_manifest_t* wt_ffm_boot_manifest(void)
-{
-    return g_ffm_manifest;
 }
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)

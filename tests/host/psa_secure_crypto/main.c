@@ -127,12 +127,12 @@ static psa_status_t aes_oneshot(psa_algorithm_t alg, int decrypt)
     return st;
 }
 
-static psa_status_t pbkdf2_setup(void)
+static psa_status_t kdf_setup(psa_algorithm_t alg)
 {
     psa_key_derivation_operation_t op = PSA_KEY_DERIVATION_OPERATION_INIT;
     psa_status_t st;
 
-    st = psa_key_derivation_setup(&op, PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256));
+    st = psa_key_derivation_setup(&op, alg);
     (void)psa_key_derivation_abort(&op);
     return st;
 }
@@ -164,16 +164,26 @@ static void test_profile(void)
     if (k != PSA_KEY_ID_NULL) {
         (void)psa_destroy_key(k);
     }
+    check(kdf_setup(PSA_ALG_HKDF(PSA_ALG_SHA_256)) == PSA_SUCCESS,
+          "every profile keeps HKDF");
+#if defined(WT_SECURE_PSA_compat)
+    check(kdf_setup(PSA_ALG_SP800_108_COUNTER_HMAC(PSA_ALG_SHA_256)) ==
+          PSA_SUCCESS, "compat keeps SP 800-108 HMAC");
+#else
+    check(kdf_setup(PSA_ALG_SP800_108_COUNTER_HMAC(PSA_ALG_SHA_256)) ==
+          PSA_ERROR_NOT_SUPPORTED, "only compat offers SP 800-108");
+#endif
 #if defined(WT_SECURE_PSA_compat)
     check(aes_oneshot(PSA_ALG_CBC_NO_PADDING, 1) == PSA_SUCCESS,
           "compat keeps CBC decryption");
-    check(pbkdf2_setup() == PSA_SUCCESS, "compat keeps PBKDF2");
+    check(kdf_setup(PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256)) == PSA_SUCCESS,
+          "compat keeps PBKDF2");
     check(ecc == PSA_SUCCESS, "compat keeps ECC");
 #elif defined(WT_SECURE_PSA_standard)
     check(aes_oneshot(PSA_ALG_CBC_NO_PADDING, 0) == PSA_ERROR_NOT_SUPPORTED,
           "standard compiles out CBC");
-    check(pbkdf2_setup() == PSA_ERROR_NOT_SUPPORTED,
-          "standard compiles out PBKDF2");
+    check(kdf_setup(PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256)) ==
+          PSA_ERROR_NOT_SUPPORTED, "standard compiles out PBKDF2");
     check(ecc == PSA_SUCCESS, "standard keeps ECC");
 #elif defined(WT_SECURE_PSA_lean)
     check(aes_oneshot(PSA_ALG_ECB_NO_PADDING, 1) == PSA_ERROR_NOT_SUPPORTED,

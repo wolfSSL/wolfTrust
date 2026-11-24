@@ -34,7 +34,9 @@ RUNS := $(PROFILES) $(if $(findstring WT_AEAD_,$(EXTRA_CFLAGS)),,lean-gcm)
 AEAD_CFLAGS := $(if $(filter gcm,$(AEAD)),-DWT_AEAD_GCM)$(if $(filter ccm,$(AEAD)),-DWT_AEAD_CCM)
 # lean and symmetric offer one PSA AEAD, CCM unless GCM is asked for
 ONE_AEAD_GCM := $(or $(filter gcm,$(AEAD)),$(findstring WT_AEAD_GCM,$(EXTRA_CFLAGS)))
-WANT_WITHOUT := $(if $(filter lean symmetric,$(PROFILE)),$(if $(ONE_AEAD_GCM),,--without PSA_WANT_ALG_GCM))
+WANT_WITHOUT := $(if $(filter lean symmetric,$(PROFILE)),$(if $(ONE_AEAD_GCM),,--without PSA_WANT_ALG_GCM)) \
+    $(if $(filter-out compat,$(PROFILE)),--without PSA_WANT_ALG_SP800_108_COUNTER_HMAC \
+    --without PSA_WANT_ALG_SP800_108_COUNTER_CMAC)
 
 WARN := -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter
@@ -85,7 +87,7 @@ CLI_OBJS := $(BUILD_DIR)/psa_crypto_client.o \
 SRV_BIN := $(BUILD_DIR)/psa_server
 TEST_BIN := $(BUILD_DIR)/test_psa_secure_crypto
 
-.PHONY: all run run-one compilers sanitize valgrind valgrind-one clean
+.PHONY: all run run-one compilers sanitize valgrind valgrind-one clean FORCE
 
 all: $(SRV_BIN) $(TEST_BIN)
 
@@ -93,9 +95,10 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 # Both sides see the PSA_WANT_* surface of the service's wolfCrypt set.
+# FORCE: the generator rewrites the header only when the surface changes.
 PSA_CFG_H := $(BUILD_DIR)/wolfpsa_cfg/crypto_config_generated.h
 $(PSA_CFG_H): $(WOLFPSA)/tools/gen-crypto-config.py \
-    $(WOLFPSA)/tools/psa_want_probe.c user_settings.h | $(BUILD_DIR)
+    $(WOLFPSA)/tools/psa_want_probe.c user_settings.h FORCE | $(BUILD_DIR)
 	mkdir -p $(dir $@)
 	python3 $(WOLFPSA)/tools/gen-crypto-config.py $(WANT_WITHOUT) $@ "$(CC)" \
 	    $(WOLFPSA)/tools/psa_want_probe.c $(SRV_CFLAGS) -DWT_PSA_WANT_PROBE
@@ -168,3 +171,5 @@ valgrind-one: all
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+FORCE:

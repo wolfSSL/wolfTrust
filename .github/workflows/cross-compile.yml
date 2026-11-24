@@ -184,6 +184,14 @@ jobs:
                 secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
               grep -qx 'WT_SECURE_PSA=1' $dir/secure_build_mode.stamp
               grep -qx "WT_SECURE_PSA_PROFILE=$profile" $dir/secure_build_mode.stamp
+              cfg=$dir/wolfpsa_cfg/crypto_config_generated.h
+              if [ "$profile" = compat ]; then
+                grep -qE '^#define PSA_WANT_ALG_SP800_108_COUNTER_HMAC\b' $cfg
+              elif grep -qE '^#define PSA_WANT_ALG_SP800_108_COUNTER_(HMAC|CMAC)\b' $cfg ||
+                  arm-none-eabi-nm $dir/wolftrust.elf | grep -qi sp800_108; then
+                echo "FAIL: $profile still carries SP 800-108" >&2
+                exit 1
+              fi
             done
           done
           for bad in "WT_SECURE_PSA=1 WT_ENGINE=hsm" "WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=bogus" "WT_SECURE_PSA=2" "WT_SECURE_PSA=1 WT_WOLFCRYPT_ARMASM=1"; do

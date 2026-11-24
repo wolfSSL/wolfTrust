@@ -55,12 +55,15 @@
 #ifdef WT_SECURE_PSA_compat
 #if !defined(PSA_WANT_ALG_PBKDF2_HMAC) || !defined(PSA_WANT_ALG_CBC_NO_PADDING) || \
     !defined(PSA_WANT_ALG_TLS12_PRF) || \
+    !defined(PSA_WANT_ALG_SP800_108_COUNTER_HMAC) || \
     !defined(PSA_WANT_ALG_DETERMINISTIC_ECDSA)
-#error "compat advertises PBKDF2, CBC, TLS 1.2 PRF and deterministic ECDSA"
+#error "compat advertises PBKDF2, CBC, TLS 1.2 PRF, SP 800-108 and deterministic ECDSA"
 #endif
 #elif defined(PSA_WANT_ALG_PBKDF2_HMAC) || defined(PSA_WANT_ALG_CBC_NO_PADDING) || \
-    defined(PSA_WANT_ALG_TLS12_PRF)
-#error "only compat advertises PBKDF2, CBC and TLS 1.2 PRF"
+    defined(PSA_WANT_ALG_TLS12_PRF) || \
+    defined(PSA_WANT_ALG_SP800_108_COUNTER_HMAC) || \
+    defined(PSA_WANT_ALG_SP800_108_COUNTER_CMAC)
+#error "only compat advertises PBKDF2, CBC, TLS 1.2 PRF and SP 800-108"
 #endif
 
 typedef int wt_want_check_t;

@@ -27,7 +27,7 @@
 #include <string.h>
 
 /* Static coroutine table; slot 0 is reserved for the implicit bootstrap. */
-static struct wt_co g_co_table[WT_CO_MAX];
+static struct wt_co g_co_table[WT_CO_MAX - 1u];
 
 /* Implicit bootstrap (monitor) context. */
 struct wt_co g_wt_co_bootstrap;
@@ -51,7 +51,7 @@ static bool is_valid_co_pointer(const struct wt_co *co)
         return true;
     }
 
-    for (i = 0u; i < WT_CO_MAX; i++) {
+    for (i = 0u; i < WT_CO_MAX - 1u; i++) {
         if (co == &g_co_table[i]) {
             return true;
         }
@@ -142,7 +142,7 @@ static wt_co_t *wt_co_create_common(uint8_t *stack, size_t stack_size,
     /* Assign a table slot (0 is taken by bootstrap). */
     id = g_co_count;
     g_co_count++;
-    co = &g_co_table[id - 1u]; /* table[0..WT_CO_MAX-1], id starts at 1 */
+    co = &g_co_table[id - 1u]; /* id 0 is the bootstrap, outside the table */
 
     co->id           = id;
     co->stack_base   = stack;

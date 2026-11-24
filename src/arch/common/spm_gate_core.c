@@ -95,10 +95,6 @@ typedef struct wt_spm_sp {
     wt_spm_sp_entry_fn entry;
     wt_spm_sp_restore_fn restore;
     void* arg;
-    uintptr_t scrub_base;
-    uint32_t scrub_size;
-    uintptr_t scrub2_base;
-    uint32_t scrub2_size;
     uint32_t restart_count;
     uint32_t first_restart_tick;
     volatile uint8_t fault_pending;
@@ -240,13 +236,13 @@ static void wt_spm_fault_messages(void* ctx)
 static void wt_spm_fault_scrub(void* ctx)
 {
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
+    const wt_spm_sp_mem_t* mem = &g_wt_spm_sp_mems[c->slot->partition_index];
 
-    wt_arch_zero_guest_memory(c->slot->scrub_base, c->slot->scrub_size);
-    /* WT-FFM-0051: the domain's declared RESTART_CLEAR data band returns to
-     * its link-time image, so the restart starts from the C runtime state a
-     * first start has. */
-    if (c->slot->scrub2_size != 0u) {
-        wt_arch_sp_band_reset(c->slot->scrub2_base, c->slot->scrub2_size);
+    wt_arch_zero_guest_memory(mem->stack_base, mem->stack_size);
+    /* WT-FFM-0051: the declared RESTART_CLEAR band returns to its link-time
+     * image, so the restart starts from a first start's C runtime state. */
+    if (mem->band_size != 0u) {
+        wt_arch_sp_band_reset(mem->band_base, mem->band_size);
     }
 }
 
@@ -938,10 +934,6 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
     slot->entry = entry;
     slot->restore = NULL;
     slot->arg = arg;
-    slot->scrub_base = mem->stack_base;
-    slot->scrub_size = mem->stack_size;
-    slot->scrub2_base = mem->band_base;
-    slot->scrub2_size = mem->band_size;
     slot->restart_count = 0u;
     slot->first_restart_tick = 0u;
     slot->partition_index = (uint16_t)index;

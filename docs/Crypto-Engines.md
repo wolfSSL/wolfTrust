@@ -197,15 +197,15 @@ includes too:
 
 | Profile | Algorithms | STM32H563 Secure flash / RAM |
 | --- | --- | ---: |
-| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, SP 800-108 counter KDF, TLS 1.2 PRF | 106,325 / 48,332 |
-| `standard` | `compat` without PBKDF2, SP 800-108, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 94,759 / 47,308 |
-| `lean` | `standard` with one AEAD, CCM (`WT_AEAD=gcm` swaps it for GCM), and no AES decryption | 91,591 / 47,308 |
-| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 87,967 / 47,308 |
+| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, SP 800-108 counter KDF, TLS 1.2 PRF, CCM* without a tag | 106,325 / 48,332 |
+| `standard` | `compat` without PBKDF2, SP 800-108, TLS 1.2 PRF, CCM* without a tag, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 94,631 / 47,308 |
+| `lean` | `standard` with one AEAD, CCM (`WT_AEAD=gcm` swaps it for GCM), and no AES decryption | 91,463 / 47,308 |
+| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 87,839 / 47,308 |
 
 Every profile but `compat` signs, verifies and agrees keys on wolfPSA's direct
 P-256 path over wolfCrypt's SP code, so `ecc.c` and the multi-precision math
 leave the image; `compat` keeps them for deterministic ECDSA. With
-`WT_AEAD=gcm`, `lean` is 93,063 bytes and `symmetric` 89,343.
+`WT_AEAD=gcm`, `lean` is 92,935 bytes and `symmetric` 89,215.
 
 RAM is the Secure RAM the image reserves. The crypto partition's stack is 6 KiB
 in `compat` for `ecc.c`'s ECDSA and 5 KiB in the other profiles, as with
@@ -375,8 +375,8 @@ wolfBoot and Non-secure guest images are not included.
 | Engine and profile | `text` | `data` | `bss` | Flash | Secure RAM |
 | --- | ---: | ---: | ---: | ---: | ---: |
 | Native, default (`WT_SECURE_PSA=1`, `compat`) | 105,929 bytes | 396 bytes | 20,732 bytes | 106,325 bytes | 48,332 bytes |
-| Native, `WT_SECURE_PSA=1` `standard` | 94,367 bytes | 392 bytes | 20,732 bytes | 94,759 bytes | 47,308 bytes |
-| Native, `WT_SECURE_PSA=1` `lean` | 91,199 bytes | 392 bytes | 20,732 bytes | 91,591 bytes | 47,308 bytes |
+| Native, `WT_SECURE_PSA=1` `standard` | 94,239 bytes | 392 bytes | 20,732 bytes | 94,631 bytes | 47,308 bytes |
+| Native, `WT_SECURE_PSA=1` `lean` | 91,071 bytes | 392 bytes | 20,732 bytes | 91,463 bytes | 47,308 bytes |
 | Native, `WT_SECURE_PSA=0` | 70,080 bytes | 384 bytes | 18,340 bytes | 70,464 bytes | 45,260 bytes |
 | wolfHSM, default | 98,108 bytes | 392 bytes | 40,648 bytes | 98,500 bytes | 83,932 bytes |
 | wolfHSM over native `WT_SECURE_PSA=0` | 27,900 bytes | 8 bytes | 22,308 bytes | 27,908 bytes | 38,672 bytes |

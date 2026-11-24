@@ -166,12 +166,18 @@ static void test_profile(void)
     }
     check(kdf_setup(PSA_ALG_HKDF(PSA_ALG_SHA_256)) == PSA_SUCCESS,
           "every profile keeps HKDF");
+    check(aes_oneshot(PSA_ALG_CTR, 0) == PSA_SUCCESS,
+          "every profile keeps AES-CTR");
 #if defined(WT_SECURE_PSA_compat)
     check(kdf_setup(PSA_ALG_SP800_108_COUNTER_HMAC(PSA_ALG_SHA_256)) ==
           PSA_SUCCESS, "compat keeps SP 800-108 HMAC");
+    check(aes_oneshot(PSA_ALG_CCM_STAR_NO_TAG, 0) == PSA_SUCCESS,
+          "compat keeps CCM* without a tag");
 #else
     check(kdf_setup(PSA_ALG_SP800_108_COUNTER_HMAC(PSA_ALG_SHA_256)) ==
           PSA_ERROR_NOT_SUPPORTED, "only compat offers SP 800-108");
+    check(aes_oneshot(PSA_ALG_CCM_STAR_NO_TAG, 0) == PSA_ERROR_NOT_SUPPORTED,
+          "only compat offers CCM* without a tag");
 #endif
 #if defined(WT_SECURE_PSA_compat)
     check(aes_oneshot(PSA_ALG_CBC_NO_PADDING, 1) == PSA_SUCCESS,

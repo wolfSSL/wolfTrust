@@ -46,9 +46,9 @@ partition, which wolfTrust's native default does with `WT_SECURE_PSA=1` (see
 [Crypto Engines](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1)).
 That default is larger than TF-M. On the STM32H563 the `standard` profile, the
 closest to TF-M's Medium set, is
-94,759 bytes of flash and 47,308 bytes of Secure RAM: 15,079 bytes more flash
-and 1,580 bytes more RAM than the TF-M image above. 3,345 bytes of the flash
-gap are the crypto stack (43,823 against 40,478 for TF-M's Crypto partition
+94,631 bytes of flash and 47,308 bytes of Secure RAM: 14,951 bytes more flash
+and 1,580 bytes more RAM than the TF-M image above. 3,221 bytes of the flash
+gap are the crypto stack (43,699 against 40,478 for TF-M's Crypto partition
 and Mbed TLS); the rest is the storage and SPM code outside it. The
 `WT_SECURE_PSA=0` opt-out, which runs wolfPSA in the Non-secure guest instead,
 stays below TF-M, and CI holds it to TF-M's flash and RAM.

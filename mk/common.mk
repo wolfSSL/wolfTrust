@@ -570,7 +570,8 @@ endif
 endif
 ifneq ($(WT_SECURE_PSA_PROFILE),compat)
 WT_PSA_WANT_WITHOUT += --without PSA_WANT_ALG_SP800_108_COUNTER_HMAC \
-    --without PSA_WANT_ALG_SP800_108_COUNTER_CMAC
+    --without PSA_WANT_ALG_SP800_108_COUNTER_CMAC \
+    --without PSA_WANT_ALG_CCM_STAR_NO_TAG
 endif
 endif
 

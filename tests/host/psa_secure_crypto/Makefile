@@ -36,7 +36,8 @@ AEAD_CFLAGS := $(if $(filter gcm,$(AEAD)),-DWT_AEAD_GCM)$(if $(filter ccm,$(AEAD
 ONE_AEAD_GCM := $(or $(filter gcm,$(AEAD)),$(findstring WT_AEAD_GCM,$(EXTRA_CFLAGS)))
 WANT_WITHOUT := $(if $(filter lean symmetric,$(PROFILE)),$(if $(ONE_AEAD_GCM),,--without PSA_WANT_ALG_GCM)) \
     $(if $(filter-out compat,$(PROFILE)),--without PSA_WANT_ALG_SP800_108_COUNTER_HMAC \
-    --without PSA_WANT_ALG_SP800_108_COUNTER_CMAC)
+    --without PSA_WANT_ALG_SP800_108_COUNTER_CMAC \
+    --without PSA_WANT_ALG_CCM_STAR_NO_TAG)
 
 WARN := -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter

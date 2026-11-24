@@ -187,9 +187,10 @@ jobs:
               cfg=$dir/wolfpsa_cfg/crypto_config_generated.h
               if [ "$profile" = compat ]; then
                 grep -qE '^#define PSA_WANT_ALG_SP800_108_COUNTER_HMAC\b' $cfg
-              elif grep -qE '^#define PSA_WANT_ALG_SP800_108_COUNTER_(HMAC|CMAC)\b' $cfg ||
+                grep -qE '^#define PSA_WANT_ALG_CCM_STAR_NO_TAG\b' $cfg
+              elif grep -qE '^#define PSA_WANT_ALG_(SP800_108_COUNTER_(HMAC|CMAC)|CCM_STAR_NO_TAG)\b' $cfg ||
                   arm-none-eabi-nm $dir/wolftrust.elf | grep -qi sp800_108; then
-                echo "FAIL: $profile still carries SP 800-108" >&2
+                echo "FAIL: $profile still carries SP 800-108 or CCM*" >&2
                 exit 1
               fi
             done

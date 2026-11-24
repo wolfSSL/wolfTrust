@@ -3,7 +3,8 @@
 input sections to their object's category, *fill* and linker-emitted bytes to
 their own buckets, .data once to flash at its load address, and .bss never.
 An object no rule matches fails the run, and so does a gated total over
---max. Both shipped rule files classify the objects each project links."""
+--max or a category over --category-max. Both shipped rule files classify the
+objects each project links."""
 
 import json
 import subprocess
@@ -195,6 +196,16 @@ def main():
               "a total equal to --max failed")
         check(classify(map_path, rules_path, "--max", str(limit - 1), *elf).returncode == 1,
               "a total one byte over --max passed")
+        spm = out["flash"]["spm"]
+        check(classify(map_path, rules_path, "--category-max", "spm=%d" % spm,
+                       *elf).returncode == 0,
+              "an spm total equal to its --category-max failed")
+        check(classify(map_path, rules_path, "--category-max",
+                       "spm=%d" % (spm - 1), *elf).returncode == 1,
+              "an spm total one byte over its --category-max passed")
+        check(classify(map_path, rules_path, "--category-max", "nosuch=1",
+                       *elf).returncode == 1,
+              "a --category-max naming no category passed")
 
         rules_path.write_text(RULES_TEXT.replace("crypto   /wc_sec_\n", ""))
         result = classify(map_path, rules_path)

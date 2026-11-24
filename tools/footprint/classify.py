@@ -217,10 +217,19 @@ def main():
                         help="category left out of the gated total")
     parser.add_argument("--max", type=lambda value: int(value, 0),
                         help="fail when flash outside --exclude exceeds this")
+    parser.add_argument("--category-max", action="append", default=[],
+                        metavar="NAME=BYTES",
+                        help="fail when category NAME's flash exceeds BYTES")
     parser.add_argument("--objects", action="store_true",
                         help="list every object with its category")
     parser.add_argument("--json", action="store_true")
     args = parser.parse_args()
+    ceilings = []
+    for item in args.category_max:
+        name, sep, limit = item.partition("=")
+        if not sep or not name:
+            parser.error("--category-max takes NAME=BYTES, not %r" % item)
+        ceilings.append((name, int(limit, 0)))
     rules = read_rules(args.rules)
     result = measure(args.map, rules, nobits_sections(args.elf, args.readelf))
     gated = result["flash_total"] - result["flash"].get(args.exclude, 0)
@@ -243,11 +252,20 @@ def main():
         for obj in result["unclassified"]:
             print("FAIL: no rule classifies %s" % obj, file=sys.stderr)
         return 2
+    status = 0
     if args.max is not None and gated > args.max:
         print("FAIL: flash without %s %d exceeds %d" % (args.exclude, gated, args.max),
               file=sys.stderr)
-        return 1
-    return 0
+        status = 1
+    for name, limit in ceilings:
+        if name not in result["flash"]:
+            print("FAIL: no category %s" % name, file=sys.stderr)
+            status = 1
+        elif result["flash"][name] > limit:
+            print("FAIL: %s flash %d exceeds %d"
+                  % (name, result["flash"][name], limit), file=sys.stderr)
+            status = 1
+    return status
 
 
 if __name__ == "__main__":

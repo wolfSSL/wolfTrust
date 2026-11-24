@@ -357,6 +357,14 @@ int main(void)
 {
     int event;
 
+#if !(defined(WT_GUEST_RESTART) && (WT_GUEST_RESTART == 1))
+    setup(1U, 2U);
+    event = fault_current();
+    check(event == HALTED && g_runtime[0].state == WT_GUEST_FAULTED &&
+          g_resets == 0U && g_runtime[0].restart_count == 0U,
+          "without guest restart a faulted guest is quarantined");
+    return g_failures == 0 ? 0 : 1;
+#endif
     setup(1U, 2U);
     event = fault_current();
     check(event == DISPATCHED && g_idle_entries == 1U &&

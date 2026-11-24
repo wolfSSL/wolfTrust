@@ -456,24 +456,24 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
     if (restart_window != NULL) {
         wt_arch_zero_guest_memory(restart_window->base, restart_window->size);
     }
+#if defined(WT_GUEST_RESTART) && (WT_GUEST_RESTART == 1)
     if (wt_restart_policy_evaluate(config->restart_policy.restart_limit,
                                    config->restart_policy.restart_window_ticks,
                                    g_scheduler.monotonic_ticks,
                                    &runtime->restart_count,
-                                   &runtime->first_restart_tick) ==
+                                   &runtime->first_restart_tick) !=
             WT_RESTART_DECISION_FAULT) {
-        /* FAULTED is terminal until an external policy action resets or
-         * reinitializes the partition. */
-        runtime->state = WT_GUEST_FAULTED;
-        g_wt_quarantine_events++;
+        runtime->state = WT_GUEST_RESTARTING;
+        g_wt_restart_events++;
+        runtime->remaining_delay_ticks =
+            config->restart_policy.initial_delay_ticks;
         return;
     }
-
-    runtime->state = WT_GUEST_RESTARTING;
-    g_wt_restart_events++;
-    runtime->remaining_delay_ticks =
-        config->restart_policy.initial_delay_ticks;
-
+#endif
+    /* FAULTED is terminal until an external policy action resets or
+     * reinitializes the partition. */
+    runtime->state = WT_GUEST_FAULTED;
+    g_wt_quarantine_events++;
 }
 
 static bool wt_all_guests_terminal(void)

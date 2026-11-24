@@ -35,8 +35,8 @@ typedef struct wt_spm_sp_mem {
     uintptr_t band_base;
     uint32_t stack_size;
     uint32_t band_size;
-    uint32_t restart_limit;
     uint32_t restart_window_ticks;
+    uint16_t restart_limit;
     uint8_t region_count;
     uint8_t restart_action;
 } wt_spm_sp_mem_t;

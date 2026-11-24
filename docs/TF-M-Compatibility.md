@@ -17,15 +17,15 @@ options. These are local builds, not published reference figures.
 
 | Image | Flash | Secure RAM |
 | --- | ---: | ---: |
-| wolfTrust Secure runtime, native default | 69,496 bytes | 45,280 bytes |
+| wolfTrust Secure runtime, native default | 62,492 bytes | 38,892 bytes |
 | TF-M v2.3.1 `tfm_s`, level 3 | 79,680 bytes | 45,728 bytes |
 | wolfBoot, STM32L5 secure application handoff | 27,216 bytes | 2,104 bytes |
 | TF-M BL2 (MCUboot, EC-P256) | 38,744 bytes | 27,408 bytes |
-| Chain: wolfBoot + wolfTrust | 96,712 bytes | |
+| Chain: wolfBoot + wolfTrust | 89,708 bytes | |
 | Chain: BL2 + TF-M | 118,424 bytes | |
 
-The wolfTrust runtime is 10,184 bytes smaller in flash and 448 bytes smaller
-in Secure RAM; the boot chain is 21,712 bytes smaller in flash. Both RAM
+The wolfTrust runtime is 17,188 bytes smaller in flash and 6,836 bytes smaller
+in Secure RAM; the boot chain is 28,716 bytes smaller in flash. Both RAM
 figures include every partition stack (see Methodology). The bootloader's RAM
 is reused by the runtime, so the RAM figures are not summed. The
 cross-compile workflow fails if any port's lean native default image grows
@@ -44,12 +44,11 @@ feature the default leaves out comes back with one Make variable; see
 The crypto split matches TF-M's: both serve PSA Crypto from a Secure crypto
 partition, which wolfTrust's native default does with `WT_SECURE_PSA=1` (see
 [Crypto Engines](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1)).
-That default is larger than TF-M. On the STM32H563 the `standard` profile, the
-closest to TF-M's Medium set, is
-103,067 bytes of flash and 48,844 bytes of Secure RAM: 23,387 bytes more flash
-and 3,116 bytes more RAM than the TF-M image above. 12,007 bytes of the flash
-gap are the crypto stack (52,485 against 40,478 for TF-M's Crypto partition
-and Mbed TLS); the rest is the storage and SPM code outside it. The
+That default has more flash than TF-M. On the STM32H563 the `standard`
+profile, the closest to TF-M's Medium set, is 95,639 bytes of flash and 42,492
+bytes of Secure RAM: 15,959 bytes more flash and 3,236 bytes less RAM than the
+TF-M image above. The flash gap is the crypto stack and the non-crypto code
+the split below breaks down. The
 `WT_SECURE_PSA=0` opt-out, which runs wolfPSA in the Non-secure guest instead,
 stays below TF-M, and CI holds it to TF-M's flash and RAM.
 
@@ -64,16 +63,21 @@ glue on both sides; attestation includes its CBOR and COSE libraries; storage
 includes the flash drivers and NV counters; guest is the Non-secure guest
 management (TF-M's NS agent).
 
-| Category | wolfTrust STM32H563 | TF-M STM32L562 |
-| --- | ---: | ---: |
-| SPM | 20,168 | 7,548 |
-| Storage | 13,388 | 13,156 |
-| Attestation | 6,244 | 5,585 |
-| Guest management | 4,262 | 176 |
-| Platform | 4,073 | 9,104 |
-| Runtime, fill, linker | 540 | 1,689 |
-| **Non-crypto total** | **48,675** | **37,258** |
-| Crypto | 62,541 | 42,422 |
+| Category | wolfTrust STM32L562 | wolfTrust STM32H563 | TF-M STM32L562 |
+| --- | ---: | ---: | ---: |
+| SPM | 11,421 | 11,429 | 7,548 |
+| Storage | 17,224 | 17,210 | 13,156 |
+| Attestation | 6,948 | 6,948 | 5,585 |
+| Guest management | 4,904 | 4,896 | 176 |
+| Platform | 3,518 | 4,069 | 9,104 |
+| Runtime, fill, linker | 483 | 519 | 1,689 |
+| **Non-crypto total** | **44,498** | **45,071** | **37,258** |
+| Crypto | 20,954 | 60,469 | 42,422 |
+
+Measured 2026-11-24 with `WT_ENGINE=native WT_ATTEST_COSE=1 WT_LTO=0`. The
+STM32L562 default runs PSA Crypto in the guest, so its crypto row holds only
+what the Secure services use; the STM32H563 serves PSA Crypto from the Secure
+image, as TF-M does.
 
 ```sh
 make TARGET=stm32h563 WT_ENGINE=native WT_ATTEST_COSE=1 WT_LTO=0 secure-image
@@ -83,8 +87,9 @@ python3 tools/footprint/classify.py tfm_s.map --rules tools/footprint/tfm.rules 
   --elf tfm_s.elf
 ```
 
-The cross-compile workflow holds each port's non-crypto flash under a ceiling
-it lowers as size work lands.
+The cross-compile workflow holds each port's non-crypto and SPM flash under
+the ceilings in its `port.json` (`build.noncrypto_max`, `build.spm_max`),
+lowered as size work lands.
 
 ### Methodology
 
@@ -105,14 +110,12 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
   length.
 - Neither figure counts Secure RAM a port leaves free.
 
-- wolfTrust: the STM32L562 port, which is under review and not yet in this
-  tree, merged with these sources before the shared port layer landed and
-  built with its defaults (native engine, LTO, one guest):
-  `make TARGET=stm32l562 secure-image` in
-  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. With `WT_SECURE_PSA=0`, the same
-  defaults give 70,400 bytes of flash and 45,260 bytes of Secure RAM for
-  `TARGET=stm32h563` in this tree; the `WT_SECURE_PSA=1` default gives 109,849
-  and 48,844.
+- wolfTrust: the STM32L562 port built with its defaults (native engine, LTO,
+  one guest, PSA Crypto in the guest): `make TARGET=stm32l562 secure-image` in
+  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. The same defaults give 102,417
+  bytes of flash and 42,492 bytes of Secure RAM for `TARGET=stm32h563`, which
+  serves PSA Crypto from the Secure image, or 63,004 and 38,908 with
+  `WT_SECURE_PSA=0`.
 - wolfBoot: `config/examples/stm32l5-tz-wolftrust.config` (ECC256, SHA256,
   `WOLFBOOT_SECURE_APP=1`).
 - TF-M: v2.3.1, platform `stm/stm32l562e_dk`, `TFM_ISOLATION_LEVEL=3`,

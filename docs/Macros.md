@@ -18,22 +18,21 @@ Costs are over the default image, built with Arm GNU 15.2.1 in
 `make size-report`: flash is `text + data`, and RAM is the Secure RAM the image
 reserves, partition stacks and bands included ([Footprint](Footprint.md#how-sizes-are-measured)).
 The default native image serves PSA Crypto from the Secure image and is
-109,849 bytes of flash and 48,844 bytes of RAM on the STM32H563, with wolfCrypt
+102,417 bytes of flash and 42,492 bytes of RAM on the STM32H563, with wolfCrypt
 built as portable C. The other rows are measured over the `WT_SECURE_PSA=0`
-image, 70,400 and 45,260 bytes on the STM32H563, and 69,496 and 45,280 bytes
-on the STM32L562 (measured on the STM32L562 port, which is under review and not
-yet in this tree).
+image, 63,004 and 38,908 bytes on the STM32H563, and 62,492 and 38,892 bytes
+on the STM32L562, whose default it is.
 [Footprint](Footprint.md) logs the sizes of every port and engine.
 
 | Option | Brings back | STM32H563 flash / RAM | STM32L562 flash / RAM | Enable |
 | --- | --- | ---: | ---: | --- |
-| [`WT_MAX_GUESTS=2`](#wt_max_guests-a-second-guest) | A second Non-secure image, the scheduling that shares the core between two, and an IPC message pool of 8 instead of 4 | +2,328 / +9,368 | +2,328 / +9,364 | `make WT_MAX_GUESTS=2 secure-image` |
-| [`WT_FWU=1`](#wt_fwu-psa-firmware-update) | The PSA Firmware Update service and its 4 KiB stack | +3,348 / +4,120 | +3,372 / +4,136 | `make WT_FWU=1 secure-image` |
-| [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator | +3,316 / 0 | +3,284 / 0 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
+| [`WT_MAX_GUESTS=2`](#wt_max_guests-a-second-guest) | A second Non-secure image, the scheduling that shares the core between two, and 8 IPC transfers instead of 4 | +2,088 / +4,612 | +2,120 / +4,604 | `make WT_MAX_GUESTS=2 secure-image` |
+| [`WT_FWU=1`](#wt_fwu-psa-firmware-update) | The PSA Firmware Update service and its 4 KiB stack | +3,200 / +4,316 | +3,232 / +4,316 | `make WT_FWU=1 secure-image` |
+| [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator, with the descriptive manifest it reads | +5,228 / +16 | +5,264 / +16 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
 | [`WT_SHA256_FAST=1`](#wt_sha256_fast-unrolled-sha-256) | The unrolled SHA-256 transform, faster hashing for boot and guest measurement | +384 / 0 | +416 / 0 | `make WT_SHA256_FAST=1 secure-image` |
-| [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +27,876 / +38,672 | not supported | `make WT_ENGINE=hsm secure-image` |
-| [`WT_SECURE_PSA=0`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1) | Removes PSA Crypto from the Secure image and runs wolfPSA in the guest again; saves 41,369 / 7,680 against the `compat` default (`standard` is +35,193 / +7,680 over it) | -41,369 / -7,680 | not measured | `make WT_SECURE_PSA=0 secure-image` |
-| `full` profile | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` together | +9,408 / +13,488 | +9,432 / +13,500 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image` |
+| [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +27,872 / +38,716 | not supported | `make WT_ENGINE=hsm secure-image` |
+| [`WT_SECURE_PSA=0`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1) | Removes PSA Crypto from the Secure image and runs wolfPSA in the guest again; saves 39,413 / 3,584 against the `compat` default (`standard` is +32,635 / +3,584 over it) | -39,413 / -3,584 | the default; `1` adds +39,449 / +3,584 | `make WT_SECURE_PSA=0 secure-image` |
+| `full` profile | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` together | +11,320 / +8,940 | +11,352 / +8,940 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image` |
 
 The RAM figures include every stack and band an option adds, the 4 KiB FWU
 stack for `WT_FWU=1` among them. The engine is a separate axis:
@@ -57,10 +56,10 @@ build `full` only, because their checks assert both guests.
   also adds a second server tasklet and its 10 KiB stack. One guest keeps the
   restart policy, launch verification, the Secure tick and the Secure
   Partition scheduler.
-- Cost: STM32H563 native +2,328 bytes flash and +9,368 bytes RAM, wolfHSM
-  +2,648 and +19,864; STM32L562 native +2,328 and +9,364. Most of the RAM is
-  the IPC message pool, which holds 8 messages with two guests and 4 with one
-  (`WT_FFM_MAX_MESSAGES`).
+- Cost: STM32H563 native +2,088 bytes flash and +4,612 bytes RAM, wolfHSM
+  +2,440 and +15,152; STM32L562 native +2,120 and +4,604. Most of the RAM is
+  the SPM's IPC transfers, 8 with two guests and 4 with one, each a 1,024-byte
+  payload (`WT_SPM_TRANSFERS`).
 - Enable: `make WT_MAX_GUESTS=2 secure-image`
 - CI: the cross-compile job builds it alone and in the `full` profile for
   every port and engine, and checks that `WT_MAX_GUESTS=3` stops the build. The M33MU `full`
@@ -81,8 +80,8 @@ build `full` only, because their checks assert both guests.
   exist and a connect to SID `0x1005` is refused like any unknown service.
   Anti-rollback enforcement at boot stays in every image.
   `WT_BOOTUPDATE_PROBE=1` needs `WT_FWU=1`.
-- Cost: STM32H563 native +3,348 bytes flash and +4,120 bytes RAM; STM32L562
-  native +3,372 and +4,136. The RAM is almost all the update partition's
+- Cost: STM32H563 native +3,200 bytes flash and +4,316 bytes RAM; STM32L562
+  native +3,232 and +4,316. The RAM is almost all the update partition's
   stack.
 - Enable: `make WT_FWU=1 secure-image`
 - CI: the cross-compile job builds it alone and in the `full` profile for
@@ -101,11 +100,15 @@ build `full` only, because their checks assert both guests.
   boot-time checks would reject fails the build, so the default image does
   not repeat them.
 - `1` links the boot-time validator back in: `wt_spm_init()` runs
-  `wt_manifest_validate()`, `wt_partitions_bind_manifest()` runs
-  `wt_partition_validate_port_binding()`, and the monitor runs
+  `wt_manifest_validate()`, and the monitor runs
+  `wt_partitions_check_manifest()` (it rebuilds each guest row from the
+  manifest, compares it with the generated row and runs
+  `wt_partition_validate_port_binding()`) and
   `wt_partition_validate_profile()` for each guest.
-- Cost: flash only, RAM does not change. STM32H563 native +3,316 bytes and
-  STM32L562 native +3,284 bytes.
+- Cost: STM32H563 native +5,228 bytes flash and STM32L562 native +5,264, and
+  16 bytes of RAM. About 1 KB of it is the descriptive manifest (domains,
+  partitions and memory rows), which the default image does not link: its SPM
+  and guest rows come from the generator as constants.
 - Enable: `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image`
 - CI: the cross-compile job builds every port and engine with it and checks
   that only the opt-in image links `wt_manifest_validate`. The `manifestneg`
@@ -136,7 +139,7 @@ build `full` only, because their checks assert both guests.
 - Default `native`, which runs wolfCrypt directly behind `SERVICE_HSM`.
   `hsm` links the wolfHSM server instead, with server-keystore semantics and
   an external-HSM offload path. The FF-M surface does not change.
-- Cost: STM32H563 +27,876 bytes flash and +38,672 bytes RAM over the native
+- Cost: STM32H563 +27,872 bytes flash and +38,716 bytes RAM over the native
   `WT_SECURE_PSA=0` image, including the wolfHSM server's 10 KiB crypto partition stack and
   24 KiB data band. Part of it is AES block decryption, which the wolfHSM server
   serves to clients and the native engine leaves out. The STM32L562 builds the native engine only; its 256 KiB of SRAM
@@ -156,9 +159,10 @@ build `full` only, because their checks assert both guests.
 | `BUILD_DIR` | Secure build output directory; default `build`. | Must be writable. |
 | `WT_LTO` | Enable Secure-image link-time optimization; default `1`. | Set to `0` for diagnostics or a non-LTO size comparison. The GNU Arm compiler must support `-flto=auto`. |
 | `WT_ENGINE` | Secure crypto engine: `native` (default) dispatches wolfCrypt directly behind the SERVICE_HSM door with explicitly vault-backed keys stored as `SENSITIVE` and `NONEXPORTABLE` NVM objects; `hsm` links the wolfHSM server as a key-management add-on (server-keystore semantics and an external-HSM offload path). Legacy `WT_ENGINE_HSM=0/1` maps onto the selector. | Both engines share the identical FF-M surface (5 veneers, SIDs, manifest, and L3 bands) and run every applicable CI scenario. Guest builds must use the same engine as the Secure image. See [Crypto Engines](Crypto-Engines.md). |
-| `WT_SP_RESTART` | Restart a faulted Secure Partition under its manifest restart policy; default `1`. | With `0` the recovery code is built out and any partition fault fails the platform closed through `wt_platform_all_guests_faulted()`. |
-| `WT_GUEST_RESTART` | Restart a faulted Non-secure guest under its restart policy; default `1`. | With `0` a faulted guest is quarantined as `FAULTED` and never relaunched. |
-| `WT_FFM_FORENSICS` | Build the SPM forensic words a debugger reads after a fault (gate rejections, keystore failures, the full first-fault record); default `0`. | Diagnostics only. The fault count, first CFSR and SPM fault latch the scenarios read are always built. |
+| `WT_SP_RESTART` | Restart a faulted Secure Partition under its manifest restart policy; default `1`. `0` saves 708 bytes of flash and 4 of RAM. | With `0` the recovery code is built out and any partition fault fails the platform closed through `wt_platform_all_guests_faulted()`. |
+| `WT_GUEST_RESTART` | Restart a faulted Non-secure guest under its restart policy; default `1`. `0` saves 96 bytes of flash on the STM32H563 (64 on the STM32L562) and 4 of RAM. | With `0` a faulted guest is quarantined as `FAULTED` and never relaunched. |
+| `WT_FFM_FORENSICS` | Build the SPM forensic words a debugger reads after a fault (gate rejections, keystore failures, the full first-fault record); default `0`. `1` adds 512 bytes of flash on the STM32H563 (544 on the STM32L562) and 104 of RAM. | Diagnostics only. The fault count, first CFSR and SPM fault latch the scenarios read are always built. |
+| `WT_FFM_SP_DOORBELL`, `WT_FFM_SP_RHANDLE`, `WT_FFM_SP_SKIP` | Build the Secure Partition calls no shipped service makes: `psa_notify` and `psa_clear`, `psa_set_rhandle`, and `psa_skip`; each defaults to `1`. `0` builds the call out of the SP API and the SPM gate, which refuses it; all three save 96 bytes of flash. | `0` or `1`. A partition that calls a trimmed function fails to link. `WT_CONFORMANCE=1` needs all three, because the Arm suite calls them. |
 
 ## Core target configuration
 
@@ -166,6 +170,7 @@ build `full` only, because their checks assert both guests.
 | --- | --- | --- |
 | `WT_MAX_GUESTS` | Compiled guest contexts; default `1`, `2` adds guest-b (see [`WT_MAX_GUESTS`](#wt_max_guests-a-second-guest)). | Only `1` or `2`; any other value stops the build. The manifest keeps guest-b's domain declared either way. |
 | `WT_TIMESLICE_MS` | Guest scheduler interval in milliseconds; default `2`. | Must be nonzero and supported by the target timer. |
+| `WT_SPM_TRANSFERS` | IPC transfers the SPM holds for requests in flight, each a 1,024-byte payload with its vector sizes; default `4`, or `8` with two guests, `CONFIG_VNET=y` or `WT_CONFORMANCE=1`. A C define: set it with `WT_EXTRA_CFLAGS=-DWT_SPM_TRANSFERS=<n>U`. | At least `1`. A call that finds every transfer taken returns `PSA_ERROR_INSUFFICIENT_MEMORY`. Connections and closes take none. |
 | `WT_GUEST_HANDLER_SLICE_LIMIT` | Consecutive slice expiries a guest may spend in a Non-secure handler before it is restarted (Secure calls made from that handler count); default `50`. A C define, not a Make variable: set it with `WT_EXTRA_CFLAGS=-DWT_GUEST_HANDLER_SLICE_LIMIT=<n>`. | Must be 1 to `0xFFFFFFFF` (other values fail the build); size it above the longest legitimate guest interrupt handler. |
 | `WT_CO_STACK_SIZE` | Default fixed coroutine stack size in bytes, including each per-guest wolfHSM server tasklet in the hsm engine; default `10240` (measured: the deep M33MU workloads pass at 8K with PSPLIM overflow detection armed, so 10K carries at least 2K margin). With two guests, the hsm-only server slots total 20,480 stack bytes plus 512 guard bytes. Manifest-sized Secure Partition stacks use their declared sizes instead. | Size from measured stack high-water marks and keep at least the scheduler minimum. |
 | `WT_SHARED_UART` | Reference guest UART selection; default `3`. | Guest and Secure builds must use a consistent value. |
@@ -271,7 +276,7 @@ reference manifest sets it to numeric value `3`
 mask `1`, which is `WT_MANIFEST_FEATURE_IPC`. The Makefile
 invokes the generator with supported features `0x1`, the framework version,
 partition limit, and service limit read from `include/psa/client.h` and
-`include/wolftrust/ffm.h`, and the port's `WT_PLATFORM_*` capabilities, so an
+`include/wolftrust/spm_core.h`, and the port's `WT_PLATFORM_*` capabilities, so an
 unsupported manifest request fails generation.
 
 See [Building](Building.md) for command examples and [Security Model](Security-Model.md) for the runtime

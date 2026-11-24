@@ -59,6 +59,9 @@ wt_sec_rng_entropy.o                   spm
 wt_sec_sau_armv8m.o                    spm
 wt_sec_sp_fault_armv8m.o               spm
 wt_sec_spm_gate_core.o                 spm
+wt_sec_keystore_ops.o                  spm
+wt_sec_measure_ops.o                   spm
+wt_sec_fwu_ops.o                       spm
 wt_sec_spm_svc.o                       spm
 wt_sec_start_armv8m.o                  spm
 wt_sec_stm32h5_rng.o                   spm

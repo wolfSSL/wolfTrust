@@ -39,9 +39,6 @@
 #include "wolftrust/services/attestation_service.h"
 #include "wolftrust/services/initial_attestation.h"
 #endif
-#include "wolfhsm/wh_flash.h"
-#include "wolftrust/guest_verify.h"
-#include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
 #if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
@@ -59,6 +56,7 @@
 #endif
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
+#include "wolftrust/spm_ops.h"
 #include "wolftrust/spm_sp_mem.h"
 
 #include <string.h>
@@ -123,33 +121,13 @@ int wt_conf_nvm_flash_sync(uint8_t *buf, uint32_t len, int store);
 void wt_conf_uart_irq_set(int on);
 #endif
 
-#if defined(PARTITION_FWU_ID)
-/* Port flash staging backend (WT-FWU-0002); the SVC dispatcher runs its ops
- * privileged on behalf of the confined FWU partition. */
-extern const wt_fwu_backend_t wt_fwu_flash_backend;
-#endif
-
-/* Port seams the SVC dispatcher runs privileged on behalf of the confined
- * keystore partitions: the shared NVM flash callback set and its context
- * singleton (hsm_flash.c) and the TRNG entropy source (rng_entropy.c). */
-extern const whFlashCb g_wt_hsm_flash_cb;
-void *wt_hsm_flash_context(void);
-int wolftrust_rng_generate_block_direct(unsigned char *output,
-                                        unsigned int sz);
 
 #if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
 /* Keystore-gate forensics, SWD-readable on target: the last pid-pin
  * rejection and the last flash or lock op result. */
 volatile uint32_t g_wt_ks_reject_pid __attribute__((used));
 volatile uint32_t g_wt_ks_reject_count __attribute__((used));
-volatile uint32_t g_wt_ks_last_flash __attribute__((used));
-volatile uint32_t g_wt_ks_last_flash_off __attribute__((used));
-volatile uint32_t g_wt_ks_flash_ops __attribute__((used));
 volatile uint32_t g_wt_ks_last_lock __attribute__((used));
-volatile uint32_t g_wt_ks_dom_reject_count __attribute__((used));
-volatile uint32_t g_wt_ks_dom_reject_subop __attribute__((used));
-volatile uint32_t g_wt_ks_dom_reject_buf __attribute__((used));
-volatile uint32_t g_wt_ks_dom_reject_len __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_count __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_call __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_psp __attribute__((used));
@@ -496,80 +474,23 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
     }
 #endif
 
-    /* SERVICE_FWU staging (WT-FWU-0002): the confined FWU partition cannot
-     * touch the flash controller, so its backend ops trap here for the
-     * privileged program/erase, pinned to the FWU partition identity. The
-     * conformance manifest schedules no FWU partition, so the op falls
-     * through to the gate's argument rejection there. */
+    /* SERVICE_FWU staging (WT-FWU-0002), pinned to the FWU partition. Without
+     * one the op falls through to the gate's argument rejection. */
 #if defined(PARTITION_FWU_ID)
     if (call->op == WT_SPM_OP_FWU_BACKEND) {
-        int fwu_ret = -1;
-
         if (slot->partition_id != PARTITION_FWU_ID) {
             return WT_FFM_ERROR_ARGUMENT;
         }
-        if (call->call_type == WT_SPM_FWU_BEGIN &&
-                wt_fwu_flash_backend.begin != NULL) {
-            fwu_ret = wt_fwu_flash_backend.begin(NULL);
-        }
-        else if (call->call_type == WT_SPM_FWU_WRITE &&
-                wt_fwu_flash_backend.write != NULL &&
-                wt_secure_domain_contains(&slot->table,
-                    (uintptr_t)call->buffer, call->num_bytes, 0) != 0) {
-            fwu_ret = wt_fwu_flash_backend.write(NULL, call->vec_idx,
-                (const uint8_t*)call->buffer, (uint32_t)call->num_bytes);
-        }
-        else if (call->call_type == WT_SPM_FWU_ARM &&
-                wt_fwu_flash_backend.arm != NULL) {
-            fwu_ret = wt_fwu_flash_backend.arm(NULL,
-                (uint32_t)call->num_bytes, call->version);
-        }
-        else if (call->call_type == WT_SPM_FWU_DISARM &&
-                wt_fwu_flash_backend.disarm != NULL) {
-            fwu_ret = wt_fwu_flash_backend.disarm(NULL);
-        }
-        else if (call->call_type == WT_SPM_FWU_REBOOT) {
-            /* psa_fwu_request_reboot: the granted reset does not return. */
-            wt_platform_system_reset();
-        }
-        else if (call->call_type == WT_SPM_FWU_FLOOR) {
-            uint32_t fwu_floor = 0u;
-
-            if (wt_hsm_rollback_image_floor(&fwu_floor) == 0) {
-                call->ret_version = fwu_floor;
-                fwu_ret = 0;
-            }
-        }
-        else if (call->call_type == WT_SPM_FWU_VERIFY &&
-                wt_fwu_flash_backend.verify != NULL) {
-            uint32_t staged_version = 0u;
-
-            fwu_ret = wt_fwu_flash_backend.verify(NULL,
-                (uint32_t)call->num_bytes, &staged_version);
-            if (fwu_ret == 0) {
-                call->ret_version = staged_version;
-            }
-        }
-        else if (call->call_type == WT_SPM_FWU_ACTIVE) {
-            call->ret_version = wt_hsm_active_image_version();
-            fwu_ret = 0;
-        }
-        call->ret_int = fwu_ret;
+        call->ret_int = wt_spm_fwu_op(&slot->table, call);
         return WT_FFM_SUCCESS;
     }
 #endif /* PARTITION_FWU_ID */
 
-    /* Keystore platform services (WT-FFM-0011): the confined keystore
-     * partitions cannot touch the flash controller, the TRNG, or the
-     * scheduler state the NVM lock needs, so those ops trap here, pinned to
-     * the partition that owns each need: flash and the NVM lock belong to
-     * the vault (the store owner), entropy to the vault and the crypto
-     * partition (the DRBG owners). The flash context is always the vault's
-     * NVM singleton — never a caller-supplied pointer. */
+    /* Keystore platform services (WT-FFM-0011): flash and the NVM lock are
+     * pinned to the vault, entropy to the vault and the crypto partition. */
     if (call->op == WT_SPM_OP_KEYSTORE_FLASH ||
             call->op == WT_SPM_OP_KEYSTORE_ENTROPY ||
             call->op == WT_SPM_OP_KEYSTORE_LOCK) {
-        void* flash_ctx;
         wt_mutex_t* nvm_mutex;
         int ks_ret = -1;
         int pinned;
@@ -593,118 +514,44 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
 #endif
             return WT_FFM_ERROR_ARGUMENT;
         }
-        if (call->op == WT_SPM_OP_KEYSTORE_FLASH) {
-            flash_ctx = wt_hsm_flash_context();
-            if (call->call_type == WT_SPM_KS_FLASH_READ &&
-                    wt_secure_domain_contains(&slot->table,
-                        (uintptr_t)call->buffer, call->num_bytes, 1) != 0) {
-                ks_ret = g_wt_hsm_flash_cb.Read(flash_ctx, call->vec_idx,
-                    (uint32_t)call->num_bytes, (uint8_t*)call->buffer);
+        if (call->op != WT_SPM_OP_KEYSTORE_LOCK) {
+            call->ret_int = wt_spm_keystore_op(&slot->table, call);
+            return WT_FFM_SUCCESS;
+        }
+        nvm_mutex = (wt_mutex_t*)(void*)wt_hsm_nvm_lock_mutex();
+        if (call->call_type == WT_SPM_KS_LOCK_ACQUIRE) {
+            ks_ret = wt_mutex_acquire_queued(nvm_mutex, wt_co_current());
+            if (ks_ret == 1) {
+                /* Enqueued behind the holder: block on exception return
+                 * and report retry; the release hands the mutex over
+                 * before waking, so the re-issue observes ownership. */
+                slot->wait_kind = WT_SPM_WAIT_LOCK;
+                wt_co_block();
             }
-            else if (call->call_type == WT_SPM_KS_FLASH_PROGRAM &&
-                    wt_secure_domain_contains(&slot->table,
-                        (uintptr_t)call->buffer, call->num_bytes, 0) != 0) {
-                ks_ret = g_wt_hsm_flash_cb.Program(flash_ctx, call->vec_idx,
-                    (uint32_t)call->num_bytes, (const uint8_t*)call->buffer);
-            }
-            else if (call->call_type == WT_SPM_KS_FLASH_ERASE) {
-                ks_ret = g_wt_hsm_flash_cb.Erase(flash_ctx, call->vec_idx,
-                    (uint32_t)call->num_bytes);
-            }
-            else if (call->call_type == WT_SPM_KS_FLASH_VERIFY &&
-                    wt_secure_domain_contains(&slot->table,
-                        (uintptr_t)call->buffer, call->num_bytes, 0) != 0) {
-                ks_ret = g_wt_hsm_flash_cb.Verify(flash_ctx, call->vec_idx,
-                    (uint32_t)call->num_bytes, (const uint8_t*)call->buffer);
-            }
-            else if (call->call_type == WT_SPM_KS_FLASH_BLANKCHECK) {
-                ks_ret = g_wt_hsm_flash_cb.BlankCheck(flash_ctx,
-                    call->vec_idx, (uint32_t)call->num_bytes);
-            }
-            else if (call->call_type == WT_SPM_KS_FLASH_CLEANUP) {
-                ks_ret = g_wt_hsm_flash_cb.Cleanup(flash_ctx);
+            else if (ks_ret == 0) {
+                slot->wait_kind = WT_SPM_WAIT_NONE;
             }
         }
-        else if (call->op == WT_SPM_OP_KEYSTORE_ENTROPY) {
-            if (wt_secure_domain_contains(&slot->table,
-                    (uintptr_t)call->buffer, call->num_bytes, 1) != 0) {
-                ks_ret = wolftrust_rng_generate_block_direct(
-                    (unsigned char*)call->buffer,
-                    (unsigned int)call->num_bytes);
-            }
-        }
-        else {
-            nvm_mutex = (wt_mutex_t*)(void*)wt_hsm_nvm_lock_mutex();
-            if (call->call_type == WT_SPM_KS_LOCK_ACQUIRE) {
-                ks_ret = wt_mutex_acquire_queued(nvm_mutex, wt_co_current());
-                if (ks_ret == 1) {
-                    /* Enqueued behind the holder: block on exception return
-                     * and report retry; the release hands the mutex over
-                     * before waking, so the re-issue observes ownership. */
-                    slot->wait_kind = WT_SPM_WAIT_LOCK;
-                    wt_co_block();
-                }
-                else if (ks_ret == 0) {
-                    slot->wait_kind = WT_SPM_WAIT_NONE;
-                }
-            }
-            else if (call->call_type == WT_SPM_KS_LOCK_RELEASE) {
-                ks_ret = wt_mutex_release(nvm_mutex);
-            }
+        else if (call->call_type == WT_SPM_KS_LOCK_RELEASE) {
+            ks_ret = wt_mutex_release(nvm_mutex);
         }
 #if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
-        if (call->op == WT_SPM_OP_KEYSTORE_FLASH) {
-            g_wt_ks_flash_ops++;
-            /* ks_ret untouched by the else-if chain = the buffer failed the
-             * caller-domain bounds check (or an unknown sub-op). */
-            if (ks_ret == -1) {
-                g_wt_ks_dom_reject_count++;
-                g_wt_ks_dom_reject_subop = (uint32_t)call->call_type;
-                g_wt_ks_dom_reject_buf = (uint32_t)(uintptr_t)call->buffer;
-                g_wt_ks_dom_reject_len = (uint32_t)call->num_bytes;
-            }
-        }
-        /* First-wins failure latch (lock ret 1 = enqueued, not an error). */
-        if (ks_ret != 0 && ks_ret != 1) {
-            if (call->op == WT_SPM_OP_KEYSTORE_LOCK &&
-                    g_wt_ks_last_lock == 0u) {
-                g_wt_ks_last_lock = ((uint32_t)call->call_type << 24) |
-                                    ((uint32_t)ks_ret & 0x00FFFFFFu);
-            }
-            else if (call->op != WT_SPM_OP_KEYSTORE_LOCK &&
-                    g_wt_ks_last_flash == 0u) {
-                g_wt_ks_last_flash = ((uint32_t)call->call_type << 24) |
-                                     ((uint32_t)ks_ret & 0x00FFFFFFu);
-                g_wt_ks_last_flash_off = call->vec_idx;
-            }
+        /* First-wins failure latch (1 means enqueued, not an error). */
+        if (ks_ret != 0 && ks_ret != 1 && g_wt_ks_last_lock == 0u) {
+            g_wt_ks_last_lock = ((uint32_t)call->call_type << 24) |
+                                ((uint32_t)ks_ret & 0x00FFFFFFu);
         }
 #endif
         call->ret_int = ks_ret;
         return WT_FFM_SUCCESS;
     }
 
-    /* Read-only measurement snapshot (WT-FFM-0049/0062): the confined attest
-     * partition embeds the launch-verified guest measurements in its token
-     * but must not reach the monitor's table directly; copy on its behalf. */
+    /* Read-only measurement snapshot (WT-FFM-0049/0062) for the attest SP. */
     if (call->op == WT_SPM_OP_MEASURE_READ) {
-        const wt_guest_measurement_t* rec;
-        int m_ret = 0;
-
         if (slot->partition_id != PARTITION_ATTEST_ID) {
             return WT_FFM_ERROR_ARGUMENT;
         }
-        call->ret_size = wt_guest_measurement_count();
-        if (call->buffer != NULL) {
-            m_ret = -1;
-            rec = wt_guest_measurement_get(call->vec_idx, NULL);
-            if (rec != NULL && call->num_bytes == sizeof(*rec) &&
-                    wt_secure_domain_contains(&slot->table,
-                        (uintptr_t)call->buffer, call->num_bytes, 1) != 0) {
-                (void)memcpy(call->buffer, rec, sizeof(*rec));
-                m_ret = 0;
-            }
-        }
-        call->ret_int = m_ret;
+        call->ret_int = wt_spm_measure_op(&slot->table, call);
         return WT_FFM_SUCCESS;
     }
 

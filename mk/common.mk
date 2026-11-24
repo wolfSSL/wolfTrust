@@ -503,6 +503,8 @@ endif
 WT_SECURE_EXTRA_SRCS := \
     $(ARCH_SRCS) \
     $(ROOT)/src/arch/common/spm_gate_core.c \
+    $(ROOT)/src/arch/common/keystore_ops.c \
+    $(ROOT)/src/arch/common/measure_ops.c \
     $(ROOT)/src/arch/common/spm_sp_api.c \
     $(ROOT)/src/arch/common/ffm_gateway.c \
     $(ROOT)/src/sched/coroutine.c \
@@ -519,7 +521,8 @@ WT_SECURE_EXTRA_SRCS := \
     $(ROOT)/src/services/vault_service.c
 
 ifeq ($(WT_FWU),1)
-WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/fwu_service.c
+WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/fwu_service.c \
+    $(ROOT)/src/arch/common/fwu_ops.c
 endif
 
 # Engine split: wt_hsm.c drives the wolfHSM server (hsm engine only); the

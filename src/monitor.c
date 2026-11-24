@@ -565,10 +565,10 @@ void wt_monitor_init(void)
 
     g_scheduler.configs = wt_partitions_config_table(&count);
     g_scheduler.runtime = wt_partitions_runtime_table(&count);
-    if (wt_partitions_bind_manifest(wt_spm_manifest(&g_spm)) != 0) {
+#if WT_MANIFEST_RUNTIME_CHECK
+    if (wt_partitions_check_manifest(wt_spm_manifest(&g_spm)) != 0) {
         wt_platform_panic();
     }
-#if WT_MANIFEST_RUNTIME_CHECK
     for (i = 0; i < count; ++i) {
         if (wt_partition_validate_profile(
                 wt_partitions_profile_capabilities(),

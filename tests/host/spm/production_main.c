@@ -86,8 +86,8 @@ int main(void)
         return 1;
     }
 
-    if (wt_partitions_bind_manifest(wt_spm_manifest(&spm)) != 0) {
-        (void)fprintf(stderr, "production partition binding rejected\n");
+    if (wt_partitions_check_manifest(wt_spm_manifest(&spm)) != 0) {
+        (void)fprintf(stderr, "production partition rows rejected\n");
         return 1;
     }
 
@@ -240,43 +240,31 @@ int main(void)
         return 1;
     }
 
-    /* WT-FFM: the restart policy is authoritative. Binding a manifest whose
-     * guest restart_limit differs from the compiled-in default must flow that
-     * value into the runtime config -- proving the SPM reads the manifest, not
-     * a hardcoded copy. */
+    /* The guest rows are fixed from the manifest at build time: a manifest
+     * whose guest policy differs from the rows is refused. */
     (void)memcpy(invalid_domains, wt_spm_manifest(&spm)->domains,
                  domain_count * sizeof(invalid_domains[0]));
     invalid_manifest = *wt_spm_manifest(&spm);
     invalid_manifest.domains = invalid_domains;
     invalid_domains[1].restart_policy.restart_limit = 7U;
-    if (wt_partitions_bind_manifest(&invalid_manifest) != 0) {
-        (void)fprintf(stderr, "authoritative restart policy bind rejected\n");
-        return 1;
-    }
-    configs = wt_partitions_config_table(&config_count);
-    if (config_count == 0U ||
-            configs[0].restart_policy.restart_limit != 7U) {
-        (void)fprintf(stderr, "restart limit not bound from manifest\n");
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
+        (void)fprintf(stderr, "a different restart limit was accepted\n");
         return 1;
     }
 
-    /* WT-FFM: the manifest's initial lifecycle is authoritative -- a guest
-     * domain declared STOPPED binds to a non-runnable runtime state. */
+    invalid_domains[1].restart_policy.restart_limit =
+        wt_spm_manifest(&spm)->domains[1].restart_policy.restart_limit;
     invalid_domains[1].initial_lifecycle = WT_DOMAIN_LIFECYCLE_STOPPED;
-    if (wt_partitions_bind_manifest(&invalid_manifest) != 0) {
-        (void)fprintf(stderr, "authoritative lifecycle bind rejected\n");
-        return 1;
-    }
-    configs = wt_partitions_config_table(&config_count);
-    if (configs[0].initial_state != WT_GUEST_STOPPED) {
-        (void)fprintf(stderr, "initial lifecycle not bound from manifest\n");
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
+        (void)fprintf(stderr, "a different lifecycle was accepted\n");
         return 1;
     }
 
     /* An unsupported restart action still fails closed. */
-    invalid_domains[1].restart_policy.restart_limit = 3U;
+    invalid_domains[1].initial_lifecycle =
+        wt_spm_manifest(&spm)->domains[1].initial_lifecycle;
     invalid_domains[1].restart_policy.action = WT_RESTART_ACTION_NEVER;
-    if (wt_partitions_bind_manifest(&invalid_manifest) == 0) {
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
         (void)fprintf(stderr, "unsupported restart action was accepted\n");
         return 1;
     }
@@ -284,15 +272,14 @@ int main(void)
     /* A guest declared unprivileged misstates how it launches: refused. */
     invalid_domains[1].restart_policy.action = WT_RESTART_ACTION_DOMAIN;
     invalid_domains[1].privilege_state = WT_PRIVILEGE_STATE_UNPRIVILEGED;
-    if (wt_partitions_bind_manifest(&invalid_manifest) == 0) {
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
         (void)fprintf(stderr, "unprivileged guest declaration was accepted\n");
         return 1;
     }
 
-    /* Restore the real, authoritative binding: the guest domains declare
-     * READY, so the bound runtime state is runnable. */
-    if (wt_partitions_bind_manifest(wt_spm_manifest(&spm)) != 0) {
-        (void)fprintf(stderr, "restart policy rebind rejected\n");
+    /* The real manifest matches the rows; its guests declare READY. */
+    if (wt_partitions_check_manifest(wt_spm_manifest(&spm)) != 0) {
+        (void)fprintf(stderr, "the real manifest was refused\n");
         return 1;
     }
     configs = wt_partitions_config_table(&config_count);

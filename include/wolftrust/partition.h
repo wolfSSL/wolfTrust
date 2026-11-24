@@ -84,8 +84,8 @@ typedef enum wt_port_validation_result {
 const wt_guest_config_t* wt_partitions_config_table(size_t* count);
 wt_guest_runtime_t* wt_partitions_runtime_table(size_t* count);
 const wt_profile_capabilities_t* wt_partitions_profile_capabilities(void);
-/* Bind the platform scheduler table to the validated generated manifest. */
-int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest);
+/* 0 when every constant guest row matches what the manifest declares. */
+int wt_partitions_check_manifest(const wt_system_manifest_t* manifest);
 int wt_partition_validate_port_binding(
     const wt_guest_config_t* config,
     const wt_domain_descriptor_t* domain);

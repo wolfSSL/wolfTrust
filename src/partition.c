@@ -61,9 +61,7 @@ int wt_partition_validate_port_binding(
         return WT_PORT_ERROR_CAPABILITY;
     }
 
-    /* Validate the manifest resources the port is about to install, not the
-     * compiled template windows (bind_manifest replaces those afterwards): a
-     * writable Non-secure window needs the fabric filter to isolate it. */
+    /* A writable Non-secure window needs the fabric filter to isolate it. */
     for (i = 0U; i < domain->memory_resource_count; ++i) {
         if ((domain->memory_resources[i].attributes &
                 WT_MEMORY_ATTR_WRITE) != 0U &&

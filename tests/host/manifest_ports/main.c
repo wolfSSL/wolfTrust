@@ -60,9 +60,9 @@ int main(void)
     if (result != WT_SPM_VALID || wt_spm_manifest(&spm) != manifest)
         return ports_fail("rejected by wt_spm_init", result);
 
-    result = wt_partitions_bind_manifest(manifest);
+    result = wt_partitions_check_manifest(manifest);
     if (result != 0)
-        return ports_fail("rejected by wt_partitions_bind_manifest", result);
+        return ports_fail("rejected by wt_partitions_check_manifest", result);
 
     configs = wt_partitions_config_table(&count);
     if (configs == NULL || count == 0U)

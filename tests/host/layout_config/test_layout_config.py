@@ -355,8 +355,21 @@ def generated_headers_ordered(target, *settings):
 
 def partitions_size_each_guest(target, flags):
     """With the shared WT_GUEST_RAM_SIZE poisoned and guest 1 halved, the
-    partition table, the guest-memory reset and the port's platform each read
-    the guest's own size, so a port whose guests differ is honoured."""
+    guest-memory reset and the port's platform each read the guest's own
+    size, and the manifest sizes guest 1's RAM and stack from its own size,
+    so a port whose guests differ is honoured."""
+    for template in sorted((ROOT / "manifest").glob("*.json")):
+        domains = json.loads(template.read_text())["domains"]
+        text = template.read_text()
+        check("WT_GUEST_RAM_SIZE" not in text,
+              "%s sizes a guest from WT_GUEST_RAM_SIZE" % template.name)
+        for domain in domains:
+            if domain["id"] == 2:
+                check(domain["stack_size"] == "WT_GUEST1_RAM_SIZE" and
+                      any(m["size"] == "WT_GUEST1_RAM_SIZE"
+                          for m in domain["memory_resources"]),
+                      "%s: guest 1's stack and RAM window ignore "
+                      "WT_GUEST1_RAM_SIZE" % template.name)
     header = ROOT / "port" / target / "memory_map.h"
     builtin = {DEFINE.match(line).group(1)
                for line in run([CC, "-dM", "-E", "-x", "c", "-"],
@@ -377,8 +390,7 @@ def partitions_size_each_guest(target, flags):
         if name is not None and name not in builtin:
             body.append("#define %s %s" % (name, values[name]) if name in values else line)
     includes = [token for token in shlex.split(flags) if token.startswith("-I")]
-    for source in (ROOT / "port" / "common" / "armv8m" / "partitions.c",
-                   ROOT / "src" / "arch" / "armv8m" / "guest_context_armv8m.c",
+    for source in (ROOT / "src" / "arch" / "armv8m" / "guest_context_armv8m.c",
                    ROOT / "port" / target / ("platform_%s.c" % target)):
         if not source.exists():
             continue
@@ -390,12 +402,6 @@ def partitions_size_each_guest(target, flags):
               % (target, source.name, result.stderr.strip()))
         check(poison not in result.stdout,
               "%s: %s sizes a guest from WT_GUEST_RAM_SIZE" % (target, source.name))
-        if source.name == "partitions.c":
-            guest1 = result.stdout.partition('"guest-b"')[2].partition(
-                ".restart_policy")[0]
-            check(guest1.count("%#xu" % size) == 3,
-                  "%s: guest 1's stack top and RAM windows ignore WT_GUEST1_RAM_SIZE"
-                  % target)
 
 def main():
     ports = sorted(path.parent.name

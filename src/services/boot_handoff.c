@@ -37,32 +37,24 @@ int wt_boot_handoff_consume(wt_boot_handoff_t* handoff)
     }
 
     sourceBytes = (volatile uint8_t*)wt_platform_boot_handoff_region(&regionSize);
-    if (sourceBytes == NULL || regionSize < sizeof(*handoff)) {
+    if (sourceBytes != NULL && regionSize >= sizeof(*handoff)) {
+        wt_arch_dmb();
         for (i = 0u; i < sizeof(*handoff); ++i) {
-            outputBytes[i] = 0u;
+            outputBytes[i] = sourceBytes[i];
         }
-        return -1;
+        if ((handoff->magic == WT_BOOT_HANDOFF_MAGIC) &&
+            (handoff->magic_inverse == ~WT_BOOT_HANDOFF_MAGIC) &&
+            (handoff->version == WT_BOOT_HANDOFF_VERSION) &&
+            (handoff->size == sizeof(*handoff)) &&
+            (handoff->hash_algorithm == WT_BOOT_HANDOFF_HASH_SHA256) &&
+            (handoff->measurement_size == WT_BOOT_HANDOFF_DIGEST_SIZE)) {
+            ret = 0;
+        }
+        for (i = 0u; i < sizeof(*handoff); ++i) {
+            sourceBytes[i] = 0u;
+        }
+        wt_arch_dsb();
     }
-
-    wt_arch_dmb();
-    for (i = 0u; i < sizeof(*handoff); ++i) {
-        outputBytes[i] = sourceBytes[i];
-    }
-
-    if ((handoff->magic == WT_BOOT_HANDOFF_MAGIC) &&
-        (handoff->magic_inverse == ~WT_BOOT_HANDOFF_MAGIC) &&
-        (handoff->version == WT_BOOT_HANDOFF_VERSION) &&
-        (handoff->size == sizeof(*handoff)) &&
-        (handoff->hash_algorithm == WT_BOOT_HANDOFF_HASH_SHA256) &&
-        (handoff->measurement_size == WT_BOOT_HANDOFF_DIGEST_SIZE)) {
-        ret = 0;
-    }
-
-    for (i = 0u; i < sizeof(*handoff); ++i) {
-        sourceBytes[i] = 0u;
-    }
-    wt_arch_dsb();
-
     if (ret != 0) {
         for (i = 0u; i < sizeof(*handoff); ++i) {
             outputBytes[i] = 0u;

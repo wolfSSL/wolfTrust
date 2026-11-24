@@ -48,9 +48,11 @@ typedef struct wt_guest_config {
     uintptr_t initial_psp_ns;
     uintptr_t initial_msp_ns;
     wt_irq_mask_t irq_mask;
-    wt_memory_window_t memory_windows[WT_MAX_MEMORY_WINDOWS];
+    /* Constant per-guest arrays sized by the manifest, at most
+     * WT_MAX_MEMORY_WINDOWS and WT_MAX_MEMORY_REGIONS entries. */
+    const wt_memory_window_t* memory_windows;
     size_t memory_window_count;
-    wt_memory_region_t memory_regions[WT_MAX_MEMORY_REGIONS];
+    const wt_memory_region_t* memory_regions;
     size_t memory_region_count;
     wt_restart_policy_t restart_policy;
     uint32_t timeslice_ms;

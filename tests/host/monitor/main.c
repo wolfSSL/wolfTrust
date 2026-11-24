@@ -31,6 +31,7 @@ enum { DISPATCHED = 1, HALTED, PANICKED, TIMED_OUT };
 static jmp_buf g_exit;
 static int g_event;
 static wt_guest_config_t g_configs[2];
+static wt_memory_window_t g_windows[1];
 static wt_guest_runtime_t g_runtime[2];
 static int g_contexts[2];
 static int g_failures;
@@ -433,7 +434,8 @@ int main(void)
     setup(1U, 1U);
     g_configs[0].launch_required = 1U;
     g_configs[0].memory_window_count = 1U;
-    g_configs[0].memory_windows[0].attributes = WT_MEM_ATTR_EXEC;
+    g_windows[0].attributes = WT_MEM_ATTR_EXEC;
+    g_configs[0].memory_windows = g_windows;
     g_verify_result = WT_GUEST_VERIFY_ERROR_DIGEST;
     event = fault_current();
     check(event == HALTED && g_runtime[0].state == WT_GUEST_FAULTED &&

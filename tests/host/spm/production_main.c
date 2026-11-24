@@ -44,6 +44,7 @@ int main(void)
     wt_spm_t spm;
     wt_system_manifest_t invalid_manifest;
     wt_domain_descriptor_t invalid_domains[WT_MANIFEST_MAX_PARTITIONS];
+    wt_memory_resource_t invalid_res[WT_MAX_MEMORY_REGIONS];
     wt_profile_capabilities_t limited_platform;
     wt_guest_config_t invalid_config;
     const wt_guest_config_t* configs;
@@ -274,6 +275,23 @@ int main(void)
     invalid_domains[1].privilege_state = WT_PRIVILEGE_STATE_UNPRIVILEGED;
     if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
         (void)fprintf(stderr, "unprivileged guest declaration was accepted\n");
+        return 1;
+    }
+
+    /* A guest window that differs from the row's constant window: refused. */
+    invalid_domains[1].privilege_state = WT_PRIVILEGE_STATE_PRIVILEGED;
+    if (invalid_domains[1].memory_resource_count == 0U ||
+            invalid_domains[1].memory_resource_count > WT_MAX_MEMORY_REGIONS) {
+        (void)fprintf(stderr, "the guest domain has no resources to vary\n");
+        return 1;
+    }
+    (void)memcpy(invalid_res, invalid_domains[1].memory_resources,
+                 invalid_domains[1].memory_resource_count *
+                 sizeof(invalid_res[0]));
+    invalid_res[0].size += 32U;
+    invalid_domains[1].memory_resources = invalid_res;
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
+        (void)fprintf(stderr, "a different guest window was accepted\n");
         return 1;
     }
 

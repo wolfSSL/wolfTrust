@@ -154,11 +154,9 @@ WT_STATIC_ASSERT((WT_PORT_CAPABILITIES &
             WT_GEN_GUEST##g##_IRQ_WORD5 | WT_GUEST_PROBE_IRQ(g, 5), \
             WT_GEN_GUEST##g##_IRQ_WORD6 | WT_GUEST_PROBE_IRQ(g, 6), \
             WT_GEN_GUEST##g##_IRQ_WORD7 | WT_GUEST_PROBE_IRQ(g, 7) } }, \
-        .memory_windows = { WT_GEN_GUEST##g##_WINDOWS }, \
+        .memory_windows = g_guest##g##_windows, \
         .memory_window_count = WT_GEN_GUEST##g##_WINDOW_COUNT, \
-        .memory_regions = { WT_GEN_GUEST##g##_REGIONS, \
-            { WT_NSC_BASE, WT_NSC_END - WT_NSC_BASE + 1U, \
-              WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC } }, \
+        .memory_regions = g_guest##g##_regions, \
         .memory_region_count = WT_GEN_GUEST##g##_REGION_COUNT + 1U, \
         .restart_policy = { WT_GEN_GUEST##g##_RESTART }, \
         .timeslice_ms = WT_TIMESLICE_MS, \
@@ -195,6 +193,26 @@ WT_STATIC_ASSERT((WT_GUEST_WINDOW_GRANULE & (WT_GUEST_WINDOW_GRANULE - 1U)) ==
 WT_GUEST_ROW_CHECKS(0, WT_GUEST0_CONSOLE_BASE);
 #if WT_MAX_GUESTS > 1
 WT_GUEST_ROW_CHECKS(1, WT_GUEST1_CONSOLE_BASE);
+#endif
+
+/* Each guest's windows and MPU regions, the NSC veneers last. */
+#define WT_GUEST_TABLES(g) \
+    static const wt_memory_window_t g_guest##g##_windows[] = { \
+        WT_GEN_GUEST##g##_WINDOWS }; \
+    static const wt_memory_region_t g_guest##g##_regions[] = { \
+        WT_GEN_GUEST##g##_REGIONS, \
+        { WT_NSC_BASE, WT_NSC_END - WT_NSC_BASE + 1U, \
+          WT_MEM_ATTR_READ | WT_MEM_ATTR_EXEC } }; \
+    WT_STATIC_ASSERT(WT_GEN_GUEST##g##_WINDOW_COUNT <= \
+                     WT_MAX_MEMORY_WINDOWS && \
+                     WT_GEN_GUEST##g##_REGION_COUNT + 1U <= \
+                     WT_MAX_MEMORY_REGIONS, \
+                     "guest " #g " needs more windows or regions than "\
+                     "the port binds")
+
+WT_GUEST_TABLES(0);
+#if WT_MAX_GUESTS > 1
+WT_GUEST_TABLES(1);
 #endif
 
 static const wt_guest_config_t g_partition_configs[] = {
@@ -293,6 +311,8 @@ static int wt_partition_check_domain(const wt_guest_config_t* config,
                                      const wt_domain_descriptor_t* domain)
 {
     wt_guest_config_t derived;
+    wt_memory_window_t win[WT_MAX_MEMORY_WINDOWS];
+    wt_memory_region_t reg[WT_MAX_MEMORY_REGIONS];
     size_t windows = 0U;
     size_t regions = 0U;
     size_t i;
@@ -306,8 +326,8 @@ static int wt_partition_check_domain(const wt_guest_config_t* config,
         return -1;
     }
     (void)memcpy(&derived, config, sizeof(derived));
-    (void)memset(derived.memory_windows, 0, sizeof(derived.memory_windows));
-    (void)memset(derived.memory_regions, 0, sizeof(derived.memory_regions));
+    (void)memset(win, 0, sizeof(win));
+    (void)memset(reg, 0, sizeof(reg));
     (void)memset(&derived.irq_mask, 0, sizeof(derived.irq_mask));
     for (i = 0U; i < domain->memory_resource_count; ++i) {
         const wt_memory_resource_t* resource = &domain->memory_resources[i];
@@ -316,17 +336,17 @@ static int wt_partition_check_domain(const wt_guest_config_t* config,
             if (windows >= WT_MAX_MEMORY_WINDOWS) {
                 return -1;
             }
-            derived.memory_windows[windows] = *resource;
+            win[windows] = *resource;
             windows++;
         }
-        derived.memory_regions[regions].base = resource->base;
-        derived.memory_regions[regions].size = resource->size;
-        derived.memory_regions[regions].attributes = resource->attributes &
+        reg[regions].base = resource->base;
+        reg[regions].size = resource->size;
+        reg[regions].attributes = resource->attributes &
             (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE | WT_MEM_ATTR_EXEC |
              WT_MEM_ATTR_DEVICE);
         regions++;
     }
-    derived.memory_regions[regions] = config->memory_regions[regions];
+    reg[regions] = config->memory_regions[regions];
     derived.memory_window_count = windows;
     derived.memory_region_count = regions + 1U;
     for (i = 0U; i < domain->interrupt_resource_count; ++i) {
@@ -353,8 +373,13 @@ static int wt_partition_check_domain(const wt_guest_config_t* config,
     derived.launch_required = domain->launch_required;
     derived.launch_min_version = domain->launch_min_version;
     derived.initial_msp_ns = domain->stack_base + domain->stack_size;
+    /* The struct compare covers both counts before the arrays are read. */
     if (domain->entry_point == 0U ||
-            memcmp(&derived, config, sizeof(derived)) != 0) {
+            memcmp(&derived, config, sizeof(derived)) != 0 ||
+            memcmp(win, config->memory_windows,
+                   windows * sizeof(win[0])) != 0 ||
+            memcmp(reg, config->memory_regions,
+                   (regions + 1U) * sizeof(reg[0])) != 0) {
         return -1;
     }
     return 0;

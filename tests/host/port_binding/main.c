@@ -45,6 +45,7 @@ static void check(int ok, const char* what)
 /* Manifest-derived resources bound to the domain; validation checks these,
  * not the compiled template windows. */
 static wt_memory_resource_t g_res[2];
+static wt_memory_window_t g_windows[2];
 
 static void fixture(wt_guest_config_t* config, wt_domain_descriptor_t* domain)
 {
@@ -52,14 +53,13 @@ static void fixture(wt_guest_config_t* config, wt_domain_descriptor_t* domain)
     memset(domain, 0, sizeof(*domain));
     memset(g_res, 0, sizeof(g_res));
     config->vector_table = 0x08020000u;
-    config->memory_windows[0].base = 0x20000000u;
-    config->memory_windows[0].size = 0x00010000u;
-    config->memory_windows[0].attributes =
-        WT_MEMORY_ATTR_READ | WT_MEMORY_ATTR_WRITE;
-    config->memory_windows[1].base = 0x08020000u;
-    config->memory_windows[1].size = 0x00020000u;
-    config->memory_windows[1].attributes =
-        WT_MEMORY_ATTR_READ | WT_MEMORY_ATTR_EXECUTE;
+    g_windows[0].base = 0x20000000u;
+    g_windows[0].size = 0x00010000u;
+    g_windows[0].attributes = WT_MEMORY_ATTR_READ | WT_MEMORY_ATTR_WRITE;
+    g_windows[1].base = 0x08020000u;
+    g_windows[1].size = 0x00020000u;
+    g_windows[1].attributes = WT_MEMORY_ATTR_READ | WT_MEMORY_ATTR_EXECUTE;
+    config->memory_windows = g_windows;
     config->memory_window_count = 2u;
     config->memory_region_count = 3u;
     config->port.required_capabilities = WT_PORT_CAPABILITY_ALL;
@@ -144,7 +144,7 @@ int main(void)
      * read-only template window with a writable manifest resource must still
      * be refused on a filter-less port. */
     g_res[0].attributes = WT_MEMORY_ATTR_READ | WT_MEMORY_ATTR_WRITE;
-    config.memory_windows[0].attributes = WT_MEMORY_ATTR_READ;
+    g_windows[0].attributes = WT_MEMORY_ATTR_READ;
     check(bind(&config, &domain) == WT_PORT_ERROR_CAPABILITY,
           "a writable manifest resource is refused even when the template is read-only");
 

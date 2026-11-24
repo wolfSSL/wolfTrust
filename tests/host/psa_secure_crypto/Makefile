@@ -24,18 +24,18 @@ WOLFPSA := $(ROOT)/lib/wolfPSA
 
 CC ?= cc
 BUILD_DIR ?= build
-# run builds and runs every WT_SECURE_PSA_PROFILE, and lean on GCM; run-one
+# run builds and runs every WT_SECURE_PSA_PROFILE, and small on GCM; run-one
 # takes PROFILE and AEAD (WT_AEAD).
-PROFILE ?= compat
+PROFILE ?= default
 AEAD ?=
-PROFILES := compat standard lean symmetric
-# A pass whose EXTRA_CFLAGS already picks the AEAD skips the lean-gcm run
-RUNS := $(PROFILES) $(if $(findstring WT_AEAD_,$(EXTRA_CFLAGS)),,lean-gcm)
+PROFILES := extended default small tiny
+# A pass whose EXTRA_CFLAGS already picks the AEAD skips the small-gcm run
+RUNS := $(PROFILES) $(if $(findstring WT_AEAD_,$(EXTRA_CFLAGS)),,small-gcm)
 AEAD_CFLAGS := $(if $(filter gcm,$(AEAD)),-DWT_AEAD_GCM)$(if $(filter ccm,$(AEAD)),-DWT_AEAD_CCM)
-# lean and symmetric offer one PSA AEAD, CCM unless GCM is asked for
+# small and tiny offer one PSA AEAD, CCM unless GCM is asked for
 ONE_AEAD_GCM := $(or $(filter gcm,$(AEAD)),$(findstring WT_AEAD_GCM,$(EXTRA_CFLAGS)))
-WANT_WITHOUT := $(if $(filter lean symmetric,$(PROFILE)),$(if $(ONE_AEAD_GCM),,--without PSA_WANT_ALG_GCM)) \
-    $(if $(filter-out compat,$(PROFILE)),--without PSA_WANT_ALG_SP800_108_COUNTER_HMAC \
+WANT_WITHOUT := $(if $(filter small tiny,$(PROFILE)),$(if $(ONE_AEAD_GCM),,--without PSA_WANT_ALG_GCM)) \
+    $(if $(filter-out extended,$(PROFILE)),--without PSA_WANT_ALG_SP800_108_COUNTER_HMAC \
     --without PSA_WANT_ALG_SP800_108_COUNTER_CMAC \
     --without PSA_WANT_ALG_CCM_STAR_NO_TAG)
 

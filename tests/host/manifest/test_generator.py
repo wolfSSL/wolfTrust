@@ -251,18 +251,18 @@ class GeneratorTest(unittest.TestCase):
             manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
             manifest["partitions"][0]["dependencies"] = []
             source.write_text(json.dumps(manifest), encoding="utf-8")
-            full = root / "full"
-            lean = root / "lean"
-            self.assertEqual(self.run_generator(source, full).returncode, 0)
+            whole = root / "whole"
+            trimmed = root / "trimmed"
+            self.assertEqual(self.run_generator(source, whole).returncode, 0)
             result = self.run_generator(
-                source, lean, extra=("--exclude-partition", "PARTITION_BETA"))
+                source, trimmed, extra=("--exclude-partition", "PARTITION_BETA"))
             self.assertEqual(result.returncode, 0, result.stderr)
-            pid = (lean / "psa_manifest" / "pid.h").read_text(encoding="utf-8")
-            sid = (lean / "psa_manifest" / "sid.h").read_text(encoding="utf-8")
+            pid = (trimmed / "psa_manifest" / "pid.h").read_text(encoding="utf-8")
+            sid = (trimmed / "psa_manifest" / "sid.h").read_text(encoding="utf-8")
             self.assertIn("#define PARTITION_ALPHA_ID 1", pid)
             self.assertNotIn("PARTITION_BETA", pid)
             self.assertNotIn("SERVICE_BETA", sid)
-            self.assertFalse((lean / "psa_manifest" /
+            self.assertFalse((trimmed / "psa_manifest" /
                               "partition_beta.h").exists())
             reused = root / "reused"
             self.assertEqual(self.run_generator(source, reused).returncode, 0)
@@ -283,9 +283,9 @@ class GeneratorTest(unittest.TestCase):
             digest = hashlib.sha256(json.dumps(
                 manifest, sort_keys=True,
                 separators=(",", ":")).encode("utf-8")).hexdigest()
-            lean_c = (lean / "wolftrust_manifest_generated.c").read_text(
+            lean_c = (trimmed / "wolftrust_manifest_generated.c").read_text(
                 encoding="utf-8")
-            full_c = (full / "wolftrust_manifest_generated.c").read_text(
+            full_c = (whole / "wolftrust_manifest_generated.c").read_text(
                 encoding="utf-8")
             self.assertIn("SHA-256: " + digest, lean_c)
             self.assertNotIn("SHA-256: " + digest, full_c)

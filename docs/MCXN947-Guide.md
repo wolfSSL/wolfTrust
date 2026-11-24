@@ -260,7 +260,7 @@ tests/target/run_hardware.sh mcxn947 positive
 WT_ENGINE=hsm tests/target/run_hardware.sh mcxn947 positive
 ```
 
-The hardware runner builds the `full` profile, so its scenarios launch two
+The hardware runner builds the `extended` profile, so its scenarios launch two
 guests and include Firmware Update; it refuses any other `WT_PROFILE`.
 
 `tests/target/run_hardware.sh mcxn947 <scenario>` runs on the host that owns

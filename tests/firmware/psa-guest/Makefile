@@ -19,6 +19,7 @@ BUILD ?= build
 
 # The guest windows come from the port's memory map under the same layout
 # configuration the Secure image is built with.
+include $(ROOT)/mk/profile.mk
 include $(ROOT)/mk/target-$(TARGET).mk
 include $(ROOT)/mk/layout.mk
 $(foreach kv,$(WT_LAYOUT_GUEST_WINDOWS),$(eval $(kv)))

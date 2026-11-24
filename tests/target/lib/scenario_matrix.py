@@ -29,17 +29,17 @@ exactly one place.
 
     GITHUB_EVENT_NAME=pull_request PR_LABELS="ci:<port>" scenario_matrix.py --ci-plan
     scenario_matrix.py --port <port> --tier smoke --json
-    scenario_matrix.py --port <port> --tier full --engine native --flat
+    scenario_matrix.py --port <port> --tier all --engine native --flat
     scenario_matrix.py --port <port> --get ci.mcuxsdk_board
     scenario_matrix.py --build-plan
     WT_PROFILE=default scenario_matrix.py --port <port> --profile-of positive
 
-Every group also names the build profile its Secure image is built with:
-"full" turns every add-on on (tests/target/lib/profile.sh holds the flags),
-"default" is the lean image the Makefile builds with no options. A port's
-m33mu "smoke" and "groups" are its full profile; m33mu "default" holds the
-same two lists for the lean image. A runner asks --profile-of which profile a
-scenario runs on.
+Every group also names the build profile (WT_PROFILE) its Secure image is
+built with: "extended" turns every add-on on (tests/target/lib/profile.sh and
+mk/profile.mk hold the flags), "default" is the image the Makefile builds with
+no options. A port's m33mu "smoke" and "groups" are its extended profile;
+m33mu "default" holds the same two lists for the default image. A runner asks
+--profile-of which profile a scenario runs on.
 """
 
 import argparse
@@ -48,11 +48,11 @@ import os
 import sys
 
 ENGINES = ("native", "hsm")
-PROFILES = ("default", "full")
+PROFILES = ("default", "extended")
 
-# Scenarios that need a second guest or an add-on the lean default leaves
-# out; they never run on the default profile.
-NEEDS_FULL = frozenset((
+# Scenarios that need a second guest or an add-on the default profile leaves
+# out; they never run on it.
+NEEDS_EXTENDED = frozenset((
     "restart", "sauneg", "ahbscneg", "gtzcneg", "guestisoneg", "bothpsa",
     "bothiso", "fwustage", "bootupdate", "confboot", "devstorage",
     "devcrypto", "devattest", "devattestqcbor", "vaultrecover",
@@ -63,10 +63,10 @@ NEEDS_FULL = frozenset((
 # engine: the native engine does not link it, so the behaviour under test does
 # not exist there.
 HSM_ONLY = frozenset(("hsmattackneg", "hsmpinneg", "hsmfaultneg"))
-NATIVE_ONLY = frozenset(("nativewire", "nativewireasm", "nativewirelean", "devcryptolocal"))
+NATIVE_ONLY = frozenset(("nativewire", "nativewireasm", "nativewiresmall", "devcryptolocal"))
 ENGINE_ONLY = {"hsm": HSM_ONLY, "native": NATIVE_ONLY}
 
-# The isolation level 3 bar: every port's full tier runs each of these, or
+# The isolation level 3 bar: every port's all tier runs each of these, or
 # names it in its "l3_exempt" map with the reason (an open issue) it cannot.
 L3_REQUIRED = frozenset((
     "crossdomain", "keystoreneg", "deputyneg", "hsmpinneg", "hsmfaultneg",
@@ -87,7 +87,7 @@ REQUIRED_KEYS = ("name", "display", "board", "arch", "guide", "ci", "build",
 def load_ports(root=PORT_ROOT):
     """Every port/<soc>/port.json, keyed by port name; a port directory with
     no registry entry is an error, so nothing exists unregistered.
-    smoke: the per-PR set (one job per scenario and engine). groups: the full
+    smoke: the per-PR set (one job per scenario and engine). groups: the all
     tier, packed so each job builds the emulator and wolfBoot once.
     label_only: an unlabeled pull request runs none of this port."""
     ports = {}
@@ -104,20 +104,20 @@ def load_ports(root=PORT_ROOT):
             raise SystemExit("port/%s/port.json: name mismatch or missing %s" %
                              (name, " ".join(missing)))
         m33mu = data["m33mu"]
-        lean = m33mu.get("default", {})
+        base = m33mu.get("default", {})
         ports[name] = {
             "label": data["ci"]["label"],
             "label_only": bool(data["ci"].get("label_only", False)),
             "image": data["ci"]["image"],
             "arm": m33mu["arm"],
-            "smoke": {"full": tuple(m33mu["smoke"]),
-                      "default": tuple(lean.get("smoke", []))},
-            "groups": {"full": tuple((key, text)
+            "smoke": {"extended": tuple(m33mu["smoke"]),
+                      "default": tuple(base.get("smoke", []))},
+            "groups": {"extended": tuple((key, text)
                                      for key, text in m33mu["groups"]),
                        "default": tuple((key, text) for key, text in
-                                        lean.get("groups", []))},
-            "l3_exempt": {"full": dict(m33mu.get("l3_exempt", {})),
-                          "default": dict(lean.get("l3_exempt", {}))},
+                                        base.get("groups", []))},
+            "l3_exempt": {"extended": dict(m33mu.get("l3_exempt", {})),
+                          "default": dict(base.get("l3_exempt", {}))},
             "def": data,
         }
     return ports
@@ -144,8 +144,8 @@ def engines_for(scenarios, engine, port_engines=ENGINES):
 
 def entry(port, tier, engine, profile, key, name):
     port_def = PORTS[port]
-    # Check names follow wolfBoot's <device>_<test> slugs; the lean profile's
-    # jobs carry "default" so a scenario's two runs never share a name.
+    # Check names follow wolfBoot's <device>_<test> slugs; the default
+    # profile's jobs carry "default" so a scenario's two runs never share a name.
     words = [port] + key.split()
     if profile == "default":
         words.append("default")
@@ -177,9 +177,9 @@ def entries(port, tier, engine, profile=None):
 
 def ci_plan(event, labels, port_input):
     """Every job of one workflow run: a pull request gets each port's smoke
-    tier unless its label (or ci:all) asks for the full one, and a label_only
+    tier unless its label (or ci:all) asks for the all tier, and a label_only
     port runs only when labelled; a push, the schedule, or a dispatch gets the
-    full tier of the selected ports. Each tier runs on both profiles."""
+    all tier of the selected ports. Each tier runs on both profiles."""
     out = []
     if (event == "workflow_dispatch" and port_input not in ("", "all") and
             port_input not in PORTS):
@@ -188,17 +188,17 @@ def ci_plan(event, labels, port_input):
     for port in sorted(PORTS):
         label = PORTS[port]["label"]
         if event == "pull_request":
-            full = ("ci:all" in labels or "ci:m33mu" in labels or
-                    label in labels)
-            if not full and PORTS[port].get("label_only"):
+            whole = ("ci:all" in labels or "ci:m33mu" in labels or
+                     label in labels)
+            if not whole and PORTS[port].get("label_only"):
                 continue
         elif event == "workflow_dispatch":
-            full = port_input in ("", "all", port)
-            if not full:
+            whole = port_input in ("", "all", port)
+            if not whole:
                 continue
         else:
-            full = True
-        out.extend(entries(port, "full" if full else "smoke", None))
+            whole = True
+        out.extend(entries(port, "all" if whole else "smoke", None))
     return out
 
 
@@ -244,21 +244,21 @@ def plan_tiers(event, labels, port_input):
 def routing_gaps():
     """The routing rule as properties over the registry: an unlabeled pull
     request runs every always-on port at smoke; a port's label runs that port
-    full and the rest as unlabeled; ci:all, ci:m33mu, a push, the schedule and
-    a dispatch with no port run every port full; a dispatch names one port;
+    at all and the rest as unlabeled; ci:all, ci:m33mu, a push, the schedule
+    and a dispatch with no port run every port at all; a dispatch names one port;
     an unknown dispatch port is refused."""
     ports = sorted(PORTS)
     always = dict((p, "smoke") for p in ports if not PORTS[p]["label_only"])
-    everything = dict((p, "full") for p in ports)
+    everything = dict((p, "all") for p in ports)
     checks = [("pull_request", [], "", always)]
     for port in ports:
         want = dict(always)
-        want[port] = "full"
+        want[port] = "all"
         checks.append(("pull_request", [PORTS[port]["label"]], "", want))
     if len(ports) > 1:
         want = dict(always)
-        want[ports[0]] = "full"
-        want[ports[1]] = "full"
+        want[ports[0]] = "all"
+        want[ports[1]] = "all"
         checks.append(("pull_request",
                        [PORTS[ports[0]]["label"], PORTS[ports[1]]["label"]],
                        "", want))
@@ -269,7 +269,7 @@ def routing_gaps():
     for port_input in ("", "all"):
         checks.append(("workflow_dispatch", [], port_input, everything))
     for port in ports:
-        checks.append(("workflow_dispatch", [], port, {port: "full"}))
+        checks.append(("workflow_dispatch", [], port, {port: "all"}))
     gaps = []
     for event, labels, port_input, want in checks:
         got = plan_tiers(event, labels, port_input)
@@ -295,7 +295,7 @@ def registry_gaps():
     """A registered port has its build fragment, its guide and its shared
     architecture layer, no copy of a shared source, a unique CI label and
     runner arm, a usable image, known engines, and a smoke set drawn from its
-    full tier."""
+    all tier."""
     gaps = []
     labels = {}
     arms = {}
@@ -324,15 +324,15 @@ def registry_gaps():
         if not PORTS[port]["image"]:
             gaps.append("%s: empty image" % port)
         for prof in PROFILES:
-            full = set(flat(port, "full", None, prof))
+            whole = set(flat(port, "all", None, prof))
             for scenario in PORTS[port]["smoke"][prof]:
-                if scenario not in full:
+                if scenario not in whole:
                     gaps.append("%s: %s smoke scenario %s is not in its "
-                                "full tier" % (port, prof, scenario))
+                                "all tier" % (port, prof, scenario))
             if not PORTS[port]["groups"][prof]:
                 gaps.append("%s: no %s profile scenarios" % (port, prof))
-        for scenario in flat(port, "full", None, "default"):
-            if scenario in NEEDS_FULL:
+        for scenario in flat(port, "all", None, "default"):
+            if scenario in NEEDS_EXTENDED:
                 gaps.append("%s runs %s on the default profile" %
                             (port, scenario))
         engines = data["build"].get("engines", [])
@@ -342,21 +342,21 @@ def registry_gaps():
 
 
 def profiles_of(port, scenario):
-    """The profiles whose full tier registers scenario."""
+    """The profiles whose all tier registers scenario."""
     return [prof for prof in PROFILES
-            if scenario in flat(port, "full", None, prof)]
+            if scenario in flat(port, "all", None, prof)]
 
 
 def profile_of(port, scenario, requested):
     """The profile a runner builds scenario with: the requested one when the
-    scenario is registered there, else full when it runs there, else its only
+    scenario is registered there, else extended when it runs there, else its only
     profile. None when the scenario cannot run as asked."""
     found = profiles_of(port, scenario)
     if requested:
         return requested if requested in found else None
     if not found:
         return None
-    return "full" if "full" in found else found[0]
+    return "extended" if "extended" in found else found[0]
 
 
 def l3_gaps(port):
@@ -367,7 +367,7 @@ def l3_gaps(port):
     gaps = []
     for prof in PROFILES:
         exempt = port_def["l3_exempt"][prof]
-        run = set(flat(port, "full", None, prof))
+        run = set(flat(port, "all", None, prof))
         for scenario in sorted(L3_REQUIRED):
             if scenario not in run and not exempt.get(scenario, "").strip():
                 gaps.append("%s does not run level 3 scenario %s on %s" %
@@ -397,11 +397,11 @@ def profile_gaps():
                 gaps.append("ci_plan(%s) runs %s on %s only" %
                             (event, port, " ".join(got)))
     for port in sorted(PORTS):
-        for scenario in flat(port, "full", None, "default"):
+        for scenario in flat(port, "all", None, "default"):
             if profile_of(port, scenario, "default") != "default":
                 gaps.append("%s: %s does not resolve to default" %
                             (port, scenario))
-        for scenario in NEEDS_FULL:
+        for scenario in NEEDS_EXTENDED:
             if profile_of(port, scenario, "default") is not None:
                 gaps.append("%s: %s resolves to the default profile" %
                             (port, scenario))
@@ -415,7 +415,7 @@ def selftest():
     bar, run by the select job and by make test."""
     gaps = registry_gaps() + routing_gaps() + profile_gaps()
     for port in sorted(PORTS):
-        for tier in ("smoke", "full"):
+        for tier in ("smoke", "all"):
             for e in entries(port, tier, None):
                 names = e["key"].split()
                 for only, restricted in ENGINE_ONLY.items():
@@ -443,7 +443,7 @@ def flat(port, tier, engine, profile=None):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     parser.add_argument("--port", choices=sorted(PORTS))
-    parser.add_argument("--tier", choices=("smoke", "full"), default="smoke")
+    parser.add_argument("--tier", choices=("smoke", "all"), default="smoke")
     parser.add_argument("--engine", choices=ENGINES)
     parser.add_argument("--profile", choices=PROFILES,
                         help="only this build profile's scenarios")

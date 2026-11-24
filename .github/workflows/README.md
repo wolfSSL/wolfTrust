@@ -23,7 +23,7 @@ An accepted upload queues analysis; results appear after Coverity processes it.
 |------|---------|---------|
 | **Fast (per-PR)** | every PR; push to main | host unit suites, ISO C99, house style, bare-scope scan, Arm PSA-FF conformance, cross-compile, compiler matrix, sanitizers, valgrind, integrations, core/port split guard |
 | **M33MU smoke** | every PR | each port not marked label only, on both crypto engines (its smoke tier in `port.json`) |
-| **M33MU full** | PR labels `ci:all`, `ci:m33mu` or a port's own label; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
+| **M33MU all** | PR labels `ci:all`, `ci:m33mu` or a port's own label; push to main; `cron: 0 8 * * *`; `workflow_dispatch` (port input) | every scenario of that port on both engines (see below) |
 
 The M33MU workflow (`m33mu.yml`) is label-selected the way wolfProvider's
 `pr-osp-select.yml` is: a `select` job checks the routing table
@@ -50,8 +50,8 @@ rendered wolfBoot-style as `M33MU / <device>_<scenario>_<engine>` (for
 example `M33MU / stm32h563_confboot_native`). The scenario groups per port
 and tier live in `tests/target/lib/scenario_matrix.py`, which `make
 test-target` also reads. Every group also runs on a build profile: jobs on
-the lean `default` image carry `_default` before the engine (for example
-`stm32h563_positive_default_native`), jobs without it build the `full`
+the `default` profile carry `_default` before the engine (for example
+`stm32h563_positive_default_native`), jobs without it build the `extended`
 profile. The table below is a representative slice:
 
 | Check name | Scenario key | What it proves |

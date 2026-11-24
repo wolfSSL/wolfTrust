@@ -55,7 +55,7 @@ and [docs/Building.md](docs/Building.md).
 | `make test` | host suites, registry and scenario self-tests, the assertion mutation test, the scaffold self-test, the guards, the provisioning gates, the hardware runner self-tests | the `wolftrust-ci` image the workflows pin (`docker/wolftrust-ci/`), which carries `expect` for the typed provisioning cases |
 | `make c99-check CC=gcc`, `sh scripts/check_house_style.sh`, `python3 scripts/check-empty-brace-scopes.py` | the coding-standard gates | any host |
 | `make test-compilers`, `make test-sanitize`, `make test-valgrind` | the host suites under each compiler and checker | any host |
-| `make test-target TARGET=<soc>` (`WT_TIER=full`, `WT_ENGINE=hsm`) | M33MU emulator scenarios; `tests/target/run_target.sh <soc> <scenario>` runs one | the port's `wolfboot-ci-m33mu` image from docs/Ports.md; NXP ports also need the MCUXpresso SDK (see the guide) |
+| `make test-target TARGET=<soc>` (`WT_TIER=all`, `WT_ENGINE=hsm`) | M33MU emulator scenarios; `tests/target/run_target.sh <soc> <scenario>` runs one | the port's `wolfboot-ci-m33mu` image from docs/Ports.md; NXP ports also need the MCUXpresso SDK (see the guide) |
 | `make test-hardware TARGET=<soc>` | the board scenarios; writes flash and resets the board | the host that owns the probe |
 
 `make test` stops at its first failing step. The emulator and hardware

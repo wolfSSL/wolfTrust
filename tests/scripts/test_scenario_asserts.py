@@ -452,7 +452,7 @@ def main():
         display = scenario_matrix.PORTS[port]["def"]["display"]
         tiers = scenarios.hardware_tiers(port)
         hardware = sorted(set(tiers["qualification"]) | set(tiers["optin"]))
-        runs = [(s, "emulator") for s in scenario_matrix.flat(port, "full", None)]
+        runs = [(s, "emulator") for s in scenario_matrix.flat(port, "all", None)]
         runs += [(s, "hardware") for s in hardware]
         for scenario, env in runs:
             row = scenarios.SCENARIOS[scenario]

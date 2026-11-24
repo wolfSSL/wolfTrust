@@ -24,11 +24,11 @@
 #ifndef WOLFTRUST_SECURE_PSA_PROFILE_H
 #define WOLFTRUST_SECURE_PSA_PROFILE_H
 
-/* The vault's AES AEAD, and the one PSA AEAD of lean and symmetric */
+/* The vault's AES AEAD, and the one PSA AEAD of small and tiny */
 #if defined(WT_AEAD_GCM) && defined(WT_AEAD_CCM)
 #error "WT_AEAD_GCM and WT_AEAD_CCM are exclusive"
 #endif
-#if defined(WT_SECURE_PSA_lean) || defined(WT_SECURE_PSA_symmetric)
+#if defined(WT_SECURE_PSA_small) || defined(WT_SECURE_PSA_tiny)
 #define WT_PSA_ONE_AEAD
 #if !defined(WT_AEAD_GCM) && !defined(WT_AEAD_CCM)
 #define WT_AEAD_CCM
@@ -36,7 +36,7 @@
 #endif
 
 #ifdef WT_SECURE_PSA
-#if defined(WT_PSA_WANT_PROBE) && defined(WT_SECURE_PSA_symmetric)
+#if defined(WT_PSA_WANT_PROBE) && defined(WT_SECURE_PSA_tiny)
 /* The vault keeps ECC; the PSA_WANT_* surface of this profile does not. */
 #undef HAVE_ECC
 #endif
@@ -59,14 +59,14 @@
 #define WOLFSSL_AES_DIRECT
 #endif
 #define HAVE_ECC_DHE
-/* wolfPSA's direct P-256 path is randomized ECDSA only, so compat keeps ecc.c */
-#ifndef WT_SECURE_PSA_compat
+/* wolfPSA's direct P-256 path is randomized ECDSA only, so extended keeps ecc.c */
+#ifndef WT_SECURE_PSA_extended
 #define WOLFPSA_ECC_SP_DIRECT
 #endif
-#if defined(WT_SECURE_PSA_compat) || defined(WT_SECURE_PSA_standard)
+#if defined(WT_SECURE_PSA_extended) || defined(WT_SECURE_PSA_default)
 #undef NO_AES_DECRYPT
 #endif
-#ifdef WT_SECURE_PSA_compat
+#ifdef WT_SECURE_PSA_extended
 #define HAVE_AES_ECB
 #define WOLFSSL_ECDSA_DETERMINISTIC_K
 #undef NO_PWDBASED

@@ -11,8 +11,8 @@
 #
 # Environment (all optional):
 #   WT_ENGINE           native (default) or hsm: the crypto engine under test
-#   WT_PROFILE          default or full: the build profile (unset: the one the
-#                       scenario is registered on, full when both)
+#   WT_PROFILE          default or extended: the build profile (unset: the one
+#                       the scenario is registered on, extended when both)
 #   M33MU               a prebuilt emulator at the port's pin; otherwise the
 #                       pin is built under /tmp
 #   <PORT>_WOLFBOOT_DIR a wolfBoot tree built by lib/wolfboot_stage.sh with
@@ -61,7 +61,7 @@ if [ -n "$SC_MISSING" ]; then
   echo "$scenario needs a capability port/$port declares absent: $SC_MISSING" >&2
   exit 2
 fi
-known="$(python3 "$lib/scenario_matrix.py" --port "$port" --tier full --flat)"
+known="$(python3 "$lib/scenario_matrix.py" --port "$port" --tier all --flat)"
 case " $known " in
   *" $scenario "*) ;;
   *) echo "$port does not run $scenario (port/$port/port.json m33mu.groups)" >&2; exit 2 ;;

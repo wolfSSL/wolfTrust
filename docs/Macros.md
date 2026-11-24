@@ -7,18 +7,30 @@ selected values into C preprocessor defines. Defaults below come from
 
 ## Build profiles
 
-`make` with no options builds the lean default image. It runs at isolation
-level 3 with one Non-secure image and the PSA services a TF-M level 3 build
-ships: Crypto, Internal Trusted Storage, Protected Storage, and Initial
-Attestation. The manifest is checked at build time. Each add-on below turns one feature back on with one Make variable.
-None of them changes the isolation level.
+`WT_PROFILE` picks one of four build profiles, smallest first: `tiny`, `small`,
+`default` and `extended`. `make` with no options builds `default`: isolation
+level 3, one Non-secure image and the PSA services a TF-M level 3 build ships
+(Crypto, Internal Trusted Storage, Protected Storage and Initial Attestation),
+with the manifest checked at build time. A profile sets the defaults of the
+add-ons below and of [`WT_SECURE_PSA_PROFILE`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1);
+a variable set explicitly still wins. No profile changes the isolation level.
+
+| `WT_PROFILE` | Secure PSA algorithm set | Add-ons it turns on |
+| --- | --- | --- |
+| `tiny` | `tiny`: CCM, AES-CTR, SHA-256, HMAC and HKDF, no ECC in the PSA surface | none |
+| `small` | `small`: one AEAD (CCM), AES-CTR, P-256 ECDSA and ECDH, SHA-256, HMAC and HKDF | none |
+| `default` | `default`: GCM and CCM, CTR, P-256 ECDSA and ECDH, SHA-256, HMAC and HKDF | none |
+| `extended` | `extended`: `default` plus CBC, ECB, PBKDF2, TLS 1.2 PRF, SP 800-108, CCM* and deterministic ECDSA | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` |
+
+`mk/profile.mk` holds this table for the build and
+`tests/target/lib/profile.sh` the same one for the target runners.
 
 Costs are over the default image, built with Arm GNU 15.2.1 in
 `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO and read with
 `make size-report`: flash is `text + data`, and RAM is the Secure RAM the image
 reserves, partition stacks and bands included ([Footprint](Footprint.md#how-sizes-are-measured)).
 The default native image serves PSA Crypto from the Secure image and is
-106,105 bytes of flash and 48,332 bytes of RAM on the STM32H563, with wolfCrypt
+94,347 bytes of flash and 47,308 bytes of RAM on the STM32H563, with wolfCrypt
 built as portable C. The other rows are measured over the `WT_SECURE_PSA=0`
 image, 70,464 and 45,260 bytes on the STM32H563, and 69,496 and 45,280 bytes
 on the STM32L562 (measured on the STM32L562 port, which is under review and not
@@ -32,16 +44,17 @@ yet in this tree).
 | [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator | +3,316 / 0 | +3,284 / 0 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
 | [`WT_SHA256_FAST=1`](#wt_sha256_fast-unrolled-sha-256) | The unrolled SHA-256 transform, faster hashing for boot and guest measurement | +384 / 0 | +416 / 0 | `make WT_SHA256_FAST=1 secure-image` |
 | [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +27,876 / +38,672 | not supported | `make WT_ENGINE=hsm secure-image` |
-| [`WT_SECURE_PSA=0`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1) | Removes PSA Crypto from the Secure image and runs wolfPSA in the guest again; saves 35,641 / 3,072 against the `compat` default (`standard` is +23,883 / +2,048 over it) | -35,641 / -3,072 | not measured | `make WT_SECURE_PSA=0 secure-image` |
-| `full` profile | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` together | +9,408 / +13,488 | +9,432 / +13,500 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image` |
+| [`WT_SECURE_PSA=0`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1) | Removes PSA Crypto from the Secure image and runs wolfPSA in the guest again; saves 23,883 / 2,048 against the `default` algorithm set (35,641 / 3,072 against `extended`) | -23,883 / -2,048 | not measured | `make WT_SECURE_PSA=0 secure-image` |
+| `extended` add-ons | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` together | +9,408 / +13,488 | +9,432 / +13,500 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image` |
 
 The RAM figures include every stack and band an option adds, the 4 KiB FWU
 stack for `WT_FWU=1` among them. The engine is a separate axis:
-CI runs both engines on both profiles where the port supports them.
+CI runs both engines on the `default` and `extended` profiles where the port
+supports them.
 
-`tests/target/lib/profile.sh` holds the profile flags. `make test-target` runs
-both profiles; `WT_PROFILE=default` or `WT_PROFILE=full` picks one. Hardware runners
-build `full` only, because their checks assert both guests.
+`make test-target` runs `default` then `extended` (`WT_TEST_PROFILES`);
+`WT_PROFILE=default` or `WT_PROFILE=extended` picks one. Hardware runners
+build `extended` only, because their checks assert both guests.
 
 ## Add-on options
 
@@ -62,8 +75,8 @@ build `full` only, because their checks assert both guests.
   the IPC message pool, which holds 8 messages with two guests and 4 with one
   (`WT_FFM_MAX_MESSAGES`).
 - Enable: `make WT_MAX_GUESTS=2 secure-image`
-- CI: the cross-compile job builds it alone and in the `full` profile for
-  every port and engine, and checks that `WT_MAX_GUESTS=3` stops the build. The M33MU `full`
+- CI: the cross-compile job builds it alone and in the `extended` profile for
+  every port and engine, and checks that `WT_MAX_GUESTS=3` stops the build. The M33MU `extended`
   profile runs the two-guest scenarios (`bothpsa`, `bothiso`, `guestisoneg`,
   `restart` and the rest). `tests/host/monitor` builds both guest counts.
 
@@ -85,11 +98,11 @@ build `full` only, because their checks assert both guests.
   native +3,372 and +4,136. The RAM is almost all the update partition's
   stack.
 - Enable: `make WT_FWU=1 secure-image`
-- CI: the cross-compile job builds it alone and in the `full` profile for
-  every port and engine. The M33MU `full` profile runs `fwustage` and
+- CI: the cross-compile job builds it alone and in the `extended` profile for
+  every port and engine. The M33MU `extended` profile runs `fwustage` and
   `bootupdate`. `tests/host/sp_layout`,
   `tests/host/rt700_xspi`, `tests/host/fwu_service` and
-  `tests/host/manifest_ports` (default and full manifests) cover the layout,
+  `tests/host/manifest_ports` (`default` and `extended` manifests) cover the layout,
   the NOR window, the service and the excluded manifest.
 
 ### `WT_MANIFEST_RUNTIME_CHECK`: boot-time manifest check
@@ -110,7 +123,7 @@ build `full` only, because their checks assert both guests.
 - CI: the cross-compile job builds every port and engine with it and checks
   that only the opt-in image links `wt_manifest_validate`. The `manifestneg`
   and `manifestneg2` scenarios corrupt the manifest at boot, so they force it
-  on, and the M33MU `full` profile runs every scenario with it.
+  on, and the M33MU `extended` profile runs every scenario with it.
   `tests/host/manifest_ports` runs the validator over every port manifest.
 
 ### `WT_SHA256_FAST`: unrolled SHA-256
@@ -127,8 +140,8 @@ build `full` only, because their checks assert both guests.
   with the default portable C build, or +1,472 bytes with
   `WT_WOLFCRYPT_ARMASM=1`.
 - Enable: `make WT_SHA256_FAST=1 secure-image`
-- CI: the cross-compile job builds it alone and in the `full` profile for
-  every port and engine, the M33MU `full` profile runs every scenario on the
+- CI: the cross-compile job builds it alone and in the `extended` profile for
+  every port and engine, the M33MU `extended` profile runs every scenario on the
   unrolled transform, and the `default` profile runs them on the looped one.
 
 ### `WT_ENGINE=hsm`: the wolfHSM engine
@@ -177,11 +190,12 @@ build `full` only, because their checks assert both guests.
 | `WT_ENGINE_HSM` | Legacy engine selector; unset by default. `0` maps to `WT_ENGINE=native` and `1` maps to `WT_ENGINE=hsm` when the public selector is not supplied. The build also derives this internal value from `WT_ENGINE`. | Prefer `WT_ENGINE` for new builds and do not supply conflicting selectors. The guest and Secure image must select the same engine. |
 | `WT_ATTEST_COSE` | Build the COSE attestation token service; default `1`. CI compile-checks `0`, and builds each port with its `port.json` `attest_cose` value. | `1` requires the wolfCOSE submodule and the configured attestation key backend. |
 | `WT_SECURE_PSA` | When `1`, serve PSA Crypto from the Secure image: wolfPSA runs in the crypto partition and the guest links the PSA client instead of wolfPSA. Default `1` with the native engine and `0` with wolfHSM; a port may default it to `0` in its `mk/target-<soc>.mk`. See [Crypto Engines](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1). | `1` requires `WT_ENGINE=native`; build every guest with the Secure image's value. |
-| `WT_SECURE_PSA_PROFILE` | Algorithm set of a `WT_SECURE_PSA=1` image: `compat` (default), `standard`, `lean` or `symmetric`. | Any other value stops the build. |
+| `WT_PROFILE` | Build profile: `tiny`, `small`, `default` (default) or `extended`. Sets the add-on defaults, `WT_SECURE_PSA_PROFILE` and `WT_INTERFACE_PROFILE`; see [Build profiles](#build-profiles). | Any other value stops the build. |
+| `WT_SECURE_PSA_PROFILE` | Algorithm set of a `WT_SECURE_PSA=1` image: `tiny`, `small`, `default` or `extended`; follows `WT_PROFILE` unless set. | Any other value stops the build. |
 | `WT_PSA_POOL_BYTES` | Make variable: size of the crypto partition's private wolfPSA pool, split evenly into one arena per guest; empty keeps 2,048 bytes per guest. | A smaller arena fails calls that hold more with `PSA_ERROR_INSUFFICIENT_MEMORY`; below 1,536 bytes per guest stops the build. A pool past the crypto partition's band fails the link. |
 | `WT_PSA_KEY_SLOTS`, `WT_PSA_OP_SLOTS` | Make variables: volatile keys and live operations the Secure PSA service tracks, split evenly across the guests; empty keeps `16` and `8`. | Fewer slots than guests, more than 256 operation slots, or a non-number stops the build. Each slot's state is allocated from `WT_PSA_POOL_BYTES`. |
-| `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `0`, the portable C `sp_c32.c`, which is smaller. `1` trades flash for faster ECC and, on the native engine, raises the crypto partition stack to 9 KiB in every profile (from 5 KiB, or 6 KiB in `compat`) for its deeper P-256 verify. | `1` requires compatible Armv8-M assembly sources and toolchain. |
-| `WT_AEAD` | AES-256 AEAD of the vault encrypt service and sealed storage, and the one PSA AEAD of the `lean` and `symmetric` Secure PSA profiles: `gcm` or `ccm`, both with a 12-byte nonce and 16-byte tag. Empty picks `ccm` for `lean` and `symmetric` and `gcm` for every other build. `compat` and `standard` offer both through PSA either way. CCM carries no GHASH, so `lean` is 1,440 bytes smaller with `ccm` than with `gcm` on the STM32H563. | Data sealed or encrypted under one setting does not open under the other, so changing it on a deployed device means re-provisioning its sealed store and re-encrypting vault data. Any other value stops the build. |
+| `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `0`, the portable C `sp_c32.c`, which is smaller. `1` trades flash for faster ECC and, on the native engine, raises the crypto partition stack to 9 KiB in every profile (from 5 KiB, or 6 KiB in `extended`) for its deeper P-256 verify. | `1` requires compatible Armv8-M assembly sources and toolchain. |
+| `WT_AEAD` | AES-256 AEAD of the vault encrypt service and sealed storage, and the one PSA AEAD of the `tiny` and `small` Secure PSA profiles: `gcm` or `ccm`, both with a 12-byte nonce and 16-byte tag. Empty picks `ccm` for `tiny` and `small` and `gcm` for every other build. `default` and `extended` offer both through PSA either way. CCM carries no GHASH, so `small` is 1,440 bytes smaller with `ccm` than with `gcm` on the STM32H563. | Data sealed or encrypted under one setting does not open under the other, so changing it on a deployed device means re-provisioning its sealed store and re-encrypting vault data. Any other value stops the build. |
 | `WT_WOLFCRYPT_ARMASM` | Enable additional wolfCrypt Thumb-2 assembly; default `0`, portable C AES with small tables. `1` trades flash for faster AES and SHA-256. | `1` requires a compatible GNU Arm toolchain and `WT_SECURE_PSA=0`: the Thumb-2 AES is not constant time, which wolfPSA refuses. [`WT_SHA256_FAST`](#wt_sha256_fast-unrolled-sha-256) picks the SHA-256 transform either way. |
 | `WT_WOLFCRYPT_STM32_HASH` | STM32 HASH acceleration selector; default `0`. | Must remain `0`: the Makefile rejects other values because wolfHSM SHA state is not compatible with the peripheral representation. |
 | `WT_CONFORMANCE` | When `1`, select the manifest and sources used by Arm PSA API validation. | Use only for conformance builds; the default production manifest is selected at `0`. |
@@ -235,7 +249,7 @@ PSA is the default application API. These select TPM 2.0 or PKCS#11 instead;
 | --- | --- | --- |
 | `CONFIG_TPM` | `y` adds `SERVICE_TPM` and its manifest overlay, running wolfTPM's firmware TPM in its own partition; default `n`. | Excludes `CONFIG_PKCS11`, `CONFIG_VNET` and `WT_CONFORMANCE`. The port must list `tpm` in its `port.json` `build.variants`. `WT_SECURE_PSA` defaults to `0`, and `1` stops the build. |
 | `CONFIG_PKCS11` | `y` adds `SERVICE_PKCS11` and its manifest overlay, running wolfPKCS11 in its own partition; default `n`. | Excludes `CONFIG_TPM`, `CONFIG_VNET` and `WT_CONFORMANCE`. The port must list `pkcs11` in `build.variants`. `WT_SECURE_PSA` as for `CONFIG_TPM`. |
-| `WT_INTERFACE_PROFILE` | Operation set the TPM 2.0 or PKCS#11 service exports: `default` (RNG, SHA-256, P-256) or `full`. `WT_INTERFACE_CONFIG`, `WT_INTERFACE_ENABLE` and `WT_INTERFACE_DISABLE` edit it. See [Interface Profiles](Interface-Profiles.md). | Read only when `CONFIG_TPM` or `CONFIG_PKCS11` is `y`. Applications must be built with the same profile. |
+| `WT_INTERFACE_PROFILE` | Operation set the TPM 2.0 or PKCS#11 service exports: `default` (RNG, SHA-256, P-256) or `extended`, following `WT_PROFILE` (`extended` for `extended`, `default` otherwise). `WT_INTERFACE_CONFIG`, `WT_INTERFACE_ENABLE` and `WT_INTERFACE_DISABLE` edit it. See [Interface Profiles](Interface-Profiles.md). | Read only when `CONFIG_TPM` or `CONFIG_PKCS11` is `y`. Applications must be built with the same profile. |
 | `WT_INTERFACE_LOCAL_PROVIDER` | Internal: `1` builds the provider's wolfCrypt into the interface partition with its symbols renamed apart from the crypto partition's copy. `mk/arch-armv8m.mk` sets it. | Not a user setting. |
 | `WT_PKCS11_PIN_MAX_FAILURES` | Consecutive wrong user or SO PINs before that PIN locks; empty keeps `3`. | Must be a positive integer. |
 | `WT_PKCS11_TEST_PBKDF2_ITERATIONS` | Emulator only: lowers the PIN PBKDF2 count from 600,000. | Never set it for a product image; the footprint script refuses it. |

@@ -201,7 +201,7 @@
     },
     "exempt": {
       "devcryptolocal": "the STM32L562 defaults to WT_SECURE_PSA=0, so devcrypto already runs the guest-local PSA it checks",
-      "nativewirelean": "the Secure PSA crypto stack sizes are one shared layout over portable C on every port; the STM32H563 runs it",
+      "nativewiresmall": "the Secure PSA crypto stack sizes are one shared layout over portable C on every port; the STM32H563 runs it",
       "hsmattackneg": "wolfHSM engine only; the STM32L562 builds the native engine (the wolfHSM bands do not fit 256 KiB of SRAM)",
       "hsmpinneg": "wolfHSM engine only; the STM32L562 builds the native engine (the wolfHSM bands do not fit 256 KiB of SRAM)",
       "hsmfaultneg": "wolfHSM engine only; the STM32L562 builds the native engine (the wolfHSM bands do not fit 256 KiB of SRAM)"

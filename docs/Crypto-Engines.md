@@ -122,7 +122,7 @@ encrypt, decrypt, and destroy, plus random generation and SHA-256 hashing.
 Random responses are limited to 256 bytes per request. P-256 signatures use a
 fixed 64-byte `r || s` form and public keys use the 65-byte uncompressed X9.63
 form. AES-256 encrypt and decrypt use AES-GCM, or AES-CCM when `WT_AEAD` is
-`ccm` (the `lean` and `symmetric` default), and return or consume
+`ccm` (the `tiny` and `small` default), and return or consume
 `nonce || ciphertext || tag`. With `WT_SECURE_PSA=1`, both run on wolfPSA's
 streaming code (`wolfpsa/psa_gcm.h`, `wolfpsa/psa_ccm.h`), so wolfCrypt's
 one-shot GCM and CCM are not linked as well.
@@ -191,24 +191,25 @@ Transport and memory:
   message, the additional data or the derivation into the pool.
 
 `WT_SECURE_PSA_PROFILE` picks the algorithm set compiled into the Secure
-image. The wolfCrypt side lives in
+image; it follows the [build profile](Macros.md#build-profiles) `WT_PROFILE`
+unless set. The wolfCrypt side lives in
 `src/services/wolfhsm/runner/secure_psa_profile.h`, which the host suite
 includes too:
 
 | Profile | Algorithms | STM32H563 Secure flash / RAM |
 | --- | --- | ---: |
-| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, SP 800-108 counter KDF, TLS 1.2 PRF, CCM* without a tag | 106,105 / 48,332 |
-| `standard` | `compat` without PBKDF2, SP 800-108, TLS 1.2 PRF, CCM* without a tag, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 94,379 / 47,308 |
-| `lean` | `standard` with one AEAD, CCM (`WT_AEAD=gcm` swaps it for GCM), and no AES decryption | 91,211 / 47,308 |
-| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 87,619 / 47,308 |
+| `tiny` | `small` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 87,587 / 47,308 |
+| `small` | `default` with one AEAD, CCM (`WT_AEAD=gcm` swaps it for GCM), and no AES decryption | 91,243 / 47,308 |
+| `default` (default) | P-256 ECDSA (random nonce) and ECDH, AES-GCM, CCM and CTR, SHA-256, HMAC, HKDF | 94,347 / 47,308 |
+| `extended` | The reference guest's set: `default` plus deterministic ECDSA, CBC and ECB, PBKDF2, SP 800-108 counter KDF, TLS 1.2 PRF, CCM* without a tag | 106,137 / 48,332 |
 
-Every profile but `compat` signs, verifies and agrees keys on wolfPSA's direct
+Every profile but `extended` signs, verifies and agrees keys on wolfPSA's direct
 P-256 path over wolfCrypt's SP code, so `ecc.c` and the multi-precision math
-leave the image; `compat` keeps them for deterministic ECDSA. With
-`WT_AEAD=gcm`, `lean` is 92,683 bytes and `symmetric` 88,995.
+leave the image; `extended` keeps them for deterministic ECDSA. With
+`WT_AEAD=gcm`, `small` is 92,683 bytes and `tiny` 88,995.
 
 RAM is the Secure RAM the image reserves. The crypto partition's stack is 6 KiB
-in `compat` for `ecc.c`'s ECDSA and 5 KiB in the other profiles, as with
+in `extended` for `ecc.c`'s ECDSA and 5 KiB in the other profiles, as with
 `WT_SECURE_PSA=0`; its data band grows from 1.5 KiB to `WT_PSA_POOL_BYTES` plus
 1.5 KiB. The opt-out, `WT_SECURE_PSA=0`, is 70,464 / 45,260 bytes. The PSA
 guest drops from 65,384 to 34,600 bytes of flash; it keeps wolfCrypt only for
@@ -367,22 +368,23 @@ arm-none-eabi-size build_size_native/wolftrust.elf \
 Flash is `text + data`. Secure RAM is everything the image reserves: `data +
 bss` plus the SPM main stack and every partition stack and band
 ([Footprint](Footprint.md#how-sizes-are-measured)). The images use the
-STM32H563 reference manifest at isolation level 3. The default profile has
+STM32H563 reference manifest at isolation level 3. The `default` profile has
 one guest, ITS, Protected Storage, vault services and COSE attestation. The
-`full` profile adds `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1`.
+`extended` profile adds `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1`
+and the `extended` PSA algorithm set.
 wolfBoot and Non-secure guest images are not included.
 
 | Engine and profile | `text` | `data` | `bss` | Flash | Secure RAM |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Native, default (`WT_SECURE_PSA=1`, `compat`) | 105,709 bytes | 396 bytes | 20,732 bytes | 106,105 bytes | 48,332 bytes |
-| Native, `WT_SECURE_PSA=1` `standard` | 93,987 bytes | 392 bytes | 20,732 bytes | 94,379 bytes | 47,308 bytes |
-| Native, `WT_SECURE_PSA=1` `lean` | 90,819 bytes | 392 bytes | 20,732 bytes | 91,211 bytes | 47,308 bytes |
+| Native, `default` | 93,955 bytes | 392 bytes | 20,732 bytes | 94,347 bytes | 47,308 bytes |
+| Native, `small` | 90,851 bytes | 392 bytes | 20,732 bytes | 91,243 bytes | 47,308 bytes |
+| Native, `default`, `WT_SECURE_PSA_PROFILE=extended` | 105,709 bytes | 396 bytes | 20,732 bytes | 106,105 bytes | 48,332 bytes |
 | Native, `WT_SECURE_PSA=0` | 70,080 bytes | 384 bytes | 18,340 bytes | 70,464 bytes | 45,260 bytes |
 | wolfHSM, default | 98,108 bytes | 392 bytes | 40,648 bytes | 98,500 bytes | 83,932 bytes |
 | wolfHSM over native `WT_SECURE_PSA=0` | 27,900 bytes | 8 bytes | 22,308 bytes | 27,908 bytes | 38,672 bytes |
-| Native, `full` | 115,164 bytes | 732 bytes | 31,832 bytes | 115,896 bytes | 63,868 bytes |
-| Native, `full`, `WT_SECURE_PSA=0` | 79,120 bytes | 720 bytes | 27,392 bytes | 79,840 bytes | 58,748 bytes |
-| wolfHSM, `full` | 107,496 bytes | 728 bytes | 66,504 bytes | 108,224 bytes | 107,916 bytes |
+| Native, `extended` | 115,164 bytes | 732 bytes | 31,832 bytes | 115,896 bytes | 63,868 bytes |
+| Native, `extended`, `WT_SECURE_PSA=0` | 79,120 bytes | 720 bytes | 27,392 bytes | 79,840 bytes | 58,748 bytes |
+| wolfHSM, `extended` | 107,496 bytes | 728 bytes | 66,504 bytes | 108,224 bytes | 107,916 bytes |
 
 ### Stack contribution
 
@@ -392,7 +394,7 @@ image has one guest and one 10,496-byte slot (10,240-byte stack plus a
 is the crypto partition's larger stack (10 KiB instead of 5 KiB, since the
 wolfHSM server peaks at 7,608 bytes on it) and its larger data band (24 KiB
 instead of 1.5 KiB), which holds the server, protocol and per-guest state. With
-`WT_MAX_GUESTS=2` (the `full` profile):
+`WT_MAX_GUESTS=2` (the `extended` profile):
 
 ```text
 2 * (10,240-byte stack + 256-byte underflow guard) = 20,992 bytes

@@ -644,7 +644,7 @@ static psa_status_t wt_psa_attr_get(const uint8_t* p, size_t len,
     attr->policy.alg = (psa_algorithm_t)wt_psa_rd32(p + 12);
     attr->policy.alg2 = (psa_algorithm_t)wt_psa_rd32(p + 16);
     attr->id = (psa_key_id_t)wt_psa_rd32(p + 20);
-#ifdef WT_SECURE_PSA_symmetric
+#ifdef WT_SECURE_PSA_tiny
     /* wolfCrypt keeps ECC for the native engine; the profile serves none. */
     if (PSA_KEY_TYPE_IS_ECC(attr->type)) {
         return PSA_ERROR_NOT_SUPPORTED;
@@ -978,7 +978,7 @@ static psa_status_t wt_psa_kdf_fn(uint32_t fn, wt_psa_call_t* c)
     case WT_PSA_FN_KDF_INPUT_KEY:
         status = psa_key_derivation_input_key(o, A(1), A(2));
         break;
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
     case WT_PSA_FN_KDF_KEY_AGREEMENT:
         status = psa_key_derivation_key_agreement(o, A(1), A(2), IN(0),
                                                   INL(0));
@@ -1019,7 +1019,7 @@ static psa_status_t wt_psa_kdf_fn(uint32_t fn, wt_psa_call_t* c)
     return status;
 }
 
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
 static psa_status_t wt_psa_asym_fn(uint32_t fn, wt_psa_call_t* c)
 {
     psa_key_attributes_t attr;
@@ -1090,7 +1090,7 @@ static uint32_t wt_psa_key_arg(uint32_t fn)
     case WT_PSA_FN_CIPHER_DECRYPT:
     case WT_PSA_FN_AEAD_ENCRYPT:
     case WT_PSA_FN_AEAD_DECRYPT:
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
     case WT_PSA_FN_SIGN_HASH:
     case WT_PSA_FN_VERIFY_HASH:
     case WT_PSA_FN_SIGN_MESSAGE:
@@ -1107,14 +1107,14 @@ static uint32_t wt_psa_key_arg(uint32_t fn)
     case WT_PSA_FN_AEAD_ENCRYPT_SETUP:
     case WT_PSA_FN_AEAD_DECRYPT_SETUP:
     case WT_PSA_FN_KDF_VERIFY_KEY:
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
     case WT_PSA_FN_RAW_KEY_AGREEMENT:
     case WT_PSA_FN_KEY_AGREEMENT:
 #endif
         arg = 2U;
         break;
     case WT_PSA_FN_KDF_INPUT_KEY:
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
     case WT_PSA_FN_KDF_KEY_AGREEMENT:
 #endif
         arg = 3U;
@@ -1156,7 +1156,7 @@ static psa_status_t wt_psa_fn(uint32_t fn, wt_psa_call_t* c)
     else if (fn >= WT_PSA_FN_KDF_SETUP && fn <= WT_PSA_FN_KDF_ABORT) {
         status = wt_psa_kdf_fn(fn, c);
     }
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
     else if (fn >= WT_PSA_FN_SIGN_HASH &&
              fn <= WT_PSA_FN_ASYMMETRIC_DECRYPT) {
         status = wt_psa_asym_fn(fn, c);

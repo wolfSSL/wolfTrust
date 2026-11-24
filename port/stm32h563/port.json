@@ -87,11 +87,11 @@
         ["hsmattackneg", "wolfHSM cross-namespace + NVM relay negatives, one guest"],
         ["authneg rollbackneg remeasureneg manifestneg spbudgetneg", "Launch, rollback, re-measure, manifest and SP budget verdicts, one guest"],
         ["periphneg revneg", "NS peripheral access and engineering-sample refusal, one guest"],
-        ["nativewire nativewireasm nativewirelean", "Every native wire key op from the guest, portable C, assembly and the lean profile's 5 KiB crypto stack, one guest"],
+        ["nativewire nativewireasm nativewiresmall", "Every native wire key op from the guest, portable C, assembly and the small profile's 5 KiB crypto stack, one guest"],
         ["tpm tpmneg tpmreset", "TPM 2.0 interface, isolation and client reset, one guest (L3)"],
         ["pkcs11 pkcs11neg pkcs11reset", "PKCS#11 interface, isolation and client reset, one guest (L3)"]
       ],
-      "l3_exempt": {"hsmfaultneg": "the tasklet fault scenario ends on the second guest's breakpoint, so it runs on the full profile only"}
+      "l3_exempt": {"hsmfaultneg": "the tasklet fault scenario ends on the second guest's breakpoint, so it runs on the extended profile only"}
     },
     "guests": {"hwpsa": ["psa", "psa"], "lifecycle": ["zephyr", "freertos"], "psa": ["zephyr", "freertos"], "conformance": ["zephyr", "freertos"], "vnet": ["vnet", "vnet"], "tpm": ["interface", "baremetal"], "pkcs11": ["interface", "baremetal"]},
     "guest_end": {"zephyr": "bkpt", "vnet": "bkpt"},

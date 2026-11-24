@@ -253,12 +253,12 @@ endif
 ifeq ($(WT_DEPUTY_NEG_PROBE),1)
 SECURE_CFLAGS += -DWT_DEPUTY_NEG_PROBE=1
 endif
-# The vault's AES AEAD, and the one PSA AEAD of lean and symmetric (ccm there)
+# The vault's AES AEAD, and the one PSA AEAD of small and tiny (ccm there)
 WT_AEAD ?=
 ifneq ($(filter-out gcm ccm,$(WT_AEAD))$(word 2,$(WT_AEAD)),)
 $(error unsupported WT_AEAD='$(WT_AEAD)' (want gcm or ccm))
 endif
-WT_AEAD_ONE := $(if $(filter 1,$(WT_SECURE_PSA)),$(filter lean symmetric,$(WT_SECURE_PSA_PROFILE)))
+WT_AEAD_ONE := $(if $(filter 1,$(WT_SECURE_PSA)),$(filter small tiny,$(WT_SECURE_PSA_PROFILE)))
 WT_AEAD_USED := $(or $(WT_AEAD),$(if $(WT_AEAD_ONE),ccm,gcm))
 SECURE_CFLAGS += -DWT_AEAD_$(if $(filter ccm,$(WT_AEAD_USED)),CCM,GCM)
 ifeq ($(WT_HSM_PIN_NEG_PROBE),1)
@@ -529,7 +529,6 @@ WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/services/native/keyvault.c
 endif
 
-WT_SECURE_PSA_PROFILE ?= compat
 WT_PSA_SIZE_VARS := WT_PSA_POOL_BYTES WT_PSA_KEY_SLOTS WT_PSA_OP_SLOTS
 $(foreach v,$(WT_PSA_SIZE_VARS),$(if $(filter-out 0 1 2 3 4 5 6 7 8 9,$(subst 0,0 ,$(subst 1,1 ,$(subst 2,2 ,$(subst 3,3 ,$(subst 4,4 ,$(subst 5,5 ,$(subst 6,6 ,$(subst 7,7 ,$(subst 8,8 ,$(subst 9,9 ,$($(v)))))))))))))$(word 2,$($(v))),$(error unsupported $(v)='$($(v))' (want a decimal count))))
 WOLFPSA_DIR := $(ROOT)/lib/wolfPSA
@@ -541,8 +540,8 @@ ifeq ($(WT_SECURE_PSA),1)
 ifneq ($(WT_ENGINE),native)
 $(error WT_SECURE_PSA=1 requires WT_ENGINE=native)
 endif
-ifneq ($(filter-out compat standard lean symmetric,$(WT_SECURE_PSA_PROFILE))$(words $(WT_SECURE_PSA_PROFILE)),1)
-$(error unsupported WT_SECURE_PSA_PROFILE='$(WT_SECURE_PSA_PROFILE)' (want compat, standard, lean or symmetric))
+ifneq ($(filter-out extended default small tiny,$(WT_SECURE_PSA_PROFILE))$(words $(WT_SECURE_PSA_PROFILE)),1)
+$(error unsupported WT_SECURE_PSA_PROFILE='$(WT_SECURE_PSA_PROFILE)' (want extended, default, small or tiny))
 endif
 ifeq ($(WT_WOLFCRYPT_ARMASM),1)
 $(error WT_SECURE_PSA=1 needs constant-time AES, and WT_WOLFCRYPT_ARMASM=1 builds the T-table Thumb-2 AES)
@@ -559,7 +558,7 @@ HSM_WOLFHSM_CFLAGS += $(WT_SECURE_PSA_CFLAGS)
 WOLFPSA_SECURE_SRCS := $(filter-out %/psa_store_posix.c %/psa_attestation.c \
     %/psa_ffm.c %/psa_its.c %/psa_store_zephyr.c %/psa_tf_psa.c,$(wildcard $(WOLFPSA_DIR)/src/*.c))
 WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/native/psa_crypto_service.c
-ifeq ($(WT_SECURE_PSA_PROFILE),compat)
+ifeq ($(WT_SECURE_PSA_PROFILE),extended)
 WOLFCRYPT_SECURE_SRCS += $(WOLFSSL_DIR)/wolfcrypt/src/kdf.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/pwdbased.c
 endif
@@ -568,7 +567,7 @@ ifeq ($(WT_AEAD_USED),ccm)
 WT_PSA_WANT_WITHOUT := --without PSA_WANT_ALG_GCM
 endif
 endif
-ifneq ($(WT_SECURE_PSA_PROFILE),compat)
+ifneq ($(WT_SECURE_PSA_PROFILE),extended)
 WT_PSA_WANT_WITHOUT += --without PSA_WANT_ALG_SP800_108_COUNTER_HMAC \
     --without PSA_WANT_ALG_SP800_108_COUNTER_CMAC \
     --without PSA_WANT_ALG_CCM_STAR_NO_TAG
@@ -1903,7 +1902,10 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 	fi
 
 # The resolved configuration for tools and tests outside this directory.
-.PHONY: print-layout-cflags print-build-mode
+.PHONY: print-layout-cflags print-build-mode print-profile
+print-profile:
+	@echo $(foreach v,WT_PROFILE WT_SECURE_PSA_PROFILE WT_INTERFACE_PROFILE \
+	    WT_MAX_GUESTS WT_MANIFEST_RUNTIME_CHECK WT_FWU WT_SHA256_FAST,$(v)=$($(v)))
 print-layout-cflags:
 	@echo '$(WT_LAYOUT_CFLAGS_ABS)'
 print-build-mode:

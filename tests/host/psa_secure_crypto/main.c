@@ -40,7 +40,7 @@
 /* Past what the old 2,048-byte staging buffer could carry. */
 #define HUGE   5000U
 
-/* lean and symmetric offer one AEAD, CCM unless built with WT_AEAD=gcm */
+/* small and tiny offer one AEAD, CCM unless built with WT_AEAD=gcm */
 #ifdef PSA_WANT_ALG_GCM
 #define WT_TEST_AEAD PSA_ALG_GCM
 #else
@@ -145,7 +145,7 @@ static void test_profile(void)
 
     check(psa_generate_random(NULL, 1U) == PSA_ERROR_INVALID_ARGUMENT,
           "generate_random refuses a NULL buffer");
-#if defined(WT_SECURE_PSA_lean) || defined(WT_SECURE_PSA_symmetric)
+#if defined(WT_SECURE_PSA_small) || defined(WT_SECURE_PSA_tiny)
 #ifdef PSA_WANT_ALG_GCM
     check(aes_oneshot(PSA_ALG_GCM, 0) == PSA_SUCCESS &&
           aes_oneshot(PSA_ALG_CCM, 0) == PSA_ERROR_NOT_SUPPORTED,
@@ -158,7 +158,7 @@ static void test_profile(void)
 #else
     check(aes_oneshot(PSA_ALG_GCM, 0) == PSA_SUCCESS &&
           aes_oneshot(PSA_ALG_CCM, 0) == PSA_SUCCESS,
-          "compat and standard offer GCM and CCM");
+          "extended and default offer GCM and CCM");
 #endif
     k = ecc_key(&ecc);
     if (k != PSA_KEY_ID_NULL) {
@@ -168,35 +168,35 @@ static void test_profile(void)
           "every profile keeps HKDF");
     check(aes_oneshot(PSA_ALG_CTR, 0) == PSA_SUCCESS,
           "every profile keeps AES-CTR");
-#if defined(WT_SECURE_PSA_compat)
+#if defined(WT_SECURE_PSA_extended)
     check(kdf_setup(PSA_ALG_SP800_108_COUNTER_HMAC(PSA_ALG_SHA_256)) ==
-          PSA_SUCCESS, "compat keeps SP 800-108 HMAC");
+          PSA_SUCCESS, "extended keeps SP 800-108 HMAC");
     check(aes_oneshot(PSA_ALG_CCM_STAR_NO_TAG, 0) == PSA_SUCCESS,
-          "compat keeps CCM* without a tag");
+          "extended keeps CCM* without a tag");
 #else
     check(kdf_setup(PSA_ALG_SP800_108_COUNTER_HMAC(PSA_ALG_SHA_256)) ==
-          PSA_ERROR_NOT_SUPPORTED, "only compat offers SP 800-108");
+          PSA_ERROR_NOT_SUPPORTED, "only extended offers SP 800-108");
     check(aes_oneshot(PSA_ALG_CCM_STAR_NO_TAG, 0) == PSA_ERROR_NOT_SUPPORTED,
-          "only compat offers CCM* without a tag");
+          "only extended offers CCM* without a tag");
 #endif
-#if defined(WT_SECURE_PSA_compat)
+#if defined(WT_SECURE_PSA_extended)
     check(aes_oneshot(PSA_ALG_CBC_NO_PADDING, 1) == PSA_SUCCESS,
-          "compat keeps CBC decryption");
+          "extended keeps CBC decryption");
     check(kdf_setup(PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256)) == PSA_SUCCESS,
-          "compat keeps PBKDF2");
-    check(ecc == PSA_SUCCESS, "compat keeps ECC");
-#elif defined(WT_SECURE_PSA_standard)
+          "extended keeps PBKDF2");
+    check(ecc == PSA_SUCCESS, "extended keeps ECC");
+#elif defined(WT_SECURE_PSA_default)
     check(aes_oneshot(PSA_ALG_CBC_NO_PADDING, 0) == PSA_ERROR_NOT_SUPPORTED,
-          "standard compiles out CBC");
+          "default compiles out CBC");
     check(kdf_setup(PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256)) ==
-          PSA_ERROR_NOT_SUPPORTED, "standard compiles out PBKDF2");
-    check(ecc == PSA_SUCCESS, "standard keeps ECC");
-#elif defined(WT_SECURE_PSA_lean)
+          PSA_ERROR_NOT_SUPPORTED, "default compiles out PBKDF2");
+    check(ecc == PSA_SUCCESS, "default keeps ECC");
+#elif defined(WT_SECURE_PSA_small)
     check(aes_oneshot(PSA_ALG_ECB_NO_PADDING, 1) == PSA_ERROR_NOT_SUPPORTED,
-          "lean compiles out AES decryption");
-    check(ecc == PSA_SUCCESS, "lean keeps ECC");
-#elif defined(WT_SECURE_PSA_symmetric)
-    check(ecc == PSA_ERROR_NOT_SUPPORTED, "symmetric compiles out ECC");
+          "small compiles out AES decryption");
+    check(ecc == PSA_SUCCESS, "small keeps ECC");
+#elif defined(WT_SECURE_PSA_tiny)
+    check(ecc == PSA_ERROR_NOT_SUPPORTED, "tiny compiles out ECC");
 #endif
 }
 
@@ -473,7 +473,7 @@ static void test_basic(void)
     test_large_oneshots(k, nonce);
     check(psa_destroy_key(k) == PSA_SUCCESS, "destroy volatile key");
 
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
     k = ecc_key(&st);
     check(st == PSA_SUCCESS, "generate P-256 key in Secure");
     st = psa_sign_hash(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), hash, sizeof(hash),
@@ -647,14 +647,14 @@ static void test_foreign_key(void)
                 PSA_KEY_DERIVATION_INPUT_SECRET, k), "foreign key: KDF input");
         refused(psa_key_derivation_verify_key(&kop, k),
                 "foreign key: KDF verify key");
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
         refused(psa_key_derivation_key_agreement(&kop,
                 PSA_KEY_DERIVATION_INPUT_SECRET, k, out, 65U),
                 "foreign key: KDF key agreement");
 #endif
         (void)psa_key_derivation_abort(&kop);
     }
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
     refused(psa_sign_hash(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), in, 32U, out,
                           sizeof(out), &len), "foreign key: sign hash");
     refused(psa_verify_hash(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), in, 32U, out,

@@ -13,7 +13,7 @@ regenerate this page instead of editing it.
 
 ## Emulator scenarios
 
-Every port's full tier is in `port.json` (`m33mu.groups`). The smoke tier
+Every port's all tier is in `port.json` (`m33mu.groups`). The smoke tier
 runs on every pull request for a port whose CI label is optional; a port
 marked label only above runs only under its label. Capabilities a port
 declares absent exempt the scenarios that need them and mark their

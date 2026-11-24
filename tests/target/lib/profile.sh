@@ -18,20 +18,22 @@
 # You should have received a copy of the GNU General Public License
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
-# Build profiles every target runner puts ahead of its scenario's probe flags.
-# "default" is the lean image `make` builds with no options; "full" turns
-# every add-on back on. POSIX sh; source it, do not execute it.
+# Build profiles every target runner puts ahead of its scenario's probe flags:
+# tiny, small, default (the image `make` builds with no options) or extended
+# (every add-on). mk/profile.mk holds the same table for the build itself.
+# POSIX sh; source it, do not execute it.
 
-# The add-on variables a profile owns, cleared before a profile is applied so
-# the caller's environment never leaks into a run.
-SCENARIO_PROFILE_VARS="WT_MAX_GUESTS WT_MANIFEST_RUNTIME_CHECK WT_FWU WT_SHA256_FAST"
+# The variables a profile owns, cleared before a profile is applied so the
+# caller's environment never leaks into a run.
+SCENARIO_PROFILE_VARS="WT_PROFILE WT_SECURE_PSA_PROFILE WT_MAX_GUESTS \
+WT_MANIFEST_RUNTIME_CHECK WT_FWU WT_SHA256_FAST"
 
 scenario_profile_flags() {
     case "$1" in
-        default) echo "" ;;
-        full)    echo "WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1" ;;
+        tiny|small|default) echo "WT_PROFILE=$1" ;;
+        extended) echo "WT_PROFILE=extended WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1" ;;
         *)
-            echo "unknown build profile '$1' (want default or full)" >&2
+            echo "unknown build profile '$1' (want tiny, small, default or extended)" >&2
             return 1
             ;;
     esac
@@ -40,8 +42,8 @@ scenario_profile_flags() {
 # Guests the profile's Secure image schedules.
 scenario_profile_guests() {
     case "$1" in
-        full) echo 2 ;;
-        *)    echo 1 ;;
+        extended) echo 2 ;;
+        *)        echo 1 ;;
     esac
 }
 

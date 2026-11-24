@@ -23,7 +23,7 @@ expect_n_re() { local n; n="$(count_re "$3")"; \
 . "$(dirname "${BASH_SOURCE[0]}")/profile.sh"
 
 # The profile scenario $2 of port $1 builds with: WT_PROFILE when the matrix
-# registers it there, otherwise full when it runs there, otherwise its only
+# registers it there, otherwise extended when it runs there, otherwise its only
 # profile.
 scenario_profile() {
     python3 "$(dirname "${BASH_SOURCE[0]}")/scenario_matrix.py" \

@@ -142,9 +142,9 @@ jobs:
             python3 tools/secure_ram.py --base-max 45728 \
               build_budget_$target/wolftrust.map
           done
-      - name: Build every port's full-profile secure image (every engine)
+      - name: Build every port's extended-profile secure image (every engine)
         run: |
-          flags="$(. tests/target/lib/profile.sh; scenario_profile_flags full)"
+          flags="$(. tests/target/lib/profile.sh; scenario_profile_flags extended)"
           for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
             for engine in $(python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines); do
               # shellcheck disable=SC2086
@@ -178,14 +178,14 @@ jobs:
       - name: Build every port with PSA Crypto in the Secure image (WT_SECURE_PSA=1, every profile)
         run: |
           for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
-            for profile in compat standard lean symmetric; do
+            for profile in extended default small tiny; do
               dir=build_spsa_${target}_$profile
               make TARGET=$target WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=$profile \
                 secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
               grep -qx 'WT_SECURE_PSA=1' $dir/secure_build_mode.stamp
               grep -qx "WT_SECURE_PSA_PROFILE=$profile" $dir/secure_build_mode.stamp
               cfg=$dir/wolfpsa_cfg/crypto_config_generated.h
-              if [ "$profile" = compat ]; then
+              if [ "$profile" = extended ]; then
                 grep -qE '^#define PSA_WANT_ALG_SP800_108_COUNTER_HMAC\b' $cfg
                 grep -qE '^#define PSA_WANT_ALG_CCM_STAR_NO_TAG\b' $cfg
               elif grep -qE '^#define PSA_WANT_ALG_(SP800_108_COUNTER_(HMAC|CMAC)|CCM_STAR_NO_TAG)\b' $cfg ||
@@ -207,11 +207,11 @@ jobs:
             WT_PSA_KEY_SLOTS=8 WT_PSA_OP_SLOTS=4 secure-image \
             TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_spsa_sizes
           grep -qx 'WT_PSA_SIZES=8192/8/4/' build_spsa_sizes/secure_build_mode.stamp
-          # lean and symmetric offer one PSA AEAD: CCM unless WT_AEAD=gcm
+          # small and tiny offer one PSA AEAD: CCM unless WT_AEAD=gcm
           for aead in "" gcm ccm; do
-            dir=build_aead_lean_${aead:-default}
+            dir=build_aead_small_${aead:-default}
             used=${aead:-ccm}
-            make WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=lean WT_AEAD=$aead \
+            make WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=small WT_AEAD=$aead \
               secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
             grep -qx "WT_AEAD=$used" $dir/secure_build_mode.stamp
             if [ "$used" = ccm ]; then want=CCM; drop=GCM; else want=GCM; drop=CCM; fi
@@ -220,7 +220,7 @@ jobs:
             grep -qE "^#define PSA_WANT_ALG_$want\b" $cfg
             grep -qi " wc_Aes$want" $dir/syms.txt
             if grep -qE "^#define PSA_WANT_ALG_$drop\b" $cfg || grep -qi " wc_Aes$drop" $dir/syms.txt; then
-              echo "FAIL: lean with WT_AEAD=$used still carries $drop" >&2
+              echo "FAIL: small with WT_AEAD=$used still carries $drop" >&2
               exit 1
             fi
           done

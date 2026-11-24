@@ -25,7 +25,7 @@ WOLFPSA := $(ROOT)/lib/wolfPSA
 
 CC ?= cc
 BUILD_DIR ?= build
-# SP_DIRECT=1 builds the direct P-256 keyvault path of the non-compat profiles
+# SP_DIRECT=1 builds the direct P-256 keyvault path of the profiles below extended
 SP_DIRECT ?= 0
 
 CFLAGS := \

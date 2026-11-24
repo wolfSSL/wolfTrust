@@ -49,6 +49,7 @@ ifneq ($(CONFIG_TPM)/$(CONFIG_PKCS11),$(WT_IF_WANT))
 $(error WT_INTERFACE=$(WT_INTERFACE) conflicts with CONFIG_TPM=$(CONFIG_TPM) CONFIG_PKCS11=$(CONFIG_PKCS11))
 endif
 
+include $(ROOT)/mk/profile.mk
 include $(ROOT)/mk/target-$(TARGET).mk
 include $(ROOT)/mk/layout.mk
 $(foreach kv,$(WT_LAYOUT_GUEST_WINDOWS),$(eval $(kv)))

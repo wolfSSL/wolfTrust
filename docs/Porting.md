@@ -156,7 +156,7 @@ firmware, the linker script, the layout check, the guest builds and the host
 fixtures cannot disagree (`tests/host/layout_config` proves it for every
 registered port).
 
-Level 3 is claimed for a port only when its full M33MU tier runs every
+Level 3 is claimed for a port only when its M33MU `all` tier runs every
 scenario in `L3_REQUIRED` (`tests/target/lib/scenario_matrix.py`). A scenario
 a port cannot run yet goes in that port's `l3_exempt` map with the open issue
 that tracks it; `scenario_matrix.py --selftest`, run in CI, fails on a
@@ -414,7 +414,7 @@ never a pass.
 | G2 host | `make test`, which runs `tests/host/port_flash` over the port's model and its own suites | every suite passes and `docs/Ports.md is current` |
 | G3 layout | `TOOLPREFIX=arm-none-eabi- tools/check-layout-rebuild.sh <soc>` | `PASS: layout rebuild (<soc>)` |
 | G4 emulator smoke | `make test-target TARGET=<soc>` inside the port's CI image | `PASS: target/all` |
-| G5 emulator full | `WT_TIER=full make test-target TARGET=<soc>` on both engines | `PASS: target/all` twice |
+| G5 emulator all | `WT_TIER=all make test-target TARGET=<soc>` on both engines | `PASS: target/all` twice |
 | G6 hardware minimum | `make test-hardware TARGET=<soc>` on the probe host | `PASS: hardware/all`, evidence under `logs/<soc>-hw/` |
 | G7 provisioning | `TARGET=<soc> tests/target/provisioning/provisioning_ctrl.sh status`, then `discover` | both exit 0 and nothing is written |
 

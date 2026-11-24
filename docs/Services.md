@@ -124,7 +124,7 @@ limited to 512 bytes. The underlying Secure vault still uses a 1024-byte object
 buffer and caps one copied vault response at 1000 bytes.
 
 Every stored object is AES-256-GCM sealed (AES-256-CCM when `WT_AEAD` is
-`ccm`, the `lean` and `symmetric` default) in the vault under a device-local
+`ccm`, the `tiny` and `small` default) in the vault under a device-local
 non-exportable key in the shared NVM store. A persisted write counter supplies
 the nonce and the object label is authenticated data. Confidentiality and
 replay-protection hint flags do not weaken storage: Protected Storage still

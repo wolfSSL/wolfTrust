@@ -94,7 +94,7 @@ static int tpm_property_matches(UINT32 property, UINT32 expected)
     return 0;
 }
 
-#if defined(WT_PROFILE_FULL) && !WT_PROFILE_FULL
+#if defined(WT_PROFILE_EXTENDED) && !WT_PROFILE_EXTENDED
 static int tpm_command_capabilities(void)
 {
     GetCapability_In in;
@@ -420,7 +420,7 @@ int wt_tpm_run(void)
         return -1;
     }
     app_line("tpm frame caps ok");
-#if defined(WT_PROFILE_FULL) && !WT_PROFILE_FULL
+#if defined(WT_PROFILE_EXTENDED) && !WT_PROFILE_EXTENDED
     if (tpm_command_capabilities() != 0) {
         app_line("tpm command capabilities FAILED");
         return -1;

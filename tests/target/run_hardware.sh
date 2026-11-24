@@ -40,15 +40,15 @@ lib="$here/lib"
 # shellcheck source=lib/engine.sh disable=SC1091
 . "$lib/engine.sh"
 
-# The hardware suites build, flash and assert both guests, so only the full
-# profile runs on silicon; its flags go ahead of every scenario's own.
-case "${WT_PROFILE:-full}" in
-  full) ;;
-  *) echo "WT_PROFILE=$WT_PROFILE is not supported on hardware (the suite asserts both guests; use WT_PROFILE=full)" >&2; exit 2 ;;
+# The hardware suites build, flash and assert both guests, so only the
+# extended profile runs on silicon; its flags go ahead of every scenario's own.
+case "${WT_PROFILE:-extended}" in
+  extended) ;;
+  *) echo "WT_PROFILE=$WT_PROFILE is not supported on hardware (the suite asserts both guests; use WT_PROFILE=extended)" >&2; exit 2 ;;
 esac
 scenario_profile_reset
 # shellcheck disable=SC2046
-export $(scenario_profile_flags full)
+export $(scenario_profile_flags extended)
 
 ports="$(python3 "$lib/scenario_matrix.py" --list-ports)"
 case " $ports " in

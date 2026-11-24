@@ -10,7 +10,7 @@ enforce that policy.
 The only currently supported and validated reference implementation combines
 the Armv8-M adapter with the STM32H563 port. Its default configuration runs
 one Non-secure guest on one Cortex-M33 (two with `WT_MAX_GUESTS=2`, as the
-`full` build profile does) and exposes Secure services only through FF-M IPC. These are current reference-port choices. The common policy and
+`extended` build profile does) and exposes Secure services only through FF-M IPC. These are current reference-port choices. The common policy and
 service design is intended for reuse, but current internal contracts still
 contain Armv8-M-specific types and assumptions.
 

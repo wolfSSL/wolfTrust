@@ -57,8 +57,8 @@
 #define NO_MAIN_DRIVER
 #define NO_ERROR_STRINGS
 
-/* Non-compat profiles run P-256 on wolfPSA's direct path over small SP */
-#ifndef WT_SECURE_PSA_compat
+/* Profiles other than extended run P-256 on wolfPSA's direct path over small SP */
+#ifndef WT_SECURE_PSA_extended
 #define WOLFSSL_HAVE_SP_ECC
 #define WOLFSSL_SP_SMALL
 #endif

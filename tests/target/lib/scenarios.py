@@ -211,7 +211,7 @@ SCENARIOS = {
                        role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
                        end="bkpt:0x7f", engines=("native",),
                        blocks=("no_faults", "psa_lifecycle", "nativewire")),
-    "nativewirelean": S(secure="WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=lean",
+    "nativewiresmall": S(secure="WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=small",
                         role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
                         end="bkpt:0x7f", engines=("native",),
                         blocks=("no_faults", "psa_lifecycle", "nativewire")),
@@ -1841,11 +1841,11 @@ def profile_gaps():
 
 
 def one_guest_gaps():
-    """No assertion a lean (one-guest) run applies can only be met by the
+    """No assertion a one-guest run applies can only be met by the
     guest that image never schedules."""
     gaps = []
     for port in sorted(PORTS):
-        for name in scenario_matrix.flat(port, "full", None, "default"):
+        for name in scenario_matrix.flat(port, "all", None, "default"):
             p = plan(port, name, "native", "emulator")
             ctx = Ctx(port, p["scenario"], "emulator",
                       one_guest(p["guests"], 1), {"board": "X"})
@@ -1895,7 +1895,7 @@ def selftest():
         for name, end in m33mu.get("ends", {}).items():
             if name not in SCENARIOS or not (end in ("fault", "idle", "timeout") or re.match(r"^bkpt:0x[0-9a-f]+$", str(end))):
                 gaps.append("%s: ends.%s is unknown or not an end mode" % (port, name))
-        run = set(scenario_matrix.flat(port, "full", None))
+        run = set(scenario_matrix.flat(port, "all", None))
         # A run that should hit the wall clock passes on exit 0 only where
         # guest0 ends it on its own clean breakpoint.
         for name in sorted(n for n in run if n in SCENARIOS):
@@ -1992,7 +1992,7 @@ def main():
     parser.add_argument("--engine", choices=("native", "hsm"), default="native")
     parser.add_argument("--env", choices=("emulator", "hardware"), default="emulator")
     parser.add_argument("--guests", type=int, choices=(1, 2), default=2,
-                        help="guests the Secure image schedules (1: the lean default)")
+                        help="guests the Secure image schedules (1: the default profile)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--shell", action="store_true", help="the resolved plan as SC_* assignments")
     mode.add_argument("--asserts", action="store_true", help="the applicable blocks and their checks")

@@ -126,13 +126,13 @@ esac
 check $st "WT_CONFORMANCE=1 in the 256 KiB slot links"
 plan=$(cd "$root" && make -n -s TARGET=stm32h563 test-target 2>/dev/null | tr '\n' ' ')
 case "$plan" in
-*"WT_PROFILE=default WT_SUITE_LOG_DIR=logs/default"*"WT_PROFILE=full WT_SUITE_LOG_DIR=logs/full"*) st=0 ;;
+*"WT_PROFILE=default WT_SUITE_LOG_DIR=logs/default"*"WT_PROFILE=extended WT_SUITE_LOG_DIR=logs/extended"*) st=0 ;;
 *) st=1 ;;
 esac
-check $st "make test-target runs default then full, each with its own logs"
+check $st "make test-target runs default then extended, each with its own logs"
 plan=$(cd "$root" && make -n -s TARGET=stm32h563 WT_PROFILE=default test-target 2>/dev/null | tr '\n' ' ')
 case "$plan" in
-*"WT_PROFILE=full"*) st=1 ;;
+*"WT_PROFILE=extended"*) st=1 ;;
 *"WT_PROFILE=default WT_SUITE_LOG_DIR=logs "*) st=0 ;;
 *) st=1 ;;
 esac
@@ -159,12 +159,47 @@ for value in 2 "0 1"; do
     else st=1; fi
     check $st "WT_MANIFEST_RUNTIME_CHECK='$value' stops the build"
 done
-for value in lean "default full"; do
+for value in lean full compat "default extended"; do
     if (cd "$root" && WT_TARGET_SCENARIOS=1 make -s WT_PROFILE="$value" \
             test-target >/dev/null 2>"$build/profile.err"); then st=1;
     elif grep -q 'unsupported WT_PROFILE' "$build/profile.err"; then st=0;
     else st=1; fi
     check $st "make test-target WT_PROFILE='$value' fails"
+done
+if (cd "$root" && WT_TARGET_SCENARIOS=1 make -s WT_PROFILE=tiny \
+        test-target >/dev/null 2>"$build/profile.err"); then st=1;
+elif grep -q "unsupported test profile 'tiny'" "$build/profile.err"; then st=0;
+else st=1; fi
+check $st "make test-target WT_PROFILE=tiny fails, no scenario set registers it"
+# shellcheck source=../../target/lib/profile.sh disable=SC1091
+. "$root/tests/target/lib/profile.sh"
+for value in tiny small default extended; do
+    want=$(cd "$root" && make -s --no-print-directory TARGET=stm32h563 \
+        WT_PROFILE="$value" print-profile)
+    # shellcheck disable=SC2046
+    got=$(cd "$root" && make -s --no-print-directory TARGET=stm32h563 \
+        $(scenario_profile_flags "$value") print-profile)
+    case "$want" in
+    *"WT_SECURE_PSA_PROFILE=$value "*) st=0 ;;
+    *) st=1 ;;
+    esac
+    [ "$want" = "$got" ] || st=1
+    check $st "profile.sh and mk/profile.mk agree on $value"
+done
+for cfg in CONFIG_TPM=y CONFIG_PKCS11=y; do
+    if (cd "$root" && make -s --no-print-directory TARGET=stm32l562 "$cfg" \
+            WT_PROFILE=extended print-profile >/dev/null 2>"$build/profile.err"); then
+        st=1
+    elif grep -q 'no update partition' "$build/profile.err"; then st=0;
+    else st=1; fi
+    check $st "stm32l562 $cfg refuses the extended profile's update partition"
+    got=$(cd "$root" && make -s --no-print-directory TARGET=stm32l562 "$cfg" \
+        WT_PROFILE=extended WT_FWU=0 print-profile 2>/dev/null)
+    case "$got" in
+    *"WT_SECURE_PSA_PROFILE=extended "*"WT_FWU=0 "*) st=0 ;;
+    *) st=1 ;;
+    esac
+    check $st "stm32l562 $cfg builds extended with WT_FWU=0"
 done
 gen
 

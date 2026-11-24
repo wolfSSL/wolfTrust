@@ -1,10 +1,13 @@
 # Footprint
 
 This page records the measured size of the Secure image and lists every build
-option that changes it. The lean default is the smallest image that keeps
-every PSA service; `WT_ATTEST_COSE=0` builds a smaller one without Initial
-Attestation. Each option below adds a feature back, and the table gives its
-cost.
+option that changes it. The native image with PSA Crypto in the guest
+(`WT_SECURE_PSA=0`) is the smallest that keeps every PSA service;
+`WT_ATTEST_COSE=0` builds a smaller one without Initial Attestation. Each
+option below adds a feature back, and the table gives its cost.
+[Crypto Engines](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1)
+has the sizes of the `tiny`, `small`, `default` and `extended` profiles with
+PSA Crypto in the Secure image.
 [Macros](Macros.md#build-profiles) has the full description of each option.
 
 ## How sizes are measured
@@ -34,18 +37,20 @@ make TARGET=stm32h563 size-report
 
 `size-report` prints the reserved Secure RAM with its breakdown, and the
 largest sections and `.bss` objects. Use a separate `BUILD_DIR` for each
-configuration you compare. The cross-compile workflow fails if the lean native
-default image on any port grows past 79,680 bytes of flash or 45,728 bytes of
+configuration you compare. The cross-compile workflow fails if the native
+`WT_SECURE_PSA=0` image on any port grows past 79,680 bytes of flash or 45,728 bytes of
 reserved Secure RAM, TF-M level 3's figures on the STM32L562E-DK. A port that
 runs code from a RAM band (`WT_RAMFUNC_SIZE`, 4 KiB on the MIMXRT700) is
 allowed that band on top.
 
 ## Measured sizes
 
-Measured 2026-11-17, with wolfCrypt built as portable C (the default). The `full` profile turns on all four add-ons
+Measured 2026-11-17 on the `WT_SECURE_PSA=0` image, with wolfCrypt built as
+portable C (the default). The `extended` columns turn on the four add-ons the
+`extended` profile sets
 (`WT_MAX_GUESTS=2 WT_FWU=1 WT_MANIFEST_RUNTIME_CHECK=1 WT_SHA256_FAST=1`).
 
-| Port | Engine | Default flash | Default RAM | `full` flash | `full` RAM |
+| Port | Engine | Default flash | Default RAM | `extended` flash | `extended` RAM |
 | --- | --- | ---: | ---: | ---: | ---: |
 | STM32H563 | native | 70,432 | 45,260 | 79,840 | 58,748 |
 | STM32H563 | hsm | 98,308 | 83,932 | 108,032 | 107,916 |
@@ -74,7 +79,7 @@ the default.
 | `WT_SHA256_FAST=1` | The unrolled SHA-256 transform | +384 / 0 | Faster guest verification at boot, attestation and the PSA hash service |
 | `WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1` | wolfCrypt's Cortex-M assembly for ECC, AES and SHA-256, and the 9 KiB native crypto stack its P-256 verify needs | +8,956 / +4,096 | Faster ECC, AES and SHA-256 |
 | `WT_ENGINE=hsm` | The wolfHSM server as the crypto engine, with its 10 KiB crypto stack and 24 KiB data band | +27,876 / +38,672 | Adds the wolfHSM request layer to each crypto call |
-| `full` profile | The first four together | +9,408 / +13,488 | As above |
+| `extended` profile add-ons | The first four together | +9,408 / +13,488 | As above |
 
 With the wolfHSM engine, `WT_MAX_GUESTS=2` costs +2,648 bytes of flash and
 +19,864 bytes of RAM, because each guest gets its own server stack.
@@ -91,9 +96,9 @@ Stack high-water marks on the STM32H563, read from M33MU RAM dumps filled
 with `0xA5` (2026-11-17). The native column is the `nativewire` scenario,
 which runs the positive lifecycle and every native wire key op from the
 guest; the wolfHSM column is `positive` on the default profile and `bothpsa`
-on `full`.
+on `extended`.
 
-| Stack | Size | Native, default | wolfHSM, default | wolfHSM, `full` |
+| Stack | Size | Native, default | wolfHSM, default | wolfHSM, `extended` |
 | --- | ---: | ---: | ---: | ---: |
 | SPM main | 4,096 | 2,200 | 1,124 | 1,244 |
 | Crypto | 5,120 native, 10,240 wolfHSM | 4,416 | 7,608 | 7,676 |
@@ -177,7 +182,7 @@ no crypto engine client and is the same size under both engines.
 TPM 2.0 includes fwTPM dictionary-attack lockout; `WT_TPM_DA=0` saves about
 2.3 KB of Secure flash.
 
-The extra RAM is the interface band above SPM RAM, sized from the `full`
+The extra RAM is the interface band above SPM RAM, sized from the `extended`
 profile on the STM32H563 with the stack method above:
 
 | Band | Data used / reserved | Stack peak / reserved |

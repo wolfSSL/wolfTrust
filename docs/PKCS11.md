@@ -44,7 +44,7 @@ PKCS#11 uses the same `WT_ENGINE=native` (default) or `WT_ENGINE=hsm`
 selector as PSA. Native needs no wolfHSM crypto. The application may run bare
 metal or under an RTOS; the Secure service uses wolfTrust's existing runtime.
 `WT_INTERFACE_PROFILE=default` selects the RNG/SHA-256/P-256 default operation
-set; `full` retains the broader set. Individual operations and mechanisms are
+set; `extended` retains the broader set. Individual operations and mechanisms are
 configurable through [operation profiles](Interface-Profiles.md).
 
 [Footprint](Footprint.md#tpm-20-and-pkcs11) has the measured Secure image and
@@ -61,10 +61,10 @@ Run the application suite and the isolation scenario under M33MU:
 
 ```sh
 WT_ENGINE=hsm tests/target/run_suite.sh mimxrt700 pkcs11 pkcs11neg
-WT_ENGINE=native WT_PROFILE=full tests/target/run_suite.sh mcxn947 pkcs11
+WT_ENGINE=native WT_PROFILE=extended tests/target/run_suite.sh mcxn947 pkcs11
 ```
 
-The default profile runs the `profile` suite; `full` runs all four groups in
+The default profile runs the `profile` suite; `extended` runs all four groups in
 one authenticated boot. `WT_PKCS11_SUITE=core|objects|crypto|negative` builds
 one group for focused debugging.
 
@@ -113,7 +113,7 @@ The embedded application suite covers:
 - invalid arguments, handles, state transitions, and signatures;
 - user PIN lockout after repeated wrong PINs, and SO recovery.
 
-The full profile requires all 40 cases through the real proxy, service, and
+The extended profile requires all 40 cases through the real proxy, service, and
 selected engine. The default profile runs nine cases for its selected operations. This is API-level runtime evidence, not a cross-compile-only check.
 
 ## PIN attempt limit
@@ -197,6 +197,6 @@ wiping, handler failures, reconnection, and prevention of duplicate execution.
 
 The M33MU workflow runs `pkcs11` and `pkcs11neg` on every port, each engine
 the port builds, and each profile the port registers, from the port registry's
-`m33mu.groups`: nine default-profile cases and 40 full-profile cases. The
+`m33mu.groups`: nine default-profile cases and 40 extended-profile cases. The
 STM32L562 runs the default profile only. The cross-compile
 workflow builds the `CONFIG_PKCS11=y` Secure image on every port and engine.

@@ -35,6 +35,12 @@
          "vault data band must sit directly above the crypto data band")
   ASSERT(_e_vnet <= (ORIGIN(VNETDATA) + LENGTH(VNETDATA)),
          "vnet data band overflow")
+  ASSERT((SIZEOF(.pkcs11_data) + SIZEOF(.pkcs11_bss)) == 0 ||
+         _e_pkcs11 <= (ORIGIN(VNETDATA) + WT_L3_INTERFACE_STACK_OFFSET),
+         "pkcs11 data band overflow")
+  ASSERT((SIZEOF(.tpm_data) + SIZEOF(.tpm_bss)) == 0 ||
+         _e_tpm <= (ORIGIN(VNETDATA) + WT_L3_INTERFACE_STACK_OFFSET),
+         "tpm data band overflow")
   ASSERT(ORIGIN(ATTESTDATA) == (ORIGIN(VAULTDATA) + LENGTH(VAULTDATA)),
          "attestation data band must sit directly above the vault data band")
   ASSERT(ORIGIN(PSSTACK) == (ORIGIN(ATTESTDATA) + LENGTH(ATTESTDATA)),
@@ -49,6 +55,12 @@
   _wt_band_hsm_limit = ORIGIN(HSMDATA) + LENGTH(HSMDATA);
   _wt_band_vnet_base = ORIGIN(VNETDATA);
   _wt_band_vnet_limit = ORIGIN(VNETDATA) + LENGTH(VNETDATA);
+  _wt_band_pkcs11_base = ORIGIN(VNETDATA);
+  _wt_band_pkcs11_limit = ORIGIN(VNETDATA) +
+    ((SIZEOF(.pkcs11_data) + SIZEOF(.pkcs11_bss)) != 0 ? WT_L3_INTERFACE_STACK_OFFSET : 0);
+  _wt_band_tpm_base = ORIGIN(VNETDATA);
+  _wt_band_tpm_limit = ORIGIN(VNETDATA) +
+    ((SIZEOF(.tpm_data) + SIZEOF(.tpm_bss)) != 0 ? WT_L3_INTERFACE_STACK_OFFSET : 0);
 
   ASSERT(_e_vault <= (ORIGIN(VAULTDATA) + LENGTH(VAULTDATA)),
          "vault data band overflow")

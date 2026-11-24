@@ -1,5 +1,6 @@
 # Build outputs
 /build/
+/interface-footprint/
 tests/firmware/*/build/
 tests/firmware/stm32h563-vnet/stm32h563_OTP.bin
 *.o

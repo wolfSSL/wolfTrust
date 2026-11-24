@@ -51,13 +51,31 @@
 #define WT_SP_ATTEST_DATA_SIZE   0x00000200u
 #endif
 #ifndef WT_SP_HSM_DATA_SIZE
-#if defined(WT_ENGINE_HSM)
+#if defined(WT_ENGINE_HSM) && (defined(CONFIG_TPM) || defined(CONFIG_PKCS11))
+/* The interface provider holds its own wolfHSM server context. */
+#define WT_SP_HSM_DATA_SIZE      0x00006800u
+#elif defined(WT_ENGINE_HSM)
 #define WT_SP_HSM_DATA_SIZE      0x00006000u
 #else
 #define WT_SP_HSM_DATA_SIZE      0x00000600u
 #endif
 #endif
-#if defined(CONFIG_VNET)
+/* Interface data and stack: measured peak plus headroom (docs/Footprint.md). */
+#if defined(CONFIG_TPM)
+#define WT_INTERFACE_DATA_SIZE   0x00007000u
+#define WT_INTERFACE_STACK_SIZE  0x00002400u
+#elif defined(CONFIG_PKCS11)
+#define WT_INTERFACE_DATA_SIZE   0x0000B000u
+#define WT_INTERFACE_STACK_SIZE  0x00002000u
+#else
+#define WT_INTERFACE_DATA_SIZE   0x00000000u
+#define WT_INTERFACE_STACK_SIZE  0x00000000u
+#endif
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+/* CONFIG_TPM and CONFIG_PKCS11 exclude CONFIG_VNET and reuse its band. */
+#define WT_VNET_DATA_SIZE \
+    (WT_INTERFACE_DATA_SIZE + WT_INTERFACE_STACK_SIZE)
+#elif defined(CONFIG_VNET)
 #define WT_VNET_DATA_SIZE        0x00005000u
 #else
 #define WT_VNET_DATA_SIZE        0x00000000u
@@ -93,7 +111,13 @@
 
 /* The VNET band and the engine-sized crypto stack and data band sit just
  * below the keystore, so their sizes move no other partition's stack. */
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+/* The interface band sits above the SPM's private RAM, not carved from it. */
+#define WT_KEYSTORE_BASE \
+    (WT_RAM_S_BASE + WT_L3_SPM_RAM_SIZE + WT_VNET_DATA_SIZE)
+#else
 #define WT_KEYSTORE_BASE         (WT_RAM_S_BASE + WT_L3_SPM_RAM_SIZE)
+#endif
 #define WT_SP_HSM_DATA_BASE      (WT_KEYSTORE_BASE - WT_SP_HSM_DATA_SIZE)
 #define WT_SP_CRYPTO_STACK_BASE  (WT_SP_HSM_DATA_BASE - WT_SP_CRYPTO_STACK_SIZE)
 #define WT_VNET_DATA_BASE        (WT_SP_CRYPTO_STACK_BASE - WT_VNET_DATA_SIZE)
@@ -150,6 +174,12 @@
  * partition from 64 KiB into the Secure image. */
 #define WT_SP_CODE_BASE          (WT_SECURE_FLASH_BASE + 0x00010000u)
 #define WT_SP_CODE_SLOT_SIZE     0x00001000u
+
+/* Interface state and stack share the auxiliary window, disjoint MPU grants. */
+#define WT_INTERFACE_DATA_BASE     WT_VNET_DATA_BASE
+#define WT_SP_INTERFACE_STACK_BASE \
+    (WT_INTERFACE_DATA_BASE + WT_INTERFACE_DATA_SIZE)
+#define WT_SP_INTERFACE_STACK_SIZE WT_INTERFACE_STACK_SIZE
 
 /* Per-partition pseudo-MMIO holes at the top of the conformance window; must
  * match SERVER/DRIVER_PARTITION_MMIO_0_* in tests/conformance/pal/pal_config.h. */

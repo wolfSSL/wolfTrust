@@ -75,6 +75,8 @@ if [ -n "$profile_flags" ]; then
   # shellcheck disable=SC2086,SC2163
   export $profile_flags
 fi
+# TPM 2.0 and PKCS#11 builds take their command set from the same profile.
+export WT_INTERFACE_PROFILE="${WT_INTERFACE_PROFILE:-$profile}"
 echo "Build profile: $profile ($guests guest(s))"
 
 # shellcheck source=ports/stm32h563/m33mu.sh disable=SC1090,SC1091
@@ -159,11 +161,12 @@ case "$SC_GUEST0/$SC_GUEST1" in
     stage "build the wolfIP network guests"
     port_build_vnet_guests emulator ;;
   *)
-    for kind in baremetal psa; do
+    for kind in baremetal psa interface; do
       [ "$SC_GUEST0" = "$kind" ] || [ "$SC_GUEST1" = "$kind" ] || continue
       case "$kind" in
         baremetal) dir=tests/firmware/baremetal-guest ;;
         psa)       dir=tests/firmware/psa-guest ;;
+        interface) dir=tests/firmware/interface-guest ;;
       esac
       flags=""
       goals=""
@@ -260,7 +263,13 @@ judge_args=(--log "$log" --syms build/wolftrust-signed.syms
             --var "expected_measurement=$expected_measurement"
             --var "v2_measurement=$v2_measurement"
             --var "conf_want=$repo/tests/target/ffm_ipc_results.txt"
-            --var "conf_rev=$(cat "$repo/tests/upstream/psa-arch-tests.rev")")
+            --var "conf_rev=$(cat "$repo/tests/upstream/psa-arch-tests.rev")"
+            --var "interface_profile=$WT_INTERFACE_PROFILE"
+            --var "tpm_da=${WT_TPM_DA:-1}")
+if [ -f build/crypto-profile/selected_profile.h ]; then
+  judge_args+=(--var "interface_ops=$(sed -n 's/^#define WT_PROFILE_\([A-Za-z0-9_]*\) 1$/\1/p' \
+    build/crypto-profile/selected_profile.h | tr '\n' ' ')")
+fi
 if [ "$SC_GUEST0" = "zephyr" ]; then
   # Both H5 guests write USART3: guest1's records can splice a guest0 line, so
   # guest0's markers are read from the reconstructed view.

@@ -3,6 +3,10 @@
 TOOLPREFIX ?= arm-none-eabi-
 CPU_FLAGS := -mcpu=$(WT_CPU) -mthumb -mgeneral-regs-only
 ARCH_CFLAGS := -mcmse -DWT_TARGET_BUILD=1
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+WT_INTERFACE_LOCAL_PROVIDER := 1
+ARCH_CFLAGS += -DWT_INTERFACE_LOCAL_PROVIDER=1 -DWT_PKCS11_HEAP_SIZE=0x7000U
+endif
 
 # Architectural-context isolation negatives, test builds only. The FP-probe
 # build must carry exactly its one deliberate FP instruction and no other.
@@ -162,11 +166,24 @@ $(BUILD_DIR)/wolftrust.elf $(ARCH_LINK_OUTPUTS): \
 # CONFIG_VNET included (virtual networking rides SERVICE_VNET psa_call).
 NSC_ALLOWED := __acle_se_WolfTrust_FFM_(FrameworkVersion|ServiceVersion|Connect|Call|Close)$$
 NSC_COUNT := 5
+WT_INTERFACE_BODY := $(strip $(if $(filter y,$(CONFIG_TPM)),FWTPM_ProcessCommand,\
+    $(if $(filter y,$(CONFIG_PKCS11)),wt_pkcs11_provider_dispatch)))
+
+define arch_interface_checks
+	@if grep -Eq ' (vTaskStartScheduler|xTaskCreate|pvPortMalloc|vPortFree)$$' \
+            $(BUILD_DIR)/nsc-syms.txt; then \
+        echo "FAIL: interface handler links an RTOS runtime" >&2; exit 1; \
+    fi
+	@if ! grep -Eq ' [TW] $(WT_INTERFACE_BODY)$$' $(BUILD_DIR)/nsc-syms.txt; then \
+        echo "FAIL: selected interface handler is absent from wolfTrust" >&2; exit 1; \
+    fi
+endef
 
 # Post-link image checks run by the common link rule.
 define arch_image_checks
 	@$(TOOLPREFIX)nm $(SECURE_ELF) > $(BUILD_DIR)/nsc-syms.txt || \
 		{ echo "FAIL: nm on the secure image failed" >&2; exit 1; }
+	$(if $(WT_INTERFACE_BODY),$(arch_interface_checks))
 	@if grep ' __acle_se_' $(BUILD_DIR)/nsc-syms.txt | \
 			grep -vE '$(NSC_ALLOWED)'; then \
 		echo "FAIL: non-secure-callable veneer outside the FF-M gateway (WT-FFM-0054)" >&2; \

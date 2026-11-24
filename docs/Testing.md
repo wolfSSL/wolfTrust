@@ -352,6 +352,21 @@ runs and exempts the rest with a reason. Beyond the families above:
   the guest's own wolfPSA.
   `vaultrecover` proves a foreign vault pool self-heals on a development
   device, and `vaultrecoversec` that SECURED refuses it gracefully.
+- `tpm` and `pkcs11` run the bare-metal wolfTPM or PKCS#11 application
+  (`tests/firmware/interface-guest/`) in guest 0 against `CONFIG_TPM=y` or
+  `CONFIG_PKCS11=y`, on the profile's operation set: the TPM frame limits,
+  command capabilities and a sign/verify round trip, or the PKCS#11 suite
+  with its pass count. `tpmneg` and `pkcs11neg` add the level 3 proof: the
+  crypto partition reads then writes the interface band (two faults on its
+  own stack), the interface partition reads SPM RAM and executes from its XN
+  band, each fault restarts only that partition, and the suite still passes.
+  `tpmreset` faults the TPM application after it loads a key and fails one
+  authorization (and extends a PCR on profiles with PCR commands); the
+  relaunched guest must find no object, the dictionary-attack count kept,
+  and on those profiles the PCR reset. `pkcs11reset` faults the
+  PKCS#11 application while it holds an SO login, a session object, a token
+  object and one wrong user PIN; the relaunched guest must find an
+  uninitialized token, no PIN count, and its old session handle invalid.
 - `wrpfence` and `wrpoff` build with `WT_GUEST_FLASH_WRP=1`: behind a first
   stage that arms the guest flash fence both guests launch, and behind one
   that does not, neither may enter its domain.

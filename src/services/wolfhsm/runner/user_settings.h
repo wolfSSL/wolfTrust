@@ -55,12 +55,27 @@
  * NO_STDLIB_H and NO_STRING_H keep the freestanding Cortex-M build
  * independent of libc headers; the linked local stubs provide these calls.
  * ---------------------------------------------------------------------- */
+/* Both copies keep one struct layout; only the PKCS#11 provider's copy reaches
+ * its partition's heap, and the Secure copy's allocator fails closed. */
+#if defined(WT_PKCS11_PROVIDER_HEAP)
+#define XMALLOC_USER
+#elif defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#define XMALLOC_OVERRIDE
+#define XMALLOC(s, h, t)     ((void)(s), (void)(h), (void)(t), (void*)NULL)
+#define XFREE(p, h, t)       do { (void)(p); (void)(h); (void)(t); } while (0)
+#define XREALLOC(p, n, h, t) ((void)(p), (void)(n), (void)(h), (void)(t), (void*)NULL)
+#else
 #define NO_WOLFSSL_MEMORY
 #define WOLFSSL_NO_MALLOC
+#endif
 #define NO_STDLIB_H
 #define NO_STRING_H
 #define NO_CTYPE_H
 #define WOLFSSL_NO_ASSERT_H
+
+#if defined(WOLFTPM_FWTPM) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#define XSLEEP_MS(ms) do { (void)(ms); } while (0)
+#endif
 
 #include "libc_stubs.h"
 
@@ -133,6 +148,17 @@
  * ---------------------------------------------------------------------- */
 #define HAVE_AESGCM
 #define GCM_SMALL
+#if defined(WT_INTERFACE_LOCAL_PROVIDER) || \
+    (defined(WT_ENGINE_HSM) && (defined(CONFIG_TPM) || defined(CONFIG_PKCS11)))
+/* fwTPM's common crypto helpers require CFB declarations. */
+#define WOLFSSL_AES_CFB
+#if !defined(WT_PROFILE_PROVIDER_EXTRA_CRYPTO) || WT_PROFILE_PROVIDER_EXTRA_CRYPTO
+#define WOLFSSL_AES_COUNTER
+#define HAVE_AESCTR
+#define HAVE_AESCCM
+#define WOLFSSL_ECDSA_DETERMINISTIC_K
+#endif
+#endif
 
 /* -------------------------------------------------------------------------
  * Hash: SHA-256.
@@ -192,14 +218,24 @@ int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
 #define NO_DSA
 #define NO_DES3
 #define NO_MD5
+#if defined(CONFIG_TPM) && defined(WT_PROFILE_PROVIDER_EXTRA_CRYPTO) && \
+    !WT_PROFILE_PROVIDER_EXTRA_CRYPTO
+#define WOLFSSL_ASN_ORIGINAL
+#endif
+#if defined(CONFIG_PKCS11) && defined(WT_INTERFACE_LOCAL_PROVIDER)
+#define HAVE_PBKDF2
+#define WOLFPKCS11_PBKDF2
+#define WOLFPKCS11_PIN_KDF_SOFTWARE
+#else
 #define NO_PWDBASED
+#endif
 #define NO_PKCS12
 #define NO_CODING       /* base-64 encode/decode not needed                */
 #define NO_ASN_TIME     /* no RTC on secure side                           */
 
 /* The native engine signs and verifies raw r||s and imports raw keys, so it
- * links no ASN.1; the hsm engine's wolfHSM server stores keys as DER. */
-#ifdef WT_ENGINE_NATIVE
+ * links no ASN.1; the hsm engine and the TPM and PKCS#11 providers need DER. */
+#if defined(WT_ENGINE_NATIVE) && !defined(CONFIG_TPM) && !defined(CONFIG_PKCS11)
 #define NO_ASN
 /* Native AES is GCM only, which runs the block cipher forward for both seal
  * and unseal, so the inverse key schedule and decrypt tables are dead code. */

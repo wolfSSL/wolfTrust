@@ -34,7 +34,8 @@ struct wt_trap_frame;
 #define WT_SP_FAULT_PROBE_RESTARTED 0x40000000
 #define WT_SP_FAULT_PROBE_SECOND    0x20000000
 
-#if defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)
+#if (defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)) || \
+    (defined(WT_INTERFACE_NEG_PROBE) && (WT_INTERFACE_NEG_PROBE == 1))
 /* Test builds only. A partition's own translation unit plants state in its
  * data band before a deliberate fault; after the restart the band must hold
  * its link-time image again. Returns 1 when it does. */

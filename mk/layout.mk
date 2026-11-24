@@ -58,8 +58,10 @@ WT_LAYOUT_DEFS := \
     -DWT_GUEST0_FLASH_SIZE=$(WT_GUEST0_FLASH_SIZE) \
     -DWT_GUEST1_FLASH_SIZE=$(WT_GUEST1_FLASH_SIZE)
 # The native engine serves PSA Crypto from the Secure image unless the build or
-# the target sets WT_SECURE_PSA=0; the wolfHSM engine cannot.
-WT_SECURE_PSA ?= $(if $(or $(filter hsm,$(WT_ENGINE)),$(filter 1,$(WT_ENGINE_HSM))),0,1)
+# the target sets WT_SECURE_PSA=0; the wolfHSM engine cannot. TPM 2.0 and
+# PKCS#11 guests use their own API, so those builds default it off.
+WT_SECURE_PSA ?= $(if $(or $(filter hsm,$(WT_ENGINE)),$(filter 1,$(WT_ENGINE_HSM)),\
+    $(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11))),0,1)
 # A Secure PSA crypto band holds the wolfPSA pool (2 KB per guest) plus about
 # 1.4 KB of slot tables and service state; its crypto stack peaks at 4,836 B (7,240 B asm).
 ifeq ($(WT_SECURE_PSA),1)
@@ -75,6 +77,8 @@ WT_LAYOUT_DEFS += $(foreach v,$(WT_LAYOUT_OPTIONAL_INPUTS),\
 WT_LAYOUT_DEFS += $(if $(filter 1,$(WT_FWU)),-DWT_FWU=1) \
     $(if $(filter 1,$(WT_CONFORMANCE)),-DWT_CONFORMANCE=1) \
     $(if $(filter y,$(CONFIG_VNET)),-DCONFIG_VNET=1) \
+    $(if $(filter y,$(CONFIG_TPM)),-DCONFIG_TPM=1) \
+    $(if $(filter y,$(CONFIG_PKCS11)),-DCONFIG_PKCS11=1) \
     $(if $(or $(filter hsm,$(WT_ENGINE)),$(filter 1,$(WT_ENGINE_HSM))),\
         -DWT_ENGINE_HSM=1,-DWT_ENGINE_NATIVE=1)
 WT_LAYOUT_INCLUDE_DIRS := $(ROOT)/include $(PORT_DIR) $(PORT_COMMON_DIR) \

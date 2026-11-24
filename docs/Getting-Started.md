@@ -118,6 +118,14 @@ TrustZone perimeter first as described in [STM32H5 Guide](STM32H5-Guide.md);
 the runner's preflight refuses a board whose guest sectors are
 write-protected and names the provisioning command that clears them.
 
+## Choose an application API
+
+PSA (Crypto, ITS, PS, Attestation and FWU) is the default and the primary
+interface. A product built around an existing TPM 2.0 or PKCS#11 stack can
+select one of those instead, with `CONFIG_TPM=y` or `CONFIG_PKCS11=y`; the
+bare-metal applications in `tests/firmware/interface-guest` show the client
+side on every port. See [TPM 2.0](TPM.md) and [PKCS#11](PKCS11.md).
+
 ## Next steps
 
 - Read [Architecture](Architecture.md) for the request path and isolation model.

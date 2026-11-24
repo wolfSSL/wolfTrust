@@ -24,7 +24,18 @@
 
 #include "wolftrust/sched/coroutine.h"
 
+/* Bootstrap plus one coroutine per generated partition and wolfHSM tasklet. */
+#if defined(WT_TARGET_BUILD) && !defined(WT_CO_MAX)
+#include "wolftrust_manifest_generated.h"
+#if defined(WT_ENGINE_HSM)
+#define WT_CO_MAX (WT_GEN_SP_COUNT + WT_MAX_GUESTS + 1u)
+#else
+#define WT_CO_MAX (WT_GEN_SP_COUNT + 1u)
+#endif
+#endif
+#ifndef WT_CO_MAX
 #define WT_CO_MAX 12u
+#endif
 
 /* Magic sentinel placed at the bottom of the stack to detect overflow.
  * Checked at every switch; mismatch causes wt_platform_panic(). */

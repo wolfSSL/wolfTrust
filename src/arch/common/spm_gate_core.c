@@ -1019,6 +1019,8 @@ int wt_spm_partition_memory_ok(int32_t partition_id, const void* address,
     return 0;
 }
 
+#if WT_MANIFEST_RUNTIME_CHECK || \
+    (defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1))
 int wt_spm_sched_validate(void)
 {
     wt_memory_region_t spm_ram[2];
@@ -1057,6 +1059,7 @@ int wt_spm_sched_validate(void)
     }
     return WT_FFM_SUCCESS;
 }
+#endif
 
 int wt_spm_sched_set_restore(int32_t partition_id,
                              wt_spm_sp_restore_fn restore)

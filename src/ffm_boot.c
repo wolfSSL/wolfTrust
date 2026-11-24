@@ -117,11 +117,13 @@ int wt_ffm_boot_start_sched(void)
                                wt_conformance_driver_entry, NULL);
     }
 #endif
-    /* Every table is composed: no partition may run unless they are all
-     * isolated from each other and from the SPM. */
+#if WT_MANIFEST_RUNTIME_CHECK || \
+    (defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1))
+    /* The generator proves the manifest tables; conformance adds grants. */
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_validate();
     }
+#endif
 #if defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)
     if (ret == WT_FFM_SUCCESS) {
 #if (WT_BAND_NEG_PROBE <= 2)

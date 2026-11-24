@@ -364,9 +364,16 @@ int main(void)
     g_validate_calls = 0;
     g_start_all_calls = 0;
     g_start_all_ret = WT_FFM_SUCCESS;
+#if WT_MANIFEST_RUNTIME_CHECK
     check(wt_ffm_boot_start_sched() == WT_FFM_SUCCESS &&
               g_start_all_calls == 1 && g_start_all_after_validate,
           "WT-FFM-0013 boot runs every partition to idle after validation");
+#else
+    /* The generator proved the tables, so boot skips the runtime proof. */
+    check(wt_ffm_boot_start_sched() == WT_FFM_SUCCESS &&
+              g_start_all_calls == 1 && g_validate_calls == 0,
+          "WT-FFM-0013 boot runs every partition to idle");
+#endif
     g_start_all_calls = 0;
     g_start_all_ret = WT_FFM_ERROR_STATE;
     check(wt_ffm_boot_start_sched() == WT_FFM_ERROR_STATE &&

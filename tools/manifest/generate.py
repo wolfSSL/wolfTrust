@@ -857,6 +857,33 @@ PSA_DOORBELL = 0x8
 FEATURES_1_1 = (1 << 1) | (1 << 2) | (1 << 3)
 
 
+SP_REGION_MASK = 0x01 | 0x02 | 0x04 | 0x08 | 0x10 | 0x20
+
+
+def sp_memory_row(domain):
+    """The stack is the last private writable resource holding the declared
+    stack. validate_policy refuses a domain without exactly one such stack
+    or with a second band; unchecked output gets an empty row instead."""
+    empty = {"base": 0, "size": 0}
+    memories = domain["memory_resources"]
+    private = [m for m in memories if m["attributes"] & 0x02 and
+               not m["attributes"] & (0x08 | 0x20)]
+    stack = None
+    for memory in private:
+        if domain["stack_size"] != 0 and (
+                domain["stack_base"] < memory["base"] or
+                domain["stack_base"] + domain["stack_size"] >
+                memory["base"] + memory["size"]):
+            continue
+        stack = memory
+    bands = [m for m in private if m is not stack and m["attributes"] & 0x10]
+    if stack is None or len(bands) > 1 or domain["domain_class"] != 1:
+        return memories, empty, empty, domain["restart_policy"]
+    band = bands[0] if bands else empty
+    restart = domain["restart_policy"]
+    return memories, stack, band, restart
+
+
 def emit_spm_tables(lines, manifest):
     """Emit the flat constant tables the SPM core reads at run time."""
     partitions = manifest["partitions"]
@@ -903,6 +930,7 @@ def emit_spm_tables(lines, manifest):
             for partition in partitions):
         version = 0x101
     lines.extend(("#include \"wolftrust/spm_core.h\"",
+                  "#include \"wolftrust/spm_sp_mem.h\"",
                   "#include \"wolftrust/static_assert.h\"", "",
                   "WT_STATIC_ASSERT({}U <= WT_SPM_MAX_SPS,".format(
                       len(partitions)),
@@ -911,7 +939,31 @@ def emit_spm_tables(lines, manifest):
                       max(depth, default=1)),
                   "    \"a call chain needs more transfers than the SPM "
                   "core holds\");", ""))
+    domains = {domain["id"]: domain for domain in manifest["domains"]}
+    mem_rows = []
+    for index, partition in enumerate(partitions):
+        memories, stack, band, restart = sp_memory_row(
+            domains.get(partition["domain_id"], {
+                "domain_class": 0, "memory_resources": [], "stack_base": 0,
+                "stack_size": 0, "restart_policy": {
+                    "action": 0, "restart_limit": 0,
+                    "restart_window_ticks": 0}}))
+        lines.append("static const wt_memory_region_t "
+                     "wt_spm_regions_{}[{}] = {{".format(
+                         index, max(len(memories), 1)))
+        lines.extend("    {{ 0x{:x}U, 0x{:x}U, 0x{:x}U }},".format(
+            m["base"], m["size"], m["attributes"] & SP_REGION_MASK)
+            for m in memories or [{"base": 0, "size": 0, "attributes": 0}])
+        lines.extend(("};", ""))
+        mem_rows.append(
+            "{{ wt_spm_regions_{}, 0x{:x}U, 0x{:x}U, 0x{:x}U, 0x{:x}U, "
+            "{}U, {}U, {}U, {}U }}".format(
+                index, stack["base"], band["base"], stack["size"],
+                band["size"], restart["restart_limit"],
+                restart["restart_window_ticks"], len(memories),
+                restart["action"]))
     for declaration, rows in (
+            ("wt_spm_sp_mem_t g_wt_spm_sp_mems", mem_rows),
             ("wt_spm_service_t g_wt_spm_services", service_rows),
             ("wt_spm_sp_ipc_t g_wt_spm_sps", sp_rows),
             ("wt_spm_irq_t g_wt_spm_irqs", irq_rows)):

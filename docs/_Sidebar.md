@@ -12,6 +12,7 @@
 - [[PKCS11]]
 - [[Interface Profiles]]
 - [[TF-M Compatibility]]
+- [[FF-A Compatibility]]
 - [[Macros]]
 - [[Footprint]]
 - [[Porting]]

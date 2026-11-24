@@ -111,6 +111,7 @@ endif
 WT_HANDLER_IRQ_PROBE ?= 0
 WT_REMEASURE_PROBE ?= 0
 WT_BOOTUPDATE_PROBE ?= 0
+WT_TABLES_NEGATIVE ?= 0
 WT_CONFORMANCE ?= 0
 # PSA Firmware Update partition (SERVICE_FWU) and its 4 KiB stack.
 WT_FWU ?= 0
@@ -309,6 +310,28 @@ endif
 ifeq ($(WT_BOOTUPDATE_PROBE),1)
 SECURE_CFLAGS += -DWT_BOOTUPDATE_PROBE=1
 endif
+ifeq ($(WT_TABLES_NEGATIVE),1)
+SECURE_CFLAGS += -DWT_TABLES_NEGATIVE=1
+endif
+WT_EL3_TEST_DRIVER ?= 0
+ifeq ($(WT_EL3_TEST_DRIVER),1)
+SECURE_CFLAGS += -DWT_EL3_TEST_DRIVER=1
+endif
+WT_EL3_NS_SMOKE ?= 0
+ifeq ($(WT_EL3_NS_SMOKE),1)
+SECURE_CFLAGS += -DWT_EL3_NS_SMOKE=1
+endif
+# Build the FF-A echo partition for a Normal-world guest to exchange a direct
+# message with (the ffa-guest-direct proof), without the EL3 test driver.
+WT_NS_GUEST_ECHO ?= 0
+ifeq ($(WT_NS_GUEST_ECHO),1)
+SECURE_CFLAGS += -DWT_NS_GUEST_ECHO=1
+endif
+# Arm a Secure tick that preempts the Normal world (the ffa-preempt proof).
+WT_NS_PREEMPT ?= 0
+ifeq ($(WT_NS_PREEMPT),1)
+SECURE_CFLAGS += -DWT_NS_PREEMPT=1
+endif
 # A probe that faults a partition on its first entry keeps that entry lazy
 # (src/ffm_boot.c), so the fault lands on a client's in-flight request. Only
 # the values that emit a probe macro above count.
@@ -380,14 +403,14 @@ SECURE_SRCS := \
 
 # The flash and entropy backends every port shares, over its flash_port.h
 # and rng_port.h drivers.
-PORT_SHARED_SRCS := \
+PORT_SHARED_SRCS ?= \
     $(PORT_NEUTRAL_DIR)/hsm_flash.c \
     $(PORT_NEUTRAL_DIR)/hsm_flash_ctx.c \
     $(PORT_NEUTRAL_DIR)/rng_entropy.c \
     $(PORT_DIR)/flash_drv.c \
     $(PORT_DIR)/rng_drv.c
 TARGET_EXTRA_SRCS += $(PORT_SHARED_SRCS)
-PORT_HEADERS += $(wildcard $(PORT_NEUTRAL_DIR)/*.h)
+PORT_HEADERS += $(if $(PORT_NEUTRAL_DIR),$(wildcard $(PORT_NEUTRAL_DIR)/*.h))
 
 WOLFHSM_SECURE_SRCS := \
     $(WOLFHSM_DIR)/src/wh_comm.c \
@@ -418,6 +441,7 @@ ifeq ($(WT_ENGINE),native)
 WOLFHSM_SECURE_SRCS := $(filter %/wh_nvm.c %/wh_nvm_flash.c %/wh_flash_unit.c \
     %/wh_lock.c %/wh_utils.c %/wh_keyid.c,$(WOLFHSM_SECURE_SRCS))
 endif
+WOLFHSM_SECURE_SRCS += $(ARCH_WOLFHSM_SRCS)
 
 WOLFCRYPT_SECURE_SRCS := \
     $(WOLFSSL_DIR)/wolfcrypt/src/aes.c \
@@ -685,6 +709,7 @@ MANIFEST_OBJ := $(BUILD_DIR)/wt_sec_wolftrust_manifest_generated.o
 ARCH_TREE_SRCS ?=
 ARCH_ASM_SRCS ?=
 ARCH_TREE_OBJS := $(foreach s,$(ARCH_TREE_SRCS) $(ARCH_ASM_SRCS),$(BUILD_DIR)/wt_sec_$(notdir $(basename $(s))).o)
+ARCH_SECURE_OBJS ?= $(ARCH_TREE_OBJS)
 
 ALL_SECURE_OBJS := $(strip \
     $(HSM_SECURE_BASE_OBJS) \
@@ -695,7 +720,7 @@ ALL_SECURE_OBJS := $(strip \
     $(WT_IF_LIB_OBJS) \
     $(WT_IF_WOLFCRYPT_OBJS) \
     $(WT_IF_WOLFHSM_OBJS) \
-    $(ARCH_TREE_OBJS) \
+    $(ARCH_SECURE_OBJS) \
     $(MANIFEST_OBJ))
 
 ifneq ($(WT_INTERFACE_PROFILE_HEADER),)
@@ -760,8 +785,9 @@ SECURE_CFLAGS += -DWT_CONF_DIAG_TRAP=$(WT_CONF_DIAG_TRAP)
 UPSTREAM_DIR := $(BUILD_DIR)/upstream/psa-arch-tests/api-tests
 UPSTREAM_STAMP := $(BUILD_DIR)/.psa-arch-tests.stamp
 CONF_GEN_STAMP := $(MANIFEST_DIR)/.conformance-gen.stamp
-# One PAL for every port; its addresses come from the port's memory_map.h.
-TARGET_CONF_DIR := $(ROOT)/tests/conformance/pal
+# One PAL for every Armv8-M port; its addresses come from the port's
+# memory_map.h. The AArch64 targets name their own.
+TARGET_CONF_DIR ?= $(ROOT)/tests/conformance/pal
 # VERBOSITY=9: SP-side val prints route over IPC to the DRIVER UART partition,
 # which does not run until P3b; below-ALWAYS prints short-circuit instead of
 # deadlocking on a service nobody serves.
@@ -1154,7 +1180,10 @@ CONF_UPSTREAM_SRCS := \
 
 $(CONF_UPSTREAM_SRCS): $(UPSTREAM_STAMP) ;
 
-$(UPSTREAM_STAMP): | $(BUILD_DIR)
+# lp64-addr: i072/i084 write sizeof(pointer) bytes into a 4-byte addr_t
+# out-vector, a PROGRAMMER ERROR on LP64 targets; identical bytes on 32-bit.
+$(UPSTREAM_STAMP): $(ROOT)/tests/upstream/psa-arch-tests-ec-overflow.patch \
+		$(ROOT)/tests/upstream/psa-arch-tests-lp64-addr.patch | $(BUILD_DIR)
 	$(ROOT)/tests/upstream/fetch_psa_arch_tests.sh \
 		$(BUILD_DIR)/upstream/psa-arch-tests
 	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply --reverse --check \
@@ -1162,6 +1191,11 @@ $(UPSTREAM_STAMP): | $(BUILD_DIR)
 		2>/dev/null || \
 	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply \
 		$(abspath $(ROOT)/tests/upstream/psa-arch-tests-ec-overflow.patch)
+	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply --reverse --check \
+		$(abspath $(ROOT)/tests/upstream/psa-arch-tests-lp64-addr.patch) \
+		2>/dev/null || \
+	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply \
+		$(abspath $(ROOT)/tests/upstream/psa-arch-tests-lp64-addr.patch)
 	touch $@
 
 # Derived schedule, not a suite edit: skipped tests need a runtime capability
@@ -1720,6 +1754,29 @@ endif
 ifeq ($(CONFIG_TPM)$(CONFIG_PKCS11),yy)
 $(error CONFIG_TPM=y conflicts with CONFIG_PKCS11=y; select one application API)
 endif
+# A port outside the Armv8-M registry ships its whole manifest and generator
+# options (mk/target-<soc>.mk, mk/arch-<arch>.mk); a TPM 2.0 or PKCS#11
+# variant renders the same overlay onto it, from the overlay's $(ARCH) block.
+ifneq ($(WT_PORT_MANIFEST),)
+MANIFEST_VARIANT := $(WT_PORT_MANIFEST)
+MANIFEST_INPUT := $(WT_PORT_MANIFEST)
+MANIFEST_GEN_ARGS := --supported-features 0x1 \
+    --supported-framework-version 0x100 $(MANIFEST_ARCH_OPTS)
+ifneq ($(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),)
+MANIFEST_VARIANT := $(if $(filter y,$(CONFIG_TPM)),tpm,pkcs11)
+ifeq ($(filter $(MANIFEST_VARIANT),$(WT_PORT_VARIANTS)),)
+$(error TARGET=$(TARGET) registers no $(MANIFEST_VARIANT) manifest variant (WT_PORT_VARIANTS in mk/target-$(TARGET).mk))
+endif
+MANIFEST_OVERLAY := $(ROOT)/manifest/$(MANIFEST_VARIANT).json
+MANIFEST_INPUT := $(MANIFEST_DIR)/manifest.json
+$(MANIFEST_INPUT): $(WT_PORT_MANIFEST) $(MANIFEST_OVERLAY) \
+		$(ROOT)/tools/manifest/render.py $(PORT_HEADERS) \
+		$(BUILD_MODE_STAMP) FORCE | $(MANIFEST_DIR)
+	python3 $(ROOT)/tools/manifest/render.py --arch $(ARCH) \
+		--cc $(TOOLPREFIX)gcc --cflags '$(WT_MANIFEST_RENDER_CFLAGS)' \
+		--overlay $(MANIFEST_OVERLAY) --output $@ $(WT_PORT_MANIFEST)
+endif
+else
 MANIFEST_VARIANT := base
 MANIFEST_OVERLAY :=
 ifeq ($(WT_CONFORMANCE),1)
@@ -1773,6 +1830,7 @@ MANIFEST_GEN_ARGS := --supported-features 0x1 \
     --platform-header platform_caps.h \
     --ffm-max-partitions $(WT_FFM_MAX_PARTITIONS_VALUE) \
     --ffm-max-services $(WT_FFM_MAX_SERVICES_VALUE) --ffm-ipc-only
+endif
 
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.
@@ -1859,6 +1917,19 @@ BUILD_MODE_LINES = \
 		'WT_SVC_NEG_PROBE=$(WT_SVC_NEG_PROBE)' \
 		'WT_REMEASURE_PROBE=$(WT_REMEASURE_PROBE)' \
 		'WT_BOOTUPDATE_PROBE=$(WT_BOOTUPDATE_PROBE)' \
+		'WT_ENGINE=$(WT_ENGINE)' \
+		'WT_TABLES_NEGATIVE=$(WT_TABLES_NEGATIVE)' \
+		'WT_EL3_TEST_DRIVER=$(WT_EL3_TEST_DRIVER)' \
+		'WT_EL3_NS_SMOKE=$(WT_EL3_NS_SMOKE)' \
+		'WT_NS_GUEST_ECHO=$(WT_NS_GUEST_ECHO)' \
+		'WT_NS_PREEMPT=$(WT_NS_PREEMPT)' \
+		'WT_GUEST_FLASH_WRP=$(WT_GUEST_FLASH_WRP)' \
+		'WT_VAULT_FOREIGN_PROBE=$(WT_VAULT_FOREIGN_PROBE)' \
+		'WT_VAULT_PROBE_SECURED=$(WT_VAULT_PROBE_SECURED)' \
+		'CPU_FLAGS=$(CPU_FLAGS)' \
+		'ARCH_CFLAGS=$(ARCH_CFLAGS)' \
+		'TARGET_CFLAGS=$(TARGET_CFLAGS)' \
+		'TARGET_LDFLAGS=$(TARGET_LDFLAGS)' \
 		'WT_FWU=$(WT_FWU)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
@@ -1981,6 +2052,8 @@ $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/common/%.c $(MANIFEST_GEN_H) \
 		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/wt_sec_spm_gate_core.o: $(MANIFEST_GEN_H)
+
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sched/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
@@ -2037,8 +2110,9 @@ $(BUILD_DIR)/wt_sec_%.o: $(WOLFCOSE_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_S
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 define wt_arch_tree_rule
-$(BUILD_DIR)/wt_sec_$(notdir $(basename $(1))).o: $(1) $(MANIFEST_GEN_H) \
-		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_$(notdir $(basename $(1))).o: $(1) $(PORT_HEADERS) \
+		$(MANIFEST_GEN_H) $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) \
+		$(WT_INTERFACE_PROFILE_HEADER) | $(BUILD_DIR)
 	$$(CC) $$(SECURE_CFLAGS) -c -o $$@ $$<
 endef
 $(foreach s,$(ARCH_TREE_SRCS) $(ARCH_ASM_SRCS),$(eval $(call wt_arch_tree_rule,$(s))))

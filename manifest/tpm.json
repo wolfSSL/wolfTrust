@@ -66,5 +66,30 @@
       ],
       "interrupts": []
     }
-  ]
+  ],
+  "aarch64": {
+    "domain": {
+      "entry_point": "WT_SPM_IMAGE_PA",
+      "code_resource": {
+        "base": "WT_SPM_IMAGE_PA",
+        "size": "WT_SPM_IMAGE_SIZE",
+        "attributes": 37,
+        "share_id": 3
+      }
+    },
+    "ffa_partitions": [
+      {
+        "domain_id": 9,
+        "ffa_version": "1.2",
+        "uuids": [
+          "14a60fe3-05ca-583d-a88a-1e9d0a47d74d"
+        ],
+        "execution_contexts": 1,
+        "runtime_el": "S-EL0",
+        "messaging": "none",
+        "ns_interrupt_action": "signaled",
+        "boot_info_register": "none"
+      }
+    ]
+  }
 }

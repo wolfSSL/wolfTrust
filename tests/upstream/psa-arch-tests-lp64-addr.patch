@@ -1,0 +1,44 @@
+diff --git a/api-tests/ff/ipc/test_i072/test_supp_i072.c b/api-tests/ff/ipc/test_i072/test_supp_i072.c
+index d939e39..645ba71 100644
+--- a/api-tests/ff/ipc/test_i072/test_supp_i072.c
++++ b/api-tests/ff/ipc/test_i072/test_supp_i072.c
+@@ -56,7 +56,7 @@ static int32_t send_secure_partition_address(void)
+     val->print(DBG, "\tAPP-ROT: Passing 0x%x to NSPE\n", (int)&g_test_i072);
+ 
+     /* Send Application RoT data address - global variable */
+-    psa->write(msg.handle, 0, (void *)&addr, sizeof(addr));
++    psa->write(msg.handle, 0, (void *)&addr, sizeof(addr_t));
+     psa->reply(msg.handle, PSA_SUCCESS);
+ 
+     return VAL_STATUS_SUCCESS;
+@@ -125,7 +125,7 @@ static int32_t send_secure_partition_address(void)
+     val->print(DBG, "\tAPP-ROT: Passing 0x%x to NSPE\n", (int)&g_test_i072);
+ 
+     /* Send Application RoT data address - global variable */
+-    psa->write(msg.handle, 0, (void *)&addr, sizeof(addr));
++    psa->write(msg.handle, 0, (void *)&addr, sizeof(addr_t));
+     psa->reply(msg.handle, PSA_SUCCESS);
+ 
+     status = val->process_disconnect_request(SERVER_UNSPECIFIED_VERSION_SIGNAL, &msg);
+diff --git a/api-tests/ff/ipc/test_i084/test_supp_i084.c b/api-tests/ff/ipc/test_i084/test_supp_i084.c
+index 28f9483..1c8d8d9 100644
+--- a/api-tests/ff/ipc/test_i084/test_supp_i084.c
++++ b/api-tests/ff/ipc/test_i084/test_supp_i084.c
+@@ -56,7 +56,7 @@ static int32_t send_secure_partition_address(void)
+     val->print(DBG, "\tServer SP: Passing 0x%x to Client SP\n", (int)&g_test_i084);
+ 
+     /* Send Application RoT data address - global variable */
+-    psa->write(msg.handle, 0, (void *)&addr, sizeof(addr));
++    psa->write(msg.handle, 0, (void *)&addr, sizeof(addr_t));
+     psa->reply(msg.handle, PSA_SUCCESS);
+ 
+     return VAL_STATUS_SUCCESS;
+@@ -125,7 +125,7 @@ static int32_t send_secure_partition_address(void)
+     val->print(DBG, "\tServer SP: Passing 0x%x to Client SP\n", (int)&g_test_i084);
+ 
+     /* Send Application RoT data address - global variable */
+-    psa->write(msg.handle, 0, (void *)&addr, sizeof(addr));
++    psa->write(msg.handle, 0, (void *)&addr, sizeof(addr_t));
+     psa->reply(msg.handle, PSA_SUCCESS);
+ 
+     status = val->process_disconnect_request(SERVER_UNSPECIFIED_VERSION_SIGNAL, &msg);

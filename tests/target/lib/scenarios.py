@@ -751,16 +751,16 @@ def _interface_neg(v, what):
             refute_re("isolation faults did not escalate", ESCALATION)]
 
 
-def _interface_checks(ctx, block):
-    v = ctx.var
-    full = v.get("interface_profile", "default") != "default"
+def interface_app_checks(block, profile):
+    """The application's own markers for an interface scenario, the same on
+    every architecture (run_qemu_a_scenario.sh reads them with --interface-app)."""
+    full = profile != "default"
     if block.startswith("tpm"):
         app = "tpm-guest0"
-        out = _interface_neg(v, "TPM") if block == "tpmneg" else []
-        out += [expect("TPM application guest alive", app + ": alive"),
-                expect("fwTPM capabilities match the relay frame limit", app + ": tpm frame caps ok"),
-                expect("valid TPM command reaches the advertised frame limit", app + ": tpm max frame ok"),
-                expect("wolfCrypt RNG draws entropy from fwTPM", app + ": tpm wolfcrypt rng ok")]
+        out = [expect("TPM application guest alive", app + ": alive"),
+               expect("fwTPM capabilities match the relay frame limit", app + ": tpm frame caps ok"),
+               expect("valid TPM command reaches the advertised frame limit", app + ": tpm max frame ok"),
+               expect("wolfCrypt RNG draws entropy from fwTPM", app + ": tpm wolfcrypt rng ok")]
         if not full and block == "tpm":
             out += [expect("TPM capabilities match the selected commands",
                            app + ": tpm command capabilities match profile"),
@@ -769,12 +769,19 @@ def _interface_checks(ctx, block):
                       expect("wolfTPM round trip through the isolated fwTPM", app + ": tpm round trip ok")]
     app = "pkcs11-guest0"
     suite = ("core" if block == "pkcs11neg" else "all") if full else "profile"
-    out = _interface_neg(v, "PKCS#11") if block == "pkcs11neg" else []
-    return out + [expect("PKCS#11 application guest alive", app + ": alive"),
-                  expect("the %s PKCS#11 suite completed" % suite, "%s: suite %s complete" % (app, suite)),
-                  expect("the PKCS#11 suite reported zero failures", app + ": TOTAL FAILED: 0"),
-                  expect("the PKCS#11 suite ran every planned case",
-                         "%s: TOTAL PASSED: %d" % (app, PKCS11_PASSED[suite]))]
+    return [expect("PKCS#11 application guest alive", app + ": alive"),
+            expect("the %s PKCS#11 suite completed" % suite, "%s: suite %s complete" % (app, suite)),
+            expect("the PKCS#11 suite reported zero failures", app + ": TOTAL FAILED: 0"),
+            expect("the PKCS#11 suite ran every planned case",
+                   "%s: TOTAL PASSED: %d" % (app, PKCS11_PASSED[suite]))]
+
+
+def _interface_checks(ctx, block):
+    v = ctx.var
+    out = []
+    if block in ("tpmneg", "pkcs11neg"):
+        out = _interface_neg(v, "TPM" if block == "tpmneg" else "PKCS#11")
+    return out + interface_app_checks(block, v.get("interface_profile", "default"))
 
 
 def _l3(ctx):
@@ -1996,6 +2003,9 @@ def main():
     mode.add_argument("--hardware-minimum", action="store_true")
     mode.add_argument("--hardware-tier", choices=("smoke", "qualification", "optin"),
                       help="the port's hardware scenarios of that tier")
+    mode.add_argument("--interface-app", choices=("tpm", "tpmneg", "pkcs11", "pkcs11neg"),
+                      help="the interface application's markers as desc<TAB>text lines")
+    parser.add_argument("--profile", default="default", help="the interface profile")
     mode.add_argument("--selftest", action="store_true")
     mode.add_argument("--canonical", action="store_true", help="the canonical name of --scenario")
     sub = parser.add_subparsers(dest="cmd")
@@ -2018,6 +2028,10 @@ def main():
         if args.port is None:
             parser.error("--port is required")
         print(" ".join(hardware_tiers(args.port)[args.hardware_tier]))
+        return 0
+    if args.interface_app:
+        for check in interface_app_checks(args.interface_app, args.profile):
+            print("%s\t%s" % (check["desc"], check["text"]))
         return 0
     if args.selftest:
         gaps = selftest()

@@ -35,12 +35,6 @@ WT_INTERFACE ?= $(if $(filter y,$(CONFIG_PKCS11)),pkcs11,tpm)
 BUILD ?= build
 BUILD_DIR := $(BUILD)
 
-ifeq ($(filter tpm pkcs11,$(WT_INTERFACE)),)
-$(error WT_INTERFACE must be tpm or pkcs11)
-endif
-ifeq ($(filter native hsm,$(WT_ENGINE)),)
-$(error WT_ENGINE must be native or hsm)
-endif
 # The layout, profile and Secure image follow the selected interface.
 WT_IF_WANT := $(if $(filter tpm,$(WT_INTERFACE)),y/n,n/y)
 CONFIG_TPM ?= $(firstword $(subst /, ,$(WT_IF_WANT)))
@@ -55,88 +49,27 @@ $(foreach kv,$(WT_LAYOUT_GUEST_WINDOWS),$(eval $(kv)))
 include $(ROOT)/mk/crypto-profile.mk
 
 SECURE_CMSE_IMPLIB := $(ROOT)/build/secure_cmse_implib.o
-WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
-WOLFTPM_DIR := $(ROOT)/lib/wolfTPM
-WOLFPKCS11_DIR := $(ROOT)/lib/wolfPKCS11
 
 WT_M33MU_EXPECT_BKPT ?= 0
-# The default profile trims the token, so only the profile suite fits it.
-WT_PKCS11_FULL_SUITE ?= all
-WT_PKCS11_SUITE ?= $(if $(filter default,$(WT_INTERFACE_PROFILE)),profile,$(WT_PKCS11_FULL_SUITE))
+IF_GUEST_DIR := .
+IF_PRE_INCLUDE := -include user_settings.h
+IF_SP_MATH := sp_cortexm.c
+IF_SP_MATH_CFLAGS := -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8
+IF_ITS_CFLAGS := -I$(ROOT)/tests/firmware/psa-guest/manifest
+include interface.mk
 
 CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
     -ffreestanding -fno-builtin -nostdlib -Os -g \
-    -Wall -Wextra -Wno-unused-function -Wno-unused-variable \
-    -Wno-unused-parameter -Wno-type-limits \
-    -ffunction-sections -fdata-sections -mno-unaligned-access \
-    -I. -I$(ROOT)/tests/firmware/boards/$(TARGET) -I$(ROOT)/include \
-    -I$(WOLFSSL_DIR) -DWOLFSSL_USER_SETTINGS \
-    -include user_settings.h $(WT_INTERFACE_PROFILE_FLAGS)
+    -Wall -Wextra -ffunction-sections -fdata-sections -mno-unaligned-access \
+    -I$(ROOT)/tests/firmware/boards/$(TARGET) $(IF_CFLAGS)
 ifeq ($(WT_M33MU_EXPECT_BKPT),1)
 CFLAGS += -DWT_M33MU_EXPECT_BKPT
 endif
-WT_TPM_DA ?= 1
-CFLAGS += -DWT_TPM_DA=$(WT_TPM_DA)
-WT_TPM_RESET_PROBE ?= 0
-CFLAGS += -DWT_TPM_RESET_PROBE=$(WT_TPM_RESET_PROBE)
-WT_PKCS11_RESET_PROBE ?= 0
-CFLAGS += -DWT_PKCS11_RESET_PROBE=$(WT_PKCS11_RESET_PROBE)
 
-SRCS := main.c ../psa-guest/guest_libc.c $(ROOT)/src/client/psa_ffm_client.c
-
-ifeq ($(WT_INTERFACE),tpm)
-APP_NAME := tpm-guest0
-CFLAGS += -I$(WOLFTPM_DIR) -DWOLFTPM_USER_SETTINGS -DWT_TPM_ROLE_APP \
-    -DWOLFTPM_SWTPM -DWOLF_CRYPTO_CB -DWOLFTPM_CRYPTOCB -DWOLFTPM_SMALL_STACK \
-    -DWT_INTERFACE_TPM -DWT_TPM_APP_NAME=\"$(APP_NAME)\" \
-    -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8 \
-    -DNO_ERROR_STRINGS -DWOLFSSL_PUBLIC_MP -DWC_RSA_DIRECT \
-    -DWC_RESEED_INTERVAL=1000000 -DWT_WOLFHSM_CLIENT_ID=1u
-CFLAGS += -DWT_MSG_RELAY_ONESHOT=1
-SRCS += tpm_tests.c $(ROOT)/src/client/tpm_psa_transport.c \
-    $(ROOT)/src/client/msg_client.c \
-    $(addprefix $(WOLFTPM_DIR)/src/, tpm2.c tpm2_util.c tpm2_packet.c \
-        tpm2_wrap.c tpm2_asn.c tpm2_crypto.c tpm2_param_enc.c tpm2_cryptocb.c) \
-    $(addprefix $(WOLFSSL_DIR)/wolfcrypt/src/, aes.c cryptocb.c ecc.c \
-        random.c sha256.c asn.c coding.c error.c hash.c hmac.c memory.c sha.c \
-        sp_cortexm.c sp_int.c wolfmath.c wc_port.c sha512.c kdf.c pwdbased.c)
-KEEP := -Wl,-u,wt_tpm_psa_transact,-u,TPM2_SWTPM_SendCommand
-WIRED := wt_tpm_psa_transact TPM2_SWTPM_SendCommand wt_tpm_psa_random
-ABSENT := 'fwTPM|FWTPM_|WP11_|wh_Client|wt_crypto_native'
-else
-APP_NAME := pkcs11-guest0
-SUITE_DEF := $(strip \
-    $(if $(filter profile,$(WT_PKCS11_SUITE)),WT_PKCS11_SUITE_PROFILE) \
-    $(if $(filter core,$(WT_PKCS11_SUITE)),WT_PKCS11_SUITE_CORE) \
-    $(if $(filter objects,$(WT_PKCS11_SUITE)),WT_PKCS11_SUITE_OBJECTS) \
-    $(if $(filter crypto,$(WT_PKCS11_SUITE)),WT_PKCS11_SUITE_CRYPTO) \
-    $(if $(filter negative,$(WT_PKCS11_SUITE)),WT_PKCS11_SUITE_NEGATIVE) \
-    $(if $(filter all,$(WT_PKCS11_SUITE)),WT_PKCS11_SUITE_ALL))
-ifeq ($(SUITE_DEF),)
-$(error WT_PKCS11_SUITE must be profile, core, objects, crypto, negative, or all)
-endif
-CFLAGS += -I$(WOLFPKCS11_DIR) -DWOLFPKCS11_USER_SETTINGS -DWOLFPKCS11_NO_ENV \
-    -DWT_INTERFACE_PKCS11 -D$(SUITE_DEF)=1 -DWT_PKCS11_APP_NAME=\"$(APP_NAME)\"
-CFLAGS += -DWT_MSG_RELAY_CHUNKED=1
-SRCS += pkcs11_tests.c $(ROOT)/src/client/pkcs11_proxy.c $(ROOT)/src/client/msg_client.c \
-    $(ROOT)/src/pkcs11/pkcs11_wire.c $(ROOT)/src/client/pkcs11_psa_transport.c
-ifeq ($(WT_PKCS11_RESET_PROBE),1)
-WT_RESET_PROBE_ITS := 1
-endif
-KEEP := -Wl,-u,C_GetFunctionList,-u,wt_pkcs11_psa_call
-WIRED := C_GetFunctionList wt_pkcs11_psa_call
-ABSENT := 'WP11_|wolfTPM|TPM2_|wc_'
-endif
+SRCS := main.c ../psa-guest/guest_libc.c $(ROOT)/src/client/psa_ffm_client.c \
+    $(IF_SRCS)
+APP_NAME := $(IF_APP_NAME)
 CFLAGS += -DGUEST_APP_NAME=\"$(APP_NAME)\"
-
-ifeq ($(WT_TPM_RESET_PROBE),1)
-WT_RESET_PROBE_ITS := 1
-endif
-ifeq ($(WT_RESET_PROBE_ITS),1)
-# A reset probe marks its first launch in ITS, which outlives the guest.
-CFLAGS += -I$(ROOT)/tests/firmware/psa-guest/manifest
-SRCS += $(ROOT)/src/client/psa_storage_client.c
-endif
 
 OBJS := $(patsubst %.c,$(BUILD)/%.o,$(notdir $(SRCS)))
 vpath %.c $(sort $(dir $(SRCS)))
@@ -153,7 +86,7 @@ $(BUILD)/%.o: %.c $(WT_INTERFACE_PROFILE_HEADER) | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD)/guest0.elf: $(OBJS) $(SECURE_CMSE_IMPLIB) ../psa-guest/guest.ld
-	$(CC) $(CFLAGS) $(KEEP) -Wl,-T../psa-guest/guest.ld \
+	$(CC) $(CFLAGS) $(IF_KEEP) -Wl,-T../psa-guest/guest.ld \
 	    -Wl,--defsym=GUEST_FLASH_ORIGIN=$(GUEST0_FLASH_ORIGIN) \
 	    -Wl,--defsym=GUEST_FLASH_LENGTH=$(GUEST0_FLASH_LENGTH) \
 	    -Wl,--defsym=GUEST_RAM_ORIGIN=$(GUEST0_RAM_ORIGIN) \
@@ -161,15 +94,8 @@ $(BUILD)/guest0.elf: $(OBJS) $(SECURE_CMSE_IMPLIB) ../psa-guest/guest.ld
 	    -Wl,--gc-sections -o $@ $(OBJS) $(SECURE_CMSE_IMPLIB) -lgcc
 	$(SIZE) $@
 
-# The application reaches its provider only through the SPM-mediated service.
 $(BUILD)/guest0.bin: $(BUILD)/guest0.elf
-	@for sym in $(WIRED); do \
-	    $(NM) --defined-only $< | grep -q " $$sym$$" || \
-	    { echo "FAIL: $< lacks $$sym" >&2; exit 1; }; done
-	@if $(NM) --defined-only $< | grep -Eq $(ABSENT); then \
-	    echo "FAIL: provider code linked into $<" >&2; exit 1; fi
-	@if $(NM) --defined-only $< | grep -Eq ' psa_(crypto_init|generate_|hash_|cipher_|aead_|mac_|sign_|verify_)'; then \
-	    echo "FAIL: PSA Crypto linked into the $(WT_INTERFACE) application" >&2; exit 1; fi
+	$(call wt_interface_link_check,$<)
 	@if $(NM) --defined-only $< | grep -Eq 'WolfTrust_HSM_(Submit|Poll|Cancel)|WolfTrust_Attest_'; then \
 	    echo "FAIL: retired direct veneers linked into $<" >&2; exit 1; fi
 	$(OBJCOPY) -O binary $< $@

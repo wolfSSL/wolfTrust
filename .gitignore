@@ -1,5 +1,6 @@
 # Build outputs
 /build/
+/build-aarch64-*/
 /interface-footprint/
 tests/firmware/*/build/
 tests/firmware/stm32h563-vnet/stm32h563_OTP.bin
@@ -21,6 +22,11 @@ tests/fuzz/corpus/
 tests/fuzz/crash-*
 tests/fuzz/oom-*
 tests/fuzz/timeout-*
+
+# Target runner logs and the CI's FF-A ACS clone cache
+/ci-*.log
+/h5-uart-capture.log
+/.acs-cache/
 
 # Stray duplicate at repo root
 /stm32h563_OTP.bin

@@ -22,25 +22,36 @@ CC ?= cc
 BUILD_DIR ?= build
 
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
-    -DWT_CONF_NVM_HOST_TEST \
-    -I$(ROOT)/include -I$(ROOT)/tests/conformance/pal $(EXTRA_CFLAGS)
+    -DWT_CONF_NVM_HOST_TEST -DWT_CONFORMANCE=1 -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
+PAL := $(ROOT)/tests/conformance/pal
+A64 := $(ROOT)/port/common/aarch64/conformance
 TEST := $(BUILD_DIR)/test_flash_nvm
-SRCS := $(ROOT)/tests/conformance/pal/pal_driver_intf.c main.c
+TEST_A64 := $(BUILD_DIR)/test_flash_nvm_aarch64
+WRAP_A64 := $(BUILD_DIR)/test_conf_wrap_aarch64
+TESTS := $(TEST) $(TEST_A64) $(WRAP_A64)
 
 .PHONY: all run compilers compiler-gcc compiler-clang sanitize valgrind \
     run-valgrind clean
 
-all: $(TEST)
+all: $(TESTS)
 
 $(BUILD_DIR):
 	mkdir -p $@
 
-$(TEST): $(SRCS) | $(BUILD_DIR)
-	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRCS)
+$(TEST): $(PAL)/pal_driver_intf.c main.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(PAL) $(LDFLAGS) -o $@ $^
 
-run: $(TEST)
+$(TEST_A64): $(A64)/pal_driver_intf.c main.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(A64) $(LDFLAGS) -o $@ $^
+
+$(WRAP_A64): $(A64)/conf_nvm_sync.c wrap.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -I$(A64) $(LDFLAGS) -o $@ $^
+
+run: $(TESTS)
 	$(TEST)
+	$(TEST_A64)
+	$(WRAP_A64)
 
 compiler-gcc:
 	$(MAKE) run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
@@ -58,9 +69,11 @@ sanitize:
 valgrind:
 	$(MAKE) run-valgrind BUILD_DIR=$(BUILD_DIR)/valgrind
 
-run-valgrind: $(TEST)
-	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
-		$(TEST)
+run-valgrind: $(TESTS)
+	for t in $(TESTS); do \
+		valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+			$$t || exit 1; \
+	done
 
 clean:
 	rm -rf $(BUILD_DIR)

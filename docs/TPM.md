@@ -40,6 +40,9 @@ make -C tests/firmware/interface-guest TARGET=mimxrt700 WT_INTERFACE=tpm
 
 WT_ENGINE=native tests/target/run_suite.sh mimxrt700 tpm tpmneg
 WT_ENGINE=hsm WT_PROFILE=full tests/target/run_suite.sh stm32h563 tpm tpmneg
+
+make ARCH=aarch64 TARGET=qemuvirt CONFIG_TPM=y WT_EL3_NS_SMOKE=1
+WT_ENGINE=native tests/target/run_suite.sh qemu-a tpm tpmneg
 ```
 
 Every Cortex-M33 port registers the `tpm` build variant in its `port.json`;
@@ -49,6 +52,10 @@ wolfBoot, wolfTrust, the bare-metal wolfTPM application in guest0
 interface profile follows the runner's `WT_PROFILE` unless
 `WT_INTERFACE_PROFILE` is set. [Footprint](Footprint.md#tpm-20-and-pkcs11)
 has the Secure image and application sizes for every port and engine.
+
+On AArch64 (`qemuvirt`, `versal`) the provider runs in its own S-EL0
+partition with a private data band, rendered from the same `manifest/tpm.json`
+overlay, and the same application runs in the Normal-world payload over FF-A.
 
 ## Service boundary
 
@@ -97,7 +104,8 @@ state, that each fault is contained, and that commands succeed after recovery.
 `tpmreset` faults the application after it loads a key and fails one
 authorization; profiles with PCR commands also extend a PCR. The relaunched
 guest must find no object and the same dictionary-attack count, and on those
-profiles the PCR reset.
+profiles the PCR reset. `tpmreset` runs on Armv8-M only: the AArch64 SPMC
+never relaunches the Normal world, and its payload refuses `WT_TPM_RESET_PROBE`.
 The host suite drives the production client/service protocol through a real
 FF-M runtime and checks bounds, caller identity, wiping, and no replay.
 
@@ -107,3 +115,5 @@ port builds, and each profile the port registers, from the port registry's
 layout has no update partition for the full profile's `WT_FWU=1`. The
 cross-compile workflow builds the `CONFIG_TPM=y` Secure image on every port
 and engine, and the host manifest suite validates its rendered manifest.
+The AArch64 workflow runs `tpm` and `tpmneg` on every QEMU cell, engine and
+profile, and cross-builds the TPM image and application in every job.

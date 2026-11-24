@@ -4,7 +4,9 @@
 manifest/base.json describes the production partitions with every address
 and size written as a memory_map.h expression; a variant overlay
 (manifest/conformance.json, manifest/vnet.json) drops partitions and adds
-its own domains and partitions in the same form. The renderer applies the
+its own domains and partitions in the same form; an overlay's per-arch block
+(--arch) overrides its one domain's entry point and code window and adds FF-A
+partitions for that arch's port manifest, which is then the template. The renderer applies the
 overlays, evaluates every expression in one preprocessor pass under the
 build's layout configuration (--cflags, the WT_LAYOUT_CFLAGS of
 mk/layout.mk), derives the capability and limit counters from the content
@@ -30,7 +32,29 @@ class RenderError(Exception):
     pass
 
 
-def apply_overlay(manifest, overlay):
+def apply_overlay(manifest, overlay, arch=None):
+    if arch is not None:
+        if arch not in overlay:
+            raise RenderError("overlay has no %s block" % arch)
+        block = overlay[arch]
+        unknown = set(block) - {"domain", "ffa_partitions"}
+        if unknown:
+            raise RenderError("the %s block has unknown key(s): %s" %
+                              (arch, ", ".join(sorted(unknown))))
+        override = block.get("domain", {})
+        domains = copy.deepcopy(overlay.get("domains", []))
+        if override and len(domains) != 1:
+            raise RenderError("the %s domain override needs exactly one "
+                              "overlay domain" % arch)
+        if "entry_point" in override:
+            domains[0]["entry_point"] = override["entry_point"]
+        if "code_resource" in override:
+            domains[0]["memory_resources"][0] = dict(override["code_resource"])
+        overlay = dict(overlay, domains=domains)
+        if "ffa" not in manifest:
+            raise RenderError("the %s template has no ffa section" % arch)
+        manifest["ffa"]["partitions"] += copy.deepcopy(
+            block.get("ffa_partitions", []))
     dropped = set(overlay.get("drop_partitions", []))
     unknown = dropped - {part["name"] for part in manifest["partitions"]}
     if unknown:
@@ -118,11 +142,12 @@ def derive_counters(manifest):
         [len(part["dependencies"]) for part in partitions] + [1])
 
 
-def render(template, overlays, cc, cflags):
+def render(template, overlays, cc, cflags, arch=None):
     manifest = json.loads(Path(template).read_text(encoding="utf-8"))
     for overlay in overlays:
         apply_overlay(manifest,
-                      json.loads(Path(overlay).read_text(encoding="utf-8")))
+                      json.loads(Path(overlay).read_text(encoding="utf-8")),
+                      arch)
     found = []
     expressions(manifest, found)
     substitute(manifest, evaluate(cc, cflags, found))
@@ -135,6 +160,8 @@ def main():
     parser.add_argument("template", type=Path)
     parser.add_argument("--overlay", action="append", default=[], type=Path)
     parser.add_argument("--cc", default="arm-none-eabi-gcc")
+    parser.add_argument("--arch", help="apply each overlay's block for this "
+                        "arch to its port manifest template")
     parser.add_argument("--cflags", default="",
                         help="the build's layout defines and include paths")
     parser.add_argument("--output", type=Path,
@@ -142,7 +169,7 @@ def main():
     args = parser.parse_args()
     try:
         text = render(args.template, args.overlay, args.cc,
-                      shlex.split(args.cflags))
+                      shlex.split(args.cflags), args.arch)
     except (RenderError, OSError, json.JSONDecodeError, KeyError) as error:
         print("manifest render failed: %s" % error, file=sys.stderr)
         return 1

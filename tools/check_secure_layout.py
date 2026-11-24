@@ -91,6 +91,16 @@ OWNER_REGIONS = {
     "conf-server": ("_s_conf_server_data", "_e_conf_server_data"),
     "conf-driver": ("_s_conf_driver_data", "_e_conf_driver_data"),
 }
+# AArch64 keeps S-EL1 state in the private SPM RAM window and one conformance
+# band; the other partition bands keep their per-owner bounds.
+AARCH64_OWNER_REGIONS = dict(OWNER_REGIONS, **{
+    "spm": ("__data_start", "__spm_ram_end"),
+    "conf": ("_s_conf_data", "_e_conf_data"),
+})
+OWNER_PROFILES = {
+    "armv8m": OWNER_REGIONS,
+    "aarch64": AARCH64_OWNER_REGIONS,
+}
 SHARED_OWNER = "shared"
 SPM_OWNER = "spm"
 # The SPM also owns the secure stacks the linker script places by section.
@@ -426,7 +436,7 @@ def validate(symbols, production=False, layout=DEFAULT_LAYOUT,
 
 
 def validate_ownership(symbols, regions, sections, owners, objects=(),
-                       production=False):
+                       production=False, owner_regions=OWNER_REGIONS):
     """Every writable input section must lie in its object's owner region."""
     errors = []
     table = symbol_table(symbols)
@@ -484,7 +494,7 @@ def validate_ownership(symbols, regions, sections, owners, objects=(),
             continue
         if owner == SPM_OWNER and section.output in SPM_STACK_SECTIONS:
             continue
-        low, high = OWNER_REGIONS[owner]
+        low, high = owner_regions[owner]
         start = bound(low)
         stop = bound(high)
         if (start is None or stop is None or
@@ -567,7 +577,8 @@ def check_lto_provenance(objects, owners_text, error=None,
 
 def check_elf(nm, elf, map_text=None, owners_text=None, objects=(),
               production=False, runner=None, output=None, error=None,
-              layout=DEFAULT_LAYOUT):
+              layout=DEFAULT_LAYOUT, ownership_only=False,
+              owner_regions=OWNER_REGIONS):
     if runner is None:
         runner = subprocess.run
     if output is None:
@@ -592,20 +603,26 @@ def check_elf(nm, elf, map_text=None, owners_text=None, objects=(),
     require_pkcs11 = any(
         Path(path).name.endswith("pkcs11_relay_service.o") for path in objects
     )
-    errors = validate(symbols, production, layout, require_tpm=require_tpm,
-                      require_pkcs11=require_pkcs11)
+    errors = []
+    if not ownership_only:
+        errors = validate(symbols, production, layout, require_tpm=require_tpm,
+                          require_pkcs11=require_pkcs11)
     if map_text is not None:
         owners, owner_errors = parse_owners(owners_text or "")
         regions, sections = parse_map(map_text)
         errors.extend(owner_errors)
-        errors.extend(validate_ownership(symbols, regions, sections, owners,
-                                         objects, production))
+        errors.extend(validate_ownership(
+            symbols, regions, sections, owners, objects, production,
+            owner_regions))
     if errors:
         for message in errors:
             print("FAIL: %s" % message, file=error)
         return 1
 
-    print("PASS: secure layout (WT-FFM-0010/0011)", file=output)
+    if ownership_only:
+        print("PASS: secure ownership (WT-FFM-0011)", file=output)
+    else:
+        print("PASS: secure layout (WT-FFM-0010/0011)", file=output)
     return 0
 
 
@@ -1077,6 +1094,44 @@ def self_test():
                   (label, ", ".join(errors)), file=sys.stderr)
             return False
 
+    aarch_symbols = list(good) + parse_nm("\n".join((
+        "40000000 ? __data_start",
+        "40008000 ? __spm_ram_end",
+        "40020000 ? _s_conf_data",
+        "40021000 ? _e_conf_data",
+    )))
+    aarch_regions = [
+        Region("RAM", 0x40000000, 0x8000, True),
+        Region("CONFDATA", 0x40020000, 0x1000, True),
+    ]
+    aarch_sections = [
+        Section(".data", ".data.spm", 0x40000000, 4,
+                "build/sec_monitor.o"),
+        Section(".conf_bss", ".bss.conf", 0x40020000, 4,
+                "build/conf_sec_conf_nvm_sync.o"),
+    ]
+    aarch_owners_text = (SELF_TEST_OWNERS +
+                         "conf_sec_conf_nvm_sync.o conf\n")
+    aarch_owners, owner_errors = parse_owners(aarch_owners_text)
+    errors = validate_ownership(
+        aarch_symbols, aarch_regions, aarch_sections, aarch_owners,
+        owner_regions=AARCH64_OWNER_REGIONS)
+    if owner_errors or errors:
+        print("self-test valid AArch64 ownership rejected: %s" %
+              ", ".join(owner_errors + errors), file=sys.stderr)
+        return False
+    misplaced = [aarch_sections[0], Section(
+        ".bss", ".bss.conf", 0x40000004, 4,
+        "build/conf_sec_conf_nvm_sync.o")]
+    errors = validate_ownership(
+        aarch_symbols, aarch_regions, misplaced, aarch_owners,
+        owner_regions=AARCH64_OWNER_REGIONS)
+    if not any("conf object places writable state outside its region" in error
+               for error in errors):
+        print("self-test accepted AArch64 conformance state in SPM RAM",
+              file=sys.stderr)
+        return False
+
     regions, sections = parse_map(render_map(placed))
     errors = validate_ownership(
         good, regions, sections, owners,
@@ -1255,6 +1310,11 @@ def main():
     parser.add_argument("--map", type=Path)
     parser.add_argument("--owners", type=Path)
     parser.add_argument("--production", action="store_true")
+    parser.add_argument("--ownership-only", action="store_true",
+                        help="check object ownership without Armv8-M symbols")
+    parser.add_argument("--owner-profile", choices=OWNER_PROFILES,
+                        default="armv8m",
+                        help="linker bounds used for writable-state owners")
     parser.add_argument("--band", type=named_band, action="append", default=[],
                         metavar="NAME=ORIGIN:LIMIT")
     parser.add_argument("--confdata", type=band, metavar="ORIGIN:DATA_LIMIT",
@@ -1290,7 +1350,8 @@ def main():
         map_text=args.map.read_text(encoding="utf-8", errors="replace"),
         owners_text=args.owners.read_text(encoding="utf-8"),
         objects=args.objects, production=args.production,
-        layout=layout)
+        layout=layout, ownership_only=args.ownership_only,
+        owner_regions=OWNER_PROFILES[args.owner_profile])
 
 
 if __name__ == "__main__":

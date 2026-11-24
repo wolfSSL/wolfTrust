@@ -116,6 +116,7 @@ static psa_status_t wt_storage_ns_read(uint32_t sid, int32_t op, uint64_t uid,
     psa_invec in_vec[1];
     psa_outvec out_vec[1];
     psa_status_t status;
+    size_t cap;
 
     /* p_data_length must receive the bytes written on success (zero
      * included), so a NULL output pointer is an invalid argument — as is a
@@ -124,12 +125,12 @@ static psa_status_t wt_storage_ns_read(uint32_t sid, int32_t op, uint64_t uid,
     if (out_len == NULL || (out == NULL && out_cap != 0U)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    /* The transfer cap below hides the full range from the SPM write check. */
     if (out_cap > (size_t)(SIZE_MAX - (uintptr_t)out)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
-    if (out_cap > WT_NS_STORAGE_TRANSFER - sizeof(hdr)) {
-        out_cap = WT_NS_STORAGE_TRANSFER - sizeof(hdr);
+    cap = out_cap;
+    if (cap > WT_NS_STORAGE_TRANSFER - sizeof(hdr)) {
+        cap = WT_NS_STORAGE_TRANSFER - sizeof(hdr);
     }
     hdr.uid = uid;
     hdr.flags = 0U;
@@ -143,8 +144,17 @@ static psa_status_t wt_storage_ns_read(uint32_t sid, int32_t op, uint64_t uid,
     out_vec[0].base = out;
     out_vec[0].len = out_cap;
     status = psa_call(handle, op, in_vec, 1U, out_vec, 1U);
+    /* The SPM judges the whole destination first; only a range it accepts
+     * but that exceeds one copied transfer is retried at the transfer cap. */
+    if ((status == PSA_ERROR_INVALID_ARGUMENT) && (cap < out_cap)) {
+        out_vec[0].len = cap;
+        status = psa_call(handle, op, in_vec, 1U, out_vec, 1U);
+    }
+    if (status == PSA_ERROR_PROGRAMMER_ERROR) {
+        status = PSA_ERROR_INVALID_ARGUMENT;
+    }
     psa_close(handle);
-    *out_len = out_vec[0].len;
+    *out_len = (status == PSA_SUCCESS) ? out_vec[0].len : 0U;
     return status;
 }
 

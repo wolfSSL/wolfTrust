@@ -18,13 +18,14 @@ ifeq ($(wildcard mk/arch-$(ARCH).mk),)
 $(error unsupported secure build architecture ARCH=$(ARCH))
 endif
 include mk/target-$(TARGET).mk
-include mk/layout.mk
+# A port that ships its own manifest (WT_PORT_MANIFEST) also owns its layout.
+include $(if $(WT_PORT_MANIFEST),,mk/layout.mk)
 include mk/arch-$(ARCH).mk
 include mk/common.mk
 
 .DEFAULT_GOAL := all
 
-.PHONY: all secure-image size-report test test-provisioning c99-check test-conformance test-target test-hardware fetch-psa-ff-tests \
+.PHONY: all secure-image size-report test test-provisioning c99-check test-conformance test-target test-target-a test-hardware fetch-psa-ff-tests \
 		clean firmware-stm32h563 run-stm32h563 run-stm32h563-tui run-stm32h563-uarts \
 		test-domain-host test-domain-compilers test-domain-sanitize \
 		test-domain-valgrind test-manifest-host test-manifest-compilers \
@@ -107,6 +108,20 @@ test-target:
 		    $(call WT_SCENARIOS,$(p)) || exit 1;) \
 	fi
 
+# AArch64 twin of test-target on QEMU (virt GICv2/GICv3, xlnx-versal-virt);
+# auto-detect qemu-system-aarch64 + aarch64-none-elf (or WT_TARGET_SCENARIOS=1),
+# skip explicitly otherwise. MACHINE/GIC/CPU/SMP pass through to the runner.
+# WT_TIER=smoke (default) runs the per-PR subset, WT_TIER=full the whole suite,
+# both from tests/target/lib/scenario_matrix.py (the FF-A ACS stays in CI).
+WT_QEMU_A_SCENARIOS ?= $(shell python3 tests/target/lib/scenario_matrix.py --aarch64-flat --tier $(WT_TIER))
+test-target-a:
+	@if ! tests/target/detect_qemu_a.sh >/dev/null 2>&1; then \
+		echo "SKIP: AArch64 QEMU scenarios ($$(tests/target/detect_qemu_a.sh 2>&1))"; \
+	else \
+		MACHINE="$(MACHINE)" GIC="$(GIC)" CPU="$(CPU)" SMP="$(SMP)" \
+			tests/target/run_suite.sh qemu-a $(WT_QEMU_A_SCENARIOS); \
+	fi
+
 # Real hardware suite, the on-silicon counterpart of test-target, on the host
 # that owns the board's probe: WT_HW_TIER=smoke runs the eight scenarios every
 # board runs, qualification adds the port's merge-gating extras. Skips without
@@ -171,6 +186,8 @@ clean:
 	rm -rf $(BUILD_DIR)
 	$(MAKE) -C tests/firmware/stm32h563 clean
 	$(MAKE) -C tests/firmware/stm32h563-vnet clean
+	$(MAKE) -C tests/firmware/aarch64-smoke clean
+	$(MAKE) -C tests/firmware/aarch64-ns-smoke clean
 	$(MAKE) -C tests/host/domain clean
 	$(MAKE) -C tests/host/manifest clean
 	$(MAKE) -C tests/host/lifecycle clean

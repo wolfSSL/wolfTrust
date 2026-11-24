@@ -62,7 +62,12 @@ Run the application suite and the isolation scenario under M33MU:
 ```sh
 WT_ENGINE=hsm tests/target/run_suite.sh mimxrt700 pkcs11 pkcs11neg
 WT_ENGINE=native WT_PROFILE=full tests/target/run_suite.sh mcxn947 pkcs11
+WT_ENGINE=hsm tests/target/run_suite.sh qemu-a pkcs11 pkcs11neg
 ```
+
+On AArch64 the provider is an S-EL0 partition rendered from the same
+`manifest/pkcs11.json` overlay, and the application runs in the Normal-world
+payload over FF-A.
 
 The default profile runs the `profile` suite; `full` runs all four groups in
 one authenticated boot. `WT_PKCS11_SUITE=core|objects|crypto|negative` builds
@@ -149,7 +154,8 @@ does not use a clock:
   request first releases each `C_Initialize` that guest still held, as its
   own `C_Finalize` calls would have. That erases the token, its objects, its
   sessions, and both counts, so the relaunched guest starts with an
-  uninitialized token. `pkcs11reset` checks this under M33MU.
+  uninitialized token. `pkcs11reset` checks this under M33MU. The AArch64
+  SPMC never relaunches the Normal world, so that port has no such reset.
 - `C_GetTokenInfo` reports the counts with the standard
   `CKF_USER_PIN_COUNT_LOW`, `CKF_USER_PIN_FINAL_TRY`, and
   `CKF_USER_PIN_LOCKED` flags and their SO equivalents.
@@ -200,3 +206,5 @@ the port builds, and each profile the port registers, from the port registry's
 `m33mu.groups`: nine default-profile cases and 40 full-profile cases. The
 STM32L562 runs the default profile only. The cross-compile
 workflow builds the `CONFIG_PKCS11=y` Secure image on every port and engine.
+The AArch64 workflow runs `pkcs11` and `pkcs11neg` on every QEMU cell, engine
+and profile and cross-builds the image and application in every job.

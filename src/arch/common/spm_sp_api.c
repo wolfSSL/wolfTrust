@@ -64,6 +64,7 @@ psa_status_t psa_get(psa_signal_t signal, psa_msg_t* msg)
     return call.ret_status;
 }
 
+#if defined(WT_FFM_SP_RHANDLE) && (WT_FFM_SP_RHANDLE == 1)
 void psa_set_rhandle(psa_handle_t msg_handle, void* rhandle)
 {
     wt_spm_call_t call;
@@ -78,6 +79,7 @@ void psa_set_rhandle(psa_handle_t msg_handle, void* rhandle)
                         (uint32_t)msg_handle);
     }
 }
+#endif
 
 size_t psa_read(psa_handle_t msg_handle, uint32_t invec_idx,
                 void* buffer, size_t num_bytes)
@@ -96,6 +98,7 @@ size_t psa_read(psa_handle_t msg_handle, uint32_t invec_idx,
     return call.ret_size;
 }
 
+#if defined(WT_FFM_SP_SKIP) && (WT_FFM_SP_SKIP == 1)
 size_t psa_skip(psa_handle_t msg_handle, uint32_t invec_idx, size_t num_bytes)
 {
     wt_spm_call_t call;
@@ -110,6 +113,7 @@ size_t psa_skip(psa_handle_t msg_handle, uint32_t invec_idx, size_t num_bytes)
     }
     return call.ret_size;
 }
+#endif
 
 void psa_write(psa_handle_t msg_handle, uint32_t outvec_idx,
                const void* buffer, size_t num_bytes)
@@ -146,6 +150,7 @@ void psa_reply(psa_handle_t msg_handle, psa_status_t status)
     }
 }
 
+#if defined(WT_FFM_SP_DOORBELL) && (WT_FFM_SP_DOORBELL == 1)
 void psa_notify(int32_t partition_id)
 {
     wt_spm_call_t call;
@@ -171,6 +176,7 @@ void psa_clear(void)
         wt_arch_sp_panic(call.op, (uint32_t)call.ret_int, 0u);
     }
 }
+#endif
 
 void psa_eoi(psa_signal_t irq_signal)
 {

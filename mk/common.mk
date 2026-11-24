@@ -123,6 +123,18 @@ WT_FFM_FORENSICS ?= 0
 ifneq ($(words $(WT_FFM_FORENSICS))/$(filter 0 1,$(WT_FFM_FORENSICS)),1/$(WT_FFM_FORENSICS))
 $(error WT_FFM_FORENSICS takes 0 or 1)
 endif
+# Secure Partition API calls no shipped service makes: psa_notify and
+# psa_clear, psa_set_rhandle, and psa_skip. 0 builds the call out.
+WT_FFM_SP_DOORBELL ?= 1
+WT_FFM_SP_RHANDLE ?= 1
+WT_FFM_SP_SKIP ?= 1
+WT_FFM_SP_TRIMS := $(WT_FFM_SP_DOORBELL) $(WT_FFM_SP_RHANDLE) $(WT_FFM_SP_SKIP)
+ifneq ($(filter-out 0 1,$(WT_FFM_SP_TRIMS))$(words $(WT_FFM_SP_TRIMS)),3)
+$(error WT_FFM_SP_DOORBELL, WT_FFM_SP_RHANDLE and WT_FFM_SP_SKIP take 0 or 1)
+endif
+ifeq ($(WT_CONFORMANCE)/$(filter 0,$(WT_FFM_SP_TRIMS)),1/0)
+$(error WT_CONFORMANCE=1 runs the Arm suite, which needs every WT_FFM_SP_* call)
+endif
 # PSA Firmware Update partition (SERVICE_FWU) and its 4 KiB stack.
 WT_FWU ?= 0
 ifneq ($(words $(WT_FWU))/$(filter 0 1,$(WT_FWU)),1/$(WT_FWU))
@@ -334,7 +346,10 @@ SECURE_CFLAGS += -DWT_SP_LAZY_FIRST_ENTRY=1
 endif
 SECURE_CFLAGS += -DWT_SP_RESTART=$(WT_SP_RESTART) \
     -DWT_GUEST_RESTART=$(WT_GUEST_RESTART) \
-    -DWT_FFM_FORENSICS=$(WT_FFM_FORENSICS)
+    -DWT_FFM_FORENSICS=$(WT_FFM_FORENSICS) \
+    -DWT_FFM_SP_DOORBELL=$(WT_FFM_SP_DOORBELL) \
+    -DWT_FFM_SP_RHANDLE=$(WT_FFM_SP_RHANDLE) \
+    -DWT_FFM_SP_SKIP=$(WT_FFM_SP_SKIP)
 ifeq ($(WT_FWU),1)
 SECURE_CFLAGS += -DWT_FWU=1
 MANIFEST_EXCLUDE :=
@@ -1882,6 +1897,9 @@ BUILD_MODE_LINES = \
 		'WT_SP_RESTART=$(WT_SP_RESTART)' \
 		'WT_GUEST_RESTART=$(WT_GUEST_RESTART)' \
 		'WT_FFM_FORENSICS=$(WT_FFM_FORENSICS)' \
+		'WT_FFM_SP_DOORBELL=$(WT_FFM_SP_DOORBELL)' \
+		'WT_FFM_SP_RHANDLE=$(WT_FFM_SP_RHANDLE)' \
+		'WT_FFM_SP_SKIP=$(WT_FFM_SP_SKIP)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_SPM_STACK_SIZE=$(WT_SPM_STACK_SIZE)' \

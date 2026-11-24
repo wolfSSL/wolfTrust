@@ -699,19 +699,46 @@ static void test_rhandle(void)
 }
 #endif
 
+/* Prints a requirement line only when the test before it added no failure. */
+static void report(int before, const char* requirement)
+{
+    if (g_failures == before) {
+        printf("PASS: %s\n", requirement);
+    }
+}
+
 int main(void)
 {
+    int before;
+
+    before = g_failures;
     test_connect_policy();
+    report(before, "WT-FFM-0020 framework version and connect policy");
+    before = g_failures;
     test_call_io();
+    report(before, "WT-FFM-0021/0033 connection, messages, vectors and "
+           "output revalidation");
+    before = g_failures;
     test_error_latch();
+    report(before, "WT-FFM-0022 client error latch and dropped close");
+    before = g_failures;
     test_quotas();
+    report(before, "WT-FFM-0035 bounded pools and scrubbing");
+    before = g_failures;
     test_detach();
+    report(before, "WT-FFM-0025 a close during a call reaches the service");
+    before = g_failures;
     test_signals();
+    report(before, "WT-FFM-0036 invalid arguments and empty wait");
     test_handle_reuse();
     test_fifo();
+    before = g_failures;
     test_vectors();
+    report(before, "WT-FFM-0032 bounded vector rejection");
+    before = g_failures;
     test_reply_rules();
     test_abandon();
+    report(before, "WT-FFM-0023/0024 reply rules and abandoned messages");
 #if defined(WT_FFM_SP_RHANDLE) && (WT_FFM_SP_RHANDLE == 1)
     test_rhandle();
 #endif

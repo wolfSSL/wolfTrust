@@ -84,48 +84,39 @@ void wt_arch_quarantine_pending_irqs(const wt_irq_mask_t* allowed_mask)
 #define WT_NVIC_ICPR ((volatile uint32_t*)0xE000E280u)
 #define WT_NVIC_ITNS ((volatile uint32_t*)0xE000E380u)
 
-static void wt_nvic_disable(uint32_t word, uint32_t mask)
+void wt_arch_nvic_disable(uint32_t word, uint32_t mask)
 {
     WT_NVIC_ICER[word] = mask;
 }
 
-static void wt_nvic_clear_pending(uint32_t word, uint32_t mask)
+void wt_arch_nvic_clear_pending(uint32_t word, uint32_t mask)
 {
     WT_NVIC_ICPR[word] = mask;
 }
 
-static void wt_nvic_route_secure(uint32_t word, uint32_t mask)
+void wt_arch_nvic_route_secure(uint32_t word, uint32_t mask)
 {
     WT_NVIC_ITNS[word] &= ~mask;
 }
 
-static uint32_t wt_nvic_enabled(uint32_t word)
+uint32_t wt_arch_nvic_enabled(uint32_t word)
 {
     return WT_NVIC_ISER[word];
 }
 
-static uint32_t wt_nvic_non_secure(uint32_t word)
+uint32_t wt_arch_nvic_non_secure(uint32_t word)
 {
     return WT_NVIC_ITNS[word];
 }
 
-static void wt_nvic_barrier(void)
+void wt_arch_nvic_barrier(void)
 {
     __asm volatile("dsb\nisb" ::: "memory");
 }
 
-static const wt_nvic_ops_t g_wt_nvic_ops = {
-    wt_nvic_disable,
-    wt_nvic_clear_pending,
-    wt_nvic_route_secure,
-    wt_nvic_enabled,
-    wt_nvic_non_secure,
-    wt_nvic_barrier
-};
-
 int wt_arch_secure_irq_claim(uint32_t irq)
 {
-    return wt_irq_claim(&g_wt_nvic_ops, irq, WT_ARMV8M_SECURE_IRQS / 32u);
+    return wt_irq_claim(irq, WT_ARMV8M_SECURE_IRQS / 32u);
 }
 
 void wt_arch_secure_irq_enable(uint32_t irq)

@@ -22,24 +22,21 @@
 
 #include "wolftrust/irq_claim.h"
 
-int wt_irq_claim(const wt_nvic_ops_t* ops, uint32_t irq, uint32_t words)
+int wt_irq_claim(uint32_t irq, uint32_t words)
 {
     uint32_t word = irq >> 5;
     uint32_t mask = 1u << (irq & 31u);
 
-    if (ops == NULL || ops->disable == NULL || ops->clear_pending == NULL ||
-            ops->route_secure == NULL || ops->enabled == NULL ||
-            ops->non_secure == NULL || ops->barrier == NULL ||
-            word >= words) {
+    if (word >= words) {
         return -1;
     }
-    ops->disable(word, mask);
-    ops->barrier();
-    ops->route_secure(word, mask);
-    ops->clear_pending(word, mask);
-    ops->barrier();
-    if ((ops->non_secure(word) & mask) != 0u ||
-            (ops->enabled(word) & mask) != 0u) {
+    wt_arch_nvic_disable(word, mask);
+    wt_arch_nvic_barrier();
+    wt_arch_nvic_route_secure(word, mask);
+    wt_arch_nvic_clear_pending(word, mask);
+    wt_arch_nvic_barrier();
+    if ((wt_arch_nvic_non_secure(word) & mask) != 0u ||
+            (wt_arch_nvic_enabled(word) & mask) != 0u) {
         return -1;
     }
     return 0;

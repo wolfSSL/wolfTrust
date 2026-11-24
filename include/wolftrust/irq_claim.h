@@ -24,19 +24,17 @@
 #include <stdint.h>
 
 /* Interrupt-controller access for wt_irq_claim, one 32-line word at a time:
- * the arch layer binds the real NVIC, host tests bind a model. */
-typedef struct wt_nvic_ops {
-    void (*disable)(uint32_t word, uint32_t mask);
-    void (*clear_pending)(uint32_t word, uint32_t mask);
-    void (*route_secure)(uint32_t word, uint32_t mask);
-    uint32_t (*enabled)(uint32_t word);
-    uint32_t (*non_secure)(uint32_t word);
-    void (*barrier)(void);
-} wt_nvic_ops_t;
+ * the arch layer links the real NVIC, host tests link a model. */
+void wt_arch_nvic_disable(uint32_t word, uint32_t mask);
+void wt_arch_nvic_clear_pending(uint32_t word, uint32_t mask);
+void wt_arch_nvic_route_secure(uint32_t word, uint32_t mask);
+uint32_t wt_arch_nvic_enabled(uint32_t word);
+uint32_t wt_arch_nvic_non_secure(uint32_t word);
+void wt_arch_nvic_barrier(void);
 
 /* WT-FFM-0069: disable irq, route it Secure, and drop a stale pending, then
  * read back that it is disabled and Secure-routed. Returns 0, or -1 when irq
  * is beyond words * 32 lines or the controller did not take the state. */
-int wt_irq_claim(const wt_nvic_ops_t* ops, uint32_t irq, uint32_t words);
+int wt_irq_claim(uint32_t irq, uint32_t words);
 
 #endif /* WOLFTRUST_IRQ_CLAIM_H */

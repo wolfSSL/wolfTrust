@@ -84,8 +84,10 @@ typedef enum wt_port_validation_result {
 const wt_guest_config_t* wt_partitions_config_table(size_t* count);
 wt_guest_runtime_t* wt_partitions_runtime_table(size_t* count);
 const wt_profile_capabilities_t* wt_partitions_profile_capabilities(void);
+#if WT_MANIFEST_RUNTIME_CHECK || !defined(WT_TARGET_BUILD)
 /* 0 when every constant guest row matches what the manifest declares. */
 int wt_partitions_check_manifest(const wt_system_manifest_t* manifest);
+#endif
 int wt_partition_validate_port_binding(
     const wt_guest_config_t* config,
     const wt_domain_descriptor_t* domain);

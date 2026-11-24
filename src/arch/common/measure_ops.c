@@ -35,7 +35,7 @@ int wt_spm_measure_op(const wt_secure_domain_t* domain, wt_spm_call_t* call)
     call->ret_size = wt_guest_measurement_count();
     if (call->buffer != NULL) {
         ret = -1;
-        rec = wt_guest_measurement_get(call->vec_idx, NULL);
+        rec = wt_guest_measurement_get(call->vec_idx);
         if (rec != NULL && call->num_bytes == sizeof(*rec) &&
                 wt_secure_domain_contains(domain, (uintptr_t)call->buffer,
                                           call->num_bytes, 1) != 0) {

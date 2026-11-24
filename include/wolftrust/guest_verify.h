@@ -26,7 +26,6 @@
 
 #define WT_GUEST_MEAS_DIGEST_SIZE 32u
 #define WT_GUEST_MEAS_MAX_RECORDS 4u
-#define WT_GUEST_MEAS_NAME_LEN    16u
 
 /* One pinned guest measurement. Records live in a slot inside the signed
  * wolfTrust image, stamped by the image-assembly patcher before wolfBoot
@@ -104,12 +103,11 @@ int wt_runtime_verify_should_quarantine(int verify_result);
 
 /* Verified-launch measurement table consumed by Initial Attestation as the
  * per-guest software components. Only measurements that passed
- * wt_guest_verify_image may be recorded. */
-int wt_guest_measurement_record(const wt_guest_measurement_t* record,
-                                const char* name);
+ * wt_guest_verify_image may be recorded; the table keeps the pointer, so the
+ * record must outlive it (the port's constant records do). */
+int wt_guest_measurement_record(const wt_guest_measurement_t* record);
 size_t wt_guest_measurement_count(void);
-const wt_guest_measurement_t* wt_guest_measurement_get(size_t index,
-                                                       const char** name);
+const wt_guest_measurement_t* wt_guest_measurement_get(size_t index);
 void wt_guest_measurement_reset(void);
 
 #endif

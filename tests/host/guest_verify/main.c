@@ -147,43 +147,30 @@ static void wt_test_measurement_table(void)
 {
     wt_guest_measurement_t record = wt_make_record(3u, 512u);
     const wt_guest_measurement_t* stored;
-    const char* name = NULL;
     size_t i;
 
     wt_guest_measurement_reset();
     EXPECT_TRUE(wt_guest_measurement_count() == 0u);
-    EXPECT_TRUE(wt_guest_measurement_get(0u, &name) == NULL);
+    EXPECT_TRUE(wt_guest_measurement_get(0u) == NULL);
 
-    EXPECT_RESULT(wt_guest_measurement_record(&record, "guest-a"),
-                  WT_GUEST_VERIFY_OK);
+    EXPECT_RESULT(wt_guest_measurement_record(&record), WT_GUEST_VERIFY_OK);
     EXPECT_TRUE(wt_guest_measurement_count() == 1u);
-    stored = wt_guest_measurement_get(0u, &name);
+    stored = wt_guest_measurement_get(0u);
     EXPECT_TRUE(stored != NULL);
     EXPECT_TRUE(stored != NULL &&
                 memcmp(stored->digest, record.digest,
                        WT_GUEST_MEAS_DIGEST_SIZE) == 0);
     EXPECT_TRUE(stored != NULL && stored->version == 3u);
-    EXPECT_TRUE(name != NULL && strcmp(name, "guest-a") == 0);
 
-    EXPECT_RESULT(wt_guest_measurement_record(NULL, "guest-a"),
+    EXPECT_RESULT(wt_guest_measurement_record(NULL),
                   WT_GUEST_VERIFY_ERROR_ARGUMENT);
-    EXPECT_RESULT(wt_guest_measurement_record(&record, NULL),
-                  WT_GUEST_VERIFY_ERROR_ARGUMENT);
-
-    /* A name longer than the slot is truncated, never overflowed. */
-    EXPECT_RESULT(wt_guest_measurement_record(&record,
-                  "guest-name-way-beyond-the-slot"),
-                  WT_GUEST_VERIFY_OK);
-    stored = wt_guest_measurement_get(1u, &name);
-    EXPECT_TRUE(stored != NULL && name != NULL &&
-                strlen(name) == WT_GUEST_MEAS_NAME_LEN - 1u);
 
     for (i = wt_guest_measurement_count();
          i < WT_GUEST_MEAS_MAX_RECORDS; i++) {
-        EXPECT_RESULT(wt_guest_measurement_record(&record, "guest-x"),
+        EXPECT_RESULT(wt_guest_measurement_record(&record),
                       WT_GUEST_VERIFY_OK);
     }
-    EXPECT_RESULT(wt_guest_measurement_record(&record, "guest-x"),
+    EXPECT_RESULT(wt_guest_measurement_record(&record),
                   WT_GUEST_VERIFY_ERROR_CAPACITY);
 
     wt_guest_measurement_reset();

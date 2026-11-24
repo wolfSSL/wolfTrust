@@ -212,12 +212,10 @@ int wt_guest_verify_image(const void* p, size_t n,
                           const wt_guest_measurement_t* r, uint32_t version)
 { (void)p; (void)n; (void)r; (void)version; return g_verify_result; }
 size_t wt_guest_measurement_count(void) { return 0U; }
-const wt_guest_measurement_t* wt_guest_measurement_get(size_t i,
-                                                       const char** name)
-{ (void)i; (void)name; return NULL; }
-int wt_guest_measurement_record(const wt_guest_measurement_t* r,
-                                const char* name)
-{ (void)r; (void)name; return 0; }
+const wt_guest_measurement_t* wt_guest_measurement_get(size_t i)
+{ (void)i; return NULL; }
+int wt_guest_measurement_record(const wt_guest_measurement_t* r)
+{ (void)r; return 0; }
 
 #ifdef CONFIG_VNET
 /* Bind guest port vm with mac and queue one frame to it from the peer. */

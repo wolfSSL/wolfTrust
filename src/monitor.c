@@ -252,7 +252,7 @@ static int wt_verify_guest_launch(wt_guest_id_t guest_id)
         g_wt_launch_verified_mask |= (uint32_t)1U << guest_id;
         for (i = 0U; i < wt_guest_measurement_count(); ++i) {
             const wt_guest_measurement_t* entry =
-                wt_guest_measurement_get(i, NULL);
+                wt_guest_measurement_get(i);
 
             if (entry != NULL && entry->guest_id == (uint32_t)guest_id) {
                 recorded = true;
@@ -260,7 +260,7 @@ static int wt_verify_guest_launch(wt_guest_id_t guest_id)
             }
         }
         if (!recorded) {
-            (void)wt_guest_measurement_record(record, config->name);
+            (void)wt_guest_measurement_record(record);
         }
     }
     else {

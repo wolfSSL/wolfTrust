@@ -347,7 +347,7 @@ static int wt_attest_measurement_get(size_t index,
                                         (unsigned int)sizeof(*record), NULL);
     }
 #endif
-    rec = wt_guest_measurement_get(index, NULL);
+    rec = wt_guest_measurement_get(index);
     if (rec == NULL) {
         return -1;
     }

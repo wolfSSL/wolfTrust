@@ -32,7 +32,7 @@ yet in this tree).
 | [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator | +3,316 / 0 | +3,284 / 0 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
 | [`WT_SHA256_FAST=1`](#wt_sha256_fast-unrolled-sha-256) | The unrolled SHA-256 transform, faster hashing for boot and guest measurement | +384 / 0 | +416 / 0 | `make WT_SHA256_FAST=1 secure-image` |
 | [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +27,876 / +38,672 | not supported | `make WT_ENGINE=hsm secure-image` |
-| [`WT_SECURE_PSA=0`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1) | Removes PSA Crypto from the Secure image and runs wolfPSA in the guest again; saves 35,861 / 3,072 against the `compat` default (`standard` is +24,423 / +2,048 over it) | -35,861 / -3,072 | not measured | `make WT_SECURE_PSA=0 secure-image` |
+| [`WT_SECURE_PSA=0`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1) | Removes PSA Crypto from the Secure image and runs wolfPSA in the guest again; saves 35,861 / 3,072 against the `compat` default (`standard` is +24,263 / +2,048 over it) | -35,861 / -3,072 | not measured | `make WT_SECURE_PSA=0 secure-image` |
 | `full` profile | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` together | +9,408 / +13,488 | +9,432 / +13,500 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image` |
 
 The RAM figures include every stack and band an option adds, the 4 KiB FWU

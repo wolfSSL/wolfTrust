@@ -34,9 +34,6 @@
  * is not entirely non-secure RW. */
 bool wt_cmse_check_ns_rw(const void *ptr, size_t size);
 
-/* Same but for read-only access (non-secure code only needs to read it). */
-bool wt_cmse_check_ns_ro(const void *ptr, size_t size);
-
 /* Additional defense-in-depth check: the [ptr, ptr+size) range must lie
  * entirely within the NS-RAM window declared for guest `guest_id`.
  * This guards against SAU misconfiguration making cross-guest memory
@@ -45,13 +42,11 @@ bool wt_cmse_check_in_guest_ns_ram(wt_guest_id_t guest_id,
                                    const void *ptr,
                                    size_t size);
 
-/* Same as wt_cmse_check_in_guest_ns_ram but also accepts read-only/exec
- * windows (the guest's flash). Use for veneer inputs the guest may
- * legitimately pass from .rodata. The window must still belong to the
- * caller guest — cross-guest reads remain forbidden. */
-bool wt_cmse_check_in_guest_ns_addr(wt_guest_id_t guest_id,
-                                    const void *ptr,
-                                    size_t size);
+/* A veneer buffer of guest `guest_id`: NS-accessible per CMSE and inside
+ * one of the guest's own windows. Write needs a non-EXEC RAM window; read
+ * also accepts the guest's flash. Never another guest's memory. */
+bool wt_cmse_check_guest_buffer(wt_guest_id_t guest_id, const void *ptr,
+                                size_t size, int write);
 
 /* Convenience macro for an NSC veneer. Generates a naked function in the
  * .gnu.sgstubs section that emits a Secure Gateway (sg) instruction then

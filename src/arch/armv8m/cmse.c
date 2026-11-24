@@ -34,16 +34,6 @@ bool wt_cmse_check_ns_rw(const void *ptr, size_t size)
                                     CMSE_NONSECURE | CMSE_MPU_READWRITE) != NULL;
 }
 
-bool wt_cmse_check_ns_ro(const void *ptr, size_t size)
-{
-    /* Same size cap as wt_cmse_check_ns_rw. */
-    if (ptr == NULL || size == 0 || size > 0x10000) {
-        return false;
-    }
-    return cmse_check_address_range((void *)ptr, size,
-                                    CMSE_NONSECURE | CMSE_MPU_READ) != NULL;
-}
-
 /* Non-zero when [ptr, ptr + size) lies wholly in one of the guest's memory
  * windows that grants every attribute in need and none in deny. */
 static bool wt_cmse_in_guest_window(wt_guest_id_t guest_id, const void *ptr,
@@ -87,10 +77,15 @@ bool wt_cmse_check_in_guest_ns_ram(wt_guest_id_t guest_id,
                                    WT_MEM_ATTR_EXEC | WT_MEM_ATTR_DEVICE);
 }
 
-bool wt_cmse_check_in_guest_ns_addr(wt_guest_id_t guest_id,
-                                    const void *ptr,
-                                    size_t size)
+bool wt_cmse_check_guest_buffer(wt_guest_id_t guest_id, const void *ptr,
+                                size_t size, int write)
 {
-    return wt_cmse_in_guest_window(guest_id, ptr, size, WT_MEM_ATTR_READ,
-                                   WT_MEM_ATTR_DEVICE);
+    /* The window check runs first: it bounds the range the intrinsic sees. */
+    return wt_cmse_in_guest_window(guest_id, ptr, size,
+               write ? (WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE) :
+                       WT_MEM_ATTR_READ,
+               write ? (WT_MEM_ATTR_EXEC | WT_MEM_ATTR_DEVICE) :
+                       WT_MEM_ATTR_DEVICE) &&
+           cmse_check_address_range((void *)ptr, size, CMSE_NONSECURE |
+               (write ? CMSE_MPU_READWRITE : CMSE_MPU_READ)) != NULL;
 }

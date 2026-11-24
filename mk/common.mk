@@ -1771,7 +1771,7 @@ $(MANIFEST_INPUT): $(MANIFEST_OVERLAY) $(WT_MANIFEST_RENDER_DEPS) \
 # FF-M runtime's compiled limits, read from the headers that size it.
 wt_header_value = $(strip $(shell sed -n -E 's/^.define $(1)[[:space:]]+(0x[0-9A-Fa-f]+|[0-9]+)U.*/\1/p' $(2)))
 WT_FFM_MAX_PARTITIONS_VALUE := $(call wt_header_value,WT_SPM_MAX_SPS,$(ROOT)/include/wolftrust/spm_core.h)
-WT_FFM_MAX_SERVICES_VALUE := $(call wt_header_value,WT_SPM_MAX_SERVICES,$(ROOT)/include/wolftrust/spm_tables.h)
+WT_FFM_MAX_SERVICES_VALUE := $(call wt_header_value,WT_SPM_MAX_SERVICES,$(ROOT)/include/wolftrust/spm_core.h)
 WT_PSA_FRAMEWORK_VERSION_VALUE := $(call wt_header_value,PSA_FRAMEWORK_VERSION,$(ROOT)/include/psa/client.h)
 ifeq ($(words $(WT_FFM_MAX_PARTITIONS_VALUE) $(WT_FFM_MAX_SERVICES_VALUE) $(WT_PSA_FRAMEWORK_VERSION_VALUE)),3)
 else

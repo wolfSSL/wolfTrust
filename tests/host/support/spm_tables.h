@@ -18,13 +18,11 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef WOLFTRUST_SPM_TABLES_H
-#define WOLFTRUST_SPM_TABLES_H
+#ifndef WOLFTRUST_TESTS_SPM_TABLES_H
+#define WOLFTRUST_TESTS_SPM_TABLES_H
 
 #include "wolftrust/manifest.h"
 #include "wolftrust/spm_core.h"
-
-#define WT_SPM_MAX_SERVICES 32U
 
 /* Caller storage for the rows the generator emits: services holds
  * WT_SPM_MAX_SERVICES, sps WT_SPM_MAX_SPS and irqs irq_cap entries. */
@@ -46,4 +44,4 @@ typedef struct wt_spm_tables {
 int wt_spm_tables_derive(const wt_system_manifest_t* manifest,
                          wt_spm_tables_t* out);
 
-#endif /* WOLFTRUST_SPM_TABLES_H */
+#endif /* WOLFTRUST_TESTS_SPM_TABLES_H */

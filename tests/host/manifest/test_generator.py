@@ -726,7 +726,7 @@ class GeneratorTest(unittest.TestCase):
 RUNTIME_HARNESS = r"""
 #include "wolftrust_manifest_generated.h"
 #include "wolftrust/partition.h"
-#include "wolftrust/spm_tables.h"
+#include "spm_tables.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -811,13 +811,16 @@ class BuildTimeParityTest(unittest.TestCase):
         cls.objects = []
         work = Path(cls.temporary.name)
         command = shlex.split(os.environ.get("CC", "cc"))
-        for name in ("domain.c", "manifest.c", "partition.c",
-                     "spm/tables.c", "ffm_domain.c"):
-            obj = work / (name.replace("/", "_") + ".o")
+        support = ROOT / "tests" / "host" / "support"
+        for source in (ROOT / "src" / "domain.c", ROOT / "src" / "manifest.c",
+                       ROOT / "src" / "partition.c", support / "spm_tables.c",
+                       ROOT / "src" / "ffm_domain.c"):
+            obj = work / (source.stem + ".o")
             subprocess.run(command + ["-std=c99", "-c",
                                       "-DWT_MANIFEST_RUNTIME_CHECK=1",
                                       "-I" + str(ROOT / "include"),
-                                      str(ROOT / "src" / name), "-o", str(obj)],
+                                      "-I" + str(support),
+                                      str(source), "-o", str(obj)],
                            check=True)
             cls.objects.append(str(obj))
         (work / "harness.c").write_text(RUNTIME_HARNESS, encoding="utf-8")
@@ -875,6 +878,7 @@ class BuildTimeParityTest(unittest.TestCase):
                     "-DTP_PORT={}U".format(platform["port_capabilities"]),
                     "-DTP_FEATURES={}U".format(features),
                     "-I" + str(ROOT / "include"), "-I" + str(work),
+                    "-I" + str(ROOT / "tests" / "host" / "support"),
                     str(work / "wolftrust_manifest_generated.c"),
                     str(Path(self.temporary.name) / "harness.c"),
                     "-o", str(executable)] + self.objects

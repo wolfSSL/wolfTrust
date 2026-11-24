@@ -20,7 +20,7 @@
 
 #include "wolftrust/spm.h"
 #include "wolftrust/partition.h"
-#include "wolftrust/spm_tables.h"
+#include "spm_tables.h"
 #include "wolftrust_manifest_generated.h"
 
 #include <stdio.h>

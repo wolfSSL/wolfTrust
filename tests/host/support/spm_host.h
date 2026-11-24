@@ -26,7 +26,7 @@
 #define WOLFTRUST_TESTS_SPM_HOST_H
 
 #include "wolftrust/spm_gate.h"
-#include "wolftrust/spm_tables.h"
+#include "spm_tables.h"
 
 /* What the old port layer supplied: caller-memory checks standing in for
  * the gateway's, a service loop for every partition nothing bound, and the

@@ -71,10 +71,12 @@ for port in $(python3 "$matrix" --list-ports); do
                 "$out/build/manifest/manifest.json" "$out" $args
             # shellcheck disable=SC2086
             ${CC:-cc} $CFLAGS $layout -DWT_MAX_GUESTS="$guests" -I"$out" \
+                -I"$root/tests/host/support" \
                 -DWT_TEST_MANIFEST="\"$port/$variant ($profile)\"" $LDFLAGS \
                 -o "$out/test_manifest_port" \
                 "$root/src/domain.c" "$root/src/manifest.c" "$root/src/spm.c" \
-                "$root/src/partition.c" "$root/src/spm/tables.c" \
+                "$root/src/partition.c" \
+                "$root/tests/host/support/spm_tables.c" \
                 "$root/src/ffm_domain.c" \
                 "$root/port/common/armv8m/partitions.c" \
                 "$out/wolftrust_manifest_generated.c" main.c

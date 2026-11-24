@@ -153,6 +153,8 @@ typedef struct wt_spm_slot {
 #ifndef WT_SPM_MAX_SPS
 #define WT_SPM_MAX_SPS 9U
 #endif
+/* A dependency is one bit of a 32-bit mask per service row. */
+#define WT_SPM_MAX_SERVICES 32U
 
 /* The transfers go last so every other field keeps a short offset. */
 typedef struct wt_spm_core {

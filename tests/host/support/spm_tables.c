@@ -1,4 +1,4 @@
-/* tables.c
+/* spm_tables.c
  *
  * Copyright (C) 2026 wolfSSL Inc.
  *
@@ -18,7 +18,7 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#include "wolftrust/spm_tables.h"
+#include "spm_tables.h"
 
 static int wt_tables_sid_index(const wt_system_manifest_t* manifest,
                                uint32_t sid, size_t* owner)

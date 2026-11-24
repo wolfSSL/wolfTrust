@@ -959,8 +959,11 @@ def emit_spm_tables(lines, manifest):
             for m in memories or [{"base": 0, "size": 0, "attributes": 0}])
         lines.extend(("};", ""))
         mem_rows.append(
-            "{{ wt_spm_regions_{}, 0x{:x}U, 0x{:x}U, 0x{:x}U, 0x{:x}U, "
-            "{}U, {}U, {}U, {}U }}".format(
+            "{{ .regions = wt_spm_regions_{}, .stack_base = 0x{:x}U, "
+            ".band_base = 0x{:x}U, .stack_size = 0x{:x}U, "
+            ".band_size = 0x{:x}U, .restart_limit = {}U, "
+            ".restart_window_ticks = {}U, .region_count = {}U, "
+            ".restart_action = {}U }}".format(
                 index, stack["base"], band["base"], stack["size"],
                 band["size"], restart["restart_limit"],
                 restart["restart_window_ticks"], len(memories),

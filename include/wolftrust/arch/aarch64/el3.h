@@ -94,9 +94,6 @@ void wt_el3_putdec(uint64_t value);
 void wt_el3_semihost_exit(uint64_t code) __attribute__((noreturn));
 void wt_el3_enter_secure_el1(void (*entry)(void), uintptr_t stack_top,
                              uint64_t x0_arg) __attribute__((noreturn));
-/* Drop to NS-EL1 to run the Normal world; x0_arg reaches it in x0. */
-void wt_el3_enter_ns(void (*entry)(void), uintptr_t sp,
-                     uint64_t x0_arg) __attribute__((noreturn));
 /* Why the Normal world is currently paused in the Secure world. */
 #define WT_NS_PENDING_NONE   0u
 #define WT_NS_PENDING_REPLY  1u  /* an SMC it made is being served; deliver x0-x7 */

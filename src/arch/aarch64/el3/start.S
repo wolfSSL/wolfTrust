@@ -259,34 +259,12 @@ wt_el3_enter_secure_el1:
     isb
     eret
 
-/* void wt_el3_enter_ns(void (*entry)(void), uintptr_t sp, uint64_t x0_arg):
- * drop to NS-EL1. SCR_EL3 = NS|FIQ|EA|RW|ST (0xc0d): a Secure interrupt taken
- * while the Normal world runs traps to the SPMD, so it can preempt NS (Ch.9).
- * EL2 is implemented on these machines, so HCR_EL2.RW selects the EL1 register
- * width; set it for AArch64 or the ERET is an illegal state change. */
-    .globl wt_el3_enter_ns
-wt_el3_enter_ns:
-    mov     x4, #HCR_EL2_RW
-    msr     HCR_EL2, x4
-    msr     SP_EL1, x1
-    msr     ELR_EL3, x0
-    mov     x3, #0x3c5
-    msr     SPSR_EL3, x3
-    mov     x3, #0xc0d
-    msr     SCR_EL3, x3
-    mov     x0, x2
-    mov     x1, #0
-    mov     x2, #0
-    mov     x3, #0
-    isb
-    eret
-
 /* void wt_el3_world_eret(const wt_el3_frame_t* frame, uint64_t scr_el3):
  * enter a saved world. Program SCR_EL3 (and HCR_EL2 = RW for a Normal world at
  * EL1; an EL2 world, SCR_EL3.HCE, owns HCR_EL2 and may run its EL1 in
  * AArch32), reset the EL3 stack (this never returns, so the handler's stack is
  * abandoned), load the full saved register file plus ELR and SPSR, then ERET.
- * The ISB before the ERET matches wt_el3_enter_ns. */
+ * The NS world's first entry loads its zeroed frame, so no EL3 value leaks. */
     .globl wt_el3_world_eret
 wt_el3_world_eret:
     tbz     x1, #0, 1f

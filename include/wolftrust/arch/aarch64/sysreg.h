@@ -136,7 +136,7 @@ static inline uint64_t wt_current_el(void)
 /* Secure world running: EA and the secure timer at S-EL1, FIQ left to S-EL1. */
 #define WT_SCR_EL3_SECURE (WT_SCR_RW | WT_SCR_ST | WT_SCR_EA)
 /* Normal world running: NS, plus FIQ trapped to EL3 so a Secure interrupt can
- * preempt it (Ch.9). Matches wt_el3_enter_ns. */
+ * preempt it (Ch.9). */
 #define WT_SCR_EL3_NS (WT_SCR_NS | WT_SCR_FIQ | WT_SCR_EA | WT_SCR_RW | WT_SCR_ST)
 
 /* HCR_EL2.RW: EL1 is AArch64. Required before an ERET to NS-EL1 AArch64 while

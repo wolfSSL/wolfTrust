@@ -882,6 +882,13 @@ class BuildTimeParityTest(unittest.TestCase):
             result = self.build_time(manifest, platform, features)
             self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_unbindable_dependency_is_rejected(self):
+        for dependency, message in ((0x3000, "dependency is unresolved"),
+                                    (0x1000, "depends on its own service")):
+            manifest = ffm_fixture()
+            manifest["partitions"][0]["dependencies"] = [dependency]
+            self.assert_parity(manifest, fixture_platform(), 0x5, message)
+
     def test_build_without_ipc_feature_is_rejected(self):
         manifest = ffm_fixture()
         manifest["features"] = 1

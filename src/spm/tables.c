@@ -114,11 +114,15 @@ int wt_spm_tables_derive(const wt_system_manifest_t* manifest,
     for (p = 0U; p < manifest->partition_count && ret == WT_SPM_OK; p++) {
         partition = &manifest->partitions[p];
         out->sps[p].deps = 0U;
-        for (d = 0U; d < partition->dependency_count; d++) {
+        for (d = 0U; d < partition->dependency_count &&
+                ret == WT_SPM_OK; d++) {
             index = wt_tables_sid_index(manifest, partition->dependencies[d],
                                         &owner);
-            /* A partition never calls its own services. */
-            if (index >= 0 && owner != p) {
+            /* The generator refuses an unresolved or self-owned dependency. */
+            if (index < 0 || owner == p) {
+                ret = WT_SPM_E_ARGUMENT;
+            }
+            else {
                 out->sps[p].deps |= 1UL << (uint32_t)index;
             }
         }

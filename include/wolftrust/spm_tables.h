@@ -40,7 +40,9 @@ typedef struct wt_spm_tables {
 } wt_spm_tables_t;
 
 /* Derives the rows from a descriptive manifest with the generator's rules,
- * refusing any manifest the generator would refuse to activate. */
+ * refusing what the rows cannot bind: a non-IPC or over-capacity partition
+ * and an unresolved or self-owned dependency. wt_manifest_validate checks
+ * the rest, such as duplicates and cycles. */
 int wt_spm_tables_derive(const wt_system_manifest_t* manifest,
                          wt_spm_tables_t* out);
 

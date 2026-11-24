@@ -179,7 +179,7 @@ jobs:
           grep -q 'unsupported WT_MAX_GUESTS' guests.err
       - name: Build every add-on alone for every port (every engine)
         run: |
-          for flag in WT_MAX_GUESTS=2 WT_FWU=1 WT_SHA256_FAST=1 WT_FFM_FORENSICS=1 WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1; do
+          for flag in WT_MAX_GUESTS=2 WT_FWU=1 WT_SHA256_FAST=1 WT_FFM_FORENSICS=1 WT_SP_RESTART=0 WT_GUEST_RESTART=0 WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1; do
             for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
               for engine in $(python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines); do
                 dir=build_addon_${target}_${engine}_${flag%%=*}

@@ -156,6 +156,9 @@ build `full` only, because their checks assert both guests.
 | `BUILD_DIR` | Secure build output directory; default `build`. | Must be writable. |
 | `WT_LTO` | Enable Secure-image link-time optimization; default `1`. | Set to `0` for diagnostics or a non-LTO size comparison. The GNU Arm compiler must support `-flto=auto`. |
 | `WT_ENGINE` | Secure crypto engine: `native` (default) dispatches wolfCrypt directly behind the SERVICE_HSM door with explicitly vault-backed keys stored as `SENSITIVE` and `NONEXPORTABLE` NVM objects; `hsm` links the wolfHSM server as a key-management add-on (server-keystore semantics and an external-HSM offload path). Legacy `WT_ENGINE_HSM=0/1` maps onto the selector. | Both engines share the identical FF-M surface (5 veneers, SIDs, manifest, and L3 bands) and run every applicable CI scenario. Guest builds must use the same engine as the Secure image. See [Crypto Engines](Crypto-Engines.md). |
+| `WT_SP_RESTART` | Restart a faulted Secure Partition under its manifest restart policy; default `1`. | With `0` the recovery code is built out and any partition fault fails the platform closed through `wt_platform_all_guests_faulted()`. |
+| `WT_GUEST_RESTART` | Restart a faulted Non-secure guest under its restart policy; default `1`. | With `0` a faulted guest is quarantined as `FAULTED` and never relaunched. |
+| `WT_FFM_FORENSICS` | Build the SPM forensic words a debugger reads after a fault (gate rejections, keystore failures, the full first-fault record); default `0`. | Diagnostics only. The fault count, first CFSR and SPM fault latch the scenarios read are always built. |
 
 ## Core target configuration
 

@@ -5,9 +5,9 @@ attestation  /wt_sec_(initial_attestation|attestation_service|wolfcose_[a-z0-9_]
 storage      /wh_sec_[^/]*\.o$
 storage      /wt_sec_(vault_service|wt_hsm_vault|wt_hsm_seal|wt_hsm_lock|nvm_[a-z_]+|storage_service|fwu_service|hsm_flash[a-z_]*|flash_drv|[a-z0-9]+_nor|[a-z0-9]+_flash)\.o$
 storage      /sec_rollback\.o$
-guest        /(sec|wt_sec)_(monitor|guest_context_armv8m|guest_verify|irq_armv8m)\.o$
+guest        /(sec|wt_sec)_(monitor|guest_context_armv8m|guest_verify|irq_armv8m|partitions)\.o$
 platform     /(sec|wt_sec)_(platform_[a-z0-9_]+|mpu_armv8m|sau_armv8m|fabric_sau|fabric_windows|periph|reg|rng_drv|[a-z0-9]+_rng|[a-z0-9]+_trng|silicon_[a-z]+|ivt|[a-z0-9]+_xspi|[a-z0-9]+_lifecycle|gtzc)\.o$
-spm          /(sec|wt_sec)_(ffm[a-z_]*|spm[a-z_]*|coroutine[a-z0-9_]*|domain|manifest|partition|partitions|start_armv8m|ipc|wolftrust_manifest_generated|sp_recovery|sp_fault_armv8m|irq_claim|boot|boot_handoff|mutex|cmse|restart_policy|service_ipc|runtime_verify)\.o$
+spm          /(sec|wt_sec)_(ffm[a-z_]*|spm[a-z_]*|coroutine[a-z0-9_]*|domain|manifest|partition|start_armv8m|ipc|wolftrust_manifest_generated|sp_recovery|sp_fault_armv8m|irq_claim|boot|boot_handoff|mutex|cmse|restart_policy|service_ipc|runtime_verify)\.o$
 runtime      libgcc\.a\(
 runtime      /(sec|wt_sec)_(runtime|libc_stubs)\.o$
 spm          ^linker stubs$

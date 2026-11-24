@@ -95,7 +95,7 @@ WOLFTRUST_OBJECTS = {
     "build/sec_domain.o": "spm",
     "build/sec_manifest.o": "spm",
     "build/sec_partition.o": "spm",
-    "build/sec_partitions.o": "spm",
+    "build/sec_partitions.o": "guest",
     "build/wt_sec_wt_hsm.o": "crypto",
     "build/wt_sec_wt_hsm_priv.o": "crypto",
     "build/wt_sec_vnet_switch.o": "vnet",

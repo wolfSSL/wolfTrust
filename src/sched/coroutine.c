@@ -45,19 +45,10 @@ static uint32_t g_co_count;
 
 static bool is_valid_co_pointer(const struct wt_co *co)
 {
-    uint32_t i;
+    uintptr_t off = (uintptr_t)co - (uintptr_t)&g_co_table[0];
 
-    if (co == &g_wt_co_bootstrap) {
-        return true;
-    }
-
-    for (i = 0u; i < WT_CO_MAX - 1u; i++) {
-        if (co == &g_co_table[i]) {
-            return true;
-        }
-    }
-
-    return false;
+    return co == &g_wt_co_bootstrap ||
+           (off < sizeof(g_co_table) && off % sizeof(g_co_table[0]) == 0u);
 }
 
 /* -------------------------------------------------------------------------

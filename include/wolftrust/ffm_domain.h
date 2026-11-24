@@ -44,15 +44,6 @@ typedef enum wt_secure_domain_result {
     WT_SECURE_DOMAIN_ERROR_CAPACITY = -603
 } wt_secure_domain_result_t;
 
-/* Resolve the Level 3 Secure protection domain for domain_id from a validated
- * manifest. Fails closed: a missing domain, a domain that is not a Secure
- * Partition, or a region set larger than the MPU can hold returns an error and
- * leaves out_domain empty, so the caller programs no partition regions rather
- * than an over-broad set. */
-int wt_ffm_resolve_secure_domain(const wt_system_manifest_t* manifest,
-                                 wt_domain_id_t domain_id,
-                                 wt_secure_domain_t* out_domain);
-
 /* Non-zero only when [addr, addr + len) lies wholly within one region of
  * domain that grants the requested access (need_write also requires read).
  * Zero length, an address range that overflows, or a region that wraps is
@@ -74,18 +65,5 @@ int wt_secure_domains_isolated(const wt_secure_domain_t* first,
                                const wt_secure_domain_t* second,
                                const wt_memory_region_t* shared,
                                size_t shared_count);
-
-/* Compose the full secure MPU table for a Secure Partition: the shared
- * regions every partition needs to execute (secure code) followed by the
- * partition's own private regions. The Level 3 profile copies IOVEC
- * transfers (WT-FFM-0041), so the SPM, not the partition, touches client
- * memory — a partition's table therefore needs only code plus its private
- * regions, leaving other partitions, the SPM, and the private peripheral bus
- * unmapped and faulting. Fails closed when the combined set exceeds the MPU,
- * leaving out_table empty. */
-int wt_ffm_compose_secure_partition_table(const wt_secure_domain_t* domain,
-                                          const wt_memory_region_t* shared,
-                                          size_t shared_count,
-                                          wt_secure_domain_t* out_table);
 
 #endif

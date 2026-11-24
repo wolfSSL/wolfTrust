@@ -47,6 +47,7 @@ PRODUCTION_TEST := $(BUILD_DIR)/test_production_manifest
 PRODUCTION_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
     $(ROOT)/src/spm.c $(ROOT)/src/spm/core.c \
     $(ROOT)/src/ffm_domain.c \
+    $(ROOT)/tests/host/support/secure_domain_resolve.c \
     $(ROOT)/port/common/armv8m/partitions.c \
     $(ROOT)/src/partition.c \
     $(PRODUCTION_C) production_main.c
@@ -84,7 +85,8 @@ $(SPM_TEST): $(SPM_SRCS) $(GENERATED_STAMP) $(GENERATED_H) | $(BUILD_DIR)
 
 $(PRODUCTION_TEST): $(PRODUCTION_SRCS) $(PRODUCTION_STAMP) $(PRODUCTION_H) \
 		| $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(PRODUCTION_DIR) $(WT_LAYOUT_CFLAGS) \
+	$(CC) $(CFLAGS) -I$(PRODUCTION_DIR) -I$(ROOT)/tests/host/support \
+		$(WT_LAYOUT_CFLAGS) \
 		$(LDFLAGS) -o $@ $(PRODUCTION_SRCS)
 
 run: $(SPM_TEST) $(PRODUCTION_TEST)

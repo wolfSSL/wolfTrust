@@ -25,16 +25,20 @@ BUILD_DIR ?= build
 
 CFLAGS := \
     -I$(ROOT)/include \
+    -I$(ROOT)/tests/host/support \
     -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic
 CFLAGS += $(EXTRA_CFLAGS)
 
 _WT_SRCS := $(ROOT)/src/ffm_domain.c
+_SUPPORT_SRCS := $(ROOT)/tests/host/support/secure_domain_resolve.c
 _TEST_SRCS := main.c
 
 _WT_OBJS   := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
 _TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
+_SUPPORT_OBJS := $(patsubst %.c,sup_%.o,$(notdir $(_SUPPORT_SRCS)))
 
-ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_TEST_OBJS))
+ALL_OBJS := $(addprefix $(BUILD_DIR)/,\
+    $(_WT_OBJS) $(_SUPPORT_OBJS) $(_TEST_OBJS))
 TEST_BIN := $(BUILD_DIR)/test_ffm_domain
 
 .PHONY: all run compilers sanitize valgrind clean
@@ -45,6 +49,9 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 $(BUILD_DIR)/wt_%.o: $(ROOT)/src/%.c | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -c -o $@ $<
+
+$(BUILD_DIR)/sup_%.o: $(ROOT)/tests/host/support/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)

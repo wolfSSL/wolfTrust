@@ -25,7 +25,7 @@
  * that derives a partition's private region set from the manifest and the
  * predicate that proves a foreign domain's memory is excluded. */
 
-#include "wolftrust/ffm_domain.h"
+#include "secure_domain_resolve.h"
 
 #include <stdio.h>
 

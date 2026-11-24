@@ -22,7 +22,7 @@
 #include "wolftrust/spm.h"
 #include "wolftrust/partition.h"
 #include "wolftrust/ffm.h"
-#include "wolftrust/ffm_domain.h"
+#include "secure_domain_resolve.h"
 #include "wolftrust_manifest_generated.h"
 #include "psa_manifest/sid.h"
 #include "psa_manifest/pid.h"

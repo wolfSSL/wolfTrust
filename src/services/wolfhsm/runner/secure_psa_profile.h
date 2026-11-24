@@ -48,8 +48,10 @@
 #undef GCM_SMALL
 #define WOLFSSL_AES_COUNTER
 #if !defined(WT_PSA_ONE_AEAD) || !defined(WT_AEAD_CCM)
-/* wolfPSA's multipart GCM runs on the wolfCrypt GCM streaming calls. */
+/* wolfPSA's multipart and one-shot GCM run on the wolfCrypt GCM streaming
+ * calls, so the one-shot calls are not linked. */
 #define WOLFSSL_AESGCM_STREAM
+#define WOLFPSA_GCM_ONESHOT_STREAM
 #endif
 #if !defined(WT_PSA_ONE_AEAD) || defined(WT_AEAD_CCM)
 #define HAVE_AESCCM

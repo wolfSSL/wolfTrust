@@ -35,14 +35,23 @@
 #if !defined(WT_AEAD_CCM) && !defined(HAVE_AESGCM)
 #error "the vault AEAD needs HAVE_AESGCM, or WT_AEAD_CCM"
 #endif
-/* With wolfPSA in the image, CCM runs on its streaming CCM, so wolfCrypt's
- * one-shot CCM is not linked twice over. */
-#if defined(WT_AEAD_CCM) && defined(WT_SECURE_PSA)
-#define WT_AEAD_WOLFPSA_CCM
+/* With wolfPSA in the image, the AEAD runs on its streaming code, so
+ * wolfCrypt's one-shot GCM or CCM is not linked twice over. */
+#if defined(WT_SECURE_PSA) && defined(WT_AEAD_CCM)
+#define WT_AEAD_WOLFPSA
 #include "wolfpsa/psa_ccm.h"
+#define WT_AEAD_SEAL wolfPSA_AesCcmEncrypt
+#define WT_AEAD_OPEN wolfPSA_AesCcmDecrypt
+#define WT_AEAD_AUTH_E AES_CCM_AUTH_E
+#elif defined(WT_SECURE_PSA) && defined(WOLFPSA_GCM_ONESHOT_STREAM)
+#define WT_AEAD_WOLFPSA
+#include "wolfpsa/psa_gcm.h"
+#define WT_AEAD_SEAL wolfPSA_AesGcmEncrypt
+#define WT_AEAD_OPEN wolfPSA_AesGcmDecrypt
+#define WT_AEAD_AUTH_E AES_GCM_AUTH_E
 #endif
 
-#ifdef WT_AEAD_WOLFPSA_CCM
+#ifdef WT_AEAD_WOLFPSA
 psa_status_t wt_hsm_aead_encrypt(const uint8_t* key, const uint8_t* nonce,
                                  const uint8_t* aad, size_t aad_len,
                                  const uint8_t* in, size_t len, uint8_t* out,
@@ -50,9 +59,9 @@ psa_status_t wt_hsm_aead_encrypt(const uint8_t* key, const uint8_t* nonce,
 {
     int rc;
 
-    rc = wolfPSA_AesCcmEncrypt(key, WT_HSM_AEAD_KEY_LEN, nonce,
-                               WT_HSM_AEAD_NONCE_LEN, aad, (word32)aad_len, in,
-                               (word32)len, out, tag, WT_HSM_AEAD_TAG_LEN);
+    rc = WT_AEAD_SEAL(key, WT_HSM_AEAD_KEY_LEN, nonce, WT_HSM_AEAD_NONCE_LEN,
+                      aad, (word32)aad_len, in, (word32)len, out, tag,
+                      WT_HSM_AEAD_TAG_LEN);
     return (rc == 0) ? PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
 }
 
@@ -63,15 +72,15 @@ psa_status_t wt_hsm_aead_decrypt(const uint8_t* key, const uint8_t* nonce,
 {
     int rc;
 
-    rc = wolfPSA_AesCcmDecrypt(key, WT_HSM_AEAD_KEY_LEN, nonce,
-                               WT_HSM_AEAD_NONCE_LEN, aad, (word32)aad_len, in,
-                               (word32)len, tag, WT_HSM_AEAD_TAG_LEN, out);
+    rc = WT_AEAD_OPEN(key, WT_HSM_AEAD_KEY_LEN, nonce, WT_HSM_AEAD_NONCE_LEN,
+                      aad, (word32)aad_len, in, (word32)len, tag,
+                      WT_HSM_AEAD_TAG_LEN, out);
     if (rc == 0) {
         return PSA_SUCCESS;
     }
     /* No unauthenticated plaintext may survive a failed decrypt */
     wt_forceZero(out, len);
-    return (rc == AES_CCM_AUTH_E) ? PSA_ERROR_INVALID_SIGNATURE :
+    return (rc == WT_AEAD_AUTH_E) ? PSA_ERROR_INVALID_SIGNATURE :
         PSA_ERROR_GENERIC_ERROR;
 }
 #else
@@ -149,4 +158,4 @@ psa_status_t wt_hsm_aead_decrypt(const uint8_t* key, const uint8_t* nonce,
     }
     return status;
 }
-#endif /* WT_AEAD_WOLFPSA_CCM */
+#endif /* WT_AEAD_WOLFPSA */

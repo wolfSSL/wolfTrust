@@ -46,9 +46,9 @@ partition, which wolfTrust's native default does with `WT_SECURE_PSA=1` (see
 [Crypto Engines](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1)).
 That default is larger than TF-M. On the STM32H563 the `standard` profile, the
 closest to TF-M's Medium set, is
-95,911 bytes of flash and 47,308 bytes of Secure RAM: 16,231 bytes more flash
-and 1,580 bytes more RAM than the TF-M image above. 4,385 bytes of the flash
-gap are the crypto stack (44,863 against 40,478 for TF-M's Crypto partition
+95,303 bytes of flash and 47,308 bytes of Secure RAM: 15,623 bytes more flash
+and 1,580 bytes more RAM than the TF-M image above. 3,887 bytes of the flash
+gap are the crypto stack (44,365 against 40,478 for TF-M's Crypto partition
 and Mbed TLS); the rest is the storage and SPM code outside it. The
 `WT_SECURE_PSA=0` opt-out, which runs wolfPSA in the Non-secure guest instead,
 stays below TF-M, and CI holds it to TF-M's flash and RAM.
@@ -78,7 +78,7 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
   `make TARGET=stm32l562 secure-image` in
   `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. With `WT_SECURE_PSA=0`, the same
   defaults give 70,464 bytes of flash and 45,260 bytes of Secure RAM for
-  `TARGET=stm32h563` in this tree; the `WT_SECURE_PSA=1` default gives 107,125
+  `TARGET=stm32h563` in this tree; the `WT_SECURE_PSA=1` default gives 106,325
   and 48,332.
 - wolfBoot: `config/examples/stm32l5-tz-wolftrust.config` (ECC256, SHA256,
   `WOLFBOOT_SECURE_APP=1`).

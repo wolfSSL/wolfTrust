@@ -11,7 +11,8 @@ cost.
 
 Every size here comes from the linked Secure ELF and its map, built with Arm
 GNU 15.2.1 in `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO at isolation
-level 3:
+level 3. The `interface-footprint` CI job runs in `v1.15`, which ships the same
+toolchain and gives byte-identical sizes:
 
 ```text
 Flash = text + data

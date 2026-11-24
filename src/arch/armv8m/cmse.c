@@ -44,116 +44,53 @@ bool wt_cmse_check_ns_ro(const void *ptr, size_t size)
                                     CMSE_NONSECURE | CMSE_MPU_READ) != NULL;
 }
 
-bool wt_cmse_check_in_guest_ns_ram(wt_guest_id_t guest_id,
-                                   const void *ptr,
-                                   size_t size)
+/* Non-zero when [ptr, ptr + size) lies wholly in one of the guest's memory
+ * windows that grants every attribute in need and none in deny. */
+static bool wt_cmse_in_guest_window(wt_guest_id_t guest_id, const void *ptr,
+                                    size_t size, uint32_t need, uint32_t deny)
 {
     const wt_guest_config_t *configs;
+    const wt_guest_config_t *cfg = NULL;
+    const wt_memory_window_t *w;
+    uintptr_t addr = (uintptr_t)ptr;
     size_t count;
     size_t i;
-    const wt_guest_config_t *cfg = NULL;
-    uintptr_t addr;
-    uintptr_t end;
-    uintptr_t win_end;
+    bool found = false;
 
-    if (ptr == NULL || size == 0 || size > 0x10000) {
+    if (ptr == NULL || size == 0 || size > 0x10000 ||
+            addr > UINTPTR_MAX - size) {
         return false;
     }
-
     configs = wt_partitions_config_table(&count);
-
-    if (guest_id >= (wt_guest_id_t)count) {
-        return false;
-    }
-
-    for (i = 0; i < count; ++i) {
+    for (i = 0; i < count && guest_id < (wt_guest_id_t)count; ++i) {
         if (configs[i].guest_id == guest_id) {
             cfg = &configs[i];
             break;
         }
     }
-
-    if (cfg == NULL) {
-        return false;
+    for (i = 0; cfg != NULL && !found && i < cfg->memory_window_count; ++i) {
+        w = &cfg->memory_windows[i];
+        found = (w->attributes & need) == need &&
+                (w->attributes & deny) == 0u &&
+                w->base <= UINTPTR_MAX - w->size &&
+                addr >= w->base && addr + size <= w->base + w->size;
     }
+    return found;
+}
 
-    addr = (uintptr_t)ptr;
-
-    /* Detect wraparound before any window comparison. */
-    if (addr > UINTPTR_MAX - size) {
-        return false;
-    }
-    end = addr + size;
-
-    for (i = 0; i < cfg->memory_window_count; ++i) {
-        const wt_memory_window_t *w = &cfg->memory_windows[i];
-        uint32_t attr = w->attributes;
-
-        if (!(attr & WT_MEM_ATTR_READ)) {
-            continue;
-        }
-        if (!(attr & WT_MEM_ATTR_WRITE)) {
-            continue;
-        }
-        if (attr & WT_MEM_ATTR_EXEC) {
-            continue;
-        }
-        if (attr & WT_MEM_ATTR_DEVICE) {
-            continue;
-        }
-
-        if (w->base > UINTPTR_MAX - w->size) {
-            continue;
-        }
-        win_end = w->base + w->size;
-
-        if (addr >= w->base && end <= win_end) {
-            return true;
-        }
-    }
-
-    return false;
+bool wt_cmse_check_in_guest_ns_ram(wt_guest_id_t guest_id,
+                                   const void *ptr,
+                                   size_t size)
+{
+    return wt_cmse_in_guest_window(guest_id, ptr, size,
+                                   WT_MEM_ATTR_READ | WT_MEM_ATTR_WRITE,
+                                   WT_MEM_ATTR_EXEC | WT_MEM_ATTR_DEVICE);
 }
 
 bool wt_cmse_check_in_guest_ns_addr(wt_guest_id_t guest_id,
                                     const void *ptr,
                                     size_t size)
 {
-    const wt_guest_config_t *configs;
-    size_t count;
-    size_t i;
-    const wt_guest_config_t *cfg = NULL;
-    uintptr_t addr;
-    uintptr_t end;
-    uintptr_t win_end;
-
-    if (ptr == NULL || size == 0 || size > 0x10000) {
-        return false;
-    }
-    configs = wt_partitions_config_table(&count);
-    if (guest_id >= (wt_guest_id_t)count) {
-        return false;
-    }
-    for (i = 0; i < count; ++i) {
-        if (configs[i].guest_id == guest_id) {
-            cfg = &configs[i];
-            break;
-        }
-    }
-    if (cfg == NULL) return false;
-
-    addr = (uintptr_t)ptr;
-    if (addr > UINTPTR_MAX - size) return false;
-    end = addr + size;
-
-    for (i = 0; i < cfg->memory_window_count; ++i) {
-        const wt_memory_window_t *w = &cfg->memory_windows[i];
-        uint32_t attr = w->attributes;
-        if (!(attr & WT_MEM_ATTR_READ)) continue;
-        if (attr & WT_MEM_ATTR_DEVICE) continue;
-        if (w->base > UINTPTR_MAX - w->size) continue;
-        win_end = w->base + w->size;
-        if (addr >= w->base && end <= win_end) return true;
-    }
-    return false;
+    return wt_cmse_in_guest_window(guest_id, ptr, size, WT_MEM_ATTR_READ,
+                                   WT_MEM_ATTR_DEVICE);
 }

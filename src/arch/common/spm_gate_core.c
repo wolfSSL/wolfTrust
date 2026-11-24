@@ -206,7 +206,8 @@ static void wt_spm_fault_release(void* ctx)
          * crypto partition's cached keystore door must close and reconnect. */
         wt_nvm_client_partition_vault_restarted();
     }
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1) && \
+    !defined(WT_ATTEST_KEY_hmac)
     if (c->slot->partition_id == g_spm_hsm_partition_id) {
         wt_initial_attest_hsm_restarted();
     }

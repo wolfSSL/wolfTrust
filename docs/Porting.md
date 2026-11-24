@@ -303,6 +303,30 @@ never in reused memory). A fill never serves a word an earlier request saw.
 `tests/host/h5_rng`, `rt700_trng` and `mcxn947_rng` prove this on each
 driver over a model of its device.
 
+### Attestation key
+
+A `WT_ATTEST_KEY=hmac` image (the `tiny` profile) authenticates its
+attestation tokens with a 32-byte HMAC-SHA256 key the verifier also holds,
+so the port supplies it:
+
+```c
+int wt_port_attest_hmac_key(uint8_t* key, size_t keySize);
+```
+
+It runs with a privileged thread at boot and again when the attestation
+partition restarts, copies the key into `key` and returns `0`; any other
+return leaves the device with no key, and every token request then fails
+closed. Read the key from one-time-programmable storage or derive it from a
+hardware unique key, and keep it stable for the life of the device: the
+token's Instance ID is derived from it.
+
+The reference ports link `port/common/attest_dev_key.c`, a fixed public key,
+under `WT_ATTEST_DEV_KEY=1` (the default, with a build warning). A product
+port builds with `WT_ATTEST_DEV_KEY=0`, adds its own source with this
+function to `TARGET_EXTRA_SRCS`, and gives that object an owner line.
+`WT_ATTEST_KEY=ecc` images need none of this: the key is generated on the
+device and its public half is exported.
+
 ### Platform hooks
 
 `port/common/armv8m/platform_armv8m.c` owns `wt_platform_init` and every

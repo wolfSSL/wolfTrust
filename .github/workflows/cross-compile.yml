@@ -254,6 +254,65 @@ jobs:
             fi
             grep -qE 'WT_PSA_(OP_SLOTS|POOL_BYTES)' spsa.err
           done
+      - name: Build tiny with no ECC, and each ECC feature flag (WT_ATTEST_KEY, WT_VAULT_ECC)
+        run: |
+          ecc='[0-9a-f]+ . (sp_256_|sp_ecc_|wc_ecc_|wolfPSA_P256_|wc_CoseSign1)'
+          flash() { arm-none-eabi-size "$1" | awk 'NR == 2 { print $1 + $2 }'; }
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            dir=build_tiny_$target
+            make TARGET=$target WT_PROFILE=tiny secure-image \
+              TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
+            grep -qx 'WT_ATTEST_KEY=hmac/1' $dir/secure_build_mode.stamp
+            grep -qx 'WT_VAULT_ECC=0' $dir/secure_build_mode.stamp
+            arm-none-eabi-nm $dir/wolftrust.elf > $dir/syms.txt
+            grep -q ' wc_CoseEatPsaToken_CreateMac0' $dir/syms.txt
+            if grep -qE "$ecc" $dir/syms.txt; then
+              echo "FAIL: $target tiny still links ECC" >&2
+              exit 1
+            fi
+          done
+          # Either flag alone brings ECC back, and each works on any profile.
+          for args in "WT_PROFILE=tiny WT_ATTEST_KEY=ecc" "WT_PROFILE=tiny WT_VAULT_ECC=1" \
+              "WT_ATTEST_KEY=hmac" "WT_VAULT_ECC=0" "WT_ATTEST_KEY=hmac WT_VAULT_ECC=0"; do
+            dir=build_eccflag
+            # shellcheck disable=SC2086
+            make $args secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=$dir
+            for flag in $args; do
+              case $flag in
+              WT_ATTEST_KEY=*) grep -qx "$flag/1" $dir/secure_build_mode.stamp ;;
+              WT_VAULT_ECC=*) grep -qx "$flag" $dir/secure_build_mode.stamp ;;
+              esac
+            done
+            arm-none-eabi-nm $dir/wolftrust.elf | grep -qE "$ecc"
+            case $args in
+            "WT_PROFILE=tiny WT_ATTEST_KEY=ecc") with_ecc=$(flash $dir/wolftrust.elf) ;;
+            esac
+            rm -rf $dir
+          done
+          # The cut is the point of the profile: it must stay worth 8 KiB.
+          make WT_PROFILE=tiny secure-image TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_eccflag
+          tiny=$(flash build_eccflag/wolftrust.elf)
+          rm -rf build_eccflag
+          echo "tiny $tiny bytes, with an ECC attestation key $with_ecc bytes"
+          test $((tiny + 8192)) -le "$with_ecc" || \
+            { echo "FAIL: tiny without ECC saves less than 8 KiB" >&2; exit 1; }
+          # A product build has no development key until its port supplies one.
+          if make WT_PROFILE=tiny WT_ATTEST_DEV_KEY=0 secure-image \
+              TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_eccflag 2> eccflag.err; then
+            echo "FAIL: tiny linked with no attestation key source" >&2
+            exit 1
+          fi
+          grep -q 'wt_port_attest_hmac_key' eccflag.err
+          for bad in "WT_ATTEST_KEY=rsa" "WT_VAULT_ECC=2" "WT_ATTEST_DEV_KEY=2" \
+              "WT_ENGINE=hsm WT_ATTEST_KEY=hmac" "WT_ENGINE=hsm WT_VAULT_ECC=0"; do
+            # shellcheck disable=SC2086
+            if make $bad BUILD_DIR=build_eccflag secure-image \
+                TOOLPREFIX=arm-none-eabi- 2> eccflag.err; then
+              echo "FAIL: $bad built" >&2
+              exit 1
+            fi
+            grep -qE 'WT_(ATTEST_KEY|VAULT_ECC|ATTEST_DEV_KEY)' eccflag.err
+          done
       - name: Verify the Secure PSA guest links the client and no wolfPSA
         run: |
           for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do

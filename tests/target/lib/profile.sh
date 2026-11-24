@@ -26,7 +26,7 @@
 # The variables a profile owns, cleared before a profile is applied so the
 # caller's environment never leaks into a run.
 SCENARIO_PROFILE_VARS="WT_PROFILE WT_SECURE_PSA_PROFILE WT_MAX_GUESTS \
-WT_MANIFEST_RUNTIME_CHECK WT_FWU WT_SHA256_FAST"
+WT_MANIFEST_RUNTIME_CHECK WT_FWU WT_SHA256_FAST WT_ATTEST_KEY WT_VAULT_ECC"
 
 scenario_profile_flags() {
     case "$1" in

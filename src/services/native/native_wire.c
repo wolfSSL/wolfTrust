@@ -41,6 +41,10 @@
 #include "wolftrust/services/psa_crypto_service.h"
 #endif
 
+#ifndef WT_VAULT_ECC
+#define WT_VAULT_ECC 1
+#endif
+
 /* =========================================================================
  * wt_native_submit — SERVICE_HSM's native wire backend.
  *
@@ -107,6 +111,14 @@ int wt_native_submit(void* submit_ctx, int32_t client_id, const uint8_t* req,
     else if (hdr.op != WT_CRYPTO_OP_PSA && WT_PSA_UID_RESERVED(hdr.uid)) {
         status = PSA_ERROR_NOT_PERMITTED;
     }
+#if !WT_VAULT_ECC
+    /* The backend may still hold P-256 for an ECC attestation key. */
+    else if ((hdr.op == WT_CRYPTO_OP_KEY_GENERATE ||
+              hdr.op == WT_CRYPTO_OP_KEY_IMPORT) &&
+             hdr.key_type == WT_VAULT_KEY_P256) {
+        status = PSA_ERROR_NOT_SUPPORTED;
+    }
+#endif
     else switch (hdr.op) {
 #ifdef WT_SECURE_PSA
     case WT_CRYPTO_OP_PSA:
@@ -123,6 +135,7 @@ int wt_native_submit(void* submit_ctx, int32_t client_id, const uint8_t* req,
                                            hdr.key_type, hdr.usage, payload,
                                            payload_len);
         break;
+#if WT_VAULT_ECC
     case WT_CRYPTO_OP_KEY_EXPORT_PUBLIC:
         status = wt_hsm_key_backend.export_public(owner, client_id, hdr.uid,
                                                   out, out_cap, &out_len);
@@ -146,6 +159,7 @@ int wt_native_submit(void* submit_ctx, int32_t client_id, const uint8_t* req,
                                                WT_VAULT_KEY_SIG_LEN);
         }
         break;
+#endif
     case WT_CRYPTO_OP_KEY_ENCRYPT:
         status = wt_hsm_key_backend.encrypt(owner, client_id, hdr.uid,
                                             payload, payload_len, out,

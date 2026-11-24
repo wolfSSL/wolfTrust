@@ -29,6 +29,9 @@
 #define WOLFSSL_USER_IO
 #define NO_TLS
 
+#ifdef WT_NO_ECC
+#define NO_BIG_INT
+#else
 #define HAVE_ECC
 #define ECC_USER_CURVES
 #define ECC_TIMING_RESISTANT
@@ -41,6 +44,7 @@
 #define WOLFSSL_SP_SMALL
 #endif
 #define HAVE_STRINGS_H
+#endif
 
 #define HAVE_AESGCM
 #ifdef WT_AEAD_CCM

@@ -9,21 +9,27 @@ selected values into C preprocessor defines. Defaults below come from
 
 `WT_PROFILE` picks one of four build profiles, smallest first: `tiny`, `small`,
 `default` and `extended`. `make` with no options builds `default`: isolation
-level 3, one Non-secure image and the PSA services a TF-M level 3 build ships
-(Crypto, Internal Trusted Storage, Protected Storage and Initial Attestation),
-with the manifest checked at build time. A profile sets the defaults of the
+level 3, one Non-secure image and four PSA services (Crypto, Internal Trusted
+Storage, Protected Storage and Initial Attestation), with the manifest checked
+at build time. A profile sets the defaults of the
 add-ons below and of [`WT_SECURE_PSA_PROFILE`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1);
 a variable set explicitly still wins. No profile changes the isolation level.
 
-| `WT_PROFILE` | Secure PSA algorithm set | Add-ons it turns on |
+| `WT_PROFILE` | Secure PSA algorithm set | Flags it sets |
 | --- | --- | --- |
-| `tiny` | `tiny`: CCM, AES-CTR, SHA-256, HMAC and HKDF, no ECC in the PSA surface | none |
+| `tiny` | `tiny`: CCM, AES-CTR, SHA-256, HMAC and HKDF, no ECC in the PSA surface | `WT_ATTEST_KEY=hmac WT_VAULT_ECC=0` (native engine), so the image links no ECC |
 | `small` | `small`: one AEAD (CCM), AES-CTR, P-256 ECDSA and ECDH, SHA-256, HMAC and HKDF | none |
 | `default` | `default`: GCM and CCM, CTR, P-256 ECDSA and ECDH, SHA-256, HMAC and HKDF | none |
 | `extended` | `extended`: `default` plus CBC, ECB, PBKDF2, TLS 1.2 PRF, SP 800-108, CCM* and deterministic ECDSA | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` |
 
 `mk/profile.mk` holds this table for the build and
 `tests/target/lib/profile.sh` the same one for the target runners.
+
+A profile is only a preset. Each flag it sets is an option of its own and works
+on every profile: `make WT_PROFILE=tiny WT_ATTEST_KEY=ecc WT_VAULT_ECC=1` is
+`tiny` with the P-256 attestation key and vault keys back, and
+`make WT_ATTEST_KEY=hmac` is `default` with an HMAC attestation key. See
+[ECC options](#ecc-options).
 
 Costs are over the default image, built with Arm GNU 15.2.1 in
 `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO and read with
@@ -159,6 +165,74 @@ build `extended` only, because their checks assert both guests.
 - CI: every cross-compile and M33MU tier runs both engines on the ports that
   support them. See [Crypto Engines](Crypto-Engines.md).
 
+## ECC options
+
+The Secure image links P-256 for three features: the PSA algorithm set, the
+attestation key and the vault's key operations. Each has its own flag. When
+none of them asks for ECC, the build drops the curve and the big-number code
+with it (`sp_c32.c`, `sp_int.c`, `ecc.c`); there is no separate switch. The
+`tiny` profile sets all three that way. `make print-profile` prints the
+resolved flags and `WT_NO_ECC`.
+
+| What uses ECC | Flag | Without ECC |
+| --- | --- | --- |
+| PSA Crypto algorithm set | `WT_SECURE_PSA_PROFILE` | `tiny`, or `WT_SECURE_PSA=0` |
+| Initial Attestation key | `WT_ATTEST_KEY` | `hmac` |
+| Vault key operations | `WT_VAULT_ECC` | `0` |
+| wolfHSM engine, TPM 2.0, PKCS#11 | `WT_ENGINE`, `CONFIG_TPM`, `CONFIG_PKCS11` | native engine, both off |
+
+### `WT_ATTEST_KEY`: the attestation key type
+
+- Default `ecc`: a P-256 key the crypto partition generates at first boot and
+  keeps; tokens are COSE_Sign1 with ES256. `hmac` uses a 32-byte HMAC-SHA256
+  key instead; tokens are COSE_Mac0 with HMAC 256/256
+  ([RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html), section 5.1.1),
+  and the Instance ID is `0x01 || SHA-256(SHA-256(key))`. The `tiny` profile
+  sets `hmac`. Any other value stops the build.
+- A verifier checks an HMAC token with the same key, so the key is the
+  device's, not random: the port returns it from
+  `wt_port_attest_hmac_key()` (see [Porting](Porting.md#attestation-key)).
+  The attestation partition holds it; no call exports it and there is no
+  public-key query.
+- Saves: the signing door between the attestation and crypto partitions, the
+  stored P-256 key and COSE_Sign1. With `WT_VAULT_ECC=0` on the `tiny`
+  algorithm set, the whole of ECC: at least 8 KiB of flash on the STM32H563,
+  which CI enforces.
+- Enable: `make WT_ATTEST_KEY=hmac secure-image`. Requires the native engine;
+  the wolfHSM engine keeps the attestation key in its keystore.
+- CI: the cross-compile job builds `tiny` for every port and fails if a curve,
+  big-number or COSE_Sign1 symbol is linked, builds each flag alone, and
+  checks the saving. `tests/host/attestation_hmac` issues tokens with the
+  `tiny` wolfCOSE configuration and verifies them independently, starting
+  from the RFC 9783 Appendix A.2 token.
+
+### `WT_ATTEST_DEV_KEY`: the development attestation key
+
+- Default `1`: with `WT_ATTEST_KEY=hmac`, link `port/common/attest_dev_key.c`,
+  a fixed public key, so the reference boards build and test with no
+  provisioning. The build prints a warning. A token under this key proves
+  nothing about a device.
+- `0` links no key source: the port supplies `wt_port_attest_hmac_key()`, and
+  the image does not link without it. A product sets `0`.
+- CI: the cross-compile job checks that `0` does not link on a reference port.
+
+### `WT_VAULT_ECC`: the vault's P-256 key operations
+
+- Default `1`: the vault generates, imports, signs with and verifies P-256
+  keys for its clients. `0` leaves those out: the requests return
+  `PSA_ERROR_NOT_SUPPORTED`, and AES-256 keys, sealed storage and random
+  bytes are unchanged. The `tiny` profile sets `0`. Any other value stops the
+  build.
+- With `WT_ATTEST_KEY=ecc` the vault still holds P-256 for the attestation
+  key, so `0` alone saves only the request handling; the saving comes with
+  `WT_ATTEST_KEY=hmac`.
+- A P-256 key a client stored under `1` stays in the store and is unusable
+  under `0`.
+- Enable: `make WT_VAULT_ECC=0 secure-image`. Requires the native engine.
+- CI: the cross-compile job builds it alone and in `tiny`;
+  `tests/host/native_wire` runs the vault without P-256, with and without an
+  ECC attestation key.
+
 ## Build selection
 
 | Define | Description | Requirement |
@@ -192,6 +266,9 @@ build `extended` only, because their checks assert both guests.
 | `WT_SECURE_PSA` | When `1`, serve PSA Crypto from the Secure image: wolfPSA runs in the crypto partition and the guest links the PSA client instead of wolfPSA. Default `1` with the native engine and `0` with wolfHSM; a port may default it to `0` in its `mk/target-<soc>.mk`. See [Crypto Engines](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1). | `1` requires `WT_ENGINE=native`; build every guest with the Secure image's value. |
 | `WT_PROFILE` | Build profile: `tiny`, `small`, `default` (default) or `extended`. Sets the add-on defaults, `WT_SECURE_PSA_PROFILE` and `WT_INTERFACE_PROFILE`; see [Build profiles](#build-profiles). | Any other value stops the build. |
 | `WT_SECURE_PSA_PROFILE` | Algorithm set of a `WT_SECURE_PSA=1` image: `tiny`, `small`, `default` or `extended`; follows `WT_PROFILE` unless set. | Any other value stops the build. |
+| `WT_ATTEST_KEY` | Attestation key type: `ecc` (P-256, COSE_Sign1) or `hmac` (HMAC-SHA256, COSE_Mac0). Default `ecc`; `tiny` sets `hmac`. See [ECC options](#ecc-options). | `hmac` requires the native engine and a key from the port. Any other value stops the build. |
+| `WT_ATTEST_DEV_KEY` | With `WT_ATTEST_KEY=hmac`, link the public development key of the reference boards; default `1`, with a build warning. | A product sets `0` and supplies `wt_port_attest_hmac_key()`. |
+| `WT_VAULT_ECC` | Vault P-256 key operations; default `1`, `tiny` sets `0`. `0` returns `PSA_ERROR_NOT_SUPPORTED` for them. | `0` requires the native engine. Any other value stops the build. |
 | `WT_PSA_POOL_BYTES` | Make variable: size of the crypto partition's private wolfPSA pool, split evenly into one arena per guest; empty keeps 2,048 bytes per guest. | A smaller arena fails calls that hold more with `PSA_ERROR_INSUFFICIENT_MEMORY`; below 1,536 bytes per guest stops the build. A pool past the crypto partition's band fails the link. |
 | `WT_PSA_KEY_SLOTS`, `WT_PSA_OP_SLOTS` | Make variables: volatile keys and live operations the Secure PSA service tracks, split evenly across the guests; empty keeps `16` and `8`. | Fewer slots than guests, more than 256 operation slots, or a non-number stops the build. Each slot's state is allocated from `WT_PSA_POOL_BYTES`. |
 | `WT_WOLFCRYPT_SP_ASM` | Enable wolfCrypt SP Cortex-M assembly; default `0`, the portable C `sp_c32.c`, which is smaller. `1` trades flash for faster ECC and, on the native engine, raises the crypto partition stack to 9 KiB in every profile (from 5 KiB, or 6 KiB in `extended`) for its deeper P-256 verify. | `1` requires compatible Armv8-M assembly sources and toolchain. |
@@ -267,7 +344,7 @@ command-line option.
 | `WOLFCRYPT_ONLY` | Builds only wolfCrypt functionality. | Fixed for the Secure image. |
 | `NO_WOLFSSL_MEMORY` | Removes the wolfSSL allocator layer. | Fixed for the Secure image. |
 | `WOLFSSL_NO_MALLOC` | Rejects accidental dynamic allocation paths. | Fixed for the Secure image; Secure code must use static or stack storage. |
-| `HAVE_ECC` | Enables the configured ECC implementation. | The reference image uses P-256 operations. |
+| `HAVE_ECC` | Enables the configured ECC implementation. | P-256 only. Undefined, with `NO_BIG_INT` set in its place, when no feature of the build uses ECC ([ECC options](#ecc-options)), as in the `tiny` profile. |
 | `HAVE_AESGCM` | Enables AES-GCM. | Required by Protected Storage sealing unless `WT_AEAD=ccm`, which needs `HAVE_AESCCM` instead. |
 | `NO_ASN` | Native engine only: drops wolfCrypt ASN.1. | The native engine signs, verifies and imports keys in raw form; the wolfHSM server keeps ASN for its DER keystore. |
 | `NO_AES_DECRYPT`, `HAVE_AESGCM_DECRYPT` | Native engine only: drop the AES inverse key schedule and decrypt tables but keep `wc_AesGcmDecrypt`. | GCM runs the block cipher forward for both seal and unseal. `WT_AEAD=ccm` undefines `NO_AES_DECRYPT`, which wolfCrypt's CCM decrypt is compiled under, though it also runs forward. |

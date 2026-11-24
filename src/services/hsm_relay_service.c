@@ -40,9 +40,11 @@ static wt_spm_transport_fn g_relay_transport = wt_spm_transport_direct;
     defined(WT_INTERFACE_LOCAL_PROVIDER)
 static int32_t g_relay_secure_client = 0;
 #endif
+#ifndef WT_ATTEST_KEY_hmac
 static int32_t g_relay_attest_client = 0;
 static wt_hsm_attest_sign_fn g_relay_attest_sign = NULL;
 static wt_hsm_attest_public_key_fn g_relay_attest_public_key = NULL;
+#endif
 
 /* P-256 verify needs roughly 4 KiB below the relay frames. Keep the copied
  * packets in Secure KEYSTORE instead of the HSM partition's 8 KiB stack. */
@@ -75,6 +77,7 @@ void wt_hsm_relay_set_transport(wt_spm_transport_fn fn)
     g_relay_transport = (fn != NULL) ? fn : wt_spm_transport_direct;
 }
 
+#ifndef WT_ATTEST_KEY_hmac
 void wt_hsm_relay_set_attest_ops(int32_t attest_partition_id,
                                  wt_hsm_attest_sign_fn sign,
                                  wt_hsm_attest_public_key_fn public_key)
@@ -84,6 +87,7 @@ void wt_hsm_relay_set_attest_ops(int32_t attest_partition_id,
     g_relay_attest_sign = sign;
     g_relay_attest_public_key = public_key;
 }
+#endif
 
 /* Drain invec[0] into a bounded private buffer (WT-FFM-0041 copied
  * transfers). */
@@ -197,6 +201,7 @@ static psa_status_t wt_hsm_relay_call(wt_ffm_runtime_t* runtime,
     return status;
 }
 
+#ifndef WT_ATTEST_KEY_hmac
 /* Map the engine signer's wolfHSM-style result onto a PSA status; NOTREADY
  * (no IAK yet) surfaces as BAD_STATE so the attestation partition reports
  * not-ready rather than a generic failure. */
@@ -271,6 +276,7 @@ static psa_status_t wt_hsm_relay_attest_call(wt_ffm_runtime_t* runtime,
     wt_forceZero(out, sizeof(out));
     return status;
 }
+#endif /* !WT_ATTEST_KEY_hmac */
 
 int wt_hsm_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
                           int32_t partition_id)
@@ -318,9 +324,11 @@ int wt_hsm_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
         else {
             reply_status = PSA_ERROR_NOT_PERMITTED;
         }
+#ifndef WT_ATTEST_KEY_hmac
     } else if (msg.type == WT_HSM_OP_ATTEST_SIGN ||
                msg.type == WT_HSM_OP_ATTEST_PUBLIC_KEY) {
         reply_status = wt_hsm_relay_attest_call(runtime, partition_id, &msg);
+#endif
     } else {
         reply_status = PSA_ERROR_NOT_SUPPORTED;
     }

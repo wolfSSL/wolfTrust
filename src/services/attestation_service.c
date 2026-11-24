@@ -195,6 +195,7 @@ static psa_status_t wt_attestation_service_token_size(
     return PSA_SUCCESS;
 }
 
+#ifndef WT_ATTEST_KEY_hmac
 /* IAK public-key query (WT_ATTEST_OP_PUBLIC_KEY): the uncompressed P-256
  * public point out. Public data only — the private IAK never leaves the
  * secure side. */
@@ -220,6 +221,7 @@ static psa_status_t wt_attestation_service_public_key(
     }
     return PSA_SUCCESS;
 }
+#endif
 
 int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
                                     int32_t partition_id)
@@ -256,9 +258,11 @@ int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
     } else if (msg.type == WT_ATTEST_OP_TOKEN_SIZE) {
         reply_status = wt_attestation_service_token_size(runtime,
                            partition_id, &msg);
+#ifndef WT_ATTEST_KEY_hmac
     } else if (msg.type == WT_ATTEST_OP_PUBLIC_KEY) {
         reply_status = wt_attestation_service_public_key(runtime,
                            partition_id, &msg);
+#endif
     } else {
         reply_status = PSA_ERROR_NOT_SUPPORTED;
     }

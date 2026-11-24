@@ -71,6 +71,10 @@ $(TEST_BIN): $(ALL_OBJS) | $(BUILD_DIR)
 
 run: $(TEST_BIN)
 	$(TEST_BIN)
+ifeq ($(findstring WT_ATTEST_KEY_hmac,$(EXTRA_CFLAGS)),)
+	$(MAKE) --no-print-directory run BUILD_DIR=$(BUILD_DIR)/hmac \
+	    EXTRA_CFLAGS="$(EXTRA_CFLAGS) -DWT_ATTEST_KEY_hmac=1"
+endif
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

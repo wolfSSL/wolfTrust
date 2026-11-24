@@ -33,7 +33,12 @@
 /* wolfCrypt settings must come first. */
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/types.h"
+#ifndef WT_KEYVAULT_P256
+#define WT_KEYVAULT_P256 1
+#endif
+#if WT_KEYVAULT_P256
 #include "wolfssl/wolfcrypt/ecc.h"
+#endif
 #include "wolfssl/wolfcrypt/aes.h"
 #include "wolfssl/wolfcrypt/random.h"
 #include "wolfssl/wolfcrypt/error-crypt.h"
@@ -54,7 +59,7 @@
 #error "vault key encryption must match the vault AEAD sizes"
 #endif
 
-#ifdef WOLFPSA_ECC_SP_DIRECT
+#if WT_KEYVAULT_P256 && defined(WOLFPSA_ECC_SP_DIRECT)
 #include "wolfpsa/psa_p256.h"
 #endif
 
@@ -62,6 +67,7 @@
     (WT_VAULT_KEY_MATERIAL_LEN + WT_VAULT_KEY_PUB_LEN)
 #define WT_HSM_KEY_AES_OBJ_LEN WT_VAULT_KEY_MATERIAL_LEN
 
+#if WT_KEYVAULT_P256
 /* NO_ASN makes wc_ecc_sign_hash/verify_hash use the fixed-width r||s form;
  * TPM 2.0 and PKCS#11 builds link ASN.1, so they convert through DER. */
 #if !defined(NO_ASN) && !defined(CONFIG_TPM) && !defined(CONFIG_PKCS11)
@@ -69,6 +75,7 @@
 #endif
 #ifndef NO_ASN
 #define WT_HSM_KEY_DER_SIG_MAX 80U
+#endif
 #endif
 
 #define WT_HSM_KEY_LABEL(usage, type) \
@@ -223,6 +230,7 @@ static psa_status_t wt_hsm_kv_load(int32_t owner, int32_t sub, uint64_t uid,
     return PSA_SUCCESS;
 }
 
+#if WT_KEYVAULT_P256
 /* Derive [d][X9.63 public] from a P-256 private scalar. */
 static psa_status_t wt_hsm_kv_p256_object(const uint8_t* d, uint8_t* obj)
 {
@@ -256,20 +264,25 @@ static psa_status_t wt_hsm_kv_p256_object(const uint8_t* d, uint8_t* obj)
     return (rc == 0) ? PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
 #endif
 }
+#endif /* WT_KEYVAULT_P256 */
 
 static psa_status_t wt_hsm_kv_generate(int32_t owner, int32_t sub,
                                        uint64_t uid, uint32_t type,
                                        uint32_t usage)
 {
+#if WT_KEYVAULT_P256
     uint8_t obj[WT_HSM_KEY_P256_OBJ_LEN];
+#endif
     uint8_t d[WT_VAULT_KEY_MATERIAL_LEN];
-#ifndef WOLFPSA_ECC_SP_DIRECT
+#if WT_KEYVAULT_P256 && !defined(WOLFPSA_ECC_SP_DIRECT)
     ecc_key key;
     word32 len;
 #endif
     WC_RNG* rng;
     psa_status_t status;
+#if WT_KEYVAULT_P256
     int rc;
+#endif
 
     if (g_kv_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
@@ -281,6 +294,7 @@ static psa_status_t wt_hsm_kv_generate(int32_t owner, int32_t sub,
     if (status != PSA_SUCCESS) {
         return status;
     }
+#if WT_KEYVAULT_P256
     if (type == WT_VAULT_KEY_P256) {
 #ifdef WOLFPSA_ECC_SP_DIRECT
         rc = wolfPSA_P256_Generate(rng, obj, obj + WT_VAULT_KEY_MATERIAL_LEN);
@@ -310,6 +324,7 @@ static psa_status_t wt_hsm_kv_generate(int32_t owner, int32_t sub,
         wt_hsm_kv_zeroize(obj, sizeof(obj));
         return status;
     }
+#endif
     if (type == WT_VAULT_KEY_AES256) {
         if (wc_RNG_GenerateBlock(rng, d, WT_VAULT_KEY_MATERIAL_LEN) != 0) {
             return PSA_ERROR_GENERIC_ERROR;
@@ -326,8 +341,10 @@ static psa_status_t wt_hsm_kv_import(int32_t owner, int32_t sub, uint64_t uid,
                                      uint32_t type, uint32_t usage,
                                      const uint8_t* data, size_t len)
 {
+#if WT_KEYVAULT_P256
     uint8_t obj[WT_HSM_KEY_P256_OBJ_LEN];
     psa_status_t status;
+#endif
 
     if (g_kv_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
@@ -336,6 +353,7 @@ static psa_status_t wt_hsm_kv_import(int32_t owner, int32_t sub, uint64_t uid,
             len != WT_VAULT_KEY_MATERIAL_LEN) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
+#if WT_KEYVAULT_P256
     if (type == WT_VAULT_KEY_P256) {
         status = wt_hsm_kv_p256_object(data, obj);
         if (status == PSA_SUCCESS) {
@@ -345,6 +363,7 @@ static psa_status_t wt_hsm_kv_import(int32_t owner, int32_t sub, uint64_t uid,
         wt_hsm_kv_zeroize(obj, sizeof(obj));
         return status;
     }
+#endif
     if (type == WT_VAULT_KEY_AES256) {
         return wt_hsm_kv_store(owner, sub, uid, type, usage, data,
                                WT_HSM_KEY_AES_OBJ_LEN);
@@ -352,6 +371,7 @@ static psa_status_t wt_hsm_kv_import(int32_t owner, int32_t sub, uint64_t uid,
     return PSA_ERROR_NOT_SUPPORTED;
 }
 
+#if WT_KEYVAULT_P256
 /* Public halves are exportable by design; usage bits do not gate this. */
 static psa_status_t wt_hsm_kv_export_public(int32_t owner, int32_t sub,
                                             uint64_t uid, uint8_t* out,
@@ -526,6 +546,50 @@ static psa_status_t wt_hsm_kv_verify(int32_t owner, int32_t sub, uint64_t uid,
     }
     return (res == 1) ? PSA_SUCCESS : PSA_ERROR_INVALID_SIGNATURE;
 }
+#else
+/* No P-256 key type in this build: the three P-256 entries refuse. */
+static psa_status_t wt_hsm_kv_export_public(int32_t owner, int32_t sub,
+                                            uint64_t uid, uint8_t* out,
+                                            size_t cap, size_t* out_len)
+{
+    (void)owner;
+    (void)sub;
+    (void)uid;
+    (void)out;
+    (void)cap;
+    (void)out_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static psa_status_t wt_hsm_kv_sign(int32_t owner, int32_t sub, uint64_t uid,
+                                   const uint8_t* digest, size_t digest_len,
+                                   uint8_t* sig, size_t cap, size_t* out_len)
+{
+    (void)owner;
+    (void)sub;
+    (void)uid;
+    (void)digest;
+    (void)digest_len;
+    (void)sig;
+    (void)cap;
+    (void)out_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static psa_status_t wt_hsm_kv_verify(int32_t owner, int32_t sub, uint64_t uid,
+                                     const uint8_t* digest, size_t digest_len,
+                                     const uint8_t* sig, size_t sig_len)
+{
+    (void)owner;
+    (void)sub;
+    (void)uid;
+    (void)digest;
+    (void)digest_len;
+    (void)sig;
+    (void)sig_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+#endif /* WT_KEYVAULT_P256 */
 
 static psa_status_t wt_hsm_kv_encrypt(int32_t owner, int32_t sub,
                                       uint64_t uid, const uint8_t* input,

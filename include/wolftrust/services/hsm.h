@@ -143,6 +143,7 @@ int wt_hsm_relay_reinit_servers(void);
  * the vault's store memory. Privileged bootstrap only. */
 int wt_hsm_bind_nvm(struct whNvmContext_t* nvm);
 
+#ifndef WT_ATTEST_KEY_hmac
 /* Provision or reopen the Initial Attestation Key in the wolfHSM keystore.
  * The private key is non-exportable and restricted to signing. */
 int wt_hsm_attest_init(void);
@@ -165,6 +166,7 @@ int wt_hsm_attest_sign(const uint8_t* digest, size_t digestSize,
 /* Return the IAK public point in X9.63 form, 0x04 followed by X and Y. */
 int wt_hsm_attest_public_key(uint8_t* publicKey, size_t publicKeyCapacity,
                              size_t* publicKeySize);
+#endif /* !WT_ATTEST_KEY_hmac */
 
 /* Gated vault backing (WT-FFM-0047): bind the shared NVM context, then
  * install wt_hsm_vault_backend into SERVICE_VAULT. wt_hsm_init does both;

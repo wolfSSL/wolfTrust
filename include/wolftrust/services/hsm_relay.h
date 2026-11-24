@@ -86,9 +86,11 @@ typedef int (*wt_hsm_attest_sign_fn)(const uint8_t* digest, size_t digest_len,
 typedef int (*wt_hsm_attest_public_key_fn)(uint8_t* public_key,
                                            size_t public_key_capacity,
                                            size_t* public_key_len);
+#ifndef WT_ATTEST_KEY_hmac
 void wt_hsm_relay_set_attest_ops(int32_t attest_partition_id,
                                  wt_hsm_attest_sign_fn sign,
                                  wt_hsm_attest_public_key_fn public_key);
+#endif
 
 /* Transport seam, mirroring the other services: direct gate calls on the
  * host, the SVC transport when scheduled on target. NULL restores default. */

@@ -402,6 +402,74 @@ static void test_import(void)
           "import refuses a short scalar");
 }
 
+/* WT_VAULT_ECC=0: no client reaches a P-256 key, and the backend keeps the
+ * key type only for an ECC attestation key (WT_KEYVAULT_P256). */
+static void test_no_p256(void)
+{
+    static const uint8_t digest[WT_VAULT_KEY_DIGEST_LEN] = { 0x5a };
+    uint8_t in[WT_VAULT_KEY_DIGEST_LEN + WT_VAULT_KEY_SIG_LEN];
+    uint8_t out[WT_HSM_RELAY_MSG_MAX];
+    size_t got = 0U;
+    psa_status_t status = PSA_SUCCESS;
+    int rc;
+
+    (void)memset(in, 0x11, sizeof(in));
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_GENERATE, 0x60U,
+              WT_VAULT_KEY_USAGE_SIGN, WT_VAULT_KEY_P256, NULL, 0U, NULL, 0U,
+              &got, &status);
+    check(rc == 0 && status == PSA_ERROR_NOT_SUPPORTED && got == 0U,
+          "GENERATE refuses a P-256 key");
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_IMPORT, 0x61U,
+              WT_VAULT_KEY_USAGE_SIGN, WT_VAULT_KEY_P256, in,
+              WT_VAULT_KEY_MATERIAL_LEN, NULL, 0U, &got, &status);
+    check(rc == 0 && status == PSA_ERROR_NOT_SUPPORTED && got == 0U,
+          "IMPORT refuses a P-256 key");
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_EXPORT_PUBLIC, 0x60U, 0U, 0U,
+              NULL, 0U, out, sizeof(out), &got, &status);
+    check(rc == 0 && status == PSA_ERROR_NOT_SUPPORTED && got == 0U,
+          "EXPORT_PUBLIC is not served");
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_SIGN, 0x60U, 0U, 0U, digest,
+              sizeof(digest), out, sizeof(out), &got, &status);
+    check(rc == 0 && status == PSA_ERROR_NOT_SUPPORTED && got == 0U,
+          "SIGN is not served");
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_VERIFY, 0x60U, 0U, 0U, in,
+              sizeof(in), NULL, 0U, &got, &status);
+    check(rc == 0 && status == PSA_ERROR_NOT_SUPPORTED && got == 0U,
+          "VERIFY is not served");
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_GENERATE, 0x2004ULL,
+              WT_VAULT_KEY_USAGE_ENCRYPT | WT_VAULT_KEY_USAGE_DECRYPT,
+              WT_VAULT_KEY_AES256, NULL, 0U, NULL, 0U, &got, &status);
+    check(rc == 0 && status == PSA_SUCCESS,
+          "GENERATE still makes an AES-256 key");
+
+    status = wt_hsm_key_backend.generate(0, 0, 0xF0U, WT_VAULT_KEY_P256,
+                                         WT_VAULT_KEY_USAGE_SIGN);
+#if WT_KEYVAULT_P256
+    check(status == PSA_SUCCESS, "the backend makes the attestation key");
+    status = wt_hsm_key_backend.sign(0, 0, 0xF0U, digest, sizeof(digest),
+                                     out, sizeof(out), &got);
+    check(status == PSA_SUCCESS && got == WT_VAULT_KEY_SIG_LEN,
+          "the backend signs with the attestation key");
+    rc = wire(0, WT_CRYPTO_OP_KEY_SIGN, 0xF0U, 0U, 0U, digest,
+              sizeof(digest), out, sizeof(out), &got, &status);
+    check(rc == 0 && status == PSA_ERROR_NOT_SUPPORTED && got == 0U,
+          "the wire does not sign with the attestation key");
+#else
+    check(status == PSA_ERROR_NOT_SUPPORTED, "the backend has no P-256 key");
+    got = 7U;
+    status = wt_hsm_key_backend.sign(0, 0, 0xF0U, digest, sizeof(digest),
+                                     out, sizeof(out), &got);
+    check(status == PSA_ERROR_NOT_SUPPORTED, "the backend does not sign");
+    status = wt_hsm_key_backend.verify(0, 0, 0xF0U, digest, sizeof(digest),
+                                       in, WT_VAULT_KEY_SIG_LEN);
+    check(status == PSA_ERROR_NOT_SUPPORTED, "the backend does not verify");
+    status = wt_hsm_key_backend.export_public(0, 0, 0xF0U, out, sizeof(out),
+                                              &got);
+    check(status == PSA_ERROR_NOT_SUPPORTED,
+          "the backend exports no public key");
+#endif
+}
+
 static void test_psa_uid_reserved(void)
 {
     static const uint32_t ops[] = {
@@ -503,11 +571,16 @@ int main(int argc, char* argv[])
     }
 
     test_random_and_hash();
+#if WT_VAULT_ECC
     test_p256_lifecycle();
     test_usage_and_type();
     test_aes_gcm();
     test_import();
     test_malformed();
+#else
+    test_no_p256();
+    test_aes_gcm();
+#endif
     test_psa_uid_reserved();
 
     if (g_failures != 0) {

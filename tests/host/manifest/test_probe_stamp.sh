@@ -201,6 +201,43 @@ for cfg in CONFIG_TPM=y CONFIG_PKCS11=y; do
     esac
     check $st "stm32l562 $cfg builds extended with WT_FWU=0"
 done
+# ECC leaves a build only when no feature asks for it; each row is
+# "<make arguments>|<expected tail of print-profile>".
+while IFS='|' read -r args want; do
+    # shellcheck disable=SC2086
+    got=$(cd "$root" && make -s --no-print-directory TARGET=stm32h563 $args \
+        print-profile 2>/dev/null)
+    case "$got" in
+    *" $want") st=0 ;;
+    *) st=1 ;;
+    esac
+    check $st "'$args' resolves $want"
+done <<'EOF'
+WT_PROFILE=tiny|WT_ATTEST_KEY=hmac WT_VAULT_ECC=0 WT_NO_ECC=1
+WT_PROFILE=small|WT_ATTEST_KEY=ecc WT_VAULT_ECC=1 WT_NO_ECC=0
+WT_PROFILE=default|WT_ATTEST_KEY=ecc WT_VAULT_ECC=1 WT_NO_ECC=0
+WT_PROFILE=extended|WT_ATTEST_KEY=ecc WT_VAULT_ECC=1 WT_NO_ECC=0
+WT_PROFILE=tiny WT_ATTEST_KEY=ecc|WT_ATTEST_KEY=ecc WT_VAULT_ECC=0 WT_NO_ECC=0
+WT_PROFILE=tiny WT_VAULT_ECC=1|WT_ATTEST_KEY=hmac WT_VAULT_ECC=1 WT_NO_ECC=0
+WT_PROFILE=tiny CONFIG_TPM=y|WT_ATTEST_KEY=hmac WT_VAULT_ECC=0 WT_NO_ECC=0
+WT_PROFILE=tiny WT_SECURE_PSA=0|WT_ATTEST_KEY=hmac WT_VAULT_ECC=0 WT_NO_ECC=1
+WT_PROFILE=tiny WT_ENGINE=hsm|WT_ATTEST_KEY=ecc WT_VAULT_ECC=1 WT_NO_ECC=0
+WT_PROFILE=small WT_ATTEST_KEY=hmac WT_VAULT_ECC=0|WT_ATTEST_KEY=hmac WT_VAULT_ECC=0 WT_NO_ECC=0
+EOF
+while IFS='|' read -r args want; do
+    # shellcheck disable=SC2086
+    if (cd "$root" && make -s --no-print-directory TARGET=stm32h563 $args \
+            print-profile >/dev/null 2>"$build/profile.err"); then st=1;
+    elif grep -q "$want" "$build/profile.err"; then st=0;
+    else st=1; fi
+    check $st "'$args' stops the build"
+done <<'EOF'
+WT_ATTEST_KEY=rsa|unsupported WT_ATTEST_KEY
+WT_VAULT_ECC=2|unsupported WT_VAULT_ECC
+WT_ATTEST_KEY=hmac WT_ATTEST_DEV_KEY=2|unsupported WT_ATTEST_DEV_KEY
+WT_ENGINE=hsm WT_ATTEST_KEY=hmac|WT_ATTEST_KEY=hmac requires WT_ENGINE=native
+WT_ENGINE=hsm WT_VAULT_ECC=0|WT_VAULT_ECC=0 requires WT_ENGINE=native
+EOF
 gen
 
 for target in stm32h563 mimxrt700 mcxn947; do

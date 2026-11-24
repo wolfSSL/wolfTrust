@@ -42,6 +42,15 @@ CFLAGS := \
 ifeq ($(SP_DIRECT),1)
 CFLAGS += -DWOLFPSA_ECC_SP_DIRECT -I$(WOLFPSA)
 endif
+# VAULT_ECC=0 builds the vault without P-256 key operations, as tiny does;
+# KEYVAULT_P256=1 keeps the backend's P-256 for an ECC attestation key.
+VAULT_ECC ?= 1
+KEYVAULT_P256 ?= $(VAULT_ECC)
+NO_ECC := $(if $(filter 00,$(VAULT_ECC)$(KEYVAULT_P256)),1,0)
+CFLAGS += -DWT_VAULT_ECC=$(VAULT_ECC) -DWT_KEYVAULT_P256=$(KEYVAULT_P256)
+ifeq ($(NO_ECC),1)
+CFLAGS += -DWT_NO_ECC=1
+endif
 CFLAGS += $(EXTRA_CFLAGS)
 
 # wolfCrypt's ECC sources need GNU libc declarations that strict C11
@@ -81,6 +90,9 @@ _WC_SRCS := \
 ifeq ($(SP_DIRECT),1)
 _WC_SRCS += $(WOLFSSL)/wolfcrypt/src/sp_c32.c $(WOLFSSL)/wolfcrypt/src/sp_c64.c
 _WP_SRCS := $(WOLFPSA)/src/psa_p256.c
+endif
+ifeq ($(NO_ECC),1)
+_WC_SRCS := $(filter-out %/ecc.c %/sp_int.c %/wolfmath.c,$(_WC_SRCS))
 endif
 
 _TEST_SRCS := main.c
@@ -149,6 +161,15 @@ ifneq ($(SP_DIRECT),1)
 	    $(BUILD_DIR)/direct/test_native_wire
 	$(BUILD_DIR)/direct/test_native_wire
 	@printf '%s\n' 'PASS: native wire on the direct P-256 path'
+endif
+ifeq ($(VAULT_ECC)$(SP_DIRECT),10)
+	$(MAKE) --no-print-directory VAULT_ECC=0 BUILD_DIR=$(BUILD_DIR)/noecc \
+	    $(BUILD_DIR)/noecc/test_native_wire
+	$(BUILD_DIR)/noecc/test_native_wire
+	$(MAKE) --no-print-directory VAULT_ECC=0 KEYVAULT_P256=1 \
+	    BUILD_DIR=$(BUILD_DIR)/iakecc $(BUILD_DIR)/iakecc/test_native_wire
+	$(BUILD_DIR)/iakecc/test_native_wire
+	@printf '%s\n' 'PASS: native wire without vault P-256'
 endif
 
 compilers:

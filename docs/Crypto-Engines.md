@@ -23,7 +23,7 @@ independent TF-M Level 3 code and data isolation.
 | Secure key service | Native request format dispatches wolfCrypt directly; explicitly vault-backed keys are NVM objects | wolfHSM request format dispatches the wolfHSM server and its keystore |
 | Guest volatile PSA keys | Held in the Secure image, or in the guest's Non-secure memory with `WT_SECURE_PSA=0` | Keys for supported offloaded operations are held by the Secure wolfHSM server |
 | Persistent Secure keys | Native vault objects marked `SENSITIVE` and `NONEXPORTABLE` | wolfHSM server-keystore objects with wolfHSM key policy |
-| Attestation IAK | Vault-backed P-256 key used directly by wolfCrypt | Committed wolfHSM server-keystore key |
+| Attestation IAK | Vault-backed P-256 key used directly by wolfCrypt; with `WT_ATTEST_KEY=hmac`, the port's HMAC key held by the attestation partition | Committed wolfHSM server-keystore key |
 | External HSM path | Not provided by this engine | Available through the wolfHSM server model when a deployment configures a backend; the reference build uses software wolfCrypt |
 | Secure-image footprint | Lower | Adds the wolfHSM protocol, server, per-guest contexts, and per-guest server stacks |
 
@@ -91,7 +91,7 @@ NVM reads reject non-exportable objects, and the native request format has no
 private-key export operation. Private-key computations run in the Secure
 key-vault domain and temporary plaintext key buffers are zeroized after use.
 The attestation IAK is a separate fixed vault object used only by the
-attestation path.
+attestation path; a `WT_ATTEST_KEY=hmac` image stores no IAK in the vault.
 
 The native engine builds wolfCrypt with `NO_ASN` and does not compile
 `asn.c`. Its key operations use only raw forms (P-256 scalars, X9.63 public
@@ -121,7 +121,9 @@ The defined operations are key generate, import, public export, sign, verify,
 encrypt, decrypt, and destroy, plus random generation and SHA-256 hashing.
 Random responses are limited to 256 bytes per request. P-256 signatures use a
 fixed 64-byte `r || s` form and public keys use the 65-byte uncompressed X9.63
-form. AES-256 encrypt and decrypt use AES-GCM, or AES-CCM when `WT_AEAD` is
+form. `WT_VAULT_ECC=0`, which the `tiny` profile sets, builds no P-256 key
+operations: generating or importing a P-256 key, public export, sign and
+verify return `PSA_ERROR_NOT_SUPPORTED`. AES-256 encrypt and decrypt use AES-GCM, or AES-CCM when `WT_AEAD` is
 `ccm` (the `tiny` and `small` default), and return or consume
 `nonce || ciphertext || tag`. With `WT_SECURE_PSA=1`, both run on wolfPSA's
 streaming code (`wolfpsa/psa_gcm.h`, `wolfpsa/psa_ccm.h`), so wolfCrypt's
@@ -208,6 +210,12 @@ P-256 path over wolfCrypt's SP code, so `ecc.c` and the multi-precision math
 leave the image; `extended` keeps them for deterministic ECDSA. With
 `WT_AEAD=gcm`, `small` is 92,683 bytes and `tiny` 88,995.
 
+The `tiny` row is the algorithm set alone, `WT_SECURE_PSA_PROFILE=tiny`: the
+attestation key and the vault's keys still use P-256 there.
+`make WT_PROFILE=tiny` also sets `WT_ATTEST_KEY=hmac` and `WT_VAULT_ECC=0`,
+and with no feature left that uses ECC the image links no curve or
+big-number code at all ([ECC options](Macros.md#ecc-options)).
+
 RAM is the Secure RAM the image reserves. The crypto partition's stack is 6 KiB
 in `extended` for `ecc.c`'s ECDSA and 5 KiB in the other profiles, as with
 `WT_SECURE_PSA=0`; its data band grows from 1.5 KiB to `WT_PSA_POOL_BYTES` plus
@@ -254,7 +262,9 @@ are dropped in native. The store's on-flash format is identical in both
 engines, so persistent storage objects survive a switch between engines.
 
 The Initial Attestation Key is the exception. The hsm engine keeps the IAK in
-the wolfHSM server keystore; the native engine keeps it as a vault key object.
+the wolfHSM server keystore; the native engine keeps it as a vault key object,
+or with `WT_ATTEST_KEY=hmac` takes the device's HMAC key from the port at each
+boot and stores none.
 Neither engine migrates the other's, so switching engines on an
 already-provisioned device does not carry the attestation identity: a
 provisioning lifecycle mints a fresh IAK, and a SECURED device with no IAK for

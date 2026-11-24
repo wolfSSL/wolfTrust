@@ -57,6 +57,7 @@ wt_sec_mutex.o                         spm
 wt_sec_nvm_boot.o                      spm
 wt_sec_reg.o                           spm
 wt_sec_rng_entropy.o                   spm
+wt_sec_attest_dev_key.o                spm
 wt_sec_sau_armv8m.o                    spm
 wt_sec_sp_fault_armv8m.o               spm
 wt_sec_spm_gate_core.o                 spm

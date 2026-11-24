@@ -49,6 +49,7 @@ make WT_SHA256_FAST=1 secure-image             # unrolled SHA-256 transform
 make WT_ENGINE=hsm secure-image                # the wolfHSM engine
 make WT_PROFILE=extended secure-image          # every add-on, extended PSA set
 make WT_PROFILE=small secure-image             # one AEAD, no AES decryption
+make WT_PROFILE=tiny secure-image              # no ECC: HMAC attestation key, no vault P-256
 ```
 
 [Macros](Macros.md#build-profiles) lists what each add-on brings back and its

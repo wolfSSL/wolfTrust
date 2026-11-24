@@ -47,12 +47,27 @@ lifecycle decisions against the production scheduler with simulated architecture
 operations.
 The attestation IAK suite runs wolfHSM NVM with both the default 8-byte and
 STM32H5 16-byte flash programming units.
+The attestation_hmac suite issues tokens through the production encoder with
+an HMAC key (`WT_ATTEST_KEY=hmac`), built with the `tiny` profile's own
+wolfCOSE defines and a wolfCrypt with no ECC or big-number code. It checks
+each COSE_Mac0 with an HMAC computed in the test, which it first proves on
+the RFC 9783 Appendix A.2 token, and checks the Instance ID, the nonce, the
+predicted size, a wrong key, a changed byte and a port that has no key. The
+attestation_service suite runs its FF-M dispatch a second time built for an
+HMAC key and checks that the public-key query is not served. The
+attest_restore suite takes the attestation partition's restart hook from the
+production partition table, wipes the partition's state as a restart does,
+and checks that the hook loads the key again and tokens verify, and that a
+restart with no key or no retained handoff issues none. No emulator scenario
+runs `tiny` yet, so the fault and band reset themselves are not exercised on
+a target.
 The psa_secure_crypto suite runs the PSA client against the Secure PSA service
 in a separate process: cross-client key and operation isolation, stale handles
 after a service restart, persistent keys, quotas, per-guest pool arenas,
 one-shots split over several messages and AEAD tag failures. `run` builds and runs it once per `WT_SECURE_PSA_PROFILE`,
 checking what each profile keeps and what it refuses with
-`PSA_ERROR_NOT_SUPPORTED`; `run-one PROFILE=<name>` runs one. Its `sanitize`
+`PSA_ERROR_NOT_SUPPORTED`, and once more for `tiny` with no ECC in wolfCrypt
+(`NO_ECC=1`), as `WT_PROFILE=tiny` links it; `run-one PROFILE=<name>` runs one. Its `sanitize`
 and `valgrind` targets rerun it under ASan/UBSan and Valgrind.
 
 Additional host checks:

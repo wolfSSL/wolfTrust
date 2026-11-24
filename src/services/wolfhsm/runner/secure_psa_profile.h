@@ -88,6 +88,17 @@ void* wt_psa_pool_realloc(void* p, unsigned int sz);
 #endif
 #endif
 
+#ifdef WT_NO_ECC
+/* No feature of this build uses ECC: no curve and no big-number code. */
+#undef HAVE_ECC
+#undef HAVE_ECC_DHE
+#undef WOLFSSL_HAVE_SP_ECC
+#undef WOLFSSL_SP_MATH
+#undef WOLFSSL_SP_MATH_ALL
+#undef WOLFPSA_ECC_SP_DIRECT
+#define NO_BIG_INT
+#endif
+
 #if defined(WT_AEAD_CCM) && !defined(HAVE_AESCCM)
 #define HAVE_AESCCM
 #endif

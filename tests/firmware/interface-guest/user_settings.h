@@ -55,7 +55,7 @@
 #define WOLFSSL_HAVE_PRF
 #define WOLFSSL_ECDSA_DETERMINISTIC_K
 
-/* Entropy comes from the Secure side over the SPM-mediated client. */
+/* Entropy comes from fwTPM over SERVICE_TPM. */
 #define HAVE_HASHDRBG
 #define CUSTOM_RAND_GENERATE_BLOCK wolftrust_guest_rng_stub
 #ifndef WOLFTRUST_GUEST_RNG_STUB_DECLARED
@@ -70,8 +70,5 @@ int wolftrust_guest_rng_stub(unsigned char *output, unsigned int sz);
 #define NO_MD5
 #define NO_PKCS12
 #define NO_ASN_TIME
-
-/* wolfHSM needs anonymous aggregates on; wolfCrypt's C99 auto-detect says no. */
-#define HAVE_ANONYMOUS_INLINE_AGGREGATES 1
 
 #endif /* WOLFTRUST_TPM_GUEST_USER_SETTINGS_H */

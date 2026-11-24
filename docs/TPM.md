@@ -28,7 +28,7 @@ refused). The application reaches the SPM through the CMSE gateway.
 ## Build and run
 
 All three application interfaces use `WT_ENGINE=native` (default) or
-`WT_ENGINE=hsm`. TPM's native configuration does not need wolfHSM crypto.
+`WT_ENGINE=hsm`. For TPM 2.0 the engine changes only the Secure image.
 `WT_INTERFACE_PROFILE=default` exports RNG, SHA-256, P-256 key generation,
 signing, verification, and their required lifecycle commands. `full` retains
 the broader supported command set, including PCR operations. Individual
@@ -60,7 +60,8 @@ overlay, and the same application runs in the Normal-world payload over FF-A.
 ## Service boundary
 
 The application links the wolfTPM client and `SERVICE_TPM` transport. It does
-not link fwTPM. The Secure partition owns the `FWTPM_CTX`, keys, command
+not link fwTPM or a crypto engine client: its wolfCrypt RNG reads
+`TPM2_GetRandom` over `SERVICE_TPM` (`wt_tpm_psa_random`). The Secure partition owns the `FWTPM_CTX`, keys, command
 buffers, and stack. Native operations run wolfCrypt in this domain; the HSM
 configuration registers the wolfHSM callback and calls the existing HSM
 service from the Secure partition.
@@ -76,6 +77,12 @@ The SPM supplies caller identity. Only the configured application client can
 use the service; unrelated Non-secure clients and Secure Partitions are
 refused. Command and response staging is wiped after every successful or failed
 execution. There are no submit/poll/fetch/respond worker operations.
+
+When the monitor restarts or quarantines the application guest, the next
+command first gets a TPM Reset: fwTPM runs `TPM2_Startup(TPM_SU_CLEAR)`, which
+flushes the old client's objects, sessions, hash sequences, and PCRs. The
+partition itself does not restart. The dictionary-attack count carries over,
+so a guest restart cannot clear a lockout.
 
 The volatile `FWTPM_NO_NV` configuration has no heap. Keys and PCR values do
 not survive reboot. The linker and MPU assign the handler a private state
@@ -94,6 +101,10 @@ The full suite also checks PCR extend/read and broader object operations.
 `tpmneg` proves that another Secure Partition cannot read or write TPM state,
 that the TPM partition cannot read SPM-private RAM or execute its writable
 state, that each fault is contained, and that commands succeed after recovery.
+`tpmreset` faults the application after it loads a key and fails one
+authorization; profiles with PCR commands also extend a PCR. The relaunched
+guest must find no object and the same dictionary-attack count, and on those
+profiles the PCR reset.
 The host suite drives the production client/service protocol through a real
 FF-M runtime and checks bounds, caller identity, wiping, and no replay.
 

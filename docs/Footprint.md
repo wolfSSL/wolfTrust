@@ -11,7 +11,8 @@ cost.
 
 Every size here comes from the linked Secure ELF and its map, built with Arm
 GNU 15.2.1 in `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO at isolation
-level 3:
+level 3. The `interface-footprint` CI job runs in `v1.15`, which ships the same
+toolchain and gives byte-identical sizes:
 
 ```text
 Flash = text + data
@@ -153,25 +154,25 @@ Leave these at their defaults, which already favor speed:
 so the comparison covers both images: the Secure image and the application that
 calls it. `tools/measure_interface_footprint.sh` builds each port, engine and
 API with `WT_INTERFACE_PROFILE=default` and checks that every pair is present;
-the cross-compile workflow publishes its CSV. Measured 2026-11-19.
+the cross-compile workflow publishes its CSV. Measured 2026-11-23.
 
 Flash is Secure plus application, in bytes; RAM is reserved Secure RAM.
 
 | Port | Engine | PSA flash | TPM 2.0 flash | PKCS#11 flash | PSA RAM | TPM 2.0 RAM | PKCS#11 RAM |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| STM32H563 | native | 147,137 | 132,784 (-9.8%) | 114,784 (-22.0%) | 48,844 | 83,148 | 98,508 |
-| STM32H563 | hsm | 176,700 | 192,780 (+9.1%) | 151,640 (-14.2%) | 83,932 | 123,868 | 139,228 |
-| MIMXRT700 | native | 147,381 | 132,996 (-9.8%) | 115,032 (-22.0%) | 53,240 | 87,544 | 102,904 |
-| MIMXRT700 | hsm | 176,880 | 193,060 (+9.1%) | 151,920 (-14.1%) | 88,324 | 128,260 | 143,620 |
-| MCX N947 | native | 145,877 | 131,524 (-9.8%) | 113,544 (-22.2%) | 49,040 | 83,344 | 98,704 |
-| MCX N947 | hsm | 175,344 | 191,556 (+9.2%) | 150,400 (-14.2%) | 84,124 | 124,060 | 139,420 |
-| STM32L562 | native | 135,340 | 132,272 (-2.3%) | 114,284 (-15.6%) | 45,244 | 83,132 | 98,492 |
+| STM32H563 | native | 145,473 | 133,052 (-8.5%) | 115,744 (-20.4%) | 48,844 | 83,148 | 98,508 |
+| STM32H563 | hsm | 176,612 | 172,720 (-2.2%) | 152,600 (-13.6%) | 83,932 | 123,868 | 139,228 |
+| MIMXRT700 | native | 145,717 | 133,264 (-8.5%) | 115,992 (-20.4%) | 53,240 | 87,544 | 102,904 |
+| MIMXRT700 | hsm | 176,856 | 172,968 (-2.2%) | 152,880 (-13.6%) | 88,324 | 128,260 | 143,620 |
+| MCX N947 | native | 144,213 | 131,792 (-8.6%) | 114,504 (-20.6%) | 49,040 | 83,344 | 98,704 |
+| MCX N947 | hsm | 175,320 | 171,496 (-2.2%) | 151,360 (-13.7%) | 84,124 | 124,060 | 139,420 |
+| STM32L562 | native | 135,276 | 132,540 (-2.0%) | 115,244 (-14.8%) | 45,244 | 83,132 | 98,492 |
 
 The application shrinks because it no longer links a PSA Crypto client: the
 PKCS#11 proxy is under 8 KB. The Secure image grows by the provider (fwTPM or
 wolfPKCS11) and its private wolfCrypt copy. The wolfTPM client keeps its own
-wolfCrypt for sessions and parameter encryption, and with the hsm engine it also
-links the wolfHSM client, so hsm TPM 2.0 is the one case that grows overall.
+wolfCrypt for sessions and takes its entropy from `TPM2_GetRandom`, so it links
+no crypto engine client and is the same size under both engines.
 
 TPM 2.0 includes fwTPM dictionary-attack lockout; `WT_TPM_DA=0` saves about
 2.3 KB of Secure flash.

@@ -36,6 +36,9 @@ int wt_tpm_psa_transact(const uint8_t* command, size_t command_len,
                         uint8_t* response, size_t response_cap,
                         size_t* response_len);
 
+/* Fill out with TPM2_GetRandom output from fwTPM; zeroes out on failure. */
+int wt_tpm_psa_random(uint8_t* out, size_t len);
+
 /* Drop the cached connection (after a transport error or for teardown). */
 void wt_tpm_psa_close(void);
 

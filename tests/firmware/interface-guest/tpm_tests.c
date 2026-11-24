@@ -24,10 +24,14 @@
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
 #include <wolftpm/tpm2_wrap.h>
+#include <wolfssl/wolfcrypt/random.h>
 
 #include "wolftrust/tpm_psa_transport.h"
 
 #include "tpm_tests.h"
+#if WT_TPM_RESET_PROBE
+#include "psa/internal_trusted_storage.h"
+#endif
 
 #ifndef WT_TPM_APP_NAME
 #define WT_TPM_APP_NAME "tpm-app"
@@ -123,6 +127,30 @@ static int tpm_command_capabilities(void)
 }
 #endif
 
+/* 48 bytes spans two GetRandom chunks; the second must hold entropy too. */
+static int tpm_wolfcrypt_rng(void)
+{
+    WC_RNG rng;
+    byte buf[48];
+    byte tail = 0U;
+    word32 i;
+    int rc;
+
+    (void)memset(buf, 0, sizeof(buf));
+    rc = wc_InitRng(&rng);
+    if (rc == 0) {
+        rc = wc_RNG_GenerateBlock(&rng, buf, (word32)sizeof(buf));
+        (void)wc_FreeRng(&rng);
+    }
+    for (i = 32U; i < (word32)sizeof(buf); i++) {
+        tail |= buf[i];
+    }
+    if (rc == 0 && tail == 0U) {
+        rc = -1;
+    }
+    return rc;
+}
+
 static int tpm_max_frame_hash(void)
 {
     Hash_In in;
@@ -139,6 +167,181 @@ static int tpm_max_frame_hash(void)
     rc = TPM2_Hash(&in, &out);
     return rc == TPM_RC_SUCCESS && out.outHash.size == 32U ? 0 : -1;
 }
+
+#if WT_TPM_RESET_PROBE
+#define WT_TPM_RESET_MARK 0x57545452u
+
+#if WT_TPM_DA && (!defined(WT_PROFILE_TPM_DictionaryAttackLockReset) || \
+    WT_PROFILE_TPM_DictionaryAttackLockReset)
+#define WT_TPM_RESET_LOCKOUT 1
+#else
+#define WT_TPM_RESET_LOCKOUT 0
+#endif
+
+#if WT_TPM_RESET_LOCKOUT
+/* A wrong lockoutAuth sets the lockoutAuth lock; the right one then fails. */
+static int tpm_lockout_auth_fail(void)
+{
+    TPM2B_AUTH wrong;
+    int rc;
+
+    memset(&wrong, 0, sizeof(wrong));
+    wrong.size = 4U;
+    memcpy(wrong.buffer, "nope", 4U);
+    rc = wolfTPM2_SetAuthPassword(&g_dev, 0, &wrong);
+    if (rc == 0) {
+        rc = wolfTPM2_DictionaryAttackLockReset(&g_dev) != 0 ? 0 : -1;
+    }
+    if (wolfTPM2_SetAuthPassword(&g_dev, 0, NULL) != 0) {
+        rc = -1;
+    }
+    return rc;
+}
+#endif
+
+static int tpm_property_value(UINT32 property, UINT32* value)
+{
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPML_TAGGED_TPM_PROPERTY* properties;
+    TPM_RC rc;
+
+    memset(&in, 0, sizeof(in));
+    memset(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_TPM_PROPERTIES;
+    in.property = property;
+    in.propertyCount = 1U;
+    rc = TPM2_GetCapability(&in, &out);
+    properties = &out.capabilityData.data.tpmProperties;
+    if (rc != TPM_RC_SUCCESS || properties->count != 1U ||
+            properties->tpmProperty[0].property != property) {
+        return -1;
+    }
+    *value = properties->tpmProperty[0].value;
+    return 0;
+}
+
+static int tpm_transient_count(UINT32* count)
+{
+    GetCapability_In in;
+    GetCapability_Out out;
+    TPM_RC rc;
+
+    memset(&in, 0, sizeof(in));
+    memset(&out, 0, sizeof(out));
+    in.capability = TPM_CAP_HANDLES;
+    in.property = TRANSIENT_FIRST;
+    in.propertyCount = 8U;
+    rc = TPM2_GetCapability(&in, &out);
+    if (rc != TPM_RC_SUCCESS ||
+            out.capabilityData.capability != TPM_CAP_HANDLES) {
+        return -1;
+    }
+    *count = out.capabilityData.data.handles.count;
+    return 0;
+}
+
+/* The first launch leaves a key, a failed authorization and, where the profile
+ * has PCR commands, a PCR extend, then faults; only the DA state stays. */
+static int tpm_reset_probe(const byte* digest, int digest_size)
+{
+    static const byte auth[] = { 'w', 't', '-', 'r', 's' };
+    static const byte zero[32] = { 0 };
+    byte sig[80];
+    byte pcr[32];
+    int sig_size = (int)sizeof(sig);
+    int pcr_size = (int)sizeof(pcr);
+    UINT32 failures = 1U;
+    UINT32 transients = 0U;
+    uint8_t mark = 0U;
+    size_t got = 0U;
+    int rc = 0;
+
+    if (psa_its_get(WT_TPM_RESET_MARK, 0U, sizeof(mark), &mark, &got) !=
+            PSA_SUCCESS) {
+        rc = wolfTPM2_GetKeyTemplate_ECC(&g_pub,
+            TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |
+            TPMA_OBJECT_sensitiveDataOrigin | TPMA_OBJECT_userWithAuth |
+            TPMA_OBJECT_sign, TPM_ECC_NIST_P256, TPM_ALG_ECDSA);
+        if (rc == 0) {
+            rc = wolfTPM2_CreatePrimaryKey(&g_dev, &g_key, TPM_RH_OWNER,
+                                           &g_pub, auth, (int)sizeof(auth));
+        }
+        if (rc == 0) {
+            g_key.handle.auth.buffer[0] ^= 0xFFU;
+            rc = wolfTPM2_SignHash(&g_dev, &g_key, digest, digest_size, sig,
+                                   &sig_size) != 0 ? 0 : -1;
+        }
+#if !defined(WT_PROFILE_TPM_PCR_Extend) || WT_PROFILE_TPM_PCR_Extend
+        if (rc == 0) {
+            rc = wolfTPM2_ExtendPCR(&g_dev, 7, TPM_ALG_SHA256, digest,
+                                    digest_size);
+        }
+#endif
+#if WT_TPM_RESET_LOCKOUT
+        if (rc == 0) {
+            rc = tpm_lockout_auth_fail();
+        }
+#endif
+#if WT_TPM_DA
+        if (rc == 0) {
+            rc = tpm_property_value(TPM_PT_LOCKOUT_COUNTER, &failures);
+        }
+#endif
+        if (rc == 0) {
+            rc = tpm_transient_count(&transients);
+        }
+        if (rc == 0 && psa_its_set(WT_TPM_RESET_MARK, sizeof(mark), &mark,
+                                   PSA_STORAGE_FLAG_NONE) != PSA_SUCCESS) {
+            rc = -3;
+        }
+        if (rc != 0 || failures != 1U || transients == 0U) {
+            app_line_i32("tpm reset probe arm FAILED rc=", rc);
+            return -1;
+        }
+        app_line("tpm reset probe armed");
+        wt_tpm_fault();
+        return -1;
+    }
+    (void)psa_its_remove(WT_TPM_RESET_MARK);
+#if WT_TPM_DA
+    failures = 0U;
+    rc = tpm_property_value(TPM_PT_LOCKOUT_COUNTER, &failures);
+#endif
+    if (rc == 0) {
+        rc = tpm_transient_count(&transients);
+    }
+#if !defined(WT_PROFILE_TPM_PCR_Extend) || WT_PROFILE_TPM_PCR_Extend
+    if (rc == 0) {
+        rc = wolfTPM2_ReadPCR(&g_dev, 7, TPM_ALG_SHA256, pcr, &pcr_size);
+    }
+    if (rc == 0 && (pcr_size != 32 || memcmp(pcr, zero, sizeof(zero)) != 0)) {
+        rc = -1;
+    }
+#endif
+#if WT_TPM_RESET_LOCKOUT
+    if (rc == 0 && failures == 1U && transients == 0U &&
+            (wolfTPM2_DictionaryAttackLockReset(&g_dev) & 0xFFF) !=
+            TPM_RC_LOCKOUT) {
+        rc = -2;
+    }
+#endif
+    if (rc != 0 || failures != 1U || transients != 0U) {
+        app_line_i32("tpm client reset FAILED rc=", rc);
+        app_line_i32("tpm client reset failures=", (int)failures);
+        app_line_i32("tpm client reset transients=", (int)transients);
+        return -1;
+    }
+    app_line("tpm client reset ok");
+#if !defined(WT_PROFILE_TPM_PCR_Extend) || WT_PROFILE_TPM_PCR_Extend
+    app_line("tpm client reset pcr ok");
+#endif
+#if WT_TPM_RESET_LOCKOUT
+    app_line("tpm client reset lockout ok");
+#endif
+    return 0;
+}
+#endif
 
 #if WT_TPM_DA
 /* Above fwTPM's default of 32 tries, so the loop must reach lockout. */
@@ -204,6 +407,9 @@ int wt_tpm_run(void)
         return -1;
     }
     app_line("tpm init ok");
+#if WT_TPM_RESET_PROBE
+    return tpm_reset_probe(digest, (int)sizeof(digest));
+#endif
 
     if (tpm_property_matches(TPM_PT_INPUT_BUFFER, WT_TPM_FRAME_MAX) != 0 ||
             tpm_property_matches(TPM_PT_MAX_COMMAND_SIZE,
@@ -235,6 +441,13 @@ int wt_tpm_run(void)
         return -1;
     }
     app_line("tpm random ok");
+
+    rc = tpm_wolfcrypt_rng();
+    if (rc != 0) {
+        app_line_i32("tpm wolfcrypt rng FAILED rc=", rc);
+        return -1;
+    }
+    app_line("tpm wolfcrypt rng ok");
 
     rc = wolfTPM2_GetKeyTemplate_ECC(&g_pub,
         TPMA_OBJECT_fixedTPM | TPMA_OBJECT_fixedParent |

@@ -44,8 +44,8 @@
       ["periphspneg manifestneg2 manifestneg3", "RT700 SPM peripheral and manifest level negatives (L3)"],
       ["sealneg sealhaltneg sealpivotneg", "RT700 stack seal containment and halt (L3)"],
       ["mspovfneg xnneg svcneg", "RT700 SPM stack, execute-never and SVC misuse (L3)"],
-      ["tpm tpmneg", "RT700 TPM 2.0 interface and isolation (L3)"],
-      ["pkcs11 pkcs11neg", "RT700 PKCS#11 interface and isolation (L3)"]
+      ["tpm tpmneg tpmreset", "RT700 TPM 2.0 interface, isolation and client reset (L3)"],
+      ["pkcs11 pkcs11neg pkcs11reset", "RT700 PKCS#11 interface, isolation and client reset (L3)"]
     ],
     "l3_exempt": {},
     "default": {
@@ -64,8 +64,8 @@
         ["restartneg1 restartneg2 restartneg3", "RT700 partitions restart on a reset band, one guest (L3)"],
         ["manifestneg2 manifestneg3 sealbootneg fpneg", "RT700 refused boots and FP isolation, one guest (L3)"],
         ["sealneg sealhaltneg sealpivotneg mspovfneg xnneg svcneg", "RT700 seal, SPM stack, execute-never and SVC, one guest (L3)"],
-         ["tpm tpmneg", "RT700 TPM 2.0 interface and isolation, one guest (L3)"],
-         ["pkcs11 pkcs11neg", "RT700 PKCS#11 interface and isolation, one guest (L3)"]
+        ["tpm tpmneg tpmreset", "RT700 TPM 2.0 interface, isolation and client reset, one guest (L3)"],
+        ["pkcs11 pkcs11neg pkcs11reset", "RT700 PKCS#11 interface, isolation and client reset, one guest (L3)"]
       ],
       "l3_exempt": {"hsmfaultneg": "the tasklet fault scenario ends on the second guest's breakpoint, so it runs on the full profile only"}
     },

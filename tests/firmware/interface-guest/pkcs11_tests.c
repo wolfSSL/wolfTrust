@@ -28,6 +28,9 @@
 #include "wolftrust/pkcs11/pkcs11_wire.h"
 
 #include "pkcs11_tests.h"
+#if WT_PKCS11_RESET_PROBE
+#include "psa/internal_trusted_storage.h"
+#endif
 
 #define WT_PKCS11_SLOT 1UL
 #define WT_ARRAY_SIZE(a) ((CK_ULONG)(sizeof(a) / sizeof((a)[0])))
@@ -1339,10 +1342,99 @@ const char *wt_pkcs11_suite_name(void)
 #endif
 }
 
+#if WT_PKCS11_RESET_PROBE
+static CK_UTF8CHAR g_reset_label[] = "wolfTrust reset probe";
+
+static CK_RV reset_object_create(CK_BBOOL* token)
+{
+    CK_BYTE value[] = "client state";
+    CK_OBJECT_HANDLE object = CK_INVALID_HANDLE;
+    CK_ATTRIBUTE attributes[] = {
+        { CKA_CLASS, &g_data_class, sizeof(g_data_class) },
+        { CKA_TOKEN, token, sizeof(*token) },
+        { CKA_LABEL, g_reset_label, sizeof(g_reset_label) - 1u },
+        { CKA_VALUE, value, sizeof(value) - 1u },
+    };
+
+    return g_fn->C_CreateObject(g_session, attributes,
+        (CK_ULONG)(sizeof(attributes) / sizeof(attributes[0])), &object);
+}
+
+#define WT_PKCS11_RESET_MARK 0x57545052u
+
+/* The first launch leaves a token object, a session object, an SO login and a
+ * wrong user PIN, records its session in ITS and faults; the relaunch must find
+ * a fresh token and that session gone. */
+static int reset_probe(void)
+{
+    static CK_UTF8CHAR wrong_pin[] = "wolfTrust-bad";
+    CK_SESSION_HANDLE departed = CK_INVALID_HANDLE;
+    CK_SESSION_INFO session;
+    CK_TOKEN_INFO info;
+    size_t got = 0u;
+    CK_RV rv = CKR_OK;
+
+    if (library_initialize() != 0 ||
+            g_fn->C_GetTokenInfo(WT_PKCS11_SLOT, &info) != CKR_OK) {
+        return -1;
+    }
+    if (psa_its_get(WT_PKCS11_RESET_MARK, 0u, sizeof(departed), &departed,
+                    &got) == PSA_SUCCESS) {
+        (void)psa_its_remove(WT_PKCS11_RESET_MARK);
+        rv = g_fn->C_GetSessionInfo(departed, &session);
+        if (got != sizeof(departed) || rv != CKR_SESSION_HANDLE_INVALID ||
+                (info.flags & (CKF_TOKEN_INITIALIZED |
+                               CKF_USER_PIN_COUNT_LOW)) != 0u) {
+            app_prefix();
+            wt_pkcs11_puts("pkcs11 client reset FAILED, state inherited\r\n");
+            return -1;
+        }
+        app_prefix();
+        wt_pkcs11_puts("pkcs11 client reset ok\r\n");
+        return 0;
+    }
+    if (token_login() != 0) {
+        rv = CKR_FUNCTION_FAILED;
+    }
+    if (rv == CKR_OK) {
+        rv = reset_object_create(&g_true);
+    }
+    if (rv == CKR_OK) {
+        rv = reset_object_create(&g_false);
+    }
+    if (rv == CKR_OK) {
+        rv = g_fn->C_Logout(g_session);
+    }
+    if (rv == CKR_OK && g_fn->C_Login(g_session, CKU_USER, wrong_pin,
+            (CK_ULONG)(sizeof(wrong_pin) - 1u)) != CKR_PIN_INCORRECT) {
+        rv = CKR_FUNCTION_FAILED;
+    }
+    if (rv == CKR_OK) {
+        rv = g_fn->C_Login(g_session, CKU_SO, g_so_pin,
+                           (CK_ULONG)(sizeof(g_so_pin) - 1u));
+    }
+    if (rv == CKR_OK && psa_its_set(WT_PKCS11_RESET_MARK, sizeof(g_session),
+            &g_session, PSA_STORAGE_FLAG_NONE) != PSA_SUCCESS) {
+        rv = CKR_FUNCTION_FAILED;
+    }
+    app_prefix();
+    if (rv != CKR_OK) {
+        wt_pkcs11_puts("pkcs11 reset probe arm FAILED\r\n");
+        return -1;
+    }
+    wt_pkcs11_puts("pkcs11 reset probe armed\r\n");
+    wt_pkcs11_fault();
+    return -1;
+}
+#endif
+
 int wt_pkcs11_run(void)
 {
     g_passed = 0u;
     g_failed = 0u;
+#if WT_PKCS11_RESET_PROBE
+    return reset_probe();
+#endif
 
 #if defined(WT_PKCS11_SUITE_PROFILE)
     run_profile_suite();

@@ -19,6 +19,7 @@
  */
 
 #include "wolftrust/services/tpm_local_provider.h"
+#include "wolftrust/services/interface_client.h"
 #include "wolftrust/provider_crypto.h"
 
 #include <limits.h>
@@ -28,6 +29,38 @@
 #include <wolftpm/fwtpm/fwtpm_command.h>
 
 static FWTPM_CTX g_tpm;
+static uint32_t g_tpm_client_epoch;
+volatile uint32_t g_wt_interface_client_epoch;
+
+/* A departed client gets a TPM Reset: Startup(CLEAR) flushes objects, sessions
+ * and PCRs, and the new client's own Startup gets TPM_RC_INITIALIZE. The DA
+ * count and the lockoutAuth lock, which clockless Startup clears, carry over. */
+static int wt_tpm_client_reset(FWTPM_CTX* tpm, uint8_t* response)
+{
+    static const uint8_t startup[12] = {
+        0x80U, 0x01U, 0x00U, 0x00U, 0x00U, 0x0CU,
+        0x00U, 0x00U, 0x01U, 0x44U, 0x00U, 0x00U
+    };
+    uint8_t command[sizeof(startup)];
+    int length = 0;
+    int rc;
+#ifndef FWTPM_NO_DA
+    int lockout_failed = tpm->lockoutAuthFailed;
+#endif
+
+    (void)memcpy(command, startup, sizeof(command));
+    tpm->wasStarted = 0;
+    rc = FWTPM_ProcessCommand(tpm, command, (int)sizeof(command), response,
+                              &length, 0);
+#ifndef FWTPM_NO_DA
+    tpm->lockoutAuthFailed = lockout_failed;
+#endif
+    if (rc == 0 && (length != 10 || response[6] != 0U || response[7] != 0U ||
+            response[8] != 0U || response[9] != 0U)) {
+        rc = -1;
+    }
+    return rc;
+}
 
 int wt_tpm_local_provider_init(void** context)
 {
@@ -53,18 +86,27 @@ int wt_tpm_local_provider_process(uint8_t* command,
                                   void* context)
 {
     FWTPM_CTX* tpm = (FWTPM_CTX*)context;
+    uint32_t epoch;
     int length;
     int rc;
 
+    /* fwTPM writes up to FWTPM_MAX_COMMAND_SIZE whatever rspSize says. */
     if (tpm == NULL || command == NULL || command_len == 0U ||
             command_len > (size_t)INT_MAX || response == NULL ||
-            response_cap == 0U || response_cap > (size_t)INT_MAX ||
-            response_len == NULL) {
+            response_cap < (size_t)FWTPM_MAX_COMMAND_SIZE ||
+            response_cap > (size_t)INT_MAX || response_len == NULL) {
         return -1;
     }
     *response_len = 0U;
     if (wt_provider_crypto_prepare() != 0) {
         return -1;
+    }
+    epoch = g_wt_interface_client_epoch;
+    if (epoch != g_tpm_client_epoch) {
+        if (wt_tpm_client_reset(tpm, response) != 0) {
+            return -1;
+        }
+        g_tpm_client_epoch = epoch;
     }
     length = (int)response_cap;
     rc = FWTPM_ProcessCommand(tpm, command, (int)command_len, response,

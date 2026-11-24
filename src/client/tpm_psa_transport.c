@@ -20,6 +20,14 @@
 
 #include "wolftrust/tpm_psa_transport.h"
 #include "wolftrust/msg_client.h"
+#include "wolftrust/zeroize.h"
+
+#include <string.h>
+
+/* Stay within a SHA-256 digest, the smallest GetRandom limit fwTPM may set. */
+#define WT_TPM_RNG_CHUNK    32U
+#define WT_TPM_RNG_CMD_SZ   12U
+#define WT_TPM_RNG_RSP_HDR  12U
 
 static wt_msg_client_t g_tpm_client = WT_MSG_CLIENT_INIT(WT_TPM_SERVICE_SID,
     WT_TPM_SERVICE_VERSION, WT_TPM_FRAME_MAX);
@@ -35,6 +43,58 @@ int wt_tpm_psa_transact(const uint8_t* command, size_t command_len,
 {
     return wt_msg_client_call(&g_tpm_client, command, command_len, response,
                               response_cap, response_len);
+}
+
+static uint32_t wt_tpm_be32(const uint8_t* p)
+{
+    return ((uint32_t)p[0] << 24) | ((uint32_t)p[1] << 16) |
+           ((uint32_t)p[2] << 8) | (uint32_t)p[3];
+}
+
+int wt_tpm_psa_random(uint8_t* out, size_t len)
+{
+    uint8_t cmd[WT_TPM_RNG_CMD_SZ] = {
+        0x80U, 0x01U, 0x00U, 0x00U, 0x00U, (uint8_t)WT_TPM_RNG_CMD_SZ,
+        0x00U, 0x00U, 0x01U, 0x7BU, 0x00U, 0x00U
+    };
+    uint8_t rsp[WT_TPM_RNG_RSP_HDR + WT_TPM_RNG_CHUNK];
+    size_t done = 0U;
+    size_t chunk;
+    size_t got;
+    size_t n;
+    int rc = 0;
+
+    if (out == NULL || len == 0U) {
+        return PSA_ERROR_INVALID_ARGUMENT;
+    }
+    while (rc == 0 && done < len) {
+        chunk = len - done;
+        if (chunk > WT_TPM_RNG_CHUNK) {
+            chunk = WT_TPM_RNG_CHUNK;
+        }
+        cmd[11] = (uint8_t)chunk;
+        got = 0U;
+        rc = wt_tpm_psa_transact(cmd, sizeof(cmd), rsp, sizeof(rsp), &got);
+        if (rc == 0) {
+            n = (got >= WT_TPM_RNG_RSP_HDR) ?
+                (((size_t)rsp[10] << 8) | (size_t)rsp[11]) : 0U;
+            if (n == 0U || n > chunk || got != WT_TPM_RNG_RSP_HDR + n ||
+                    rsp[0] != 0x80U || rsp[1] != 0x01U ||
+                    wt_tpm_be32(rsp + 2) != (uint32_t)got ||
+                    wt_tpm_be32(rsp + 6) != 0U) {
+                rc = PSA_ERROR_COMMUNICATION_FAILURE;
+            }
+        }
+        if (rc == 0) {
+            (void)memcpy(out + done, rsp + WT_TPM_RNG_RSP_HDR, n);
+            done += n;
+        }
+    }
+    wt_forceZero(rsp, sizeof(rsp));
+    if (rc != 0) {
+        wt_forceZero(out, len);
+    }
+    return rc;
 }
 
 #if defined(WOLFTPM_SWTPM)

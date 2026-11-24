@@ -606,10 +606,9 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
                                            PARTITION_HSM_ID);
 #if defined(WT_INTERFACE_LOCAL_PROVIDER)
         if (!pinned && call->op == WT_SPM_OP_KEYSTORE_ENTROPY) {
-#ifdef PARTITION_TPM_ID
+#if defined(PARTITION_TPM_ID)
             pinned = slot->partition_id == PARTITION_TPM_ID;
-#endif
-#ifdef PARTITION_PKCS11_ID
+#elif defined(PARTITION_PKCS11_ID)
             pinned = slot->partition_id == PARTITION_PKCS11_ID;
 #endif
         }

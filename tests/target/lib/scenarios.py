@@ -254,6 +254,10 @@ SCENARIOS = {
                 guest_flags=TPM_APP, end="bkpt:0x7f", timeout=360,
                 quit_on_faults=False, blocks=("tpmneg",), level3=True,
                 envs=("emulator",)),
+    "tpmreset": S(secure="CONFIG_TPM=y", role="tpm",
+                  guest_flags=TPM_APP + " WT_TPM_RESET_PROBE=1",
+                  end="bkpt:0x7f", timeout=360, quit_on_faults=False,
+                  blocks=("tpmreset",), envs=("emulator",)),
     "pkcs11": S(secure="CONFIG_PKCS11=y " + PKCS11_KDF, role="pkcs11",
                 guest_flags=PKCS11_APP, end="bkpt:0x7f", timeout=1200,
                 blocks=("no_faults", "pkcs11"), envs=("emulator",)),
@@ -261,6 +265,10 @@ SCENARIOS = {
                    role="pkcs11", guest_flags=PKCS11_APP + " WT_PKCS11_FULL_SUITE=core",
                    end="bkpt:0x7f", timeout=360, quit_on_faults=False,
                    blocks=("pkcs11neg",), level3=True, envs=("emulator",)),
+    "pkcs11reset": S(secure="CONFIG_PKCS11=y " + PKCS11_KDF, role="pkcs11",
+                     guest_flags=PKCS11_APP + " WT_PKCS11_RESET_PROBE=1",
+                     end="bkpt:0x7f", timeout=360, quit_on_faults=False,
+                     blocks=("pkcs11reset",), envs=("emulator",)),
     "manifestneg": S(secure="WT_MANIFEST_NEG_PROBE=1", end="bkpt:0x7e",
                      blocks=("verdict_manifestneg",)),
     "manifestneg2": S(secure="WT_MANIFEST_NEG_PROBE=2", end="bkpt:0x7e",
@@ -751,7 +759,8 @@ def interface_app_checks(block, profile):
         app = "tpm-guest0"
         out = [expect("TPM application guest alive", app + ": alive"),
                expect("fwTPM capabilities match the relay frame limit", app + ": tpm frame caps ok"),
-               expect("valid TPM command reaches the advertised frame limit", app + ": tpm max frame ok")]
+               expect("valid TPM command reaches the advertised frame limit", app + ": tpm max frame ok"),
+               expect("wolfCrypt RNG draws entropy from fwTPM", app + ": tpm wolfcrypt rng ok")]
         if not full and block == "tpm":
             out += [expect("TPM capabilities match the selected commands",
                            app + ": tpm command capabilities match profile"),
@@ -1105,6 +1114,31 @@ def block_checks(ctx, block, end):
                 expect("mediated ping still completes after both restarts", "ping reply from 10.0.0.2")]
     if block in ("tpm", "tpmneg", "pkcs11", "pkcs11neg"):
         return _interface_checks(ctx, block)
+    if block == "pkcs11reset":
+        app = "pkcs11-guest0"
+        return [expect("the first launch left objects, an SO login and a wrong user PIN",
+                       app + ": pkcs11 reset probe armed"),
+                expect_n("the PKCS#11 application relaunched once after its fault", 2, app + ": alive"),
+                expect("the relaunch found an uninitialized token, no PIN count and the old session gone",
+                       app + ": pkcs11 client reset ok"),
+                refute_re("the guest fault was contained", r'(\[HARDFLT\]|HardFault)')]
+    if block == "tpmreset":
+        app = "tpm-guest0"
+        out = [expect("the first launch left a key and a failed authorization", app + ": tpm reset probe armed"),
+               expect_n("the TPM application relaunched once after its fault", 2, app + ": alive"),
+               expect("the relaunch saw no object of the faulted client and kept its DA count",
+                      app + ": tpm client reset ok"),
+               refute_re("the guest fault was contained", r'(\[HARDFLT\]|HardFault)')]
+        ops = v.get("interface_ops")
+        full = v.get("interface_profile", "default") != "default"
+        selected = (lambda op: op in ops.split()) if ops is not None else (lambda op: full)
+        if selected("TPM_PCR_Extend"):
+            out.append(expect("the relaunch saw the faulted client's PCR extend reset",
+                              app + ": tpm client reset pcr ok"))
+        if selected("TPM_DictionaryAttackLockReset") and v.get("tpm_da", "1") != "0":
+            out.append(expect("the relaunch still found lockoutAuth locked",
+                              app + ": tpm client reset lockout ok"))
+        return out
     if block == "revneg":
         peers = "|".join(re.escape(s) for s in (ctx.g0["started"], ctx.g1["started"]))
         return [expect("revision Z refused with the ES0565 2.2.9 console line",
@@ -1559,6 +1593,14 @@ class Judge(object):
             raise SystemExit("no %s evidence was given" % where)
         return self.logs[where]
 
+    def views(self, where):
+        # Guest1 records can splice a raw emulator line; m33mu_console.py rejoins it
+        text = self.text(where)
+        if where == "log" and self.ctx.env == "emulator" and \
+                self.logs.get("guest0", text) != text:
+            return (text, self.logs["guest0"])
+        return (text,)
+
     def sub(self, s):
         return substitute(s, self.ctx.var)
 
@@ -1673,24 +1715,27 @@ class Judge(object):
             return self.report(got == wanted, check["desc"],
                                "per-test results differ from %s" % want)
         text = self.text(check["where"])
+        views = self.views(check["where"])
         if op == "expect":
             needle = self.sub(check["text"])
-            ok = needle in text or (self.ctx.env == "hardware" and interleaved(text, needle))
+            ok = any(needle in v for v in views) or \
+                (self.ctx.env == "hardware" and interleaved(text, needle))
             return self.report(ok, check["desc"], "missing: %s" % needle)
         if op == "expect_n":
             needle = self.sub(check["text"])
-            n = count_text(text, needle)
+            n = max(count_text(v, needle) for v in views)
             return self.report(n == check["n"], "%s (%d)" % (check["desc"], n), "want %d of: %s" % (check["n"], needle))
         if op == "expect_re":
             pat = self.sub(check["re"])
-            return self.report(count_re(text, pat) >= 1, check["desc"], "missing: %s" % pat)
+            return self.report(any(count_re(v, pat) >= 1 for v in views), check["desc"], "missing: %s" % pat)
         if op == "expect_n_re":
             pat = self.sub(check["re"])
-            n = count_re(text, pat)
+            n = max(count_re(v, pat) for v in views)
             return self.report(n == check["n"], "%s (%d)" % (check["desc"], n), "want %d of: %s" % (check["n"], pat))
         if op == "refute_re":
             pat = self.sub(check["re"])
-            return self.report(count_re(text, pat) == 0, check["desc"], "unexpected: %s" % pat)
+            n = max(count_re(v, pat) for v in views)
+            return self.report(n == 0, check["desc"], "unexpected: %s" % pat)
         if op == "faults_at":
             if not check["addr"]:
                 return self.report(False, check["desc"], "no layout address")

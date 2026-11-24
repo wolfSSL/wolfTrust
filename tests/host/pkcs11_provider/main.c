@@ -21,6 +21,7 @@
 #include "wolftrust/pkcs11_provider.h"
 #include "wolftrust/pkcs11/pkcs11_abi.h"
 #include "wolftrust/pkcs11/pkcs11_wire.h"
+#include "wolftrust/services/interface_client.h"
 
 #include "wolfpkcs11/pkcs11.h"
 
@@ -42,6 +43,7 @@ extern unsigned int g_provider_test_open_output;
 extern unsigned int g_provider_test_open_callbacks;
 extern unsigned int g_provider_test_null_seen;
 extern CK_RV g_provider_test_after_pin_rv;
+extern CK_FUNCTION_LIST g_provider_test_functions;
 
 #define TEST_PIN_FLAGS (CKF_USER_PIN_COUNT_LOW | CKF_USER_PIN_FINAL_TRY | \
     CKF_USER_PIN_LOCKED | CKF_SO_PIN_COUNT_LOW | CKF_SO_PIN_FINAL_TRY | \
@@ -1034,6 +1036,48 @@ static void test_null_pointers_reach_provider(void)
           "an empty mechanism parameter reaches wolfPKCS11 as non-NULL");
 }
 
+extern unsigned int g_provider_test_library_count;
+
+static CK_RV reset_finalize_fails(CK_VOID_PTR reserved)
+{
+    (void)reserved;
+    return CKR_FUNCTION_FAILED;
+}
+
+/* Runs last: it finalizes the stub library the earlier tests share. */
+static void test_client_reset(void)
+{
+    CK_FUNCTION_LIST saved = g_provider_test_functions;
+
+    check(library_call(WT_P11_INITIALIZE) == CKR_OK &&
+              pin_login(1U, CKU_USER, "wrong") == CKR_PIN_INCORRECT &&
+              g_provider_test_library_count == 2U,
+          "a request from the same client releases no initialization");
+    g_wt_interface_client_epoch++;
+    check(library_call(WT_P11_INITIALIZE) == CKR_OK &&
+              g_provider_test_library_count == 1U &&
+              g_provider_test_token_initialized == 0U &&
+              token_pin_counts_are(0U, 0U),
+          "a departed client's initializations are released, erasing the token");
+
+    g_provider_test_functions.C_Finalize = reset_finalize_fails;
+    g_wt_interface_client_epoch++;
+    check(library_call(WT_P11_GET_INFO) == UINT32_MAX &&
+              g_provider_test_library_count == 1U,
+          "a failed client reset refuses the request");
+    g_provider_test_functions = saved;
+    check(library_call(WT_P11_INITIALIZE) == CKR_OK &&
+              g_provider_test_library_count == 1U,
+          "a failed client reset is retried on the next request");
+
+    check(library_call(WT_P11_FINALIZE) == CKR_OK &&
+              g_provider_test_library_count == 0U, "the client finalizes");
+    g_wt_interface_client_epoch++;
+    check(library_call(WT_P11_INITIALIZE) == CKR_OK &&
+              g_provider_test_library_count == 1U,
+          "a client that finalized leaves nothing to release");
+}
+
 int main(void)
 {
     test_truncated_header();
@@ -1058,6 +1102,7 @@ int main(void)
     test_backend_failures_keep_count();
     test_so_pin_lockout();
     test_finalize_pin_counts();
+    test_client_reset();
     if (g_failures != 0) {
         return 1;
     }

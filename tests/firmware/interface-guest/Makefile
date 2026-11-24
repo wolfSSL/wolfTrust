@@ -55,7 +55,7 @@ IF_GUEST_DIR := .
 IF_PRE_INCLUDE := -include user_settings.h
 IF_SP_MATH := sp_cortexm.c
 IF_SP_MATH_CFLAGS := -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8
-IF_WH_CFG_DIR := $(BUILD)/wh_include
+IF_ITS_CFLAGS := -I$(ROOT)/tests/firmware/psa-guest/manifest
 include interface.mk
 
 CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
@@ -82,7 +82,7 @@ $(SECURE_CMSE_IMPLIB): FORCE
 	    WT_TPM_DA=$(WT_TPM_DA) \
 	    build/secure_cmse_implib.o
 
-$(BUILD)/%.o: %.c $(IF_WH_CFG_DIR)/wolfhsm_cfg.h $(WT_INTERFACE_PROFILE_HEADER) | $(BUILD)
+$(BUILD)/%.o: %.c $(WT_INTERFACE_PROFILE_HEADER) | $(BUILD)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
 $(BUILD)/guest0.elf: $(OBJS) $(SECURE_CMSE_IMPLIB) ../psa-guest/guest.ld

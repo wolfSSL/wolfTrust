@@ -25,9 +25,12 @@
 #include <string.h>
 
 #ifndef WT_PKCS11_HEAP_SIZE
-#define WT_PKCS11_HEAP_SIZE  0x60000U
+    #error "Set WT_PKCS11_HEAP_SIZE for this arch"
 #endif
 #define WT_PKCS11_HEAP_ALIGN 16U
+#if (WT_PKCS11_HEAP_SIZE % WT_PKCS11_HEAP_ALIGN) != 0
+    #error "WT_PKCS11_HEAP_SIZE must be a multiple of 16"
+#endif
 
 typedef struct wt_pkcs11_heap_block {
     size_t size;

@@ -46,7 +46,8 @@ Pass its absolute path with `WT_INTERFACE_CONFIG`. The accepted fields are
 PKCS#11 builds link no PSA Crypto, so a `psa` field or `psa:` override fails.
 An empty mechanism list exports no crypto mechanisms. Unknown fields and
 operation names fail the build. A `CONFIG_TPM=y` build requires at least one selected command; a
-`CONFIG_PKCS11=y` build accepts `"tpm": []`.
+`CONFIG_PKCS11=y` build accepts `"tpm": []`. A TPM selection must keep
+`Startup`: the provider also sends it to reset a departed client.
 
 Inspect known dependency entry points or generate a selection directly:
 
@@ -102,8 +103,8 @@ FreeRTOS guest builds use `WT_LTO=1` by default; `WT_LTO=0` disables it.
 RTOS, startup, libc and cross-world transport objects keep their compilation
 boundaries. The reference TPM application, `tests/firmware/interface-guest`,
 is bare-metal and links wolfTPM's client crypto and wolfCrypt for HMAC and
-parameter-encrypted sessions; with `WT_ENGINE=hsm` it also links the wolfHSM
-client, which is why hsm TPM 2.0 is the one footprint row that grows.
+parameter-encrypted sessions. It takes entropy from `TPM2_GetRandom` and links
+no native or wolfHSM engine client, so it is the same image under both engines.
 The TPM service still selects native/HSM normally.
 TPM/PKCS#11 HSM providers omit unused software ECC fallback by default.
 `WT_PROVIDER_ECC_FALLBACK=1` restores it; native builds always retain software

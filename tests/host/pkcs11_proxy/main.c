@@ -568,6 +568,69 @@ static void test_null_pointers(CK_FUNCTION_LIST_PTR fn)
           "a NULL template is forwarded as NULL");
 }
 
+static void test_info_selectors(CK_FUNCTION_LIST_PTR fn)
+{
+    CK_INFO info;
+    CK_SLOT_INFO slot_info;
+    CK_TOKEN_INFO token_info;
+    CK_SESSION_INFO session_info;
+    wt_pkcs11_reader_t reader;
+
+    g_reply = REPLY_ARGUMENTS_BAD;
+    check(fn->C_GetInfo(&info) == CKR_ARGUMENTS_BAD &&
+              request_begin(&reader, WT_P11_GET_INFO) &&
+              request_done(&reader),
+          "GetInfo sends no selector");
+
+    check(fn->C_GetSlotInfo(0xFFFFFFFFU, &slot_info) == CKR_ARGUMENTS_BAD &&
+              request_begin(&reader, WT_P11_GET_SLOT_INFO) &&
+              wt_pkcs11_get_u32(&reader) == 0xFFFFFFFFU &&
+              request_done(&reader),
+          "an all-ones slot ID is forwarded");
+
+    check(fn->C_GetTokenInfo(0xFFFFFFFFU, &token_info) == CKR_ARGUMENTS_BAD &&
+              request_begin(&reader, WT_P11_GET_TOKEN_INFO) &&
+              wt_pkcs11_get_u32(&reader) == 0xFFFFFFFFU &&
+              request_done(&reader),
+          "an all-ones token slot ID is forwarded");
+
+    check(fn->C_GetSessionInfo(0xFFFFFFFFU, &session_info) ==
+              CKR_ARGUMENTS_BAD &&
+              request_begin(&reader, WT_P11_GET_SESSION_INFO) &&
+              wt_pkcs11_get_u32(&reader) == 0xFFFFFFFFU &&
+              request_done(&reader),
+          "an all-ones session handle is forwarded");
+
+    /* LP64 rejects the sentinel as too wide; ILP32 must forward it. */
+    g_request_len = 0U;
+    (void)fn->C_GetSlotInfo(CK_UNAVAILABLE_INFORMATION, &slot_info);
+    check(g_request_len == 0U ||
+              (request_begin(&reader, WT_P11_GET_SLOT_INFO) &&
+               !request_done(&reader)),
+          "the sentinel slot ID is never dropped from the request");
+}
+
+static void test_combined_local(CK_FUNCTION_LIST_PTR fn)
+{
+    CK_BYTE buffer[4] = { 0U, 0U, 0U, 0U };
+    CK_ULONG length = sizeof(buffer);
+
+    g_request_len = 0U;
+    check(fn->C_DigestEncryptUpdate(1U, buffer, sizeof(buffer), buffer,
+                                    &length) == CKR_FUNCTION_NOT_SUPPORTED &&
+              fn->C_DecryptDigestUpdate(1U, buffer, sizeof(buffer), buffer,
+                                        &length) ==
+                  CKR_FUNCTION_NOT_SUPPORTED &&
+              fn->C_SignEncryptUpdate(1U, buffer, sizeof(buffer), buffer,
+                                      &length) ==
+                  CKR_FUNCTION_NOT_SUPPORTED &&
+              fn->C_DecryptVerifyUpdate(1U, buffer, sizeof(buffer), buffer,
+                                        &length) ==
+                  CKR_FUNCTION_NOT_SUPPORTED &&
+              g_request_len == 0U,
+          "dual-function updates make no transport call");
+}
+
 int main(void)
 {
     CK_FUNCTION_LIST_PTR functions = NULL;
@@ -582,6 +645,8 @@ int main(void)
         test_partial_attribute_statuses(functions);
         test_mechanisms(functions);
         test_null_pointers(functions);
+        test_info_selectors(functions);
+        test_combined_local(functions);
     }
     if (g_failures != 0) {
         return 1;

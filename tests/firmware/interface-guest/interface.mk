@@ -18,17 +18,14 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 # The TPM 2.0 or PKCS#11 application build every architecture's guest shares.
-# Set ROOT, WT_INTERFACE, WT_ENGINE, IF_SP_MATH and IF_WH_CFG_DIR, and include
+# Set ROOT, WT_INTERFACE, WT_ENGINE, IF_SP_MATH and IF_ITS_CFLAGS, and include
 # mk/crypto-profile.mk, first; the guest adds its own CPU, console and libc.
 IF_GUEST_DIR ?= $(ROOT)/tests/firmware/interface-guest
 IF_PRE_INCLUDE ?=
 IF_SP_MATH_CFLAGS ?=
 IF_WOLFSSL_DIR := $(ROOT)/lib/wolfSSL
-IF_WOLFHSM_DIR := $(ROOT)/lib/wolfHSM
 IF_WOLFTPM_DIR := $(ROOT)/lib/wolfTPM
 IF_WOLFPKCS11_DIR := $(ROOT)/lib/wolfPKCS11
-IF_NS_SETTINGS_DIR := $(ROOT)/tests/firmware/stm32h563/nonsecure
-IF_WOLFHSM_MODULE_DIR := $(ROOT)/tests/firmware/zephyr-stm32h5/module/wolfhsm-client
 
 ifeq ($(filter tpm pkcs11,$(WT_INTERFACE)),)
 $(error WT_INTERFACE must be tpm or pkcs11)
@@ -41,11 +38,15 @@ endif
 WT_PKCS11_FULL_SUITE ?= all
 WT_PKCS11_SUITE ?= $(if $(filter default,$(WT_INTERFACE_PROFILE)),profile,$(WT_PKCS11_FULL_SUITE))
 WT_TPM_DA ?= 1
+WT_TPM_RESET_PROBE ?= 0
+WT_PKCS11_RESET_PROBE ?= 0
 
 IF_CFLAGS := -I$(IF_GUEST_DIR) -I$(ROOT)/include -I$(IF_WOLFSSL_DIR) \
     -DWOLFSSL_USER_SETTINGS $(IF_PRE_INCLUDE) $(WT_INTERFACE_PROFILE_FLAGS) \
     -Wno-unused-function -Wno-unused-variable -Wno-unused-parameter \
-    -Wno-type-limits -DWT_TPM_DA=$(WT_TPM_DA)
+    -Wno-type-limits -DWT_TPM_DA=$(WT_TPM_DA) \
+    -DWT_TPM_RESET_PROBE=$(WT_TPM_RESET_PROBE) \
+    -DWT_PKCS11_RESET_PROBE=$(WT_PKCS11_RESET_PROBE)
 
 ifeq ($(WT_INTERFACE),tpm)
 IF_APP_NAME := tpm-guest0
@@ -62,22 +63,9 @@ IF_SRCS := $(IF_GUEST_DIR)/tpm_tests.c $(ROOT)/src/client/tpm_psa_transport.c \
     $(addprefix $(IF_WOLFSSL_DIR)/wolfcrypt/src/, aes.c cryptocb.c ecc.c \
         random.c sha256.c asn.c coding.c error.c hash.c hmac.c memory.c sha.c \
         $(IF_SP_MATH) sp_int.c wolfmath.c wc_port.c sha512.c kdf.c pwdbased.c)
-ifeq ($(WT_ENGINE),native)
-IF_CFLAGS += -DWT_ENGINE_NATIVE=1
-IF_SRCS += $(ROOT)/src/client/crypto_native_client.c
-else
-IF_CFLAGS += -DWT_ENGINE_HSM=1 -DWOLFHSM_CFG -I$(IF_WOLFHSM_DIR) \
-    -I$(IF_NS_SETTINGS_DIR) -I$(IF_WH_CFG_DIR)
-IF_SRCS += $(ROOT)/src/client/hsm_psa_transport.c \
-    $(IF_WOLFHSM_MODULE_DIR)/src/wolfhsm_client_glue.c \
-    $(addprefix $(IF_WOLFHSM_DIR)/src/, wh_client.c wh_client_crypto.c \
-        wh_client_cryptocb.c wh_comm.c wh_crypto.c wh_keyid.c \
-        wh_message_comm.c wh_message_crypto.c wh_message_keystore.c \
-        wh_message_nvm.c wh_message_customcb.c wh_message_counter.c \
-        wh_utils.c)
-endif
-IF_WIRED := wt_tpm_psa_transact TPM2_SWTPM_SendCommand
-IF_ABSENT := 'fwTPM|FWTPM_|WP11_'
+IF_WIRED := wt_tpm_psa_transact TPM2_SWTPM_SendCommand wt_tpm_psa_random
+IF_ABSENT := 'fwTPM|FWTPM_|WP11_|wh_Client|wt_crypto_native'
+IF_RESET_PROBE := $(WT_TPM_RESET_PROBE)
 else
 IF_APP_NAME := pkcs11-guest0
 IF_SUITE_DEF := $(strip \
@@ -98,13 +86,14 @@ IF_SRCS := $(IF_GUEST_DIR)/pkcs11_tests.c $(ROOT)/src/client/pkcs11_proxy.c \
     $(ROOT)/src/client/pkcs11_psa_transport.c
 IF_WIRED := C_GetFunctionList wt_pkcs11_psa_call
 IF_ABSENT := 'WP11_|wolfTPM|TPM2_|wc_'
+IF_RESET_PROBE := $(WT_PKCS11_RESET_PROBE)
+endif
+# A reset probe marks its first launch in ITS, which outlives the guest.
+ifeq ($(IF_RESET_PROBE),1)
+IF_CFLAGS += $(IF_ITS_CFLAGS)
+IF_SRCS += $(ROOT)/src/client/psa_storage_client.c
 endif
 IF_KEEP := $(foreach sym,$(IF_WIRED),-Wl,-u,$(sym))
-
-$(IF_WH_CFG_DIR)/wolfhsm_cfg.h:
-	mkdir -p $(IF_WH_CFG_DIR)
-	printf '#include "%s"\n' "wh_settings_guest.h" > $@
-	printf '#include "%s"\n' "wh_settings_guest.h" > $(IF_WH_CFG_DIR)/wolfhsm_guest_cfg.h
 
 # The application reaches its provider only through the SPM-mediated service.
 define wt_interface_link_check

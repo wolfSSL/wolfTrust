@@ -422,8 +422,8 @@ static CK_RV proxy_C_Finalize(CK_VOID_PTR reserved)
     return proxy_simple(WT_P11_FINALIZE);
 }
 
-static CK_RV proxy_fixed_info(uint32_t function, CK_ULONG selector,
-                              void* info, size_t info_size)
+static CK_RV proxy_fixed_info(uint32_t function, int has_selector,
+                              CK_ULONG selector, void* info, size_t info_size)
 {
     wt_pkcs11_writer_t writer;
     wt_pkcs11_reader_t reader;
@@ -435,7 +435,7 @@ static CK_RV proxy_fixed_info(uint32_t function, CK_ULONG selector,
         return CKR_ARGUMENTS_BAD;
     }
     proxy_begin(&writer, function);
-    if (selector != CK_UNAVAILABLE_INFORMATION) {
+    if (has_selector != 0) {
         (void)proxy_put_ulong(&writer, selector);
     }
     rv = proxy_invoke(&writer, &reader);
@@ -454,8 +454,7 @@ static CK_RV proxy_fixed_info(uint32_t function, CK_ULONG selector,
 
 static CK_RV proxy_C_GetInfo(CK_INFO_PTR info)
 {
-    return proxy_fixed_info(WT_P11_GET_INFO, CK_UNAVAILABLE_INFORMATION,
-                            info, sizeof(*info));
+    return proxy_fixed_info(WT_P11_GET_INFO, 0, 0U, info, sizeof(*info));
 }
 
 static CK_RV proxy_C_GetSlotList(CK_BBOOL present, CK_SLOT_ID_PTR slots,
@@ -502,12 +501,14 @@ static CK_RV proxy_C_GetSlotList(CK_BBOOL present, CK_SLOT_ID_PTR slots,
 
 static CK_RV proxy_C_GetSlotInfo(CK_SLOT_ID slot, CK_SLOT_INFO_PTR info)
 {
-    return proxy_fixed_info(WT_P11_GET_SLOT_INFO, slot, info, sizeof(*info));
+    return proxy_fixed_info(WT_P11_GET_SLOT_INFO, 1, slot, info,
+                            sizeof(*info));
 }
 
 static CK_RV proxy_C_GetTokenInfo(CK_SLOT_ID slot, CK_TOKEN_INFO_PTR info)
 {
-    return proxy_fixed_info(WT_P11_GET_TOKEN_INFO, slot, info, sizeof(*info));
+    return proxy_fixed_info(WT_P11_GET_TOKEN_INFO, 1, slot, info,
+                            sizeof(*info));
 }
 
 static CK_RV proxy_C_GetMechanismList(CK_SLOT_ID slot,
@@ -664,7 +665,7 @@ static CK_RV proxy_C_CloseAllSessions(CK_SLOT_ID slot)
 static CK_RV proxy_C_GetSessionInfo(CK_SESSION_HANDLE session,
                                     CK_SESSION_INFO_PTR info)
 {
-    return proxy_fixed_info(WT_P11_GET_SESSION_INFO, session, info,
+    return proxy_fixed_info(WT_P11_GET_SESSION_INFO, 1, session, info,
                             sizeof(*info));
 }
 
@@ -1202,20 +1203,22 @@ static CK_RV proxy_C_VerifyRecover(CK_SESSION_HANDLE session,
     return proxy_unsupported(WT_P11_VERIFY_RECOVER);
 }
 
-#define WT_PROXY_COMBINED(name, id) \
+/* No profile can enable the dual-function updates, so they stay local stubs
+ * like every other disabled entry. */
+#define WT_PROXY_COMBINED(name) \
 static CK_RV name(CK_SESSION_HANDLE session, CK_BYTE_PTR input, \
                   CK_ULONG input_len, CK_BYTE_PTR output, \
                   CK_ULONG_PTR output_len) \
 { \
     (void)session; (void)input; (void)input_len; (void)output; \
     (void)output_len; \
-    return proxy_unsupported(id); \
+    return CKR_FUNCTION_NOT_SUPPORTED; \
 }
 
-WT_PROXY_COMBINED(proxy_C_DigestEncryptUpdate, WT_P11_DIGEST_ENCRYPT_UPDATE)
-WT_PROXY_COMBINED(proxy_C_DecryptDigestUpdate, WT_P11_DECRYPT_DIGEST_UPDATE)
-WT_PROXY_COMBINED(proxy_C_SignEncryptUpdate, WT_P11_SIGN_ENCRYPT_UPDATE)
-WT_PROXY_COMBINED(proxy_C_DecryptVerifyUpdate, WT_P11_DECRYPT_VERIFY_UPDATE)
+WT_PROXY_COMBINED(proxy_C_DigestEncryptUpdate)
+WT_PROXY_COMBINED(proxy_C_DecryptDigestUpdate)
+WT_PROXY_COMBINED(proxy_C_SignEncryptUpdate)
+WT_PROXY_COMBINED(proxy_C_DecryptVerifyUpdate)
 
 static CK_RV proxy_C_WrapKey(CK_SESSION_HANDLE session,
         CK_MECHANISM_PTR mechanism, CK_OBJECT_HANDLE wrapping_key,

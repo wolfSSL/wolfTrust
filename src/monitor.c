@@ -39,6 +39,9 @@ void wt_platform_launch_debug(int code, uint32_t guest);
 #ifdef CONFIG_VNET
 #include "wolftrust/services/vnet_service.h"
 #endif
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+#include "wolftrust/spm_sched.h"
+#endif
 
 static wt_scheduler_state_t g_scheduler;
 static wt_spm_t g_spm;
@@ -437,6 +440,9 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
 #ifdef CONFIG_VNET
     wt_vnet_service_reset_guest(guest_id);
 #endif
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+    wt_spm_interface_client_departed((uint32_t)guest_id);
+#endif
     restart_window = wt_find_restart_clear_window(config);
     if (restart_window != NULL) {
         wt_arch_zero_guest_memory(restart_window->base, restart_window->size);
@@ -792,6 +798,9 @@ void wt_monitor_quarantine_guest(wt_guest_id_t guest_id)
                                          -(psa_client_id_t)(guest_id + 1U));
 #ifdef CONFIG_VNET
     wt_vnet_service_reset_guest(guest_id);
+#endif
+#if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
+    wt_spm_interface_client_departed((uint32_t)guest_id);
 #endif
     runtime->state = WT_GUEST_FAULTED;
     g_wt_quarantine_events++;

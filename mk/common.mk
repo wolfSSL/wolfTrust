@@ -764,6 +764,11 @@ $(WT_LTO_SECURE_EXCLUDED_OBJS): SECURE_CFLAGS += -fno-lto
 $(WT_LTO_OWNED_OBJS): SECURE_CFLAGS += -fno-lto
 $(WT_LTO_OWNED_OBJS): HSM_LIB_CFLAGS += -fno-lto
 $(WT_LTO_OWNED_OBJS): HSM_WOLFHSM_CFLAGS += -fno-lto
+# objcopy --redefine-syms renames native objects only, never LTO bytecode.
+WT_LTO_NAMESPACE_RAW_OBJS := $(WT_IF_WOLFCRYPT_RAW_OBJS) $(WT_IF_WOLFHSM_RAW_OBJS) \
+    $(patsubst $(BUILD_DIR)/$(WT_IF)_sec_%.o,$(BUILD_DIR)/$(WT_IF)_sec_raw_%.o,$(WT_IF_LIB_OBJS))
+$(WT_LTO_NAMESPACE_RAW_OBJS): HSM_LIB_CFLAGS += -fno-lto
+$(WT_LTO_NAMESPACE_RAW_OBJS): HSM_WOLFHSM_CFLAGS += -fno-lto
 endif
 
 # Arm PSA-FF conformance partitions (P3a): the unmodified upstream server and

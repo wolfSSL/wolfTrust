@@ -50,9 +50,9 @@ typedef struct wt_msg_relay {
     uint8_t state;
 } wt_msg_relay_t;
 
-#define WT_MSG_RELAY_INIT(mode, request, response, capacity) \
-    { (request), (response), wt_spm_transport_direct, NULL, NULL, \
-      (capacity), 0U, 0U, 0U, 0, (mode), 0U }
+#define WT_MSG_RELAY_INIT(mode, request, response, capacity) { \
+    (request), (response), wt_spm_transport_direct, NULL, NULL, \
+    (capacity), 0U, 0U, 0U, 0, (mode), 0U }
 
 /* Bind the SPM-stamped Non-secure caller (guest N is -(N+1)). */
 void wt_msg_relay_set_client(wt_msg_relay_t* relay, int32_t app_client_id);

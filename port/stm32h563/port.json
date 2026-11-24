@@ -66,8 +66,8 @@
       ["mspovfneg", "SPM main-stack overflow halts fail-closed"],
       ["xnneg", "Privileged execution from SPM RAM denied"],
       ["svcneg", "Partition guest-return SVC panics only that partition"],
-      ["tpm tpmneg", "TPM 2.0 interface and isolation (L3)"],
-      ["pkcs11 pkcs11neg", "PKCS#11 interface and isolation (L3)"]
+      ["tpm tpmneg tpmreset", "TPM 2.0 interface, isolation and client reset (L3)"],
+      ["pkcs11 pkcs11neg pkcs11reset", "PKCS#11 interface, isolation and client reset (L3)"]
     ],
     "l3_exempt": {},
     "default": {
@@ -88,8 +88,8 @@
         ["authneg rollbackneg remeasureneg manifestneg spbudgetneg", "Launch, rollback, re-measure, manifest and SP budget verdicts, one guest"],
         ["periphneg revneg", "NS peripheral access and engineering-sample refusal, one guest"],
         ["nativewire nativewireasm", "Every native wire key op from the guest, portable C and assembly, one guest"],
-         ["tpm tpmneg", "TPM 2.0 interface and isolation, one guest (L3)"],
-         ["pkcs11 pkcs11neg", "PKCS#11 interface and isolation, one guest (L3)"]
+        ["tpm tpmneg tpmreset", "TPM 2.0 interface, isolation and client reset, one guest (L3)"],
+        ["pkcs11 pkcs11neg pkcs11reset", "PKCS#11 interface, isolation and client reset, one guest (L3)"]
       ],
       "l3_exempt": {"hsmfaultneg": "the tasklet fault scenario ends on the second guest's breakpoint, so it runs on the full profile only"}
     },

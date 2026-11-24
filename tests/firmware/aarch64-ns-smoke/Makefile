@@ -186,7 +186,6 @@ include $(ROOT)/mk/crypto-profile.mk
 IF_SP_MATH := sp_c64.c
 IF_SP_MATH_CFLAGS := -DSP_WORD_SIZE=64 -DHAVE___UINT128_T=1 -DWOLFSSL_USE_ALIGN \
     '-DXSLEEP_MS(ms)=((void)(ms))'
-IF_WH_CFG_DIR := $(BUILD_DIR)/wh_include
 include $(ROOT)/tests/firmware/interface-guest/interface.mk
 CFLAGS += $(IF_CFLAGS)
 LDFLAGS += $(IF_KEEP)
@@ -352,7 +351,7 @@ $(addprefix $(BUILD_DIR)/conf/,UsefulBuf.o qcbor_encode.o qcbor_decode.o ieee754
 endif
 
 ifneq ($(WT_NS_GUEST_INTERFACE),)
-$(ELF): $(WT_INTERFACE_PROFILE_HEADER) $(IF_WH_CFG_DIR)/wolfhsm_cfg.h
+$(ELF): $(WT_INTERFACE_PROFILE_HEADER)
 endif
 
 $(ELF): $(SRCS) $(CONF_OBJS) ns.ld | $(BUILD_DIR)

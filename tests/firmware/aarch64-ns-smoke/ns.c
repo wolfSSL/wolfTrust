@@ -50,6 +50,7 @@
 #if defined(WT_INTERFACE_TPM)
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/random.h"
+#include "wolftrust/tpm_psa_transport.h"
 #include "tpm_tests.h"
 #elif defined(WT_INTERFACE_PKCS11)
 #include "pkcs11_tests.h"
@@ -111,6 +112,12 @@ static void put_dec(uint32_t value)
 /* Console and pacing hooks of the board-neutral interface application
  * (tests/firmware/interface-guest), as its Armv8-M main.c provides them. */
 #if defined(WT_INTERFACE_TPM)
+/* Entropy comes from fwTPM, so the application needs no crypto engine client. */
+int wolftrust_guest_rng_stub(unsigned char* output, unsigned int sz)
+{
+    return (wt_tpm_psa_random(output, (size_t)sz) == 0) ? 0 : -1;
+}
+
 int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
 {
     (void)os;

@@ -30,6 +30,7 @@
 #if defined(WT_INTERFACE_TPM)
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/random.h"
+#include "wolftrust/tpm_psa_transport.h"
 #include "tpm_tests.h"
 #elif defined(WT_INTERFACE_PKCS11)
 #include "pkcs11_tests.h"
@@ -110,7 +111,12 @@ static void guest_spin(void)
 }
 
 #if defined(WT_INTERFACE_TPM)
-/* wolfCrypt seeds from the Secure vault RNG over the engine's mediated wire. */
+/* Entropy comes from fwTPM, so the application needs no crypto engine client. */
+int wolftrust_guest_rng_stub(unsigned char* output, unsigned int sz)
+{
+    return (wt_tpm_psa_random(output, (size_t)sz) == 0) ? 0 : -1;
+}
+
 int wc_GenerateSeed(OS_Seed* os, byte* output, word32 sz)
 {
     (void)os;
@@ -138,6 +144,11 @@ void wt_tpm_wait(void)
     guest_spin();
 }
 
+void wt_tpm_fault(void)
+{
+    (void)*(volatile const uint32_t*)GUEST_SECURE_RAM_ADDR;
+}
+
 static int guest_run(void)
 {
     return wt_tpm_run();
@@ -156,6 +167,11 @@ void wt_pkcs11_print_u32(unsigned int value)
 void wt_pkcs11_wait(void)
 {
     guest_spin();
+}
+
+void wt_pkcs11_fault(void)
+{
+    (void)*(volatile const uint32_t*)GUEST_SECURE_RAM_ADDR;
 }
 
 static int guest_run(void)

@@ -282,7 +282,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     container:
-      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25
+      image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     steps:
       - uses: actions/checkout@v4
       - name: Initialize firmware dependencies

@@ -19,7 +19,7 @@ Costs are over the default image, built with Arm GNU 15.2.1 in
 `make size-report`: flash is `text + data`, and RAM is the Secure RAM the image
 reserves, partition stacks and bands included ([Footprint](Footprint.md#how-sizes-are-measured)).
 The default native image serves PSA Crypto from the Secure image and is
-111,513 bytes of flash and 48,844 bytes of RAM on the STM32H563, with wolfCrypt
+109,849 bytes of flash and 48,844 bytes of RAM on the STM32H563, with wolfCrypt
 built as portable C. The other rows are measured over the `WT_SECURE_PSA=0`
 image, 70,400 and 45,260 bytes on the STM32H563, and 69,496 and 45,280 bytes
 on the STM32L562 (measured on the STM32L562 port, which is under review and not

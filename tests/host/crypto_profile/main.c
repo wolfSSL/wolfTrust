@@ -23,6 +23,7 @@
 #include "wolftrust/pkcs11/pkcs11_wire.h"
 #include "wolftrust/pkcs11/pkcs11_abi.h"
 #include "wolftrust/pkcs11_psa_transport.h"
+#include "wolftrust/services/interface_client.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -175,6 +176,13 @@ int main(void)
           functions->C_Initialize(NULL) == CKR_OK &&
           functions->C_InitToken(1, so_pin, sizeof(so_pin), label) == CKR_OK,
           "finalize clears PIN failures without the public C_GetInfo");
+#endif
+#if !WT_PROFILE_PKCS11_C_Finalize
+    before = g_provider_test_library_count;
+    g_wt_interface_client_epoch++;
+    check(functions->C_Initialize(NULL) == CKR_OK &&
+          g_provider_test_library_count == before && before > 1U,
+          "a departed client is released without the public C_Finalize");
 #endif
     return failures != 0;
 }

@@ -131,6 +131,8 @@ def select(catalog, defaults, profile, custom, enable, disable, require_tpm=True
                              (kind, ", ".join(sorted(unknown))))
     if require_tpm and not selected["tpm"]:
         raise ValueError("a TPM profile requires at least one command")
+    if require_tpm and "Startup" not in selected["tpm"]:
+        raise ValueError("a TPM profile requires Startup, which also resets a departed client")
     if mechanisms is not None and any(not re.fullmatch(r"CKM_[A-Z0-9_]+", n)
                                       for n in mechanisms):
         raise ValueError("invalid PKCS11 mechanism name")

@@ -150,6 +150,11 @@ does not use a clock:
   objects, when the last `C_Finalize` releases the library or the partition
   restarts. Both counts are cleared with it. A `C_Finalize` that leaves the
   library loaded, because of an extra `C_Initialize`, keeps the counts.
+- When the monitor restarts or quarantines the application guest, the next
+  request first releases each `C_Initialize` that guest still held, as its
+  own `C_Finalize` calls would have. That erases the token, its objects, its
+  sessions, and both counts, so the relaunched guest starts with an
+  uninitialized token. `pkcs11reset` checks this under M33MU.
 - `C_GetTokenInfo` reports the counts with the standard
   `CKF_USER_PIN_COUNT_LOW`, `CKF_USER_PIN_FINAL_TRY`, and
   `CKF_USER_PIN_LOCKED` flags and their SO equivalents.

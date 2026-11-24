@@ -346,6 +346,11 @@ static int wt_partition_check_domain(const wt_guest_config_t* config,
              WT_MEM_ATTR_DEVICE);
         regions++;
     }
+    /* The row arrays are sized exactly: match the counts before reading. */
+    if (windows != config->memory_window_count ||
+            regions + 1U != config->memory_region_count) {
+        return -1;
+    }
     reg[regions] = config->memory_regions[regions];
     derived.memory_window_count = windows;
     derived.memory_region_count = regions + 1U;

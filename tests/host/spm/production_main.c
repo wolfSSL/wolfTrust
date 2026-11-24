@@ -295,6 +295,24 @@ int main(void)
         return 1;
     }
 
+    /* One resource more than the row declares is refused before the row's
+     * exact-sized arrays are read past their end. */
+    invalid_res[0].size -= 32U;
+    if (invalid_domains[1].memory_resource_count + 1U >=
+            WT_MAX_MEMORY_REGIONS) {
+        (void)fprintf(stderr, "the guest domain has no room to grow\n");
+        return 1;
+    }
+    invalid_res[invalid_domains[1].memory_resource_count] = invalid_res[0];
+    invalid_domains[1].memory_resource_count++;
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
+        (void)fprintf(stderr, "an extra guest resource was accepted\n");
+        return 1;
+    }
+    invalid_domains[1].memory_resource_count--;
+    invalid_domains[1].memory_resources =
+        wt_spm_manifest(&spm)->domains[1].memory_resources;
+
     /* The real manifest matches the rows; its guests declare READY. */
     if (wt_partitions_check_manifest(wt_spm_manifest(&spm)) != 0) {
         (void)fprintf(stderr, "the real manifest was refused\n");

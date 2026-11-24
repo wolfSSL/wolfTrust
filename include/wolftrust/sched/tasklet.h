@@ -74,11 +74,6 @@ static inline uint32_t wt_tasklet_resume(wt_tasklet_t *tasklet)
     return wt_co_run(tasklet);
 }
 
-static inline uint32_t wt_tasklet_run(uint32_t budget_iterations)
-{
-    return wt_co_tick(budget_iterations);
-}
-
 static inline bool wt_tasklet_request_preempt(void)
 {
     return wt_co_request_preempt();

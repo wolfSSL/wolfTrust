@@ -32,11 +32,6 @@
 
 extern void wt_platform_panic(void);
 
-#define WT_CO_SP_OFFSET         0
-#define WT_CO_STACK_BASE_OFFSET 4
-#define WT_CO_UNPRIV_OFFSET     40
-#define WT_CO_EXCRET_OFFSET     44
-
 WT_STATIC_ASSERT(offsetof(struct wt_co, sp) == WT_CO_SP_OFFSET,
                "struct wt_co: sp must be at offset 0");
 WT_STATIC_ASSERT(offsetof(struct wt_co, stack_base) == WT_CO_STACK_BASE_OFFSET,
@@ -335,8 +330,8 @@ void PendSV_Handler(void)
         "ldr    r1, =g_wt_co_current                            \n"
         "ldr    r2, [r1]                                        \n"
         "cbz    r2, 5f                                          \n"
-        "str    r0, [r2, #" "0" "]                              \n"
-        "str    lr, [r2, #" "44" "]                             \n"
+        "str    r0, [r2, #" WT_CO_STR(WT_CO_SP_OFFSET) "]\n"
+        "str    lr, [r2, #" WT_CO_STR(WT_CO_EXCRET_OFFSET) "]\n"
         "b      2f                                              \n"
 
         /* Entering from bootstrap: preserve bootstrap R4-R11 on MSP. */
@@ -345,7 +340,7 @@ void PendSV_Handler(void)
         "ldr    r0, =g_wt_co_bootstrap                          \n"
         "mov    r1, sp                                          \n"
         "str    r1, [r0, #0]                                    \n"
-        "str    lr, [r0, #" "44" "]                             \n"
+        "str    lr, [r0, #" WT_CO_STR(WT_CO_EXCRET_OFFSET) "]\n"
 
         "2:                                                     \n"
         "ldr    r0, =g_wt_co_pendsv_target                      \n"
@@ -355,10 +350,10 @@ void PendSV_Handler(void)
         /* Restore the target tasklet frame and return using PSP_S. A
          * Secure Partition coroutine (unprivileged flag set) returns to
          * Thread mode with CONTROL.nPRIV=1; plain tasklets keep nPRIV=0. */
-        "ldr    r0, [r2, #" "0" "]                              \n"
+        "ldr    r0, [r2, #" WT_CO_STR(WT_CO_SP_OFFSET) "]\n"
         "ldmia  r0!, {r4-r11}                                   \n"
         "msr    psp, r0                                         \n"
-        "ldr    r3, [r2, #" "4" "]                              \n"
+        "ldr    r3, [r2, #" WT_CO_STR(WT_CO_STACK_BASE_OFFSET) "]\n"
         /* Reserve a 32-byte software-save band (plus the canary word and
          * 8-byte alignment) above stack_base. The save path's
          * "stmdb r0!, {r4-r11}" writes 32 bytes below PSP through r0, and
@@ -367,7 +362,7 @@ void PendSV_Handler(void)
          * stack instead of underflowing into the adjacent partition. */
         "adds   r3, r3, #40                                     \n"
         "msr    psplim, r3                                      \n"
-        "ldrb   r3, [r2, #" "40" "]                             \n"
+        "ldrb   r3, [r2, #" WT_CO_STR(WT_CO_UNPRIV_OFFSET) "]\n"
         "mrs    r1, control                                     \n"
         "bic    r1, r1, #1                                      \n"
         "orr    r1, r1, r3                                      \n"
@@ -375,7 +370,7 @@ void PendSV_Handler(void)
         "isb                                                    \n"
         "ldr    r0, =g_wt_co_current                            \n"
         "str    r2, [r0]                                        \n"
-        "ldr    lr, [r2, #" "44" "]                             \n"
+        "ldr    lr, [r2, #" WT_CO_STR(WT_CO_EXCRET_OFFSET) "]\n"
         "bx     lr                                              \n"
 
         /* Resume bootstrap on MSP_S, always privileged. */
@@ -383,7 +378,7 @@ void PendSV_Handler(void)
         "ldr    r0, =g_wt_co_current                            \n"
         "ldr    r1, =g_wt_co_bootstrap                          \n"
         "str    r1, [r0]                                        \n"
-        "ldr    lr, [r1, #" "44" "]                             \n"
+        "ldr    lr, [r1, #" WT_CO_STR(WT_CO_EXCRET_OFFSET) "]\n"
         "movs   r0, #0                                          \n"
         "msr    psplim, r0                                      \n"
         "mrs    r1, control                                     \n"

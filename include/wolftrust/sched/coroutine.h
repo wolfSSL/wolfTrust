@@ -50,20 +50,13 @@ typedef struct wt_co wt_co_t;
 /* Entry function signature. Coroutines never return — they must loop. */
 typedef void (*wt_co_entry_fn)(void *arg);
 
-/* Initialise the coroutine subsystem. Call once at boot, before any
- * wt_co_create. Sets up the runqueue and identifies the bootstrap
- * (monitor) context as the implicit "outer" coroutine. */
+/* Initialise the coroutine table and make the bootstrap (monitor) context
+ * the implicit "outer" coroutine. Call once at boot, before any create. */
 void wt_co_init(void);
 
-/* Create a new coroutine with `stack` (caller-provided, must be
- * WT_CO_STACK_SIZE bytes, 8-byte aligned) running `entry(arg)`. The new
- * coroutine starts in WT_CO_RUNNABLE state but does not run until
- * wt_co_tick gives it CPU. Returns the handle, or NULL
- * if the runqueue is full (compile-time maximum, see implementation).
- * Safe to call from monitor init context only; not from inside a
- * coroutine (single-threaded init phase). */
-wt_co_t *wt_co_create(uint8_t *stack, size_t stack_size,
-                       wt_co_entry_fn entry, void *arg);
+/* A BLOCKED coroutine on `stack` (at least WT_CO_STACK_SIZE bytes, 8-byte
+ * aligned and SPM-private) running `entry(arg)` once woken and run; NULL
+ * when the table is full. Monitor init context only. */
 wt_co_t *wt_co_create_blocked(uint8_t *stack, size_t stack_size,
                               wt_co_entry_fn entry, void *arg);
 
@@ -95,7 +88,7 @@ void wt_co_block(void);
  * bootstrap, or from an interrupt handler (callers must guarantee
  * single-threaded access — secure side is single-core). No-op if `co`
  * is already RUNNABLE or RUNNING. Does NOT switch — the woken
- * coroutine runs the next time wt_co_tick picks it. */
+ * coroutine runs the next time its owner calls wt_co_run on it. */
 void wt_co_wake(wt_co_t *co);
 
 /* Return handle of currently executing coroutine, or NULL if running
@@ -115,24 +108,15 @@ bool wt_co_wake_pending(const wt_co_t *co);
  * runnable, or the caller was not in the bootstrap context. */
 uint32_t wt_co_run(wt_co_t *co);
 
-/* Run the coroutine scheduler from the bootstrap context for at most
- * `budget_iterations` switches OR until no coroutine is RUNNABLE,
- * whichever comes first. Returns the number of switches actually
- * performed. The caller (monitor SysTick/NSC paths) uses this as the
- * mechanism to give coroutines CPU between guest dispatches without
- * starving the guest scheduler. budget_iterations==0 returns 0
- * immediately. Calling from inside a coroutine is forbidden. */
-uint32_t wt_co_tick(uint32_t budget_iterations);
-
 /* Request preemption of the currently running coroutine from handler
  * mode. The interrupted coroutine becomes RUNNABLE again and Secure
  * PendSV returns execution to the bootstrap context. Returns false if
  * no coroutine is currently running. */
 bool wt_co_request_preempt(void);
 
-/* Mark `co` as terminally FAULTED and remove it from the runqueue / any
- * wait queue. Called from the Secure-side fault handler when a coroutine
- * trips PSPLIM_S, MPU_S, or any UsageFault. After this returns, the
+/* Mark `co` as terminally FAULTED; a mutex wait queue keeps its link for
+ * recovery to remove. Called from the Secure-side fault handler when a
+ * coroutine trips PSPLIM_S, MPU_S, or any UsageFault. After this returns, the
  * coroutine never runs again and wt_co_wake on it is a no-op. The fault
  * handler is responsible for unwinding back to the bootstrap context.
  * Safe to call from handler mode; the scheduler is cooperative so there

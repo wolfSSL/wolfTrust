@@ -279,7 +279,7 @@ void wt_armv8m_tasklet_fault_entry(void)
          * thunk cannot exception-return on hardware (M33MU accepted it,
          * H5 silicon IACCVIOL-faults at 0xFFFFFFF8). */
         "ldr    r0, =g_wt_co_bootstrap              \n"
-        "ldr    lr, [r0, #44]                       \n"
+        "ldr    lr, [r0, #" WT_CO_STR(WT_CO_EXCRET_OFFSET) "]\n"
         "ldr    r0, [r0, #0]                        \n"
         "msr    msp, r0                             \n"
         "pop    {r4-r11}                            \n"

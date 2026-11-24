@@ -130,8 +130,6 @@ static void compose(wt_secure_domain_t* table, uintptr_t band_base,
     table->regions[1].size = band_size;
     table->regions[1].attributes = band_attributes;
     table->region_count = 2U;
-    table->stack_base = 0U;
-    table->stack_size = 0U;
 }
 
 /* The composition invariant: once every partition's table is composed, no

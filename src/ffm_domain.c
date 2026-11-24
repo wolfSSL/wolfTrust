@@ -49,8 +49,6 @@ int wt_ffm_resolve_secure_domain(const wt_system_manifest_t* manifest,
 
     out_domain->domain_id = WT_DOMAIN_ID_INVALID;
     out_domain->region_count = 0U;
-    out_domain->stack_base = 0U;
-    out_domain->stack_size = 0U;
 
     domain = wt_ffm_domain_by_id(manifest, domain_id);
     if (domain == NULL) {
@@ -80,8 +78,6 @@ int wt_ffm_resolve_secure_domain(const wt_system_manifest_t* manifest,
              WT_MEMORY_ATTR_RESTART_CLEAR);
     }
     out_domain->region_count = domain->memory_resource_count;
-    out_domain->stack_base = domain->stack_base;
-    out_domain->stack_size = domain->stack_size;
     out_domain->domain_id = domain_id;
     return WT_SECURE_DOMAIN_OK;
 }

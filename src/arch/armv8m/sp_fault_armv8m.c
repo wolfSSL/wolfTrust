@@ -41,8 +41,10 @@
 #include "wolftrust/services/hsm.h"
 #endif
 
-#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
+/* The hardware scenarios read these two by symbol as fault evidence. */
+static volatile uint32_t g_tasklet_fault_count;
 static volatile uint32_t g_tasklet_fault_cfsr;
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
 static volatile uint32_t g_tasklet_fault_pc;
 static volatile uint32_t g_tasklet_fault_exc_return;
 static volatile uint32_t g_tasklet_fault_frame;
@@ -181,15 +183,17 @@ static void wt_secure_tasklet_fault_dispatch(uint32_t *frame,
 {
     uint32_t cfsr = WT_SCB_CFSR_S;
 
+    if (g_tasklet_fault_cfsr == 0u) {
+        g_tasklet_fault_cfsr = cfsr;
+    }
 #if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
     /* First-wins forensic record: the first tasklet fault's CFSR, stacked PC
      * and EXC_RETURN survive any later cascade so a debugger post-mortem can
      * tell what faulted (MMFSR/UFSR bits), where (PC), and from which mode
      * (EXC_RETURN bit 3). The fault-address note below adds the data address. */
-    if (g_tasklet_fault_cfsr == 0u) {
+    if (g_tasklet_fault_exc_return == 0u) {
         uint32_t psp_now;
 
-        g_tasklet_fault_cfsr = cfsr;
         g_tasklet_fault_exc_return = exc_return;
         /* Frame position vs the coroutine stack identifies which pusher
          * built it (SVC/tick 8-word vs NS-preempt callee+signature). */
@@ -238,6 +242,8 @@ static void wt_secure_tasklet_fault_dispatch(uint32_t *frame,
      * dead for every later test. Production keeps the quarantine (task #26). */
     wt_platform_system_reset();
 #endif
+
+    g_tasklet_fault_count++;
 
     /* Graceful recovery for a scheduled Secure Partition (WT-SYS-0008 /
      * WT-FFM-0017): mark it dead and pend the recovery; the SPM dispatch path

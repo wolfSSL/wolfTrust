@@ -382,6 +382,15 @@ static int wt_attest_build_claims(wt_guest_id_t guestId,
         (records == NULL)) {
         return WT_ATTEST_ERROR_INVALID_ARGUMENT;
     }
+    if ((challengeSize != WT_ATTEST_CHALLENGE_SIZE_32) &&
+        (challengeSize != WT_ATTEST_CHALLENGE_SIZE_48) &&
+        (challengeSize != WT_ATTEST_CHALLENGE_SIZE_64)) {
+        return WT_ATTEST_ERROR_INVALID_ARGUMENT;
+    }
+    ret = wt_attest_prepare();
+    if (ret != WT_ATTEST_SUCCESS) {
+        return ret;
+    }
     /* Reject out-of-range guest ids so the negative client-id map below cannot
      * overflow int32 or turn positive. */
     if (guestId >= WT_MAX_GUESTS) {
@@ -520,19 +529,11 @@ int wt_initial_attest_get_token_size(size_t challengeSize,
         return WT_ATTEST_ERROR_INVALID_ARGUMENT;
     }
     *tokenSize = 0u;
-    if ((challengeSize != WT_ATTEST_CHALLENGE_SIZE_32) &&
-        (challengeSize != WT_ATTEST_CHALLENGE_SIZE_48) &&
-        (challengeSize != WT_ATTEST_CHALLENGE_SIZE_64)) {
-        return WT_ATTEST_ERROR_INVALID_ARGUMENT;
-    }
 
-    ret = wt_attest_prepare();
-    if (ret == WT_ATTEST_SUCCESS) {
-        (void)memset(challenge, 0, sizeof(challenge));
-        ret = wt_attest_build_claims(0u, challenge, challengeSize, &claims,
-            components, sizeof(components) / sizeof(components[0]),
-            records, sizeof(records) / sizeof(records[0]));
-    }
+    (void)memset(challenge, 0, sizeof(challenge));
+    ret = wt_attest_build_claims(0u, challenge, challengeSize, &claims,
+        components, sizeof(components) / sizeof(components[0]),
+        records, sizeof(records) / sizeof(records[0]));
     if (ret == WT_ATTEST_SUCCESS) {
         ret = wc_CoseEatPsaToken_EncodeClaims(&claims, payload,
                                               sizeof(payload), &payloadSize);
@@ -574,18 +575,10 @@ int wt_initial_attest_get_token(wt_guest_id_t guestId,
         return WT_ATTEST_ERROR_INVALID_ARGUMENT;
     }
     *tokenSize = 0u;
-    if ((challengeSize != WT_ATTEST_CHALLENGE_SIZE_32) &&
-        (challengeSize != WT_ATTEST_CHALLENGE_SIZE_48) &&
-        (challengeSize != WT_ATTEST_CHALLENGE_SIZE_64)) {
-        return WT_ATTEST_ERROR_INVALID_ARGUMENT;
-    }
 
-    ret = wt_attest_prepare();
-    if (ret == WT_ATTEST_SUCCESS) {
-        ret = wt_attest_build_claims(guestId, challenge, challengeSize, &claims,
-            components, sizeof(components) / sizeof(components[0]),
-            records, sizeof(records) / sizeof(records[0]));
-    }
+    ret = wt_attest_build_claims(guestId, challenge, challengeSize, &claims,
+        components, sizeof(components) / sizeof(components[0]),
+        records, sizeof(records) / sizeof(records[0]));
     if (ret == WT_ATTEST_SUCCESS) {
         if (wc_CoseKey_Init(&key) != WOLFCOSE_SUCCESS) {
             ret = WT_ATTEST_ERROR_CRYPTO;

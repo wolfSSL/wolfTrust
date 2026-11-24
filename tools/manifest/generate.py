@@ -1147,7 +1147,9 @@ def generate_header(manifest):
     lines = [FILE_HEADER.format(name="wolftrust_manifest_generated.h"),
              "#ifndef WOLFTRUST_MANIFEST_GENERATED_H",
              "#define WOLFTRUST_MANIFEST_GENERATED_H", "",
-             "#include \"wolftrust/manifest.h\"", ""]
+             "#include \"wolftrust/manifest.h\"", "",
+             "#define WT_GEN_MANIFEST_FEATURES 0x{:x}U".format(
+                 manifest["features"]), ""]
     symbols = set()
 
     def add_symbol(name):

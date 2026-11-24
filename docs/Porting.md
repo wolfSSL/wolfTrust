@@ -378,7 +378,7 @@ A port is its own files and nothing else:
 
 | Path | Holds |
 | --- | --- |
-| `port/<soc>/port.json` | the registration: name, board, guide, CI label and image, engines and build variants, the M33MU tiers and guest pairs, the capabilities the port lacks (with reasons), the hardware qualification and opt-in sets |
+| `port/<soc>/port.json` | the registration: name, board, guide, CI label and image, engines and build variants, the non-crypto and SPM flash ceilings (`build.noncrypto_max`, `build.spm_max`), the M33MU tiers and guest pairs, the capabilities the port lacks (with reasons), the hardware qualification and opt-in sets |
 | `port/<soc>/memory_map.h`, `<soc>_regs.h` | the flash, RAM, alias, sector, program unit, window and peripheral facts; `memory_map_check.h` refuses an inconsistent map at compile time |
 | `port/<soc>/platform_<soc>.c` | the hooks of `port/common/armv8m/platform_port.h` and the SAU and MPU tables |
 | `port/<soc>/flash_drv.c`, `rng_drv.c` | the two driver contracts above, plus any chip driver they wrap |

@@ -144,22 +144,21 @@ jobs:
           done
       # Non-crypto flash, split by tools/footprint/classify.py from the
       # non-LTO map: TF-M v2.3.1 level 3 is 37,258 bytes on the STM32L562E-DK
-      # (docs/TF-M-Compatibility.md). Lower these as size work lands.
-      - name: Hold the non-crypto Secure flash under its current ceiling
+      # (docs/TF-M-Compatibility.md). Each port's port.json holds its non-crypto
+      # and SPM ceilings; lower them as size work lands.
+      - name: Hold the non-crypto and SPM Secure flash under their ceilings
         run: |
           for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
-            case $target in
-              stm32h563) noncrypto_max=48675 ;;
-              mimxrt700) noncrypto_max=48636 ;;
-              mcxn947) noncrypto_max=47196 ;;
-              stm32l562) noncrypto_max=48100 ;;
-              *) echo "FAIL: no non-crypto flash ceiling for $target" >&2; exit 1 ;;
-            esac
+            noncrypto_max=$(python3 tests/target/lib/scenario_matrix.py --port $target \
+              --get build.noncrypto_max)
+            spm_max=$(python3 tests/target/lib/scenario_matrix.py --port $target \
+              --get build.spm_max)
             make TARGET=$target WT_ENGINE=native WT_ATTEST_COSE=1 WT_LTO=0 secure-image \
               TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_noncrypto_$target
             python3 tools/footprint/classify.py build_noncrypto_$target/wolftrust.map \
               --rules tools/footprint/wolftrust.rules \
-              --elf build_noncrypto_$target/wolftrust.elf --max $noncrypto_max
+              --elf build_noncrypto_$target/wolftrust.elf --max $noncrypto_max \
+              --category-max spm=$spm_max
           done
       - name: Build every port's full-profile secure image (every engine)
         run: |

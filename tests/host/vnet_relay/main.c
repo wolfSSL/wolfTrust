@@ -49,9 +49,10 @@ void wt_platform_panic(void)
 }
 
 int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
-                     wt_spm_sp_entry_fn entry, void* arg)
+                     wt_spm_sp_entry_fn entry, void* arg,
+                     wt_spm_sp_restore_fn restore)
 {
-    (void)runtime; (void)partition_id; (void)entry; (void)arg;
+    (void)runtime; (void)partition_id; (void)entry; (void)arg; (void)restore;
     return WT_FFM_SUCCESS;
 }
 

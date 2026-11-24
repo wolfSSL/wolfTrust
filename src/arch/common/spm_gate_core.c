@@ -840,9 +840,9 @@ static int wt_spm_sched_drive(wt_co_t* co, int32_t partition_id)
     return ret;
 }
 
-static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
-                                   int32_t partition_id,
-                                   wt_spm_sp_entry_fn entry, void* arg)
+int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                     wt_spm_sp_entry_fn entry, void* arg,
+                     wt_spm_sp_restore_fn restore)
 {
     const wt_spm_sp_mem_t* mem;
     wt_spm_sp_t* slot;
@@ -930,7 +930,7 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
     slot->partition_id = partition_id;
     slot->wait_kind = WT_SPM_WAIT_NONE;
     slot->entry = entry;
-    slot->restore = NULL;
+    slot->restore = restore;
     slot->arg = arg;
     slot->restart_count = 0u;
     slot->first_restart_tick = 0u;
@@ -943,12 +943,6 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
      * g_spm_sp_count, so an SP is never visible half-built. */
     g_spm_sp_count++;
     return WT_FFM_SUCCESS;
-}
-
-int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
-                     wt_spm_sp_entry_fn entry, void* arg)
-{
-    return wt_spm_sched_add_common(runtime, partition_id, entry, arg);
 }
 
 #if (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
@@ -1060,17 +1054,3 @@ int wt_spm_sched_validate(void)
     return WT_FFM_SUCCESS;
 }
 #endif
-
-int wt_spm_sched_set_restore(int32_t partition_id,
-                             wt_spm_sp_restore_fn restore)
-{
-    size_t i;
-
-    for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].partition_id == partition_id) {
-            g_spm_sp[i].restore = restore;
-            return WT_FFM_SUCCESS;
-        }
-    }
-    return WT_FFM_ERROR_STATE;
-}

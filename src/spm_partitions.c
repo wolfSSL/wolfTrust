@@ -381,12 +381,9 @@ int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
         return ret;
     }
     wt_spm_set_hsm_partition(partition_id);
-    ret = wt_spm_sched_add(runtime, partition_id, wt_spm_hsm_entry,
-                           (void*)(intptr_t)partition_id);
-    if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_sched_set_restore(partition_id, wt_spm_hsm_restore);
-    }
-    return ret;
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_hsm_entry,
+                            (void*)(intptr_t)partition_id,
+                            wt_spm_hsm_restore);
 }
 
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
@@ -451,10 +448,8 @@ int wt_spm_attest_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
     ret = wt_spm_attest_bind(partition_id);
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_add(runtime, partition_id, wt_spm_attest_entry,
-                               (void*)(intptr_t)partition_id);
-    }
-    if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_sched_set_restore(partition_id, wt_spm_attest_restore);
+                               (void*)(intptr_t)partition_id,
+                               wt_spm_attest_restore);
     }
     return ret;
 }
@@ -524,17 +519,12 @@ static int wt_spm_vault_restore(int32_t partition_id)
 
 int wt_spm_vault_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
-    int ret;
-
     /* The vault must run as a scheduled coroutine: every op takes the NVM
      * path, whose mutex cannot be held from the bootstrap context. */
     wt_spm_vault_bind();
-    ret = wt_spm_sched_add(runtime, partition_id, wt_spm_vault_entry,
-                           (void*)(intptr_t)partition_id);
-    if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_sched_set_restore(partition_id, wt_spm_vault_restore);
-    }
-    return ret;
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_vault_entry,
+                            (void*)(intptr_t)partition_id,
+                            wt_spm_vault_restore);
 }
 
 /* The ITS partition's service loop: a normal UNPRIVILEGED scheduled SP.
@@ -636,7 +626,7 @@ static void wt_spm_its_entry(void* arg)
 int wt_spm_its_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     return wt_spm_sched_add(runtime, partition_id, wt_spm_its_entry,
-                            (void*)(intptr_t)partition_id);
+                            (void*)(intptr_t)partition_id, NULL);
 }
 
 /* The PS partition uses the same unprivileged storage loop, but every request
@@ -666,7 +656,7 @@ static void wt_spm_ps_entry(void* arg)
 int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     return wt_spm_sched_add(runtime, partition_id, wt_spm_ps_entry,
-                            (void*)(intptr_t)partition_id);
+                            (void*)(intptr_t)partition_id, NULL);
 }
 
 #if defined(PARTITION_FWU_ID)
@@ -818,14 +808,9 @@ static int wt_spm_fwu_restore(int32_t partition_id)
 
 int wt_spm_fwu_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
-    int ret;
-
-    ret = wt_spm_sched_add(runtime, partition_id, wt_spm_fwu_entry,
-                           (void*)(intptr_t)partition_id);
-    if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_sched_set_restore(partition_id, wt_spm_fwu_restore);
-    }
-    return ret;
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_fwu_entry,
+                            (void*)(intptr_t)partition_id,
+                            wt_spm_fwu_restore);
 }
 #endif
 
@@ -880,7 +865,7 @@ static void wt_spm_vnet_entry(void* arg)
 int wt_spm_vnet_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
     return wt_spm_sched_add(runtime, partition_id, wt_spm_vnet_entry,
-                            (void*)(intptr_t)partition_id);
+                            (void*)(intptr_t)partition_id, NULL);
 }
 #endif /* CONFIG_VNET */
 
@@ -980,15 +965,12 @@ static int wt_spm_interface_restore(int32_t partition_id)
 
 int wt_spm_interface_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 {
-    int ret;
+    wt_spm_sp_restore_fn restore = NULL;
 
-    ret = wt_spm_sched_add(runtime, partition_id, wt_spm_interface_entry,
-                           (void*)(intptr_t)partition_id);
 #if defined(WT_ENGINE_HSM) && defined(WT_INTERFACE_LOCAL_PROVIDER)
-    if (ret == WT_FFM_SUCCESS) {
-        ret = wt_spm_sched_set_restore(partition_id, wt_spm_interface_restore);
-    }
+    restore = wt_spm_interface_restore;
 #endif
-    return ret;
+    return wt_spm_sched_add(runtime, partition_id, wt_spm_interface_entry,
+                            (void*)(intptr_t)partition_id, restore);
 }
 #endif /* CONFIG_TPM || CONFIG_PKCS11 */

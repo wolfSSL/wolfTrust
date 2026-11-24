@@ -106,15 +106,15 @@ int wt_ffm_boot_start_sched(void)
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_add(&g_wt_spm, SERVER_PARTITION_ID,
-                               wt_conformance_server_entry, NULL);
+                               wt_conformance_server_entry, NULL, NULL);
     }
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_add(&g_wt_spm, CLIENT_PARTITION_ID,
-                               wt_conformance_client_entry, NULL);
+                               wt_conformance_client_entry, NULL, NULL);
     }
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_add(&g_wt_spm, DRIVER_PARTITION_ID,
-                               wt_conformance_driver_entry, NULL);
+                               wt_conformance_driver_entry, NULL, NULL);
     }
 #endif
 #if WT_MANIFEST_RUNTIME_CHECK || \

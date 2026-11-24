@@ -490,6 +490,9 @@ static void test_handle_reuse(void)
     CHECK(wt_spm_reply(0U, msg.handle, PSA_SUCCESS) == WT_SPM_OK);
     first = wt_spm_connect_finish(slot);
     close_handle(NS1, first, 0U, 0x10U);
+    /* 65,535 more reuses: a 16-bit generation would revive both handles. */
+    g_wt_spm.slot[slot].gen += 0xFFFFU;
+    g_wt_spm.slot[slot].mgen += 0xFFFFU;
 
     /* The slot is reused: neither old handle may name the new connection. */
     CHECK(connect_begin(NS1, 0x100U, 1U, &slot) == PSA_SUCCESS);
@@ -518,13 +521,14 @@ static void test_fifo(void)
     uint32_t i;
 
     wt_spm_core_init();
+    g_wt_spm.ticket -= 128U;
     first = connect_ns(NS1);
     second = connect_ns(NS2);
     CHECK(connect_begin(SP_A, 0x200U, 1U, &other_slot) == PSA_SUCCESS);
     other = serve_connect(1U, 0x20U, other_slot, PSA_SUCCESS);
     CHECK(call_begin(NS1, first, 1, vec, 0U, 0U, &slot) == PSA_SUCCESS);
     CHECK(call_begin(NS2, second, 2, vec, 0U, 0U, &slot) == PSA_SUCCESS);
-    /* 254 more messages pass while the two wait: an 8-bit ticket wraps. */
+    /* 254 more messages pass while the two wait: the ticket wraps. */
     for (i = 0U; i < 254U; i++) {
         CHECK(call_begin(SP_A, other, 0, vec, 0U, 0U, &other_slot) ==
               PSA_SUCCESS);

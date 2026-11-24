@@ -32,6 +32,9 @@
 #define WT_HANDLE_CONN  1U
 #define WT_HANDLE_MSG   2U
 #define WT_HANDLE_SHIFT 7U
+/* A handle carries 24 generation bits; slots wrap at the same width. */
+#define WT_HANDLE_TAG   0x00FFFFFFU
+#define WT_TAG_NEXT(tag) (((tag) + 1U) & WT_HANDLE_TAG)
 
 WT_STATIC_ASSERT(WT_SPM_SLOTS <= 31U, "a handle holds a 5-bit slot index");
 WT_STATIC_ASSERT(WT_SPM_TRANSFER_BYTES <= 0xFFFFU,
@@ -58,7 +61,7 @@ wt_spm_core_t g_wt_spm;
 
 static psa_handle_t wt_handle(uint32_t type, uint32_t index, uint32_t tag)
 {
-    return (psa_handle_t)(((tag & 0x00FFFFFFU) << WT_HANDLE_SHIFT) |
+    return (psa_handle_t)(((tag & WT_HANDLE_TAG) << WT_HANDLE_SHIFT) |
                           (type << 5) | (index + 1U));
 }
 
@@ -152,7 +155,7 @@ static void wt_release(wt_spm_slot_t* slot)
 {
     wt_xfer_free(slot);
     (void)memset(slot, 0, offsetof(wt_spm_slot_t, gen));
-    slot->gen++;
+    slot->gen = WT_TAG_NEXT(slot->gen);
 }
 
 static void wt_queue(wt_spm_slot_t* slot, int32_t type)
@@ -474,7 +477,7 @@ psa_status_t wt_spm_get(uint8_t sp, psa_signal_t signal, psa_msg_t* msg)
     }
     for (i = 0U; i < WT_SPM_SLOTS; i++) {
         wt_spm_slot_t* slot = &g_wt_spm.slot[i];
-        uint32_t age = (uint16_t)(g_wt_spm.ticket - slot->ticket);
+        uint32_t age = g_wt_spm.ticket - slot->ticket;
 
         if (slot->msg == WT_SPM_MSG_QUEUED &&
                 g_wt_spm_services[slot->svc].sp == sp &&
@@ -604,7 +607,7 @@ int wt_spm_reply(uint8_t sp, psa_handle_t msg, psa_status_t status)
     }
     slot->status = status;
     slot->msg = WT_SPM_MSG_DONE;
-    slot->mgen++;
+    slot->mgen = WT_TAG_NEXT(slot->mgen);
     if (slot->detached != WT_DETACH_NONE) {
         wt_detached_reply(slot);
     }
@@ -679,7 +682,7 @@ void wt_spm_client_gone(psa_client_id_t caller)
             /* The service holds the message: release after its reply. */
             wt_detach(slot, WT_DETACH_CLOSE);
             slot->state = WT_SLOT_CLOSING;
-            slot->gen++;
+            slot->gen = WT_TAG_NEXT(slot->gen);
             continue;
         }
         wt_release(slot);
@@ -711,7 +714,7 @@ int wt_spm_sp_restarted(uint8_t sp, psa_status_t status)
         failed++;
         slot->status = status;
         slot->msg = WT_SPM_MSG_DONE;
-        slot->mgen++;
+        slot->mgen = WT_TAG_NEXT(slot->mgen);
         if (slot->xfer != NULL) {
             /* Output the faulted server staged is discarded, not published. */
             (void)memset(slot->xfer->pos, 0, sizeof(slot->xfer->pos));

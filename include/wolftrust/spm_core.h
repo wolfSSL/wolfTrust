@@ -140,14 +140,14 @@ typedef struct wt_spm_slot {
     psa_client_id_t caller;
     psa_status_t status;
     int32_t type;
-    uint16_t ticket;
+    uint32_t ticket;
     uint8_t state;
     uint8_t msg;
     uint8_t svc;
     uint8_t latch;
     uint8_t detached;
-    uint16_t gen;
-    uint16_t mgen;
+    uint32_t gen;
+    uint32_t mgen;
 } wt_spm_slot_t;
 
 #ifndef WT_SPM_MAX_SPS
@@ -160,7 +160,7 @@ typedef struct wt_spm_core {
     psa_signal_t asserted[WT_SPM_MAX_SPS];
     uint32_t lifecycle;
     volatile psa_client_id_t ns_entry_caller;
-    uint16_t ticket;
+    uint32_t ticket;
     wt_spm_xfer_t xfer[WT_SPM_TRANSFERS];
 } wt_spm_core_t;
 

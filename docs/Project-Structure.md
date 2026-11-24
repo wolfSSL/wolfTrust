@@ -7,6 +7,7 @@
 | `include/psa/` | FF-M client/service, status, storage, update, and lifecycle headers implemented by wolfTrust |
 | `include/wolftrust/` | Domain, manifest, monitor, port, scheduler, IPC, service, and VNET contracts |
 | `src/` | Architecture-neutral boot sequence, monitor, FF-M runtime, domains, manifests, verification, rollback, recovery, and the Secure Partition entry bodies |
+| `src/spm/` | The FF-M core: connection and message slots, the call lifecycle, signals, copied transfers and generation-tagged handles, served from the generator's constant service, partition and interrupt rows |
 | `src/arch/common/` | Architecture-neutral code every architecture links as is: the Secure Partition gate dispatch, fault recovery, scheduler, the SP-side PSA API, and the NS FF-M gateway bodies, all written over the `wolftrust/arch.h` primitives |
 | `src/arch/armv8m/` | Armv8-M mechanisms behind `wolftrust/arch.h`: reset entry, guest context switching, exception handlers, virtual SysTick, NVIC routing, table-driven SAU and MPU programming, the SVC trap decoder, the CMSE range checks, and the five NS veneers |
 | `src/client/` | OS-neutral FF-M, storage, firmware-update, HSM, and VNET client transports |
@@ -18,6 +19,7 @@
 | `port/common/` | What every port shares: the flash and RNG contracts and their cores, and under `armv8m/` the layout, partitions, platform skeleton, SAU window backend and linker script |
 | `mk/` | Build fragments: `common.mk` (every rule shared by all targets), `arch-<arch>.mk` (toolchain and architecture sources), `target-<soc>.mk` (SoC sources, placement, and image checks) |
 | `tools/manifest/` | Manifest validation and C/header generation |
+| `tools/footprint/` | The flash classifier and its rules files, which split a linked map by category for the size gates and the TF-M comparison |
 | `tools/measure/` | Guest-measurement record patching before image signing |
 | `tools/handoff/` | Boot-handoff record generation and validation for emulator runs and host tests |
 | `tests/host/` | Native unit and integration suites |

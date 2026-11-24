@@ -109,7 +109,11 @@ static size_t g_spm_sp_count;
 static uint32_t g_spm_sp_faults;
 static wt_secure_domain_t g_spm_sp_domain;
 
+#if (defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)) || \
+    (defined(WT_CONF_DIAG_TRAP) && (WT_CONF_DIAG_TRAP != 0))
+#define WT_SPM_SCHED_DIAG 1
 static uint32_t wt_spm_sched_diag_word(int which);
+#endif
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 /* Privileged flash NVM sync, implemented in the port's hsm_flash.c. Declared
@@ -133,9 +137,9 @@ void *wt_hsm_flash_context(void);
 int wolftrust_rng_generate_block_direct(unsigned char *output,
                                         unsigned int sz);
 
-/* Keystore-gate forensics, SWD-readable on target: silent -146 storage
- * failures on silicon are undebuggable from the interleaved console, so latch
- * the last pid-pin rejection and the last flash/lock op result here. */
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
+/* Keystore-gate forensics, SWD-readable on target: the last pid-pin
+ * rejection and the last flash or lock op result. */
 volatile uint32_t g_wt_ks_reject_pid __attribute__((used));
 volatile uint32_t g_wt_ks_reject_count __attribute__((used));
 volatile uint32_t g_wt_ks_last_flash __attribute__((used));
@@ -150,6 +154,7 @@ volatile uint32_t g_wt_svc_entry_rej_count __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_call __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_psp __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_why __attribute__((used));
+#endif
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 /* Conformance-only hang tripwires: silent stalls on target are undebuggable,
@@ -425,14 +430,14 @@ int wt_spm_dispatch_call(wt_spm_call_t* call, wt_trap_frame_t* frame)
     if (slot == NULL ||
             wt_secure_domain_contains(&slot->table, (uintptr_t)call,
                                       sizeof(*call), 1) == 0) {
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
         g_wt_svc_entry_rej_count++;
         if (g_wt_svc_entry_rej_call == 0u) {
-            uint32_t psp_now;
-            psp_now = (uint32_t)wt_arch_sp_stack_pointer();
             g_wt_svc_entry_rej_call = (uint32_t)(uintptr_t)call;
-            g_wt_svc_entry_rej_psp = psp_now;
+            g_wt_svc_entry_rej_psp = (uint32_t)wt_arch_sp_stack_pointer();
             g_wt_svc_entry_rej_why = (slot == NULL) ? 2u : 3u;
         }
+#endif
         return WT_FFM_ERROR_ARGUMENT;
     }
 
@@ -599,8 +604,10 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
         }
 #endif
         if (!pinned) {
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
             g_wt_ks_reject_pid = (uint32_t)slot->partition_id;
             g_wt_ks_reject_count++;
+#endif
             return WT_FFM_ERROR_ARGUMENT;
         }
         if (call->op == WT_SPM_OP_KEYSTORE_FLASH) {
@@ -662,6 +669,7 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
                 ks_ret = wt_mutex_release(nvm_mutex);
             }
         }
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
         if (call->op == WT_SPM_OP_KEYSTORE_FLASH) {
             g_wt_ks_flash_ops++;
             /* ks_ret untouched by the else-if chain = the buffer failed the
@@ -687,6 +695,7 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
                 g_wt_ks_last_flash_off = call->vec_idx;
             }
         }
+#endif
         call->ret_int = ks_ret;
         return WT_FFM_SUCCESS;
     }
@@ -828,6 +837,7 @@ static int wt_spm_run_co(wt_co_t* co)
     return WT_FFM_SUCCESS;
 }
 
+#if defined(WT_SPM_SCHED_DIAG)
 static uint32_t wt_spm_sched_diag_word(int which)
 {
     uint32_t value = 0u;
@@ -854,6 +864,7 @@ static uint32_t wt_spm_sched_diag_word(int which)
     }
     return value;
 }
+#endif
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 void wt_spm_sched_hang_probe(void)
@@ -909,15 +920,23 @@ void wt_spm_conf_irq(uint32_t irq)
  * ((branch<<28)|(co state<<24)|partition id low 16); 1 entry-faulted,
  * 2 first run, 3 wake-loop run, 4 pass cap, 5 final not blocked,
  * 6 table reaches SPM RAM, 7 tables overlap, 8 not idle after start. */
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
 volatile uint32_t g_wt_sched_fail;
+#endif
 
 static void wt_spm_sched_note(uint32_t branch, wt_co_t* co, int32_t pid)
 {
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
     if ((g_wt_sched_fail >> 28) == 0U) {
         g_wt_sched_fail = (branch << 28) |
             (((uint32_t)wt_co_state(co) & 0xFU) << 24) |
             ((uint32_t)pid & 0xFFFFU);
     }
+#else
+    (void)branch;
+    (void)co;
+    (void)pid;
+#endif
 }
 
 /* Runs every partition whose wake condition holds until none does. */
@@ -947,9 +966,11 @@ static int wt_spm_sched_drain(void)
             progressed = 1;
         }
         if (++passes > 1000u) {
+#if defined(WT_SPM_SCHED_DIAG)
             wt_arch_diag_trap(wt_spm_sched_diag_word(0),
                               wt_spm_sched_diag_word(1),
                               wt_spm_sched_diag_word(2));
+#endif
             wt_spm_sched_note(4U, NULL, 0);
             return WT_FFM_ERROR_STATE;
         }

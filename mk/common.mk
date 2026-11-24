@@ -118,6 +118,11 @@ WT_GUEST_RESTART ?= 1
 ifneq ($(words $(WT_SP_RESTART) $(WT_GUEST_RESTART))/$(filter 0 1,$(WT_SP_RESTART))/$(filter 0 1,$(WT_GUEST_RESTART)),2/$(WT_SP_RESTART)/$(WT_GUEST_RESTART))
 $(error WT_SP_RESTART and WT_GUEST_RESTART take 0 or 1)
 endif
+# SWD-readable SPM forensic words no scenario asserts.
+WT_FFM_FORENSICS ?= 0
+ifneq ($(words $(WT_FFM_FORENSICS))/$(filter 0 1,$(WT_FFM_FORENSICS)),1/$(WT_FFM_FORENSICS))
+$(error WT_FFM_FORENSICS takes 0 or 1)
+endif
 # PSA Firmware Update partition (SERVICE_FWU) and its 4 KiB stack.
 WT_FWU ?= 0
 ifneq ($(words $(WT_FWU))/$(filter 0 1,$(WT_FWU)),1/$(WT_FWU))
@@ -328,7 +333,8 @@ ifneq ($(strip \
 SECURE_CFLAGS += -DWT_SP_LAZY_FIRST_ENTRY=1
 endif
 SECURE_CFLAGS += -DWT_SP_RESTART=$(WT_SP_RESTART) \
-    -DWT_GUEST_RESTART=$(WT_GUEST_RESTART)
+    -DWT_GUEST_RESTART=$(WT_GUEST_RESTART) \
+    -DWT_FFM_FORENSICS=$(WT_FFM_FORENSICS)
 ifeq ($(WT_FWU),1)
 SECURE_CFLAGS += -DWT_FWU=1
 MANIFEST_EXCLUDE :=
@@ -1872,6 +1878,7 @@ BUILD_MODE_LINES = \
 		'WT_FWU=$(WT_FWU)' \
 		'WT_SP_RESTART=$(WT_SP_RESTART)' \
 		'WT_GUEST_RESTART=$(WT_GUEST_RESTART)' \
+		'WT_FFM_FORENSICS=$(WT_FFM_FORENSICS)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_SPM_STACK_SIZE=$(WT_SPM_STACK_SIZE)' \

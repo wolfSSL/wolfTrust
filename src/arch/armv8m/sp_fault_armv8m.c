@@ -41,7 +41,7 @@
 #include "wolftrust/services/hsm.h"
 #endif
 
-static volatile uint32_t g_tasklet_fault_count;
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
 static volatile uint32_t g_tasklet_fault_cfsr;
 static volatile uint32_t g_tasklet_fault_pc;
 static volatile uint32_t g_tasklet_fault_exc_return;
@@ -51,13 +51,16 @@ static volatile uint32_t g_tasklet_fault_psp;
 static volatile uint32_t g_tasklet_fault_icsr;
 static volatile uint32_t g_tasklet_fault_co;
 static volatile uint32_t g_tasklet_fault_co_sp;
+#endif
 
 /* SPM-origin fault latch, read over SWD after the halt: a HardFault, a main
  * stack overflow, or a Secure fault with no partition to blame. */
 volatile uint32_t g_wt_spm_fault_cfsr __attribute__((used));
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
 volatile uint32_t g_wt_spm_fault_hfsr __attribute__((used));
 volatile uint32_t g_wt_spm_fault_mmfar __attribute__((used));
 volatile uint32_t g_wt_spm_fault_bfar __attribute__((used));
+#endif
 volatile uint32_t g_wt_spm_fault_pc __attribute__((used));
 volatile uint32_t g_wt_spm_fault_exc_return __attribute__((used));
 
@@ -76,6 +79,7 @@ void wt_armv8m_spm_fault_halt(void)
         "ldr   r1, [r0, #0]                    \n"
         "ldr   r2, =g_wt_spm_fault_cfsr        \n"
         "str   r1, [r2]                        \n"
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
         "ldr   r1, [r0, #4]                    \n"
         "ldr   r2, =g_wt_spm_fault_hfsr        \n"
         "str   r1, [r2]                        \n"
@@ -85,6 +89,7 @@ void wt_armv8m_spm_fault_halt(void)
         "ldr   r1, [r0, #16]                   \n"
         "ldr   r2, =g_wt_spm_fault_bfar        \n"
         "str   r1, [r2]                        \n"
+#endif
         "ldr   r2, =g_wt_spm_fault_exc_return  \n"
         "str   lr, [r2]                        \n"
         /* The stacked PC is read only from a Secure frame that exists: a
@@ -127,9 +132,11 @@ static void wt_spm_fault_latch(uint32_t cfsr, const uint32_t *frame,
 {
     if (g_wt_spm_fault_exc_return == 0u) {
         g_wt_spm_fault_cfsr = cfsr;
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
         g_wt_spm_fault_hfsr = WT_SCB_HFSR_S;
         g_wt_spm_fault_mmfar = WT_SCB_MMFAR_S;
         g_wt_spm_fault_bfar = WT_SCB_BFAR_S;
+#endif
         g_wt_spm_fault_pc = ((cfsr & WT_SCB_CFSR_NO_FRAME) == 0u) ?
                             frame[6] : 0u;
         g_wt_spm_fault_exc_return = exc_return;
@@ -174,6 +181,7 @@ static void wt_secure_tasklet_fault_dispatch(uint32_t *frame,
 {
     uint32_t cfsr = WT_SCB_CFSR_S;
 
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
     /* First-wins forensic record: the first tasklet fault's CFSR, stacked PC
      * and EXC_RETURN survive any later cascade so a debugger post-mortem can
      * tell what faulted (MMFSR/UFSR bits), where (PC), and from which mode
@@ -199,6 +207,7 @@ static void wt_secure_tasklet_fault_dispatch(uint32_t *frame,
                                         wt_co_current();
         }
     }
+#endif
     if ((cfsr & WT_SCB_CFSR_MMFSR_MMARVALID) != 0u) {
         wt_armv8m_note_fault_address(WT_SCB_MMFAR_S);
     }
@@ -229,8 +238,6 @@ static void wt_secure_tasklet_fault_dispatch(uint32_t *frame,
      * dead for every later test. Production keeps the quarantine (task #26). */
     wt_platform_system_reset();
 #endif
-
-    g_tasklet_fault_count++;
 
     /* Graceful recovery for a scheduled Secure Partition (WT-SYS-0008 /
      * WT-FFM-0017): mark it dead and pend the recovery; the SPM dispatch path

@@ -132,8 +132,10 @@ WT_FFM_SP_TRIMS := $(WT_FFM_SP_DOORBELL) $(WT_FFM_SP_RHANDLE) $(WT_FFM_SP_SKIP)
 ifneq ($(filter-out 0 1,$(WT_FFM_SP_TRIMS))$(words $(WT_FFM_SP_TRIMS)),3)
 $(error WT_FFM_SP_DOORBELL, WT_FFM_SP_RHANDLE and WT_FFM_SP_SKIP take 0 or 1)
 endif
-ifeq ($(WT_CONFORMANCE)/$(filter 0,$(WT_FFM_SP_TRIMS)),1/0)
+ifeq ($(WT_CONFORMANCE),1)
+ifneq ($(filter 0,$(WT_FFM_SP_TRIMS)),)
 $(error WT_CONFORMANCE=1 runs the Arm suite, which needs every WT_FFM_SP_* call)
+endif
 endif
 # PSA Firmware Update partition (SERVICE_FWU) and its 4 KiB stack.
 WT_FWU ?= 0

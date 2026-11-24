@@ -178,7 +178,7 @@ jobs:
           fi
           grep -q 'unsupported WT_MAX_GUESTS' guests.err
           # The Arm suite calls every trimmable Secure Partition API.
-          for bad in "WT_CONFORMANCE=1 WT_FFM_SP_SKIP=0" "WT_FFM_SP_DOORBELL=2"; do
+          for bad in "WT_CONFORMANCE=1 WT_FFM_SP_SKIP=0" "WT_CONFORMANCE=1 WT_FFM_SP_DOORBELL=0 WT_FFM_SP_SKIP=0" "WT_FFM_SP_DOORBELL=2"; do
             # shellcheck disable=SC2086
             if make $bad BUILD_DIR=build-trims-bad secure-image \
                 TOOLPREFIX=arm-none-eabi- 2> trims.err; then

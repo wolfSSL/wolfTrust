@@ -104,7 +104,8 @@ state, that each fault is contained, and that commands succeed after recovery.
 `tpmreset` faults the application after it loads a key and fails one
 authorization; profiles with PCR commands also extend a PCR. The relaunched
 guest must find no object and the same dictionary-attack count, and on those
-profiles the PCR reset.
+profiles the PCR reset. `tpmreset` runs on Armv8-M only: the AArch64 SPMC
+never relaunches the Normal world, and its payload refuses `WT_TPM_RESET_PROBE`.
 The host suite drives the production client/service protocol through a real
 FF-M runtime and checks bounds, caller identity, wiping, and no replay.
 

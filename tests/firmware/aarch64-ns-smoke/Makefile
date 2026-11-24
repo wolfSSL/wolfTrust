@@ -186,6 +186,10 @@ include $(ROOT)/mk/crypto-profile.mk
 IF_SP_MATH := sp_c64.c
 IF_SP_MATH_CFLAGS := -DSP_WORD_SIZE=64 -DHAVE___UINT128_T=1 -DWOLFSSL_USE_ALIGN \
     '-DXSLEEP_MS(ms)=((void)(ms))'
+# A reset probe needs a guest the SPM relaunches; the Normal world never is.
+ifneq ($(filter 1,$(WT_TPM_RESET_PROBE) $(WT_PKCS11_RESET_PROBE)),)
+$(error WT_TPM_RESET_PROBE and WT_PKCS11_RESET_PROBE need a restartable Armv8-M guest)
+endif
 include $(ROOT)/tests/firmware/interface-guest/interface.mk
 CFLAGS += $(IF_CFLAGS)
 LDFLAGS += $(IF_KEEP)

@@ -154,7 +154,8 @@ does not use a clock:
   request first releases each `C_Initialize` that guest still held, as its
   own `C_Finalize` calls would have. That erases the token, its objects, its
   sessions, and both counts, so the relaunched guest starts with an
-  uninitialized token. `pkcs11reset` checks this under M33MU.
+  uninitialized token. `pkcs11reset` checks this under M33MU. The AArch64
+  SPMC never relaunches the Normal world, so that port has no such reset.
 - `C_GetTokenInfo` reports the counts with the standard
   `CKF_USER_PIN_COUNT_LOW`, `CKF_USER_PIN_FINAL_TRY`, and
   `CKF_USER_PIN_LOCKED` flags and their SO equivalents.

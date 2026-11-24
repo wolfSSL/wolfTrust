@@ -22,8 +22,7 @@ RAM   = reserved Secure RAM: SPM .data + .bss, the SPM main stack, and every
 
 `arm-none-eabi-size` cannot give the RAM figure. The level 3 partition stacks
 and data bands are linker regions with no section in them, so `data + bss`
-leaves them out. `tools/secure_ram.py` reads them from the map. TF-M places its
-partition stacks inside its `.bss`, so its `data + bss` already counts them.
+leaves them out. `tools/secure_ram.py` reads them from the map.
 
 To reproduce a size, build the image and read it:
 
@@ -36,7 +35,7 @@ make TARGET=stm32h563 size-report
 largest sections and `.bss` objects. Use a separate `BUILD_DIR` for each
 configuration you compare. The cross-compile workflow fails if the lean native
 default image on any port grows past 79,680 bytes of flash or 45,728 bytes of
-reserved Secure RAM, TF-M level 3's figures on the STM32L562E-DK. A port that
+reserved Secure RAM. A port that
 runs code from a RAM band (`WT_RAMFUNC_SIZE`, 4 KiB on the MIMXRT700) is
 allowed that band on top.
 
@@ -143,7 +142,7 @@ image. The default keeps Crypto, Internal Trusted Storage, Protected Storage
 and Initial Attestation at isolation level 3. `WT_ATTEST_COSE=0` removes
 Initial Attestation and wolfCOSE for a smaller image without that service;
 CI compile-checks it in the MIMXRT700 and MCX N947 builds, while every M33MU
-run and the TF-M comparison keep attestation.
+run and the size gates keep attestation.
 
 ## Fastest image
 

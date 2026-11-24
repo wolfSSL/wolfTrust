@@ -11,8 +11,7 @@ Both builds use the same five CMSE veneers, generated manifest, service IDs,
 SPM-owned caller identity, copied IOVEC rules, isolation bands, storage
 services, attestation service, firmware-update service, and Secure Partition
 recovery path. The STM32H563 manifest requests isolation profile 3 in both
-builds. That value is wolfTrust's validated policy profile, not proof of
-independent TF-M Level 3 code and data isolation.
+builds. That value is wolfTrust's validated policy profile.
 
 ## At a glance
 
@@ -29,8 +28,8 @@ independent TF-M Level 3 code and data isolation.
 
 By default the native engine serves all of PSA Crypto, its keys and its
 operation state from the Secure image
-([`WT_SECURE_PSA=1`](#psa-crypto-in-the-secure-image-wt_secure_psa1)), as
-TF-M's Crypto partition does. `WT_SECURE_PSA=0` is the smaller opt-out: the
+([`WT_SECURE_PSA=1`](#psa-crypto-in-the-secure-image-wt_secure_psa1)).
+`WT_SECURE_PSA=0` is the smaller opt-out: the
 guest runs wolfPSA and wolfCrypt itself, so its volatile keys stay in
 Non-secure memory. The native wire is a separate explicit interface for
 vault-backed key operations. Secure services such as attestation use that vault
@@ -163,7 +162,7 @@ Ownership and lifetime:
 - Persistent keys accept only `PSA_KEY_ID_USER_MIN..PSA_KEY_ID_USER_MAX` and
   are stored as vault objects namespaced by client ID, so two guests can use
   the same key ID. A new image in the same guest slot inherits that slot's
-  persistent keys, as in TF-M. Builtin and vendor key IDs, including the IAK,
+  persistent keys. Builtin and vendor key IDs, including the IAK,
   are not reachable from the Non-secure side.
 
 Transport and memory:
@@ -204,11 +203,8 @@ the crypto partition's stack grows from 5 to 6 KiB for wolfPSA's ECDSA, and its
 data band from 1.5 KiB to `WT_PSA_POOL_BYTES` plus 2 KiB. The opt-out,
 `WT_SECURE_PSA=0`, is 63,004 / 38,908 bytes. The PSA
 guest drops from 65,384 to 34,600 bytes of flash; it keeps wolfCrypt only for
-the attestation token verifier. For comparison, TF-M v2.3.1 at isolation
-level 3 on the STM32L562 with its Medium crypto set is 79,680 bytes of flash
-and 45,728 bytes of RAM; of that flash, its Crypto partition and Mbed TLS
-are 40,478 bytes, against 55,021 for wolfCrypt, wolfPSA, the service and the
-key glue in `standard`.
+the attestation token verifier. In `standard`, wolfCrypt, wolfPSA, the
+service and the key glue are 55,021 bytes of that flash.
 
 wolfPSA refuses AES or GHASH whose timing depends on the key or the data, so
 the Secure image runs AES on wolfCrypt's touch-lines C core and GHASH on its

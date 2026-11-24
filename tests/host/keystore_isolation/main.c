@@ -18,7 +18,7 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* The beat-TF-M key-isolation proof on the wolfHSM server keystore
+/* The key-isolation proof on the wolfHSM server keystore
  * (WT-FFM-0046 / WT-FFM-0044), the single crypto backend after the second
  * (vault) keystore was retired. Keys are namespaced by the wolfHSM client_id,
  * which the SERVER stamps from its own comm context — never a value the client

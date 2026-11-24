@@ -8,10 +8,10 @@ selected values into C preprocessor defines. Defaults below come from
 ## Build profiles
 
 `make` with no options builds the lean default image. It runs at isolation
-level 3 with one Non-secure image and the PSA services a TF-M level 3 build
-ships: Crypto, Internal Trusted Storage, Protected Storage, and Initial
-Attestation. The manifest is checked at build time. Each add-on below turns one feature back on with one Make variable.
-None of them changes the isolation level.
+level 3 with one Non-secure image and the PSA services Crypto, Internal
+Trusted Storage, Protected Storage, and Initial Attestation. The manifest is
+checked at build time. Each add-on below turns one feature back on with one
+Make variable. None of them changes the isolation level.
 
 Costs are over the default image, built with Arm GNU 15.2.1 in
 `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25` with LTO and read with
@@ -120,8 +120,7 @@ build `full` only, because their checks assert both guests.
 
 - Default `0`, which builds wolfCrypt's looped SHA-256 transform
   (`USE_SLOW_SHA256`, or `WOLFSSL_ARMASM_SHA256_SMALL` with
-  `WT_WOLFCRYPT_ARMASM=1`), the counterpart of TF-M's
-  `MBEDTLS_SHA256_SMALLER` in its Medium crypto profile. `1` builds the fully
+  `WT_WOLFCRYPT_ARMASM=1`). `1` builds the fully
   unrolled transform, which hashes faster. Any other value stops the build.
 - SHA-256 runs at boot over each guest image (launch verification), in every
   attestation token and in the PSA hash service, so `1` shortens those paths;

@@ -124,11 +124,10 @@ jobs:
             test "$linked" = "$check" || \
               { echo "WT_MANIFEST_RUNTIME_CHECK=$check linked=$linked" >&2; exit 1; }
           done
-      # TF-M v2.3.1 level 3 tfm_s on the STM32L562E-DK is 79,680 bytes of
-      # flash and 45,728 bytes of RAM, partition stacks included; the
-      # guest-local PSA build, attestation included as in TF-M, must stay below
-      # both (docs/TF-M-Compatibility.md). A port's linked RAM code band is allowed.
-      - name: Check the guest-local PSA footprint against TF-M level 3
+      # The guest-local PSA build, attestation included, stays under a fixed
+      # flash and Secure RAM budget, partition stacks included. A port's
+      # linked RAM code band is allowed on top.
+      - name: Hold the guest-local PSA image under its flash and RAM budget
         run: |
           budget=79680
           for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
@@ -138,14 +137,13 @@ jobs:
               | awk 'NR == 2 { print $1 + $2 }')
             echo "$target guest-local PSA flash: $flash bytes (budget $budget)"
             test "$flash" -le "$budget" || \
-              { echo "FAIL: $target guest-local PSA build exceeds the TF-M level 3 budget" >&2; exit 1; }
+              { echo "FAIL: $target guest-local PSA build exceeds its flash budget" >&2; exit 1; }
             python3 tools/secure_ram.py --base-max 45728 \
               build_budget_$target/wolftrust.map
           done
       # Non-crypto flash, split by tools/footprint/classify.py from the
-      # non-LTO map: TF-M v2.3.1 level 3 is 37,258 bytes on the STM32L562E-DK
-      # (docs/TF-M-Compatibility.md). Each port's port.json holds its non-crypto
-      # and SPM ceilings; lower them as size work lands.
+      # non-LTO map. Each port's port.json holds its non-crypto and SPM
+      # ceilings; lower them as size work lands.
       - name: Hold the non-crypto and SPM Secure flash under their ceilings
         run: |
           for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do

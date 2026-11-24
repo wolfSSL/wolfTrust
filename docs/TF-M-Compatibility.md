@@ -50,7 +50,7 @@ bytes of Secure RAM: 15,959 bytes more flash and 3,236 bytes less RAM than the
 TF-M image above. The flash gap is the crypto stack and the non-crypto code
 the split below breaks down. The
 `WT_SECURE_PSA=0` opt-out, which runs wolfPSA in the Non-secure guest instead,
-stays below TF-M, and CI holds it to TF-M's flash and RAM.
+stays below the TF-M image in both flash and RAM.
 
 ### Non-crypto split
 

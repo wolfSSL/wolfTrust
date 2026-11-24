@@ -25,8 +25,7 @@
  * stored SENSITIVE + NONEXPORTABLE, so no *Checked NVM path can return the
  * bytes, the storage face refuses key-flagged objects, and no wire op
  * exports private material — three independent layers between a compromised
- * Secure Partition and raw key bytes, which is the property TF-M's
- * Crypto-partition-RAM key storage does not have. P-256 objects store
+ * Secure Partition and raw key bytes. P-256 objects store
  * [d 32][X9.63 public 65] with the public point derived once at creation;
  * AES-256 objects store the raw 32-byte key. */
 

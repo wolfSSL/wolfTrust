@@ -19,7 +19,7 @@
 | `port/common/` | What every port shares: the flash and RNG contracts and their cores, and under `armv8m/` the layout, partitions, platform skeleton, SAU window backend and linker script |
 | `mk/` | Build fragments: `common.mk` (every rule shared by all targets), `arch-<arch>.mk` (toolchain and architecture sources), `target-<soc>.mk` (SoC sources, placement, and image checks) |
 | `tools/manifest/` | Manifest validation and C/header generation |
-| `tools/footprint/` | The flash classifier and its rules files, which split a linked map by category for the size gates and the TF-M comparison |
+| `tools/footprint/` | The flash classifier and its rules files, which split a linked map by category for the size gates |
 | `tools/measure/` | Guest-measurement record patching before image signing |
 | `tools/handoff/` | Boot-handoff record generation and validation for emulator runs and host tests |
 | `tests/host/` | Native unit and integration suites |

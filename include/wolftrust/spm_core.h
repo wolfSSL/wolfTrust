@@ -39,16 +39,12 @@
 #define WT_FFM_SP_SKIP 1
 #endif
 
-#ifndef WT_SPM_SLOTS
 #define WT_SPM_SLOTS              16U
-#endif
 #define WT_SPM_SLOTS_PER_CLIENT   (WT_SPM_SLOTS / 2U)
 /* Slots Non-secure clients can never take, kept for Secure dependencies. */
 #define WT_SPM_SECURE_RESERVED    4U
 #define WT_SPM_NS_SLOTS           (WT_SPM_SLOTS - WT_SPM_SECURE_RESERVED)
-#ifndef WT_SPM_TRANSFER_BYTES
 #define WT_SPM_TRANSFER_BYTES     1024U
-#endif
 #define WT_SPM_NO_SLOT            0xFFU
 
 #ifndef WT_SPM_TRANSFERS
@@ -150,9 +146,7 @@ typedef struct wt_spm_slot {
     uint32_t mgen;
 } wt_spm_slot_t;
 
-#ifndef WT_SPM_MAX_SPS
 #define WT_SPM_MAX_SPS 9U
-#endif
 /* A dependency is one bit of a 32-bit mask per service row. */
 #define WT_SPM_MAX_SERVICES 32U
 

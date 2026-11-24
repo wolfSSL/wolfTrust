@@ -224,7 +224,7 @@ list) live in `tests/target/provisioning/lib/provision_common.sh`.
 
 ## Testing
 
-`make test` runs `make test-provisioning`: every gate of the three ports
+`make test` runs `make test-provisioning`: the registered ports' gates
 against stub vendor tools, from the generic refusals to the typed acceptance.
 Nothing touches a board; the typed-acceptance cases need `expect` and skip
 without it, unless `WT_REQUIRE_EXPECT=1` is set: then a skipped typed group

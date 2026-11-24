@@ -26,14 +26,14 @@ instructions, and take precedence over this file.
 | `tests/firmware/` | the guest images |
 | `tools/` | manifest generation, layout checks, guards, the new-port scaffold |
 | `lib/` | submodules: wolfSSL, wolfHSM, wolfPSA, wolfCOSE, wolfHAL, wolfIP |
-| `docs/` | the published wiki pages |
+| `docs/` | the version-controlled manual source, with navigation in `mkdocs.yml` |
 
 [docs/Project-Structure.md](docs/Project-Structure.md) has the full map.
 
 ## Build
 
 Needs GNU Make, Python 3, the `arm-none-eabi-` toolchain, a native C compiler
-for host tests, and the submodules. Some submodule URLs use GitHub SSH.
+for host tests, and the submodules. Submodule URLs use public HTTPS.
 
 ```sh
 git submodule update --init --recursive
@@ -73,7 +73,7 @@ targets report a skip, never a pass, without their emulator or board. See
   workflows) makes it in the same PR and says why in the description.
 - `docs/Ports.md` and the bug report's target list are generated: run
   `python3 tools/gen-port-docs.py`, never edit them by hand.
-- `docs/` is published to the wiki: `tools/check-docs-no-internal-links.sh`
+- `docs/` is published as the manual: `tools/check-docs-no-internal-links.sh`
   refuses internal ledgers and developer paths.
 - Evidence is kept apart: a compile is not a test, a skip is not a pass, and
   emulator results are never hardware results.

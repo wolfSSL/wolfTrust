@@ -1,10 +1,14 @@
 # Building
 
-The supported Secure build tuple is Armv8-M on STM32H563. The root Makefile
-includes `mk/target-stm32h563.mk`, `mk/layout.mk`, `mk/arch-armv8m.mk`, and
+The Secure build supports the Armv8-M ports listed in [Ports](Ports.md):
+STM32H563 (the default), MIMXRT700, MCXN947, and STM32L562. Select one with
+`TARGET=<port>`. The root Makefile includes `mk/target-<port>.mk`,
+`mk/layout.mk`, `mk/arch-armv8m.mk`, and
 `mk/common.mk` (target facts, the resolved layout configuration, architecture
 facts, and the shared build in that order) and cross-compiles a freestanding
-Cortex-M33 image.
+Cortex-M33 image. STM32L562 supports only `WT_ENGINE=native`; the other ports
+also support `WT_ENGINE=hsm`. Board guides describe each port's prerequisites
+and memory layout.
 
 ## Prerequisites
 
@@ -14,8 +18,8 @@ Cortex-M33 image.
 - GNU Arm Embedded tools with the `arm-none-eabi-` prefix
 - a native C compiler for host tests
 
-Some submodule URLs use GitHub SSH. Configure GitHub SSH access or an
-equivalent Git URL rewrite before initializing them.
+Submodules use public HTTPS URLs. An existing checkout with older URLs should
+run `git submodule sync --recursive` first.
 
 ```sh
 git submodule update --init --recursive
@@ -36,10 +40,10 @@ reference is the mutable `main` branch, not a pinned workspace.
 make
 ```
 
-This builds the lean default image: isolation level 3, one Non-secure image,
-Crypto, Internal Trusted Storage, Protected Storage and Initial Attestation,
-with the manifest checked at build time. Turn an add-on back on with its Make
-variable, alone or together:
+The default STM32H563 image runs at isolation level 3 with one Non-secure
+guest. It includes Secure PSA Crypto, Internal Trusted Storage, Protected
+Storage and Initial Attestation. The build checks the manifest. Set the
+Make variables for the options you need.
 
 ```sh
 make WT_MAX_GUESTS=2 secure-image              # a second Non-secure guest
@@ -53,11 +57,15 @@ make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secur
 [Macros](Macros.md#build-profiles) lists what each add-on brings back and its
 measured cost.
 
-The default uses the native crypto engine. Keep separate output directories
-when comparing or retaining both engine builds:
+The native engine is the default. It serves PSA Crypto from the Secure
+image on STM32H563, MIMXRT700 and MCXN947. STM32L562 sets
+`WT_SECURE_PSA=0` by default to keep PSA Crypto in the guest. Use the same
+engine and PSA placement for the Secure image and every guest. Keep separate
+output directories when comparing builds.
 
 ```sh
 make secure-image WT_ENGINE=native BUILD_DIR=build-native
+make secure-image WT_SECURE_PSA=0 BUILD_DIR=build-guest-local-psa
 make secure-image WT_ENGINE=hsm BUILD_DIR=build-hsm
 ```
 
@@ -112,8 +120,9 @@ make WT_CONFORMANCE=1
 The generator is constrained to FF-M framework version `0x0100`,
 feature mask `0x1` (connection-based IPC), and 32-bit addresses.
 Unsupported capabilities or an invalid resource layout stop the build.
-The generator also checks the manifest against the port's
-`platform_caps.h` limits and each partition stack against the linked level 3
+The generator also checks the manifest against the shared Armv8-M
+`port/common/armv8m/platform_caps.h` limits, any port overrides, and each
+partition stack against the linked level 3
 layout. Without `WT_FWU=1` it leaves the update partition out
 (`--exclude-partition PARTITION_FWU`).
 
@@ -171,30 +180,25 @@ make -C tests/firmware/zephyr-stm32h5 \
     build-guest0-psa build-freertos-guest1
 ```
 
-`WT_ENGINE` must match the Secure image and every guest image. The guest build
-scripts default to `native` and pass the same selector through the Secure and
-guest builds:
+Match both `WT_ENGINE` and `WT_SECURE_PSA` across the Secure image and
+guests. The STM32H563 wrappers default to the native engine with Secure PSA
+Crypto. Pass the settings on the Make command line to select a configuration.
 
 ```sh
-WT_ENGINE=native make -C tests/firmware/zephyr-stm32h5 \
+make -C tests/firmware/zephyr-stm32h5 WT_ENGINE=native WT_SECURE_PSA=1 \
     build-guest0-psa build-freertos-guest1
-WT_ENGINE=hsm make -C tests/firmware/zephyr-stm32h5 \
+make -C tests/firmware/zephyr-stm32h5 WT_ENGINE=native WT_SECURE_PSA=0 \
+    build-guest0-psa build-freertos-guest1
+make -C tests/firmware/zephyr-stm32h5 WT_ENGINE=hsm \
     build-guest0-psa build-freertos-guest1
 ```
 
-For a direct Zephyr configuration rather than the wrapper script:
-
-- native uses `CONFIG_WOLFTRUST_NATIVE_CLIENT=y` and
-  `CONFIG_WOLFTRUST_WOLFHSM_CLIENT=n`; and
-- hsm uses `CONFIG_WOLFTRUST_WOLFHSM_CLIENT=y` and leaves
-  `CONFIG_WOLFTRUST_NATIVE_CLIENT` disabled.
-
-The native Zephyr module links guest wolfCrypt plus
-`src/client/crypto_native_client.c`. The wolfHSM module instead links the
-wolfHSM client, crypto-callback glue, and
-`src/client/hsm_psa_transport.c`. The FreeRTOS
-`build_freertos_guest.sh` script makes the same source and preprocessor choice
-from its `WT_ENGINE` environment variable.
+In a direct Zephyr build, set `CONFIG_WOLFTRUST_NATIVE_CLIENT=y` for
+the native engine. Use `CONFIG_WOLFTRUST_SECURE_PSA=y` for the Secure PSA
+client and `CONFIG_WOLFTRUST_SECURE_PSA=n` for guest-local wolfPSA. For
+wolfHSM, set `CONFIG_WOLFTRUST_WOLFHSM_CLIENT=y` and disable the native
+client. The FreeRTOS wrapper selects the equivalent sources from
+`WT_ENGINE` and `WT_SECURE_PSA`.
 
 This produces:
 

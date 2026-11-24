@@ -1,8 +1,10 @@
 # Services
 
-The STM32H563 manifest describes connection-based FF-M 1.0 IPC services. The
-default image contains five Secure services. `WT_FWU=1` adds the update
-service, and `CONFIG_VNET=y` selects a manifest with the network service.
+The shared manifest describes connection-based FF-M 1.0 IPC services for
+every registered port. The default image contains five Secure services.
+`WT_FWU=1` adds the update service, and `CONFIG_VNET=y` selects the optional
+STM32H563 network configuration. [Ports](Ports.md) lists each port's engines
+and supported variants.
 
 ## Service registry
 
@@ -36,10 +38,11 @@ Zephyr and FreeRTOS reference guests expose wolfPSA's PSA Crypto API. The
 wired. Both engines use one input and one output vector, bounded to 384 bytes,
 through the same copied FF-M call.
 
-With the default native engine, wolfPSA and wolfCrypt execute in the crypto
-partition (`WT_SECURE_PSA=1`) and each guest calls PSA Crypto through the
-client library. With `WT_SECURE_PSA=0` they execute in the Non-secure guest,
-and DRBG seed requests use the native client to reach the Secure vault RNG. The native wire also exposes explicit vault-backed P-256 and
+With `WT_SECURE_PSA=1`, wolfPSA and wolfCrypt execute in the Secure crypto
+partition and each guest links the PSA Crypto client. With
+`WT_SECURE_PSA=0`, the libraries execute in the Non-secure guest and reach
+the Secure vault RNG for DRBG seed material. The native wire also exposes
+explicit vault-backed P-256 and
 AES-256 key operations, random generation, and SHA-256. Vault key objects are
 namespaced by the SPM-stamped client ID and stored `SENSITIVE` and
 `NONEXPORTABLE`.
@@ -51,12 +54,10 @@ wolfHSM NVM message groups. The reference build executes the server with
 software wolfCrypt; deployments can configure wolfHSM's external-HSM path.
 
 The cryptographic profile is the Secure image's `WT_SECURE_PSA_PROFILE`
-under `WT_SECURE_PSA=1`, and each guest's wolfCrypt `user_settings.h` under
-`WT_SECURE_PSA=0` or the wolfHSM engine. Consult the vendored
-`lib/wolfPSA/wolfpsa/psa/crypto.h` and the active guest configuration
-before assuming a particular algorithm is available. See
-[Crypto Engines](Crypto-Engines.md) for the protocol, key-protection, and
-footprint differences.
+under `WT_SECURE_PSA=1`. Guest-local and wolfHSM builds select algorithms
+through the guest's wolfCrypt configuration and the selected server
+operations. See [Crypto Engines](Crypto-Engines.md) for the supported
+profiles and key models.
 
 ## Vault
 
@@ -100,10 +101,12 @@ output buffer is smaller than the object. The write-once flag is enforced by
 both the front end and checked NVM metadata. ITS data is held in Secure-only
 storage, but ITS does not add the Protected Storage sealing flag.
 
-The current storage path always enforces `PSA_STORAGE_FLAG_WRITE_ONCE`,
-including during `PSA_ROT_PROVISIONING`. This differs from PSA Secure Storage
-1.0, which requires the flag not to be enforced in that lifecycle state. The
-same deviation applies to Protected Storage objects created with the flag.
+The ITS path enforces `PSA_STORAGE_FLAG_WRITE_ONCE` on objects created with
+that flag, including during `PSA_ROT_PROVISIONING`. Objects created without it
+can be updated or removed. This differs from PSA Secure Storage 1.0 section 3.2,
+which requires ITS not to enforce the flag in that lifecycle state. Protected
+Storage also enforces caller-selected `WRITE_ONCE`; section 3.2's lifecycle exception
+applies to ITS.
 
 ## Protected Storage
 
@@ -141,7 +144,7 @@ across equivalent boots, its software-component measurement type and
 description values are reversed, its signer ID hashes the literal name
 `wolfBoot` rather than identifying the signing key, and its implementation ID
 hashes a software label rather than identifying the immutable PSA RoT hardware
-assembly. [TF-M Compatibility](TF-M-Compatibility.md) records these token-profile and API deviations.
+assembly. [PSA Compatibility](PSA-Compatibility.md) records these token-profile and API deviations.
 
 The EAT/PSA claim set binds:
 

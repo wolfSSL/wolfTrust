@@ -3,7 +3,11 @@
 | Path | Contents |
 | --- | --- |
 | `README.md` | Repository overview and quick start |
-| `docs/` | Source pages published to the GitHub wiki |
+| `docs/` | Source pages for the HTML and PDF manual |
+| `mkdocs.yml` | Complete manual navigation and page order |
+| `DOCS-BUILD.md` | Local manual builds, CI artifacts, and website publishing |
+| `tools/docs_manual.py`, `tools/docs-manual/` | Adapter and pinned shared documentation tools for HTML/PDF generation |
+| `docker/docs/` | Manual builder image and Python requirements |
 | `include/psa/` | FF-M client/service, status, storage, update, and lifecycle headers implemented by wolfTrust |
 | `include/wolftrust/` | Domain, manifest, monitor, port, scheduler, IPC, service, and VNET contracts |
 | `src/` | Architecture-neutral boot sequence, monitor, FF-M runtime, domains, manifests, verification, rollback, recovery, and the Secure Partition entry bodies |
@@ -17,7 +21,7 @@
 | `port/<soc>/` | One registered port: `port.json`, the memory map and registers, the platform hooks with the SAU and MPU tables, the flash and RNG drivers and their chip drivers, and the object owners ([Ports](Ports.md) lists them) |
 | `port/common/` | What every port shares: the flash and RNG contracts and their cores, and under `armv8m/` the layout, partitions, platform skeleton, SAU window backend and linker script |
 | `mk/` | Build fragments: `common.mk` (every rule shared by all targets), `arch-<arch>.mk` (toolchain and architecture sources), `target-<soc>.mk` (SoC sources, placement, and image checks) |
-| `tools/manifest/` | Manifest validation and C/header generation |
+| `manifest/`, `tools/manifest/` | Shared manifest template and overlays, layout rendering, validation, and C/header generation |
 | `tools/measure/` | Guest-measurement record patching before image signing |
 | `tools/handoff/` | Boot-handoff record generation and validation for emulator runs and host tests |
 | `tests/host/` | Native unit and integration suites |
@@ -25,7 +29,7 @@
 | `tests/firmware/` | Bare-metal, Zephyr, FreeRTOS, conformance, and VNET guest images |
 | `tests/upstream/` | Fetch and integration helpers for pinned external validation suites |
 | `lib/` | Git submodules for wolfSSL, wolfPSA, wolfHSM, wolfCOSE, wolfHAL, and wolfIP |
-| `.github/workflows/` | Build, test, dependency, fuzz, and wiki synchronization workflows |
+| `.github/workflows/` | Build, test, dependency, fuzz, and manual publishing workflows |
 
 Generated files belong under `build/`, guest build directories,
 ignored workspaces, or `logs/`. Public APIs are declared in `include/`;

@@ -257,7 +257,7 @@ static void test_execution_and_framing(void)
 {
     TPM2_CTX ctx;
 
-    check(TPM2_Init(&ctx, NULL, NULL) == TPM_RC_SUCCESS,
+    check(TPM2_Init(&ctx, wt_tpm_psa_io, NULL) == TPM_RC_SUCCESS,
           "user transport initializes without a TIS startup");
 
     mock_reset();
@@ -295,7 +295,9 @@ static void test_init_contract(void)
     int rc;
 
     mock_reset();
-    rc = TPM2_Init(&ctx, NULL, NULL);
+    check(TPM2_Init(&ctx, NULL, NULL) == BAD_FUNC_ARG && g_calls == 0,
+          "initialization without the PSA IO callback is refused");
+    rc = TPM2_Init(&ctx, wt_tpm_psa_io, NULL);
     check(rc == TPM_RC_SUCCESS && ctx.locality == WOLFTPM_LOCALITY_DEFAULT &&
           TPM2_GetActiveCtx() == &ctx,
           "direct TPM initialization uses the default locality");
@@ -303,10 +305,12 @@ static void test_init_contract(void)
     check(send_startup() == TPM_RC_SUCCESS && g_connects == 1,
           "the first command opens the service connection");
     check(TPM2_Cleanup(&ctx) == TPM_RC_SUCCESS &&
-          TPM2_GetActiveCtx() == NULL && g_closes == 1,
-          "TPM cleanup closes the service connection");
+          TPM2_GetActiveCtx() == NULL && g_closes == 0,
+          "TPM cleanup leaves the service connection to the caller");
+    wt_tpm_psa_close();
+    check(g_closes == 1, "closing the transport closes the connection");
 
-    check(TPM2_Init_ex(&ctx, NULL, NULL, 1) == BAD_FUNC_ARG &&
+    check(TPM2_Init_ex(&ctx, wt_tpm_psa_io, NULL, 1) == BAD_FUNC_ARG &&
           g_calls == 1,
           "a TIS chip startup is refused without I/O");
     (void)TPM2_Cleanup(&ctx);
@@ -439,8 +443,6 @@ static void test_random(void)
 
 int main(void)
 {
-    check(wt_tpm_psa_register() == 0,
-          "the PSA transport registers with wolfTPM");
     test_arguments();
     test_connection_recovery();
     test_execution_and_framing();

@@ -98,11 +98,8 @@ int wt_tpm_psa_random(uint8_t* out, size_t len)
 }
 
 #if defined(WOLFTPM_USER_TRANSPORT)
-#include <wolftpm/tpm2.h>
-
-static int wt_tpm_user_send(TPM2_CTX* ctx, const BYTE* cmd, UINT32 cmd_sz,
-                            BYTE* rsp, UINT32 rsp_max, UINT32* rsp_sz,
-                            void* user_ctx)
+int wt_tpm_psa_io(TPM2_CTX* ctx, const BYTE* cmd, UINT32 cmd_sz, BYTE* rsp,
+                  UINT32 rsp_max, UINT32* rsp_sz, void* user_ctx)
 {
     size_t got = 0U;
     int rc;
@@ -115,18 +112,5 @@ static int wt_tpm_user_send(TPM2_CTX* ctx, const BYTE* cmd, UINT32 cmd_sz,
         *rsp_sz = (UINT32)got;
     }
     return rc;
-}
-
-static void wt_tpm_user_close(TPM2_CTX* ctx, void* user_ctx)
-{
-    (void)ctx;
-    (void)user_ctx;
-    wt_tpm_psa_close();
-}
-
-int wt_tpm_psa_register(void)
-{
-    return (int)TPM2_SetUserTransport(wt_tpm_user_send, wt_tpm_user_close,
-                                      NULL);
 }
 #endif /* WOLFTPM_USER_TRANSPORT */

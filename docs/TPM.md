@@ -54,8 +54,8 @@ has the Secure image and application sizes for every port and engine.
 
 The application builds wolfTPM with `WOLFTPM_USER_TRANSPORT`, which is
 wolfTPM's application transport (`--enable-usertransport`, or CMake
-`WOLFTPM_INTERFACE=USER`), and links `src/client/tpm_psa_transport.c`. Before
-it initializes wolfTPM, it calls `wt_tpm_psa_register()` once:
+`WOLFTPM_INTERFACE=USER`), and links `src/client/tpm_psa_transport.c`. It
+passes `wt_tpm_psa_io` as the wolfTPM IO callback:
 
 ```c
 #include <wolftrust/tpm_psa_transport.h>
@@ -64,26 +64,19 @@ it initializes wolfTPM, it calls `wt_tpm_psa_register()` once:
 WOLFTPM2_DEV dev;
 int rc;
 
-rc = wt_tpm_psa_register();
-if (rc == 0) {
-    rc = wolfTPM2_Init(&dev, NULL, NULL);
-}
+rc = wolfTPM2_Init(&dev, wt_tpm_psa_io, NULL);
 /* ... TPM2_* and wolfTPM2_* calls ... */
 wolfTPM2_Cleanup(&dev);
+wt_tpm_psa_close();
 ```
 
-`wt_tpm_psa_register()` hands wolfTPM a send callback and a close callback
-through `TPM2_SetUserTransport()`, and returns its result. After that, every
-command that wolfTPM builds goes to `wt_tpm_psa_transact()`. That function
-sends the command to `SERVICE_TPM` in one call and returns the response for
-wolfTPM to parse. `wolfTPM2_Cleanup()` closes the PSA connection once, through
-the close callback. The application never handles TPM frames itself, and it
-does not override any wolfTPM function. `tests/firmware/interface-guest/tpm_tests.c`
-is the reference client.
-
-Register before any thread initializes wolfTPM, because the registration is not
-thread safe. Each wolfTPM context keeps the registration it was initialized
-with. wolfTPM's [application transport](https://github.com/wolfSSL/wolfTPM/blob/master/docs/system-interfaces.md#application-transport)
+In this build wolfTPM's IO callback carries a whole command, so every command
+that wolfTPM builds goes to `wt_tpm_psa_transact()`. That function sends the
+command to `SERVICE_TPM` in one call and returns the response for wolfTPM to
+parse. `wt_tpm_psa_close()` drops the PSA connection when the application is
+done. The application never handles TPM frames itself, and it does not override
+any wolfTPM function. `tests/firmware/interface-guest/tpm_tests.c` is the
+reference client. wolfTPM's [application transport](https://github.com/wolfSSL/wolfTPM/blob/master/docs/system-interfaces.md#application-transport)
 documents the callback contract.
 
 ## Service boundary

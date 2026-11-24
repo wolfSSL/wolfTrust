@@ -100,8 +100,8 @@ SRCS += tpm_tests.c $(ROOT)/src/client/tpm_psa_transport.c \
     $(addprefix $(WOLFSSL_DIR)/wolfcrypt/src/, aes.c cryptocb.c ecc.c \
         random.c sha256.c asn.c coding.c error.c hash.c hmac.c memory.c sha.c \
         sp_cortexm.c sp_int.c wolfmath.c wc_port.c sha512.c kdf.c pwdbased.c)
-KEEP := -Wl,-u,wt_tpm_psa_transact,-u,TPM2_SetUserTransport
-WIRED := wt_tpm_psa_transact wt_tpm_psa_register TPM2_SetUserTransport wt_tpm_psa_random
+KEEP := -Wl,-u,wt_tpm_psa_transact,-u,wt_tpm_psa_io
+WIRED := wt_tpm_psa_transact wt_tpm_psa_io wt_tpm_psa_random
 ABSENT := 'fwTPM|FWTPM_|WP11_|wh_Client|wt_crypto_native'
 else
 APP_NAME := pkcs11-guest0

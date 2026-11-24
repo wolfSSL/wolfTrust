@@ -22,6 +22,7 @@
  * scheduler: every partition runs to its first wait before the NSPE starts,
  * start-up IPC is drained, and any fault or missing wait refuses the boot. */
 
+#define WT_SPM_SP_SLOTS 3U
 #include "../../../src/arch/common/spm_gate_core.c"
 
 #include <setjmp.h>

@@ -64,6 +64,7 @@
 /* Generated in every secure build; the ITS entry embeds SERVICE_VAULT_SID as
  * a code constant — the unprivileged loop cannot read SPM RAM at runtime. */
 #include "psa_manifest/pid.h"
+#include "wolftrust_manifest_generated.h"
 #include "psa_manifest/sid.h"
 
 /* Table of scheduled Secure Partitions, each keyed by its coroutine. The SVC
@@ -103,7 +104,11 @@ typedef struct wt_spm_sp {
     volatile uint8_t fault_pending;
 } wt_spm_sp_t;
 
-static wt_spm_sp_t g_spm_sp[WT_SPM_MAX_SPS];
+/* One slot per generated partition; no manifest schedules more. */
+#ifndef WT_SPM_SP_SLOTS
+#define WT_SPM_SP_SLOTS (WT_GEN_SP_COUNT > 0U ? WT_GEN_SP_COUNT : 1U)
+#endif
+static wt_spm_sp_t g_spm_sp[WT_SPM_SP_SLOTS];
 static size_t g_spm_sp_count;
 static uint32_t g_spm_sp_faults;
 
@@ -857,7 +862,7 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
     if (entry == NULL) {
         return WT_FFM_ERROR_ARGUMENT;
     }
-    if (g_spm_sp_count >= WT_SPM_MAX_SPS) {
+    if (g_spm_sp_count >= WT_SPM_SP_SLOTS) {
         return WT_FFM_ERROR_RESOURCE;
     }
     index = wt_spm_sp_index(partition_id);

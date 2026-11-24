@@ -204,6 +204,12 @@ SCENARIOS = {
                 hw_blocks=("hw_no_escalation", "hw_devattest"), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "attestneg": S(role="psa", guest_flags="WT_ATTEST_NEG_PROBE=1",
                    blocks=("psa_lifecycle", "attestneg")),
+    # tiny with no ECC: the attestation partition restarts on a reset band,
+    # reloads its HMAC key, and the guest verifies the COSE_Mac0 it issues.
+    "tinyattest": S(secure="WT_PROFILE=tiny WT_SECURE_PSA=1 WT_RESTART_NEG_PROBE=2", role="hwpsa",
+                    guest_flags=SP_PROBE_FLAGS, end="bkpt:0x7f", quit_on_faults=False,
+                    engines=("native",), level3=True,
+                    blocks=("psa_probe_lifecycle", "l3", "tinyattest")),
     "nativewire": S(role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
                     end="bkpt:0x7f", engines=("native",),
                     blocks=("no_faults", "psa_lifecycle", "nativewire")),
@@ -809,7 +815,7 @@ def _l3(ctx):
                           v.get(stack + "_LO"), v.get(stack + "_HI")),
                 refute_re("no access ran past its fault, no keystore pin was open", r'^\[USGFLT\]'),
                 refute_re("faults were contained, not escalated", r'^(\[HARDFLT\]|HardFault|SecureFault)')]
-    if fam == "restartneg":
+    if fam == "restartneg" or name == "tinyattest":
         return [expect_n_re("partition faulted once and restarted on a reset band", 1,
                             r'^\[USGFLT\] CFSR=0x00010000'),
                 refute_re("the fault was the planted one", r'^\[USGFLT\] mem16\[[^]]*\]=0xde02'),
@@ -1049,6 +1055,21 @@ def block_checks(ctx, block, end):
                 expect("tampered token fails the guest verify", pre + "attestneg tampered token rejected"),
                 expect("misattributed lifecycle fails the guest verify", pre + "attestneg lifecycle mismatch rejected"),
                 expect("attestation negatives verified", pre + "wolfTrust attestation negatives verified")]
+    if block == "tinyattest":
+        return [symbol("the Secure image links the COSE_Mac0 issuer", "wc_CoseEatPsaToken_CreateMac0"),
+                refute_re("the Secure image links no P-256 code",
+                          r"^[0-9a-f]+ \S (sp_256_|sp_ecc_|wc_ecc_|wolfPSA_P256_|wc_CoseSign1)", where="syms"),
+                expect("the restarted attestation partition issued a token", "guest0: psa_initial_attestation st=0"),
+                expect("the IAK public key query is refused under an HMAC key",
+                       "guest0: wolfTrust attestation: IAK public key refused"),
+                expect("the COSE_Mac0 verifies under the development key, Instance ID included",
+                       "guest0: wolfTrust attestation: COSE_Mac0 verified"),
+                expect("token measurement equals wolfBoot's measurement of the signed image",
+                       "guest0: wolfTrust attestation: token measurement={expected_measurement}"),
+                expect("a tampered COSE_Mac0 fails the guest verify",
+                       "guest0: wolfTrust attestation: tampered COSE_Mac0 rejected"),
+                expect("P-256 is refused by the Secure PSA service",
+                       "guest0: wolfTrust key-ops P-256 refused (no ECC)")]
     if block == "nativewire":
         return [expect("every native wire key op served by the crypto partition",
                        "guest0: nativewire every key op verified"),

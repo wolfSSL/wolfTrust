@@ -40,4 +40,14 @@ int wt_attestation_verify_ex(const uint8_t* token, size_t tokenSize,
     const char* expectedMeasurementHex, uint32_t expectedLifecycle,
     uint32_t* verifiedLifecycle, uint8_t* tokenMeasurement);
 
+#if defined(WT_GUEST_ATTEST_HMAC)
+/* As wt_attestation_verify_ex for a COSE_Mac0 HMAC 256/256 token under a
+ * 32-byte key, which must also derive the token's Instance ID. */
+int wt_attestation_verify_mac0_ex(const uint8_t* token, size_t tokenSize,
+    const uint8_t* key, size_t keySize,
+    const uint8_t* challenge, size_t challengeSize,
+    const char* expectedMeasurementHex, uint32_t expectedLifecycle,
+    uint32_t* verifiedLifecycle, uint8_t* tokenMeasurement);
+#endif
+
 #endif /* WOLFTRUST_ATTESTATION_VERIFY_H */

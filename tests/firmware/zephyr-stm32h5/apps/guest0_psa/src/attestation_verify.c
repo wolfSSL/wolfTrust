@@ -22,6 +22,9 @@
 
 #include <wolfcose/wolfcose.h>
 #include <wolfssl/wolfcrypt/ecc.h>
+#if defined(WT_GUEST_ATTEST_HMAC)
+#include <wolfssl/wolfcrypt/sha256.h>
+#endif
 
 #include <string.h>
 
@@ -197,8 +200,9 @@ static int wt_verify_software_component(WOLFCOSE_CBOR_CTX* cbor,
 
 static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
     const uint8_t* challenge, size_t challengeSize,
-    const uint8_t* expectedMeasurement, uint32_t expectedLifecycle,
-    uint32_t* verifiedLifecycle, uint8_t* tokenMeasurement)
+    const uint8_t* expectedMeasurement, const uint8_t* expectedUeid,
+    uint32_t expectedLifecycle, uint32_t* verifiedLifecycle,
+    uint8_t* tokenMeasurement)
 {
     WOLFCOSE_CBOR_CTX cbor;
     const uint8_t* data;
@@ -229,7 +233,9 @@ static int wt_verify_claims(const uint8_t* payload, size_t payloadSize,
         }
         else if ((ret == 0) && (label == WT_EAT_CLAIM_UEID)) {
             ret = wc_CBOR_DecodeBstr(&cbor, &data, &dataSize);
-            if ((ret == 0) && (dataSize == 33u) && (data[0] == 0x01u)) {
+            if ((ret == 0) && (dataSize == 33u) && (data[0] == 0x01u) &&
+                ((expectedUeid == NULL) ||
+                 (memcmp(data, expectedUeid, dataSize) == 0))) {
                 claims |= 2u;
             }
             else {
@@ -365,7 +371,7 @@ int wt_attestation_verify_ex(const uint8_t* token, size_t tokenSize,
     }
     if (ret == 0) {
         ret = wt_verify_claims(payload, payloadSize, challenge, challengeSize,
-                               expected, expectedLifecycle,
+                               expected, NULL, expectedLifecycle,
                                verifiedLifecycle, tokenMeasurement);
     }
 
@@ -379,6 +385,85 @@ int wt_attestation_verify_ex(const uint8_t* token, size_t tokenSize,
     (void)memset(scratch, 0, sizeof(scratch));
     return ret;
 }
+
+#if defined(WT_GUEST_ATTEST_HMAC)
+/* RFC 9783 Appendix A.2: the Instance ID is 0x01 || SHA-256(SHA-256(key)). */
+static int wt_mac0_instance_id(const uint8_t* key, size_t keySize,
+                               uint8_t* ueid)
+{
+    uint8_t first[WC_SHA256_DIGEST_SIZE];
+    int ret;
+
+    ueid[0] = 0x01u;
+    ret = wc_Sha256Hash(key, (word32)keySize, first);
+    if (ret == 0) {
+        ret = wc_Sha256Hash(first, (word32)sizeof(first), &ueid[1]);
+    }
+    (void)memset(first, 0, sizeof(first));
+    return (ret == 0) ? 0 : -1;
+}
+
+int wt_attestation_verify_mac0_ex(const uint8_t* token, size_t tokenSize,
+    const uint8_t* key, size_t keySize,
+    const uint8_t* challenge, size_t challengeSize,
+    const char* expectedMeasurementHex, uint32_t expectedLifecycle,
+    uint32_t* verifiedLifecycle, uint8_t* tokenMeasurement)
+{
+    uint8_t expectedMeasurement[32];
+    uint8_t ueid[1 + WC_SHA256_DIGEST_SIZE];
+    const uint8_t* expected = NULL;
+    uint8_t scratch[640];
+    const uint8_t* payload = NULL;
+    size_t payloadSize = 0u;
+    WOLFCOSE_HDR header;
+    WOLFCOSE_KEY coseKey;
+    int coseKeyInited = 0;
+    int ret = 0;
+
+    if ((token == NULL) || (key == NULL) || (keySize != 32u) ||
+        (challenge == NULL) || (verifiedLifecycle == NULL)) {
+        return -1;
+    }
+    *verifiedLifecycle = 0u;
+    if ((expectedMeasurementHex != NULL) &&
+        (expectedMeasurementHex[0] != '\0')) {
+        ret = wt_decode_measurement(expectedMeasurementHex,
+                                    expectedMeasurement);
+        expected = expectedMeasurement;
+    }
+    if (ret == 0) {
+        ret = wt_mac0_instance_id(key, keySize, ueid);
+    }
+    if (ret == 0) {
+        ret = wc_CoseKey_Init(&coseKey);
+        if (ret == 0) {
+            coseKeyInited = 1;
+            ret = wc_CoseKey_SetSymmetric(&coseKey, key, keySize);
+        }
+    }
+    if (ret == 0) {
+        (void)memset(&header, 0, sizeof(header));
+        ret = wc_CoseMac0_Verify(&coseKey, token, tokenSize, NULL, 0u,
+            NULL, 0u, scratch, sizeof(scratch), &header, &payload,
+            &payloadSize);
+    }
+    if ((ret == 0) && (header.alg != WOLFCOSE_ALG_HMAC_256_256)) {
+        ret = -1;
+    }
+    if (ret == 0) {
+        ret = wt_verify_claims(payload, payloadSize, challenge, challengeSize,
+                               expected, ueid, expectedLifecycle,
+                               verifiedLifecycle, tokenMeasurement);
+    }
+
+    if (coseKeyInited != 0) {
+        wc_CoseKey_Free(&coseKey);
+    }
+    (void)memset(expectedMeasurement, 0, sizeof(expectedMeasurement));
+    (void)memset(scratch, 0, sizeof(scratch));
+    return ret;
+}
+#endif
 
 int wt_attestation_verify(const uint8_t* token, size_t tokenSize,
     const uint8_t* publicKey, size_t publicKeySize,

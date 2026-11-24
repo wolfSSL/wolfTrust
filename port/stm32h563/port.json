@@ -84,6 +84,7 @@
         ["fpneg sealneg sealhaltneg sealpivotneg xnneg svcneg", "FP, seal, execute-never and SVC misuse, one guest (L3)"],
         ["spfaultneg panicneg", "SP fault recovery and panic, one guest"],
         ["attestneg", "Attestation negatives, one guest"],
+        ["tinyattest", "tiny with no ECC, the COSE_Mac0 token across an attestation partition restart, one guest (L3)"],
         ["hsmattackneg", "wolfHSM cross-namespace + NVM relay negatives, one guest"],
         ["authneg rollbackneg remeasureneg manifestneg spbudgetneg", "Launch, rollback, re-measure, manifest and SP budget verdicts, one guest"],
         ["periphneg revneg", "NS peripheral access and engineering-sample refusal, one guest"],

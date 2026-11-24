@@ -55,6 +55,7 @@
         ["authneg rollbackneg remeasureneg manifestneg spbudgetneg", "MCXN947 launch, rollback, re-measure, manifest and SP budget verdicts, one guest"],
         ["spfaultneg panicneg", "MCXN947 SP fault recovery and panic, one guest"],
         ["attestneg", "MCXN947 attestation negatives, one guest"],
+        ["tinyattest", "MCXN947 tiny with no ECC, the COSE_Mac0 token across an attestation partition restart, one guest (L3)"],
         ["hsmattackneg", "MCXN947 wolfHSM cross-namespace + NVM relay negatives, one guest"],
         ["periphneg", "MCXN947 NS read of the SPM's ELS refused by the SAU, one guest"],
         ["nativewire nativewireasm", "MCXN947 every native wire key op from the guest, portable C and assembly, one guest"],

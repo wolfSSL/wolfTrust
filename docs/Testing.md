@@ -58,9 +58,8 @@ HMAC key and checks that the public-key query is not served. The
 attest_restore suite takes the attestation partition's restart hook from the
 production partition table, wipes the partition's state as a restart does,
 and checks that the hook loads the key again and tokens verify, and that a
-restart with no key or no retained handoff issues none. No emulator scenario
-runs `tiny` yet, so the fault and band reset themselves are not exercised on
-a target.
+restart with no key or no retained handoff issues none. On a target,
+`tinyattest` runs the same restart for real.
 The psa_secure_crypto suite runs the PSA client against the Secure PSA service
 in a separate process: cross-client key and operation isolation, stale handles
 after a service restart, persistent keys, quotas, per-guest pool arenas,
@@ -292,7 +291,8 @@ Every scenario runs with both engines except the engine-specific ones listed
 in `ENGINE_ONLY` in `tests/target/lib/scenario_matrix.py`: the wolfHSM-only
 scenarios run under hsm only, and `nativewire`, `nativewireasm` and
 `nativewiresmall` (the `small` PSA profile's smaller crypto stack), which drive the
-native wire, under native only.
+native wire, and `tinyattest` (an HMAC attestation key, which the wolfHSM
+engine refuses), under native only.
 The generator is the source of truth for the exact list:
 `python3 tests/target/lib/scenario_matrix.py --port stm32h563 --tier all --json`.
 
@@ -353,8 +353,12 @@ runs and exempts the rest with a reason. Beyond the families above:
   with a cross-key refusal, RNG, AES-CTR, and an attestation token verified
   against the IAK and wolfBoot's measurement), `bothiso` (a forged handle, an
   oversized vector, a vector in the peer window and an unknown SID refused),
-  `attestneg`, and `fwustage` (a candidate staged through SERVICE_FWU, armed,
-  and restored READY).
+  `attestneg`, `fwustage` (a candidate staged through SERVICE_FWU, armed,
+  and restored READY), and `tinyattest`. `tinyattest` builds `WT_PROFILE=tiny WT_SECURE_PSA=1`,
+  faults the attestation partition once so it restarts on a reset band, and
+  has the guest verify the COSE_Mac0 under the development key (Instance ID
+  included), reject a tampered token, and see P-256 refused; the judge also
+  checks that no P-256 symbol is linked.
 - The remaining level 3 negatives (`deputyneg`, `hsmpinneg`, `hsmfaultneg`,
   `periphspneg`) run the PSA guest in both windows, and guest 0 ends the run
   on its breakpoint once its lifecycle is done; `manifestneg2`,

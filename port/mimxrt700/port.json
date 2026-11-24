@@ -55,6 +55,7 @@
         ["authneg rollbackneg remeasureneg manifestneg spbudgetneg", "RT700 launch, rollback, re-measure, manifest and SP budget verdicts, one guest"],
         ["spfaultneg panicneg", "RT700 SP fault recovery and panic, one guest"],
         ["attestneg", "RT700 attestation negatives, one guest"],
+        ["tinyattest", "RT700 tiny with no ECC, the COSE_Mac0 token across an attestation partition restart, one guest (L3)"],
         ["hsmattackneg", "RT700 wolfHSM cross-namespace + NVM relay negatives, one guest"],
         ["periphneg", "RT700 NS read of the SPM's TRNG refused by the SAU, one guest"],
         ["nativewire nativewireasm", "RT700 every native wire key op from the guest, portable C and assembly, one guest"],

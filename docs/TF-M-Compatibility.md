@@ -28,7 +28,7 @@ The wolfTrust runtime is 10,184 bytes smaller in flash and 448 bytes smaller
 in Secure RAM; the boot chain is 21,712 bytes smaller in flash. Both RAM
 figures include every partition stack (see Methodology). The bootloader's RAM
 is reused by the runtime, so the RAM figures are not summed. The
-cross-compile workflow fails if any port's native `default` image grows
+cross-compile workflow fails if any port's native `WT_SECURE_PSA=0` image grows
 past TF-M's 79,680 bytes of flash or 45,728 bytes of Secure RAM, plus the RAM
 code band (`WT_RAMFUNC_SIZE`) of a port that runs code from RAM.
 
@@ -46,7 +46,7 @@ partition, which wolfTrust's native default does with `WT_SECURE_PSA=1` (see
 [Crypto Engines](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1)).
 That default is larger than TF-M. On the STM32H563 the `default` profile, the
 closest to TF-M's Medium set, is
-94,379 bytes of flash and 47,308 bytes of Secure RAM: 14,699 bytes more flash
+94,347 bytes of flash and 47,308 bytes of Secure RAM: 14,667 bytes more flash
 and 1,580 bytes more RAM than the TF-M image above. 2,985 bytes of the flash
 gap are the crypto stack (43,463 against 40,478 for TF-M's Crypto partition
 and Mbed TLS); the rest is the storage and SPM code outside it. The

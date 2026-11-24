@@ -197,6 +197,22 @@ typedef struct wt_spm_fault_ctx {
 
 static int32_t g_spm_hsm_partition_id = -1;
 
+/* WT-FFM-0069: a partition's lines stay disabled, cleared, and Secure-routed
+ * until its own psa_irq_enable, at first bring-up and on every restart. */
+static int wt_spm_claim_irqs(uint16_t partition_index)
+{
+    size_t i;
+
+    for (i = 0u; i < g_wt_spm_irq_count; i++) {
+        if (g_wt_spm_irqs[i].sp == partition_index &&
+                wt_arch_secure_irq_claim(g_wt_spm_irqs[i].irq) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+#if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)
 static void wt_spm_fault_release(void* ctx)
 {
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
@@ -227,10 +243,8 @@ static void wt_spm_fault_messages(void* ctx)
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
     size_t i;
 
-#if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)
     (void)wt_spm_sp_restarted((uint8_t)c->slot->partition_index,
                               PSA_ERROR_COMMUNICATION_FAILURE);
-#endif
     /* The dead instance's interrupt lines stay masked, with nothing pending,
      * until the new instance enables them itself. */
     for (i = 0u; i < g_wt_spm_irq_count; i++) {
@@ -253,20 +267,6 @@ static void wt_spm_fault_scrub(void* ctx)
     }
 }
 
-/* WT-FFM-0069: a partition's lines stay disabled, cleared, and Secure-routed
- * until its own psa_irq_enable, at first bring-up and on every restart. */
-static int wt_spm_claim_irqs(uint16_t partition_index)
-{
-    size_t i;
-
-    for (i = 0u; i < g_wt_spm_irq_count; i++) {
-        if (g_wt_spm_irqs[i].sp == partition_index &&
-                wt_arch_secure_irq_claim(g_wt_spm_irqs[i].irq) != 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
 
 static int wt_spm_fault_restart(void* ctx)
 {
@@ -320,6 +320,7 @@ static const wt_sp_recovery_ops_t g_spm_fault_ops = {
     wt_spm_fault_release, wt_spm_fault_messages, wt_spm_fault_scrub,
     wt_spm_fault_restart, wt_spm_fault_escalate
 };
+#endif
 
 /* Handler-mode half: identical footprint to the proven guest-tasklet fault
  * path — mark the coroutine dead, unlink it, drop the stale PendSV target —
@@ -352,10 +353,12 @@ int wt_spm_sp_fault(struct wt_co* faulted_co)
 
 void wt_spm_recover_faulted(void)
 {
+#if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)
     const wt_spm_sp_mem_t* mem;
     wt_spm_fault_ctx_t ctx;
+    uint32_t ticks = wt_monitor_state()->monotonic_ticks;
+#endif
     wt_spm_sp_t* slot;
-    uint32_t ticks;
     size_t i;
 
     /* Defensive: the faulted partition ran with CONTROL.nPRIV=1 and the fault
@@ -364,13 +367,13 @@ void wt_spm_recover_faulted(void)
      * next NS window. Normally the bit is already clear and this never fires. */
     wt_arch_assert_privileged_thread();
 
-    ticks = wt_monitor_state()->monotonic_ticks;
     for (i = 0u; i < g_spm_sp_count; i++) {
         slot = &g_spm_sp[i];
         if (slot->in_use == 0u || slot->fault_pending == 0u) {
             continue;
         }
         slot->fault_pending = 0u;
+#if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)
         mem = &g_wt_spm_sp_mems[slot->partition_index];
         ctx.slot = slot;
         (void)wt_sp_recovery_run(&g_spm_fault_ops, &ctx,
@@ -379,6 +382,10 @@ void wt_spm_recover_faulted(void)
                                  mem->restart_window_ticks,
                                  ticks, &slot->restart_count,
                                  &slot->first_restart_tick);
+#else
+        /* Without partition recovery a fault fails the platform closed. */
+        wt_platform_all_guests_faulted();
+#endif
     }
 }
 

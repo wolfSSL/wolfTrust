@@ -24,6 +24,7 @@
 
 #include "../../../src/arch/common/spm_gate_core.c"
 
+#include <setjmp.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -43,6 +44,8 @@ static int g_script[TEST_SPS][4];
 static unsigned int g_runs[TEST_SPS];
 static wt_scheduler_state_t g_sched;
 static int g_failures;
+static jmp_buf g_halt;
+static int g_expect_halt;
 
 struct wt_co* g_wt_co_pendsv_target;
 
@@ -195,6 +198,9 @@ void wt_nvm_client_partition_vault_restarted(void)
 
 void wt_platform_all_guests_faulted(void)
 {
+    if (g_expect_halt) {
+        longjmp(g_halt, 1);
+    }
     (void)printf("FAIL: unexpected all-guests-faulted\n");
     exit(1);
 }
@@ -229,6 +235,37 @@ static void test_setup(int s0, int s1, int s2)
     g_spm_sp_count = TEST_SPS;
 }
 
+#if !(defined(WT_SP_RESTART) && (WT_SP_RESTART == 1))
+/* Without partition restart any partition fault fails the platform closed. */
+static void check_halts(int s0, int s1, int s2, int recover, const char* what)
+{
+    test_setup(s0, s1, s2);
+    g_spm_sp[1].fault_pending = (uint8_t)recover;
+    g_expect_halt = 1;
+    if (setjmp(g_halt) == 0) {
+        if (recover != 0) {
+            wt_spm_recover_faulted();
+        }
+        else {
+            (void)wt_spm_sched_start_all();
+        }
+        check(0, what);
+    }
+    else {
+        check(1, what);
+    }
+    g_expect_halt = 0;
+}
+
+int main(void)
+{
+    check_halts(STEP_WAIT, STEP_WAIT, STEP_WAIT, 1,
+                "without restart a pending partition fault halts");
+    check_halts(STEP_WAIT, STEP_FAULT, STEP_WAIT, 0,
+                "without restart a start-up partition fault halts");
+    return g_failures != 0 ? 1 : 0;
+}
+#else
 int main(void)
 {
     test_setup(STEP_WAIT, STEP_WAIT, STEP_WAIT);
@@ -264,3 +301,4 @@ int main(void)
     (void)printf("PASS: spm_start (FF-M start-up pass)\n");
     return 0;
 }
+#endif

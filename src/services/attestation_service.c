@@ -23,7 +23,7 @@
 
 #include <string.h>
 
-static wt_spm_transport_fn g_attest_transport = wt_spm_transport_direct;
+static wt_spm_transport_fn g_attest_transport = WT_SPM_TRANSPORT_DEFAULT;
 
 #if defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)
 #include "wolftrust/spm_transport.h"
@@ -32,7 +32,7 @@ WT_RESTART_PROBE_DEFINE(wt_attestation_restart_probe)
 
 void wt_attestation_service_set_transport(wt_spm_transport_fn fn)
 {
-    g_attest_transport = (fn != NULL) ? fn : wt_spm_transport_direct;
+    g_attest_transport = (fn != NULL) ? fn : WT_SPM_TRANSPORT_DEFAULT;
 }
 
 /* Drain invec[idx] into a bounded private buffer (WT-FFM-0041 copied

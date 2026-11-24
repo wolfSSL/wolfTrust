@@ -35,7 +35,7 @@ static int wt_hsm_relay_default_submit(void* submit_ctx, int32_t client_id,
 
 static wt_hsm_relay_submit_fn g_relay_submit = NULL;
 static void* g_relay_submit_ctx = NULL;
-static wt_spm_transport_fn g_relay_transport = wt_spm_transport_direct;
+static wt_spm_transport_fn g_relay_transport = WT_SPM_TRANSPORT_DEFAULT;
 #if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
     defined(WT_INTERFACE_LOCAL_PROVIDER)
 static int32_t g_relay_secure_client = 0;
@@ -72,7 +72,7 @@ void wt_hsm_relay_set_secure_client_policy(int32_t partition_id)
 
 void wt_hsm_relay_set_transport(wt_spm_transport_fn fn)
 {
-    g_relay_transport = (fn != NULL) ? fn : wt_spm_transport_direct;
+    g_relay_transport = (fn != NULL) ? fn : WT_SPM_TRANSPORT_DEFAULT;
 }
 
 void wt_hsm_relay_set_attest_ops(int32_t attest_partition_id,

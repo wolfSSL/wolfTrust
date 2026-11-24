@@ -59,6 +59,7 @@
 #endif
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
+#include "wolftrust/spm_sp_mem.h"
 
 #include <string.h>
 
@@ -107,7 +108,6 @@ typedef struct wt_spm_sp {
 static wt_spm_sp_t g_spm_sp[WT_SPM_MAX_SPS];
 static size_t g_spm_sp_count;
 static uint32_t g_spm_sp_faults;
-static wt_secure_domain_t g_spm_sp_domain;
 
 #if (defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)) || \
     (defined(WT_CONF_DIAG_TRAP) && (WT_CONF_DIAG_TRAP != 0))
@@ -197,8 +197,6 @@ typedef struct wt_spm_fault_ctx {
 
 static int32_t g_spm_hsm_partition_id = -1;
 
-static const wt_domain_descriptor_t* wt_spm_domain_for(int32_t partition_id);
-
 static void wt_spm_fault_release(void* ctx)
 {
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
@@ -227,7 +225,6 @@ static void wt_spm_fault_release(void* ctx)
 static void wt_spm_fault_messages(void* ctx)
 {
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
-    const wt_domain_descriptor_t* domain;
     size_t i;
 
 #if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)
@@ -236,11 +233,9 @@ static void wt_spm_fault_messages(void* ctx)
 #endif
     /* The dead instance's interrupt lines stay masked, with nothing pending,
      * until the new instance enables them itself. */
-    domain = wt_spm_domain_for(c->slot->partition_id);
-    if (domain != NULL) {
-        for (i = 0u; i < domain->interrupt_resource_count; i++) {
-            wt_arch_secure_irq_disable(
-                domain->interrupt_resources[i].interrupt);
+    for (i = 0u; i < g_wt_spm_irq_count; i++) {
+        if (g_wt_spm_irqs[i].sp == c->slot->partition_index) {
+            wt_arch_secure_irq_disable(g_wt_spm_irqs[i].irq);
         }
     }
 }
@@ -326,22 +321,6 @@ static const wt_sp_recovery_ops_t g_spm_fault_ops = {
     wt_spm_fault_restart, wt_spm_fault_escalate
 };
 
-static const wt_domain_descriptor_t* wt_spm_domain_for(int32_t partition_id)
-{
-    const wt_system_manifest_t* manifest = wt_ffm_boot_manifest();
-    size_t i;
-
-    if (manifest == NULL) {
-        return NULL;
-    }
-    for (i = 0u; i < manifest->domain_count; i++) {
-        if (manifest->domains[i].id == (wt_domain_id_t)partition_id) {
-            return &manifest->domains[i];
-        }
-    }
-    return NULL;
-}
-
 /* Handler-mode half: identical footprint to the proven guest-tasklet fault
  * path — mark the coroutine dead, unlink it, drop the stale PendSV target —
  * plus one flag. The actual recovery (locks, clients, scrub, restart) runs
@@ -373,7 +352,7 @@ int wt_spm_sp_fault(struct wt_co* faulted_co)
 
 void wt_spm_recover_faulted(void)
 {
-    const wt_domain_descriptor_t* domain;
+    const wt_spm_sp_mem_t* mem;
     wt_spm_fault_ctx_t ctx;
     wt_spm_sp_t* slot;
     uint32_t ticks;
@@ -392,15 +371,12 @@ void wt_spm_recover_faulted(void)
             continue;
         }
         slot->fault_pending = 0u;
-        domain = wt_spm_domain_for(slot->partition_id);
-        if (domain == NULL) {
-            continue;  /* stays FAULTED — quarantined by the mark */
-        }
+        mem = &g_wt_spm_sp_mems[slot->partition_index];
         ctx.slot = slot;
         (void)wt_sp_recovery_run(&g_spm_fault_ops, &ctx,
-                                 domain->restart_policy.action,
-                                 domain->restart_policy.restart_limit,
-                                 domain->restart_policy.restart_window_ticks,
+                                 (wt_restart_action_t)mem->restart_action,
+                                 mem->restart_limit,
+                                 mem->restart_window_ticks,
                                  ticks, &slot->restart_count,
                                  &slot->first_restart_tick);
     }
@@ -1015,9 +991,8 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
                                    int32_t partition_id,
                                    wt_spm_sp_entry_fn entry, void* arg)
 {
-    const wt_system_manifest_t* manifest = wt_ffm_boot_manifest();
+    const wt_spm_sp_mem_t* mem;
     wt_spm_sp_t* slot;
-    const wt_memory_region_t* stack_region;
     const wt_periph_t* periph;
     size_t periph_count;
     size_t region_count;
@@ -1025,60 +1000,29 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
     int index;
 
     (void)runtime;
-    if (manifest == NULL || entry == NULL) {
+    if (entry == NULL) {
         return WT_FFM_ERROR_ARGUMENT;
     }
     if (g_spm_sp_count >= WT_SPM_MAX_SPS) {
         return WT_FFM_ERROR_RESOURCE;
     }
-    if (wt_ffm_resolve_secure_domain(manifest,
-                                     (wt_domain_id_t)partition_id,
-                                     &g_spm_sp_domain) !=
-            WT_SECURE_DOMAIN_OK) {
+    index = wt_spm_sp_index(partition_id);
+    if (index < 0) {
         return WT_FFM_ERROR_STATE;
     }
-
-    /* The SP's execution stack is the manifest domain's PRIVATE writable
-     * resource — a shared band (the keystore) is never a stack; fail closed
-     * if the manifest stops declaring one. When the domain declares its
-     * stack explicitly, only the resource containing that range qualifies,
-     * so adding a second private writable band (the vnet data band) cannot
-     * silently repoint the stack. */
-    stack_region = NULL;
-    for (i = 0u; i < g_spm_sp_domain.region_count; i++) {
-        if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_WRITE) !=
-                0u &&
-                (g_spm_sp_domain.regions[i].attributes &
-                 WT_MEM_ATTR_DEVICE) == 0u &&
-                (g_spm_sp_domain.regions[i].attributes &
-                 WT_MEMORY_ATTR_SHARED) == 0u) {
-            if (g_spm_sp_domain.stack_size != 0u &&
-                    (g_spm_sp_domain.stack_base <
-                         g_spm_sp_domain.regions[i].base ||
-                     g_spm_sp_domain.stack_base +
-                         g_spm_sp_domain.stack_size >
-                         g_spm_sp_domain.regions[i].base +
-                         g_spm_sp_domain.regions[i].size)) {
-                continue;
-            }
-            stack_region = &g_spm_sp_domain.regions[i];
-        }
-    }
-    if (stack_region == NULL) {
-        return WT_FFM_ERROR_STATE;
-    }
+    mem = &g_wt_spm_sp_mems[index];
 
     /* WT-FFM-0068: MMIO maps only as a DEVICE peripheral the port lets a
      * partition own, so no manifest can hand a partition SPM hardware. */
     periph = wt_platform_sp_peripherals(&periph_count);
-    if (wt_periph_sp_domain_ok(periph, periph_count, g_spm_sp_domain.regions,
-                               g_spm_sp_domain.region_count,
+    if (wt_periph_sp_domain_ok(periph, periph_count, mem->regions,
+                               mem->region_count,
                                wt_arch_range_is_mmio) != 1) {
         return WT_FFM_ERROR_RESOURCE;
     }
 
     slot = &g_spm_sp[g_spm_sp_count];
-    slot->table.domain_id = g_spm_sp_domain.domain_id;
+    slot->table.domain_id = (wt_domain_id_t)partition_id;
     /* Thread-domain table: the image windows every partition shares (the port
      * knows where executable code ends), then the domain's non-EXEC resources.
      * Every scheduled SP is confined this way; no wide privileged table exists
@@ -1087,12 +1031,10 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
      * grants) — a new fixed region needs a budget re-count. */
     region_count = wt_platform_sp_shared_regions(slot->table.regions,
                                                  WT_MAX_MEMORY_REGIONS);
-    for (i = 0u; i < g_spm_sp_domain.region_count &&
+    for (i = 0u; i < mem->region_count &&
             region_count < WT_MAX_MEMORY_REGIONS; i++) {
-        if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_EXEC) ==
-                0u) {
-            slot->table.regions[region_count] =
-                g_spm_sp_domain.regions[i];
+        if ((mem->regions[i].attributes & WT_MEM_ATTR_EXEC) == 0u) {
+            slot->table.regions[region_count] = mem->regions[i];
             region_count++;
         }
     }
@@ -1126,9 +1068,8 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
 #endif
     slot->table.region_count = region_count;
 
-    slot->co = wt_co_create_blocked_ex(
-        (uint8_t*)(uintptr_t)stack_region->base, stack_region->size,
-        entry, arg);
+    slot->co = wt_co_create_blocked_ex((uint8_t*)mem->stack_base,
+                                       mem->stack_size, entry, arg);
     if (slot->co == NULL) {
         return WT_FFM_ERROR_RESOURCE;
     }
@@ -1138,37 +1079,12 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
     slot->entry = entry;
     slot->restore = NULL;
     slot->arg = arg;
-    slot->scrub_base = stack_region->base;
-    slot->scrub_size = stack_region->size;
-    /* Record the domain's private non-stack RESTART_CLEAR band for the fault
-     * scrub; more than one is unsupported, so fail closed rather than leave
-     * a declared band unscrubbed. */
-    slot->scrub2_base = 0u;
-    slot->scrub2_size = 0u;
-    for (i = 0u; i < g_spm_sp_domain.region_count; i++) {
-        const wt_memory_region_t* region = &g_spm_sp_domain.regions[i];
-
-        if (region == stack_region ||
-                (region->attributes & WT_MEMORY_ATTR_RESTART_CLEAR) == 0u ||
-                (region->attributes & WT_MEM_ATTR_WRITE) == 0u ||
-                (region->attributes & WT_MEM_ATTR_DEVICE) != 0u ||
-                (region->attributes & WT_MEMORY_ATTR_SHARED) != 0u) {
-            continue;
-        }
-        if (slot->scrub2_size != 0u) {
-            return WT_FFM_ERROR_STATE;
-        }
-        slot->scrub2_base = region->base;
-        slot->scrub2_size = (uint32_t)region->size;
-    }
+    slot->scrub_base = mem->stack_base;
+    slot->scrub_size = mem->stack_size;
+    slot->scrub2_base = mem->band_base;
+    slot->scrub2_size = mem->band_size;
     slot->restart_count = 0u;
     slot->first_restart_tick = 0u;
-
-    /* The core's index for the partition, cached for every wake check. */
-    index = wt_spm_sp_index(partition_id);
-    if (index < 0) {
-        return WT_FFM_ERROR_STATE;
-    }
     slot->partition_index = (uint16_t)index;
     if (wt_spm_claim_irqs(slot->partition_index) != 0) {
         return WT_FFM_ERROR_RESOURCE;

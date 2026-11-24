@@ -41,8 +41,6 @@ enum {
 static struct wt_co g_co[TEST_SPS];
 static int g_script[TEST_SPS][4];
 static unsigned int g_runs[TEST_SPS];
-static wt_domain_descriptor_t g_domains[TEST_SPS];
-static wt_system_manifest_t g_manifest;
 static wt_scheduler_state_t g_sched;
 static int g_failures;
 
@@ -147,6 +145,7 @@ int wt_arch_secure_irq_claim(uint32_t irq)
 wt_spm_core_t g_wt_spm;
 const wt_spm_irq_t g_wt_spm_irqs[1];
 const uint8_t g_wt_spm_irq_count = 0U;
+const wt_spm_sp_mem_t g_wt_spm_sp_mems[TEST_SPS];
 
 psa_signal_t wt_spm_pending(uint8_t sp)
 {
@@ -159,11 +158,6 @@ int wt_spm_done(uint8_t slot, psa_client_id_t caller, int32_t kind)
     (void)caller;
     (void)kind;
     return 0;
-}
-
-const wt_system_manifest_t* wt_ffm_boot_manifest(void)
-{
-    return &g_manifest;
 }
 
 void wt_arch_secure_irq_disable(uint32_t irq)
@@ -222,20 +216,16 @@ static void test_setup(int s0, int s1, int s2)
     (void)memset(g_runs, 0, sizeof(g_runs));
     (void)memset(g_spm_sp, 0, sizeof(g_spm_sp));
     (void)memset(&g_wt_spm, 0, sizeof(g_wt_spm));
-    (void)memset(&g_manifest, 0, sizeof(g_manifest));
     g_script[0][0] = s0;
     g_script[1][0] = s1;
     g_script[2][0] = s2;
     for (i = 0U; i < TEST_SPS; i++) {
-        g_domains[i].id = (wt_domain_id_t)(i + 1U);
         g_co[i].state = WT_CO_BLOCKED;
         g_spm_sp[i].co = &g_co[i];
         g_spm_sp[i].partition_id = (int32_t)(i + 1U);
         g_spm_sp[i].partition_index = (uint16_t)i;
         g_spm_sp[i].in_use = 1U;
     }
-    g_manifest.domains = g_domains;
-    g_manifest.domain_count = TEST_SPS;
     g_spm_sp_count = TEST_SPS;
 }
 

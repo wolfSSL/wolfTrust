@@ -37,6 +37,7 @@
 #define WT_TAG_NEXT(tag) (((tag) + 1U) & WT_HANDLE_TAG)
 
 WT_STATIC_ASSERT(WT_SPM_SLOTS <= 31U, "a handle holds a 5-bit slot index");
+WT_STATIC_ASSERT(WT_SPM_TRANSFERS >= 1U, "a request needs a transfer");
 WT_STATIC_ASSERT(WT_SPM_TRANSFER_BYTES <= 0xFFFFU,
     "transfer offsets and lengths are 16-bit");
 

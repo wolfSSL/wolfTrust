@@ -88,7 +88,6 @@ typedef struct wt_spm_sp {
     int32_t wait_ipc;
     psa_signal_t wait_mask;
     uint8_t wait_kind;
-    uint8_t in_use;
     /* Graceful fault recovery (WT-SYS-0008 / WT-FFM-0017): re-arm the coroutine
      * in place from its original entry, scrub its private stack, and evaluate
      * the manifest restart budget on each fault. */
@@ -153,7 +152,7 @@ static wt_spm_sp_t* wt_spm_slot_for_current(void)
 
     cur = wt_co_current();
     for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].in_use != 0u && g_spm_sp[i].co == cur) {
+        if (g_spm_sp[i].co == cur) {
             return &g_spm_sp[i];
         }
     }
@@ -314,7 +313,7 @@ int wt_spm_sp_fault(struct wt_co* faulted_co)
     size_t i;
 
     for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].in_use != 0u && g_spm_sp[i].co == faulted_co) {
+        if (g_spm_sp[i].co == faulted_co) {
             slot = &g_spm_sp[i];
             break;
         }
@@ -348,7 +347,7 @@ void wt_spm_recover_faulted(void)
 
     for (i = 0u; i < g_spm_sp_count; i++) {
         slot = &g_spm_sp[i];
-        if (slot->in_use == 0u || slot->fault_pending == 0u) {
+        if (slot->fault_pending == 0u) {
             continue;
         }
         slot->fault_pending = 0u;
@@ -784,10 +783,9 @@ static int wt_spm_sched_drain(void)
             wt_spm_sp_t* slot = &g_spm_sp[i];
             wt_co_state_t state = wt_co_state(slot->co);
 
-            if (slot->in_use == 0u ||
-                    (state != WT_CO_RUNNABLE &&
-                     (state != WT_CO_BLOCKED ||
-                      wt_spm_slot_ready(slot) == 0))) {
+            if (state != WT_CO_RUNNABLE &&
+                    (state != WT_CO_BLOCKED ||
+                     wt_spm_slot_ready(slot) == 0)) {
                 continue;
             }
             if (wt_spm_run_co(slot->co) != WT_FFM_SUCCESS) {
@@ -943,7 +941,6 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
 
     /* Publish the slot last: the SVC dispatcher only scans up to
      * g_spm_sp_count, so an SP is never visible half-built. */
-    slot->in_use = 1u;
     g_spm_sp_count++;
     return WT_FFM_SUCCESS;
 }
@@ -966,8 +963,7 @@ void wt_spm_sched_prime(int32_t partition_id)
     unsigned int run;
 
     for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].in_use != 0u &&
-                g_spm_sp[i].partition_id == partition_id) {
+        if (g_spm_sp[i].partition_id == partition_id) {
             for (run = 0u; run < 3u; run++) {
                 (void)wt_spm_sched_drive(g_spm_sp[i].co, partition_id);
             }
@@ -985,7 +981,7 @@ int wt_spm_sched_start_all(void)
 
     for (i = 0u; ret == WT_FFM_SUCCESS && i < g_spm_sp_count; i++) {
         slot = &g_spm_sp[i];
-        if (slot->in_use != 0u && slot->wait_kind == WT_SPM_WAIT_NONE &&
+        if (slot->wait_kind == WT_SPM_WAIT_NONE &&
                 wt_co_state(slot->co) == WT_CO_BLOCKED) {
             ret = wt_spm_sched_drive(slot->co, slot->partition_id);
         }
@@ -994,9 +990,8 @@ int wt_spm_sched_start_all(void)
      * reply or a lock left start-up IPC undrained. */
     for (i = 0u; ret == WT_FFM_SUCCESS && i < g_spm_sp_count; i++) {
         slot = &g_spm_sp[i];
-        if (slot->in_use != 0u &&
-                (wt_co_state(slot->co) != WT_CO_BLOCKED ||
-                 slot->wait_kind != WT_SPM_WAIT_SIG)) {
+        if (wt_co_state(slot->co) != WT_CO_BLOCKED ||
+                slot->wait_kind != WT_SPM_WAIT_SIG) {
             wt_spm_sched_note(8U, slot->co, slot->partition_id);
             ret = WT_FFM_ERROR_STATE;
         }
@@ -1015,8 +1010,7 @@ int wt_spm_partition_memory_ok(int32_t partition_id, const void* address,
     size_t i;
 
     for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].in_use != 0u &&
-                g_spm_sp[i].partition_id == partition_id) {
+        if (g_spm_sp[i].partition_id == partition_id) {
             return wt_secure_domain_contains(&g_spm_sp[i].table,
                                              (uintptr_t)address, size,
                                              need_write);
@@ -1070,8 +1064,7 @@ int wt_spm_sched_set_restore(int32_t partition_id,
     size_t i;
 
     for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].in_use != 0u &&
-                g_spm_sp[i].partition_id == partition_id) {
+        if (g_spm_sp[i].partition_id == partition_id) {
             g_spm_sp[i].restore = restore;
             return WT_FFM_SUCCESS;
         }

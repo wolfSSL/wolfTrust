@@ -231,7 +231,6 @@ static void test_setup(int s0, int s1, int s2)
         g_spm_sp[i].co = &g_co[i];
         g_spm_sp[i].partition_id = (int32_t)(i + 1U);
         g_spm_sp[i].partition_index = (uint16_t)i;
-        g_spm_sp[i].in_use = 1U;
     }
     g_spm_sp_count = TEST_SPS;
 }

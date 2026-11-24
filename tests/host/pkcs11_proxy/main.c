@@ -600,6 +600,14 @@ static void test_info_selectors(CK_FUNCTION_LIST_PTR fn)
               wt_pkcs11_get_u32(&reader) == 0xFFFFFFFFU &&
               request_done(&reader),
           "an all-ones session handle is forwarded");
+
+    /* LP64 rejects the sentinel as too wide; ILP32 must forward it. */
+    g_request_len = 0U;
+    (void)fn->C_GetSlotInfo(CK_UNAVAILABLE_INFORMATION, &slot_info);
+    check(g_request_len == 0U ||
+              (request_begin(&reader, WT_P11_GET_SLOT_INFO) &&
+               !request_done(&reader)),
+          "the sentinel slot ID is never dropped from the request");
 }
 
 static void test_combined_local(CK_FUNCTION_LIST_PTR fn)

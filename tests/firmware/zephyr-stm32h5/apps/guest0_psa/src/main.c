@@ -749,8 +749,8 @@ static void exercise_ffm_key_negatives(void)
  * makes two deliberately malformed psa_call requests through the SPM veneer and
  * asserts each is rejected without a fault or stale data — the target-side proof
  * of the handle-integrity and bounded-vector checks host-tested in
- * tests/host/ffm (WT-FFM-0021, WT-FFM-0032). Both errors are recoverable, so
- * this runs inline in the normal lifecycle. */
+ * tests/host/spm_core (WT-FFM-0021, WT-FFM-0032). Both errors are
+ * recoverable, so this runs inline in the normal lifecycle. */
 static void exercise_ffm_negatives(void)
 {
 	static const uint8_t input[] = "wolfTrust FF-M negative probe";
@@ -798,7 +798,7 @@ static void exercise_ffm_negatives(void)
 		LOG_ERR("FF-M forged-handle call NOT rejected rc=%d st=%d", rc, st);
 	}
 
-	/* Oversized input vector: length beyond WT_FFM_TRANSFER_BYTES (1024) is
+	/* Oversized input vector: length beyond WT_SPM_TRANSFER_BYTES (1024) is
 	 * refused on validation, before any copy. */
 	memset(&arg, 0, sizeof(arg));
 	memset(param, 0, sizeof(param));
@@ -806,7 +806,7 @@ static void exercise_ffm_negatives(void)
 	param[0].a = (uint64_t)handle;
 	param[0].b = 0u; /* PSA_IPC_CALL */
 	param[0].c = (uint64_t)(uintptr_t)input;
-	param[1].a = 2048u; /* > WT_FFM_TRANSFER_BYTES */
+	param[1].a = 2048u; /* > WT_SPM_TRANSFER_BYTES */
 	param[1].b = (uint64_t)(uintptr_t)digest;
 	param[1].c = sizeof(digest);
 	rc = wt_tee_invoke(&arg, 2, param);

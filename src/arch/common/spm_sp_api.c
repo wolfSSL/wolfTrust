@@ -21,8 +21,7 @@
 /* Secure-Partition-side psa_* API (WT-FFM-0014): every call marshals a
  * wt_spm_call_t and traps to the privileged gate (wt_arch_sp_trap), so unmodified Arm
  * partition code links these symbols and runs unprivileged inside its manifest
- * MPU domain. Replaces the direct src/ffm_api.c implementations in the target
- * image — those touch SPM state an unprivileged thread cannot reach. */
+ * MPU domain. */
 
 #include <string.h>
 

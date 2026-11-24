@@ -35,7 +35,7 @@ requires a nonnegative reply (`i003` check 3), the server runs wolfTrust's own
 `psa_read`/`psa_skip` exercise sequence over the client's documented input
 bytes rather than any upstream sequence. `i027` replies `PROGRAMMER_ERROR`
 to the call to drop the connection; that also required a wolfTrust fix so a
-client may `psa_close` a dropped (`WT_IPC_CONNECTION_ERROR`) connection, not
+client may `psa_close` a dropped (`WT_SLOT_ERROR`) connection, not
 only an idle one. The harness `val` vtable gained `ipc_connect`/`ipc_close`.
 
 The unspecified-version-policy tests (`i010`, `i011`, `i026`) model an
@@ -59,7 +59,7 @@ run through wolfTrust's production Armv8-M SPM and isolation path. Phase 3 is
 not conformant until those binaries execute under M33MU and every applicable
 test result is recorded.
 
-wolfTrust's independent implementation tests live in `tests/host/ffm`. They
-cover properties outside the selected upstream cases, including forged and
-stale handles, caller ownership, bounded pools, message scrubbing, vector
+wolfTrust's independent implementation tests live in `tests/host/spm_core`.
+They cover properties outside the selected upstream cases, including forged
+and stale handles, caller ownership, bounded pools, message scrubbing, vector
 limits, and output-pointer revalidation.

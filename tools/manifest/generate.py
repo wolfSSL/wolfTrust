@@ -444,6 +444,9 @@ def validate_policy(manifest, supported_features, word_max,
         restart = domain["restart_policy"]
         if restart["action"] not in (0, 1, 2):
             policy_error("restart action is invalid")
+        # The SPM's per-partition row holds the restart limit in 16 bits.
+        if domain_class == 1 and restart["restart_limit"] > 0xFFFF:
+            policy_error("Secure Partition restart limit exceeds 65535")
         if restart["action"] == 1:
             if restart["restart_limit"] == 0 or restart["restart_window_ticks"] == 0:
                 policy_error("domain restart policy is incomplete")

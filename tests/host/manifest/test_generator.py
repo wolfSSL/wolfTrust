@@ -686,6 +686,25 @@ class GeneratorTest(unittest.TestCase):
             print("PASS: WT-SYS-0008 a Secure Partition with two restart-clear "
                   "data bands stops generation")
 
+    def test_partition_restart_limit_beyond_16_bits_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["domains"][1]["restart_policy"]["restart_limit"] = 0xFFFF
+            edge = root / "edge.json"
+            edge.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_generator(edge, root / "edge-out")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest["domains"][1]["restart_policy"]["restart_limit"] = 0x10000
+            over = root / "over.json"
+            over.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_generator(over, root / "over-out")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("restart limit exceeds 65535", result.stderr)
+            self.assertFalse((root / "over-out").exists())
+            print("PASS: WT-SYS-0008 a Secure Partition restart limit "
+                  "beyond 16 bits stops generation")
+
     def test_two_regions_holding_the_stack_are_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -368,6 +368,10 @@ else
 # The conformance manifest never carries the update partition.
 MANIFEST_EXCLUDE := $(if $(filter 1,$(WT_CONFORMANCE)),,--exclude-partition PARTITION_FWU)
 endif
+# An HMAC attestation key is held in the attestation partition, never the crypto service.
+ifeq ($(WT_ATTEST_KEY),hmac)
+MANIFEST_EXCLUDE += --drop-dependency PARTITION_ATTEST=SERVICE_HSM
+endif
 # Hardware guest-flash write protection: refuse to launch a guest whose image
 # sectors are not WRP-protected, so a peer Non-secure guest cannot reprogram a
 # suspended guest's flash. Silicon only (the M33MU model has no flash WRP).

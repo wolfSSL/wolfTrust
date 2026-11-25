@@ -306,6 +306,105 @@ class GeneratorTest(unittest.TestCase):
                 self.assertIn(message, result.stderr)
                 self.assertFalse(output.exists())
 
+    def test_dropped_dependency_leaves_the_partition_and_its_digest(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            whole = root / "whole"
+            dropped = root / "dropped"
+            self.assertEqual(self.run_generator(FIXTURE, whole).returncode, 0)
+            result = self.run_generator(
+                FIXTURE, dropped,
+                extra=("--drop-dependency", "PARTITION_ALPHA=SERVICE_BETA"))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            full_c = (whole / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            lean_c = (dropped / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            self.assertIn("wt_generated_dependencies_0[1]", full_c)
+            self.assertNotIn("wt_generated_dependencies_0", lean_c)
+            self.assertEqual(lean_c.count(".dependency_count = 0U,"), 2)
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["partitions"][0]["dependencies"] = []
+            digest = hashlib.sha256(json.dumps(
+                manifest, sort_keys=True,
+                separators=(",", ":")).encode("utf-8")).hexdigest()
+            self.assertIn("SHA-256: " + digest, lean_c)
+            self.assertIn("SERVICE_BETA", (dropped / "psa_manifest" /
+                                           "sid.h").read_text(encoding="utf-8"))
+            print("PASS: WT-FFM-0004 a dropped dependency keeps the service "
+                  "and the digest covers the trimmed manifest")
+
+    def test_dropped_dependency_lets_its_service_be_excluded(self):
+        drop = ("--drop-dependency", "PARTITION_ALPHA=SERVICE_BETA")
+        exclude = ("--exclude-partition", "PARTITION_BETA")
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for index, extra in enumerate((drop + exclude, exclude + drop)):
+                output = root / ("both%d" % index)
+                result = self.run_generator(FIXTURE, output, extra=extra)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                pid = (output / "psa_manifest" / "pid.h").read_text(
+                    encoding="utf-8")
+                self.assertNotIn("PARTITION_BETA", pid)
+        print("PASS: WT-FFM-0004 a dropped dependency lets the partition it "
+              "named be excluded, in either flag order")
+
+    def test_dropping_an_unknown_or_absent_dependency_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            for value, message in (
+                    ("PARTITION_BETA=SERVICE_ALPHA",
+                     "PARTITION_BETA does not depend on SERVICE_ALPHA"),
+                    ("PARTITION_ALPHA=SERVICE_ALPHA",
+                     "PARTITION_ALPHA does not depend on SERVICE_ALPHA"),
+                    ("PARTITION_GAMMA=SERVICE_BETA", "does not name a partition"),
+                    ("PARTITION_ALPHA=SERVICE_GAMMA", "does not name a partition"),
+                    ("PARTITION_ALPHA", "does not name a partition")):
+                output = root / value.replace("=", "_")
+                result = self.run_generator(
+                    FIXTURE, output, extra=("--drop-dependency", value))
+                self.assertNotEqual(result.returncode, 0, value)
+                self.assertIn(message, result.stderr)
+                self.assertFalse(output.exists())
+            twice = root / "twice.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["partitions"][0]["dependencies"] *= 2
+            twice.write_text(json.dumps(manifest), encoding="utf-8")
+            output = root / "twice"
+            result = self.run_generator(
+                twice, output,
+                extra=("--drop-dependency", "PARTITION_ALPHA=SERVICE_BETA"))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("exactly once", result.stderr)
+            self.assertFalse(output.exists())
+            print("PASS: WT-FFM-0004 a dependency the manifest lacks or "
+                  "repeats is refused")
+
+    def test_hmac_attestation_key_drops_the_crypto_dependency(self):
+        drop = "--drop-dependency PARTITION_ATTEST=SERVICE_HSM"
+        for flags, dropped in ((("WT_PROFILE=tiny",), True),
+                               (("WT_ATTEST_KEY=hmac",), True),
+                               (("WT_PROFILE=default",), False)):
+            args = subprocess.run(
+                ["make", "-s", "--no-print-directory", "-C", str(ROOT),
+                 "TARGET=stm32h563"] + list(flags) +
+                ["print-manifest-gen-args"],
+                check=True, capture_output=True, text=True).stdout
+            self.assertEqual(drop in " ".join(args.split()), dropped, flags)
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "hmac"
+            result = self.run_generator(
+                H5_MANIFEST, output, supported_features="0x7",
+                extra=tuple(drop.split()))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            source = (output / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            attest = source[source.index('.name = "PARTITION_ATTEST"'):]
+            attest = attest[:attest.index("},")]
+            self.assertIn(".dependency_count = 0U,", attest)
+        print("PASS: WT-FFM-0004 an HMAC attestation key leaves the "
+              "attestation partition no crypto service dependency")
+
     def test_excluding_a_partition_outside_an_sp_domain_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

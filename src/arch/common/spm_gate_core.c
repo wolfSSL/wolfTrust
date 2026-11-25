@@ -1013,8 +1013,7 @@ int wt_spm_partition_memory_ok(int32_t partition_id, const void* address,
     return 0;
 }
 
-#if WT_MANIFEST_RUNTIME_CHECK || \
-    (defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1))
+#if WT_SPM_BOOT_VALIDATE
 int wt_spm_sched_validate(void)
 {
     wt_memory_region_t spm_ram[2];

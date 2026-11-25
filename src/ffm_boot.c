@@ -117,9 +117,7 @@ int wt_ffm_boot_start_sched(void)
                                wt_conformance_driver_entry, NULL, NULL);
     }
 #endif
-#if WT_MANIFEST_RUNTIME_CHECK || \
-    (defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1))
-    /* The generator proves the manifest tables; conformance adds grants. */
+#if WT_SPM_BOOT_VALIDATE
     if (ret == WT_FFM_SUCCESS) {
         ret = wt_spm_sched_validate();
     }

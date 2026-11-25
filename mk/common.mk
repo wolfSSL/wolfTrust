@@ -33,7 +33,7 @@ endif
 # is measured, not guessed.
 WT_CO_STACK_SIZE ?= 10240
 # Secure main (SPM) stack, sized at link and limited by MSPLIM_S at reset.
-WT_SPM_STACK_SIZE ?= 0x1000
+WT_SPM_STACK_SIZE ?= 0xC00
 WT_LTO ?= 1
 ifneq ($(WT_LTO),0)
 ifneq ($(WT_LTO),1)

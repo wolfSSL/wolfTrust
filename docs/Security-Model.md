@@ -201,8 +201,8 @@ frames it stacks itself.
 
 ### SPM stack limit and fault attribution
 
-The Secure main stack has a fixed size (`WT_SPM_STACK_SIZE`, 4 KiB; its peak
-measured on M33MU is about 1.9 KiB), reserved by the linker below `_estack`;
+The Secure main stack has a fixed size (`WT_SPM_STACK_SIZE`, 3 KiB; its peak
+measured on M33MU is about 2.3 KiB), reserved by the linker below `_estack`;
 the link fails if `.bss` reaches it. Reset sets
 `MSPLIM_S` to its bottom right after MSP is placed under the seal words, and
 boot refuses to continue unless the limit reads back. An SPM stack overflow

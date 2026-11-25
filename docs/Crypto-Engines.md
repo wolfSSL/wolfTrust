@@ -193,15 +193,15 @@ includes too:
 
 | Profile | Algorithms | STM32H563 Secure flash / RAM |
 | --- | --- | ---: |
-| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, TLS 1.2 PRF | 101,361 / 42,268 |
-| `standard` | `compat` without PBKDF2, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 94,583 / 42,268 |
-| `lean` | `standard` without CCM and AES decryption | 92,919 / 42,268 |
-| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 88,183 / 42,268 |
+| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, TLS 1.2 PRF | 101,361 / 41,244 |
+| `standard` | `compat` without PBKDF2, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 94,583 / 41,244 |
+| `lean` | `standard` without CCM and AES decryption | 92,919 / 41,244 |
+| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 88,183 / 41,244 |
 
 RAM is the Secure RAM the image reserves. It is the same for every profile:
 the crypto partition's stack grows from 5 to 6 KiB for wolfPSA's ECDSA, and its
 data band from 1.5 KiB to `WT_PSA_POOL_BYTES` plus 2 KiB. The opt-out,
-`WT_SECURE_PSA=0`, is 61,916 / 38,684 bytes. The PSA
+`WT_SECURE_PSA=0`, is 61,916 / 37,660 bytes. The PSA
 guest drops from 65,384 to 34,600 bytes of flash; it keeps wolfCrypt only for
 the attestation token verifier. In `standard`, wolfCrypt, wolfPSA, the
 service and the key glue are 55,021 bytes of that flash.
@@ -366,22 +366,22 @@ wolfBoot and Non-secure guest images are not included.
 
 | Engine and profile | `text` | `data` | `bss` | Flash | Secure RAM |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Native, default (`WT_SECURE_PSA=1`, `compat`) | 101,301 bytes | 60 bytes | 14,492 bytes | 101,361 bytes | 42,268 bytes |
-| Native, `WT_SECURE_PSA=1` `standard` | 94,527 bytes | 56 bytes | 14,492 bytes | 94,583 bytes | 42,268 bytes |
-| Native, `WT_SECURE_PSA=0` | 61,868 bytes | 48 bytes | 12,100 bytes | 61,916 bytes | 38,684 bytes |
-| wolfHSM, default | 89,764 bytes | 56 bytes | 34,452 bytes | 89,820 bytes | 77,400 bytes |
-| wolfHSM over native `WT_SECURE_PSA=0` | 27,896 bytes | 8 bytes | 22,352 bytes | 27,904 bytes | 38,716 bytes |
-| Native, `full` | 112,880 bytes | 60 bytes | 21,380 bytes | 112,940 bytes | 53,256 bytes |
-| Native, `full`, `WT_SECURE_PSA=0` | 73,444 bytes | 48 bytes | 16,940 bytes | 73,492 bytes | 47,624 bytes |
-| wolfHSM, `full` | 101,628 bytes | 56 bytes | 56,140 bytes | 101,684 bytes | 96,880 bytes |
+| Native, default (`WT_SECURE_PSA=1`, `compat`) | 101,301 bytes | 60 bytes | 14,492 bytes | 101,361 bytes | 41,244 bytes |
+| Native, `WT_SECURE_PSA=1` `standard` | 94,527 bytes | 56 bytes | 14,492 bytes | 94,583 bytes | 41,244 bytes |
+| Native, `WT_SECURE_PSA=0` | 61,868 bytes | 48 bytes | 12,100 bytes | 61,916 bytes | 37,660 bytes |
+| wolfHSM, default | 89,764 bytes | 56 bytes | 34,452 bytes | 89,820 bytes | 72,280 bytes |
+| wolfHSM over native `WT_SECURE_PSA=0` | 27,896 bytes | 8 bytes | 22,352 bytes | 27,904 bytes | 34,620 bytes |
+| Native, `full` | 112,880 bytes | 60 bytes | 21,380 bytes | 112,940 bytes | 52,232 bytes |
+| Native, `full`, `WT_SECURE_PSA=0` | 73,444 bytes | 48 bytes | 16,940 bytes | 73,492 bytes | 46,600 bytes |
+| wolfHSM, `full` | 101,628 bytes | 56 bytes | 56,140 bytes | 101,684 bytes | 91,760 bytes |
 
 ### Stack contribution
 
 The wolfHSM engine adds one server tasklet stack slot per guest. The default
 image has one guest and one 10,496-byte slot (10,240-byte stack plus a
-256-byte underflow guard). The rest of the 38,716-byte Secure RAM difference
-is the crypto partition's larger stack (10 KiB instead of 5 KiB; the wolfHSM
-server peaked at 4,820 bytes on it in the 2026-11-24 M33MU runs) and its larger
+256-byte underflow guard). The rest of the 34,620-byte Secure RAM difference
+is the crypto partition's larger stack (6 KiB instead of 5 KiB; the wolfHSM
+server peaked at 4,856 bytes on it in the 2026-11-25 M33MU runs) and its larger
 data band (24 KiB instead of 1.5 KiB), which holds the server, protocol and per-guest state. With
 `WT_MAX_GUESTS=2` (the `full` profile):
 

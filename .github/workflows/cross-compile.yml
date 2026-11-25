@@ -14,7 +14,7 @@ jobs:
   cortex-m33:
     name: cortex_m33_cross_compile
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     steps:

@@ -1,0 +1,37 @@
+name: Cross compilation retry
+
+on:
+  workflow_run:
+    workflows: [Cross compilation]
+    types: [completed]
+
+permissions:
+  actions: write
+  checks: read
+
+jobs:
+  retry:
+    name: cross_compile_retry
+    if: github.event.workflow_run.conclusion == 'cancelled' && github.event.workflow_run.run_attempt == 1
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      RUN_ID: ${{ github.event.workflow_run.id }}
+    steps:
+      - name: Re-run the jobs once if any hit its time limit
+        run: |
+          timed_out=0
+          for id in $(gh api --paginate "repos/$GH_REPO/actions/runs/$RUN_ID/jobs" \
+              --jq '.jobs[] | select(.conclusion == "cancelled") | .id'); do
+            if gh api "repos/$GH_REPO/check-runs/$id/annotations" --jq '.[].message' \
+                | grep -q 'exceeded the maximum execution time'; then
+              timed_out=1
+            fi
+          done
+          if [ "$timed_out" = 1 ]; then
+            gh run rerun "$RUN_ID" --failed
+          else
+            echo 'No job hit its time limit; nothing to retry'
+          fi

@@ -122,6 +122,9 @@ typedef struct wt_hsm_guest {
     whCommServerConfig        comm_cfg;
     whServerConfig            server_cfg;
     bool                      ready;
+    /* A fault-path reset preempts the relay, so keep these accesses ordered. */
+    volatile bool             busy;
+    volatile bool             reset_pending;
 } wt_hsm_guest_t;
 
 static wt_hsm_guest_t g_guests[WT_HSM_NAMESPACE_COUNT];
@@ -165,6 +168,8 @@ static int g_foreign_probe_fired;
  * ---------------------------------------------------------------------- */
 static void wt_hsm_tasklet_main(void *arg);
 static void wt_hsm_server_pin(wt_guest_id_t guest_id);
+static int wt_hsm_rebuild_guest_server(wt_guest_id_t guest_id);
+static int wt_hsm_relay_done(wt_guest_id_t guest_id, int rc);
 static void wt_hsm_bind_server_cfg(wt_guest_id_t guest_id);
 static void wt_hsm_relay_bind(wt_guest_id_t guest_id,
                               const whTransportServerCb **cb, void **ctx);
@@ -263,6 +268,13 @@ static void wt_hsm_tasklet_main(void *arg)
     }
 }
 
+static int wt_hsm_guest_init_failure(wt_hsm_guest_t* g, int rc)
+{
+    wt_hsm_force_zero(&g->server, sizeof(g->server));
+    wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
+    return rc;
+}
+
 /* =========================================================================
  * wt_hsm_guest_init
  * ====================================================================== */
@@ -307,7 +319,7 @@ static int wt_hsm_guest_init(wt_guest_id_t guest_id)
      * ---------------------------------------------------------------- */
     rc = wc_InitRng_ex(g->crypto.rng, NULL, INVALID_DEVID);
     if (rc != 0) {
-        return rc;
+        return wt_hsm_guest_init_failure(g, rc);
     }
 
     /* ------------------------------------------------------------------
@@ -335,7 +347,7 @@ static int wt_hsm_guest_init(wt_guest_id_t guest_id)
     rc = wh_Server_Init(&g->server, &g->server_cfg);
     if (rc != WH_ERROR_OK) {
         wc_FreeRng(g->crypto.rng);
-        return rc;
+        return wt_hsm_guest_init_failure(g, rc);
     }
 
     /* Mark the server connected so HandleRequestMessage does not reject
@@ -344,7 +356,7 @@ static int wt_hsm_guest_init(wt_guest_id_t guest_id)
     if (rc != WH_ERROR_OK) {
         wh_Server_Cleanup(&g->server);
         wc_FreeRng(g->crypto.rng);
-        return rc;
+        return wt_hsm_guest_init_failure(g, rc);
     }
 
     /* ------------------------------------------------------------------
@@ -361,7 +373,7 @@ static int wt_hsm_guest_init(wt_guest_id_t guest_id)
         if (tasklet == NULL) {
             wh_Server_Cleanup(&g->server);
             wc_FreeRng(g->crypto.rng);
-            return WH_ERROR_ABORTED;
+            return wt_hsm_guest_init_failure(g, WH_ERROR_ABORTED);
         }
         wt_hsm_priv_register(guest_id, tasklet);
     }
@@ -645,6 +657,8 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
     if (!g->ready || g->transport_ctx != buf) {
         return WH_ERROR_NOTREADY;
     }
+    /* A guest reset landing while this request runs is deferred to its end. */
+    g->busy = true;
 #if defined(WT_HSM_PIN_NEG_PROBE) && (WT_HSM_PIN_NEG_PROBE == 1)
     /* Forge in the same non-yielding window as the pin: the pump below must run
      * on repinned pointers or fault, so the guest crypto markers are proof the
@@ -654,10 +668,10 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
     wt_hsm_server_pin(gid);
     if (req_len == 0u || req_len > sizeof(buf->req) ||
             req_len > sizeof(whCommHeader) + WOLFHSM_CFG_COMM_DATA_LEN) {
-        return WH_ERROR_BADARGS;
+        return wt_hsm_relay_done(gid, WH_ERROR_BADARGS);
     }
     if (req_len < sizeof(whCommHeader)) {
-        return WH_ERROR_BADARGS;
+        return wt_hsm_relay_done(gid, WH_ERROR_BADARGS);
     }
 
     /* The guest relay is a crypto-only door: refuse NVM-group packets so a
@@ -665,7 +679,7 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
     hdr = (const whCommHeader*)(const void*)req;
     kind = wh_Translate16(hdr->magic, hdr->kind);
     if (WH_MESSAGE_GROUP(kind) == WH_MESSAGE_GROUP_NVM) {
-        return WH_ERROR_BADARGS;
+        return wt_hsm_relay_done(gid, WH_ERROR_BADARGS);
     }
 
     /* Bind the server to this guest's namespace so a spoofed COMM-INIT client
@@ -694,8 +708,10 @@ int wt_hsm_relay_submit(void* submit_ctx, int32_t client_id,
         *resp_len = buf->resp_len;
         rc = WH_ERROR_OK;
     }
+    wt_hsm_force_zero(g->server.comm->packet,
+                      sizeof(g->server.comm->packet));
     wt_hsm_force_zero(buf, sizeof(*buf));
-    return rc;
+    return wt_hsm_relay_done(gid, rc);
 }
 
 /* =========================================================================
@@ -748,6 +764,51 @@ int wt_hsm_attest_bootstrap(void)
     return g_hsm_attest_ready ? WH_ERROR_OK : g_hsm_attest_init_status;
 }
 
+static void wt_hsm_attest_clear_contexts(void)
+{
+    wt_hsm_force_zero(&g_hsm_attest_server, sizeof(g_hsm_attest_server));
+    wt_hsm_force_zero(&g_hsm_attest_crypto, sizeof(g_hsm_attest_crypto));
+}
+
+/* Call after the signer's RNG was successfully initialized. */
+static void wt_hsm_attest_stop(bool server_open)
+{
+    if (server_open) {
+        (void)wh_Server_Cleanup(&g_hsm_attest_server);
+    }
+    (void)wc_FreeRng(g_hsm_attest_crypto.rng);
+    wt_hsm_attest_clear_contexts();
+}
+
+static int wt_hsm_attest_server_connect(void)
+{
+    int rc = wh_Server_Init(&g_hsm_attest_server, &g_hsm_attest_server_cfg);
+
+    if (rc == WH_ERROR_OK) {
+        g_hsm_attest_server.comm->client_id = WH_CLIENT_ID_MAX;
+        rc = wh_Server_SetConnected(&g_hsm_attest_server, WH_COMM_CONNECTED);
+        if (rc != WH_ERROR_OK) {
+            (void)wh_Server_Cleanup(&g_hsm_attest_server);
+        }
+    }
+    return rc;
+}
+
+static int wt_hsm_attest_start(void)
+{
+    int rc = wc_InitRng_ex(g_hsm_attest_crypto.rng, NULL, INVALID_DEVID);
+
+    if (rc != 0) {
+        wt_hsm_attest_clear_contexts();
+        return rc;
+    }
+    rc = wt_hsm_attest_server_connect();
+    if (rc != WH_ERROR_OK) {
+        wt_hsm_attest_stop(false);
+    }
+    return rc;
+}
+
 /* =========================================================================
  * wt_hsm_signal_fault
  *
@@ -761,16 +822,8 @@ static int wt_hsm_attest_server_rebuild(void)
 {
     int rc;
 
-    (void)wh_Server_Cleanup(&g_hsm_attest_server);
-    (void)wc_FreeRng(g_hsm_attest_crypto.rng);
-    rc = wc_InitRng_ex(g_hsm_attest_crypto.rng, NULL, INVALID_DEVID);
-    if (rc == 0) {
-        rc = wh_Server_Init(&g_hsm_attest_server, &g_hsm_attest_server_cfg);
-    }
-    if (rc == 0) {
-        g_hsm_attest_server.comm->client_id = WH_CLIENT_ID_MAX;
-        rc = wh_Server_SetConnected(&g_hsm_attest_server, WH_COMM_CONNECTED);
-    }
+    wt_hsm_attest_stop(true);
+    rc = wt_hsm_attest_start();
     if (rc != 0) {
         /* Fail closed: a signer that could not be rebuilt reports not-ready
          * from here on, never the bootstrap's success status. */
@@ -780,47 +833,88 @@ static int wt_hsm_attest_server_rebuild(void)
     return rc;
 }
 
+static int wt_hsm_rebuild_guest_server(wt_guest_id_t guest_id)
+{
+    int             rc;
+    wt_hsm_guest_t *g = &g_guests[guest_id];
+    wt_tasklet_t   *tasklet;
+
+    /* Rebuild the server and DRBG in place after a fault tore them. Pin the
+     * live server pointers first so wh_Server_Cleanup runs on trusted
+     * transport/nvm/crypto pointers, then rebuild the config from trusted
+     * constants for wh_Server_Init: a partition may have rewritten either
+     * band-resident set before the fault (WT-FFM-0011). */
+    wt_hsm_server_pin(guest_id);
+    (void)wh_Server_Cleanup(&g->server);
+    (void)wc_FreeRng(g->crypto.rng);
+    wt_hsm_force_zero(&g_relay_bufs[guest_id], sizeof(g_relay_bufs[guest_id]));
+    wt_hsm_force_zero(&g->server, sizeof(g->server));
+    wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
+    rc = wc_InitRng_ex(g->crypto.rng, NULL, INVALID_DEVID);
+    if (rc == 0) {
+        wt_hsm_bind_server_cfg(guest_id);
+        rc = wh_Server_Init(&g->server, &g->server_cfg);
+    }
+    if (rc == 0) {
+        rc = wh_Server_SetConnected(&g->server, WH_COMM_CONNECTED);
+    }
+    if (rc != 0) {
+        wt_hsm_force_zero(&g->server, sizeof(g->server));
+        wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
+        tasklet = wt_hsm_guest_tasklet(guest_id);
+        if (tasklet != NULL) {
+            wt_hsm_release_locks(tasklet);
+            wt_tasklet_mark_faulted(tasklet);
+        }
+        wt_hsm_priv_wipe_stack(guest_id);
+        g->ready = false;
+    }
+    return rc;
+}
+
+int wt_hsm_reset_guest(wt_guest_id_t guest_id)
+{
+    wt_hsm_guest_t *g;
+
+    if (guest_id >= WT_MAX_GUESTS) {
+        return WH_ERROR_BADARGS;
+    }
+    g = &g_guests[guest_id];
+    if (!g->ready) {
+        return WH_ERROR_OK;
+    }
+    if (g->busy) {
+        g->reset_pending = true;
+        return WH_ERROR_OK;
+    }
+    g->reset_pending = false;
+    return wt_hsm_rebuild_guest_server(guest_id);
+}
+
+static int wt_hsm_relay_done(wt_guest_id_t guest_id, int rc)
+{
+    wt_hsm_guest_t *g = &g_guests[guest_id];
+
+    g->busy = false;
+    if (g->reset_pending) {
+        g->reset_pending = false;
+        (void)wt_hsm_rebuild_guest_server(guest_id);
+    }
+    return rc;
+}
+
 int wt_hsm_relay_reinit_servers(void)
 {
     int             rc = WH_ERROR_OK;
     int             attest_rc = WH_ERROR_OK;
-    wt_hsm_guest_t *g;
-    wt_tasklet_t   *tasklet;
     wt_guest_id_t   gid;
 
     for (gid = 0; gid < WT_HSM_NAMESPACE_COUNT; gid++) {
-        g = &g_guests[gid];
-        if (!g->ready) {
+        if (!g_guests[gid].ready) {
             continue;
         }
-        /* Rebuild the server and DRBG in place after a fault tore them. Pin the
-         * live server pointers first so wh_Server_Cleanup runs on trusted
-         * transport/nvm/crypto pointers, then rebuild the config from trusted
-         * constants for wh_Server_Init: a partition may have rewritten either
-         * band-resident set before the fault (WT-FFM-0011). */
-        wt_hsm_server_pin(gid);
-        (void)wh_Server_Cleanup(&g->server);
-        (void)wc_FreeRng(g->crypto.rng);
-        wt_hsm_force_zero(&g_relay_bufs[gid], sizeof(g_relay_bufs[gid]));
-        wt_hsm_force_zero(&g->server, sizeof(g->server));
-        wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
-        rc = wc_InitRng_ex(g->crypto.rng, NULL, INVALID_DEVID);
-        if (rc == 0) {
-            wt_hsm_bind_server_cfg(gid);
-            rc = wh_Server_Init(&g->server, &g->server_cfg);
-        }
-        if (rc == 0) {
-            rc = wh_Server_SetConnected(&g->server, WH_COMM_CONNECTED);
-        }
+        rc = wt_hsm_rebuild_guest_server(gid);
         if (rc != 0) {
-            wt_hsm_force_zero(&g->server, sizeof(g->server));
-            wt_hsm_force_zero(&g->crypto, sizeof(g->crypto));
-            tasklet = wt_hsm_guest_tasklet(gid);
-            if (tasklet != NULL) {
-                wt_hsm_release_locks(tasklet);
-                wt_tasklet_mark_faulted(tasklet);
-            }
-            g->ready = false;
             break;
         }
     }
@@ -1079,13 +1173,7 @@ static int wt_hsm_attest_generate_key(void)
 /* Bring up the signer's own server on the bound store. */
 static int wt_hsm_attest_server_open(void)
 {
-    int ret;
-
     (void)memset(&g_hsm_attest_crypto, 0, sizeof(g_hsm_attest_crypto));
-    ret = wc_InitRng_ex(g_hsm_attest_crypto.rng, NULL, INVALID_DEVID);
-    if (ret != 0) {
-        return ret;
-    }
 
     (void)memset(&g_hsm_attest_comm_cfg, 0, sizeof(g_hsm_attest_comm_cfg));
     g_hsm_attest_comm_cfg.transport_cb = &g_hsm_attest_transport_cb;
@@ -1099,12 +1187,7 @@ static int wt_hsm_attest_server_open(void)
     g_hsm_attest_server_cfg.devId = INVALID_DEVID;
 #endif
 
-    ret = wh_Server_Init(&g_hsm_attest_server, &g_hsm_attest_server_cfg);
-    if (ret == WH_ERROR_OK) {
-        g_hsm_attest_server.comm->client_id = WH_CLIENT_ID_MAX;
-        ret = wh_Server_SetConnected(&g_hsm_attest_server, WH_COMM_CONNECTED);
-    }
-    return ret;
+    return wt_hsm_attest_start();
 }
 
 int wt_hsm_attest_restore(const uint8_t* publicKey, size_t publicKeySize)
@@ -1129,6 +1212,7 @@ int wt_hsm_attest_restore(const uint8_t* publicKey, size_t publicKeySize)
 int wt_hsm_attest_init(void)
 {
     int ret;
+    bool server_open;
 
 #if defined(WT_VAULT_FOREIGN_PROBE) && defined(WT_VAULT_PROBE_SECURED)
     wt_hsm_set_boot_lifecycle(PSA_LIFECYCLE_SECURED);
@@ -1143,6 +1227,7 @@ int wt_hsm_attest_init(void)
 
     ret = wt_hsm_attest_server_open();
     if (ret == WH_ERROR_OK) {
+        server_open = true;
         ret = wt_hsm_attest_export_public();
 #if defined(WT_VAULT_FOREIGN_PROBE)
         /* Force the existing key to look unreadable so the generate path runs
@@ -1170,14 +1255,10 @@ int wt_hsm_attest_init(void)
                     /* vault_format re-inited the store under the attest server;
                      * rebind the server to the fresh store before re-provisioning
                      * so its keystore view is not stale. */
-                    ret = wh_Server_Init(&g_hsm_attest_server,
-                                         &g_hsm_attest_server_cfg);
-                    if (ret == WH_ERROR_OK) {
-                        g_hsm_attest_server.comm->client_id = WH_CLIENT_ID_MAX;
-                        ret = wh_Server_SetConnected(&g_hsm_attest_server,
-                                                     WH_COMM_CONNECTED);
-                    }
-                    if (ret == WH_ERROR_OK) {
+                    (void)wh_Server_Cleanup(&g_hsm_attest_server);
+                    ret = wt_hsm_attest_server_connect();
+                    server_open = (ret == WH_ERROR_OK);
+                    if (server_open) {
                         ret = wt_hsm_attest_generate_key();
                     }
                 }
@@ -1185,6 +1266,9 @@ int wt_hsm_attest_init(void)
             if (ret == WH_ERROR_OK) {
                 ret = wt_hsm_attest_export_public();
             }
+        }
+        if (ret != WH_ERROR_OK) {
+            wt_hsm_attest_stop(server_open);
         }
     }
 

@@ -26,6 +26,7 @@
 #include "wolftrust/irq_claim.h"
 #include "wolftrust/arch/armv8m/armv8m.h"
 #include "wolftrust/arch/armv8m/core_regs.h"
+#include "platform_caps.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -123,8 +124,16 @@ static const wt_nvic_ops_t g_wt_nvic_ops = {
     wt_nvic_barrier
 };
 
+bool wt_arch_secure_irq_routed(uint32_t irq)
+{
+    return (irq < WT_ARMV8M_SECURE_IRQS) && (irq == WT_PLATFORM_SP_IRQ);
+}
+
 int wt_arch_secure_irq_claim(uint32_t irq)
 {
+    if (!wt_arch_secure_irq_routed(irq)) {
+        return -1;
+    }
     return wt_irq_claim(&g_wt_nvic_ops, irq, WT_ARMV8M_SECURE_IRQS / 32u);
 }
 

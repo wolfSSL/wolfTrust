@@ -35,6 +35,9 @@
 #include "wolftrust/services/initial_attestation.h"
 #include "wolfhsm/wh_error.h"
 #include "wolftrust/sched/tasklet.h"
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+#include "wolftrust/rng.h"
+#endif
 #ifndef WT_ENGINE_HSM
 #include "wolftrust/services/crypto_native.h"
 #endif
@@ -48,17 +51,17 @@ static volatile uint32_t g_wt_attest_degraded __attribute__((used));
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
 static wt_boot_handoff_t g_wt_boot_handoff;
 static int g_wt_boot_handoff_ret = -1;
-#endif
+static uint8_t g_wt_boot_seed[WT_ATTEST_BOOT_SEED_SIZE];
+static int g_wt_boot_seed_valid;
 
-const struct wt_boot_handoff* wt_boot_handoff_retained(void)
+int wt_boot_restore_attestation(void)
 {
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
-    if (g_wt_boot_handoff_ret == 0) {
-        return &g_wt_boot_handoff;
+    if (g_wt_boot_handoff_ret != 0 || g_wt_boot_seed_valid == 0) {
+        return WT_ATTEST_ERROR_NOT_READY;
     }
-#endif
-    return NULL;
+    return wt_initial_attest_init(&g_wt_boot_handoff, g_wt_boot_seed);
 }
+#endif
 
 void wt_boot_run(void)
 {
@@ -117,10 +120,11 @@ void wt_boot_run(void)
 #endif
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
     if (g_wt_boot_handoff_ret == 0) {
-        if (wt_initial_attest_init(&g_wt_boot_handoff) != WT_ATTEST_SUCCESS) {
-            /* Attestation could not initialize (e.g. the IAK was unavailable on
-             * a fail-closed vault). Degrade rather than dead-trap: the service
-             * returns errors, the rest of the system boots. */
+        /* Retain one public value for this boot, including across an
+         * attestation partition restart. */
+        g_wt_boot_seed_valid = wolftrust_rng_generate_block_direct(
+            g_wt_boot_seed, sizeof(g_wt_boot_seed)) == 0;
+        if (wt_boot_restore_attestation() != WT_ATTEST_SUCCESS) {
             g_wt_attest_degraded = 1u;
         }
     }

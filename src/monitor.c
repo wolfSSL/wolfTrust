@@ -443,6 +443,9 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
 #if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
     wt_spm_interface_client_departed((uint32_t)guest_id);
 #endif
+#ifdef WT_ENGINE_HSM
+    (void)wt_hsm_reset_guest(guest_id);
+#endif
     restart_window = wt_find_restart_clear_window(config);
     if (restart_window != NULL) {
         wt_arch_zero_guest_memory(restart_window->base, restart_window->size);
@@ -801,6 +804,9 @@ void wt_monitor_quarantine_guest(wt_guest_id_t guest_id)
 #endif
 #if defined(CONFIG_TPM) || defined(CONFIG_PKCS11)
     wt_spm_interface_client_departed((uint32_t)guest_id);
+#endif
+#ifdef WT_ENGINE_HSM
+    (void)wt_hsm_reset_guest(guest_id);
 #endif
     runtime->state = WT_GUEST_FAULTED;
     g_wt_quarantine_events++;

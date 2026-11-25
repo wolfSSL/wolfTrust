@@ -11,14 +11,14 @@ PKCS#11 service, an application API offered instead of PSA Crypto.
 | Service | SID | Non-secure clients | Purpose |
 | --- | ---: | --- | --- |
 | `SERVICE_ATTEST` | `0x1000` | Yes | PSA Initial Attestation token generation |
-| `SERVICE_VAULT` | `0x1002` | No | Secure-only persistent objects, sealing, and randomness |
+| `SERVICE_VAULT` | `0x0102` | No | Secure-only persistent objects, sealing, and randomness |
 | `SERVICE_ITS` | `0x1003` | Yes | PSA Internal Trusted Storage |
 | `SERVICE_PS` | `0x1004` | Yes | PSA Protected Storage |
 | `SERVICE_FWU` | `0x1005` | Yes, `WT_FWU=1` | PSA Firmware Update staging for wolfBoot |
-| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door; with `WT_SECURE_PSA=1` it also serves the PSA Crypto API |
-| `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
-| `SERVICE_TPM` | `0x1008` | Yes, `CONFIG_TPM=y` | wolfTPM firmware TPM 2.0 serving one TPM 2.0 command frame per call |
-| `SERVICE_PKCS11` | `0x1009` | Yes, `CONFIG_PKCS11=y` | wolfPKCS11 token serving the PKCS#11 `C_*` API through the client proxy |
+| `SERVICE_HSM` | `0x0106` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door; with `WT_SECURE_PSA=1` it also serves the PSA Crypto API |
+| `SERVICE_VNET` | `0x0107` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
+| `SERVICE_TPM` | `0x0108` | Yes, `CONFIG_TPM=y` | wolfTPM firmware TPM 2.0 serving one TPM 2.0 command frame per call |
+| `SERVICE_PKCS11` | `0x0109` | Yes, `CONFIG_PKCS11=y` | wolfPKCS11 token serving the PKCS#11 `C_*` API through the client proxy |
 
 All service versions are `1`. ITS and Protected Storage declare a
 dependency on the Secure-only vault. The manifest is rendered for every
@@ -128,9 +128,8 @@ non-exportable key in the shared NVM store. A persisted write counter supplies
 the nonce and the object label is authenticated data. Confidentiality and
 replay-protection hint flags do not weaken storage: Protected Storage still
 seals and counter-binds the object.
-The current `psa_ps_get_info()` behavior echoes the requested flags instead of
-reporting the stronger protection actually applied, which differs from the PSA
-Secure Storage 1.0 recommendation.
+`psa_ps_get_info()` reports the protection applied and preserves the
+object's write-once flag.
 
 ## Initial Attestation
 
@@ -140,14 +139,15 @@ a tagged COSE_Sign1 token signed with ES256 through an external signer backed
 by the selected engine's protected attestation key. wolfCOSE performs the COSE
 encoding.
 
-The emitted token is derived from [RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html)
-but is not conformant with its advertised
-`tag:psacertified.org,2023:psa#tfm` profile. Its boot seed is deterministic
-across equivalent boots, its software-component measurement type and
-description values are reversed, its signer ID hashes the literal name
-`wolfBoot` rather than identifying the signing key, and its implementation ID
-hashes a software label rather than identifying the immutable PSA RoT hardware
-assembly. [TF-M Compatibility](TF-M-Compatibility.md) records these token-profile and API deviations.
+The token uses the `tag:psacertified.org,2023:psa#tfm` identifier from
+RFC 9783. The SPM generates a public 32-byte boot seed from the platform RNG at
+system boot and retains it across attestation partition restarts. The signer
+ID and implementation ID are software-label hashes. These claims are known
+deviations from the profile's signer and hardware identity requirements.
+[RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html)
+
+The compatibility register records the token-profile and API deviations.
+[TF-M Compatibility](TF-M-Compatibility.md)
 
 The EAT/PSA claim set binds:
 
@@ -172,9 +172,10 @@ is never exported.
 `SERVICE_FWU` is an add-on: it exists only in images built with `WT_FWU=1`
 (see [Macros](Macros.md#wt_fwu-psa-firmware-update)). It exposes a
 single-component subset of PSA Firmware Update 1.0.
-It pads an unaligned block size to the backend write alignment and returns
-`PSA_ERROR_INVALID_ARGUMENT` rather than `PSA_ERROR_DOES_NOT_EXIST` for an
-unknown component ID. The normal flow is:
+The component advertises volatile staging because an uninstalled
+candidate is discarded on reset.
+It pads unaligned blocks to the backend write alignment and returns
+`PSA_ERROR_DOES_NOT_EXIST` for an unknown component ID. The normal flow is:
 
 ```text
 READY -> WRITING -> CANDIDATE -> STAGED -> authenticated reboot

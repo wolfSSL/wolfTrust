@@ -57,8 +57,8 @@ $(BUILD_DIR):
 $(BUILD_DIR)/wt_%.o: $(ROOT)/src/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_%.o: $(ROOT)/src/services/%.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c -o $@ $<
+$(BUILD_DIR)/wt_fwu_service.o: $(ROOT)/src/services/fwu_service.c zeroize_probe.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -include zeroize_probe.h -c -o $@ $<
 
 $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<

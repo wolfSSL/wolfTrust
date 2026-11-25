@@ -21,13 +21,10 @@
 #ifndef WOLFTRUST_BOOT_H
 #define WOLFTRUST_BOOT_H
 
-struct wt_boot_handoff;
-
 /* Entered by the arch reset handler once data and bss are initialized. */
 void wt_boot_run(void) __attribute__((noreturn));
 
-/* The boot handoff the SPM consumed, kept in SPM RAM so a restarted partition
- * is rebuilt from it; NULL when boot received no valid handoff. */
-const struct wt_boot_handoff* wt_boot_handoff_retained(void);
+/* Initialize attestation from the handoff and boot seed kept in SPM RAM. */
+int wt_boot_restore_attestation(void);
 
 #endif /* WOLFTRUST_BOOT_H */

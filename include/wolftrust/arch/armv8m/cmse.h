@@ -30,8 +30,8 @@
 /* Validate a non-secure read+write buffer of exactly `size` bytes at `ptr`.
  * Returns true iff every byte is RW-accessible from non-secure code as
  * determined by ARMv8-M CMSE (uses cmse_check_address_range under the hood).
- * Returns false if ptr is NULL, size is 0, size > 0x10000, or the range
- * is not entirely non-secure RW. */
+ * Returns false if ptr is NULL, size is 0, ptr + size would wrap, or
+ * the range is not entirely non-secure RW. */
 bool wt_cmse_check_ns_rw(const void *ptr, size_t size);
 
 /* Same but for read-only access (non-secure code only needs to read it). */

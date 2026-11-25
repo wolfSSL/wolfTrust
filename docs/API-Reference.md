@@ -444,9 +444,9 @@ Every Protected Storage object created through the public shim is likewise
 limited to 512 bytes. The underlying Secure vault still uses a 1024-byte object
 buffer and caps one copied vault response at 1000 bytes.
 Objects remain sealed and counter-bound when callers request the
-`NO_CONFIDENTIALITY` or `NO_REPLAY_PROTECTION` hints. The current
-`psa_ps_get_info` behavior echoes those requested flags instead of reporting
-the stronger protection actually applied.
+`NO_CONFIDENTIALITY` or `NO_REPLAY_PROTECTION` hints.
+`psa_ps_get_info()` reports the protection applied and preserves the
+object's write-once flag.
 
 ## Firmware Update
 
@@ -476,9 +476,8 @@ monotonic version. The current service supports one primary component and
 commits installation at authenticated reboot. It does not offer a persistent
 trial state, so `psa_fwu_accept` returns
 `PSA_ERROR_NOT_SUPPORTED`.
-The service pads an unaligned block size to the backend write alignment. It
-returns `PSA_ERROR_INVALID_ARGUMENT` for unknown component IDs instead of
-`PSA_ERROR_DOES_NOT_EXIST`.
+The service pads unaligned blocks to the backend write alignment and returns
+`PSA_ERROR_DOES_NOT_EXIST` for unknown component IDs.
 
 ## Initial Attestation
 
@@ -496,9 +495,8 @@ Accepted challenge sizes are 32, 48, and 64 bytes. The token is a tagged
 COSE_Sign1 object using ES256. The implementation limit is 640 bytes, although
 the vendored public header does not currently define
 `PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE`. The size query returns the exact encoded
-size without producing a signature. A non-NULL token buffer with zero capacity
-returns `PSA_ERROR_INVALID_ARGUMENT`; other undersized buffers return
-`PSA_ERROR_BUFFER_TOO_SMALL`.
+size without producing a signature. An undersized token buffer returns
+`PSA_ERROR_BUFFER_TOO_SMALL`, including a non-NULL buffer with zero capacity.
 
 The token advertises `tag:psacertified.org,2023:psa#tfm` but has the
 token-profile deviations listed in [TF-M Compatibility](TF-M-Compatibility.md) and must not be

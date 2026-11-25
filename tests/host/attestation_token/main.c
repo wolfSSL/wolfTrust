@@ -282,6 +282,7 @@ static int run_challenge(size_t challengeSize, const char* measHex,
 
 int main(void)
 {
+    static const uint8_t bootSeed[WT_ATTEST_BOOT_SEED_SIZE] = { 0xA5u };
     wt_boot_handoff_t handoff;
     uint8_t expectedSigner[32];
     char measHex[65];
@@ -336,7 +337,7 @@ int main(void)
     }
     measHex[64] = '\0';
 
-    ret = wt_initial_attest_init(&handoff);
+    ret = wt_initial_attest_init(&handoff, bootSeed);
     check(ret == WT_ATTEST_SUCCESS, "wt_initial_attest_init succeeds");
 
     (void)run_challenge(WT_ATTEST_CHALLENGE_SIZE_32, measHex, expectedSigner);

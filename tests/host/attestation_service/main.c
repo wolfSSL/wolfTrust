@@ -47,6 +47,8 @@ static const uint8_t g_expected_challenge[WT_ATTEST_CHALLENGE_SIZE_32] = {
     0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f
 };
 
+static int g_attest_ready;
+
 static const uint8_t g_stub_token[] = {
     'W', 'T', '-', 'A', 'T', 'T', 'E', 'S', 'T', '-', 'T', 'O', 'K', 'E', 'N'
 };
@@ -69,6 +71,9 @@ int wt_initial_attest_get_token(wt_guest_id_t guestId,
     if (tokenCapacity < sizeof(g_stub_token)) {
         return WT_ATTEST_ERROR_BUFFER_TOO_SMALL;
     }
+    if (!g_attest_ready) {
+        return WT_ATTEST_ERROR_NOT_READY;
+    }
     (void)memcpy(token, g_stub_token, sizeof(g_stub_token));
     *tokenSize = sizeof(g_stub_token);
     return WT_ATTEST_SUCCESS;
@@ -83,6 +88,9 @@ int wt_initial_attest_get_token_size(size_t challengeSize, size_t* tokenSize)
             challengeSize != WT_ATTEST_CHALLENGE_SIZE_48 &&
             challengeSize != WT_ATTEST_CHALLENGE_SIZE_64) {
         return WT_ATTEST_ERROR_INVALID_ARGUMENT;
+    }
+    if (!g_attest_ready) {
+        return WT_ATTEST_ERROR_NOT_READY;
     }
     *tokenSize = sizeof(g_stub_token);
     return WT_ATTEST_SUCCESS;
@@ -175,6 +183,7 @@ int main(void)
     psa_outvec key_out = { public_key, sizeof(public_key) };
     psa_outvec short_out = { token, 0U };
     psa_status_t status;
+    psa_status_t size_status;
 
     if (wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL) !=
             WT_FFM_SUCCESS) {
@@ -192,6 +201,22 @@ int main(void)
         return 1;
     }
 
+    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+                         &in_vec, 1U, &out_vec, 1U);
+    size_status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
+                             WT_ATTEST_OP_TOKEN_SIZE, &size_in, 1U,
+                             &size_out, 1U);
+    if (status != PSA_ERROR_SERVICE_FAILURE ||
+            size_status != PSA_ERROR_SERVICE_FAILURE) {
+        (void)fprintf(stderr, "unavailable attestation: token=%d size=%d\n",
+                      (int)status, (int)size_status);
+        return 1;
+    }
+    (void)printf("PASS: unavailable attestation reports SERVICE_FAILURE\n");
+
+    g_attest_ready = 1;
+    out_vec.len = sizeof(token);
+    size_out.len = sizeof(token32);
     status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                          &in_vec, 1U, &out_vec, 1U);
     if (status != PSA_SUCCESS) {

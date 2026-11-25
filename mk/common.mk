@@ -1154,7 +1154,9 @@ CONF_UPSTREAM_SRCS := \
 
 $(CONF_UPSTREAM_SRCS): $(UPSTREAM_STAMP) ;
 
-$(UPSTREAM_STAMP): | $(BUILD_DIR)
+$(UPSTREAM_STAMP): $(ROOT)/tests/upstream/fetch_psa_arch_tests.sh \
+    $(ROOT)/tests/upstream/psa-arch-tests-storage-flags.patch \
+    $(ROOT)/tests/upstream/psa-arch-tests-attestation-buffer.patch | $(BUILD_DIR)
 	$(ROOT)/tests/upstream/fetch_psa_arch_tests.sh \
 		$(BUILD_DIR)/upstream/psa-arch-tests
 	git -C $(BUILD_DIR)/upstream/psa-arch-tests apply --reverse --check \
@@ -1269,7 +1271,7 @@ $(CONF_GEN_STAMP): $(UPSTREAM_STAMP) $(MANIFEST_STAMP)
 		> $(MANIFEST_DIR)/psa_manifest/server_partition_psa.h
 	printf '#include "client_partition.h"\n' \
 		> $(MANIFEST_DIR)/psa_manifest/client_partition_psa.h
-	printf '#include "driver_partition.h"\n#define DRIVER_UART_INTR_SIG DRIVER_UART_INTR_SIG_SIGNAL\n' \
+	printf '#include "driver_partition.h"\n' \
 		> $(MANIFEST_DIR)/psa_manifest/driver_partition_psa.h
 	mkdir -p $(MANIFEST_DIR)/ns
 	python3 $(UPSTREAM_DIR)/tools/scripts/gen_tests_list.py ipc \
@@ -1772,7 +1774,8 @@ MANIFEST_GEN_ARGS := --supported-features 0x1 \
     --port-capabilities $(WT_PLATFORM_PORT_CAPABILITIES) \
     --platform-header platform_caps.h \
     --ffm-max-partitions $(WT_FFM_MAX_PARTITIONS_VALUE) \
-    --ffm-max-services $(WT_FFM_MAX_SERVICES_VALUE) --ffm-ipc-only
+    --ffm-max-services $(WT_FFM_MAX_SERVICES_VALUE) --ffm-ipc-only \
+    --ffm-routed-irq $(WT_PLATFORM_SP_IRQ)
 
 # The stamp records the selected variant; a mismatch regenerates even when
 # mtimes tie within one second, so a stale variant can never be linked.

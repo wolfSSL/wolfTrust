@@ -80,6 +80,10 @@ all: $(TEST_BIN)
 $(BUILD_DIR):
 	mkdir -p $@
 
+$(BUILD_DIR)/wt_wt_hsm_seal.o: $(ROOT)/src/services/wolfhsm/wt_hsm_seal.c ../zeroize_probe.h Makefile | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -include ../zeroize_probe.h \
+		-Dwc_InitRng_ex=wt_test_init_seal_rng -c -o $@ $<
+
 $(BUILD_DIR)/wt_%.o: $(ROOT)/src/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 

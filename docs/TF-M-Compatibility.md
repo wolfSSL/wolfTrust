@@ -17,15 +17,15 @@ options. These are local builds, not published reference figures.
 
 | Image | Flash | Secure RAM |
 | --- | ---: | ---: |
-| wolfTrust Secure runtime, native default | 69,496 bytes | 45,280 bytes |
+| wolfTrust Secure runtime, native default | 70,432 bytes | 45,280 bytes |
 | TF-M v2.3.1 `tfm_s`, level 3 | 79,680 bytes | 45,728 bytes |
 | wolfBoot, STM32L5 secure application handoff | 27,216 bytes | 2,104 bytes |
 | TF-M BL2 (MCUboot, EC-P256) | 38,744 bytes | 27,408 bytes |
-| Chain: wolfBoot + wolfTrust | 96,712 bytes | |
+| Chain: wolfBoot + wolfTrust | 97,648 bytes | |
 | Chain: BL2 + TF-M | 118,424 bytes | |
 
-The wolfTrust runtime is 10,184 bytes smaller in flash and 448 bytes smaller
-in Secure RAM; the boot chain is 21,712 bytes smaller in flash. Both RAM
+The wolfTrust runtime is 9,248 bytes smaller in flash and 448 bytes smaller
+in Secure RAM; the boot chain is 20,776 bytes smaller in flash. Both RAM
 figures include every partition stack (see Methodology). The bootloader's RAM
 is reused by the runtime, so the RAM figures are not summed. The
 cross-compile workflow fails if any port's lean native default image grows
@@ -46,8 +46,8 @@ partition, which wolfTrust's native default does with `WT_SECURE_PSA=1` (see
 [Crypto Engines](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1)).
 That default is larger than TF-M. On the STM32H563 the `standard` profile, the
 closest to TF-M's Medium set, is
-103,067 bytes of flash and 48,844 bytes of Secure RAM: 23,387 bytes more flash
-and 3,116 bytes more RAM than the TF-M image above. 12,007 bytes of the flash
+103,223 bytes of flash and 48,880 bytes of Secure RAM: 23,543 bytes more flash
+and 3,152 bytes more RAM than the TF-M image above. 12,007 bytes of the flash
 gap are the crypto stack (52,485 against 40,478 for TF-M's Crypto partition
 and Mbed TLS); the rest is the storage and SPM code outside it. The
 `WT_SECURE_PSA=0` opt-out, which runs wolfPSA in the Non-secure guest instead,
@@ -72,14 +72,12 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
   length.
 - Neither figure counts Secure RAM a port leaves free.
 
-- wolfTrust: the STM32L562 port, which is under review and not yet in this
-  tree, merged with these sources before the shared port layer landed and
-  built with its defaults (native engine, LTO, one guest):
-  `make TARGET=stm32l562 secure-image` in
+- wolfTrust: the STM32L562 port built with its defaults (native engine,
+  LTO, one guest): `make TARGET=stm32l562 secure-image` in
   `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. With `WT_SECURE_PSA=0`, the same
-  defaults give 70,400 bytes of flash and 45,260 bytes of Secure RAM for
-  `TARGET=stm32h563` in this tree; the `WT_SECURE_PSA=1` default gives 109,849
-  and 48,844.
+  defaults give 70,940 bytes of flash and 45,296 bytes of Secure RAM for
+  `TARGET=stm32h563` in this tree; the `WT_SECURE_PSA=1` default gives 110,005
+  and 48,880.
 - wolfBoot: `config/examples/stm32l5-tz-wolftrust.config` (ECC256, SHA256,
   `WOLFBOOT_SECURE_APP=1`).
 - TF-M: v2.3.1, platform `stm/stm32l562e_dk`, `TFM_ISOLATION_LEVEL=3`,
@@ -101,10 +99,11 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
 | Internal Trusted Storage | 1.0 | Core set/get/get-info/remove subset with the `WRITE_ONCE` lifecycle deviation below | `include/psa/internal_trusted_storage.h` and `src/services/wolfhsm/wt_hsm_vault.c` |
 | Protected Storage | 1.0 | Core set/get/get-info/remove subset; optional create/set-extended absent and the `WRITE_ONCE` lifecycle deviation below applies | `include/psa/protected_storage.h` and `src/services/storage_service.c` |
 | Initial Attestation | 1.0 API subset with a nonconformant RFC 9783-derived token | Token and exact-size operations are supported, but the advertised TF-M profile has the claim-semantic deviations below | `lib/wolfPSA/wolfpsa/psa/initial_attestation.h` and `src/services/initial_attestation.c` |
-| Firmware Update | 1.0 subset | Single-component staging and authenticated reboot supported, with the status deviation below | `include/psa/update.h` and `src/services/fwu_service.c` |
+| Firmware Update | 1.0 subset | Single-component staging and authenticated reboot supported | `include/psa/update.h` and `src/services/fwu_service.c` |
 | RoT lifecycle query | FF-M 1.0 | Secure Partition only; there is no Non-secure adapter or veneer | `include/psa/lifecycle.h` and `src/arch/common/spm_sp_api.c` |
 | Secure Partition signals and IRQ APIs | FF-M 1.0 plus one wolfTrust-specific beta-extension backport | The 1.0 signal APIs and `psa_eoi` are supported; only `psa_irq_enable()` is backported from the FF-M 1.1 Extension Beta, Issue 0, while `psa_irq_status_t`, `psa_irq_is_enabled`, `psa_irq_disable`, and `psa_irq_restore` are absent | `include/psa/service.h` and the Armv8-M SVC implementation |
-| Guest identity | FF-M convention | Non-secure guest `N` is client `-(N + 1)` | `src/arch/armv8m/ffm_nsc.c` |
+| Secure Partition hardware IRQ routing | Port-specific | Conformance builds route the port's `WT_CONF_IRQ`. Production manifests must leave partition IRQs empty. | `port/common/armv8m/platform_caps.h` and `tools/manifest/generate.py` |
+| Guest identity | Multi-guest extension | Non-secure guest `N` is client `-(N + 1)`. FF-M expects one negative ID for every SPM-assigned Non-secure connection, which would merge the guests' storage and network ownership; a one-guest build uses `-1` only | `src/arch/armv8m/ffm_nsc.c` |
 
 ## Intentional differences
 
@@ -119,14 +118,11 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
 | Abnormal Non-secure guest termination reclaims the guest's connections without delivering `PSA_IPC_DISCONNECT` to the affected services. | Scoped deviation | Fault-handler cleanup cannot dispatch a Secure service inline without re-entering the scheduler. Shipped services do not use `psa_set_rhandle()` for per-connection cleanup, but a ported service that depends on disconnect cleanup must account for this behavior. |
 | PSA Crypto mechanisms are build-selected. | Standard profile behavior | The wolfPSA 1.4 header is present, while each guest's wolfCrypt settings determine available keys and algorithms. |
 | Protected Storage does not implement create or set-extended. | Scoped | `psa_ps_get_support()` returns zero and both optional operations return `PSA_ERROR_NOT_SUPPORTED`. |
-| Protected Storage always applies confidentiality and replay protection even when `NO_CONFIDENTIALITY` or `NO_REPLAY_PROTECTION` is requested. | Known metadata deviation | Objects remain sealed and counter-bound, but `psa_ps_get_info()` echoes the requested hint flags instead of reporting the stronger protection actually applied, which differs from the PSA Secure Storage 1.0 requirement. |
 | ITS and Protected Storage always enforce `PSA_STORAGE_FLAG_WRITE_ONCE`. | Known lifecycle deviation | The request path does not receive lifecycle state and always rejects modification or removal. PSA Secure Storage 1.0 requires the flag not to be enforced during `PSA_ROT_PROVISIONING`. |
 | Initial Attestation's public header omits `PSA_INITIAL_ATTEST_MAX_TOKEN_SIZE`. | Known header deviation | The service limit is 640 bytes, but callers cannot obtain that maximum from the public PSA header. |
-| A non-NULL attestation token buffer with zero capacity returns `PSA_ERROR_INVALID_ARGUMENT`. | Known status deviation | PSA Initial Attestation 1.0 specifies `PSA_ERROR_BUFFER_TOO_SMALL` for an undersized token buffer. Nonzero undersized buffers return `PSA_ERROR_BUFFER_TOO_SMALL`. |
-| The attestation token advertises `tag:psacertified.org,2023:psa#tfm` but does not implement that profile's claim semantics. | Known token-profile deviation | The boot seed is deterministic across equivalent boots; software-component measurement type and description values are reversed; signer ID hashes the literal name `wolfBoot` rather than identifying the signing key; and implementation ID hashes a software label rather than identifying the immutable PSA RoT hardware assembly. A distinct derived profile identifier is required until these claims conform to [RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html). |
+| The attestation token uses the `tag:psacertified.org,2023:psa#tfm` identifier. | Known token-profile deviation | The signer ID and implementation ID are software-label hashes. These claims are known deviations from the profile's signer and hardware identity requirements. A distinct derived profile identifier is required until these claims conform. [RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html) |
 | Firmware Update has no persistent trial-accept flow. | Scoped | Installation commits only after wolfBoot authenticates the swapped image at reboot; `psa_fwu_accept()` returns `PSA_ERROR_NOT_SUPPORTED`. |
 | The firmware-update detached manifest is a 32-bit version word. | Scoped integration | Passing `NULL, 0` instead binds the version from the staged wolfBoot header. Other manifest encodings require an adapter. |
-| Firmware Update reports unknown component IDs as `PSA_ERROR_INVALID_ARGUMENT`. | Known API deviation | PSA Firmware Update 1.0 specifies `PSA_ERROR_DOES_NOT_EXIST` for unknown component IDs. Unaligned block sizes are padded to the backend write alignment. |
 | Secure memory uses no dynamic allocation. | Stronger resource policy | Fixed pools and buffers can reject excess work rather than expanding at runtime. |
 | Manifests use wolfTrust JSON and generated C. | Integration difference | Existing TF-M manifests are not consumed directly. Security resources and services must be represented in the wolfTrust schema. |
 | Secure Partition entry functions are bound at build time instead of being selected by each manifest's `entry_point` field. | Integration difference | The numeric field validates an executable window, but adding a service also requires a compiled entry wrapper and an explicit start call in `wt_ffm_boot_start_sched()`. |

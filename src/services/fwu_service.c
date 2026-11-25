@@ -58,22 +58,47 @@ int wt_fwu_staged_extent_ok(uint32_t staged_size, uint32_t programmed_end,
            programmed_end - staged_size < align;
 }
 
-psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
-                          uint32_t version)
+/* Clear an abandoned update before starting a new one. Keep the previous
+ * update intact if its pending swap cannot be disarmed. */
+static psa_status_t wt_fwu_force_reset(wt_fwu_service_ctx_t* ctx)
+{
+    if (ctx->armed != 0u &&
+            (ctx->backend->disarm == NULL ||
+             ctx->backend->disarm(ctx->backend_ctx) != 0)) {
+        return PSA_ERROR_STORAGE_FAILURE;
+    }
+    ctx->state = PSA_FWU_READY;
+    ctx->write_high = 0u;
+    ctx->candidate_version = 0u;
+    ctx->armed = 0u;
+    ctx->error = PSA_SUCCESS;
+    ctx->owner = 0;
+    return PSA_SUCCESS;
+}
+
+static psa_status_t wt_fwu_start_update(wt_fwu_service_ctx_t* ctx,
+                                       uint32_t component, uint32_t version,
+                                       int reclaim)
 {
     if (ctx == NULL || ctx->backend == NULL) {
         return PSA_ERROR_BAD_STATE;
     }
     if (!wt_fwu_component_ok(component)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+        return PSA_ERROR_DOES_NOT_EXIST;
     }
-    if (ctx->state != PSA_FWU_READY) {
+    if (ctx->state != PSA_FWU_READY && !reclaim) {
         return PSA_ERROR_BAD_STATE;
     }
     /* Reject a rolled-back candidate before the update partition is touched;
      * an undeclared version is bound from the image header at FINISH. */
     if (version != WT_FWU_VERSION_UNDECLARED && version < ctx->version_floor) {
         return PSA_ERROR_NOT_PERMITTED;
+    }
+    if (reclaim) {
+        psa_status_t status = wt_fwu_force_reset(ctx);
+        if (status != PSA_SUCCESS) {
+            return status;
+        }
     }
     if (ctx->backend->begin != NULL &&
             ctx->backend->begin(ctx->backend_ctx) != 0) {
@@ -84,6 +109,12 @@ psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
     ctx->candidate_version = version;
     ctx->armed = 0u;
     return PSA_SUCCESS;
+}
+
+psa_status_t wt_fwu_start(wt_fwu_service_ctx_t* ctx, uint32_t component,
+                          uint32_t version)
+{
+    return wt_fwu_start_update(ctx, component, version, 0);
 }
 
 psa_status_t wt_fwu_write(wt_fwu_service_ctx_t* ctx, uint32_t component,
@@ -100,8 +131,11 @@ psa_status_t wt_fwu_write(wt_fwu_service_ctx_t* ctx, uint32_t component,
     if (ctx == NULL || ctx->backend == NULL) {
         status = PSA_ERROR_BAD_STATE;
     }
-    else if (!wt_fwu_component_ok(component) || data == NULL || size == 0u) {
+    else if (data == NULL || size == 0u) {
         status = PSA_ERROR_INVALID_ARGUMENT;
+    }
+    else if (!wt_fwu_component_ok(component)) {
+        status = PSA_ERROR_DOES_NOT_EXIST;
     }
     else if (ctx->state != PSA_FWU_WRITING) {
         status = PSA_ERROR_BAD_STATE;
@@ -171,7 +205,7 @@ psa_status_t wt_fwu_finish(wt_fwu_service_ctx_t* ctx, uint32_t component)
         return PSA_ERROR_BAD_STATE;
     }
     if (!wt_fwu_component_ok(component)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+        return PSA_ERROR_DOES_NOT_EXIST;
     }
     if (ctx->state != PSA_FWU_WRITING) {
         return PSA_ERROR_BAD_STATE;
@@ -243,7 +277,7 @@ psa_status_t wt_fwu_cancel(wt_fwu_service_ctx_t* ctx, uint32_t component)
         return PSA_ERROR_BAD_STATE;
     }
     if (!wt_fwu_component_ok(component)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+        return PSA_ERROR_DOES_NOT_EXIST;
     }
     if (ctx->state != PSA_FWU_WRITING && ctx->state != PSA_FWU_CANDIDATE) {
         return PSA_ERROR_BAD_STATE;
@@ -260,7 +294,7 @@ psa_status_t wt_fwu_clean(wt_fwu_service_ctx_t* ctx, uint32_t component)
         return PSA_ERROR_BAD_STATE;
     }
     if (!wt_fwu_component_ok(component)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+        return PSA_ERROR_DOES_NOT_EXIST;
     }
     if (ctx->state != PSA_FWU_FAILED && ctx->state != PSA_FWU_UPDATED) {
         return PSA_ERROR_BAD_STATE;
@@ -332,7 +366,7 @@ psa_status_t wt_fwu_query(wt_fwu_service_ctx_t* ctx, uint32_t component,
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     if (!wt_fwu_component_ok(component)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
+        return PSA_ERROR_DOES_NOT_EXIST;
     }
     (void)memset(info, 0, sizeof(*info));
     info->state = (uint8_t)ctx->state;
@@ -342,6 +376,7 @@ psa_status_t wt_fwu_query(wt_fwu_service_ctx_t* ctx, uint32_t component,
      * slot); the declared candidate stays private in the service context. */
     info->version.build = ctx->active_version;
     info->max_size = ctx->backend->capacity;
+    info->flags = PSA_FWU_FLAG_VOLATILE_STAGING;
     info->impl.staged_size = ctx->write_high;
     return PSA_SUCCESS;
 }
@@ -362,7 +397,9 @@ static int wt_fwu_read_in(wt_fwu_service_ctx_t* ctx, wt_ffm_runtime_t* runtime,
         call.vec_idx = 0U;
         call.buffer = buffer + len;
         call.num_bytes = capacity - len;
-        if (ctx->transport(runtime, &call) != WT_FFM_SUCCESS) {
+        if (ctx->transport(runtime, &call) != WT_FFM_SUCCESS ||
+                call.ret_int != WT_FFM_SUCCESS ||
+                call.ret_size > capacity - len) {
             return WT_FFM_ERROR_STATE;
         }
         if (call.ret_size == 0U) {
@@ -411,65 +448,22 @@ int wt_fwu_owner_expired(psa_client_id_t owner, uint32_t owner_tick,
     return 0;
 }
 
-/* Reclaim an abandoned session: disarm any pending swap and return to READY so
- * a new client may start. Never advances the version floor or arms a swap. */
-static psa_status_t wt_fwu_force_reset(wt_fwu_service_ctx_t* ctx)
+static psa_status_t wt_fwu_process_request(wt_fwu_service_ctx_t* ctx,
+                                           wt_ffm_runtime_t* runtime,
+                                           int32_t partition_id,
+                                           const psa_msg_t* msg,
+                                           uint32_t now_tick,
+                                           const uint8_t* buffer,
+                                           size_t in_len)
 {
-    if (ctx->armed != 0u &&
-            (ctx->backend == NULL || ctx->backend->disarm == NULL ||
-             ctx->backend->disarm(ctx->backend_ctx) != 0)) {
-        return PSA_ERROR_STORAGE_FAILURE;
-    }
-    ctx->state = PSA_FWU_READY;
-    ctx->write_high = 0u;
-    ctx->candidate_version = 0u;
-    ctx->armed = 0u;
-    ctx->error = PSA_SUCCESS;
-    ctx->owner = 0;
-    return PSA_SUCCESS;
-}
-
-static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
-                                        wt_ffm_runtime_t* runtime,
-                                        int32_t partition_id,
-                                        const psa_msg_t* msg,
-                                        uint32_t now_tick)
-{
-    uint8_t buffer[sizeof(wt_fwu_req_t) + WT_FWU_BLOCK_MAX];
     wt_fwu_req_t req;
     psa_fwu_component_info_t info;
-    size_t in_len = 0U;
     psa_status_t status;
 
-    if (msg->in_size[0] < sizeof(req)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
-    }
-    /* An input larger than the header plus the maximum block is malformed. */
-    if (msg->in_size[0] > sizeof(buffer)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
-    }
-    if (wt_fwu_read_in(ctx, runtime, partition_id, msg->handle, buffer,
-                       sizeof(buffer), &in_len) != WT_FFM_SUCCESS ||
-            in_len < sizeof(req)) {
-        return PSA_ERROR_INVALID_ARGUMENT;
-    }
     (void)memcpy(&req, buffer, sizeof(req));
 
-    /* Reclaim a session whose owner has gone idle past the timeout so one
-     * client that opens an update and stops cannot wedge updates for everyone
-     * (DoS). An active owner refreshes its clock on every op below. */
-    if (wt_fwu_owner_expired(ctx->owner, ctx->owner_tick, now_tick,
-                             msg->client_id)) {
-        status = wt_fwu_force_reset(ctx);
-        if (status != PSA_SUCCESS) {
-            return status;
-        }
-    }
-
-    /* Per-transaction owner: only the client that opened the update (START)
-     * may drive or reboot it, so one guest cannot hijack, monopolize, arm, or
-     * reboot another guest's update (CWE-862). QUERY is read-only; START binds
-     * a new owner (and wt_fwu_start itself refuses a second concurrent one). */
+    /* Only the owner may drive an update or reboot to finish it. Other
+     * clients can query state and can start a new update after expiration. */
     if (msg->type != WT_FWU_OP_QUERY && msg->type != WT_FWU_OP_START &&
             ctx->owner != 0 && msg->client_id != ctx->owner) {
         return PSA_ERROR_NOT_PERMITTED;
@@ -486,9 +480,12 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
                                  &info, sizeof(info)) != WT_FFM_SUCCESS) {
             status = PSA_ERROR_GENERIC_ERROR;
         }
-        break;
+        return status;
     case WT_FWU_OP_START:
-        status = wt_fwu_start(ctx, req.component, req.version);
+        status = wt_fwu_start_update(ctx, req.component, req.version,
+                                     wt_fwu_owner_expired(ctx->owner,
+                                         ctx->owner_tick, now_tick,
+                                         msg->client_id));
         if (status == PSA_SUCCESS) {
             ctx->owner = msg->client_id;
             ctx->owner_tick = now_tick;
@@ -528,7 +525,7 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
         status = PSA_ERROR_NOT_SUPPORTED;
         break;
     default:
-        status = PSA_ERROR_NOT_SUPPORTED;
+        status = PSA_ERROR_PROGRAMMER_ERROR;
         break;
     }
     /* The transaction is over once no update is in progress (cancel, clean, or
@@ -537,13 +534,35 @@ static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
     if (ctx->state == PSA_FWU_READY) {
         ctx->owner = 0;
     } else if (ctx->owner != 0 && msg->client_id == ctx->owner &&
-               msg->type != WT_FWU_OP_QUERY && msg->type != WT_FWU_OP_START) {
-        /* Refresh the idle clock only on owner progress (a state-mutating op),
-         * never on a read-only QUERY, so an owner cannot keep an abandoned
-         * session pinned by polling status under the timeout. START binds the
-         * clock in its own case. */
+               msg->type != WT_FWU_OP_START) {
+        /* START binds the clock. QUERY returns without refreshing it. */
         ctx->owner_tick = now_tick;
     }
+    return status;
+}
+
+static psa_status_t wt_fwu_service_call(wt_fwu_service_ctx_t* ctx,
+                                        wt_ffm_runtime_t* runtime,
+                                        int32_t partition_id,
+                                        const psa_msg_t* msg,
+                                        uint32_t now_tick)
+{
+    uint8_t buffer[sizeof(wt_fwu_req_t) + WT_FWU_BLOCK_MAX];
+    size_t request_size = msg->in_size[0];
+    size_t in_len = 0U;
+    psa_status_t status = PSA_ERROR_INVALID_ARGUMENT;
+
+    if (request_size < sizeof(wt_fwu_req_t) || request_size > sizeof(buffer)) {
+        return status;
+    }
+    if (wt_fwu_read_in(ctx, runtime, partition_id, msg->handle, buffer,
+                       request_size, &in_len) == WT_FFM_SUCCESS &&
+            in_len == request_size) {
+        status = wt_fwu_process_request(ctx, runtime, partition_id, msg,
+                                        now_tick, buffer, in_len);
+    }
+    /* The transport may have copied part of the request before failing. */
+    wt_forceZero(buffer, request_size);
     return status;
 }
 
@@ -583,7 +602,7 @@ int wt_fwu_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         reply_status = wt_fwu_service_call(ctx, runtime, partition_id, &msg,
                                            call.ret_tick);
     } else {
-        reply_status = PSA_ERROR_NOT_SUPPORTED;
+        reply_status = PSA_ERROR_PROGRAMMER_ERROR;
     }
 
     (void)memset(&call, 0, sizeof(call));

@@ -11,12 +11,34 @@ permissions:
   contents: read
 
 jobs:
-  cortex-m33:
-    name: cortex_m33_cross_compile
+  ports:
+    name: cortex_m33_ports
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 5
+    outputs:
+      legs: ${{ steps.p.outputs.legs }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: p
+        run: |
+          python3 tests/target/lib/scenario_matrix.py --list-ports | python3 -c 'import json, sys
+          print("legs=" + json.dumps(["common"] + sys.stdin.read().split(), separators=(",", ":")))' >> "$GITHUB_OUTPUT"
+
+  # One leg per registered port plus one for the port-independent checks.
+  cortex-m33:
+    name: cortex_m33_cross_compile (${{ matrix.leg }})
+    needs: ports
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        leg: ${{ fromJSON(needs.ports.outputs.legs) }}
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
+    env:
+      MAKEFLAGS: --jobs=4
+      WT_CI_PORT: ${{ matrix.leg }}
     steps:
       - uses: actions/checkout@v4
       - name: Initialize firmware dependencies
@@ -27,8 +49,11 @@ jobs:
             lib/wolfCOSE lib/wolfHSM lib/wolfPSA lib/wolfSSL \
             lib/wolfhal lib/wolfTPM lib/wolfPKCS11
       - name: Build STM32H563 secure firmware
-        run: make -C tests/firmware/stm32h563 all TOOLPREFIX=arm-none-eabi-
+        if: matrix.leg == 'common'
+        # The guest Makefiles run several top-level makes into one build directory.
+        run: make -j1 -C tests/firmware/stm32h563 all TOOLPREFIX=arm-none-eabi-
       - name: Validate the LTO gate, rebuild, and size reduction
+        if: matrix.leg == 'common'
         run: |
           make BUILD_DIR=build-lto-toggle WT_LTO=0 secure-image TOOLPREFIX=arm-none-eabi-
           no_lto_flash=$(arm-none-eabi-size build-lto-toggle/wolftrust.elf | awk 'NR == 2 { print $1 + $2 }')
@@ -48,8 +73,9 @@ jobs:
           test "$lto_flash" -lt "$no_lto_flash"
           echo "LTO flash: $no_lto_flash -> $lto_flash bytes"
       - name: Verify an unimplemented isolation level stops the build
+        if: matrix.leg != 'common'
         run: |
-          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+          for target in $WT_CI_PORT; do
             for level in 1 2; do
               if make TARGET=$target WT_ISOLATION_LEVEL=$level \
                   BUILD_DIR=build-level-$level secure-image \
@@ -62,6 +88,7 @@ jobs:
             done
           done
       - name: Verify an unreadable level 3 layout stops the link
+        if: matrix.leg == 'common'
         run: |
           if make BUILD_DIR=build-no-layout WT_L3_BAND_ARGS= secure-image \
               TOOLPREFIX=arm-none-eabi- 2> no-layout.err; then
@@ -71,6 +98,7 @@ jobs:
           grep -q 'cannot read the level 3 bands' no-layout.err
           test ! -e build-no-layout/wolftrust.elf
       - name: Verify a rejected secure image cannot be reused
+        if: matrix.leg == 'common'
         run: |
           reject_flag='-Wl,--defsym=malloc=0x0C060800'
           make BUILD_DIR=build-rejected-layout secure-image TOOLPREFIX=arm-none-eabi-
@@ -95,12 +123,15 @@ jobs:
           test ! -e build-rejected-layout/wolftrust.map
           test ! -e build-rejected-layout/secure_cmse_implib.o
       - name: Compile-check the default port's no-attestation secure image (WT_ATTEST_COSE=0)
+        if: matrix.leg == 'common'
         run: make WT_ATTEST_COSE=0 secure-image TOOLPREFIX=arm-none-eabi-
       - name: Verify a changed layout input regenerates the secure image
+        if: matrix.leg == 'common'
         run: TOOLPREFIX=arm-none-eabi- tools/check-layout-rebuild.sh
       - name: Build every port with the boot-time manifest check (WT_MANIFEST_RUNTIME_CHECK=1)
+        if: matrix.leg != 'common'
         run: |
-          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+          for target in $WT_CI_PORT; do
             for engine in $(python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines); do
               make TARGET=$target WT_ENGINE=$engine WT_MANIFEST_RUNTIME_CHECK=1 \
                 secure-image TOOLPREFIX=arm-none-eabi- \
@@ -110,6 +141,7 @@ jobs:
             done
           done
       - name: Verify only the opt-in image links the boot-time manifest validator
+        if: matrix.leg == 'common'
         run: |
           for check in 0 1; do
             make WT_LTO=0 WT_MANIFEST_RUNTIME_CHECK=$check \
@@ -129,9 +161,10 @@ jobs:
       # guest-local PSA build, attestation included as in TF-M, must stay below
       # both (docs/TF-M-Compatibility.md). A port's linked RAM code band is allowed.
       - name: Check the guest-local PSA footprint against TF-M level 3
+        if: matrix.leg != 'common'
         run: |
           budget=79680
-          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+          for target in $WT_CI_PORT; do
             make TARGET=$target WT_ENGINE=native WT_ATTEST_COSE=1 WT_SECURE_PSA=0 secure-image \
               TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_budget_$target
             flash=$(arm-none-eabi-size build_budget_$target/wolftrust.elf \
@@ -143,15 +176,19 @@ jobs:
               build_budget_$target/wolftrust.map
           done
       - name: Build every port's full-profile secure image (every engine)
+        if: matrix.leg != 'common'
         run: |
           flags="$(. tests/target/lib/profile.sh; scenario_profile_flags full)"
-          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+          for target in $WT_CI_PORT; do
             for engine in $(python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines); do
               # shellcheck disable=SC2086
               make TARGET=$target WT_ENGINE=$engine $flags secure-image \
                 TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_full_${target}_$engine
             done
           done
+      - name: Verify an unsupported guest count stops the build
+        if: matrix.leg == 'common'
+        run: |
           if make WT_MAX_GUESTS=3 BUILD_DIR=build-guests-3 secure-image \
               TOOLPREFIX=arm-none-eabi- 2> guests.err; then
             echo 'FAIL: WT_MAX_GUESTS=3 built' >&2
@@ -159,9 +196,10 @@ jobs:
           fi
           grep -q 'unsupported WT_MAX_GUESTS' guests.err
       - name: Build every add-on alone for every port (every engine)
+        if: matrix.leg != 'common'
         run: |
           for flag in WT_MAX_GUESTS=2 WT_FWU=1 WT_SHA256_FAST=1 WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1; do
-            for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            for target in $WT_CI_PORT; do
               for engine in $(python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines); do
                 dir=build_addon_${target}_${engine}_${flag%%=*}
                 # The Thumb-2 AES is not constant time, so it builds with the opt-out.
@@ -176,8 +214,9 @@ jobs:
             done
           done
       - name: Build every port with PSA Crypto in the Secure image (WT_SECURE_PSA=1, every profile)
+        if: matrix.leg != 'common'
         run: |
-          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+          for target in $WT_CI_PORT; do
             for profile in compat standard lean symmetric; do
               dir=build_spsa_${target}_$profile
               make TARGET=$target WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=$profile \
@@ -186,6 +225,9 @@ jobs:
               grep -qx "WT_SECURE_PSA_PROFILE=$profile" $dir/secure_build_mode.stamp
             done
           done
+      - name: Verify bad Secure PSA settings stop the build
+        if: matrix.leg == 'common'
+        run: |
           for bad in "WT_SECURE_PSA=1 WT_ENGINE=hsm" "WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=bogus" "WT_SECURE_PSA=2" "WT_SECURE_PSA=1 WT_WOLFCRYPT_ARMASM=1"; do
             # shellcheck disable=SC2086
             if make $bad BUILD_DIR=build_spsa_bad secure-image TOOLPREFIX=arm-none-eabi- 2> spsa.err; then
@@ -208,12 +250,13 @@ jobs:
             grep -qE 'WT_PSA_(OP_SLOTS|POOL_BYTES)' spsa.err
           done
       - name: Verify the Secure PSA guest links the client and no wolfPSA
+        if: matrix.leg != 'common'
         run: |
-          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+          for target in $WT_CI_PORT; do
             rm -rf build
             make TARGET=$target WT_SECURE_PSA=1 secure-image TOOLPREFIX=arm-none-eabi-
             make -C tests/firmware/psa-guest clean
-            make -C tests/firmware/psa-guest TARGET=$target WT_SECURE_PSA=1 \
+            make -j1 -C tests/firmware/psa-guest TARGET=$target WT_SECURE_PSA=1 \
               WT_EXPECTED_LIFECYCLE=0x1000u
             syms=tests/firmware/psa-guest/build/guest0.elf
             if arm-none-eabi-nm $syms | grep -qE ' (wc_error_to_psa_status|wolfpsa_get_key_data|wt_psa_service_call)$'; then
@@ -225,8 +268,9 @@ jobs:
           make -C tests/firmware/psa-guest clean
           rm -rf build
       - name: Verify the default is Secure PSA and WT_SECURE_PSA=0 links wolfPSA in the guest
+        if: matrix.leg != 'common'
         run: |
-          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+          for target in $WT_CI_PORT; do
             # A port may keep PSA in its guests by default (WT_SECURE_PSA ?= 0)
             want=1
             if grep -qx 'WT_SECURE_PSA ?= 0' mk/target-$target.mk; then want=0; fi
@@ -240,7 +284,7 @@ jobs:
             make TARGET=$target WT_SECURE_PSA=0 secure-image TOOLPREFIX=arm-none-eabi-
             grep -qx 'WT_SECURE_PSA=0' build/secure_build_mode.stamp
             make -C tests/firmware/psa-guest clean
-            make -C tests/firmware/psa-guest TARGET=$target WT_SECURE_PSA=0 \
+            make -j1 -C tests/firmware/psa-guest TARGET=$target WT_SECURE_PSA=0 \
               WT_EXPECTED_LIFECYCLE=0x1000u
             arm-none-eabi-nm tests/firmware/psa-guest/build/guest0.elf | \
               grep -q ' wolfpsa_get_key_data$'
@@ -248,11 +292,14 @@ jobs:
           make -C tests/firmware/psa-guest clean
           rm -rf build
       - name: Build every registered port (both engines, every variant, .vectors check)
+        if: matrix.leg != 'common'
         run: |
           python3 tests/target/lib/scenario_matrix.py --build-plan | python3 -c '
-          import json, subprocess, sys
+          import json, os, subprocess, sys
           for b in json.load(sys.stdin):
               port, engine = b["port"], b["engine"]
+              if port != os.environ["WT_CI_PORT"]:
+                  continue
               base = ["make", "TARGET=" + port, "WT_ENGINE=" + engine,
                       "WT_ATTEST_COSE=%d" % b["attest_cose"], "secure-image",
                       "TOOLPREFIX=arm-none-eabi-"]

@@ -79,9 +79,7 @@ psa_status_t psa_initial_attest_get_token(const uint8_t* authChallenge,
     int32_t status;
     int rc;
 
-    /* A zero-capacity token buffer is ACS-pinned as an invalid argument
-     * (test_a001 check 8), so it stays grouped with the NULL guards. */
-    if ((tokenSize == NULL) || (token == NULL) || (tokenCapacity == 0u)) {
+    if ((authChallenge == NULL) || (tokenSize == NULL) || (token == NULL)) {
         if (tokenSize != NULL) {
             *tokenSize = 0u;
         }

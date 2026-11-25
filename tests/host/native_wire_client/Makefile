@@ -53,8 +53,8 @@ all: $(TEST_BIN)
 $(BUILD_DIR):
 	mkdir -p $@
 
-$(BUILD_DIR)/crypto_native_client.o: $(ROOT)/src/client/crypto_native_client.c | $(BUILD_DIR)
-	$(CC) $(CFLAGS) -c -o $@ $<
+$(BUILD_DIR)/crypto_native_client.o: $(ROOT)/src/client/crypto_native_client.c ../zeroize_probe.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -include ../zeroize_probe.h -c -o $@ $<
 
 $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<

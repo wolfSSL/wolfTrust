@@ -42,7 +42,7 @@
 #include "wolftrust/hsm_psa_transport.h"
 
 /* SERVICE_HSM from the platform manifest (manifest/base.json). */
-#define WT_SERVICE_HSM_SID     4102u
+#define WT_SERVICE_HSM_SID     262u
 #define WT_SERVICE_HSM_VERSION 1u
 
 #ifndef WT_WOLFHSM_CLIENT_ID

@@ -30,6 +30,9 @@
 
 #include "wolftrust/ffm.h"
 #include "wolftrust/services/fwu_service.h"
+#include "zeroize_probe.h"
+
+#undef wt_forceZero
 
 #include <stdio.h>
 #include <string.h>
@@ -181,9 +184,18 @@ static void test_state_machine(void)
               info.state == PSA_FWU_READY && info.max_size == MOCK_CAPACITY,
           "WT-FWU-0001 query reports READY and the component capacity");
 
-    /* Bad component id is rejected. */
-    check(wt_fwu_start(&ctx, 7u, 5u) == PSA_ERROR_INVALID_ARGUMENT,
-          "WT-FWU-0001 start on an unknown component is rejected");
+    check(wt_fwu_start(&ctx, 7u, 5u) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 start reports an unknown component");
+    check(wt_fwu_write(&ctx, 7u, 0u, block, 16u) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 write reports an unknown component");
+    check(wt_fwu_finish(&ctx, 7u) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 finish reports an unknown component");
+    check(wt_fwu_cancel(&ctx, 7u) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 cancel reports an unknown component");
+    check(wt_fwu_clean(&ctx, 7u) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 clean reports an unknown component");
+    check(wt_fwu_query(&ctx, 7u, &info) == PSA_ERROR_DOES_NOT_EXIST,
+          "WT-FWU-0001 query reports an unknown component");
 
     /* Ops out of order fail closed with BAD_STATE, no partial effect. */
     check(wt_fwu_write(&ctx, WT_FWU_COMPONENT_PRIMARY, 0u, block, 16u) ==
@@ -501,6 +513,41 @@ static const wt_ffm_port_ops_t g_port_ops = {
     test_panic
 };
 
+static void* g_fwu_read_buffer;
+static size_t g_fwu_read_size;
+static size_t g_fwu_cleared_size;
+static int g_fwu_fail_read;
+
+void test_fwu_force_zero(void* buffer, size_t size)
+{
+    const uint8_t* bytes = (const uint8_t*)buffer;
+    size_t i;
+
+    wt_forceZero(buffer, size);
+    if (buffer == g_fwu_read_buffer) {
+        for (i = 0U; i < size && bytes[i] == 0U; i++) {
+            g_fwu_cleared_size++;
+        }
+    }
+}
+
+static int test_fwu_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
+{
+    int rc = wt_spm_transport_direct(runtime, call);
+
+    if (call->op == WT_SPM_OP_READ && call->ret_size != 0U) {
+        g_fwu_read_buffer = call->buffer;
+        g_fwu_read_size = call->ret_size;
+        if (g_fwu_fail_read) {
+            return WT_FFM_ERROR_STATE;
+        }
+    }
+    if (call->op == WT_SPM_OP_REPLY) {
+        g_fwu_read_buffer = NULL;
+    }
+    return rc;
+}
+
 static psa_status_t fwu_call(wt_ffm_runtime_t* runtime, psa_handle_t handle,
                              int32_t op, uint32_t offset, uint32_t size,
                              uint32_t version, const void* data, size_t len,
@@ -552,6 +599,7 @@ static void test_ipc_round_trip(void)
 
     mock_backend_init(&backend, &mem);
     ctx_init(&fwu_ctx, &backend, &mem, 3u);
+    fwu_ctx.transport = test_fwu_transport;
 
     if (wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL) !=
             WT_FFM_SUCCESS) {
@@ -601,16 +649,32 @@ static void test_ipc_round_trip(void)
                       &info, sizeof(info));
     check(status == PSA_SUCCESS && info.state == PSA_FWU_READY,
           "WT-FWU-0001 IPC query returns READY");
+    check((info.flags & PSA_FWU_FLAG_VOLATILE_STAGING) != 0u,
+          "WT-FWU-0001 IPC query advertises volatile staging");
 
     status = fwu_call(&runtime, handle, WT_FWU_OP_START, 0u, 0u, 7u, NULL, 0U,
                       NULL, 0U);
     check(status == PSA_SUCCESS && mem.begin_calls == 1u,
           "WT-FWU-0002 IPC start erases the update partition");
 
+    g_fwu_cleared_size = 0U;
     status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 0u, 32u, 0u, blk0,
                       sizeof(blk0), NULL, 0U);
     check(status == PSA_SUCCESS,
           "WT-FWU-0002 IPC write stages the first block");
+    check(g_fwu_read_size == sizeof(wt_fwu_req_t) + sizeof(blk0) &&
+              g_fwu_cleared_size == g_fwu_read_size,
+          "WT-FFM-0041 IPC write clears the copied request before reply");
+
+    g_fwu_cleared_size = 0U;
+    g_fwu_fail_read = 1;
+    status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 32u, 32u, 0u, blk1,
+                      sizeof(blk1), NULL, 0U);
+    g_fwu_fail_read = 0;
+    check(status == PSA_ERROR_INVALID_ARGUMENT && mem.write_calls == 1u &&
+              g_fwu_read_size == sizeof(wt_fwu_req_t) + sizeof(blk1) &&
+              g_fwu_cleared_size == g_fwu_read_size,
+          "WT-FFM-0041 a read transport failure clears the copied request");
     status = fwu_call(&runtime, handle, WT_FWU_OP_WRITE, 32u, 16u, 0u, blk1,
                       sizeof(blk1), NULL, 0U);
     check(status == PSA_ERROR_INVALID_ARGUMENT && mem.image[32] != 0x22,
@@ -645,23 +709,41 @@ static void test_ipc_round_trip(void)
     check(status == PSA_SUCCESS && info.state == PSA_FWU_STAGED,
           "WT-FWU-0001 IPC query reports STAGED after install");
 
-    /* A timed-out owner cannot be reclaimed while disarming the pending
-     * update fails. A later retry can safely return the service to READY. */
+    /* Status remains readable while a staged update is waiting for reboot. */
     fwu_ctx.owner = 42;
     fwu_ctx.owner_tick = (uint32_t)(0U - WT_FWU_OWNER_IDLE_TIMEOUT_TICKS);
     mem.fail_disarm = 1;
+    (void)memset(&info, 0, sizeof(info));
     status = fwu_call(&runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
                       &info, sizeof(info));
+    check(status == PSA_SUCCESS && info.state == PSA_FWU_STAGED &&
+              mem.armed == 1u && fwu_ctx.owner == 42,
+          "WT-FWU-0001 IPC status query leaves the staged update intact");
+    status = fwu_call(&runtime, handle, WT_FWU_OP_FINISH, 0u, 0u, 0u, NULL,
+                      0U, NULL, 0U);
+    check(status == PSA_ERROR_NOT_PERMITTED && mem.armed == 1u &&
+              fwu_ctx.owner == 42 && fwu_ctx.state == PSA_FWU_STAGED,
+          "WT-FWU-0003 IPC finish requires the current owner");
+    status = fwu_call(&runtime, handle, WT_FWU_OP_START, 0u, 0u, 2u, NULL,
+                      0U, NULL, 0U);
+    check(status == PSA_ERROR_NOT_PERMITTED && mem.armed == 1u &&
+              fwu_ctx.owner == 42 && fwu_ctx.state == PSA_FWU_STAGED,
+          "WT-FWU-0003 IPC start checks the version floor before cleanup");
+
+    /* A new update cannot begin until the previous swap is disarmed. */
+    status = fwu_call(&runtime, handle, WT_FWU_OP_START, 0u, 0u, 8u, NULL,
+                      0U, NULL, 0U);
     check(status == PSA_ERROR_STORAGE_FAILURE && fwu_ctx.armed == 1u &&
               mem.armed == 1u && fwu_ctx.owner == 42 &&
               fwu_ctx.state == PSA_FWU_STAGED,
           "WT-FWU-0003 failed disarm preserves the staged update and owner");
     mem.fail_disarm = 0;
-    status = fwu_call(&runtime, handle, WT_FWU_OP_QUERY, 0u, 0u, 0u, NULL, 0U,
-                      &info, sizeof(info));
-    check(status == PSA_SUCCESS && info.state == PSA_FWU_READY &&
-              mem.armed == 0u && fwu_ctx.owner == 0,
-          "WT-FWU-0003 disarm retry reclaims the staged update");
+    status = fwu_call(&runtime, handle, WT_FWU_OP_START, 0u, 0u, 8u, NULL,
+                      0U, NULL, 0U);
+    check(status == PSA_SUCCESS && fwu_ctx.state == PSA_FWU_WRITING &&
+              mem.armed == 0u && mem.begin_calls == 2u &&
+              fwu_ctx.owner == TEST_NS_GUEST0,
+          "WT-FWU-0003 IPC start can begin a new update after disarm");
 }
 
 /* WT-FWU-0002: the wolfBoot update trigger the FWU backend arms into the

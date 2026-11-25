@@ -92,8 +92,10 @@ uintptr_t wt_arch_read_fault_address(void);
  * default memory map treats as peripheral, device, or system space. */
 int wt_arch_range_is_mmio(uintptr_t base, size_t size);
 
+/* True when a Secure Partition can receive this interrupt as a signal. */
+bool wt_arch_secure_irq_routed(uint32_t irq);
 /* Disable, clear, and route a partition's line to Secure, then read it back
- * (WT-FFM-0069). Nonzero when the line is out of range or did not stick. */
+ * (WT-FFM-0069). Nonzero when the line cannot be routed or did not stick. */
 int wt_arch_secure_irq_claim(uint32_t irq);
 void wt_arch_secure_irq_enable(uint32_t irq);
 void wt_arch_secure_irq_disable(uint32_t irq);
@@ -123,7 +125,6 @@ void wt_arch_sp_panic(uint32_t op, uint32_t code, uint32_t extra)
 int wt_arch_ns_check_read(wt_guest_id_t guest_id,
                           const void* address, size_t size);
 int wt_arch_ns_check_write(wt_guest_id_t guest_id, void* address, size_t size);
-int wt_arch_ns_check_writable(const void* address, size_t size);
 
 #ifdef WT_TARGET_BUILD
 int wt_arch_thread_unprivileged(void);

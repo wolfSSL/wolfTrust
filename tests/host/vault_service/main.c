@@ -39,7 +39,7 @@
 #include <string.h>
 
 #define TEST_VAULT_PARTITION  5
-#define TEST_VAULT_SID        4098U
+#define TEST_VAULT_SID        258U
 #define TEST_CLIENT_A         6
 #define TEST_CLIENT_B         7
 #define TEST_CLIENT_C         8

@@ -150,7 +150,7 @@ static psa_status_t wt_attestation_map_status(int ret)
             st = PSA_ERROR_BUFFER_TOO_SMALL;
             break;
         case WT_ATTEST_ERROR_NOT_READY:
-            st = PSA_ERROR_BAD_STATE;
+            st = PSA_ERROR_SERVICE_FAILURE;
             break;
         default:
             st = PSA_ERROR_GENERIC_ERROR;
@@ -260,7 +260,7 @@ int wt_attestation_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         reply_status = wt_attestation_service_public_key(runtime,
                            partition_id, &msg);
     } else {
-        reply_status = PSA_ERROR_NOT_SUPPORTED;
+        reply_status = PSA_ERROR_PROGRAMMER_ERROR;
     }
 
     (void)memset(&call, 0, sizeof(call));

@@ -293,8 +293,8 @@ OpenOCD tools.
 - **`wrpfence` does not apply.** The shared scenario expects the first stage
   to arm the fence. Here the fence is an option byte (`set-wrp`), so
   `guest_fence` is absent and `wrpoff` carries the refusal evidence.
-- **Native engine only.** `hsmpinneg`, `hsmfaultneg` and `hsmattackneg` need
-  the wolfHSM engine and are exempt in `port.json`.
+- **Native engine only.** `hsmpinneg`, `hsmfaultneg`, `hsmattackneg` and
+  `hsmrestartneg` need the wolfHSM engine and are exempt in `port.json`.
 - **Emulator patch.** Carried until M33MU's STM32L552 model merges
   upstream.
 

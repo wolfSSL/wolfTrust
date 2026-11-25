@@ -27,7 +27,7 @@
 
 /* SERVICE_PKCS11 runs serialized calls inside its Secure partition.
  * Messages larger than the FF-M transfer budget use bounded chunks. */
-#define WT_PKCS11_SERVICE_SID       4105U
+#define WT_PKCS11_SERVICE_SID       265U
 #define WT_PKCS11_SERVICE_VERSION   1U
 
 #define WT_PKCS11_MESSAGE_MAX       4096U

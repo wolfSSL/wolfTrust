@@ -322,7 +322,7 @@ int wt_hsm_relay_dispatch(void* context, wt_ffm_runtime_t* runtime,
                msg.type == WT_HSM_OP_ATTEST_PUBLIC_KEY) {
         reply_status = wt_hsm_relay_attest_call(runtime, partition_id, &msg);
     } else {
-        reply_status = PSA_ERROR_NOT_SUPPORTED;
+        reply_status = PSA_ERROR_PROGRAMMER_ERROR;
     }
 
     (void)memset(&call, 0, sizeof(call));

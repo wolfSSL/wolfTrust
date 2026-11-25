@@ -271,6 +271,11 @@ static psa_status_t wt_storage_service_call(wt_storage_service_ctx_t* ctx,
                                                NULL, 0U, &info, sizeof(info),
                                                NULL);
                 if (status == PSA_SUCCESS) {
+                    if ((info.flags & WT_VAULT_FLAG_SEALED) != 0U) {
+                        /* Sealed objects have both protections. */
+                        info.flags &= ~(WT_VAULT_FLAG_NO_CONFIDENTIALITY |
+                                        WT_VAULT_FLAG_NO_REPLAY);
+                    }
                     /* Hide the frontend's internal sealing flag. */
                     info.flags &= ~ctx->vault_flags;
                 }
@@ -289,7 +294,7 @@ static psa_status_t wt_storage_service_call(wt_storage_service_ctx_t* ctx,
                                            0U, NULL, 0U, NULL);
             break;
         default:
-            status = PSA_ERROR_NOT_SUPPORTED;
+            status = PSA_ERROR_PROGRAMMER_ERROR;
             break;
         }
     }
@@ -347,7 +352,7 @@ int wt_storage_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
         reply_status = wt_storage_service_call(ctx, runtime, partition_id,
                                                &msg);
     } else {
-        reply_status = PSA_ERROR_NOT_SUPPORTED;
+        reply_status = PSA_ERROR_PROGRAMMER_ERROR;
     }
 
     (void)memset(&call, 0, sizeof(call));

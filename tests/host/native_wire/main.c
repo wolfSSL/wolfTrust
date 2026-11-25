@@ -25,6 +25,9 @@
 
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/types.h"
+#include "wolfssl/wolfcrypt/error-crypt.h"
+#include "wolfssl/wolfcrypt/random.h"
+#include "wolfssl/wolfcrypt/sha256.h"
 
 #include "wolfhsm/wh_error.h"
 #include "wolfhsm/wh_nvm.h"
@@ -35,6 +38,7 @@
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/vault_service.h"
 #include "wolftrust/services/crypto_native.h"
+#include "wolftrust/zeroize.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -54,11 +58,57 @@ static whFlashRamsimCtx g_ramsim_ctx;
 static const whFlashCb g_ramsim_cb[1] = {WH_FLASH_RAMSIM_CB};
 static whNvmFlashConfig g_nvm_flash_cfg;
 static whNvmFlashContext g_nvm_flash_ctx;
-static const whNvmCb g_nvm_cb[1] = {WH_NVM_FLASH_CB};
+static whNvmCb g_nvm_cb[1] = {WH_NVM_FLASH_CB};
 static whNvmConfig g_nvm_cfg;
 static whNvmContext g_nvm_ctx;
 
 static int g_failures;
+static int g_rng_failure;
+static int g_nvm_read_failure;
+static int g_hash_init_failure;
+static void* g_scratch;
+static size_t g_scratch_size;
+static int g_scratch_wiped;
+
+int wt_test_generate_block(WC_RNG* rng, byte* output, word32 length)
+{
+    if (g_rng_failure != 0) {
+        g_scratch = output;
+        g_scratch_size = length;
+        return RNG_FAILURE_E;
+    }
+    return wc_RNG_GenerateBlock(rng, output, length);
+}
+
+int wt_test_init_sha256(wc_Sha256* sha, void* heap, int dev_id)
+{
+    g_scratch = sha;
+    g_scratch_size = sizeof(*sha);
+    if (g_hash_init_failure != 0) {
+        return MEMORY_E;
+    }
+    return wc_InitSha256_ex(sha, heap, dev_id);
+}
+
+static int test_nvm_read(void* context, whNvmId id, whNvmSize offset,
+                         whNvmSize length, uint8_t* output)
+{
+    if (g_nvm_read_failure != 0) {
+        g_scratch = output;
+        g_scratch_size = length;
+        return WH_ERROR_ABORTED;
+    }
+    return wh_NvmFlash_Read(context, id, offset, length, output);
+}
+
+void wt_test_forceZero(void* memory, size_t size)
+{
+    wt_forceZero(memory, size);
+    if (memory == g_scratch && size == g_scratch_size) {
+        g_scratch = NULL;
+        g_scratch_wiped = 1;
+    }
+}
 
 static int check(int ok, const char* what)
 {
@@ -87,7 +137,8 @@ static int test_store_up(void)
     g_nvm_flash_cfg.config = &g_ramsim_cfg;
     (void)memset(&g_nvm_flash_ctx, 0, sizeof(g_nvm_flash_ctx));
     (void)memset(&g_nvm_cfg, 0, sizeof(g_nvm_cfg));
-    g_nvm_cfg.cb = (whNvmCb*)g_nvm_cb;
+    g_nvm_cb[0].Read = test_nvm_read;
+    g_nvm_cfg.cb = g_nvm_cb;
     g_nvm_cfg.context = &g_nvm_flash_ctx;
     g_nvm_cfg.config = &g_nvm_flash_cfg;
     (void)memset(&g_nvm_ctx, 0, sizeof(g_nvm_ctx));
@@ -188,11 +239,24 @@ static void test_random_and_hash(void)
     check(rc == 0 && status == PSA_ERROR_INVALID_ARGUMENT && got == 0U,
           "RANDOM refuses a request above the per-call cap");
 
+    g_scratch_wiped = 0;
     rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_HASH, 0U, 0U, 0U,
               (const uint8_t*)"abc", 3U, out, sizeof(out), &got, &status);
+    g_scratch = NULL;
     check(rc == 0 && status == PSA_SUCCESS && got == sizeof(abc_digest) &&
           memcmp(out, abc_digest, sizeof(abc_digest)) == 0,
           "HASH returns the SHA-256 known answer");
+    check(g_scratch_wiped != 0, "HASH wipes its SHA-256 context");
+
+    g_hash_init_failure = 1;
+    g_scratch_wiped = 0;
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_HASH, 0U, 0U, 0U,
+              (const uint8_t*)"abc", 3U, out, sizeof(out), &got, &status);
+    g_hash_init_failure = 0;
+    g_scratch = NULL;
+    check(rc == 0 && status == PSA_ERROR_GENERIC_ERROR && got == 0U,
+          "HASH reports a SHA-256 initialization failure");
+    check(g_scratch_wiped != 0, "failed HASH wipes its SHA-256 context");
 }
 
 static void test_p256_lifecycle(void)
@@ -227,6 +291,16 @@ static void test_p256_lifecycle(void)
     check(rc == 0 && status == PSA_SUCCESS && got == WT_VAULT_KEY_PUB_LEN &&
           out[0] == 0x04U,
           "public export returns the 65-byte X9.63 point");
+
+    g_nvm_read_failure = 1;
+    g_scratch_wiped = 0;
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_EXPORT_PUBLIC, 0x1001ULL, 0U,
+              0U, NULL, 0U, out, sizeof(out), &got, &status);
+    g_nvm_read_failure = 0;
+    g_scratch = NULL;
+    check(rc == 0 && status == PSA_ERROR_STORAGE_FAILURE && got == 0U,
+          "public export reports an NVM read failure");
+    check(g_scratch_wiped != 0, "failed key reads wipe object scratch");
 
     rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_SIGN, 0x1001ULL, 0U, 0U,
               digest, sizeof(digest), sig, sizeof(sig), &got, &status);
@@ -328,6 +402,24 @@ static void test_usage_and_type(void)
               digest, sizeof(digest), out, sizeof(out), &got, &status);
     check(rc == 0 && status == PSA_ERROR_NOT_PERMITTED,
           "an AES key cannot be used to sign");
+}
+
+static void test_aes_rng_failure(void)
+{
+    size_t got = 0U;
+    psa_status_t status = PSA_SUCCESS;
+    int rc;
+
+    g_rng_failure = 1;
+    g_scratch_wiped = 0;
+    rc = wire(TEST_NS_GUEST0, WT_CRYPTO_OP_KEY_GENERATE, 0x2005ULL,
+              WT_VAULT_KEY_USAGE_ENCRYPT | WT_VAULT_KEY_USAGE_DECRYPT,
+              WT_VAULT_KEY_AES256, NULL, 0U, NULL, 0U, &got, &status);
+    g_rng_failure = 0;
+    g_scratch = NULL;
+    check(rc == 0 && status == PSA_ERROR_GENERIC_ERROR && got == 0U,
+          "AES key generation reports an RNG failure");
+    check(g_scratch_wiped != 0, "AES key generation wipes RNG scratch");
 }
 
 static void test_aes_gcm(void)
@@ -505,6 +597,7 @@ int main(int argc, char* argv[])
     test_random_and_hash();
     test_p256_lifecycle();
     test_usage_and_type();
+    test_aes_rng_failure();
     test_aes_gcm();
     test_import();
     test_malformed();

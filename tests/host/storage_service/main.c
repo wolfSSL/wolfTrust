@@ -41,7 +41,7 @@
 #include <string.h>
 
 #define TEST_VAULT_PARTITION 5
-#define TEST_VAULT_SID       4098U
+#define TEST_VAULT_SID       258U
 #define TEST_ITS_PARTITION   6
 #define TEST_ITS_SID         4099U
 #define TEST_NS_GUEST0       (-1)

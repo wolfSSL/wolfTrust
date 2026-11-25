@@ -54,7 +54,7 @@ typedef struct vnet_rx_meta {
  * Vector layout: OPEN outvec[0]=vnet_info_t; SET_MAC invec[0]=6-byte MAC;
  * TX invec[0]=one frame; RX_FETCH outvec[0]=vnet_rx_meta_t,
  * outvec[1]=payload; IRQ_ACK no vectors. */
-#define WT_VNET_SERVICE_SID      4103U
+#define WT_VNET_SERVICE_SID      263U
 #define WT_VNET_SERVICE_VERSION  1U
 
 /* Mediated link MTU: one frame plus the RX metadata must fit a single

@@ -52,7 +52,7 @@
       "services": [
         {
           "name": "SERVICE_TPM",
-          "sid": 4104,
+          "sid": 264,
           "version": 1,
           "version_policy": 0,
           "signal": 16,
@@ -62,7 +62,7 @@
         }
       ],
       "dependencies": [
-        4102
+        262
       ],
       "interrupts": []
     }

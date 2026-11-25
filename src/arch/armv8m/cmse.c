@@ -25,9 +25,7 @@
 
 bool wt_cmse_check_ns_rw(const void *ptr, size_t size)
 {
-    /* 64 KB cap: no legitimate CMSE-transported request is larger;
-     * capping prevents integer-wrap attacks on the range check. */
-    if (ptr == NULL || size == 0 || size > 0x10000) {
+    if (ptr == NULL || size == 0 || size > UINTPTR_MAX - (uintptr_t)ptr) {
         return false;
     }
     return cmse_check_address_range((void *)ptr, size,
@@ -36,8 +34,7 @@ bool wt_cmse_check_ns_rw(const void *ptr, size_t size)
 
 bool wt_cmse_check_ns_ro(const void *ptr, size_t size)
 {
-    /* Same size cap as wt_cmse_check_ns_rw. */
-    if (ptr == NULL || size == 0 || size > 0x10000) {
+    if (ptr == NULL || size == 0 || size > UINTPTR_MAX - (uintptr_t)ptr) {
         return false;
     }
     return cmse_check_address_range((void *)ptr, size,
@@ -56,7 +53,7 @@ bool wt_cmse_check_in_guest_ns_ram(wt_guest_id_t guest_id,
     uintptr_t end;
     uintptr_t win_end;
 
-    if (ptr == NULL || size == 0 || size > 0x10000) {
+    if (ptr == NULL || size == 0) {
         return false;
     }
 
@@ -127,7 +124,7 @@ bool wt_cmse_check_in_guest_ns_addr(wt_guest_id_t guest_id,
     uintptr_t end;
     uintptr_t win_end;
 
-    if (ptr == NULL || size == 0 || size > 0x10000) {
+    if (ptr == NULL || size == 0) {
         return false;
     }
     configs = wt_partitions_config_table(&count);

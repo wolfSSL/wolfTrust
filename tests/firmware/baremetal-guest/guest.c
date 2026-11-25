@@ -32,7 +32,7 @@
 #include "psa/client.h"
 
 /* SERVICE_HSM from the platform manifest (manifest/base.json). */
-#define GUEST0_SERVICE_HSM_SID   4102u
+#define GUEST0_SERVICE_HSM_SID   262u
 #define GUEST0_SERVICE_ITS_SID   4099u
 #define GUEST0_SERVICE_VERSION   1u
 

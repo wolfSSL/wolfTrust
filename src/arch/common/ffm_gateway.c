@@ -93,8 +93,9 @@ static int32_t wt_ffm_gateway_call_in(wt_ffm_runtime_t* runtime,
     int32_t status;
     uint32_t i;
 
-    if (ns_iovec == NULL ||
-            !wt_arch_ns_check_writable(ns_iovec, sizeof(*ns_iovec))) {
+    if (ns_iovec == NULL || runtime->ops == NULL ||
+            !runtime->ops->check_write(runtime->port_context, caller,
+                                       ns_iovec, sizeof(*ns_iovec))) {
         g_wt_ffm_call_trace = (2UL << 28) |
             ((uint32_t)(uintptr_t)ns_iovec & 0x0FFFFFFFUL);
         wt_ffm_call_refuse(runtime, caller,

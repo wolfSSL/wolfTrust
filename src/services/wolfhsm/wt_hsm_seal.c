@@ -37,6 +37,7 @@
 #include "wolfhsm/wh_nvm.h"
 
 #include "wolftrust/services/hsm.h"
+#include "wolftrust/zeroize.h"
 
 #include <string.h>
 
@@ -82,12 +83,7 @@ psa_status_t wt_hsm_vault_random(uint8_t* out, size_t len)
 
 static void wt_hsm_seal_zeroize(uint8_t* buf, size_t len)
 {
-    volatile uint8_t* p = buf;
-    size_t i;
-
-    for (i = 0U; i < len; i++) {
-        p[i] = 0U;
-    }
+    wt_forceZero(buf, len);
 }
 
 static void wt_hsm_seal_nonce(uint8_t* nonce, uint64_t counter)
@@ -129,6 +125,7 @@ int wt_hsm_seal_init(whNvmContext* nvm)
     else if (rc == WH_ERROR_NOTFOUND) {
         rc = wc_InitRng_ex(&rng, NULL, INVALID_DEVID);
         if (rc != 0) {
+            wt_hsm_seal_zeroize(g_seal_key, sizeof(g_seal_key));
             return -1;
         }
         rc = wc_RNG_GenerateBlock(&rng, g_seal_key, WT_HSM_SEAL_KEY_LEN);

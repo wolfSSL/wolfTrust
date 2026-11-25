@@ -83,7 +83,7 @@ extern int32_t val_entry(void);
 #define WT_EXPECTED_LIFECYCLE 0x3000u
 #endif
 
-#define GUEST_SERVICE_HSM_SID   4102u
+#define GUEST_SERVICE_HSM_SID   262u
 #define GUEST_SERVICE_FWU_SID   4101u
 #define GUEST_SERVICE_VERSION   1u
 #define GUEST_UNKNOWN_SID       0x4200u
@@ -708,7 +708,7 @@ static void exercise_attestation_negatives(void)
     st = psa_initial_attest_get_token(challenge,
                                       PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32,
                                       token, 0u, &token_size);
-    if (st != PSA_ERROR_INVALID_ARGUMENT) {
+    if (st != PSA_ERROR_BUFFER_TOO_SMALL) {
         guest_line_i32("attestneg zero token buffer not rejected st=",
                        (int32_t)st);
         return;

@@ -92,6 +92,10 @@ if(WT_HSM_ATTACK_PROBE)
     target_compile_definitions(app PRIVATE WT_HSM_ATTACK_PROBE=1)
 endif()
 
+if(WT_HSM_RESTART_PROBE)
+    target_compile_definitions(app PRIVATE WT_HSM_RESTART_PROBE=1)
+endif()
+
 if(WT_MPU_BYPASS_PROBE)
     target_compile_definitions(app PRIVATE WT_MPU_BYPASS_PROBE=1)
 endif()

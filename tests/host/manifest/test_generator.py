@@ -219,7 +219,7 @@ class GeneratorTest(unittest.TestCase):
             header = (output / "wolftrust_manifest_generated.h").read_text(
                 encoding="utf-8")
             self.assertIn("WT_GENERATED_PARTITION_ALPHA_DOMAIN_ID 1U", header)
-            self.assertIn("WT_GENERATED_SERVICE_ALPHA_SID 4096U", header)
+            self.assertIn("WT_GENERATED_SERVICE_ALPHA_SID 256U", header)
             self.assertIn("WT_GENERATED_SERVICE_BETA_HANDLE 1U", header)
 
     def test_standard_psa_manifest_headers(self):
@@ -236,13 +236,53 @@ class GeneratorTest(unittest.TestCase):
 
             self.assertIn("#define PARTITION_ALPHA_ID 1", pid)
             self.assertIn("#define PARTITION_BETA_ID 2", pid)
-            self.assertIn("#define SERVICE_ALPHA_SID 4096U", sid)
+            self.assertIn("#define SERVICE_ALPHA_SID 256U", sid)
             self.assertIn("#define SERVICE_BETA_VERSION 2U", sid)
             self.assertIn("#define SERVICE_ALPHA_SIGNAL 16U", alpha)
+            self.assertIn("#define ALPHA_IRQ 32U", alpha)
             self.assertIn("#define ALPHA_IRQ_SIGNAL 32U", alpha)
             self.assertIn("#define SERVICE_BETA_SIGNAL 16U", beta)
+            self.assertIn("#define BETA_IRQ 32U", beta)
             self.assertIn("#define BETA_IRQ_SIGNAL 32U", beta)
             print("PASS: WT-FFM-0004 generated PSA headers")
+
+    def test_irq_macro_names_are_unique(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "irq.json"
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            for name in ("BETA_IRQ_SIGNAL", "PARTITION_BETA_ID",
+                         "PSA_MANIFEST_PARTITION_ALPHA_H",
+                         "WT_GENERATED_PARTITION_ALPHA_DOMAIN_ID"):
+                with self.subTest(name=name):
+                    manifest["partitions"][0]["interrupts"][0]["signal_name"] = (
+                        name)
+                    source.write_text(json.dumps(manifest), encoding="utf-8")
+                    result = self.run_generator(source, root / "output")
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("generated symbol is duplicated",
+                                  result.stderr)
+
+    def test_partition_irq_requires_platform_route(self):
+        manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+        manifest["partitions"][1]["interrupts"] = []
+        manifest["domains"][2]["interrupt_resources"] = []
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            source = root / "manifest.json"
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+            for route in ("21", "22", "0xffffffff"):
+                with self.subTest(route=route):
+                    output = root / route
+                    result = self.run_generator(source, output,
+                        extra=("--ffm-routed-irq", route))
+                    if route == "21":
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("interrupt is not routed", result.stderr)
+                        self.assertFalse(output.exists())
+                    self.assertFalse((root / "output").exists())
 
     def test_excluded_partition_leaves_no_symbols(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -459,12 +499,34 @@ class GeneratorTest(unittest.TestCase):
             self.assertNotEqual(result.returncode, 0)
             self.assertIn("granule", result.stderr)
 
+    def test_reserved_vendor_sid_is_standard_only(self):
+        for name, sid, accepted in (("SERVICE_ALPHA", 0x1006, False),
+                                    ("SERVICE_ALPHA", 0xE000, False),
+                                    ("SERVICE_ITS", 0x1004, False),
+                                    ("SERVICE_ITS", 0x1003, True),
+                                    ("SERVICE_ALPHA", 0xF001, True)):
+            with self.subTest(name=name, sid=sid), \
+                    tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)
+                source = root / "sid.json"
+                manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+                manifest["partitions"][0]["services"][0]["name"] = name
+                manifest["partitions"][0]["services"][0]["sid"] = sid
+                source.write_text(json.dumps(manifest), encoding="utf-8")
+
+                result = self.run_generator(source, root / "output")
+                if accepted:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                else:
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("reserved vendor ID", result.stderr)
+
     def test_dependency_cycle_is_rejected_before_output(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)
             source = root / "cycle.json"
             manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
-            manifest["partitions"][1]["dependencies"] = [0x1000]
+            manifest["partitions"][1]["dependencies"] = [256]
             source.write_text(json.dumps(manifest), encoding="utf-8")
 
             result = self.run_generator(source, root / "output")

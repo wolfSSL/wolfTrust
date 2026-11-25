@@ -52,7 +52,7 @@
 #include <string.h>
 
 #define TEST_VAULT_PARTITION 5
-#define TEST_VAULT_SID       4098U
+#define TEST_VAULT_SID       258U
 #define TEST_ITS_PARTITION   6
 #define TEST_PS_PARTITION    7
 #define TEST_NS_CLIENT       (-1)
@@ -345,6 +345,14 @@ int main(void)
     check(status == PSA_SUCCESS && got == sizeof(object) - 4U &&
           memcmp(buffer, object + 4U, got) == 0,
           "psa_its_get honors the read offset");
+#if SIZE_MAX > UINT32_MAX
+    (void)memset(buffer, 0, sizeof(buffer));
+    status = psa_its_get(0x1111ULL, (size_t)UINT32_MAX + 1U,
+                         sizeof(buffer), buffer, &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT &&
+              all_zero(buffer, sizeof(buffer)),
+          "psa_its_get refuses an offset outside the wire range");
+#endif
 
     /* A destination larger than one copied transfer still reads the object. */
     (void)memset(large, 0, sizeof(large));
@@ -404,6 +412,14 @@ int main(void)
     check(status == PSA_SUCCESS && got == sizeof(ps_object) &&
           memcmp(buffer, ps_object, sizeof(ps_object)) == 0,
           "psa_ps_get returns the sealed object in the clear to its owner");
+#if SIZE_MAX > UINT32_MAX
+    (void)memset(buffer, 0, sizeof(buffer));
+    status = psa_ps_get(0x4444ULL, (size_t)UINT32_MAX + 1U,
+                        sizeof(buffer), buffer, &got);
+    check(status == PSA_ERROR_INVALID_ARGUMENT &&
+              all_zero(buffer, sizeof(buffer)),
+          "psa_ps_get refuses an offset outside the wire range");
+#endif
     (void)memset(large, 0, sizeof(large));
     status = psa_ps_get(0x4444ULL, 0U, sizeof(large), large, &got);
     check(status == PSA_SUCCESS && got == sizeof(ps_object) &&
@@ -430,6 +446,9 @@ int main(void)
     status = psa_ps_set_extended(0x5555ULL, 0U, sizeof(ps_object), ps_object);
     check(status == PSA_ERROR_NOT_SUPPORTED,
           "psa_ps_set_extended is refused NOT_SUPPORTED");
+    status = psa_ps_set_extended(0x5555ULL, 0U, sizeof(big), big);
+    check(status == PSA_ERROR_NOT_SUPPORTED,
+          "psa_ps_set_extended reports unsupported for a large request");
 
     if (g_failures != 0) {
         (void)printf("FAIL: psa_storage_client (%d failures)\n", g_failures);

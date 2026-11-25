@@ -43,4 +43,14 @@ if [ "$actual" != "$revision" ]; then
     echo "PSA architecture test revision mismatch" >&2
     exit 1
 fi
+
+# Arm psa-arch-tests issue #125: get_info reports the applied protections.
+# Arm IHI 0085 section 4.5.1: a zero-capacity token buffer is too small.
+for correction in "$script_dir/psa-arch-tests-storage-flags.patch" \
+                  "$script_dir/psa-arch-tests-attestation-buffer.patch"; do
+    if ! git -C "$destination" apply --reverse --check "$correction" \
+            2>/dev/null; then
+        git -C "$destination" apply "$correction"
+    fi
+done
 printf '%s\n' "$destination"

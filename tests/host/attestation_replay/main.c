@@ -114,6 +114,7 @@ static int make_handoff(wt_boot_handoff_t* handoff, uint32_t lifecycle)
 
 int main(void)
 {
+    uint8_t bootSeed[WT_ATTEST_BOOT_SEED_SIZE] = { 0xA5u };
     wt_boot_handoff_t handoff;
     uint8_t challengeA[WT_ATTEST_CHALLENGE_SIZE_32];
     uint8_t challengeB[WT_ATTEST_CHALLENGE_SIZE_32];
@@ -151,7 +152,7 @@ int main(void)
 
     /* Boot in the development lifecycle. */
     (void)make_handoff(&handoff, 0x1000u);
-    ret = wt_initial_attest_init(&handoff);
+    ret = wt_initial_attest_init(&handoff, bootSeed);
     check(ret == WT_ATTEST_SUCCESS, "development-lifecycle handoff accepted");
 
     ret = wt_initial_attest_get_token(0u, challengeA, sizeof(challengeA),
@@ -188,7 +189,8 @@ int main(void)
 
     /* Real lifecycle transition: a new handoff moves 0x1000 -> 0x3000. */
     (void)make_handoff(&handoff, 0x3000u);
-    ret = wt_initial_attest_init(&handoff);
+    bootSeed[0] = 0x5Au;
+    ret = wt_initial_attest_init(&handoff, bootSeed);
     check(ret == WT_ATTEST_SUCCESS, "secured-lifecycle handoff accepted");
 
     ret = wt_initial_attest_get_token(0u, challengeA, sizeof(challengeA),

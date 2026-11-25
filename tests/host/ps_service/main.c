@@ -41,7 +41,7 @@
 #include <string.h>
 
 #define TEST_VAULT_PARTITION 5
-#define TEST_VAULT_SID       4098U
+#define TEST_VAULT_SID       258U
 #define TEST_PS_PARTITION    7
 #define TEST_PS_SID          4100U
 #define TEST_NS_GUEST0       (-1)
@@ -1039,8 +1039,14 @@ int main(void)
 
     /* WT-FFM-0045 on the sealed face. */
     status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL,
-                    WT_VAULT_FLAG_WRITE_ONCE, secret_wo, sizeof(secret_wo));
+                    WT_VAULT_FLAG_WRITE_ONCE |
+                        WT_VAULT_FLAG_NO_CONFIDENTIALITY |
+                        WT_VAULT_FLAG_NO_REPLAY, secret_wo, sizeof(secret_wo));
     check(status == PSA_SUCCESS, "guest0 ps_set(WRITE_ONCE) sealed");
+    status = ps_get_info(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL,
+                         &info);
+    check(status == PSA_SUCCESS && info.flags == WT_VAULT_FLAG_WRITE_ONCE,
+          "WT-FFM-0048 ps_get_info reports applied protection and write-once");
     status = ps_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x5002ULL, 0U,
                     secret_v1, sizeof(secret_v1));
     check(status == PSA_ERROR_NOT_PERMITTED,

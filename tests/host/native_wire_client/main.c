@@ -28,12 +28,35 @@
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/crypto_native.h"
 #include "wolftrust/crypto_native_client.h"
+#include "wolftrust/zeroize.h"
 
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 
 static int g_failures;
+static int g_observe_scratch;
+static const void* g_request_scratch;
+static const void* g_response_scratch;
+static size_t g_request_used;
+static size_t g_response_used;
+static int g_request_wiped;
+static int g_response_wiped;
+
+void wt_test_forceZero(void* memory, size_t size)
+{
+    wt_forceZero(memory, size);
+    if (g_observe_scratch) {
+        if (memory == g_request_scratch && size >= g_request_used) {
+            g_request_wiped = 1;
+            g_request_scratch = NULL;
+        }
+        if (memory == g_response_scratch && size >= g_response_used) {
+            g_response_wiped = 1;
+            g_response_scratch = NULL;
+        }
+    }
+}
 
 static void check(int ok, const char* what)
 {
@@ -107,6 +130,12 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
             out_len != 1U) {
         return PSA_ERROR_PROGRAMMER_ERROR;
     }
+    if (g_observe_scratch) {
+        g_request_scratch = in_vec[0].base;
+        g_response_scratch = out_vec[0].base;
+        g_request_used = in_vec[0].len;
+        g_response_used = out_vec[0].len;
+    }
     if (g_call_fail > 0) {
         g_call_fail--;
         return PSA_ERROR_COMMUNICATION_FAILURE;
@@ -135,6 +164,9 @@ psa_status_t psa_call(psa_handle_t handle, int32_t type,
     }
     else {
         out_vec[0].len = sizeof(wire_status) + payload;
+    }
+    if (g_observe_scratch) {
+        g_response_used = out_vec[0].len;
     }
     return PSA_SUCCESS;
 }
@@ -298,6 +330,33 @@ static void test_response_framing(void)
           "a status-only response reports no payload");
 }
 
+static void test_call_clears_scratch(void)
+{
+    const uint8_t payload[8] = { 1U };
+    wt_crypto_wire_req_t hdr;
+    size_t attempt;
+    psa_status_t status;
+
+    (void)memset(&hdr, 0, sizeof(hdr));
+    hdr.op = WT_CRYPTO_OP_KEY_IMPORT;
+    for (attempt = 0U; attempt < 2U; attempt++) {
+        mock_reset();
+        g_call_fail = (int)attempt;
+        g_request_wiped = 0;
+        g_response_wiped = 0;
+        g_observe_scratch = 1;
+        status = wt_crypto_native_call(&hdr, payload, sizeof(payload), NULL,
+                                       0U, NULL);
+        g_observe_scratch = 0;
+        g_request_scratch = NULL;
+        g_response_scratch = NULL;
+        check(status == (attempt == 0U ? PSA_SUCCESS :
+                         PSA_ERROR_COMMUNICATION_FAILURE) &&
+              g_request_wiped && g_response_wiped,
+              "native client clears both scratch buffers after a call");
+    }
+}
+
 static void test_chunked_random(void)
 {
     uint8_t buf[600];
@@ -347,6 +406,7 @@ int main(void)
     test_connect_refused();
     test_retry_exhaustion();
     test_response_framing();
+    test_call_clears_scratch();
     test_chunked_random();
     test_rng_stub();
 

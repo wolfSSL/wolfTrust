@@ -38,7 +38,7 @@
 #include <stdio.h>
 #include <string.h>
 
-#define TEST_VNET_SID   4103U
+#define TEST_VNET_SID   263U
 #define TEST_NVM        2U
 #define TEST_GUEST0     (-1)
 #define TEST_GUEST1     (-2)
@@ -172,6 +172,23 @@ static vnet_rx_desc_t*  g_rings[TEST_NVM];
 static vnet_switch_t    g_switch;
 
 static uint32_t g_test_tick = 42U;
+static const uint8_t* g_frame_scratch;
+static size_t g_frame_scratch_len;
+
+static int test_frame_scratch_erased(size_t len)
+{
+    size_t i;
+
+    if (g_frame_scratch == NULL || g_frame_scratch_len != len) {
+        return 0;
+    }
+    for (i = 0U; i < len; i++) {
+        if (g_frame_scratch[i] != 0U) {
+            return 0;
+        }
+    }
+    return 1;
+}
 
 static uint32_t test_tick(void)
 {
@@ -187,6 +204,15 @@ static int test_ticking_transport(wt_ffm_runtime_t* runtime,
 
     ret = wt_spm_transport_direct(runtime, call);
     call->ret_tick = g_test_tick;
+    if (ret == WT_FFM_SUCCESS && call->op == WT_SPM_OP_READ &&
+            call->ret_size > 0U) {
+        g_frame_scratch = call->buffer;
+        g_frame_scratch_len = call->ret_size;
+    } else if (ret == WT_FFM_SUCCESS && call->op == WT_SPM_OP_WRITE &&
+            call->vec_idx == 1U && call->ret_int == WT_FFM_SUCCESS) {
+        g_frame_scratch = call->buffer;
+        g_frame_scratch_len = call->num_bytes;
+    }
     return ret;
 }
 
@@ -201,7 +227,7 @@ static const wt_service_descriptor_t g_vnet_services[] = {
 
 static const wt_service_descriptor_t g_hsm_services[] = {
     {
-        "SERVICE_HSM", 4102U, 1U, WT_SERVICE_VERSION_RELAXED,
+        "SERVICE_HSM", 262U, 1U, WT_SERVICE_VERSION_RELAXED,
         0x20U, 0U, 1U, 1U
     }
 };
@@ -356,6 +382,7 @@ int main(void)
           "WT-FFM-0056 guest1 SET_MAC binds its port MAC");
 
     /* The mediated round trip: guest0 TX -> switch -> guest1 RX_FETCH. */
+    wt_vnet_relay_set_transport(test_ticking_transport);
     g_active_client = TEST_GUEST0;
     build_frame(frame, mac1, mac0, payload, sizeof(payload) - 1U);
     in_vec.base = frame;
@@ -363,7 +390,10 @@ int main(void)
     status = psa_call(h0, WT_VNET_OP_TX, &in_vec, 1U, NULL, 0U);
     check(status == PSA_SUCCESS,
           "WT-FFM-0056 guest0 TX unicast to guest1 succeeds");
+    check(test_frame_scratch_erased(sizeof(frame)),
+          "WT-FFM-0056 TX clears the used frame staging bytes");
 
+    g_frame_scratch = NULL;
     g_active_client = TEST_GUEST1;
     memset(&meta, 0, sizeof(meta));
     memset(rx_buf, 0, sizeof(rx_buf));
@@ -377,6 +407,9 @@ int main(void)
           "WT-FFM-0056 guest1 RX_FETCH returns the delivered frame meta");
     check(memcmp(rx_buf, frame, sizeof(frame)) == 0,
           "WT-FFM-0056 mediated frame payload is byte-exact");
+    check(test_frame_scratch_erased(sizeof(frame)),
+          "WT-FFM-0056 RX clears the used frame staging bytes");
+    wt_vnet_relay_set_transport(NULL);
 
     status = psa_call(h1, WT_VNET_OP_RX_FETCH, NULL, 0U, out_vec, 2U);
     check(status == (psa_status_t)WT_VNET_E_EMPTY,
@@ -469,8 +502,11 @@ int main(void)
 
     g_active_client = TEST_GUEST0;
     status = psa_call(h0, 99, NULL, 0U, NULL, 0U);
-    check(status == PSA_ERROR_NOT_SUPPORTED,
-          "WT-FFM-0056 an unknown operation is refused");
+    check(status == PSA_ERROR_PROGRAMMER_ERROR,
+          "WT-FFM-0056 an unknown operation reports a programmer error");
+    status = psa_call(h0, WT_VNET_OP_IRQ_ACK, NULL, 0U, NULL, 0U);
+    check(status == PSA_ERROR_PROGRAMMER_ERROR,
+          "WT-FFM-0056 a connection with a programmer error refuses calls");
 
     /* An identity beyond the port table has no port to operate on. */
     g_active_client = -3;

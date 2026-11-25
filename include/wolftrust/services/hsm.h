@@ -32,11 +32,11 @@
 
 struct whNvmContext_t;
 
-/* Initialise the wolfHSM service: wolfCrypt static memory pool,
- * target-backed NVM, shared lock, the per-guest crypto contexts, but NOT
- * the per-guest relay transport (wired by wt_hsm_guest_init_relay for each
- * guest). Call once at boot, before the per-guest relay init. Returns 0 on
- * success, negative on failure. Failure is fatal — the caller should panic. */
+/* Initialise the wolfHSM service: wolfCrypt, the shared NVM lock and the
+ * target-backed vault NVM binding. Each guest's crypto context, server and
+ * relay transport are set up later by wt_hsm_guest_init_relay. Call once at
+ * boot, before the per-guest relay init. Returns 0 on success, negative on
+ * failure. Failure is fatal; the caller should panic. */
 int wt_hsm_init(void);
 
 /* Record the PSA lifecycle wolfBoot handed off, before wt_hsm_init. It gates
@@ -135,6 +135,11 @@ struct wt_mutex *wt_hsm_nvm_lock_mutex(void);
  * the server DRBG or handler state unusable. Fails closed — a guest whose
  * re-init fails stays down. */
 int wt_hsm_relay_reinit_servers(void);
+
+/* Wipe guest_id's wolfHSM server, key cache and crypto context and rebuild
+ * them empty, for a guest restart or quarantine. A request in flight finishes
+ * first. Fails closed like wt_hsm_relay_reinit_servers. */
+int wt_hsm_reset_guest(wt_guest_id_t guest_id);
 
 /* Bind the crypto partition's wolfHSM servers to nvm and rebuild them on it.
  * Boot provisions the IAK on the direct store; before the scheduler starts,

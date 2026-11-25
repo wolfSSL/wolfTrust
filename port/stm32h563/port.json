@@ -41,6 +41,7 @@
       ["devattestqcbor", "dev_apis Initial Attestation (a001, QCBOR)"],
       ["attestneg", "Attestation negatives (IPC + tamper)"],
       ["hsmattackneg", "wolfHSM cross-namespace + NVM relay negatives"],
+      ["hsmrestartneg", "wolfHSM key cache cleared on guest restart"],
       ["authneg", "Authenticated launch fail-closed"],
       ["rollbackneg", "Anti-rollback downgrade refused"],
       ["vaultrecover", "Vault recovery self-heal"],

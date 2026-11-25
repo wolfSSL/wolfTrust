@@ -237,6 +237,9 @@ MAX_PARTITIONS = 32
 MAX_SERVICES = 28
 MAX_DEPENDENCIES = 32
 MAX_SIGNALS = 28
+# FF-M reserves SID vendor IDs 0x00001-0x0000E for standard RoT services.
+STANDARD_SIDS = {"SERVICE_ATTEST": 0x1000, "SERVICE_ITS": 0x1003,
+                 "SERVICE_PS": 0x1004, "SERVICE_FWU": 0x1005}
 MAX_NAME = 63
 
 
@@ -259,7 +262,7 @@ def policy_name_valid(name):
 
 def policy_generated_symbols(manifest):
     symbols = set()
-    reserved = []
+    reserved = ["PSA_MANIFEST_PID_H", "PSA_MANIFEST_SID_H"]
     raw_names = set()
     partition_names = {partition["name"] for partition in manifest["partitions"]}
 
@@ -276,6 +279,8 @@ def policy_generated_symbols(manifest):
     for partition in manifest["partitions"]:
         prefix = "WT_GENERATED_" + partition["name"]
         raw_names.add(partition["name"])
+        reserve(partition["name"] + "_ID")
+        reserve(generated_guard(partition["name"]))
         for suffix in ("_DOMAIN_ID", "_FRAMEWORK_VERSION", "_MODEL"):
             add(prefix + suffix)
         if partition["framework_version"] == 0x101:
@@ -297,9 +302,10 @@ def policy_generated_symbols(manifest):
                 policy_error("interrupt signal name is a partition name: " +
                              interrupt["signal_name"])
             raw_names.add(interrupt["signal_name"])
+            reserve(interrupt["signal_name"] + "_SIGNAL")
             add("WT_GENERATED_" + interrupt["signal_name"] + "_SIGNAL")
 
-    if set(reserved) & raw_names:
+    if (set(reserved) | symbols) & raw_names:
         policy_error("generated symbol is duplicated")
 
 
@@ -350,6 +356,11 @@ def validate_ffm_runtime(manifest, ffm_limits):
             sum(len(partition["services"]) for partition in partitions) >
                 ffm_limits["max_services"]):
         policy_error("service count exceeds the FF-M runtime")
+    routed_irq = ffm_limits.get("routed_irq")
+    if routed_irq is not None and any(
+            interrupt["interrupt"] != routed_irq
+            for partition in partitions for interrupt in partition["interrupts"]):
+        policy_error("Secure Partition interrupt is not routed by this build")
 
 
 def validate_policy(manifest, supported_features, word_max,
@@ -654,6 +665,9 @@ def validate_policy(manifest, supported_features, word_max,
                 policy_error("service identity is duplicated")
             if service["sid"] == 0 or service["version"] == 0:
                 policy_error("service identity or version is invalid")
+            if 0x1 <= (service["sid"] >> 12) <= 0xE and \
+                    STANDARD_SIDS.get(service_name) != service["sid"]:
+                policy_error("service SID uses a reserved vendor ID")
             # FF-M defines exactly STRICT (0) and RELAXED (1); the IR's
             # UNSPECIFIED (2) accept-any policy is not generatable.
             if service["version_policy"] not in (0, 1):
@@ -877,6 +891,10 @@ def platform_asserts(manifest, platform):
          "WT_PORT_CAPABILITY_TZ_FILTER) != 0U",
          "domain isolation needs a TZ filter"),
     ]
+    if platform.get("routed_irq") is not None:
+        checks.append(("WT_PLATFORM_SP_IRQ == {}U".format(
+            platform["routed_irq"]),
+            "routed Secure Partition interrupt differs from the manifest input"))
     if guests:
         checks.append((
             "(WT_PLATFORM_PORT_CAPABILITIES &\n"
@@ -1062,8 +1080,10 @@ def generate_partition_header(partition):
             lines.append("#define {}_SIGNAL {}U".format(
                 service["name"], service["signal"]))
     for interrupt in partition["interrupts"]:
-        lines.append("#define {}_SIGNAL {}U".format(
-            interrupt["signal_name"], interrupt["signal"]))
+        name = interrupt["signal_name"]
+        signal = interrupt["signal"]
+        lines.append("#define {} {}U".format(name, signal))
+        lines.append("#define {}_SIGNAL {}U".format(name, signal))
     lines.extend(("", "#endif", ""))
     return file_name, "\n".join(lines)
 
@@ -1165,6 +1185,8 @@ def main():
     parser.add_argument("--ffm-max-services",
                         type=lambda value: int(value, 0))
     parser.add_argument("--ffm-ipc-only", action="store_true")
+    parser.add_argument("--ffm-routed-irq", type=lambda value: int(value, 0),
+                        help="the routed Secure Partition IRQ, or 0xffffffff")
     parser.add_argument("--exclude-partition", action="append", default=[],
                         metavar="NAME",
                         help="leave this partition and its domain out")
@@ -1176,6 +1198,9 @@ def main():
                              "inputs (host tests only; a target build "
                              "refuses the output)")
     args = parser.parse_args()
+    if (args.ffm_routed_irq is not None and args.ffm_routed_irq != 0xFFFFFFFF
+            and not 0 <= args.ffm_routed_irq < SECURE_VECTOR_IRQS):
+        parser.error("--ffm-routed-irq must name a Secure vector or 0xffffffff")
     platform_values = (args.platform_capabilities, args.platform_max_domains,
                        args.platform_max_memory_resources,
                        args.platform_max_interrupts, args.port_capabilities)
@@ -1190,6 +1215,7 @@ def main():
                 args.platform_max_memory_resources,
             "max_interrupts_per_domain": args.platform_max_interrupts,
             "port_capabilities": args.port_capabilities,
+            "routed_irq": args.ffm_routed_irq,
         }
     if args.platform_header is not None and platform is None:
         parser.error("--platform-header needs the platform options")
@@ -1198,6 +1224,7 @@ def main():
             ("the platform options", platform is not None),
             ("--ffm-max-partitions", args.ffm_max_partitions is not None),
             ("--ffm-max-services", args.ffm_max_services is not None),
+            ("--ffm-routed-irq", args.ffm_routed_irq is not None),
             ("--stack", bool(args.stack))) if not given]
         if missing:
             parser.error("boot trusts this manifest, so the generator needs "
@@ -1207,6 +1234,7 @@ def main():
         "max_partitions": args.ffm_max_partitions,
         "max_services": args.ffm_max_services,
         "ipc_only": args.ffm_ipc_only,
+        "routed_irq": args.ffm_routed_irq,
     }
 
     try:

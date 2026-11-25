@@ -52,7 +52,7 @@
       "services": [
         {
           "name": "SERVICE_VNET",
-          "sid": 4103,
+          "sid": 263,
           "version": 1,
           "version_policy": 0,
           "signal": 16,

@@ -97,6 +97,14 @@ all: $(TEST_BIN)
 $(BUILD_DIR):
 	mkdir -p $@
 
+$(BUILD_DIR)/wt_keyvault.o: $(ROOT)/src/services/native/keyvault.c ../zeroize_probe.h | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -include ../zeroize_probe.h \
+		-Dwc_RNG_GenerateBlock=wt_test_generate_block -c -o $@ $<
+
+$(BUILD_DIR)/wt_native_wire.o: $(ROOT)/src/services/native/native_wire.c ../zeroize_probe.h Makefile | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -include ../zeroize_probe.h \
+		-Dwc_InitSha256_ex=wt_test_init_sha256 -c -o $@ $<
+
 $(BUILD_DIR)/wt_%.o: $(ROOT)/src/services/native/%.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 

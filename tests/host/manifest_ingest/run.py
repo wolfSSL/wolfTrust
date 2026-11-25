@@ -3,6 +3,7 @@
 identity headers from the real upstream server/driver/client manifests."""
 import json
 import re
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -13,6 +14,7 @@ INGESTER = REPO / "tools" / "manifest" / "ingest_psa_arch.py"
 
 sys.path.insert(0, str(INGESTER.parent))
 import ingest_psa_arch  # noqa: E402
+import render  # noqa: E402
 
 WT_SERVICE_VERSION_STRICT = 0
 WT_SERVICE_VERSION_RELAXED = 1
@@ -52,6 +54,11 @@ EXPECT_DRIVER_SIGNAL = {
     "DRIVER_UART_INTR_SIG_SIGNAL": 0x100,
 }
 
+ACS_UNUSED_HEAPS = {
+    "server_partition_psa.json": "0x100",
+    "driver_partition_psa.json": "0x100",
+}
+
 DEFINE = re.compile(r"#define\s+(\S+)\s+(\S+?)U?$", re.MULTILINE)
 
 
@@ -80,6 +87,41 @@ def main():
             print("missing upstream manifest: {}".format(path), file=sys.stderr)
             return 2
 
+    with tempfile.TemporaryDirectory() as directory:
+        adapted = []
+        for path in inputs:
+            source = json.loads(path.read_text(encoding="utf-8"))
+            if path.name not in ACS_UNUSED_HEAPS:
+                adapted.append(path)
+                continue
+            if source.get("heap_size") != ACS_UNUSED_HEAPS[path.name]:
+                print("unexpected ACS heap request in {}".format(path),
+                      file=sys.stderr)
+                return 1
+            # These pinned ACS fixtures declare private heaps but do not use
+            # them. Adapt temporary manifest copies for the fixed-slot port.
+            del source["heap_size"]
+            fixture = Path(directory) / path.name
+            fixture.write_text(json.dumps(source), encoding="utf-8")
+            adapted.append(fixture)
+
+        rejected = subprocess.run(
+            [sys.executable, str(INGESTER), str(inputs[0]),
+             "--output", directory,
+             "--base", str(REPO / "manifest" / "base.json"),
+             "--emit-overlay", str(Path(directory) / "conformance.json")],
+            capture_output=True, text=True)
+        if rejected.returncode != 1 or "requests heap_size" not in \
+                rejected.stderr or (Path(directory) / "psa_manifest").exists() \
+                or (Path(directory) / "conformance.json").exists():
+            print("heap request was not refused: {}".format(rejected.stderr),
+                  file=sys.stderr)
+            return 1
+
+        return check_ingest(adapted)
+
+
+def check_ingest(inputs):
     failures = 0
 
     server = ingest_psa_arch.normalize_partition(
@@ -184,6 +226,34 @@ def main():
     cflags = subprocess.run(
         ["make", "-s", "--no-print-directory", "-C", str(REPO),
          "print-layout-cflags"], capture_output=True, text=True)
+    if cflags.returncode != 0:
+        print("reading the layout flags failed: {}".format(cflags.stderr),
+              file=sys.stderr)
+        return 1
+    layout = render.evaluate("cc", shlex.split(cflags.stdout),
+                             [ingest_psa_arch.SP_STACK_SIZE])
+    capacity = layout[ingest_psa_arch.SP_STACK_SIZE]
+    client = json.loads(inputs[2].read_text(encoding="utf-8"))
+    for key, value in (("psa_framework_version", 1.1),
+                       ("psa_framework_version", True),
+                       ("priority", "URGENT"),
+                       ("stack_size", 0),
+                       ("stack_size", hex(capacity + 1))):
+        try:
+            ingest_psa_arch.normalize_partition(dict(client, **{key: value}),
+                                               1)
+        except ingest_psa_arch.IngestError as error:
+            if key in str(error):
+                continue
+        print("{}={!r} was not refused".format(key, value), file=sys.stderr)
+        failures += 1
+    for priority, expected in (("LOW", 0), ("HIGH", 2)):
+        part = ingest_psa_arch.normalize_partition(
+            dict(client, stack_size=capacity, priority=priority), 1)
+        if part["priority"] != expected:
+            print("priority {} was not preserved".format(priority),
+                  file=sys.stderr)
+            failures += 1
     with tempfile.TemporaryDirectory() as ingest_out, \
             tempfile.TemporaryDirectory() as conf_out:
         conf = Path(conf_out) / "manifest-conformance.json"
@@ -192,9 +262,9 @@ def main():
              "--cflags", cflags.stdout.strip(), "--overlay", str(overlay),
              "--output", str(conf), str(base)],
             capture_output=True, text=True)
-        if cflags.returncode != 0 or rendered.returncode != 0:
-            print("rendering the conformance manifest failed: {}{}".format(
-                cflags.stderr, rendered.stderr), file=sys.stderr)
+        if rendered.returncode != 0:
+            print("rendering the conformance manifest failed: {}".format(
+                rendered.stderr), file=sys.stderr)
             return 1
         result = subprocess.run(
             [sys.executable, str(INGESTER), *[str(p) for p in inputs],

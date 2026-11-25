@@ -344,6 +344,9 @@ runs and exempts the rest with a reason. Beyond the families above:
   on its breakpoint once its lifecycle is done; `manifestneg2`,
   `manifestneg3` and `sealhaltneg` end on their verdict breakpoint, and
   `mspovfneg` and `xnneg` at the SPM fault.
+- `hsmrestartneg` (wolfHSM engine, Zephyr PSA guest) caches a key in the
+  guest's wolfHSM server, faults, and checks each relaunch starts with an
+  empty key cache through the restart budget.
 - `confboot` hosts Arm's unmodified FF-M IPC suite against the conformance
   image and expects 85 passed, 4 skipped, 0 failed. `devstorage`,
   `devcrypto`, `devattest` and `devattestqcbor` run the dev_apis suites.

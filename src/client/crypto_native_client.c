@@ -30,11 +30,12 @@
 #include "psa/client.h"
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/crypto_native_client.h"
+#include "wolftrust/zeroize.h"
 
 /* SERVICE_HSM SID from the platform manifest, same door the wolfHSM client
  * glue connects to in the hsm engine. */
 #ifndef WT_CRYPTO_NATIVE_SID
-#define WT_CRYPTO_NATIVE_SID 4102u
+#define WT_CRYPTO_NATIVE_SID 262u
 #endif
 #ifndef WT_CRYPTO_NATIVE_SID_VERSION
 #define WT_CRYPTO_NATIVE_SID_VERSION 1u
@@ -73,6 +74,7 @@ psa_status_t wt_crypto_native_call(const wt_crypto_wire_req_t* hdr,
     psa_status_t status;
     int32_t wire_status;
     size_t got;
+    size_t resp_used = sizeof(resp);
     int attempt;
 
     /* Subtraction, not sizeof(*hdr) + payload_len, so a payload_len near
@@ -111,27 +113,36 @@ psa_status_t wt_crypto_native_call(const wt_crypto_wire_req_t* hdr,
                 hdr->op == WT_CRYPTO_OP_KEY_IMPORT ||
                 hdr->op == WT_CRYPTO_OP_KEY_DESTROY ||
                 hdr->op == WT_CRYPTO_OP_PSA) {
-            return status;
+            break;
         }
     }
-    if (status != PSA_SUCCESS) {
-        return status;
+    if (status == PSA_SUCCESS && out_vec.len <= sizeof(resp)) {
+        resp_used = out_vec.len;
     }
-    if (out_vec.len < sizeof(wire_status)) {
-        return PSA_ERROR_COMMUNICATION_FAILURE;
-    }
-    (void)memcpy(&wire_status, resp, sizeof(wire_status));
-    got = out_vec.len - sizeof(wire_status);
-    if (out != NULL && got != 0U) {
-        if (got > out_cap) {
-            return PSA_ERROR_BUFFER_TOO_SMALL;
+    if (status == PSA_SUCCESS) {
+        if (out_vec.len < sizeof(wire_status)) {
+            status = PSA_ERROR_COMMUNICATION_FAILURE;
         }
-        (void)memcpy(out, resp + sizeof(wire_status), got);
+        else {
+            (void)memcpy(&wire_status, resp, sizeof(wire_status));
+            got = out_vec.len - sizeof(wire_status);
+            if (out != NULL && got > out_cap) {
+                status = PSA_ERROR_BUFFER_TOO_SMALL;
+            }
+            else {
+                if (out != NULL && got != 0U) {
+                    (void)memcpy(out, resp + sizeof(wire_status), got);
+                }
+                if (out_len != NULL) {
+                    *out_len = got;
+                }
+                status = (psa_status_t)wire_status;
+            }
+        }
     }
-    if (out_len != NULL) {
-        *out_len = got;
-    }
-    return (psa_status_t)wire_status;
+    wt_forceZero(req, sizeof(*hdr) + payload_len);
+    wt_forceZero(resp, resp_used);
+    return status;
 }
 
 psa_status_t wt_crypto_native_random(uint8_t* out, size_t len)

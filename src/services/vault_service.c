@@ -502,7 +502,7 @@ static psa_status_t wt_vault_service_serve(wt_ffm_runtime_t* runtime,
             }
             break;
         default:
-            status = PSA_ERROR_NOT_SUPPORTED;
+            status = PSA_ERROR_PROGRAMMER_ERROR;
             break;
         }
     }
@@ -626,7 +626,7 @@ static psa_status_t wt_vault_nvm_serve(wt_ffm_runtime_t* runtime,
         }
         break;
     default:
-        status = PSA_ERROR_NOT_SUPPORTED;
+        status = PSA_ERROR_PROGRAMMER_ERROR;
         break;
     }
     return status;
@@ -691,7 +691,7 @@ int wt_vault_service_dispatch(void* context, wt_ffm_runtime_t* runtime,
                msg.type <= WT_VAULT_OP_NVM_READ) {
         reply_status = wt_vault_nvm_call(runtime, partition_id, &msg);
     } else {
-        reply_status = PSA_ERROR_NOT_SUPPORTED;
+        reply_status = PSA_ERROR_PROGRAMMER_ERROR;
     }
 
     (void)memset(&call, 0, sizeof(call));

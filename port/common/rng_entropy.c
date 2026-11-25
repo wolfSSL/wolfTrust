@@ -28,14 +28,13 @@
 #include <string.h>
 
 #include "rng_port.h"
+#include "wolftrust/rng.h"
 #include "wolftrust/arch.h"
 #include "wolftrust/spm_gate.h"
 #include "wolftrust/spm_transport.h"
 #include "wolftrust/zeroize.h"
 
 int wolftrust_rng_generate_block(unsigned char *output, unsigned int sz);
-int wolftrust_rng_generate_block_direct(unsigned char *output,
-                                        unsigned int sz);
 
 static bool s_rng_ready;
 /* A request the source failed may still complete later (a DMA page, a

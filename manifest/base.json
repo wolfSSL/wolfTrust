@@ -376,7 +376,7 @@
         }
       ],
       "dependencies": [
-        4102
+        262
       ],
       "interrupts": []
     },
@@ -389,7 +389,7 @@
       "services": [
         {
           "name": "SERVICE_HSM",
-          "sid": 4102,
+          "sid": 262,
           "version": 1,
           "version_policy": 0,
           "signal": 32,
@@ -399,7 +399,7 @@
         }
       ],
       "dependencies": [
-        4098
+        258
       ],
       "interrupts": []
     },
@@ -412,7 +412,7 @@
       "services": [
         {
           "name": "SERVICE_VAULT",
-          "sid": 4098,
+          "sid": 258,
           "version": 1,
           "version_policy": 0,
           "signal": 16,
@@ -443,7 +443,7 @@
         }
       ],
       "dependencies": [
-        4098
+        258
       ],
       "interrupts": []
     },
@@ -466,7 +466,7 @@
         }
       ],
       "dependencies": [
-        4098
+        258
       ],
       "interrupts": []
     },

@@ -25,6 +25,7 @@ BOARD_DIR := $(ROOT)/tests/firmware/boards/$(TARGET)
 # The same guest links into both Non-secure windows, read from the port's
 # memory map under the Secure image's layout configuration; the monitor
 # refuses to start unless every configured guest has an image.
+include $(ROOT)/mk/profile.mk
 include $(ROOT)/mk/target-$(TARGET).mk
 include $(ROOT)/mk/layout.mk
 $(foreach kv,$(WT_LAYOUT_GUEST_WINDOWS),$(eval $(kv)))

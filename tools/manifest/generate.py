@@ -1103,6 +1103,24 @@ def exclude_partitions(manifest, names):
                            if domain["id"] not in removed]
 
 
+def drop_dependencies(manifest, items):
+    """Each PARTITION=SERVICE removes a dependency this build never uses, so
+    the partition loses the right to connect to that service."""
+    for item in items:
+        name, equals, service = item.partition("=")
+        parts = [part for part in manifest["partitions"]
+                 if part["name"] == name]
+        sids = [entry["sid"] for part in manifest["partitions"]
+                for entry in part["services"] if entry["name"] == service]
+        if not equals or len(parts) != 1 or len(sids) != 1:
+            policy_error("--drop-dependency {!r} does not name a partition "
+                         "and a service in the manifest".format(item))
+        if parts[0]["dependencies"].count(sids[0]) != 1:
+            policy_error("{} does not depend on {} exactly once".format(
+                name, service))
+        parts[0]["dependencies"].remove(sids[0])
+
+
 def check_stacks(manifest, stacks):
     """Each NAME=BASE:SIZE names where the linked layout put that partition's
     stack; a manifest that disagrees would confine it to the wrong RAM. With
@@ -1168,6 +1186,9 @@ def main():
     parser.add_argument("--exclude-partition", action="append", default=[],
                         metavar="NAME",
                         help="leave this partition and its domain out")
+    parser.add_argument("--drop-dependency", action="append", default=[],
+                        metavar="PARTITION=SERVICE",
+                        help="remove a dependency this build never uses")
     parser.add_argument("--stack", action="append", default=[],
                         metavar="NAME=BASE:SIZE",
                         help="the layout's stack for partition NAME")
@@ -1215,8 +1236,10 @@ def main():
                               object_pairs_hook=reject_duplicate_keys)
         word_max = (1 << int(args.address_bits)) - 1
         validate(manifest, MANIFEST_SCHEMA, "manifest", word_max)
+        drop_dependencies(manifest, args.drop_dependency)
         if args.exclude_partition:
             exclude_partitions(manifest, args.exclude_partition)
+        if args.exclude_partition or args.drop_dependency:
             # The digest covers the manifest the image is built from.
             input_bytes = json.dumps(manifest, sort_keys=True,
                                      separators=(",", ":")).encode("utf-8")

@@ -54,6 +54,9 @@
 #define WOLFSSL_SHA256
 #define HAVE_HASHDRBG
 #define HAVE_AESGCM
+#ifdef WT_AEAD_CCM
+#define HAVE_AESCCM
+#endif
 #define NO_SHA
 
 #define NO_RSA

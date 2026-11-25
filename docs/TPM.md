@@ -30,7 +30,7 @@ refused). The application reaches the SPM through the CMSE gateway.
 All three application interfaces use `WT_ENGINE=native` (default) or
 `WT_ENGINE=hsm`. For TPM 2.0 the engine changes only the Secure image.
 `WT_INTERFACE_PROFILE=default` exports RNG, SHA-256, P-256 key generation,
-signing, verification, and their required lifecycle commands. `full` retains
+signing, verification, and their required lifecycle commands. `extended` retains
 the broader supported command set, including PCR operations. Individual
 commands can be added or removed with [operation profiles](Interface-Profiles.md).
 
@@ -39,7 +39,7 @@ make TARGET=mimxrt700 CONFIG_TPM=y WT_ENGINE=native secure-image
 make -C tests/firmware/interface-guest TARGET=mimxrt700 WT_INTERFACE=tpm
 
 WT_ENGINE=native tests/target/run_suite.sh mimxrt700 tpm tpmneg
-WT_ENGINE=hsm WT_PROFILE=full tests/target/run_suite.sh stm32h563 tpm tpmneg
+WT_ENGINE=hsm WT_PROFILE=extended tests/target/run_suite.sh stm32h563 tpm tpmneg
 ```
 
 Every Cortex-M33 port registers the `tpm` build variant in its `port.json`;
@@ -104,6 +104,6 @@ FF-M runtime and checks bounds, caller identity, wiping, and no replay.
 The M33MU workflow runs `tpm` and `tpmneg` on every port, each engine the
 port builds, and each profile the port registers, from the port registry's
 `m33mu.groups`. The STM32L562 runs the default profile only: its interface
-layout has no update partition for the full profile's `WT_FWU=1`. The
+layout has no update partition for the extended profile's `WT_FWU=1`. The
 cross-compile workflow builds the `CONFIG_TPM=y` Secure image on every port
 and engine, and the host manifest suite validates its rendered manifest.

@@ -24,28 +24,49 @@
 #ifndef WOLFTRUST_SECURE_PSA_PROFILE_H
 #define WOLFTRUST_SECURE_PSA_PROFILE_H
 
+/* The vault's AES AEAD, and the one PSA AEAD of small and tiny */
+#if defined(WT_AEAD_GCM) && defined(WT_AEAD_CCM)
+#error "WT_AEAD_GCM and WT_AEAD_CCM are exclusive"
+#endif
+#if defined(WT_SECURE_PSA_small) || defined(WT_SECURE_PSA_tiny)
+#define WT_PSA_ONE_AEAD
+#if !defined(WT_AEAD_GCM) && !defined(WT_AEAD_CCM)
+#define WT_AEAD_CCM
+#endif
+#endif
+
 #ifdef WT_SECURE_PSA
-#if defined(WT_PSA_WANT_PROBE) && defined(WT_SECURE_PSA_symmetric)
+#if defined(WT_PSA_WANT_PROBE) && defined(WT_SECURE_PSA_tiny)
 /* The vault keeps ECC; the PSA_WANT_* surface of this profile does not. */
 #undef HAVE_ECC
 #endif
 #define WC_ALLOW_ECC_ZERO_HASH
+/* One copy of wolfCrypt's misc.c helpers, built by wolfPSA's misc_impl.c */
+#define NO_INLINE
 /* wolfPSA refuses T-table AES and a GHASH that branches on the hash key. */
 #define WOLFSSL_AES_TOUCH_LINES
 #undef GCM_SMALL
 #define WOLFSSL_AES_COUNTER
-/* wolfPSA's multipart GCM runs on the wolfCrypt GCM streaming calls. */
+#if !defined(WT_PSA_ONE_AEAD) || !defined(WT_AEAD_CCM)
+/* wolfPSA's multipart and one-shot GCM run on the wolfCrypt GCM streaming
+ * calls, so the one-shot calls are not linked. */
 #define WOLFSSL_AESGCM_STREAM
-#if !defined(WT_SECURE_PSA_lean) && !defined(WT_SECURE_PSA_symmetric)
+#define WOLFPSA_GCM_ONESHOT_STREAM
+#endif
+#if !defined(WT_PSA_ONE_AEAD) || defined(WT_AEAD_CCM)
 #define HAVE_AESCCM
 /* wolfPSA's multipart CCM runs on the direct AES block calls. */
 #define WOLFSSL_AES_DIRECT
 #endif
 #define HAVE_ECC_DHE
-#if defined(WT_SECURE_PSA_compat) || defined(WT_SECURE_PSA_standard)
+/* wolfPSA's direct P-256 path is randomized ECDSA only, so extended keeps ecc.c */
+#ifndef WT_SECURE_PSA_extended
+#define WOLFPSA_ECC_SP_DIRECT
+#endif
+#if defined(WT_SECURE_PSA_extended) || defined(WT_SECURE_PSA_default)
 #undef NO_AES_DECRYPT
 #endif
-#ifdef WT_SECURE_PSA_compat
+#ifdef WT_SECURE_PSA_extended
 #define HAVE_AES_ECB
 #define WOLFSSL_ECDSA_DETERMINISTIC_K
 #undef NO_PWDBASED
@@ -56,10 +77,6 @@
 #define NO_PBKDF2
 #define NO_KDF
 #endif
-#if defined(WT_PSA_POOL_TU) && defined(NO_AES_CBC)
-#define wc_AesCbcEncrypt(a, o, i, s) ((void)(a), (void)(o), (void)(i), (void)(s), -174)
-#define wc_AesCbcDecrypt(a, o, i, s) ((void)(a), (void)(o), (void)(i), (void)(s), -174)
-#endif
 #ifdef WT_PSA_POOL_TU
 #define XMALLOC_OVERRIDE
 void* wt_psa_pool_alloc(unsigned int sz);
@@ -69,6 +86,25 @@ void* wt_psa_pool_realloc(void* p, unsigned int sz);
 #define XFREE(p, h, t)       do { (void)(h); (void)(t); wt_psa_pool_free(p); } while (0)
 #define XREALLOC(p, n, h, t) ((void)(h), (void)(t), wt_psa_pool_realloc((p), (unsigned int)(n)))
 #endif
+#endif
+
+#ifdef WT_NO_ECC
+/* No feature of this build uses ECC: no curve and no big-number code. */
+#undef HAVE_ECC
+#undef HAVE_ECC_DHE
+#undef WOLFSSL_HAVE_SP_ECC
+#undef WOLFSSL_SP_MATH
+#undef WOLFSSL_SP_MATH_ALL
+#undef WOLFPSA_ECC_SP_DIRECT
+#define NO_BIG_INT
+#endif
+
+#if defined(WT_AEAD_CCM) && !defined(HAVE_AESCCM)
+#define HAVE_AESCCM
+#endif
+#ifdef WT_AEAD_CCM
+/* wolfCrypt builds CCM decrypt only with HAVE_AES_DECRYPT; it runs AES forward */
+#undef NO_AES_DECRYPT
 #endif
 
 #endif /* WOLFTRUST_SECURE_PSA_PROFILE_H */

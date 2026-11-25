@@ -37,8 +37,8 @@ isolation, vault and storage services, attestation and COSE integration,
 firmware update, runtime remeasurement, linked Secure layout, VNET, public PSA
 headers, boot-handoff record consumption, and negative paths.
 The manifest_ports suite generates every `port/*/manifest*.json` with that
-port's build arguments, for the default profile (update partition left out)
-and the `full` profile, and runs each through the boot-time validator, the
+port's build arguments, for the `default` profile (update partition left out)
+and the `extended` profile, and runs each through the boot-time validator, the
 port binding, and FF-M activation, since default images validate the manifest only
 at build time. `tests/host/manifest/test_generator.py` checks that each
 manifest the boot-time checks reject also fails generation.
@@ -47,12 +47,26 @@ lifecycle decisions against the production scheduler with simulated architecture
 operations.
 The attestation IAK suite runs wolfHSM NVM with both the default 8-byte and
 STM32H5 16-byte flash programming units.
+The attestation_hmac suite issues tokens through the production encoder with
+an HMAC key (`WT_ATTEST_KEY=hmac`), built with the `tiny` profile's own
+wolfCOSE defines and a wolfCrypt with no ECC or big-number code. It checks
+each COSE_Mac0 with an HMAC computed in the test, which it first proves on
+the RFC 9783 Appendix A.2 token, and checks the Instance ID, the nonce, the
+predicted size, a wrong key, a changed byte and a port that has no key. The
+attestation_service suite runs its FF-M dispatch a second time built for an
+HMAC key and checks that the public-key query is not served. The
+attest_restore suite takes the attestation partition's restart hook from the
+production partition table, wipes the partition's state as a restart does,
+and checks that the hook loads the key again and tokens verify, and that a
+restart with no key or no retained handoff issues none. On a target,
+`tinyattest` runs the same restart for real.
 The psa_secure_crypto suite runs the PSA client against the Secure PSA service
 in a separate process: cross-client key and operation isolation, stale handles
 after a service restart, persistent keys, quotas, per-guest pool arenas,
 one-shots split over several messages and AEAD tag failures. `run` builds and runs it once per `WT_SECURE_PSA_PROFILE`,
 checking what each profile keeps and what it refuses with
-`PSA_ERROR_NOT_SUPPORTED`; `run-one PROFILE=<name>` runs one. Its `sanitize`
+`PSA_ERROR_NOT_SUPPORTED`, and once more for `tiny` with no ECC in wolfCrypt
+(`NO_ECC=1`), as `WT_PROFILE=tiny` links it; `run-one PROFILE=<name>` runs one. Its `sanitize`
 and `valgrind` targets rerun it under ASan/UBSan and Valgrind.
 
 Additional host checks:
@@ -125,20 +139,20 @@ WT_ENGINE=hsm make test-target
 ```
 
 It runs the port's smoke tier from its `port.json` (listed in
-[Ports](Ports.md)); `WT_TIER=full` runs every scenario. Detection accepts `m33mu` on
+[Ports](Ports.md)); `WT_TIER=all` runs every scenario. Detection accepts `m33mu` on
 `PATH` or a path in `M33MU`; a port whose emulator carries a model patch
 (`M33MU_PATCH` in its profile) builds its pinned emulator instead. If the
 emulator is unavailable, the target reports a skip rather than a pass.
-Each tier runs on both build profiles, the lean default first, then `full`,
-with their logs under `logs/default` and `logs/full`; `WT_PROFILE=default` or
-`WT_PROFILE=full` runs one. The default profile runs
+Each tier runs on the `default` build profile first, then `extended`, with
+their logs under `logs/default` and `logs/extended`; `WT_PROFILE=default` or
+`WT_PROFILE=extended` runs one. The `default` profile runs
 the image an unqualified `make` builds: its one-guest `positive`, the level 3
 scenarios, the native wire key ops, and the SP fault, panic, attestation,
 launch, rollback, re-measurement, manifest, SP budget and peripheral
 negatives, plus the silicon-revision negative on the STM32H563 (see
 [Build profiles](Macros.md#build-profiles)). Each port's
-`port.json` lists its lean set under `m33mu.default`; the two-guest, VNET,
-conformance and update scenarios run only on `full`.
+`port.json` lists its `default` set under `m33mu.default`; the two-guest, VNET,
+conformance and update scenarios run only on `extended`.
 
 Additional focused runs use:
 
@@ -162,7 +176,7 @@ firmware update, manifest rejection, GTZC behavior, and VNET paths.
 
 `restartidle` runs the recovery check on the one-guest default image. It
 requires every allowed relaunch and the final terminal verdict (BKPT 0x7d,
-no guest left). The full tier runs it with both crypto engines on every port.
+no guest left). The `all` tier runs it with both crypto engines on every port.
 It also runs `tests/target/test_systick_idle.sh`, which executes the production
 Armv8-M timer code with modeled Non-secure timer registers and real Secure
 SysTick interrupts. The check covers timer configuration and pending-tick
@@ -275,10 +289,12 @@ requires both isolation faults and recovery.
 The full CI scenario list adds `engine: [native, hsm]` as a matrix dimension.
 Every scenario runs with both engines except the engine-specific ones listed
 in `ENGINE_ONLY` in `tests/target/lib/scenario_matrix.py`: the wolfHSM-only
-scenarios run under hsm only, and `nativewire` and `nativewireasm`, which
-drive the native wire, under native only.
+scenarios run under hsm only, and `nativewire`, `nativewireasm` and
+`nativewiresmall` (the `small` PSA profile's smaller crypto stack), which drive the
+native wire, and `tinyattest` (an HMAC attestation key, which the wolfHSM
+engine refuses), under native only.
 The generator is the source of truth for the exact list:
-`python3 tests/target/lib/scenario_matrix.py --port stm32h563 --tier full --json`.
+`python3 tests/target/lib/scenario_matrix.py --port stm32h563 --tier all --json`.
 
 `hsmattackneg` drives the raw wolfHSM protocol from a compromised-guest probe.
 It checks that a forged wolfHSM client ID cannot select the attestation key and
@@ -337,8 +353,12 @@ runs and exempts the rest with a reason. Beyond the families above:
   with a cross-key refusal, RNG, AES-CTR, and an attestation token verified
   against the IAK and wolfBoot's measurement), `bothiso` (a forged handle, an
   oversized vector, a vector in the peer window and an unknown SID refused),
-  `attestneg`, and `fwustage` (a candidate staged through SERVICE_FWU, armed,
-  and restored READY).
+  `attestneg`, `fwustage` (a candidate staged through SERVICE_FWU, armed,
+  and restored READY), and `tinyattest`. `tinyattest` builds `WT_PROFILE=tiny WT_SECURE_PSA=1`,
+  faults the attestation partition once so it restarts on a reset band, and
+  has the guest verify the COSE_Mac0 under the development key (Instance ID
+  included), reject a tampered token, and see P-256 refused; the judge also
+  checks that no P-256 symbol is linked.
 - The remaining level 3 negatives (`deputyneg`, `hsmpinneg`, `hsmfaultneg`,
   `periphspneg`) run the PSA guest in both windows, and guest 0 ends the run
   on its breakpoint once its lifecycle is done; `manifestneg2`,
@@ -474,9 +494,9 @@ engines for each port whose CI label is optional; a port marked label only in
 on manual dispatch (with a `port` input), and on a pull request that carries
 the port's label, `ci:all`, or `ci:m33mu`. The scenario groups per port and
 tier are in its `port.json`; `make test-target TARGET=<port>` runs the same
-smoke tier locally and `WT_TIER=full` every scenario. Every tier runs on both
-build profiles, and the level 3 bar (`l3_gaps()` in the matrix selftest)
-must hold on `default` and on `full`.
+smoke tier locally and `WT_TIER=all` every scenario. Every tier runs on the
+`default` and `extended` build profiles, and the level 3 bar (`l3_gaps()` in
+the matrix selftest) must hold on both.
 
 ### Running M33MU off a pull request
 

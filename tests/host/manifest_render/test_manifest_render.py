@@ -40,19 +40,19 @@ H5_COMMITTED = ("WT_GUEST0_FLASH_BASE=0x080A0000", "WT_GUEST1_FLASH_BASE=0x080E0
 # pinned so a layout or template change is a reviewed change.
 COMMITTED = {
     ("mimxrt700", "base", ()):
-        "a29087bd0d88b219b57d242aba5118e60aa84d347cf995ad18eb02a686c890d6",
+        "603c43b339c83c339c9cbf28e81fba5a6377e989d2e598c46382254575c69ed4",
     ("mimxrt700", "conformance", ()):
-        "47aa6cf705f92301aeb94d1c59aa15502e31c3246aef921fadaf2d65ba5b9c96",
+        "1369a54f872abd251fe543a13f8c0f59ef1744a8d8b9c053e75cfcbb5568b085",
     ("mcxn947", "base", ()):
-        "058de906b0d66891eaa81911626acced63b69c8e07e6108170ec08f4a1fbdce4",
+        "598c2a8552f2f451e23872f7416bd15f2820ec3d91e3583f2a9c7d8b997a6d77",
     ("mcxn947", "conformance", ()):
-        "6c31e082b00cf5a659dd60ecb4e28d30e7f059867470e70e6cd8aa1892729fa8",
+        "ade96af766d91a15570bd98cd255b582adb0b3e028c6d01e98cf53d86551a221",
     ("stm32h563", "base", H5_COMMITTED):
-        "ba52a4776e93a42e59f927485cbda8dfd8f7b0359e113e52f74eb93c496c210f",
+        "9261f7924218dc7fddc11fc3e9dda71448419ced63083bfa564f807174946fd3",
     ("stm32h563", "conformance", H5_COMMITTED):
-        "1ace9388c4c4d26ca254719fb873cbe393b59938c32803e6d4357114c8168f84",
+        "1c9d992ff45dd7bcea447953d9839b309771b02bbdac7e6d6397de42690b6bee",
     ("stm32h563", "vnet", H5_COMMITTED):
-        "f3c6c1b87037517c71834c2c3dacacb3a9fa5fe699d5555406be0e079abee397",
+        "76924c0e18c1b09abbd3147170865f2b60cf1f1f16e9433c9cdedd1d9b42702d",
 }
 WINDOW_MACROS = (
     "WT_SECURE_FLASH_BASE", "WT_RAM_S_BASE", "WT_SP_CODE_BASE",
@@ -182,7 +182,7 @@ def mode(target, variant):
     """A variant a port limits to the default profile builds without FWU."""
     result = run([sys.executable, str(ROOT / "tests/target/lib/scenario_matrix.py"),
                   "--port", target, "--get", "build.variant_profiles." + variant])
-    if result.returncode == 0 and "full" not in result.stdout.split():
+    if result.returncode == 0 and "extended" not in result.stdout.split():
         return tuple(f for f in MODE[variant] if f != "WT_FWU=1"), True
     return MODE[variant], False
 

@@ -38,6 +38,7 @@
 #define WT_ATTEST_CHALLENGE_SIZE_48 48u
 #define WT_ATTEST_CHALLENGE_SIZE_64 64u
 #define WT_ATTEST_IAK_PUBLIC_KEY_SIZE 65u
+#define WT_ATTEST_HMAC_KEY_SIZE 32u
 #define WT_ATTEST_MAX_TOKEN_SIZE 640u
 
 int wt_initial_attest_init(const wt_boot_handoff_t* handoff);
@@ -49,6 +50,12 @@ int wt_initial_attest_get_token(wt_guest_id_t guestId,
     const uint8_t* challenge, size_t challengeSize, uint8_t* token,
     size_t tokenCapacity, size_t* tokenSize);
 
+#ifdef WT_ATTEST_KEY_hmac
+/* WT_ATTEST_KEY=hmac: the port supplies the device's HMAC-SHA256 attestation
+ * key, the one its verifier holds. Called with a privileged thread at boot
+ * and on a partition restart; 0 fills key, anything else leaves no key. */
+int wt_port_attest_hmac_key(uint8_t* key, size_t keySize);
+#else
 int wt_initial_attest_get_iak_public_key(uint8_t* publicKey,
     size_t publicKeyCapacity, size_t* publicKeySize);
 
@@ -66,5 +73,6 @@ int wt_initial_attest_bind_hsm(wt_spm_transport_fn transport,
  * public-key request closes it and reconnects instead of calling a dead
  * handle, a PROGRAMMER ERROR the SPM would panic this partition for. */
 void wt_initial_attest_hsm_restarted(void);
+#endif /* WT_ATTEST_KEY_hmac */
 
 #endif /* WOLFTRUST_SERVICES_INITIAL_ATTESTATION_H */

@@ -21,9 +21,12 @@
 ROOT    := ../../..
 WOLFHSM := $(ROOT)/lib/wolfHSM
 WOLFSSL := $(ROOT)/lib/wolfSSL
+WOLFPSA := $(ROOT)/lib/wolfPSA
 
 CC ?= cc
 BUILD_DIR ?= build
+# SP_DIRECT=1 builds the direct P-256 keyvault path of the profiles below extended
+SP_DIRECT ?= 0
 
 CFLAGS := \
     -DWOLFSSL_USER_SETTINGS \
@@ -36,6 +39,18 @@ CFLAGS := \
     -I$(WOLFSSL) \
     -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter
+ifeq ($(SP_DIRECT),1)
+CFLAGS += -DWOLFPSA_ECC_SP_DIRECT -I$(WOLFPSA)
+endif
+# VAULT_ECC=0 builds the vault without P-256 key operations, as tiny does;
+# KEYVAULT_P256=1 keeps the backend's P-256 for an ECC attestation key.
+VAULT_ECC ?= 1
+KEYVAULT_P256 ?= $(VAULT_ECC)
+NO_ECC := $(if $(filter 00,$(VAULT_ECC)$(KEYVAULT_P256)),1,0)
+CFLAGS += -DWT_VAULT_ECC=$(VAULT_ECC) -DWT_KEYVAULT_P256=$(KEYVAULT_P256)
+ifeq ($(NO_ECC),1)
+CFLAGS += -DWT_NO_ECC=1
+endif
 CFLAGS += $(EXTRA_CFLAGS)
 
 # wolfCrypt's ECC sources need GNU libc declarations that strict C11
@@ -48,6 +63,7 @@ WC_CFLAGS := $(filter-out -std=c11 -Werror -pedantic -Wextra,$(CFLAGS))
 _WT_SRCS := \
     $(ROOT)/src/services/native/native_wire.c \
     $(ROOT)/src/services/native/keyvault.c \
+    $(ROOT)/src/services/wolfhsm/wt_hsm_aead.c \
     $(ROOT)/src/services/wolfhsm/wt_hsm_vault.c
 
 _WH_SRCS := \
@@ -71,6 +87,13 @@ _WC_SRCS := \
     $(WOLFSSL)/wolfcrypt/src/hash.c     \
     $(WOLFSSL)/wolfcrypt/src/wc_port.c  \
     $(WOLFSSL)/wolfcrypt/src/misc.c
+ifeq ($(SP_DIRECT),1)
+_WC_SRCS += $(WOLFSSL)/wolfcrypt/src/sp_c32.c $(WOLFSSL)/wolfcrypt/src/sp_c64.c
+_WP_SRCS := $(WOLFPSA)/src/psa_p256.c
+endif
+ifeq ($(NO_ECC),1)
+_WC_SRCS := $(filter-out %/ecc.c %/sp_int.c %/wolfmath.c,$(_WC_SRCS))
+endif
 
 _TEST_SRCS := main.c
 
@@ -85,9 +108,11 @@ endif
 _WT_OBJS   := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
 _WH_OBJS   := $(patsubst %.c,wh_%.o,$(notdir $(_WH_SRCS)))
 _WC_OBJS   := $(patsubst %.c,wc_%.o,$(notdir $(_WC_SRCS)))
+_WP_OBJS   := $(patsubst %.c,wp_%.o,$(notdir $(_WP_SRCS)))
 _TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
-ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WH_OBJS) $(_WC_OBJS) $(_TEST_OBJS))
+ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WH_OBJS) $(_WC_OBJS) \
+    $(_WP_OBJS) $(_TEST_OBJS))
 TEST_BIN := $(BUILD_DIR)/test_native_wire
 
 .PHONY: all run compilers sanitize valgrind clean
@@ -109,6 +134,9 @@ $(BUILD_DIR)/wh_%.o: $(WOLFHSM)/src/%.c | $(BUILD_DIR)
 $(BUILD_DIR)/wc_%.o: $(WOLFSSL)/wolfcrypt/src/%.c | $(BUILD_DIR)
 	$(CC) $(WC_CFLAGS) -c -o $@ $<
 
+$(BUILD_DIR)/wp_%.o: $(WOLFPSA)/src/%.c | $(BUILD_DIR)
+	$(CC) $(WC_CFLAGS) -c -o $@ $<
+
 $(BUILD_DIR)/%.o: %.c | $(BUILD_DIR)
 	$(CC) $(CFLAGS) -c -o $@ $<
 
@@ -122,12 +150,27 @@ run: $(TEST_BIN)
 	if [ "$$result" -ne 1 ]; then \
 	    cat $(BUILD_DIR)/aes_setup_failure.log; exit 1; \
 	fi; \
-	if ! grep -q '^PASS: AES-GCM setup failure returns safely$$' $(BUILD_DIR)/aes_setup_failure.log; then \
+	if ! grep -q '^PASS: AEAD setup failure returns safely$$' $(BUILD_DIR)/aes_setup_failure.log; then \
 	    cat $(BUILD_DIR)/aes_setup_failure.log; exit 1; \
 	fi; \
-	printf '%s\n' 'PASS: AES-GCM setup failure remains a failed test'
+	printf '%s\n' 'PASS: AEAD setup failure remains a failed test'
 	$(MAKE) --no-print-directory all BUILD_DIR=$(BUILD_DIR)/asn ASN=1
 	$(BUILD_DIR)/asn/test_native_wire
+ifneq ($(SP_DIRECT),1)
+	$(MAKE) --no-print-directory SP_DIRECT=1 BUILD_DIR=$(BUILD_DIR)/direct \
+	    $(BUILD_DIR)/direct/test_native_wire
+	$(BUILD_DIR)/direct/test_native_wire
+	@printf '%s\n' 'PASS: native wire on the direct P-256 path'
+endif
+ifeq ($(VAULT_ECC)$(SP_DIRECT),10)
+	$(MAKE) --no-print-directory VAULT_ECC=0 BUILD_DIR=$(BUILD_DIR)/noecc \
+	    $(BUILD_DIR)/noecc/test_native_wire
+	$(BUILD_DIR)/noecc/test_native_wire
+	$(MAKE) --no-print-directory VAULT_ECC=0 KEYVAULT_P256=1 \
+	    BUILD_DIR=$(BUILD_DIR)/iakecc $(BUILD_DIR)/iakecc/test_native_wire
+	$(BUILD_DIR)/iakecc/test_native_wire
+	@printf '%s\n' 'PASS: native wire without vault P-256'
+endif
 
 compilers:
 	$(MAKE) clean run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc

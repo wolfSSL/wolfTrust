@@ -29,6 +29,9 @@
 #define WOLFSSL_USER_IO
 #define NO_TLS
 
+#ifdef WT_NO_ECC
+#define NO_BIG_INT
+#else
 #define HAVE_ECC
 #define ECC_USER_CURVES
 #define ECC_TIMING_RESISTANT
@@ -36,9 +39,17 @@
 /* ISO C99 gate: pin fixed-size SP-math stacks (no VLAs) and pull in
  * <strings.h> so ecc.c's strcasecmp curve lookup is declared. */
 #define WOLFSSL_SP_NO_DYN_STACK
+#ifdef WOLFPSA_ECC_SP_DIRECT
+#define WOLFSSL_HAVE_SP_ECC
+#define WOLFSSL_SP_SMALL
+#endif
 #define HAVE_STRINGS_H
+#endif
 
 #define HAVE_AESGCM
+#ifdef WT_AEAD_CCM
+#define HAVE_AESCCM
+#endif
 #define WOLFSSL_SHA256
 #define HAVE_HASHDRBG
 

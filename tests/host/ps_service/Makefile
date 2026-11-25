@@ -46,7 +46,8 @@ _WT_SRCS := \
     $(ROOT)/src/services/storage_service.c \
     $(ROOT)/src/services/vault_service.c \
     $(ROOT)/src/services/wolfhsm/wt_hsm_vault.c \
-    $(ROOT)/src/services/wolfhsm/wt_hsm_seal.c
+    $(ROOT)/src/services/wolfhsm/wt_hsm_seal.c \
+    $(ROOT)/src/services/wolfhsm/wt_hsm_aead.c
 
 _WH_SRCS := \
     $(WOLFHSM)/src/wh_nvm.c \

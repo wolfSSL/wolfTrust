@@ -19,6 +19,7 @@ BUILD ?= build
 
 # The guest windows come from the port's memory map under the same layout
 # configuration the Secure image is built with.
+include $(ROOT)/mk/profile.mk
 include $(ROOT)/mk/target-$(TARGET).mk
 include $(ROOT)/mk/layout.mk
 $(foreach kv,$(WT_LAYOUT_GUEST_WINDOWS),$(eval $(kv)))
@@ -243,6 +244,8 @@ ifeq ($(WT_SECURE_PSA),1)
 PSA_CFG_H := $(ROOT)/build/wolfpsa_cfg/crypto_config_generated.h
 endif
 
+# An HMAC attestation key needs COSE_Mac0 verify in the guest.
+GUEST_COSE_MAC0 := $(if $(filter hmac,$(WT_ATTEST_KEY)),-DWOLFCOSE_NO_MAC0_CREATE,-DWOLFCOSE_NO_MAC0)
 CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
     -ffreestanding -fno-builtin -nostdlib -Os -g \
     -Wall -Wextra -Wno-unused-function -Wno-unused-variable \
@@ -271,7 +274,7 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
     -DNO_ERROR_STRINGS -DWOLFSSL_PUBLIC_MP -DWC_RSA_DIRECT \
     -DWC_RESEED_INTERVAL=1000000 \
     -DWOLFCOSE_LEAN -DWOLFCOSE_ENABLE_DEPRECATED_ALGS -DWOLFCOSE_NO_SIGN1_SIGN \
-    -DWOLFCOSE_NO_ENCRYPT0 -DWOLFCOSE_NO_MAC0 -DWOLFCOSE_NO_KEY_ENCODE \
+    -DWOLFCOSE_NO_ENCRYPT0 $(GUEST_COSE_MAC0) -DWOLFCOSE_NO_KEY_ENCODE \
     -DWOLFCOSE_NO_KEY_DECODE \
     -DWT_EXPECTED_LIFECYCLE=$(WT_EXPECTED_LIFECYCLE) \
     $(ENGINE_DEFS) \
@@ -279,6 +282,13 @@ CFLAGS := -mcpu=cortex-m33 -mthumb -mgeneral-regs-only \
 
 ifneq ($(WT_EXPECTED_MEASUREMENT_HEX),)
 CFLAGS += -DWT_EXPECTED_MEASUREMENT_HEX=\"$(WT_EXPECTED_MEASUREMENT_HEX)\"
+endif
+# Both guests check the attestation key, and P-256 when PSA runs Secure.
+ifeq ($(WT_ATTEST_KEY),hmac)
+CFLAGS += -DWT_GUEST_ATTEST_HMAC
+endif
+ifeq ($(WT_VAULT_ECC)/$(WT_SECURE_PSA),0/1)
+CFLAGS += -DWT_GUEST_NO_P256
 endif
 
 PROBE_CFLAGS :=

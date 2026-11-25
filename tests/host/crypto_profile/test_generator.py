@@ -71,9 +71,9 @@ class GeneratorTests(unittest.TestCase):
         rows[-1] = dict(rows[-1], flash="8303")
         self.assertTrue(footprint.compare(rows, 8192)[1])
 
-    def test_full_means_implemented_proxy_operations(self):
+    def test_extended_means_implemented_proxy_operations(self):
         selected, mechanisms = profile.select(self.catalog, self.defaults,
-            "full", {}, [], [])
+            "extended", {}, [], [])
         self.assertIn("C_DeriveKey", selected["pkcs11"])
         self.assertNotIn("C_WrapKey", selected["pkcs11"])
         self.assertIsNone(mechanisms)
@@ -157,7 +157,7 @@ class GeneratorTests(unittest.TestCase):
 
     def test_secure_auxiliary_modes_follow_selected_dependencies(self):
         cases = (("default", {}, [], False),
-                 ("full", {}, [], True),
+                 ("extended", {}, [], True),
                  ("default", {"mechanisms": ["CKM_AES_CTR"]}, [], True),
                  ("default", {}, ["tpm:PCR_Read"], True))
         for kind, custom, enabled, extra in cases:

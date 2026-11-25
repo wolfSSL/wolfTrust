@@ -161,16 +161,19 @@ endif
 
 ifeq ($(WT_ATTEST_COSE),1)
 SECURE_CFLAGS_COSE := -I$(WOLFCOSE_DIR)/include \
-    -DWT_ATTEST_COSE=1 \
-    -DWOLFCOSE_LEAN -DWOLFCOSE_ENABLE_EXT_SIGN -DWOLFCOSE_NO_LOCAL_SIGN \
-    -DWOLFCOSE_ENABLE_DEPRECATED_ALGS \
-    -DWOLFCOSE_NO_SIGN1_VERIFY -DWOLFCOSE_NO_ENCRYPT0 \
-    -DWOLFCOSE_NO_MAC0 -DWOLFCOSE_NO_KEY_ENCODE \
-    -DWOLFCOSE_NO_KEY_DECODE \
+    -DWT_ATTEST_COSE=1 -DWOLFCOSE_LEAN \
+    -DWOLFCOSE_NO_ENCRYPT0 -DWOLFCOSE_NO_KEY_ENCODE -DWOLFCOSE_NO_KEY_DECODE \
     -DWOLFCOSE_ENABLE_EAT_PSA \
     -DWOLFCOSE_ENABLE_EAT_PSA_CURRENT \
-    -DWOLFCOSE_ENABLE_EAT_PSA_ISSUE \
-    -DWOLFCOSE_ENABLE_EAT_PSA_SIGN1_ISSUE
+    -DWOLFCOSE_ENABLE_EAT_PSA_ISSUE
+ifeq ($(WT_ATTEST_KEY),hmac)
+SECURE_CFLAGS_COSE += -DWOLFCOSE_NO_SIGN1 -DWOLFCOSE_NO_MAC0_VERIFY \
+    -DWOLFCOSE_ENABLE_EAT_PSA_MAC0_ISSUE
+else
+SECURE_CFLAGS_COSE += -DWOLFCOSE_ENABLE_EXT_SIGN -DWOLFCOSE_NO_LOCAL_SIGN \
+    -DWOLFCOSE_ENABLE_DEPRECATED_ALGS -DWOLFCOSE_NO_SIGN1_VERIFY \
+    -DWOLFCOSE_NO_MAC0 -DWOLFCOSE_ENABLE_EAT_PSA_SIGN1_ISSUE
+endif
 endif
 
 WOLFPKCS11_COMMON_DEFS := -DWOLFPKCS11_USER_SETTINGS \
@@ -253,6 +256,43 @@ endif
 ifeq ($(WT_DEPUTY_NEG_PROBE),1)
 SECURE_CFLAGS += -DWT_DEPUTY_NEG_PROBE=1
 endif
+# The vault's AES AEAD, and the one PSA AEAD of small and tiny (ccm there)
+WT_AEAD ?=
+ifneq ($(filter-out gcm ccm,$(WT_AEAD))$(word 2,$(WT_AEAD)),)
+$(error unsupported WT_AEAD='$(WT_AEAD)' (want gcm or ccm))
+endif
+WT_AEAD_ONE := $(if $(filter 1,$(WT_SECURE_PSA)),$(filter small tiny,$(WT_SECURE_PSA_PROFILE)))
+WT_AEAD_USED := $(or $(WT_AEAD),$(if $(WT_AEAD_ONE),ccm,gcm))
+SECURE_CFLAGS += -DWT_AEAD_$(if $(filter ccm,$(WT_AEAD_USED)),CCM,GCM)
+ifneq ($(filter-out ecc hmac,$(WT_ATTEST_KEY))$(words $(WT_ATTEST_KEY)),1)
+$(error unsupported WT_ATTEST_KEY='$(WT_ATTEST_KEY)' (want ecc or hmac))
+endif
+ifneq ($(filter-out 0 1,$(WT_VAULT_ECC))$(words $(WT_VAULT_ECC)),1)
+$(error unsupported WT_VAULT_ECC='$(WT_VAULT_ECC)' (want 0 or 1))
+endif
+WT_ATTEST_DEV_KEY ?= 1
+ifneq ($(filter-out 0 1,$(WT_ATTEST_DEV_KEY))$(words $(WT_ATTEST_DEV_KEY)),1)
+$(error unsupported WT_ATTEST_DEV_KEY='$(WT_ATTEST_DEV_KEY)' (want 0 or 1))
+endif
+ifeq ($(WT_ENGINE),hsm)
+ifeq ($(WT_ATTEST_KEY),hmac)
+$(error WT_ATTEST_KEY=hmac requires WT_ENGINE=native; the wolfHSM engine keeps the attestation key in its keystore)
+endif
+ifeq ($(WT_VAULT_ECC),0)
+$(error WT_VAULT_ECC=0 requires WT_ENGINE=native; the wolfHSM engine serves the vault from its server)
+endif
+endif
+# ECC leaves the Secure image when no feature asks for it.
+WT_ECC_USERS := $(filter hsm,$(WT_ENGINE)) $(filter 1,$(WT_VAULT_ECC)) \
+    $(if $(filter 1,$(WT_ATTEST_COSE)),$(filter ecc,$(WT_ATTEST_KEY))) \
+    $(if $(filter 1,$(WT_SECURE_PSA)),$(filter-out tiny,$(WT_SECURE_PSA_PROFILE))) \
+    $(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11))
+WT_NO_ECC := $(if $(strip $(WT_ECC_USERS)),0,1)
+# An ECC attestation key signs through the vault's P-256 backend.
+WT_KEYVAULT_P256 := $(if $(filter 1,$(WT_VAULT_ECC))$(if $(filter 1,$(WT_ATTEST_COSE)),$(filter ecc,$(WT_ATTEST_KEY))),1,0)
+WT_ECC_CFLAGS := -DWT_ATTEST_KEY_$(WT_ATTEST_KEY)=1 -DWT_VAULT_ECC=$(WT_VAULT_ECC) \
+    -DWT_KEYVAULT_P256=$(WT_KEYVAULT_P256) $(if $(filter 1,$(WT_NO_ECC)),-DWT_NO_ECC=1)
+SECURE_CFLAGS += $(WT_ECC_CFLAGS)
 ifeq ($(WT_HSM_PIN_NEG_PROBE),1)
 # Probe lives in the hsm-only wt_hsm.c; defining it for a native build would
 # leave the spm_partitions.c call undefined at link. Native has no tasklet, so
@@ -327,6 +367,10 @@ MANIFEST_EXCLUDE :=
 else
 # The conformance manifest never carries the update partition.
 MANIFEST_EXCLUDE := $(if $(filter 1,$(WT_CONFORMANCE)),,--exclude-partition PARTITION_FWU)
+endif
+# An HMAC attestation key is held in the attestation partition, never the crypto service.
+ifeq ($(WT_ATTEST_KEY),hmac)
+MANIFEST_EXCLUDE += --drop-dependency PARTITION_ATTEST=SERVICE_HSM
 endif
 # Hardware guest-flash write protection: refuse to launch a guest whose image
 # sectors are not WRP-protected, so a peer Non-secure guest cannot reprogram a
@@ -440,6 +484,10 @@ WOLFCRYPT_SECURE_SRCS += $(ARCH_WOLFCRYPT_ASM_SRCS)
 ifeq ($(WT_ENGINE)/$(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11)),native/)
 WOLFCRYPT_SECURE_SRCS := $(filter-out %/asn.c,$(WOLFCRYPT_SECURE_SRCS))
 endif
+ifeq ($(WT_NO_ECC),1)
+WOLFCRYPT_SECURE_SRCS := $(filter-out %/ecc.c %/sp_int.c %/wolfmath.c \
+    $(ARCH_WOLFCRYPT_SP_SRCS),$(WOLFCRYPT_SECURE_SRCS))
+endif
 
 # TPM 2.0 and PKCS#11 build one provider the same way; only one is ever linked.
 WT_IF := $(if $(filter y,$(CONFIG_TPM)),tpm,$(if $(filter y,$(CONFIG_PKCS11)),p11))
@@ -521,7 +569,6 @@ WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/services/native/keyvault.c
 endif
 
-WT_SECURE_PSA_PROFILE ?= compat
 WT_PSA_SIZE_VARS := WT_PSA_POOL_BYTES WT_PSA_KEY_SLOTS WT_PSA_OP_SLOTS
 $(foreach v,$(WT_PSA_SIZE_VARS),$(if $(filter-out 0 1 2 3 4 5 6 7 8 9,$(subst 0,0 ,$(subst 1,1 ,$(subst 2,2 ,$(subst 3,3 ,$(subst 4,4 ,$(subst 5,5 ,$(subst 6,6 ,$(subst 7,7 ,$(subst 8,8 ,$(subst 9,9 ,$($(v)))))))))))))$(word 2,$($(v))),$(error unsupported $(v)='$($(v))' (want a decimal count))))
 WOLFPSA_DIR := $(ROOT)/lib/wolfPSA
@@ -533,8 +580,8 @@ ifeq ($(WT_SECURE_PSA),1)
 ifneq ($(WT_ENGINE),native)
 $(error WT_SECURE_PSA=1 requires WT_ENGINE=native)
 endif
-ifneq ($(filter-out compat standard lean symmetric,$(WT_SECURE_PSA_PROFILE))$(words $(WT_SECURE_PSA_PROFILE)),1)
-$(error unsupported WT_SECURE_PSA_PROFILE='$(WT_SECURE_PSA_PROFILE)' (want compat, standard, lean or symmetric))
+ifneq ($(filter-out extended default small tiny,$(WT_SECURE_PSA_PROFILE))$(words $(WT_SECURE_PSA_PROFILE)),1)
+$(error unsupported WT_SECURE_PSA_PROFILE='$(WT_SECURE_PSA_PROFILE)' (want extended, default, small or tiny))
 endif
 ifeq ($(WT_WOLFCRYPT_ARMASM),1)
 $(error WT_SECURE_PSA=1 needs constant-time AES, and WT_WOLFCRYPT_ARMASM=1 builds the T-table Thumb-2 AES)
@@ -549,14 +596,28 @@ SECURE_CFLAGS += $(WT_SECURE_PSA_CFLAGS)
 HSM_LIB_CFLAGS += $(WT_SECURE_PSA_CFLAGS)
 HSM_WOLFHSM_CFLAGS += $(WT_SECURE_PSA_CFLAGS)
 WOLFPSA_SECURE_SRCS := $(filter-out %/psa_store_posix.c %/psa_attestation.c \
-    %/psa_ffm.c %/psa_its.c %/misc_impl.c %/psa_store_zephyr.c %/psa_tf_psa.c,$(wildcard $(WOLFPSA_DIR)/src/*.c))
+    %/psa_ffm.c %/psa_its.c %/psa_store_zephyr.c %/psa_tf_psa.c,$(wildcard $(WOLFPSA_DIR)/src/*.c))
 WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/native/psa_crypto_service.c
-ifeq ($(WT_SECURE_PSA_PROFILE),compat)
+ifeq ($(WT_SECURE_PSA_PROFILE),extended)
 WOLFCRYPT_SECURE_SRCS += $(WOLFSSL_DIR)/wolfcrypt/src/kdf.c \
     $(WOLFSSL_DIR)/wolfcrypt/src/pwdbased.c
 endif
+ifneq ($(WT_AEAD_ONE),)
+ifeq ($(WT_AEAD_USED),ccm)
+WT_PSA_WANT_WITHOUT := --without PSA_WANT_ALG_GCM
+endif
+endif
+ifneq ($(WT_SECURE_PSA_PROFILE),extended)
+WT_PSA_WANT_WITHOUT += --without PSA_WANT_ALG_SP800_108_COUNTER_HMAC \
+    --without PSA_WANT_ALG_SP800_108_COUNTER_CMAC \
+    --without PSA_WANT_ALG_CCM_STAR_NO_TAG
+endif
 endif
 
+ifeq ($(WT_ATTEST_COSE)/$(WT_ATTEST_KEY)/$(WT_ATTEST_DEV_KEY),1/hmac/1)
+$(warning WT_ATTEST_DEV_KEY=1 builds the public development attestation key; a product sets it to 0 and supplies wt_port_attest_hmac_key())
+WT_SECURE_EXTRA_SRCS += $(PORT_NEUTRAL_DIR)/attest_dev_key.c
+endif
 ifeq ($(WT_ATTEST_COSE),1)
 WT_SECURE_EXTRA_SRCS += \
     $(ROOT)/src/services/attestation_service.c \
@@ -1823,6 +1884,8 @@ BUILD_MODE_LINES = \
 		'WT_PROVIDER_ECC_FALLBACK=$(WT_PROVIDER_ECC_FALLBACK)' \
 		'WT_TPM_DA=$(WT_TPM_DA)' \
 		'WT_ATTEST_COSE=$(WT_ATTEST_COSE)' \
+		'WT_ATTEST_KEY=$(WT_ATTEST_KEY)/$(WT_ATTEST_DEV_KEY)' \
+		'WT_VAULT_ECC=$(WT_VAULT_ECC)' \
 		'WT_SECURE_PSA=$(WT_SECURE_PSA)' \
 		'WT_SECURE_PSA_PROFILE=$(if $(filter 1,$(WT_SECURE_PSA)),$(WT_SECURE_PSA_PROFILE))' \
 		'WT_PSA_SIZES=$(if $(filter 1,$(WT_SECURE_PSA)),$(subst / ,/,$(foreach v,$(WT_PSA_SIZE_VARS),$($(v))/)))' \
@@ -1864,6 +1927,7 @@ BUILD_MODE_LINES = \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_SPM_STACK_SIZE=$(WT_SPM_STACK_SIZE)' \
 		'WT_WOLFCRYPT_SP_ASM=$(WT_WOLFCRYPT_SP_ASM)' \
+		'WT_AEAD=$(WT_AEAD_USED)' \
 		'WT_WOLFCRYPT_ARMASM=$(WT_WOLFCRYPT_ARMASM)' \
 		'WT_SHA256_FAST=$(WT_SHA256_FAST)' \
 		'WT_WOLFCRYPT_STM32_HASH=$(WT_WOLFCRYPT_STM32_HASH)' \
@@ -1884,7 +1948,14 @@ $(BUILD_MODE_STAMP): FORCE | $(BUILD_DIR)
 	fi
 
 # The resolved configuration for tools and tests outside this directory.
-.PHONY: print-layout-cflags print-build-mode
+.PHONY: print-layout-cflags print-build-mode print-profile print-attest-defs
+# The attestation defines of this build, for the host suite that issues tokens.
+print-attest-defs:
+	@echo $(filter -D%,$(SECURE_CFLAGS_COSE)) -DWT_ATTEST_KEY_$(WT_ATTEST_KEY)=1
+print-profile:
+	@echo $(foreach v,WT_PROFILE WT_SECURE_PSA_PROFILE WT_INTERFACE_PROFILE \
+	    WT_MAX_GUESTS WT_MANIFEST_RUNTIME_CHECK WT_FWU WT_SHA256_FAST \
+	    WT_ATTEST_KEY WT_VAULT_ECC WT_NO_ECC,$(v)=$($(v)))
 print-layout-cflags:
 	@echo '$(WT_LAYOUT_CFLAGS_ABS)'
 print-build-mode:
@@ -1904,7 +1975,7 @@ ifeq ($(WT_SECURE_PSA),1)
 # FORCE: the generator rewrites the header only when the surface changes.
 $(WT_PSA_CONFIG_H): $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) FORCE | $(BUILD_DIR)
 	@mkdir -p $(dir $@)
-	python3 $(WOLFPSA_DIR)/tools/gen-crypto-config.py $@ "$(CC)" \
+	python3 $(WOLFPSA_DIR)/tools/gen-crypto-config.py $(WT_PSA_WANT_WITHOUT) $@ "$(CC)" \
 	    $(WOLFPSA_DIR)/tools/psa_want_probe.c $(HSM_LIB_CFLAGS) -I$(WOLFPSA_DIR)/src \
 	    -DWT_PSA_WANT_PROBE
 $(BUILD_DIR)/wt_sec_psa_crypto_service.o: $(WT_PSA_CONFIG_H)

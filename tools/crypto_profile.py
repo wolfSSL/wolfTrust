@@ -105,9 +105,9 @@ def select(catalog, defaults, profile, custom, enable, disable, require_tpm=True
     for kind, names in custom.items():
         if not isinstance(names, list) or any(not isinstance(n, str) for n in names):
             raise ValueError("profile field %s must be a list of names" % kind)
-    selected = {kind: set(catalog[kind] if profile == "full" else
+    selected = {kind: set(catalog[kind] if profile == "extended" else
                           defaults[kind]) for kind in KINDS}
-    mechanisms = None if profile == "full" else defaults["mechanisms"]
+    mechanisms = None if profile == "extended" else defaults["mechanisms"]
     for kind, names in custom.items():
         if kind == "mechanisms":
             mechanisms = names
@@ -318,7 +318,7 @@ def generate(root, output, profile, custom, enable, disable, interface="tpm"):
         raise ValueError("TPM 2.0 and PKCS#11 builds link no PSA Crypto; remove psa selections")
     basic_mechanisms = {"CKM_SHA256", "CKM_EC_KEY_PAIR_GEN", "CKM_ECDSA",
                         "CKM_ECDSA_KEY_PAIR_GEN"}
-    extra_crypto = (profile == "full" or mechanisms is None or
+    extra_crypto = (profile == "extended" or mechanisms is None or
                     not set(mechanisms) <= basic_mechanisms or
                     not selected["tpm"] <= set(defaults["tpm"]))
     output.mkdir(parents=True, exist_ok=True)
@@ -326,7 +326,7 @@ def generate(root, output, profile, custom, enable, disable, interface="tpm"):
         pkcs11_header(signatures, selected["pkcs11"], mechanisms))
     write_file(output / "pkcs11_crypto.c", pkcs11_mechanism_source(root, mechanisms))
     write_file(output / "hsm_callback.c", hsm_callback_source(root, extra_crypto))
-    write_file(output / "fwtpm_command.c", selected_tpm(commands, selected["tpm"], profile == "full"))
+    write_file(output / "fwtpm_command.c", selected_tpm(commands, selected["tpm"], profile == "extended"))
     psa_wrappers(root, output, sources, selected["psa"], catalog["psa"])
     # Consumers depend only on this header, so it must change with any output.
     digest = hashlib.sha256()
@@ -339,7 +339,7 @@ def generate(root, output, profile, custom, enable, disable, interface="tpm"):
              "#ifndef WT_SELECTED_CRYPTO_PROFILE_H",
              "#define WT_SELECTED_CRYPTO_PROFILE_H",
              "#define WT_PROFILE_OUTPUTS_SHA256 \"%s\"" % digest.hexdigest(),
-             "#define WT_PROFILE_FULL %d" % (profile == "full"),
+             "#define WT_PROFILE_EXTENDED %d" % (profile == "extended"),
              "#define WT_PROFILE_PROVIDER_EXTRA_CRYPTO %d" % extra_crypto,
              "#define WT_PROFILE_TPM_COMMAND_COUNT %dU" % len(selected["tpm"]),
              "#define WT_PKCS11_PROFILE_HEADER %s" %
@@ -368,7 +368,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--root", type=Path, default=Path(__file__).resolve().parent.parent)
     parser.add_argument("--output", type=Path)
-    parser.add_argument("--profile", choices=("default", "full"), default="default")
+    parser.add_argument("--profile", choices=("default", "extended"), default="default")
     parser.add_argument("--config", type=Path)
     parser.add_argument("--enable", action="append", default=[])
     parser.add_argument("--disable", action="append", default=[])

@@ -232,6 +232,15 @@ int main(void)
     (void)memset(public_key, 0, sizeof(public_key));
     status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
                          WT_ATTEST_OP_PUBLIC_KEY, NULL, 0U, &key_out, 1U);
+#ifdef WT_ATTEST_KEY_hmac
+    /* An HMAC key has no public half: the query is not served. */
+    if (status != PSA_ERROR_NOT_SUPPORTED || public_key[0] != 0u) {
+        (void)fprintf(stderr, "public-key query not refused st=%d\n",
+                      (int)status);
+        return 1;
+    }
+    (void)printf("PASS: an HMAC key serves no public-key query\n");
+#else
     if (status != PSA_SUCCESS ||
             key_out.len != WT_ATTEST_IAK_PUBLIC_KEY_SIZE ||
             public_key[0] != 0x04u) {
@@ -240,6 +249,7 @@ int main(void)
         return 1;
     }
     (void)printf("PASS: mediated IAK public-key query\n");
+#endif
 
     /* A token CALL whose output vector is shorter than the token must report
      * BUFFER_TOO_SMALL, not fault the partition into its panic trap: a short

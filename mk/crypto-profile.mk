@@ -18,7 +18,7 @@
 # along with this program; if not, see <https://www.gnu.org/licenses/>.
 
 # Generate one operation selection shared by the provider and its clients.
-WT_INTERFACE_PROFILE ?= default
+WT_INTERFACE_PROFILE ?= $(if $(filter extended,$(WT_PROFILE)),extended,default)
 WT_INTERFACE_PROFILE_DIR := $(abspath $(BUILD_DIR)/crypto-profile)
 WT_INTERFACE_PROFILE_HEADER := $(WT_INTERFACE_PROFILE_DIR)/selected_profile.h
 WT_INTERFACE_PROFILE_FLAGS := -include $(WT_INTERFACE_PROFILE_HEADER)

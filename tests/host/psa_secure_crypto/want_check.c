@@ -22,41 +22,50 @@
  * PSA_WANT_* surface its service implements. */
 #include "psa/crypto.h"
 
-#if !defined(PSA_WANT_ALG_GCM) || !defined(PSA_WANT_ALG_HKDF) || \
-    !defined(PSA_WANT_ALG_HMAC) || !defined(PSA_WANT_ALG_SHA_256)
-#error "every profile advertises GCM, HKDF, HMAC and SHA-256"
+#if !defined(PSA_WANT_ALG_HKDF) || !defined(PSA_WANT_ALG_HMAC) || \
+    !defined(PSA_WANT_ALG_SHA_256)
+#error "every profile advertises HKDF, HMAC and SHA-256"
 #endif
 
-#ifdef WT_SECURE_PSA_symmetric
+#ifdef WT_SECURE_PSA_tiny
 #if defined(PSA_WANT_ALG_ECDSA) || defined(PSA_WANT_ALG_ECDH) || \
     defined(PSA_WANT_ALG_DETERMINISTIC_ECDSA) || \
     defined(PSA_WANT_KEY_TYPE_ECC_PUBLIC_KEY) || \
     defined(PSA_WANT_KEY_TYPE_ECC_KEY_PAIR_BASIC) || \
     defined(PSA_WANT_ECC_SECP_R1_256)
-#error "symmetric advertises ECC"
+#error "tiny advertises ECC"
 #endif
 #elif !defined(PSA_WANT_ALG_ECDSA) || !defined(PSA_WANT_ALG_ECDH) || \
     !defined(PSA_WANT_ECC_SECP_R1_256)
 #error "the ECC profiles advertise P-256 ECDSA and ECDH"
 #endif
 
-#if defined(WT_SECURE_PSA_lean) || defined(WT_SECURE_PSA_symmetric)
-#ifdef PSA_WANT_ALG_CCM
-#error "lean and symmetric advertise CCM"
+#if defined(WT_SECURE_PSA_small) || defined(WT_SECURE_PSA_tiny)
+#ifdef WT_AEAD_GCM
+#if !defined(PSA_WANT_ALG_GCM) || defined(PSA_WANT_ALG_CCM)
+#error "small and tiny with WT_AEAD=gcm advertise GCM and not CCM"
 #endif
-#elif !defined(PSA_WANT_ALG_CCM)
-#error "compat and standard advertise CCM"
+#elif !defined(PSA_WANT_ALG_CCM) || defined(PSA_WANT_ALG_GCM)
+#error "small and tiny advertise CCM and not GCM"
+#endif
+#elif !defined(PSA_WANT_ALG_GCM) || !defined(PSA_WANT_ALG_CCM)
+#error "extended and default advertise GCM and CCM"
 #endif
 
-#ifdef WT_SECURE_PSA_compat
+#ifdef WT_SECURE_PSA_extended
 #if !defined(PSA_WANT_ALG_PBKDF2_HMAC) || !defined(PSA_WANT_ALG_CBC_NO_PADDING) || \
     !defined(PSA_WANT_ALG_TLS12_PRF) || \
+    !defined(PSA_WANT_ALG_SP800_108_COUNTER_HMAC) || \
+    !defined(PSA_WANT_ALG_CCM_STAR_NO_TAG) || \
     !defined(PSA_WANT_ALG_DETERMINISTIC_ECDSA)
-#error "compat advertises PBKDF2, CBC, TLS 1.2 PRF and deterministic ECDSA"
+#error "extended advertises PBKDF2, CBC, TLS 1.2 PRF, SP 800-108, CCM* and deterministic ECDSA"
 #endif
 #elif defined(PSA_WANT_ALG_PBKDF2_HMAC) || defined(PSA_WANT_ALG_CBC_NO_PADDING) || \
-    defined(PSA_WANT_ALG_TLS12_PRF)
-#error "only compat advertises PBKDF2, CBC and TLS 1.2 PRF"
+    defined(PSA_WANT_ALG_TLS12_PRF) || \
+    defined(PSA_WANT_ALG_SP800_108_COUNTER_HMAC) || \
+    defined(PSA_WANT_ALG_SP800_108_COUNTER_CMAC) || \
+    defined(PSA_WANT_ALG_CCM_STAR_NO_TAG)
+#error "only extended advertises PBKDF2, CBC, TLS 1.2 PRF, SP 800-108 and CCM*"
 #endif
 
 typedef int wt_want_check_t;

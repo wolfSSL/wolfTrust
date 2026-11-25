@@ -142,7 +142,7 @@ make test-hardware TARGET=stm32h563 WT_HW_TIER=qualification
 tests/target/run_hardware.sh stm32h563 positive
 ```
 
-The hardware runner builds the `full` profile, so its scenarios launch two
+The hardware runner builds the `extended` profile, so its scenarios launch two
 guests and include Firmware Update; it refuses any other `WT_PROFILE`.
 
 When the host that owns the board has no cross toolchain, build in the

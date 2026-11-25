@@ -31,6 +31,7 @@
 #include "wolftrust/crypto_native_client.h"
 #include "wolftrust/services/crypto_native.h"
 #include "wolftrust/services/psa_crypto_wire.h"
+#include "wolftrust/services/vault_service.h"
 #include "transport.h"
 
 #define GUEST0 (-1)
@@ -38,6 +39,13 @@
 #define BIG    1500U
 /* Past what the old 2,048-byte staging buffer could carry. */
 #define HUGE   5000U
+
+/* small and tiny offer one AEAD, CCM unless built with WT_AEAD=gcm */
+#ifdef PSA_WANT_ALG_GCM
+#define WT_TEST_AEAD PSA_ALG_GCM
+#else
+#define WT_TEST_AEAD PSA_ALG_CCM
+#endif
 
 static int g_failures;
 
@@ -60,7 +68,7 @@ static psa_key_id_t aes_key(psa_key_id_t id, uint8_t fill, psa_status_t* st)
     psa_set_key_bits(&attr, 128);
     psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_ENCRYPT |
                             PSA_KEY_USAGE_DECRYPT | PSA_KEY_USAGE_EXPORT);
-    psa_set_key_algorithm(&attr, PSA_ALG_GCM);
+    psa_set_key_algorithm(&attr, WT_TEST_AEAD);
     if (id != PSA_KEY_ID_NULL) {
         psa_set_key_id(&attr, id);
     }
@@ -119,12 +127,12 @@ static psa_status_t aes_oneshot(psa_algorithm_t alg, int decrypt)
     return st;
 }
 
-static psa_status_t pbkdf2_setup(void)
+static psa_status_t kdf_setup(psa_algorithm_t alg)
 {
     psa_key_derivation_operation_t op = PSA_KEY_DERIVATION_OPERATION_INIT;
     psa_status_t st;
 
-    st = psa_key_derivation_setup(&op, PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256));
+    st = psa_key_derivation_setup(&op, alg);
     (void)psa_key_derivation_abort(&op);
     return st;
 }
@@ -137,34 +145,58 @@ static void test_profile(void)
 
     check(psa_generate_random(NULL, 1U) == PSA_ERROR_INVALID_ARGUMENT,
           "generate_random refuses a NULL buffer");
-    check(aes_oneshot(PSA_ALG_GCM, 0) == PSA_SUCCESS, "GCM in every profile");
+#if defined(WT_SECURE_PSA_small) || defined(WT_SECURE_PSA_tiny)
+#ifdef PSA_WANT_ALG_GCM
+    check(aes_oneshot(PSA_ALG_GCM, 0) == PSA_SUCCESS &&
+          aes_oneshot(PSA_ALG_CCM, 0) == PSA_ERROR_NOT_SUPPORTED,
+          "WT_AEAD=gcm offers GCM and not CCM");
+#else
+    check(aes_oneshot(PSA_ALG_CCM, 0) == PSA_SUCCESS &&
+          aes_oneshot(PSA_ALG_GCM, 0) == PSA_ERROR_NOT_SUPPORTED,
+          "the one-AEAD profiles offer CCM and not GCM");
+#endif
+#else
+    check(aes_oneshot(PSA_ALG_GCM, 0) == PSA_SUCCESS &&
+          aes_oneshot(PSA_ALG_CCM, 0) == PSA_SUCCESS,
+          "extended and default offer GCM and CCM");
+#endif
     k = ecc_key(&ecc);
     if (k != PSA_KEY_ID_NULL) {
         (void)psa_destroy_key(k);
     }
-#if defined(WT_SECURE_PSA_compat)
-    check(aes_oneshot(PSA_ALG_CCM, 0) == PSA_SUCCESS, "compat keeps CCM");
+    check(kdf_setup(PSA_ALG_HKDF(PSA_ALG_SHA_256)) == PSA_SUCCESS,
+          "every profile keeps HKDF");
+    check(aes_oneshot(PSA_ALG_CTR, 0) == PSA_SUCCESS,
+          "every profile keeps AES-CTR");
+#if defined(WT_SECURE_PSA_extended)
+    check(kdf_setup(PSA_ALG_SP800_108_COUNTER_HMAC(PSA_ALG_SHA_256)) ==
+          PSA_SUCCESS, "extended keeps SP 800-108 HMAC");
+    check(aes_oneshot(PSA_ALG_CCM_STAR_NO_TAG, 0) == PSA_SUCCESS,
+          "extended keeps CCM* without a tag");
+#else
+    check(kdf_setup(PSA_ALG_SP800_108_COUNTER_HMAC(PSA_ALG_SHA_256)) ==
+          PSA_ERROR_NOT_SUPPORTED, "only extended offers SP 800-108");
+    check(aes_oneshot(PSA_ALG_CCM_STAR_NO_TAG, 0) == PSA_ERROR_NOT_SUPPORTED,
+          "only extended offers CCM* without a tag");
+#endif
+#if defined(WT_SECURE_PSA_extended)
     check(aes_oneshot(PSA_ALG_CBC_NO_PADDING, 1) == PSA_SUCCESS,
-          "compat keeps CBC decryption");
-    check(pbkdf2_setup() == PSA_SUCCESS, "compat keeps PBKDF2");
-    check(ecc == PSA_SUCCESS, "compat keeps ECC");
-#elif defined(WT_SECURE_PSA_standard)
-    check(aes_oneshot(PSA_ALG_CCM, 0) == PSA_SUCCESS, "standard keeps CCM");
+          "extended keeps CBC decryption");
+    check(kdf_setup(PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256)) == PSA_SUCCESS,
+          "extended keeps PBKDF2");
+    check(ecc == PSA_SUCCESS, "extended keeps ECC");
+#elif defined(WT_SECURE_PSA_default)
     check(aes_oneshot(PSA_ALG_CBC_NO_PADDING, 0) == PSA_ERROR_NOT_SUPPORTED,
-          "standard compiles out CBC");
-    check(pbkdf2_setup() == PSA_ERROR_NOT_SUPPORTED,
-          "standard compiles out PBKDF2");
-    check(ecc == PSA_SUCCESS, "standard keeps ECC");
-#elif defined(WT_SECURE_PSA_lean)
-    check(aes_oneshot(PSA_ALG_CCM, 0) == PSA_ERROR_NOT_SUPPORTED,
-          "lean compiles out CCM");
+          "default compiles out CBC");
+    check(kdf_setup(PSA_ALG_PBKDF2_HMAC(PSA_ALG_SHA_256)) ==
+          PSA_ERROR_NOT_SUPPORTED, "default compiles out PBKDF2");
+    check(ecc == PSA_SUCCESS, "default keeps ECC");
+#elif defined(WT_SECURE_PSA_small)
     check(aes_oneshot(PSA_ALG_ECB_NO_PADDING, 1) == PSA_ERROR_NOT_SUPPORTED,
-          "lean compiles out AES decryption");
-    check(ecc == PSA_SUCCESS, "lean keeps ECC");
-#elif defined(WT_SECURE_PSA_symmetric)
-    check(aes_oneshot(PSA_ALG_CCM, 0) == PSA_ERROR_NOT_SUPPORTED,
-          "symmetric compiles out CCM");
-    check(ecc == PSA_ERROR_NOT_SUPPORTED, "symmetric compiles out ECC");
+          "small compiles out AES decryption");
+    check(ecc == PSA_SUCCESS, "small keeps ECC");
+#elif defined(WT_SECURE_PSA_tiny)
+    check(ecc == PSA_ERROR_NOT_SUPPORTED, "tiny compiles out ECC");
 #endif
 }
 
@@ -224,16 +256,16 @@ static void test_lost_message(void)
           "a long hash works again after the lost piece");
     k = aes_key(PSA_KEY_ID_NULL, 0x77, &st);
     check(st == PSA_SUCCESS &&
-          psa_aead_encrypt(k, PSA_ALG_GCM, nonce, sizeof(nonce), NULL, 0U,
+          psa_aead_encrypt(k, WT_TEST_AEAD, nonce, sizeof(nonce), NULL, 0U,
                            big, sizeof(big), ct, sizeof(ct), &len) ==
-          PSA_SUCCESS, "GCM encrypt for the lost-message decrypt");
+          PSA_SUCCESS, "AEAD encrypt for the lost-message decrypt");
     (void)memset(pt, 0xAA, sizeof(pt));
     wt_test_fail_call(7);
-    check(psa_aead_decrypt(k, PSA_ALG_GCM, nonce, sizeof(nonce), NULL, 0U,
+    check(psa_aead_decrypt(k, WT_TEST_AEAD, nonce, sizeof(nonce), NULL, 0U,
                            ct, len, pt, sizeof(pt), &len2) ==
           PSA_ERROR_COMMUNICATION_FAILURE && len2 == 0U && pt[0] == 0U &&
           pt[100] == 0U, "a lost piece of a long decrypt leaves no plaintext");
-    check(psa_aead_decrypt(k, PSA_ALG_GCM, nonce, sizeof(nonce), NULL, 0U,
+    check(psa_aead_decrypt(k, WT_TEST_AEAD, nonce, sizeof(nonce), NULL, 0U,
                            ct, len, pt, sizeof(pt), &len2) == PSA_SUCCESS &&
           len2 == sizeof(big) && memcmp(pt, big, sizeof(big)) == 0,
           "the decrypt works again after the lost piece");
@@ -278,24 +310,24 @@ static void test_large_oneshots(psa_key_id_t k, const uint8_t* nonce)
     for (i = 0U; i < sizeof(msg); i++) {
         msg[i] = (uint8_t)(i * 7U);
     }
-    check(psa_aead_encrypt(k, PSA_ALG_GCM, nonce, 12U, msg, 700U, msg,
+    check(psa_aead_encrypt(k, WT_TEST_AEAD, nonce, 12U, msg, 700U, msg,
                            sizeof(msg), ct, sizeof(ct), &len) == PSA_SUCCESS &&
           len == sizeof(msg) + 16U &&
-          psa_aead_decrypt(k, PSA_ALG_GCM, nonce, 12U, msg, 700U, ct, len, pt,
+          psa_aead_decrypt(k, WT_TEST_AEAD, nonce, 12U, msg, 700U, ct, len, pt,
                            sizeof(pt), &len2) == PSA_SUCCESS &&
           len2 == sizeof(msg) && memcmp(pt, msg, sizeof(msg)) == 0,
-          "5,000-byte GCM round trip with a 700-byte AD");
-    check(psa_aead_encrypt(k, PSA_ALG_GCM, nonce, 12U, msg, 700U, msg,
+          "5,000-byte AEAD round trip with a 700-byte AD");
+    check(psa_aead_encrypt(k, WT_TEST_AEAD, nonce, 12U, msg, 700U, msg,
                            sizeof(msg), ct, sizeof(msg), &len) ==
           PSA_ERROR_BUFFER_TOO_SMALL && len == 0U,
-          "a long GCM encrypt with no room for the tag fails");
+          "a long AEAD encrypt with no room for the tag fails");
     ct[sizeof(msg) - 1U] ^= 1U;
     (void)memset(pt, 0xAA, sizeof(pt));
-    check(psa_aead_decrypt(k, PSA_ALG_GCM, nonce, 12U, msg, 700U, ct,
+    check(psa_aead_decrypt(k, WT_TEST_AEAD, nonce, 12U, msg, 700U, ct,
                            sizeof(msg) + 16U, pt, sizeof(pt), &len2) ==
           PSA_ERROR_INVALID_SIGNATURE && len2 == 0U && pt[0] == 0U &&
           pt[sizeof(pt) - 1U] == 0U,
-          "a long GCM decrypt with a bad tag leaves no plaintext");
+          "a long AEAD decrypt with a bad tag leaves no plaintext");
     check(psa_hash_compute(PSA_ALG_SHA_256, msg, sizeof(msg), hash,
                            sizeof(hash), &len) == PSA_SUCCESS &&
           psa_hash_setup(&op, PSA_ALG_SHA_256) == PSA_SUCCESS &&
@@ -335,7 +367,7 @@ static void test_arena_isolation(void)
     k = aes_key(PSA_KEY_ID_NULL, 0x24, &st);
     for (nops = 0U; st == PSA_SUCCESS && nops < 8U; nops++) {
         ops[nops] = psa_aead_operation_init();
-        st = psa_aead_encrypt_setup(&ops[nops], k, PSA_ALG_GCM);
+        st = psa_aead_encrypt_setup(&ops[nops], k, WT_TEST_AEAD);
         if (st == PSA_SUCCESS) {
             st = psa_aead_set_nonce(&ops[nops], nonce, sizeof(nonce));
         }
@@ -352,10 +384,10 @@ static void test_arena_isolation(void)
     wt_test_set_client(GUEST1);
     k = aes_key(PSA_KEY_ID_NULL, 0x26, &st);
     check(st == PSA_SUCCESS &&
-          psa_aead_encrypt(k, PSA_ALG_GCM, nonce, sizeof(nonce), msg, 300U,
+          psa_aead_encrypt(k, WT_TEST_AEAD, nonce, sizeof(nonce), msg, 300U,
                            msg, sizeof(msg), ct, sizeof(ct), &len) ==
           PSA_SUCCESS && len == sizeof(msg) + 16U,
-          "guest1 runs a long GCM while guest0 holds everything it can");
+          "guest1 runs a long AEAD while guest0 holds everything it can");
     (void)psa_destroy_key(k);
 
     wt_test_set_client(GUEST0);
@@ -365,7 +397,7 @@ static void test_arena_isolation(void)
     check(raw_init() == PSA_SUCCESS, "guest0 restarts and drops its state");
     k = aes_key(PSA_KEY_ID_NULL, 0x27, &st);
     check(st == PSA_SUCCESS &&
-          psa_aead_encrypt(k, PSA_ALG_GCM, nonce, sizeof(nonce), NULL, 0U,
+          psa_aead_encrypt(k, WT_TEST_AEAD, nonce, sizeof(nonce), NULL, 0U,
                            msg, sizeof(msg), ct, sizeof(ct), &len) ==
           PSA_SUCCESS, "guest0's arena is whole again after its restart");
     (void)psa_destroy_key(k);
@@ -423,25 +455,25 @@ static void test_basic(void)
     check(psa_get_key_attributes(k, &attr) == PSA_SUCCESS &&
           psa_get_key_type(&attr) == PSA_KEY_TYPE_AES &&
           psa_get_key_bits(&attr) == 128U, "get_key_attributes of the new key");
-    st = psa_aead_encrypt(k, PSA_ALG_GCM, nonce, sizeof(nonce), big, 20U, big,
+    st = psa_aead_encrypt(k, WT_TEST_AEAD, nonce, sizeof(nonce), big, 20U, big,
                           sizeof(big), ct, sizeof(ct), &len);
     check(st == PSA_SUCCESS && len == sizeof(big) + 16U,
-          "GCM encrypt of 1500 bytes");
-    st = psa_aead_decrypt(k, PSA_ALG_GCM, nonce, sizeof(nonce), big, 20U, ct,
+          "AEAD encrypt of 1500 bytes");
+    st = psa_aead_decrypt(k, WT_TEST_AEAD, nonce, sizeof(nonce), big, 20U, ct,
                           len, pt, sizeof(pt), &len2);
     check(st == PSA_SUCCESS && len2 == sizeof(big) &&
-          memcmp(pt, big, sizeof(big)) == 0, "GCM decrypt round trip");
+          memcmp(pt, big, sizeof(big)) == 0, "AEAD decrypt round trip");
     ct[5] ^= 1U;
     (void)memset(pt, 0xAA, sizeof(pt));
-    st = psa_aead_decrypt(k, PSA_ALG_GCM, nonce, sizeof(nonce), big, 20U, ct,
+    st = psa_aead_decrypt(k, WT_TEST_AEAD, nonce, sizeof(nonce), big, 20U, ct,
                           len, pt, sizeof(pt), &len2);
     check(st == PSA_ERROR_INVALID_SIGNATURE && len2 == 0U && pt[0] == 0U &&
           pt[100] == 0U && pt[sizeof(pt) - 1U] == 0U,
-          "GCM bad tag fails and releases no plaintext");
+          "AEAD bad tag fails and releases no plaintext");
     test_large_oneshots(k, nonce);
     check(psa_destroy_key(k) == PSA_SUCCESS, "destroy volatile key");
 
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
     k = ecc_key(&st);
     check(st == PSA_SUCCESS, "generate P-256 key in Secure");
     st = psa_sign_hash(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), hash, sizeof(hash),
@@ -542,6 +574,109 @@ static void test_isolation(void)
     check(raw_key_op(WT_CRYPTO_OP_KEY_GENERATE, WT_PSA_UID(6U)) ==
           PSA_ERROR_NOT_PERMITTED,
           "the native key wire cannot create in the PSA uid range");
+}
+
+static void refused(psa_status_t st, const char* what)
+{
+    check(st == PSA_ERROR_INVALID_HANDLE, what);
+}
+
+/* Every wire call that names a key, from the client that does not own it */
+static void test_foreign_key(void)
+{
+    psa_key_attributes_t attr = psa_key_attributes_init();
+    psa_mac_operation_t mop = PSA_MAC_OPERATION_INIT;
+    psa_cipher_operation_t cop = PSA_CIPHER_OPERATION_INIT;
+    psa_aead_operation_t aop = PSA_AEAD_OPERATION_INIT;
+    psa_key_derivation_operation_t kop = PSA_KEY_DERIVATION_OPERATION_INIT;
+    const psa_algorithm_t hmac = PSA_ALG_HMAC(PSA_ALG_SHA_256);
+    uint8_t in[32];
+    uint8_t out[80];
+    uint8_t nonce[13];
+    psa_key_id_t k;
+    psa_key_id_t id = PSA_KEY_ID_NULL;
+    psa_status_t st;
+    size_t len = 0U;
+
+    (void)memset(in, 0x3C, sizeof(in));
+    (void)memset(out, 0x5A, sizeof(out));
+    (void)memset(nonce, 0x11, sizeof(nonce));
+    wt_test_set_client(GUEST0);
+    k = aes_key(PSA_KEY_ID_NULL, 0x44, &st);
+    check(st == PSA_SUCCESS, "guest0 imports the key guest1 will name");
+
+    wt_test_set_client(GUEST1);
+    refused(psa_get_key_attributes(k, &attr), "foreign key: get attributes");
+    refused(psa_export_public_key(k, out, sizeof(out), &len),
+            "foreign key: export public key");
+    refused(psa_purge_key(k), "foreign key: purge");
+    psa_set_key_usage_flags(&attr, PSA_KEY_USAGE_EXPORT);
+    refused(psa_copy_key(k, &attr, &id), "foreign key: copy");
+    refused(psa_mac_compute(k, hmac, in, 16U, out, sizeof(out), &len),
+            "foreign key: MAC compute");
+    refused(psa_mac_verify(k, hmac, in, 16U, in, 32U),
+            "foreign key: MAC verify");
+    refused(psa_mac_sign_setup(&mop, k, hmac), "foreign key: MAC sign setup");
+    (void)psa_mac_abort(&mop);
+    refused(psa_mac_verify_setup(&mop, k, hmac),
+            "foreign key: MAC verify setup");
+    (void)psa_mac_abort(&mop);
+    refused(psa_cipher_encrypt(k, PSA_ALG_ECB_NO_PADDING, in, 16U, out,
+                               sizeof(out), &len), "foreign key: cipher encrypt");
+    refused(psa_cipher_decrypt(k, PSA_ALG_ECB_NO_PADDING, in, 16U, out,
+                               sizeof(out), &len), "foreign key: cipher decrypt");
+    refused(psa_cipher_encrypt_setup(&cop, k, PSA_ALG_ECB_NO_PADDING),
+            "foreign key: cipher encrypt setup");
+    (void)psa_cipher_abort(&cop);
+    refused(psa_cipher_decrypt_setup(&cop, k, PSA_ALG_ECB_NO_PADDING),
+            "foreign key: cipher decrypt setup");
+    (void)psa_cipher_abort(&cop);
+    refused(psa_aead_encrypt(k, WT_TEST_AEAD, nonce, 12U, in, 8U, in, 16U, out,
+                             sizeof(out), &len), "foreign key: AEAD encrypt");
+    refused(psa_aead_decrypt(k, WT_TEST_AEAD, nonce, 12U, in, 8U, in, 32U, out,
+                             sizeof(out), &len), "foreign key: AEAD decrypt");
+    refused(psa_aead_encrypt_setup(&aop, k, WT_TEST_AEAD),
+            "foreign key: AEAD encrypt setup");
+    (void)psa_aead_abort(&aop);
+    refused(psa_aead_decrypt_setup(&aop, k, WT_TEST_AEAD),
+            "foreign key: AEAD decrypt setup");
+    (void)psa_aead_abort(&aop);
+    if (psa_key_derivation_setup(&kop, PSA_ALG_HKDF(PSA_ALG_SHA_256)) ==
+            PSA_SUCCESS) {
+        refused(psa_key_derivation_input_key(&kop,
+                PSA_KEY_DERIVATION_INPUT_SECRET, k), "foreign key: KDF input");
+        refused(psa_key_derivation_verify_key(&kop, k),
+                "foreign key: KDF verify key");
+#ifndef WT_SECURE_PSA_tiny
+        refused(psa_key_derivation_key_agreement(&kop,
+                PSA_KEY_DERIVATION_INPUT_SECRET, k, out, 65U),
+                "foreign key: KDF key agreement");
+#endif
+        (void)psa_key_derivation_abort(&kop);
+    }
+#ifndef WT_SECURE_PSA_tiny
+    refused(psa_sign_hash(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), in, 32U, out,
+                          sizeof(out), &len), "foreign key: sign hash");
+    refused(psa_verify_hash(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), in, 32U, out,
+                            64U), "foreign key: verify hash");
+    refused(psa_sign_message(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), in, 16U, out,
+                             sizeof(out), &len), "foreign key: sign message");
+    refused(psa_verify_message(k, PSA_ALG_ECDSA(PSA_ALG_SHA_256), in, 16U, out,
+                               64U), "foreign key: verify message");
+    refused(psa_asymmetric_encrypt(k, PSA_ALG_RSA_PKCS1V15_CRYPT, in, 16U,
+                                   NULL, 0U, out, sizeof(out), &len),
+            "foreign key: asymmetric encrypt");
+    refused(psa_asymmetric_decrypt(k, PSA_ALG_RSA_PKCS1V15_CRYPT, in, 16U,
+                                   NULL, 0U, out, sizeof(out), &len),
+            "foreign key: asymmetric decrypt");
+    refused(psa_raw_key_agreement(PSA_ALG_ECDH, k, out, 65U, in, sizeof(in),
+                                  &len), "foreign key: raw key agreement");
+    refused(psa_key_agreement(k, out, 65U, PSA_ALG_ECDH, &attr, &id),
+            "foreign key: key agreement");
+#endif
+
+    wt_test_set_client(GUEST0);
+    check(psa_destroy_key(k) == PSA_SUCCESS, "guest0 still owns the key");
 }
 
 static void test_quota_and_reset(void)
@@ -650,18 +785,68 @@ static void test_token_exhaustion(void)
           "a service restart gives guest0 fresh slots");
 }
 
+/* The vault's AES-256 key ops run its AEAD, which is wolfPSA's streaming CCM
+ * when WT_AEAD_CCM builds with WT_SECURE_PSA. */
+static void test_vault_aead(void)
+{
+    static const uint8_t msg[] = "vault AEAD in the Secure PSA image";
+    wt_crypto_wire_req_t hdr;
+    uint8_t ct[sizeof(msg) + WT_VAULT_KEY_NONCE_LEN + WT_VAULT_KEY_TAG_LEN];
+    uint8_t pt[sizeof(msg)];
+    size_t ct_len = 0U;
+    size_t pt_len = 0U;
+    psa_status_t st;
+    int ok;
+
+    (void)memset(&hdr, 0, sizeof(hdr));
+    hdr.uid = 0x3001ULL;
+    hdr.op = WT_CRYPTO_OP_KEY_GENERATE;
+    hdr.usage = WT_VAULT_KEY_USAGE_ENCRYPT | WT_VAULT_KEY_USAGE_DECRYPT;
+    hdr.key_type = WT_VAULT_KEY_AES256;
+    st = wt_crypto_native_call(&hdr, NULL, 0U, NULL, 0U, &pt_len);
+    check(st == PSA_SUCCESS, "vault AES-256 key generates");
+
+    hdr.usage = 0U;
+    hdr.key_type = 0U;
+    hdr.op = WT_CRYPTO_OP_KEY_ENCRYPT;
+    st = wt_crypto_native_call(&hdr, msg, sizeof(msg), ct, sizeof(ct),
+                               &ct_len);
+    ok = (st == PSA_SUCCESS && ct_len == sizeof(ct));
+    check(ok, "vault encrypt frames nonce || ciphertext || tag");
+    hdr.op = WT_CRYPTO_OP_KEY_DECRYPT;
+    if (!ok) {
+        hdr.op = WT_CRYPTO_OP_KEY_DESTROY;
+        (void)wt_crypto_native_call(&hdr, NULL, 0U, NULL, 0U, &pt_len);
+        return;
+    }
+    st = wt_crypto_native_call(&hdr, ct, ct_len, pt, sizeof(pt), &pt_len);
+    check(st == PSA_SUCCESS && pt_len == sizeof(msg) &&
+          memcmp(pt, msg, sizeof(msg)) == 0,
+          "vault decrypt recovers the plaintext");
+    ct[ct_len - 1U] ^= 0x01U;
+    pt_len = 1U;
+    st = wt_crypto_native_call(&hdr, ct, ct_len, pt, sizeof(pt), &pt_len);
+    check(st == PSA_ERROR_INVALID_SIGNATURE && pt_len == 0U,
+          "vault decrypt rejects a tampered tag and returns no plaintext");
+    hdr.op = WT_CRYPTO_OP_KEY_DESTROY;
+    check(wt_crypto_native_call(&hdr, NULL, 0U, NULL, 0U, &pt_len) ==
+          PSA_SUCCESS, "vault AES-256 key destroys");
+}
+
 int main(void)
 {
     wt_test_set_client(GUEST0);
     test_basic();
     test_profile();
     test_isolation();
+    test_foreign_key();
     test_quota_and_reset();
     test_service_restart();
     test_token_exhaustion();
     test_lost_message();
     test_malformed_reply();
     test_arena_isolation();
+    test_vault_aead();
     (void)printf("%s: %d failure(s)\n", g_failures ? "FAIL" : "PASS",
                  g_failures);
     return g_failures ? 1 : 0;

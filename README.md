@@ -119,7 +119,7 @@ make test
 
 The Secure build produces `build/wolftrust.elf`,
 `build/wolftrust.bin`, and `build/secure_cmse_implib.o`. `make` builds the
-lean default image: isolation level 3, one Non-secure guest, and the Crypto,
+`default` profile: isolation level 3, one Non-secure guest, and the Crypto,
 ITS, Protected Storage and attestation services. Add-ons such as a second
 guest (`WT_MAX_GUESTS=2`) or firmware update (`WT_FWU=1`) are one Make
 variable each; see [Build profiles](docs/Macros.md#build-profiles).
@@ -148,7 +148,7 @@ make test-hardware TARGET=stm32h563
 make test-hardware TARGET=mcxn947
 ```
 
-`make test-target` runs the port's smoke tier under M33MU (`WT_TIER=full` for
+`make test-target` runs the port's smoke tier under M33MU (`WT_TIER=all` for
 every scenario): the STM32H563 default skips explicitly when M33MU is
 unavailable, and `TARGET=mimxrt700` or `TARGET=mcxn947` builds its pinned
 emulator and wolfBoot first stage itself.

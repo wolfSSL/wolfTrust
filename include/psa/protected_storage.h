@@ -19,7 +19,7 @@
  */
 
 /* PSA Protected Storage API (SRC-PSA-STORAGE). Served by SERVICE_PS: every
- * object is AES-GCM sealed under a device-unique wolfHSM key with default-on
+ * object is AES-256 AEAD sealed under a device-unique wolfHSM key with default-on
  * rollback protection (WT-FFM-0048) — confidentiality and replay protection
  * are not optional features in wolfTrust. Definitions arrive with the NSPE
  * client shim (P4-S6); Secure-side dispatch is storage_service.c. */

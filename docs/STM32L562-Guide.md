@@ -26,7 +26,7 @@ RDP. The only RDP write is a typed regression back to level 0.
     wolfBoot's `hal/stm32l5_lifecycle.h`, and the emulator profile checks the
     copy matches the pinned wolfBoot before every boot.
 - **Emulator:** on this layout, under m33mu 268fbef3 with the carried patch, the
-  smoke tier passes 6 of 6. Across two full-tier runs every one of the 46
+  smoke tier passes 6 of 6. Across two `all`-tier runs every one of the 46
   scenarios has passed. The patch's FLASH TrustZone model also has its own unit
   test, which the profile runs before each boot.
 - **Board:** none for this layout. An earlier layout ran on a DK, with the

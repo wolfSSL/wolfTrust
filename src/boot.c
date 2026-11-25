@@ -106,7 +106,8 @@ void wt_boot_run(void)
         }
     }
 #endif
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1) && \
+    !defined(WT_ATTEST_KEY_hmac)
     if (wt_hsm_attest_bootstrap() != WH_ERROR_OK) {
         /* The vault could not be provisioned and auto-reformat was not
          * permitted (a foreign or corrupt pool on a SECURED device). Boot

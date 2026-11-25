@@ -24,9 +24,22 @@ WOLFPSA := $(ROOT)/lib/wolfPSA
 
 CC ?= cc
 BUILD_DIR ?= build
-# run builds and runs every WT_SECURE_PSA_PROFILE; run-one takes PROFILE.
-PROFILE ?= compat
-PROFILES := compat standard lean symmetric
+# run builds and runs every WT_SECURE_PSA_PROFILE, small on GCM and tiny with
+# no ECC in wolfCrypt; run-one takes PROFILE, AEAD (WT_AEAD) and NO_ECC.
+PROFILE ?= default
+AEAD ?=
+NO_ECC ?=
+PROFILES := extended default small tiny
+# A pass whose EXTRA_CFLAGS already picks the AEAD skips the small-gcm run
+RUNS := $(PROFILES) tiny-noecc $(if $(findstring WT_AEAD_,$(EXTRA_CFLAGS)),,small-gcm)
+NO_ECC_CFLAGS := $(if $(NO_ECC),-DWT_NO_ECC=1 -DWT_VAULT_ECC=0 -DWT_KEYVAULT_P256=0)
+AEAD_CFLAGS := $(if $(filter gcm,$(AEAD)),-DWT_AEAD_GCM)$(if $(filter ccm,$(AEAD)),-DWT_AEAD_CCM)
+# small and tiny offer one PSA AEAD, CCM unless GCM is asked for
+ONE_AEAD_GCM := $(or $(filter gcm,$(AEAD)),$(findstring WT_AEAD_GCM,$(EXTRA_CFLAGS)))
+WANT_WITHOUT := $(if $(filter small tiny,$(PROFILE)),$(if $(ONE_AEAD_GCM),,--without PSA_WANT_ALG_GCM)) \
+    $(if $(filter-out extended,$(PROFILE)),--without PSA_WANT_ALG_SP800_108_COUNTER_HMAC \
+    --without PSA_WANT_ALG_SP800_108_COUNTER_CMAC \
+    --without PSA_WANT_ALG_CCM_STAR_NO_TAG)
 
 WARN := -std=c11 -O0 -g -Wall -Wextra -Werror -pedantic \
     -Wno-unused-function -Wno-unused-parameter
@@ -40,23 +53,28 @@ SRV_CFLAGS := \
     -DWOLFSSL_PSA_ENGINE -DWOLFPSA_CUSTOM_STORE -DWOLFPSA_NO_TRACE -DWOLFPSA_AEAD_BORROW \
     -DWOLFPSA_AEAD_STREAM_AAD \
     -I. -I$(ROOT)/include -I$(WOLFHSM) -I$(WOLFSSL) -I$(WOLFPSA) \
-    -I$(WOLFPSA)/wolfpsa -I$(BUILD_DIR)/wolfpsa_cfg $(EXTRA_CFLAGS)
+    -I$(WOLFPSA)/wolfpsa -I$(BUILD_DIR)/wolfpsa_cfg $(AEAD_CFLAGS) \
+    $(NO_ECC_CFLAGS) $(EXTRA_CFLAGS)
 LIB_CFLAGS := $(SRV_CFLAGS) -O0 -g -w
 
 # The Non-secure side: the client library only, no crypto.
 CLI_CFLAGS := -I. -I$(ROOT)/include -I$(WOLFPSA)/wolfpsa -I$(BUILD_DIR)/wolfpsa_cfg $(WARN) \
-    -DWT_SECURE_PSA_$(PROFILE)=1 \
+    -DWT_SECURE_PSA_$(PROFILE)=1 $(AEAD_CFLAGS) \
     $(EXTRA_CFLAGS)
 
 _SRV_WT := \
     $(ROOT)/src/services/native/psa_crypto_service.c \
     $(ROOT)/src/services/native/native_wire.c \
     $(ROOT)/src/services/native/keyvault.c \
+    $(ROOT)/src/services/wolfhsm/wt_hsm_aead.c \
     $(ROOT)/src/services/wolfhsm/wt_hsm_vault.c
 
 _SRV_WH := wh_nvm wh_nvm_flash wh_flash_ramsim wh_flash_unit wh_utils
 _SRV_WC := aes coding ecc sp_int wolfmath sha256 random memory error logging \
-    hash wc_port misc hmac kdf pwdbased
+    hash wc_port misc hmac kdf pwdbased sp_c32 sp_c64
+ifneq ($(NO_ECC),)
+_SRV_WC := $(filter-out ecc sp_int wolfmath sp_c32 sp_c64,$(_SRV_WC))
+endif
 _SRV_WP := $(notdir $(basename $(filter-out %/psa_store_posix.c \
     %/psa_store_zephyr.c %/psa_attestation.c %/psa_ffm.c %/psa_its.c \
     %/misc_impl.c %/psa_tf_psa.c,$(wildcard $(WOLFPSA)/src/*.c))))
@@ -76,7 +94,7 @@ CLI_OBJS := $(BUILD_DIR)/psa_crypto_client.o \
 SRV_BIN := $(BUILD_DIR)/psa_server
 TEST_BIN := $(BUILD_DIR)/test_psa_secure_crypto
 
-.PHONY: all run run-one compilers sanitize valgrind clean
+.PHONY: all run run-one compilers sanitize valgrind valgrind-one clean FORCE
 
 all: $(SRV_BIN) $(TEST_BIN)
 
@@ -84,11 +102,12 @@ $(BUILD_DIR):
 	mkdir -p $@
 
 # Both sides see the PSA_WANT_* surface of the service's wolfCrypt set.
+# FORCE: the generator rewrites the header only when the surface changes.
 PSA_CFG_H := $(BUILD_DIR)/wolfpsa_cfg/crypto_config_generated.h
 $(PSA_CFG_H): $(WOLFPSA)/tools/gen-crypto-config.py \
-    $(WOLFPSA)/tools/psa_want_probe.c user_settings.h | $(BUILD_DIR)
+    $(WOLFPSA)/tools/psa_want_probe.c user_settings.h FORCE | $(BUILD_DIR)
 	mkdir -p $(dir $@)
-	python3 $(WOLFPSA)/tools/gen-crypto-config.py $@ "$(CC)" \
+	python3 $(WOLFPSA)/tools/gen-crypto-config.py $(WANT_WITHOUT) $@ "$(CC)" \
 	    $(WOLFPSA)/tools/psa_want_probe.c $(SRV_CFLAGS) -DWT_PSA_WANT_PROBE
 $(SRV_OBJS) $(CLI_OBJS) $(BUILD_DIR)/main.o: $(PSA_CFG_H)
 
@@ -130,11 +149,13 @@ $(SRV_BIN): $(SRV_OBJS)
 $(TEST_BIN): $(CLI_OBJS) $(BUILD_DIR)/main.o
 	$(CC) $(EXTRA_LDFLAGS) -o $@ $^
 
-run:
-	@for p in $(PROFILES); do \
-		echo "== profile $$p"; \
-		$(MAKE) --no-print-directory run-one PROFILE=$$p \
-			BUILD_DIR=$(BUILD_DIR)/$$p || exit 1; \
+run valgrind:
+	@for r in $(RUNS); do \
+		p=$${r%-gcm}; a=; [ "$$p" = "$$r" ] || a=gcm; \
+		n=; case $$r in *-noecc) p=$${r%-noecc}; n=1 ;; esac; \
+		echo "== profile $$r"; \
+		$(MAKE) --no-print-directory $@-one PROFILE=$$p AEAD=$$a NO_ECC=$$n \
+			BUILD_DIR=$(BUILD_DIR)/$$r || exit 1; \
 	done
 
 run-one: all
@@ -151,10 +172,12 @@ sanitize:
 		EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
 		EXTRA_LDFLAGS="-fsanitize=address,undefined"
 
-valgrind: all
+valgrind-one: all
 	rm -f $(BUILD_DIR)/flash.bin
 	valgrind --error-exitcode=1 --leak-check=full \
 		--trace-children=yes $(TEST_BIN)
 
 clean:
 	rm -rf $(BUILD_DIR)
+
+FORCE:

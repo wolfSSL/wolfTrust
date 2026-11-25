@@ -1,14 +1,14 @@
 # Crypto operation profiles
 
 `WT_ENGINE=native|hsm` selects the crypto engine independently of the application
-API. `WT_INTERFACE_PROFILE=default|full` selects the exported operations. Native is
+API. `WT_INTERFACE_PROFILE=default|extended` selects the exported operations. Native is
 the default engine. Neither TPM nor PKCS#11 requires wolfHSM.
 
 The default profile covers RNG, SHA-256 and P-256 key generation, signing and
 verification. It also includes the key, session and token management needed to
 use those operations. PKCS#11 retains PIN setup, login, attempt limits and
 recovery. `config/crypto-profiles.json` is the explicit default operation list.
-The full profile retains the broader operations supported by the pinned
+The extended profile retains the broader operations supported by the pinned
 libraries and this platform's algorithm and memory configuration.
 
 ## Select operations
@@ -17,7 +17,7 @@ Use the same settings for the application and Secure image:
 
 ```sh
 make secure-image CONFIG_PKCS11=y WT_ENGINE=native WT_INTERFACE_PROFILE=default
-make secure-image CONFIG_TPM=y WT_ENGINE=hsm WT_INTERFACE_PROFILE=full
+make secure-image CONFIG_TPM=y WT_ENGINE=hsm WT_INTERFACE_PROFILE=extended
 
 WT_INTERFACE_ENABLE='pkcs11:C_GetObjectSize tpm:PCR_Read' \
 WT_INTERFACE_DISABLE='pkcs11:C_GenerateRandom' \
@@ -60,7 +60,7 @@ python3 tools/crypto_profile.py --output build/crypto-profile \
 The command catalog includes dependency commands whose algorithm or feature
 family can be disabled by platform settings. Selection does not override those
 settings or provide missing NV storage. A default-derived TPM selection checks
-that every requested command survived those guards. The full profile retains
+that every requested command survived those guards. The extended profile retains
 the dependency guards; `TPM_CAP_COMMANDS` reports the commands actually built.
 
 ## What is removed
@@ -86,7 +86,7 @@ TPM and PKCS#11 images link no wolfPSA Crypto implementation. Their `psa_call`
 functions are the FF-M IPC boundary.
 
 The basic selection also omits unused AES-CTR, CCM and deterministic-ECDSA
-extensions from the Secure image. Full profiles and broader custom command or
+extensions from the Secure image. Extended profiles and broader custom command or
 mechanism selections restore those extensions. Required CFB and PIN primitives
 remain enabled. The basic TPM image uses wolfCrypt's original ASN codec;
 broader TPM profiles and PKCS#11 retain the template codec. Host tests cover
@@ -94,7 +94,7 @@ both codecs, malformed keys and signatures, and cross-codec key decoding.
 
 HSM callback dispatch for basic TPM/PKCS#11 selections retains RNG, SHA-256
 and P-256. It omits unrequested AES and HKDF dispatch after loading the complete
-shared type definitions. Full and broader custom selections retain the original
+shared type definitions. Extended and broader custom selections retain the original
 callback. No dependency files or structure layouts are changed.
 
 ## Reference builds and verification
@@ -119,7 +119,7 @@ the bare-metal TPM 2.0 and PKCS#11 applications and their partition-isolation
 scenarios.
 
 Run `make test` for the host regressions. The target runner builds the
-interface profile named by `WT_PROFILE` (`default` or `full`) unless
+interface profile named by `WT_PROFILE` (`default` or `extended`) unless
 `WT_INTERFACE_PROFILE` is set; product builds default to `default`.
 Applications must match the selected operation list.
 

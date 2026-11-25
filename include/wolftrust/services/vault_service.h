@@ -104,7 +104,7 @@ typedef struct wt_vault_nvm_avail {
 #define WT_VAULT_FLAG_NO_REPLAY          0x4U
 
 /* Internal flag a storage frontend ORs in (never a PSA create flag): the
- * object is AES-GCM sealed under the device-unique wolfHSM key with the
+ * object is AES-256 AEAD sealed under the device-unique wolfHSM key with the
  * monotonic rollback counter as nonce (WT-FFM-0048). Sealing runs inside the
  * confined vault partition. */
 #define WT_VAULT_FLAG_SEALED 0x10000U
@@ -132,7 +132,7 @@ typedef struct wt_vault_nvm_avail {
 /* Fixed sizes on the key wire: P-256 private scalar / AES-256 key material
  * (import payload), X9.63 public point (export_public), SHA-256 digest and
  * raw r||s signature (sign/verify: invec[1] = [digest][sig] on verify), and
- * the AES-GCM ciphertext framing [nonce][ct][tag] (encrypt/decrypt). */
+ * the AES-256 AEAD ciphertext framing [nonce][ct][tag] (encrypt/decrypt). */
 #define WT_VAULT_KEY_MATERIAL_LEN 32U
 #define WT_VAULT_KEY_PUB_LEN      65U
 #define WT_VAULT_KEY_DIGEST_LEN   32U

@@ -33,7 +33,12 @@
 /* wolfCrypt settings must come first. */
 #include "wolfssl/wolfcrypt/settings.h"
 #include "wolfssl/wolfcrypt/types.h"
+#ifndef WT_KEYVAULT_P256
+#define WT_KEYVAULT_P256 1
+#endif
+#if WT_KEYVAULT_P256
 #include "wolfssl/wolfcrypt/ecc.h"
+#endif
 #include "wolfssl/wolfcrypt/aes.h"
 #include "wolfssl/wolfcrypt/random.h"
 #include "wolfssl/wolfcrypt/error-crypt.h"
@@ -48,10 +53,21 @@
 
 #include <string.h>
 
+#if WT_VAULT_KEY_MATERIAL_LEN != WT_HSM_AEAD_KEY_LEN || \
+    WT_VAULT_KEY_NONCE_LEN != WT_HSM_AEAD_NONCE_LEN || \
+    WT_VAULT_KEY_TAG_LEN != WT_HSM_AEAD_TAG_LEN
+#error "vault key encryption must match the vault AEAD sizes"
+#endif
+
+#if WT_KEYVAULT_P256 && defined(WOLFPSA_ECC_SP_DIRECT)
+#include "wolfpsa/psa_p256.h"
+#endif
+
 #define WT_HSM_KEY_P256_OBJ_LEN \
     (WT_VAULT_KEY_MATERIAL_LEN + WT_VAULT_KEY_PUB_LEN)
 #define WT_HSM_KEY_AES_OBJ_LEN WT_VAULT_KEY_MATERIAL_LEN
 
+#if WT_KEYVAULT_P256
 /* NO_ASN makes wc_ecc_sign_hash/verify_hash use the fixed-width r||s form;
  * TPM 2.0 and PKCS#11 builds link ASN.1, so they convert through DER. */
 #if !defined(NO_ASN) && !defined(CONFIG_TPM) && !defined(CONFIG_PKCS11)
@@ -59,6 +75,7 @@
 #endif
 #ifndef NO_ASN
 #define WT_HSM_KEY_DER_SIG_MAX 80U
+#endif
 #endif
 
 #define WT_HSM_KEY_LABEL(usage, type) \
@@ -213,9 +230,15 @@ static psa_status_t wt_hsm_kv_load(int32_t owner, int32_t sub, uint64_t uid,
     return PSA_SUCCESS;
 }
 
+#if WT_KEYVAULT_P256
 /* Derive [d][X9.63 public] from a P-256 private scalar. */
 static psa_status_t wt_hsm_kv_p256_object(const uint8_t* d, uint8_t* obj)
 {
+#ifdef WOLFPSA_ECC_SP_DIRECT
+    (void)memcpy(obj, d, WT_VAULT_KEY_MATERIAL_LEN);
+    return (wolfPSA_P256_Public(d, obj + WT_VAULT_KEY_MATERIAL_LEN) == 0) ?
+        PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
+#else
     ecc_key key;
     word32 len;
     int rc;
@@ -239,19 +262,27 @@ static psa_status_t wt_hsm_kv_p256_object(const uint8_t* d, uint8_t* obj)
     }
     wc_ecc_free(&key);
     return (rc == 0) ? PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
+#endif
 }
+#endif /* WT_KEYVAULT_P256 */
 
 static psa_status_t wt_hsm_kv_generate(int32_t owner, int32_t sub,
                                        uint64_t uid, uint32_t type,
                                        uint32_t usage)
 {
+#if WT_KEYVAULT_P256
     uint8_t obj[WT_HSM_KEY_P256_OBJ_LEN];
+#endif
     uint8_t d[WT_VAULT_KEY_MATERIAL_LEN];
+#if WT_KEYVAULT_P256 && !defined(WOLFPSA_ECC_SP_DIRECT)
     ecc_key key;
-    WC_RNG* rng;
     word32 len;
+#endif
+    WC_RNG* rng;
     psa_status_t status;
+#if WT_KEYVAULT_P256
     int rc;
+#endif
 
     if (g_kv_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
@@ -263,7 +294,11 @@ static psa_status_t wt_hsm_kv_generate(int32_t owner, int32_t sub,
     if (status != PSA_SUCCESS) {
         return status;
     }
+#if WT_KEYVAULT_P256
     if (type == WT_VAULT_KEY_P256) {
+#ifdef WOLFPSA_ECC_SP_DIRECT
+        rc = wolfPSA_P256_Generate(rng, obj, obj + WT_VAULT_KEY_MATERIAL_LEN);
+#else
         rc = wc_ecc_init_ex(&key, NULL, INVALID_DEVID);
         if (rc != 0) {
             return PSA_ERROR_GENERIC_ERROR;
@@ -279,6 +314,7 @@ static psa_status_t wt_hsm_kv_generate(int32_t owner, int32_t sub,
                                     &len);
         }
         wc_ecc_free(&key);
+#endif
         if (rc != 0) {
             wt_hsm_kv_zeroize(obj, sizeof(obj));
             return PSA_ERROR_GENERIC_ERROR;
@@ -288,6 +324,7 @@ static psa_status_t wt_hsm_kv_generate(int32_t owner, int32_t sub,
         wt_hsm_kv_zeroize(obj, sizeof(obj));
         return status;
     }
+#endif
     if (type == WT_VAULT_KEY_AES256) {
         if (wc_RNG_GenerateBlock(rng, d, WT_VAULT_KEY_MATERIAL_LEN) != 0) {
             return PSA_ERROR_GENERIC_ERROR;
@@ -304,8 +341,10 @@ static psa_status_t wt_hsm_kv_import(int32_t owner, int32_t sub, uint64_t uid,
                                      uint32_t type, uint32_t usage,
                                      const uint8_t* data, size_t len)
 {
+#if WT_KEYVAULT_P256
     uint8_t obj[WT_HSM_KEY_P256_OBJ_LEN];
     psa_status_t status;
+#endif
 
     if (g_kv_nvm == NULL) {
         return PSA_ERROR_NOT_SUPPORTED;
@@ -314,6 +353,7 @@ static psa_status_t wt_hsm_kv_import(int32_t owner, int32_t sub, uint64_t uid,
             len != WT_VAULT_KEY_MATERIAL_LEN) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
+#if WT_KEYVAULT_P256
     if (type == WT_VAULT_KEY_P256) {
         status = wt_hsm_kv_p256_object(data, obj);
         if (status == PSA_SUCCESS) {
@@ -323,6 +363,7 @@ static psa_status_t wt_hsm_kv_import(int32_t owner, int32_t sub, uint64_t uid,
         wt_hsm_kv_zeroize(obj, sizeof(obj));
         return status;
     }
+#endif
     if (type == WT_VAULT_KEY_AES256) {
         return wt_hsm_kv_store(owner, sub, uid, type, usage, data,
                                WT_HSM_KEY_AES_OBJ_LEN);
@@ -330,6 +371,7 @@ static psa_status_t wt_hsm_kv_import(int32_t owner, int32_t sub, uint64_t uid,
     return PSA_ERROR_NOT_SUPPORTED;
 }
 
+#if WT_KEYVAULT_P256
 /* Public halves are exportable by design; usage bits do not gate this. */
 static psa_status_t wt_hsm_kv_export_public(int32_t owner, int32_t sub,
                                             uint64_t uid, uint8_t* out,
@@ -352,7 +394,7 @@ static psa_status_t wt_hsm_kv_export_public(int32_t owner, int32_t sub,
     return PSA_SUCCESS;
 }
 
-#ifndef NO_ASN
+#if !defined(NO_ASN) && !defined(WOLFPSA_ECC_SP_DIRECT)
 /* Sign into DER, then return the fixed-width raw r||s the vault wire uses. */
 static int wt_hsm_kv_sign_raw(const uint8_t* digest, word32 digest_len,
                               uint8_t* sig, word32* sig_len, WC_RNG* rng,
@@ -402,7 +444,9 @@ static psa_status_t wt_hsm_kv_sign(int32_t owner, int32_t sub, uint64_t uid,
                                    uint8_t* sig, size_t cap, size_t* out_len)
 {
     uint8_t obj[WT_HSM_KEY_P256_OBJ_LEN];
+#ifndef WOLFPSA_ECC_SP_DIRECT
     ecc_key key;
+#endif
     WC_RNG* rng;
     word32 sig_len = WT_VAULT_KEY_SIG_LEN;
     psa_status_t status;
@@ -426,6 +470,9 @@ static psa_status_t wt_hsm_kv_sign(int32_t owner, int32_t sub, uint64_t uid,
         wt_hsm_kv_zeroize(obj, sizeof(obj));
         return status;
     }
+#ifdef WOLFPSA_ECC_SP_DIRECT
+    rc = wolfPSA_P256_Sign(obj, digest, (word32)digest_len, rng, sig);
+#else
     rc = wc_ecc_init_ex(&key, NULL, INVALID_DEVID);
     if (rc == 0) {
         rc = wc_ecc_import_private_key_ex(obj, WT_VAULT_KEY_MATERIAL_LEN,
@@ -441,6 +488,7 @@ static psa_status_t wt_hsm_kv_sign(int32_t owner, int32_t sub, uint64_t uid,
         }
         wc_ecc_free(&key);
     }
+#endif
     wt_hsm_kv_zeroize(obj, sizeof(obj));
     if (rc != 0 || sig_len != WT_VAULT_KEY_SIG_LEN) {
         (void)memset(sig, 0, WT_VAULT_KEY_SIG_LEN);
@@ -455,7 +503,9 @@ static psa_status_t wt_hsm_kv_verify(int32_t owner, int32_t sub, uint64_t uid,
                                      const uint8_t* sig, size_t sig_len)
 {
     uint8_t obj[WT_HSM_KEY_P256_OBJ_LEN];
+#ifndef WOLFPSA_ECC_SP_DIRECT
     ecc_key key;
+#endif
     int res = 0;
     psa_status_t status;
     int rc;
@@ -470,6 +520,10 @@ static psa_status_t wt_hsm_kv_verify(int32_t owner, int32_t sub, uint64_t uid,
     if (status != PSA_SUCCESS) {
         return status;
     }
+#ifdef WOLFPSA_ECC_SP_DIRECT
+    rc = wolfPSA_P256_Verify(obj + WT_VAULT_KEY_MATERIAL_LEN, digest,
+                             (word32)digest_len, sig, &res);
+#else
     rc = wc_ecc_init_ex(&key, NULL, INVALID_DEVID);
     if (rc == 0) {
         rc = wc_ecc_import_x963_ex(obj + WT_VAULT_KEY_MATERIAL_LEN,
@@ -485,12 +539,57 @@ static psa_status_t wt_hsm_kv_verify(int32_t owner, int32_t sub, uint64_t uid,
         }
         wc_ecc_free(&key);
     }
+#endif
     wt_hsm_kv_zeroize(obj, sizeof(obj));
     if (rc != 0) {
         return PSA_ERROR_GENERIC_ERROR;
     }
     return (res == 1) ? PSA_SUCCESS : PSA_ERROR_INVALID_SIGNATURE;
 }
+#else
+/* No P-256 key type in this build: the three P-256 entries refuse. */
+static psa_status_t wt_hsm_kv_export_public(int32_t owner, int32_t sub,
+                                            uint64_t uid, uint8_t* out,
+                                            size_t cap, size_t* out_len)
+{
+    (void)owner;
+    (void)sub;
+    (void)uid;
+    (void)out;
+    (void)cap;
+    (void)out_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static psa_status_t wt_hsm_kv_sign(int32_t owner, int32_t sub, uint64_t uid,
+                                   const uint8_t* digest, size_t digest_len,
+                                   uint8_t* sig, size_t cap, size_t* out_len)
+{
+    (void)owner;
+    (void)sub;
+    (void)uid;
+    (void)digest;
+    (void)digest_len;
+    (void)sig;
+    (void)cap;
+    (void)out_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+
+static psa_status_t wt_hsm_kv_verify(int32_t owner, int32_t sub, uint64_t uid,
+                                     const uint8_t* digest, size_t digest_len,
+                                     const uint8_t* sig, size_t sig_len)
+{
+    (void)owner;
+    (void)sub;
+    (void)uid;
+    (void)digest;
+    (void)digest_len;
+    (void)sig;
+    (void)sig_len;
+    return PSA_ERROR_NOT_SUPPORTED;
+}
+#endif /* WT_KEYVAULT_P256 */
 
 static psa_status_t wt_hsm_kv_encrypt(int32_t owner, int32_t sub,
                                       uint64_t uid, const uint8_t* input,
@@ -498,7 +597,6 @@ static psa_status_t wt_hsm_kv_encrypt(int32_t owner, int32_t sub,
                                       size_t cap, size_t* out_len)
 {
     uint8_t obj[WT_HSM_KEY_AES_OBJ_LEN];
-    Aes aes;
     WC_RNG* rng;
     psa_status_t status;
     int rc;
@@ -521,24 +619,15 @@ static psa_status_t wt_hsm_kv_encrypt(int32_t owner, int32_t sub,
         return status;
     }
     rc = wc_RNG_GenerateBlock(rng, out, WT_VAULT_KEY_NONCE_LEN);
-    if (rc == 0) {
-        rc = wc_AesInit(&aes, NULL, INVALID_DEVID);
-        if (rc == 0) {
-            rc = wc_AesGcmSetKey(&aes, obj, WT_VAULT_KEY_MATERIAL_LEN);
-            if (rc == 0) {
-                rc = wc_AesGcmEncrypt(&aes, out + WT_VAULT_KEY_NONCE_LEN,
-                                      input, (word32)input_len, out,
-                                      WT_VAULT_KEY_NONCE_LEN,
-                                      out + WT_VAULT_KEY_NONCE_LEN +
-                                          input_len,
-                                      WT_VAULT_KEY_TAG_LEN, NULL, 0U);
-            }
-            wc_AesFree(&aes);
-        }
+    status = (rc == 0) ? PSA_SUCCESS : PSA_ERROR_GENERIC_ERROR;
+    if (status == PSA_SUCCESS) {
+        status = wt_hsm_aead_encrypt(obj, out, NULL, 0U, input, input_len,
+                                     out + WT_VAULT_KEY_NONCE_LEN,
+                                     out + WT_VAULT_KEY_NONCE_LEN + input_len);
     }
     wt_hsm_kv_zeroize(obj, sizeof(obj));
-    if (rc != 0) {
-        return PSA_ERROR_GENERIC_ERROR;
+    if (status != PSA_SUCCESS) {
+        return status;
     }
     *out_len = input_len + WT_VAULT_KEY_NONCE_LEN + WT_VAULT_KEY_TAG_LEN;
     return PSA_SUCCESS;
@@ -550,10 +639,8 @@ static psa_status_t wt_hsm_kv_decrypt(int32_t owner, int32_t sub,
                                       size_t cap, size_t* out_len)
 {
     uint8_t obj[WT_HSM_KEY_AES_OBJ_LEN];
-    Aes aes;
     size_t pt_len;
     psa_status_t status;
-    int rc;
 
     if (input_len < WT_VAULT_KEY_NONCE_LEN + WT_VAULT_KEY_TAG_LEN) {
         return PSA_ERROR_INVALID_ARGUMENT;
@@ -568,27 +655,13 @@ static psa_status_t wt_hsm_kv_decrypt(int32_t owner, int32_t sub,
     if (status != PSA_SUCCESS) {
         return status;
     }
-    rc = wc_AesInit(&aes, NULL, INVALID_DEVID);
-    if (rc == 0) {
-        rc = wc_AesGcmSetKey(&aes, obj, WT_VAULT_KEY_MATERIAL_LEN);
-        if (rc == 0) {
-            rc = wc_AesGcmDecrypt(&aes, out,
-                                  input + WT_VAULT_KEY_NONCE_LEN,
-                                  (word32)pt_len, input,
-                                  WT_VAULT_KEY_NONCE_LEN,
-                                  input + input_len - WT_VAULT_KEY_TAG_LEN,
-                                  WT_VAULT_KEY_TAG_LEN, NULL, 0U);
-        }
-        wc_AesFree(&aes);
-    }
+    status = wt_hsm_aead_decrypt(obj, input, NULL, 0U,
+                                 input + WT_VAULT_KEY_NONCE_LEN, pt_len,
+                                 input + input_len - WT_VAULT_KEY_TAG_LEN,
+                                 out);
     wt_hsm_kv_zeroize(obj, sizeof(obj));
-    if (rc != 0) {
-        /* wolfSSL leaves out[] undefined after a non-zero AES-GCM decrypt;
-         * clear the plaintext region so no unauthenticated bytes survive in
-         * the shared response band. */
-        wt_hsm_kv_zeroize(out, pt_len);
-        return (rc == AES_GCM_AUTH_E) ? PSA_ERROR_INVALID_SIGNATURE :
-                                        PSA_ERROR_GENERIC_ERROR;
+    if (status != PSA_SUCCESS) {
+        return status;
     }
     *out_len = pt_len;
     return PSA_SUCCESS;

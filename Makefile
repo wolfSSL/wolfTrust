@@ -17,6 +17,9 @@ endif
 ifeq ($(wildcard mk/arch-$(ARCH).mk),)
 $(error unsupported secure build architecture ARCH=$(ARCH))
 endif
+# make test-target runs the profile asked for, or default then extended.
+WT_TEST_PROFILES ?= $(if $(filter command line environment,$(origin WT_PROFILE)),$(WT_PROFILE),default extended)
+include mk/profile.mk
 include mk/target-$(TARGET).mk
 include mk/layout.mk
 include mk/arch-$(ARCH).mk
@@ -85,24 +88,21 @@ c99-check:
 		EXTRA_CFLAGS="$(C99_CFLAGS)"
 
 # M33MU scenarios for one registered port (TARGET): WT_TIER=smoke (default) or
-# full, from its port.json. WT_PROFILE picks the build profile: default (the
-# lean image make builds with no options), full (every add-on) or both, the
-# default here, which runs default then full. Skips, never passes, without an
-# emulator; runs in the wolfboot-ci-m33mu container, never bare-metal.
+# all, from its port.json, on each of WT_TEST_PROFILES. Skips, never passes,
+# without an emulator; runs in the wolfboot-ci-m33mu container, never bare-metal.
 WT_TIER ?= smoke
-WT_PROFILE ?= both
 WT_SCENARIOS = $(shell python3 tests/target/lib/scenario_matrix.py \
     --port $(TARGET) --tier $(WT_TIER) --engine $(WT_ENGINE) \
     --profile $(1) --flat)
 test-target:
-	@case "$(WT_PROFILE)" in default|full|both) ;; *) \
-		echo "unsupported WT_PROFILE='$(WT_PROFILE)' (want default, full or both)" >&2; \
-		exit 2 ;; esac
+	@for p in $(WT_TEST_PROFILES); do case "$$p" in default|extended) ;; *) \
+		echo "unsupported test profile '$$p' (want default or extended)" >&2; \
+		exit 2 ;; esac; done
 	@if ! tests/target/detect_m33mu.sh $(TARGET) >/dev/null 2>&1; then \
 		echo "SKIP: FF-M target scenarios ($$(tests/target/detect_m33mu.sh $(TARGET) 2>&1))"; \
 	else \
-		$(foreach p,$(if $(filter both,$(WT_PROFILE)),default full,$(WT_PROFILE)),\
-		WT_PROFILE=$(p) WT_SUITE_LOG_DIR=$(if $(filter both,$(WT_PROFILE)),logs/$(p),logs) \
+		$(foreach p,$(WT_TEST_PROFILES),\
+		WT_PROFILE=$(p) WT_SUITE_LOG_DIR=$(if $(word 2,$(WT_TEST_PROFILES)),logs/$(p),logs) \
 		    tests/target/run_suite.sh $(TARGET) \
 		    $(call WT_SCENARIOS,$(p)) || exit 1;) \
 	fi

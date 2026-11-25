@@ -126,6 +126,7 @@
         ["authneg rollbackneg remeasureneg manifestneg spbudgetneg", "STM32L562 launch, rollback, re-measure, manifest and SP budget verdicts, one guest"],
         ["spfaultneg panicneg", "STM32L562 SP fault recovery and panic, one guest"],
         ["attestneg", "STM32L562 attestation negatives, one guest"],
+        ["tinyattest", "STM32L562 tiny with no ECC, the COSE_Mac0 token across an attestation partition restart, one guest (L3)"],
         ["periphneg", "STM32L562 NS read of the SPM's RNG refused by the SAU, one guest"],
         ["nativewire nativewireasm", "STM32L562 every native wire key op from the guest, portable C and assembly, one guest"],
         ["crossdomain keystoreneg periphspneg deputyneg", "STM32L562 SP domain, SPM peripheral and deputy, one guest (L3)"],
@@ -201,6 +202,7 @@
     },
     "exempt": {
       "devcryptolocal": "the STM32L562 defaults to WT_SECURE_PSA=0, so devcrypto already runs the guest-local PSA it checks",
+      "nativewiresmall": "the Secure PSA crypto stack sizes are one shared layout over portable C on every port; the STM32H563 runs it",
       "hsmattackneg": "wolfHSM engine only; the STM32L562 builds the native engine (the wolfHSM bands do not fit 256 KiB of SRAM)",
       "hsmpinneg": "wolfHSM engine only; the STM32L562 builds the native engine (the wolfHSM bands do not fit 256 KiB of SRAM)",
       "hsmfaultneg": "wolfHSM engine only; the STM32L562 builds the native engine (the wolfHSM bands do not fit 256 KiB of SRAM)"

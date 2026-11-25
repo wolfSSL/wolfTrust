@@ -347,6 +347,27 @@ static void guest_p256_attributes(psa_key_attributes_t* attr)
     psa_set_key_bits(attr, 256);
 }
 
+#if defined(WT_GUEST_NO_P256)
+/* A Secure image built with WT_VAULT_ECC=0 must refuse P-256 outright. */
+static void exercise_no_p256(void)
+{
+    psa_key_attributes_t attr = PSA_KEY_ATTRIBUTES_INIT;
+    psa_key_id_t key = PSA_KEY_ID_NULL;
+    psa_status_t st;
+
+    guest_p256_attributes(&attr);
+    st = psa_generate_key(&attr, &key);
+    if (st == PSA_ERROR_NOT_SUPPORTED) {
+        guest_line("wolfTrust key-ops P-256 refused (no ECC)");
+    }
+    else {
+        guest_line_i32("key-ops P-256 not refused st=", (int32_t)st);
+        if (st == PSA_SUCCESS) {
+            (void)psa_destroy_key(key);
+        }
+    }
+}
+#else
 static void exercise_keys(void)
 {
     static const uint8_t digest[32] = {
@@ -457,6 +478,7 @@ static void exercise_key_negatives(void)
     (void)psa_destroy_key(key_a);
     (void)psa_destroy_key(key_b);
 }
+#endif
 
 /* ---- FF-M IPC negatives ------------------------------------------------- */
 
@@ -607,6 +629,17 @@ static void exercise_psa_cipher(void)
 
 /* ---- initial attestation ------------------------------------------------ */
 
+#if defined(WT_GUEST_ATTEST_HMAC)
+/* The reference ports' public development key (port/common/attest_dev_key.c),
+ * kept separate so a drift between the two fails the token check. */
+static const uint8_t g_guest_attest_dev_key[32] = {
+    0x77, 0x6f, 0x6c, 0x66, 0x54, 0x72, 0x75, 0x73,
+    0x74, 0x2d, 0x44, 0x45, 0x56, 0x2d, 0x61, 0x74,
+    0x74, 0x65, 0x73, 0x74, 0x61, 0x74, 0x69, 0x6f,
+    0x6e, 0x2d, 0x6b, 0x65, 0x79, 0x2d, 0x30, 0x30
+};
+#endif
+
 static void exercise_attestation(void)
 {
     uint8_t challenge[PSA_INITIAL_ATTEST_CHALLENGE_SIZE_32];
@@ -650,6 +683,43 @@ static void exercise_attestation(void)
     st = wolftrust_attestation_get_iak_public_key(public_key,
                                                   sizeof(public_key),
                                                   &public_key_size);
+#if defined(WT_GUEST_ATTEST_HMAC)
+    if (st != PSA_ERROR_NOT_SUPPORTED) {
+        guest_line_i32("wolfTrust attestation: IAK public key not refused st=",
+                       (int32_t)st);
+        return;
+    }
+    guest_line("wolfTrust attestation: IAK public key refused");
+    verify = wt_attestation_verify_mac0_ex(token, token_size,
+                                           g_guest_attest_dev_key,
+                                           sizeof(g_guest_attest_dev_key),
+                                           challenge, sizeof(challenge),
+                                           WT_EXPECTED_MEASUREMENT_HEX,
+                                           WT_EXPECTED_LIFECYCLE,
+                                           &verified_lifecycle, measurement);
+    if (verify != 0) {
+        guest_line_i32("wolfTrust attestation: COSE_Mac0 verification failed rc=",
+                       (int32_t)verify);
+        guest_line_i32("wolfTrust attestation: received lifecycle=",
+                       (int32_t)verified_lifecycle);
+        return;
+    }
+    guest_line("wolfTrust attestation: COSE_Mac0 verified");
+    token[token_size - 1u] ^= 0x01u;
+    verify = wt_attestation_verify_mac0_ex(token, token_size,
+                                           g_guest_attest_dev_key,
+                                           sizeof(g_guest_attest_dev_key),
+                                           challenge, sizeof(challenge),
+                                           WT_EXPECTED_MEASUREMENT_HEX,
+                                           WT_EXPECTED_LIFECYCLE,
+                                           &verified_lifecycle, NULL);
+    token[token_size - 1u] ^= 0x01u;
+    if (verify == 0) {
+        guest_line("wolfTrust attestation: tampered COSE_Mac0 accepted");
+        return;
+    }
+    guest_line("wolfTrust attestation: tampered COSE_Mac0 rejected");
+#else
     if (st != PSA_SUCCESS) {
         guest_line_i32("psa_initial_attestation public_key_st=", (int32_t)st);
         return;
@@ -668,12 +738,18 @@ static void exercise_attestation(void)
         return;
     }
     guest_line("wolfTrust attestation: COSE_Sign1 verified");
+#endif
     g_guest_mailbox.lifecycle |= GUEST_LC_COSE;
     guest_puts(GUEST_NAME ": wolfTrust attestation: token measurement=");
     guest_put_hex(measurement, sizeof(measurement));
     guest_puts("\r\n");
+#if defined(WT_GUEST_ATTEST_HMAC)
+    guest_line("attestation verify=0 challenge=ok identity=ok measurement=ok "
+               "cose=HMAC256");
+#else
     guest_line("attestation verify=0 challenge=ok identity=ok measurement=ok "
                "cose=ES256");
+#endif
 }
 
 #if defined(WT_ATTEST_NEG_PROBE)
@@ -1418,8 +1494,12 @@ void Reset_Handler(void)
     }
     exercise_its();
     exercise_ps();
+#if defined(WT_GUEST_NO_P256)
+    exercise_no_p256();
+#else
     exercise_keys();
     exercise_key_negatives();
+#endif
     exercise_ffm_negatives();
 #if defined(WT_HSM_ATTACK_PROBE)
     exercise_hsm_attack_probe();

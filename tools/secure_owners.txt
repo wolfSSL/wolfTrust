@@ -57,6 +57,7 @@ wt_sec_mutex.o                         spm
 wt_sec_nvm_boot.o                      spm
 wt_sec_reg.o                           spm
 wt_sec_rng_entropy.o                   spm
+wt_sec_attest_dev_key.o                spm
 wt_sec_sau_armv8m.o                    spm
 wt_sec_sp_fault_armv8m.o               spm
 wt_sec_spm_gate_core.o                 spm
@@ -73,6 +74,7 @@ wh_sec_wh_nvm_flash.o                  vault
 wt_sec_hsm_flash_ctx.o                 vault
 wt_sec_nvm_store.o                     vault
 wt_sec_vault_service.o                 vault
+wt_sec_wt_hsm_aead.o                   shared
 wt_sec_wt_hsm_seal.o                   vault
 wt_sec_wt_hsm_vault.o                  vault
 
@@ -116,6 +118,7 @@ wt_sec_hsm_relay_service.o             hsm
 wt_sec_keyvault.o                      hsm
 wt_sec_native_wire.o                   hsm
 wt_sec_psa_crypto_service.o            hsm
+wp_sec_psa_aead.o                      shared
 wp_sec_*                               hsm
 wc_sec_kdf.o                           hsm
 wc_sec_pwdbased.o                      hsm

@@ -260,7 +260,8 @@ static void wt_spm_hsm_entry(void* arg)
     }
 }
 
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1) && \
+    !defined(WT_ATTEST_KEY_hmac)
 /* What boot established about the attestation signer, kept in SPM RAM: a
  * restarted crypto partition is rebuilt from this, never from its own band. */
 static uint8_t g_spm_iak_public[WT_HSM_ATTEST_PUBLIC_KEY_LEN];
@@ -318,7 +319,8 @@ static int wt_spm_hsm_bind(int32_t partition_id)
 #endif
     wt_hsm_relay_set_submit(wt_native_submit, (void*)(intptr_t)partition_id);
 #endif
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1) && \
+    !defined(WT_ATTEST_KEY_hmac)
     wt_hsm_relay_set_attest_ops(PARTITION_ATTEST_ID, wt_hsm_attest_sign,
                                 wt_hsm_attest_public_key);
 #endif
@@ -346,7 +348,8 @@ static int wt_spm_hsm_restore(int32_t partition_id)
     }
 #endif
 #endif
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1) && \
+    !defined(WT_ATTEST_KEY_hmac)
     if (wt_hsm_attest_restore((g_spm_iak_public_len != 0u) ?
                               g_spm_iak_public : NULL,
                               g_spm_iak_public_len) != 0) {
@@ -367,7 +370,8 @@ int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
         return ret;
     }
 #endif
-#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
+#if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1) && \
+    !defined(WT_ATTEST_KEY_hmac)
     /* Taken before the store is rebound to the door view, which the boot
      * context cannot call through. */
     g_spm_iak_public_len = 0u;
@@ -390,10 +394,9 @@ int wt_spm_hsm_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 }
 
 #if defined(WT_ATTEST_COSE) && (WT_ATTEST_COSE == 1)
-/* SERVICE_ATTEST's dispatch loop: a confined scheduled SP. The token state
- * lives in the partition's own data band; the IAK stays with the crypto
- * partition, reached through SERVICE_HSM's attestation door, and the boot
- * measurements come from the SVC gate's read-only snapshot. */
+/* SERVICE_ATTEST's dispatch loop: a confined SP with its token state, and an
+ * HMAC key, in its own data band. A P-256 IAK stays with the crypto partition
+ * behind SERVICE_HSM's door; measurements come from the SVC gate's snapshot. */
 static void wt_spm_attest_entry(void* arg)
 {
     int32_t partition_id = (int32_t)(intptr_t)arg;
@@ -425,10 +428,14 @@ static void wt_spm_attest_entry(void* arg)
 static int wt_spm_attest_bind(int32_t partition_id)
 {
     wt_attestation_service_set_transport(wt_spm_svc_transport);
+#ifdef WT_ATTEST_KEY_hmac
+    (void)partition_id;
+#else
     if (wt_initial_attest_bind_hsm(wt_spm_svc_transport, NULL, partition_id,
                                    SERVICE_HSM_SID) != WT_ATTEST_SUCCESS) {
         return WT_FFM_ERROR_STATE;
     }
+#endif
     return WT_FFM_SUCCESS;
 }
 

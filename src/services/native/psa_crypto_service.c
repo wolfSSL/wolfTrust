@@ -644,7 +644,7 @@ static psa_status_t wt_psa_attr_get(const uint8_t* p, size_t len,
     attr->policy.alg = (psa_algorithm_t)wt_psa_rd32(p + 12);
     attr->policy.alg2 = (psa_algorithm_t)wt_psa_rd32(p + 16);
     attr->id = (psa_key_id_t)wt_psa_rd32(p + 20);
-#ifdef WT_SECURE_PSA_symmetric
+#ifdef WT_SECURE_PSA_tiny
     /* wolfCrypt keeps ECC for the native engine; the profile serves none. */
     if (PSA_KEY_TYPE_IS_ECC(attr->type)) {
         return PSA_ERROR_NOT_SUPPORTED;
@@ -745,10 +745,7 @@ static psa_status_t wt_psa_keys_fn(uint32_t fn, wt_psa_call_t* c)
         break;
     case WT_PSA_FN_GET_KEY_ATTRIBUTES:
         attr = psa_key_attributes_init();
-        status = wt_psa_key_ok(A(0));
-        if (status == PSA_SUCCESS) {
-            status = psa_get_key_attributes(A(0), &attr);
-        }
+        status = psa_get_key_attributes(A(0), &attr);
         if (status == PSA_SUCCESS) {
             status = wt_psa_attr_put(&attr, OUT(0), CAP(0), OL(0));
         }
@@ -771,10 +768,7 @@ static psa_status_t wt_psa_keys_fn(uint32_t fn, wt_psa_call_t* c)
         c->val = (status == PSA_SUCCESS) ? id : 0U;
         break;
     case WT_PSA_FN_COPY_KEY:
-        status = wt_psa_key_ok(A(0));
-        if (status == PSA_SUCCESS) {
-            status = wt_psa_attr_get(IN(0), INL(0), &attr);
-        }
+        status = wt_psa_attr_get(IN(0), INL(0), &attr);
         if (status == PSA_SUCCESS) {
             status = psa_copy_key(A(0), &attr, &id);
             status = wt_psa_key_add(status, id);
@@ -782,31 +776,19 @@ static psa_status_t wt_psa_keys_fn(uint32_t fn, wt_psa_call_t* c)
         c->val = (status == PSA_SUCCESS) ? id : 0U;
         break;
     case WT_PSA_FN_EXPORT_KEY:
-        status = wt_psa_key_ok(A(0));
-        if (status == PSA_SUCCESS) {
-            status = psa_export_key(A(0), OUT(0), CAP(0), OL(0));
-        }
+        status = psa_export_key(A(0), OUT(0), CAP(0), OL(0));
         break;
     case WT_PSA_FN_EXPORT_PUBLIC_KEY:
-        status = wt_psa_key_ok(A(0));
-        if (status == PSA_SUCCESS) {
-            status = psa_export_public_key(A(0), OUT(0), CAP(0), OL(0));
-        }
+        status = psa_export_public_key(A(0), OUT(0), CAP(0), OL(0));
         break;
     case WT_PSA_FN_DESTROY_KEY:
-        status = wt_psa_key_ok(A(0));
-        if (status == PSA_SUCCESS) {
-            status = psa_destroy_key(A(0));
-        }
+        status = psa_destroy_key(A(0));
         if (status == PSA_SUCCESS) {
             wt_psa_key_drop(A(0));
         }
         break;
     case WT_PSA_FN_PURGE_KEY:
-        status = wt_psa_key_ok(A(0));
-        if (status == PSA_SUCCESS) {
-            status = psa_purge_key(A(0));
-        }
+        status = psa_purge_key(A(0));
         break;
     default:
         status = PSA_ERROR_NOT_SUPPORTED;
@@ -854,26 +836,17 @@ static psa_status_t wt_psa_hash_mac_fn(uint32_t fn, wt_psa_call_t* c)
         c->op = tgt;
         break;
     case WT_PSA_FN_MAC_COMPUTE:
-        status = wt_psa_key_ok(A(0));
-        if (status == PSA_SUCCESS) {
-            status = psa_mac_compute(A(0), A(1), IN(0), INL(0), OUT(0), CAP(0),
-                                     OL(0));
-        }
+        status = psa_mac_compute(A(0), A(1), IN(0), INL(0), OUT(0), CAP(0),
+                                 OL(0));
         break;
     case WT_PSA_FN_MAC_VERIFY:
-        status = wt_psa_key_ok(A(0));
-        if (status == PSA_SUCCESS) {
-            status = psa_mac_verify(A(0), A(1), IN(0), INL(0), IN(1), INL(1));
-        }
+        status = psa_mac_verify(A(0), A(1), IN(0), INL(0), IN(1), INL(1));
         break;
     case WT_PSA_FN_MAC_SIGN_SETUP:
     case WT_PSA_FN_MAC_VERIFY_SETUP:
-        status = wt_psa_key_ok(A(1));
-        if (status == PSA_SUCCESS) {
-            status = (fn == WT_PSA_FN_MAC_SIGN_SETUP) ?
-                     psa_mac_sign_setup(m, A(1), A(2)) :
-                     psa_mac_verify_setup(m, A(1), A(2));
-        }
+        status = (fn == WT_PSA_FN_MAC_SIGN_SETUP) ?
+                 psa_mac_sign_setup(m, A(1), A(2)) :
+                 psa_mac_verify_setup(m, A(1), A(2));
         break;
     case WT_PSA_FN_MAC_UPDATE:
         status = psa_mac_update(m, IN(0), INL(0));
@@ -899,23 +872,17 @@ static psa_status_t wt_psa_cipher_fn(uint32_t fn, wt_psa_call_t* c)
     switch (fn) {
     case WT_PSA_FN_CIPHER_ENCRYPT:
     case WT_PSA_FN_CIPHER_DECRYPT:
-        status = wt_psa_key_ok(A(0));
-        if (status == PSA_SUCCESS) {
-            status = (fn == WT_PSA_FN_CIPHER_ENCRYPT) ?
-                     psa_cipher_encrypt(A(0), A(1), IN(0), INL(0), OUT(0),
-                                        CAP(0), OL(0)) :
-                     psa_cipher_decrypt(A(0), A(1), IN(0), INL(0), OUT(0),
-                                        CAP(0), OL(0));
-        }
+        status = (fn == WT_PSA_FN_CIPHER_ENCRYPT) ?
+                 psa_cipher_encrypt(A(0), A(1), IN(0), INL(0), OUT(0),
+                                    CAP(0), OL(0)) :
+                 psa_cipher_decrypt(A(0), A(1), IN(0), INL(0), OUT(0),
+                                    CAP(0), OL(0));
         break;
     case WT_PSA_FN_CIPHER_ENCRYPT_SETUP:
     case WT_PSA_FN_CIPHER_DECRYPT_SETUP:
-        status = wt_psa_key_ok(A(1));
-        if (status == PSA_SUCCESS) {
-            status = (fn == WT_PSA_FN_CIPHER_ENCRYPT_SETUP) ?
-                     psa_cipher_encrypt_setup(o, A(1), A(2)) :
-                     psa_cipher_decrypt_setup(o, A(1), A(2));
-        }
+        status = (fn == WT_PSA_FN_CIPHER_ENCRYPT_SETUP) ?
+                 psa_cipher_encrypt_setup(o, A(1), A(2)) :
+                 psa_cipher_decrypt_setup(o, A(1), A(2));
         break;
     case WT_PSA_FN_CIPHER_GENERATE_IV:
         status = psa_cipher_generate_iv(o, OUT(0), CAP(0), OL(0));
@@ -944,23 +911,17 @@ static psa_status_t wt_psa_aead_fn(uint32_t fn, wt_psa_call_t* c)
     switch (fn) {
     case WT_PSA_FN_AEAD_ENCRYPT:
     case WT_PSA_FN_AEAD_DECRYPT:
-        status = wt_psa_key_ok(A(0));
-        if (status == PSA_SUCCESS) {
-            status = (fn == WT_PSA_FN_AEAD_ENCRYPT) ?
-                     psa_aead_encrypt(A(0), A(1), IN(0), INL(0), IN(1), INL(1),
-                                      IN(2), INL(2), OUT(0), CAP(0), OL(0)) :
-                     psa_aead_decrypt(A(0), A(1), IN(0), INL(0), IN(1), INL(1),
-                                      IN(2), INL(2), OUT(0), CAP(0), OL(0));
-        }
+        status = (fn == WT_PSA_FN_AEAD_ENCRYPT) ?
+                 psa_aead_encrypt(A(0), A(1), IN(0), INL(0), IN(1), INL(1),
+                                  IN(2), INL(2), OUT(0), CAP(0), OL(0)) :
+                 psa_aead_decrypt(A(0), A(1), IN(0), INL(0), IN(1), INL(1),
+                                  IN(2), INL(2), OUT(0), CAP(0), OL(0));
         break;
     case WT_PSA_FN_AEAD_ENCRYPT_SETUP:
     case WT_PSA_FN_AEAD_DECRYPT_SETUP:
-        status = wt_psa_key_ok(A(1));
-        if (status == PSA_SUCCESS) {
-            status = (fn == WT_PSA_FN_AEAD_ENCRYPT_SETUP) ?
-                     psa_aead_encrypt_setup(o, A(1), A(2)) :
-                     psa_aead_decrypt_setup(o, A(1), A(2));
-        }
+        status = (fn == WT_PSA_FN_AEAD_ENCRYPT_SETUP) ?
+                 psa_aead_encrypt_setup(o, A(1), A(2)) :
+                 psa_aead_decrypt_setup(o, A(1), A(2));
         break;
     case WT_PSA_FN_AEAD_GENERATE_NONCE:
         status = psa_aead_generate_nonce(o, OUT(0), CAP(0), OL(0));
@@ -1015,18 +976,12 @@ static psa_status_t wt_psa_kdf_fn(uint32_t fn, wt_psa_call_t* c)
         status = psa_key_derivation_input_bytes(o, A(1), IN(0), INL(0));
         break;
     case WT_PSA_FN_KDF_INPUT_KEY:
-        status = wt_psa_key_ok(A(2));
-        if (status == PSA_SUCCESS) {
-            status = psa_key_derivation_input_key(o, A(1), A(2));
-        }
+        status = psa_key_derivation_input_key(o, A(1), A(2));
         break;
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
     case WT_PSA_FN_KDF_KEY_AGREEMENT:
-        status = wt_psa_key_ok(A(2));
-        if (status == PSA_SUCCESS) {
-            status = psa_key_derivation_key_agreement(o, A(1), A(2), IN(0),
-                                                      INL(0));
-        }
+        status = psa_key_derivation_key_agreement(o, A(1), A(2), IN(0),
+                                                  INL(0));
         break;
 #endif
     case WT_PSA_FN_KDF_OUTPUT_BYTES:
@@ -1052,10 +1007,7 @@ static psa_status_t wt_psa_kdf_fn(uint32_t fn, wt_psa_call_t* c)
         status = psa_key_derivation_verify_bytes(o, IN(0), INL(0));
         break;
     case WT_PSA_FN_KDF_VERIFY_KEY:
-        status = wt_psa_key_ok(A(1));
-        if (status == PSA_SUCCESS) {
-            status = psa_key_derivation_verify_key(o, A(1));
-        }
+        status = psa_key_derivation_verify_key(o, A(1));
         break;
     case WT_PSA_FN_KDF_ABORT:
         status = psa_key_derivation_abort(o);
@@ -1067,18 +1019,13 @@ static psa_status_t wt_psa_kdf_fn(uint32_t fn, wt_psa_call_t* c)
     return status;
 }
 
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
 static psa_status_t wt_psa_asym_fn(uint32_t fn, wt_psa_call_t* c)
 {
     psa_key_attributes_t attr;
     psa_key_id_t id = PSA_KEY_ID_NULL;
     psa_status_t status;
 
-    status = wt_psa_key_ok((fn == WT_PSA_FN_RAW_KEY_AGREEMENT ||
-                            fn == WT_PSA_FN_KEY_AGREEMENT) ? A(1) : A(0));
-    if (status != PSA_SUCCESS) {
-        return status;
-    }
     switch (fn) {
     case WT_PSA_FN_KEY_AGREEMENT:
         status = wt_psa_attr_get(IN(1), INL(1), &attr);
@@ -1089,6 +1036,7 @@ static psa_status_t wt_psa_asym_fn(uint32_t fn, wt_psa_call_t* c)
         }
         c->val = (status == PSA_SUCCESS) ? id : 0U;
         break;
+#if defined(PSA_WANT_ALG_RSA_PKCS1V15_CRYPT) || defined(PSA_WANT_ALG_RSA_OAEP)
     case WT_PSA_FN_ASYMMETRIC_ENCRYPT:
         status = psa_asymmetric_encrypt(A(0), A(1), IN(0), INL(0), IN(1),
                                         INL(1), OUT(0), CAP(0), OL(0));
@@ -1097,6 +1045,7 @@ static psa_status_t wt_psa_asym_fn(uint32_t fn, wt_psa_call_t* c)
         status = psa_asymmetric_decrypt(A(0), A(1), IN(0), INL(0), IN(1),
                                         INL(1), OUT(0), CAP(0), OL(0));
         break;
+#endif
     case WT_PSA_FN_SIGN_HASH:
         status = psa_sign_hash(A(0), A(1), IN(0), INL(0), OUT(0), CAP(0),
                                OL(0));
@@ -1123,10 +1072,70 @@ static psa_status_t wt_psa_asym_fn(uint32_t fn, wt_psa_call_t* c)
 }
 #endif
 
+/* Wire argument holding the caller's key id, plus one; 0 when there is none */
+static uint32_t wt_psa_key_arg(uint32_t fn)
+{
+    uint32_t arg = 0U;
+
+    switch (fn) {
+    case WT_PSA_FN_GET_KEY_ATTRIBUTES:
+    case WT_PSA_FN_EXPORT_KEY:
+    case WT_PSA_FN_EXPORT_PUBLIC_KEY:
+    case WT_PSA_FN_DESTROY_KEY:
+    case WT_PSA_FN_PURGE_KEY:
+    case WT_PSA_FN_COPY_KEY:
+    case WT_PSA_FN_MAC_COMPUTE:
+    case WT_PSA_FN_MAC_VERIFY:
+    case WT_PSA_FN_CIPHER_ENCRYPT:
+    case WT_PSA_FN_CIPHER_DECRYPT:
+    case WT_PSA_FN_AEAD_ENCRYPT:
+    case WT_PSA_FN_AEAD_DECRYPT:
+#ifndef WT_SECURE_PSA_tiny
+    case WT_PSA_FN_SIGN_HASH:
+    case WT_PSA_FN_VERIFY_HASH:
+    case WT_PSA_FN_SIGN_MESSAGE:
+    case WT_PSA_FN_VERIFY_MESSAGE:
+    case WT_PSA_FN_ASYMMETRIC_ENCRYPT:
+    case WT_PSA_FN_ASYMMETRIC_DECRYPT:
+#endif
+        arg = 1U;
+        break;
+    case WT_PSA_FN_MAC_SIGN_SETUP:
+    case WT_PSA_FN_MAC_VERIFY_SETUP:
+    case WT_PSA_FN_CIPHER_ENCRYPT_SETUP:
+    case WT_PSA_FN_CIPHER_DECRYPT_SETUP:
+    case WT_PSA_FN_AEAD_ENCRYPT_SETUP:
+    case WT_PSA_FN_AEAD_DECRYPT_SETUP:
+    case WT_PSA_FN_KDF_VERIFY_KEY:
+#ifndef WT_SECURE_PSA_tiny
+    case WT_PSA_FN_RAW_KEY_AGREEMENT:
+    case WT_PSA_FN_KEY_AGREEMENT:
+#endif
+        arg = 2U;
+        break;
+    case WT_PSA_FN_KDF_INPUT_KEY:
+#ifndef WT_SECURE_PSA_tiny
+    case WT_PSA_FN_KDF_KEY_AGREEMENT:
+#endif
+        arg = 3U;
+        break;
+    default:
+        break;
+    }
+    return arg;
+}
+
 static psa_status_t wt_psa_fn(uint32_t fn, wt_psa_call_t* c)
 {
-    psa_status_t status;
+    psa_status_t status = PSA_SUCCESS;
+    uint32_t key_arg = wt_psa_key_arg(fn);
 
+    if (key_arg != 0U) {
+        status = wt_psa_key_ok(A(key_arg - 1U));
+    }
+    if (status != PSA_SUCCESS) {
+        return status;
+    }
     if (fn == WT_PSA_FN_CRYPTO_INIT) {
         wt_psa_client_reset(g_psa_client);
         status = PSA_SUCCESS;
@@ -1147,7 +1156,7 @@ static psa_status_t wt_psa_fn(uint32_t fn, wt_psa_call_t* c)
     else if (fn >= WT_PSA_FN_KDF_SETUP && fn <= WT_PSA_FN_KDF_ABORT) {
         status = wt_psa_kdf_fn(fn, c);
     }
-#ifndef WT_SECURE_PSA_symmetric
+#ifndef WT_SECURE_PSA_tiny
     else if (fn >= WT_PSA_FN_SIGN_HASH &&
              fn <= WT_PSA_FN_ASYMMETRIC_DECRYPT) {
         status = wt_psa_asym_fn(fn, c);

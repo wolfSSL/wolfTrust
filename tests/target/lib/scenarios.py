@@ -204,6 +204,12 @@ SCENARIOS = {
                 hw_blocks=("hw_no_escalation", "hw_devattest"), hw_secure="WT_CONF_DIAG_TRAP=0"),
     "attestneg": S(role="psa", guest_flags="WT_ATTEST_NEG_PROBE=1",
                    blocks=("psa_lifecycle", "attestneg")),
+    # tiny with no ECC: the attestation partition restarts on a reset band,
+    # reloads its HMAC key, and the guest verifies the COSE_Mac0 it issues.
+    "tinyattest": S(secure="WT_PROFILE=tiny WT_SECURE_PSA=1 WT_RESTART_NEG_PROBE=2", role="hwpsa",
+                    guest_flags=SP_PROBE_FLAGS, end="bkpt:0x7f", quit_on_faults=False,
+                    engines=("native",), level3=True,
+                    blocks=("psa_probe_lifecycle", "l3", "tinyattest")),
     "nativewire": S(role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
                     end="bkpt:0x7f", engines=("native",),
                     blocks=("no_faults", "psa_lifecycle", "nativewire")),
@@ -211,6 +217,10 @@ SCENARIOS = {
                        role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
                        end="bkpt:0x7f", engines=("native",),
                        blocks=("no_faults", "psa_lifecycle", "nativewire")),
+    "nativewiresmall": S(secure="WT_SECURE_PSA=1 WT_SECURE_PSA_PROFILE=small",
+                        role="hwpsa", guest_flags="WT_NATIVE_WIRE_PROBE=1 " + SP_PROBE_FLAGS,
+                        end="bkpt:0x7f", engines=("native",),
+                        blocks=("no_faults", "psa_lifecycle", "nativewire")),
     "hsmattackneg": S(role="psa", guest_flags="WT_HSM_ATTACK_PROBE=1",
                       blocks=("no_faults", "psa_lifecycle", "hsmattackneg"),
                       engines=("hsm",),
@@ -805,7 +815,7 @@ def _l3(ctx):
                           v.get(stack + "_LO"), v.get(stack + "_HI")),
                 refute_re("no access ran past its fault, no keystore pin was open", r'^\[USGFLT\]'),
                 refute_re("faults were contained, not escalated", r'^(\[HARDFLT\]|HardFault|SecureFault)')]
-    if fam == "restartneg":
+    if fam == "restartneg" or name == "tinyattest":
         return [expect_n_re("partition faulted once and restarted on a reset band", 1,
                             r'^\[USGFLT\] CFSR=0x00010000'),
                 refute_re("the fault was the planted one", r'^\[USGFLT\] mem16\[[^]]*\]=0xde02'),
@@ -1045,6 +1055,21 @@ def block_checks(ctx, block, end):
                 expect("tampered token fails the guest verify", pre + "attestneg tampered token rejected"),
                 expect("misattributed lifecycle fails the guest verify", pre + "attestneg lifecycle mismatch rejected"),
                 expect("attestation negatives verified", pre + "wolfTrust attestation negatives verified")]
+    if block == "tinyattest":
+        return [symbol("the Secure image links the COSE_Mac0 issuer", "wc_CoseEatPsaToken_CreateMac0"),
+                refute_re("the Secure image links no P-256 code",
+                          r"^[0-9a-f]+ \S (sp_256_|sp_ecc_|wc_ecc_|wolfPSA_P256_|wc_CoseSign1)", where="syms"),
+                expect("the restarted attestation partition issued a token", "guest0: psa_initial_attestation st=0"),
+                expect("the IAK public key query is refused under an HMAC key",
+                       "guest0: wolfTrust attestation: IAK public key refused"),
+                expect("the COSE_Mac0 verifies under the development key, Instance ID included",
+                       "guest0: wolfTrust attestation: COSE_Mac0 verified"),
+                expect("token measurement equals wolfBoot's measurement of the signed image",
+                       "guest0: wolfTrust attestation: token measurement={expected_measurement}"),
+                expect("a tampered COSE_Mac0 fails the guest verify",
+                       "guest0: wolfTrust attestation: tampered COSE_Mac0 rejected"),
+                expect("P-256 is refused by the Secure PSA service",
+                       "guest0: wolfTrust key-ops P-256 refused (no ECC)")]
     if block == "nativewire":
         return [expect("every native wire key op served by the crypto partition",
                        "guest0: nativewire every key op verified"),
@@ -1837,11 +1862,11 @@ def profile_gaps():
 
 
 def one_guest_gaps():
-    """No assertion a lean (one-guest) run applies can only be met by the
+    """No assertion a one-guest run applies can only be met by the
     guest that image never schedules."""
     gaps = []
     for port in sorted(PORTS):
-        for name in scenario_matrix.flat(port, "full", None, "default"):
+        for name in scenario_matrix.flat(port, "all", None, "default"):
             p = plan(port, name, "native", "emulator")
             ctx = Ctx(port, p["scenario"], "emulator",
                       one_guest(p["guests"], 1), {"board": "X"})
@@ -1891,7 +1916,7 @@ def selftest():
         for name, end in m33mu.get("ends", {}).items():
             if name not in SCENARIOS or not (end in ("fault", "idle", "timeout") or re.match(r"^bkpt:0x[0-9a-f]+$", str(end))):
                 gaps.append("%s: ends.%s is unknown or not an end mode" % (port, name))
-        run = set(scenario_matrix.flat(port, "full", None))
+        run = set(scenario_matrix.flat(port, "all", None))
         # A run that should hit the wall clock passes on exit 0 only where
         # guest0 ends it on its own clean breakpoint.
         for name in sorted(n for n in run if n in SCENARIOS):
@@ -1988,7 +2013,7 @@ def main():
     parser.add_argument("--engine", choices=("native", "hsm"), default="native")
     parser.add_argument("--env", choices=("emulator", "hardware"), default="emulator")
     parser.add_argument("--guests", type=int, choices=(1, 2), default=2,
-                        help="guests the Secure image schedules (1: the lean default)")
+                        help="guests the Secure image schedules (1: the default profile)")
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--shell", action="store_true", help="the resolved plan as SC_* assignments")
     mode.add_argument("--asserts", action="store_true", help="the applicable blocks and their checks")

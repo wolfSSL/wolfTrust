@@ -69,6 +69,10 @@ static uint8_t g_signer_id[WC_SHA256_DIGEST_SIZE];
 static bool g_handoff_ready;
 static bool g_attest_ready;
 
+#ifdef WT_ATTEST_KEY_hmac
+/* The HMAC attestation key, loaded by the privileged boot and restart paths. */
+static uint8_t g_attest_hmac_key[WT_ATTEST_HMAC_KEY_SIZE];
+#else
 /* SERVICE_HSM signer binding: transport, the attestation partition's own id
  * (stamped by the SVC on target), the crypto service's SID, and the cached
  * connection. A NULL transport selects the engine's local signer. */
@@ -78,6 +82,7 @@ static int32_t g_attest_hsm_partition;
 static uint32_t g_attest_hsm_sid;
 static psa_handle_t g_attest_hsm_handle;
 static uint8_t g_attest_hsm_restarted;
+#endif
 
 static void wt_attest_force_zero(void* memory, size_t size)
 {
@@ -89,6 +94,7 @@ static void wt_attest_force_zero(void* memory, size_t size)
     }
 }
 
+#ifndef WT_ATTEST_KEY_hmac
 int wt_initial_attest_bind_hsm(wt_spm_transport_fn transport,
                                wt_ffm_runtime_t* runtime,
                                int32_t partition_id, uint32_t hsm_sid)
@@ -252,12 +258,35 @@ static int wt_attest_signer_public_key(uint8_t* publicKey,
     }
     return ret;
 }
+#endif /* !WT_ATTEST_KEY_hmac */
+
+#ifdef WT_ATTEST_KEY_hmac
+/* The IAK identifier of an HMAC key is the hash of its hash, never a
+ * direct digest of the key (RFC 9783 A.2). */
+static int wt_attest_hmac_key_id(uint8_t* id)
+{
+    uint8_t keyHash[WC_SHA256_DIGEST_SIZE];
+    int ret;
+
+    ret = wc_Sha256Hash(g_attest_hmac_key, (word32)sizeof(g_attest_hmac_key),
+                        keyHash);
+    if (ret == 0) {
+        ret = wc_Sha256Hash(keyHash, (word32)sizeof(keyHash), id);
+    }
+    wt_attest_force_zero(keyHash, sizeof(keyHash));
+    return (ret == 0) ? WT_ATTEST_SUCCESS : WT_ATTEST_ERROR_CRYPTO;
+}
+#endif
 
 static int wt_attest_prepare(void)
 {
+#ifndef WT_ATTEST_KEY_hmac
     uint8_t publicKey[WT_ATTEST_IAK_PUBLIC_KEY_SIZE];
+#endif
     uint8_t digest[WC_SHA256_DIGEST_SIZE];
+#ifndef WT_ATTEST_KEY_hmac
     size_t publicKeySize = sizeof(publicKey);
+#endif
     wc_Sha256 sha;
     int ret;
 
@@ -268,6 +297,9 @@ static int wt_attest_prepare(void)
         return WT_ATTEST_ERROR_NOT_READY;
     }
 
+#ifdef WT_ATTEST_KEY_hmac
+    ret = wt_attest_hmac_key_id(digest);
+#else
     ret = wt_attest_signer_public_key(publicKey, sizeof(publicKey),
                                       &publicKeySize);
     if (ret == WH_ERROR_NOTREADY) {
@@ -285,6 +317,7 @@ static int wt_attest_prepare(void)
             ret = WT_ATTEST_ERROR_CRYPTO;
         }
     }
+#endif
     if (ret == 0) {
         g_ueid[0] = WT_UEID_TYPE_RANDOM;
         (void)memcpy(&g_ueid[1], digest, sizeof(digest));
@@ -313,7 +346,9 @@ static int wt_attest_prepare(void)
         g_attest_ready = true;
     }
 
+#ifndef WT_ATTEST_KEY_hmac
     wt_attest_force_zero(publicKey, sizeof(publicKey));
+#endif
     wt_attest_force_zero(digest, sizeof(digest));
     return ret;
 }
@@ -355,6 +390,23 @@ static int wt_attest_measurement_get(size_t index,
     return 0;
 }
 
+#ifdef WT_ATTEST_KEY_hmac
+/* Size of a tagged COSE_Mac0 with an inline payload: tag, array head,
+ * protected {1: 5}, empty unprotected map, payload bstr and a 32-byte tag. */
+static size_t wt_attest_mac0_size(size_t payloadSize)
+{
+    size_t head = 3u;
+
+    if (payloadSize < 24u) {
+        head = 1u;
+    }
+    else if (payloadSize < 256u) {
+        head = 2u;
+    }
+    return 1u + 1u + 4u + 1u + head + payloadSize + 2u +
+           (size_t)WC_SHA256_DIGEST_SIZE;
+}
+#else
 /* COSE external-signer callback: wolfCOSE hands us the digest of the
  * Sig_structure; forward it to the IAK held in the secure HSM. */
 static int wt_attest_eat_sign(void* context, int32_t algorithm,
@@ -368,6 +420,7 @@ static int wt_attest_eat_sign(void* context, int32_t algorithm,
     return wt_attest_signer_sign(digest, digestSize, signature,
                                  signatureSize, signatureLength);
 }
+#endif
 
 static int wt_attest_build_claims(wt_guest_id_t guestId,
     const uint8_t* challenge, size_t challengeSize,
@@ -494,6 +547,16 @@ int wt_initial_attest_init(const wt_boot_handoff_t* handoff)
         ret = wc_Sha256Hash(g_signer_name,
             (word32)(sizeof(g_signer_name) - 1u), g_signer_id);
     }
+#ifdef WT_ATTEST_KEY_hmac
+    if ((ret == 0) && (wt_port_attest_hmac_key(g_attest_hmac_key,
+                           sizeof(g_attest_hmac_key)) != 0)) {
+        /* No key, no tokens: every request fails closed until a later init. */
+        wt_attest_force_zero(g_attest_hmac_key, sizeof(g_attest_hmac_key));
+        g_handoff_ready = false;
+        g_attest_ready = false;
+        ret = -1;
+    }
+#endif
     if (ret == 0) {
         (void)memcpy(&g_boot_handoff, handoff, sizeof(g_boot_handoff));
         g_handoff_ready = true;
@@ -544,11 +607,15 @@ int wt_initial_attest_get_token_size(size_t challengeSize,
         }
     }
     if (ret == WT_ATTEST_SUCCESS) {
+#ifdef WT_ATTEST_KEY_hmac
+        *tokenSize = wt_attest_mac0_size(payloadSize);
+#else
         if (wc_CoseSign1_SignSize_ex(NULL, WOLFCOSE_ALG_ES256, 0u,
                 payloadSize, 0u, 0u, tokenSize) != WOLFCOSE_SUCCESS) {
             *tokenSize = 0u;
             ret = WT_ATTEST_ERROR_CRYPTO;
         }
+#endif
     }
 
     wt_attest_force_zero(challenge, sizeof(challenge));
@@ -592,6 +659,12 @@ int wt_initial_attest_get_token(wt_guest_id_t guestId,
         }
         else {
             keyReady = 1;
+#ifdef WT_ATTEST_KEY_hmac
+            if (wc_CoseKey_SetSymmetric(&key, g_attest_hmac_key,
+                    sizeof(g_attest_hmac_key)) != WOLFCOSE_SUCCESS) {
+                ret = WT_ATTEST_ERROR_CRYPTO;
+            }
+#else
             key.kty = WOLFCOSE_KTY_EC2;
             key.crv = WOLFCOSE_CRV_P256;
             key.alg = WOLFCOSE_ALG_ES256;
@@ -599,12 +672,19 @@ int wt_initial_attest_get_token(wt_guest_id_t guestId,
                 WOLFCOSE_SUCCESS) {
                 ret = WT_ATTEST_ERROR_CRYPTO;
             }
+#endif
         }
     }
     if (ret == WT_ATTEST_SUCCESS) {
+#ifdef WT_ATTEST_KEY_hmac
+        ret = wc_CoseEatPsaToken_CreateMac0(&key, WOLFCOSE_ALG_HMAC256,
+            &claims, claimsBuf, sizeof(claimsBuf), scratch, sizeof(scratch),
+            token, tokenCapacity, tokenSize);
+#else
         ret = wc_CoseEatPsaToken_CreateSign1(&key, WOLFCOSE_ALG_ES256, &claims,
             claimsBuf, sizeof(claimsBuf), scratch, sizeof(scratch), token,
             tokenCapacity, tokenSize, NULL);
+#endif
         if (ret == WOLFCOSE_E_BUFFER_TOO_SMALL) {
             ret = WT_ATTEST_ERROR_BUFFER_TOO_SMALL;
         }
@@ -621,6 +701,7 @@ int wt_initial_attest_get_token(wt_guest_id_t guestId,
     return ret;
 }
 
+#ifndef WT_ATTEST_KEY_hmac
 int wt_initial_attest_get_iak_public_key(uint8_t* publicKey,
     size_t publicKeyCapacity, size_t* publicKeySize)
 {
@@ -639,3 +720,4 @@ int wt_initial_attest_get_iak_public_key(uint8_t* publicKey,
     }
     return ret;
 }
+#endif /* !WT_ATTEST_KEY_hmac */

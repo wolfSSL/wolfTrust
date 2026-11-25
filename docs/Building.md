@@ -36,7 +36,7 @@ reference is the mutable `main` branch, not a pinned workspace.
 make
 ```
 
-This builds the lean default image: isolation level 3, one Non-secure image,
+This builds the `default` profile: isolation level 3, one Non-secure image,
 Crypto, Internal Trusted Storage, Protected Storage and Initial Attestation,
 with the manifest checked at build time. Turn an add-on back on with its Make
 variable, alone or together:
@@ -47,7 +47,9 @@ make WT_FWU=1 secure-image                     # PSA Firmware Update
 make WT_MANIFEST_RUNTIME_CHECK=1 secure-image  # boot-time manifest check
 make WT_SHA256_FAST=1 secure-image             # unrolled SHA-256 transform
 make WT_ENGINE=hsm secure-image                # the wolfHSM engine
-make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image  # full profile
+make WT_PROFILE=extended secure-image          # every add-on, extended PSA set
+make WT_PROFILE=small secure-image             # one AEAD, no AES decryption
+make WT_PROFILE=tiny secure-image              # no ECC: HMAC attestation key, no vault P-256
 ```
 
 [Macros](Macros.md#build-profiles) lists what each add-on brings back and its
@@ -153,7 +155,7 @@ Record the LTO setting with published size results. [Footprint](Footprint.md)
 lists the measured sizes and the options that change them.
 
 The default image runs one guest; `WT_MAX_GUESTS=2` adds the second guest the
-reference two-guest demos use (the target runners pass it through the `full`
+reference two-guest demos use (the target runners pass it through the `extended`
 profile). Changing
 guest addresses or sizes also requires matching manifest, guest linker,
 emulator-load, flash, and measurement-record settings. See

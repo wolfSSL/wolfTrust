@@ -247,7 +247,7 @@ Running `discover` again clears both it and any earlier `regress` stamp.
 
 ## Build, flash, and verify
 
-The hardware runner builds the `full` profile, so its scenarios launch two
+The hardware runner builds the `extended` profile, so its scenarios launch two
 guests and include Firmware Update; it refuses any other `WT_PROFILE`.
 
 The hardware runner (`tests/target/run_hardware.sh mimxrt700 <scenario>`)

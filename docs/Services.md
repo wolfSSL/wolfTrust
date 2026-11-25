@@ -15,7 +15,7 @@ PKCS#11 service, an application API offered instead of PSA Crypto.
 | `SERVICE_ITS` | `0x1003` | Yes | PSA Internal Trusted Storage |
 | `SERVICE_PS` | `0x1004` | Yes | PSA Protected Storage |
 | `SERVICE_FWU` | `0x1005` | Yes, `WT_FWU=1` | PSA Firmware Update staging for wolfBoot |
-| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door; with `WT_SECURE_PSA=1` it also serves the PSA Crypto API |
+| `SERVICE_HSM` | `0x1006` | Yes | Copied request relay for the selected native or wolfHSM crypto engine, plus the attestation partition's signing door (not built with `WT_ATTEST_KEY=hmac`); with `WT_SECURE_PSA=1` it also serves the PSA Crypto API |
 | `SERVICE_VNET` | `0x1007` | Yes, optional | Secure virtual Ethernet switch implemented by wolfTrust for optional Non-secure wolfIP guests |
 | `SERVICE_TPM` | `0x1008` | Yes, `CONFIG_TPM=y` | wolfTPM firmware TPM 2.0 serving one TPM 2.0 command frame per call |
 | `SERVICE_PKCS11` | `0x1009` | Yes, `CONFIG_PKCS11=y` | wolfPKCS11 token serving the PKCS#11 `C_*` API through the client proxy |
@@ -123,7 +123,8 @@ Every Protected Storage object created through the public shim is likewise
 limited to 512 bytes. The underlying Secure vault still uses a 1024-byte object
 buffer and caps one copied vault response at 1000 bytes.
 
-Every stored object is AES-256-GCM sealed in the vault under a device-local
+Every stored object is AES-256-GCM sealed (AES-256-CCM when `WT_AEAD` is
+`ccm`, the `tiny` and `small` default) in the vault under a device-local
 non-exportable key in the shared NVM store. A persisted write counter supplies
 the nonce and the object label is authenticated data. Confidentiality and
 replay-protection hint flags do not weaken storage: Protected Storage still
@@ -136,9 +137,10 @@ Secure Storage 1.0 recommendation.
 
 `SERVICE_ATTEST` implements the token and exact-size API operations from PSA
 Initial Attestation 1.0. It accepts a 32-, 48-, or 64-byte challenge and returns
-a tagged COSE_Sign1 token signed with ES256 through an external signer backed
-by the selected engine's protected attestation key. wolfCOSE performs the COSE
-encoding.
+a token wolfCOSE encodes. With the default P-256 attestation key
+(`WT_ATTEST_KEY=ecc`) that is a tagged COSE_Sign1 signed with ES256 through an
+external signer backed by the selected engine's protected attestation key;
+with an HMAC key it is a COSE_Mac0, described at the end of this section.
 
 The emitted token is derived from [RFC 9783](https://www.rfc-editor.org/rfc/rfc9783.html)
 but is not conformant with its advertised
@@ -159,13 +161,25 @@ The EAT/PSA claim set binds:
 - one software component for each guest that passed launch verification.
 
 The service also supports internal call types for exact token-size and
-uncompressed P-256 public-key queries. The attestation partition holds no key
+uncompressed P-256 public-key queries. With a P-256 key the attestation
+partition holds no key
 material: every signature and the public key come from `SERVICE_HSM`'s
 attestation door (`WT_HSM_OP_ATTEST_SIGN`, `WT_HSM_OP_ATTEST_PUBLIC_KEY`),
 which serves the attestation partition alone and refuses every other client.
 `SERVICE_HSM`'s ordinary crypto wire (`PSA_IPC_CALL`) serves Non-secure clients
 only, so the attestation partition cannot use it. The private attestation key
 is never exported.
+
+With `WT_ATTEST_KEY=hmac`, which the `tiny` profile sets, the token is a
+tagged COSE_Mac0 authenticated with HMAC 256/256 instead. The key is the
+device's 32-byte key from the port
+([Porting](Porting.md#attestation-key)); the privileged boot path copies it
+into the attestation partition's own data band, which no guest and no other
+partition can read at isolation level 3. The Instance ID is
+`0x01 || SHA-256(SHA-256(key))`, the public-key query returns
+`PSA_ERROR_NOT_SUPPORTED`, the attestation door is not built, and no call
+exports the key. A verifier needs the same key, so an HMAC token
+authenticates the device only to parties that hold it.
 
 ## Firmware Update
 

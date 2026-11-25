@@ -58,8 +58,6 @@ WT_STATIC_ASSERT(WT_HSM_ATTEST_NOT_READY == WH_ERROR_NOTREADY,
 #define WT_NATIVE_IAK_SUB   0
 #define WT_NATIVE_IAK_UID   0xF0u
 
-static bool g_native_attest_ready;
-
 int wt_native_init(void)
 {
     int rc;
@@ -98,6 +96,10 @@ int wt_native_bind_nvm(whNvmContext* nvm)
  * as the hsm engine: 64-byte
  * r||s signatures, 65-byte X9.63 public point.
  * ====================================================================== */
+/* An HMAC attestation key stays with the attestation partition: no IAK here. */
+#ifndef WT_ATTEST_KEY_hmac
+static bool g_native_attest_ready;
+
 static psa_status_t wt_native_iak_generate(void)
 {
     return wt_hsm_key_backend.generate(WT_NATIVE_IAK_OWNER,
@@ -239,3 +241,4 @@ int wt_hsm_attest_public_key(uint8_t* publicKey, size_t publicKeyCapacity,
                                               publicKeySize);
     return (status == PSA_SUCCESS) ? WH_ERROR_OK : WH_ERROR_ABORTED;
 }
+#endif /* !WT_ATTEST_KEY_hmac */

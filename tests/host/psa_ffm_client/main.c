@@ -68,10 +68,12 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
     return WT_FFM_SUCCESS;
 }
 
+#if WT_SPM_BOOT_VALIDATE
 int wt_spm_sched_validate(void)
 {
     return WT_FFM_SUCCESS;
 }
+#endif
 
 int wt_spm_sched_start_all(void)
 {

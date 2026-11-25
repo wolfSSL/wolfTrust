@@ -107,11 +107,13 @@ static int g_start_all_calls;
 static int g_start_all_after_validate;
 static int g_start_all_ret;
 
+#if WT_SPM_BOOT_VALIDATE
 int wt_spm_sched_validate(void)
 {
     g_validate_calls++;
     return WT_FFM_SUCCESS;
 }
+#endif
 
 int wt_spm_sched_start_all(void)
 {

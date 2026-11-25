@@ -51,7 +51,9 @@ int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
  * no composed table may grant write access to memory another partition can
  * reach, or any access to SPM-private RAM. WT_FFM_ERROR_ISOLATION refuses the
  * boot. */
+#if WT_SPM_BOOT_VALIDATE
 int wt_spm_sched_validate(void);
+#endif
 
 /* FF-M start-up: run every scheduled partition that has not yet run until it
  * blocks, and drain SP-to-SP IPC until all are idle, before the NSPE starts.

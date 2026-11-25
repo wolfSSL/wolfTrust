@@ -50,6 +50,35 @@ interface profile follows the runner's `WT_PROFILE` unless
 `WT_INTERFACE_PROFILE` is set. [Footprint](Footprint.md#tpm-20-and-pkcs11)
 has the Secure image and application sizes for every port and engine.
 
+## Application setup
+
+The application builds wolfTPM with `WOLFTPM_USER_TRANSPORT`, which is
+wolfTPM's application transport (`--enable-usertransport`, or CMake
+`WOLFTPM_INTERFACE=USER`), and links `src/client/tpm_psa_transport.c`. It
+passes `wt_tpm_psa_io` as the wolfTPM IO callback:
+
+```c
+#include <wolftrust/tpm_psa_transport.h>
+#include <wolftpm/tpm2_wrap.h>
+
+WOLFTPM2_DEV dev;
+int rc;
+
+rc = wolfTPM2_Init(&dev, wt_tpm_psa_io, NULL);
+/* ... TPM2_* and wolfTPM2_* calls ... */
+wolfTPM2_Cleanup(&dev);
+wt_tpm_psa_close();
+```
+
+In this build wolfTPM's IO callback carries a whole command, so every command
+that wolfTPM builds goes to `wt_tpm_psa_transact()`. That function sends the
+command to `SERVICE_TPM` in one call and returns the response for wolfTPM to
+parse. `wt_tpm_psa_close()` drops the PSA connection when the application is
+done. The application never handles TPM frames itself, and it does not override
+any wolfTPM function. `tests/firmware/interface-guest/tpm_tests.c` is the
+reference client. wolfTPM's [application transport](https://github.com/wolfSSL/wolfTPM/blob/master/docs/system-interfaces.md#application-transport)
+documents the callback contract.
+
 ## Service boundary
 
 The application links the wolfTPM client and `SERVICE_TPM` transport. It does

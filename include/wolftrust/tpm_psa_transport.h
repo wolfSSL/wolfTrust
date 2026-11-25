@@ -42,4 +42,13 @@ int wt_tpm_psa_random(uint8_t* out, size_t len);
 /* Drop the cached connection (after a transport error or for teardown). */
 void wt_tpm_psa_close(void);
 
+#if defined(WOLFTPM_USER_TRANSPORT)
+#include <wolftpm/tpm2.h>
+
+/* wolfTPM IO callback for this transport: wolfTPM2_Init(&dev, wt_tpm_psa_io,
+ * NULL). Call wt_tpm_psa_close() after wolfTPM2_Cleanup. */
+int wt_tpm_psa_io(TPM2_CTX* ctx, const BYTE* cmd, UINT32 cmd_sz, BYTE* rsp,
+                  UINT32 rsp_max, UINT32* rsp_sz, void* user_ctx);
+#endif
+
 #endif /* WOLFTRUST_TPM_PSA_TRANSPORT_H */

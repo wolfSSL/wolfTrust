@@ -87,7 +87,7 @@ SRCS := main.c ../psa-guest/guest_libc.c $(ROOT)/src/client/psa_ffm_client.c
 ifeq ($(WT_INTERFACE),tpm)
 APP_NAME := tpm-guest0
 CFLAGS += -I$(WOLFTPM_DIR) -DWOLFTPM_USER_SETTINGS -DWT_TPM_ROLE_APP \
-    -DWOLFTPM_SWTPM -DWOLF_CRYPTO_CB -DWOLFTPM_CRYPTOCB -DWOLFTPM_SMALL_STACK \
+    -DWOLFTPM_USER_TRANSPORT -DWOLF_CRYPTO_CB -DWOLFTPM_CRYPTOCB -DWOLFTPM_SMALL_STACK \
     -DWT_INTERFACE_TPM -DWT_TPM_APP_NAME=\"$(APP_NAME)\" \
     -DWOLFSSL_SP_ASM -DWOLFSSL_SP_ARM_CORTEX_M_ASM -DWOLFSSL_ARM_ARCH=8 \
     -DNO_ERROR_STRINGS -DWOLFSSL_PUBLIC_MP -DWC_RSA_DIRECT \
@@ -100,8 +100,8 @@ SRCS += tpm_tests.c $(ROOT)/src/client/tpm_psa_transport.c \
     $(addprefix $(WOLFSSL_DIR)/wolfcrypt/src/, aes.c cryptocb.c ecc.c \
         random.c sha256.c asn.c coding.c error.c hash.c hmac.c memory.c sha.c \
         sp_cortexm.c sp_int.c wolfmath.c wc_port.c sha512.c kdf.c pwdbased.c)
-KEEP := -Wl,-u,wt_tpm_psa_transact,-u,TPM2_SWTPM_SendCommand
-WIRED := wt_tpm_psa_transact TPM2_SWTPM_SendCommand wt_tpm_psa_random
+KEEP := -Wl,-u,wt_tpm_psa_transact,-u,wt_tpm_psa_io
+WIRED := wt_tpm_psa_transact wt_tpm_psa_io wt_tpm_psa_random
 ABSENT := 'fwTPM|FWTPM_|WP11_|wh_Client|wt_crypto_native'
 else
 APP_NAME := pkcs11-guest0

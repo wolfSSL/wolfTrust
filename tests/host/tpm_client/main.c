@@ -19,7 +19,7 @@
  */
 
 /* TPM PSA client suite: a scripted PSA transport checks connection recovery,
- * synchronous execution, response framing, and the SWTPM initialization contract. */
+ * synchronous execution, response framing, and the user transport contract. */
 
 #include "psa/client.h"
 #include "psa/error.h"
@@ -27,7 +27,6 @@
 
 #include <wolftpm/tpm2.h>
 #include <wolftpm/tpm2_packet.h>
-#include <wolftpm/tpm2_swtpm.h>
 #include <wolftpm/tpm2_tis.h>
 
 #include <stdint.h>
@@ -189,12 +188,13 @@ static void set_success_response(size_t declared, size_t received)
     g_response_len = received;
 }
 
-static void packet_init(TPM2_Packet* packet, uint8_t* frame, size_t size)
+static TPM_RC send_startup(void)
 {
-    (void)memset(frame, 0, size);
-    packet->buf = frame;
-    packet->size = (int)size;
-    packet->pos = TPM2_HEADER_SIZE;
+    Startup_In in;
+
+    (void)memset(&in, 0, sizeof(in));
+    in.startupType = TPM_SU_CLEAR;
+    return TPM2_Startup(&in);
 }
 
 static void test_arguments(void)
@@ -256,94 +256,64 @@ static void test_connection_recovery(void)
 static void test_execution_and_framing(void)
 {
     TPM2_CTX ctx;
-    TPM2_Packet packet;
-    uint8_t frame[32];
-    int rc;
+
+    check(TPM2_Init(&ctx, wt_tpm_psa_io, NULL) == TPM_RC_SUCCESS,
+          "user transport initializes without a TIS startup");
 
     mock_reset();
-    packet_init(&packet, frame, sizeof(frame));
     set_success_response(TPM2_HEADER_SIZE, TPM2_HEADER_SIZE);
-    rc = TPM2_SWTPM_SendCommand(&ctx, &packet);
-    check(rc == TPM_RC_SUCCESS && g_calls == 1 &&
-          packet.size == TPM2_HEADER_SIZE,
+    check(send_startup() == TPM_RC_SUCCESS && g_calls == 1,
           "one synchronous call returns the framed response");
 
     mock_reset();
-    packet_init(&packet, frame, sizeof(frame));
     g_call_status = PSA_ERROR_CONNECTION_BUSY;
-    rc = TPM2_SWTPM_SendCommand(&ctx, &packet);
-    check(rc == TPM_RC_FAILURE && g_calls == 1,
+    check(send_startup() == TPM_RC_FAILURE && g_calls == 1,
           "a failed command is never implicitly replayed");
 
     mock_reset();
-    packet_init(&packet, frame, sizeof(frame));
     set_success_response(TPM2_HEADER_SIZE, TPM2_HEADER_SIZE - 1U);
-    check(TPM2_SWTPM_SendCommand(&ctx, &packet) == TPM_RC_FAILURE,
+    check(send_startup() == TPM_RC_FAILURE,
           "a response shorter than the TPM header is refused");
 
     mock_reset();
-    packet_init(&packet, frame, sizeof(frame));
     set_success_response(TPM2_HEADER_SIZE + 1U, TPM2_HEADER_SIZE);
-    check(TPM2_SWTPM_SendCommand(&ctx, &packet) == TPM_RC_FAILURE,
+    check(send_startup() == TPM_RC_FAILURE,
           "a response whose declared length disagrees is refused");
 
     mock_reset();
-    packet_init(&packet, frame, sizeof(frame));
     set_success_response(TPM2_HEADER_SIZE, TPM2_HEADER_SIZE);
-    g_forced_out_len = sizeof(frame) + 1U;
-    check(TPM2_SWTPM_SendCommand(&ctx, &packet) == TPM_RC_FAILURE,
+    g_forced_out_len = WT_TPM_FRAME_MAX + 1U;
+    check(send_startup() == TPM_RC_FAILURE,
           "a response reported beyond the packet capacity is refused");
+
+    (void)TPM2_Cleanup(&ctx);
 }
 
-static void test_packet_bounds(void)
-{
-    TPM2_CTX ctx;
-    TPM2_Packet packet;
-    uint8_t frame[32];
-
-    mock_reset();
-    packet_init(&packet, frame, sizeof(frame));
-    packet.size = 0;
-    check(TPM2_SWTPM_SendCommand(&ctx, &packet) == BAD_FUNC_ARG &&
-              g_connects == 0 && g_calls == 0,
-          "SWTPM transport rejects a zero packet capacity before I/O");
-
-    packet_init(&packet, frame, sizeof(frame));
-    packet.size = -1;
-    check(TPM2_SWTPM_SendCommand(&ctx, &packet) == BAD_FUNC_ARG &&
-              g_connects == 0 && g_calls == 0,
-          "SWTPM transport rejects a negative packet capacity before I/O");
-
-    packet_init(&packet, frame, sizeof(frame));
-    packet.pos = packet.size + 1;
-    check(TPM2_SWTPM_SendCommand(&ctx, &packet) == BAD_FUNC_ARG &&
-              g_connects == 0 && g_calls == 0,
-          "SWTPM transport rejects a command beyond packet capacity");
-}
-
-static void test_locality_contract(void)
+static void test_init_contract(void)
 {
     TPM2_CTX ctx;
     int rc;
 
     mock_reset();
-    check(TPM2_TIS_RequestLocality(NULL, 1) == BAD_FUNC_ARG,
-          "locality request rejects a NULL context");
-    rc = TPM2_Init(&ctx, NULL, NULL);
+    check(TPM2_Init(&ctx, NULL, NULL) == BAD_FUNC_ARG && g_calls == 0,
+          "initialization without the PSA IO callback is refused");
+    rc = TPM2_Init(&ctx, wt_tpm_psa_io, NULL);
     check(rc == TPM_RC_SUCCESS && ctx.locality == WOLFTPM_LOCALITY_DEFAULT &&
           TPM2_GetActiveCtx() == &ctx,
-          "direct TPM initialization records the granted locality");
+          "direct TPM initialization uses the default locality");
+    set_success_response(TPM2_HEADER_SIZE, TPM2_HEADER_SIZE);
+    check(send_startup() == TPM_RC_SUCCESS && g_connects == 1,
+          "the first command opens the service connection");
     check(TPM2_Cleanup(&ctx) == TPM_RC_SUCCESS &&
-          TPM2_GetActiveCtx() == NULL,
-          "direct TPM cleanup clears the active context");
+          TPM2_GetActiveCtx() == NULL && g_closes == 0,
+          "TPM cleanup leaves the service connection to the caller");
+    wt_tpm_psa_close();
+    check(g_closes == 1, "closing the transport closes the connection");
 
-    rc = TPM2_Init_ex(&ctx, NULL, NULL, 1);
-    check(rc == TPM_RC_SUCCESS && ctx.locality == WOLFTPM_LOCALITY_DEFAULT &&
-          TPM2_GetActiveCtx() == &ctx,
-          "explicit SWTPM startup records the granted locality");
-    check(TPM2_Cleanup(&ctx) == TPM_RC_SUCCESS &&
-          TPM2_GetActiveCtx() == NULL,
-          "explicit SWTPM startup remains cleanup-safe");
+    check(TPM2_Init_ex(&ctx, wt_tpm_psa_io, NULL, 1) == BAD_FUNC_ARG &&
+          g_calls == 1,
+          "a TIS chip startup is refused without I/O");
+    (void)TPM2_Cleanup(&ctx);
 }
 
 static int rng_stream_ok(const uint8_t* out, size_t len)
@@ -476,8 +446,7 @@ int main(void)
     test_arguments();
     test_connection_recovery();
     test_execution_and_framing();
-    test_packet_bounds();
-    test_locality_contract();
+    test_init_contract();
     test_random();
 
     wt_tpm_psa_close();

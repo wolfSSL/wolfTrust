@@ -40,7 +40,7 @@ jobs:
             "lib/wolfSSL|https://github.com/wolfSSL/wolfSSL.git|v*-stable|51975e27a5439668733976a584d417dfd7776026"
             "lib/wolfHSM|https://github.com/wolfSSL/wolfHSM.git|wolfHSM-v*|66e2482333ff175a14d10a25c501367362212a38"
             "lib/wolfIP|https://github.com/wolfSSL/wolfIP.git|v*|"
-            "lib/wolfTPM|https://github.com/wolfSSL/wolfTPM.git|v*|e9da7bab386f40bd8959c47590d4a9b328eb9121"
+            "lib/wolfTPM|https://github.com/wolfSSL/wolfTPM.git|v*|899abf15dc785d51c14592c23df071604b839a64"
             "lib/wolfPKCS11|https://github.com/wolfSSL/wolfPKCS11.git|v*-stable|270a337ab6aa47feb7f60fa5a7a736e01c9da9ee"
           )
 

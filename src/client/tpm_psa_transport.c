@@ -97,75 +97,20 @@ int wt_tpm_psa_random(uint8_t* out, size_t len)
     return rc;
 }
 
-#if defined(WOLFTPM_SWTPM)
-/* wolfTPM client transport: built with WOLFTPM_SWTPM so the core routes
- * every command through TPM2_SWTPM_SendCommand, which this file provides in
- * place of the socket client. One synchronous call returns the response. */
-#include <wolftpm/tpm2.h>
-#include <wolftpm/tpm2_packet.h>
-#include <wolftpm/tpm2_tis.h>
-#include <wolftpm/tpm2_swtpm.h>
-
-/* The core still runs its TIS chip-startup sequence; the mediated door has
- * no TIS registers, so startup wait, locality, and device info are no-ops. */
-int TPM2_TIS_StartupWait(TPM2_CTX* ctx, int timeout)
+#if defined(WOLFTPM_USER_TRANSPORT)
+int wt_tpm_psa_io(TPM2_CTX* ctx, const BYTE* cmd, UINT32 cmd_sz, BYTE* rsp,
+                  UINT32 rsp_max, UINT32* rsp_sz, void* user_ctx)
 {
-    (void)ctx;
-    (void)timeout;
-    return TPM_RC_SUCCESS;
-}
-
-int TPM2_TIS_RequestLocality(TPM2_CTX* ctx, int timeout)
-{
-    if (ctx == NULL) {
-        return BAD_FUNC_ARG;
-    }
-    (void)timeout;
-    ctx->locality = WOLFTPM_LOCALITY_DEFAULT;
-    return TPM_RC_SUCCESS;
-}
-
-int TPM2_TIS_GetInfo(TPM2_CTX* ctx)
-{
-    (void)ctx;
-    return TPM_RC_SUCCESS;
-}
-
-void TPM2_SwtpmClose(TPM2_CTX* ctx)
-{
-    (void)ctx;
-    wt_tpm_psa_close();
-}
-
-int TPM2_SWTPM_SendCommand(TPM2_CTX* ctx, TPM2_Packet* packet)
-{
-    size_t rsp_len = 0U;
-    uint32_t declared;
+    size_t got = 0U;
     int rc;
 
     (void)ctx;
-    if (packet == NULL || packet->buf == NULL || packet->pos <= 0 ||
-            packet->size <= 0 || packet->pos > packet->size) {
-        return BAD_FUNC_ARG;
+    (void)user_ctx;
+    rc = wt_tpm_psa_transact(cmd, (size_t)cmd_sz, rsp, (size_t)rsp_max,
+                             &got);
+    if (rc == 0) {
+        *rsp_sz = (UINT32)got;
     }
-    rc = wt_tpm_psa_transact(packet->buf, (size_t)packet->pos, packet->buf,
-                            (size_t)packet->size, &rsp_len);
-    if (rc != 0 || rsp_len < (size_t)TPM2_HEADER_SIZE ||
-            rsp_len > (size_t)packet->size) {
-        return TPM_RC_FAILURE;
-    }
-    /* The response header declares its own total length; reject a mediated
-     * frame whose body length disagrees rather than let the core parse stale
-     * buffer tail past the bytes actually received. */
-    declared = ((uint32_t)packet->buf[2] << 24) |
-               ((uint32_t)packet->buf[3] << 16) |
-               ((uint32_t)packet->buf[4] << 8)  |
-               (uint32_t)packet->buf[5];
-    if (declared != (uint32_t)rsp_len) {
-        return TPM_RC_FAILURE;
-    }
-    /* Bind the parser to the bytes actually received. */
-    packet->size = (int)rsp_len;
-    return TPM_RC_SUCCESS;
+    return rc;
 }
-#endif /* WOLFTPM_SWTPM */
+#endif /* WOLFTPM_USER_TRANSPORT */

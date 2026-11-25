@@ -396,7 +396,7 @@ int wt_tpm_run(void)
     int rc = -1;
 
     for (tries = 0; tries < 50 && rc != 0; tries++) {
-        rc = wolfTPM2_Init(&g_dev, NULL, NULL);
+        rc = wolfTPM2_Init(&g_dev, wt_tpm_psa_io, NULL);
         if (rc != 0) {
             wt_tpm_psa_close();
             wt_tpm_wait();
@@ -510,6 +510,7 @@ int wt_tpm_run(void)
     app_line("tpm lockout ok");
 #endif
     (void)wolfTPM2_Cleanup(&g_dev);
+    wt_tpm_psa_close();
     app_line("tpm round trip ok");
     return 0;
 }

@@ -15,8 +15,8 @@
       "native"
     ],
     "attest_cose": 1,
-    "noncrypto_max": 44600,
-    "spm_max": 11500,
+    "noncrypto_max": 43400,
+    "spm_max": 11100,
     "variants": ["conformance", "tpm", "pkcs11"],
     "variant_profiles": {"tpm": ["default"], "pkcs11": ["default"]},
     "vectors": ""

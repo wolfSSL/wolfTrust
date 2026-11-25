@@ -36,22 +36,21 @@ Costs are over the default image, built with Arm GNU 15.2.1 in
 `make size-report`: flash is `text + data`, and RAM is the Secure RAM the image
 reserves, partition stacks and bands included ([Footprint](Footprint.md#how-sizes-are-measured)).
 The default native image serves PSA Crypto from the Secure image and is
-94,347 bytes of flash and 47,308 bytes of RAM on the STM32H563, with wolfCrypt
+94,379 bytes of flash and 47,308 bytes of RAM on the STM32H563, with wolfCrypt
 built as portable C. The other rows are measured over the `WT_SECURE_PSA=0`
-image, 70,464 and 45,260 bytes on the STM32H563, and 69,496 and 45,280 bytes
-on the STM32L562 (measured on the STM32L562 port, which is under review and not
-yet in this tree).
+image, 70,464 and 45,260 bytes on the STM32H563, and 69,988 and 45,244 bytes
+on the STM32L562.
 [Footprint](Footprint.md) logs the sizes of every port and engine.
 
 | Option | Brings back | STM32H563 flash / RAM | STM32L562 flash / RAM | Enable |
 | --- | --- | ---: | ---: | --- |
-| [`WT_MAX_GUESTS=2`](#wt_max_guests-a-second-guest) | A second Non-secure image, the scheduling that shares the core between two, and an IPC message pool of 8 instead of 4 | +2,328 / +9,368 | +2,328 / +9,364 | `make WT_MAX_GUESTS=2 secure-image` |
-| [`WT_FWU=1`](#wt_fwu-psa-firmware-update) | The PSA Firmware Update service and its 4 KiB stack | +3,348 / +4,120 | +3,372 / +4,136 | `make WT_FWU=1 secure-image` |
+| [`WT_MAX_GUESTS=2`](#wt_max_guests-a-second-guest) | A second Non-secure image, the scheduling that shares the core between two, and an IPC message pool of 8 instead of 4 | +2,328 / +9,368 | +2,328 / +9,368 | `make WT_MAX_GUESTS=2 secure-image` |
+| [`WT_FWU=1`](#wt_fwu-psa-firmware-update) | The PSA Firmware Update service and its 4 KiB stack | +3,348 / +4,120 | +3,344 / +4,120 | `make WT_FWU=1 secure-image` |
 | [`WT_MANIFEST_RUNTIME_CHECK=1`](#wt_manifest_runtime_check-boot-time-manifest-check) | The boot-time manifest and port-binding validator | +3,316 / 0 | +3,284 / 0 | `make WT_MANIFEST_RUNTIME_CHECK=1 secure-image` |
-| [`WT_SHA256_FAST=1`](#wt_sha256_fast-unrolled-sha-256) | The unrolled SHA-256 transform, faster hashing for boot and guest measurement | +384 / 0 | +416 / 0 | `make WT_SHA256_FAST=1 secure-image` |
-| [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +27,876 / +38,672 | not supported | `make WT_ENGINE=hsm secure-image` |
-| [`WT_SECURE_PSA=0`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1) | Removes PSA Crypto from the Secure image and runs wolfPSA in the guest again; saves 23,883 / 2,048 against the `default` algorithm set (35,641 / 3,072 against `extended`) | -23,883 / -2,048 | not measured | `make WT_SECURE_PSA=0 secure-image` |
-| `extended` add-ons | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` together | +9,408 / +13,488 | +9,432 / +13,500 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image` |
+| [`WT_SHA256_FAST=1`](#wt_sha256_fast-unrolled-sha-256) | The unrolled SHA-256 transform, faster hashing for boot and guest measurement | +416 / 0 | +384 / 0 | `make WT_SHA256_FAST=1 secure-image` |
+| [`WT_ENGINE=hsm`](#wt_enginehsm-the-wolfhsm-engine) | The wolfHSM server as the crypto engine | +28,036 / +38,672 | not supported | `make WT_ENGINE=hsm secure-image` |
+| [`WT_SECURE_PSA=0`](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1) | Removes PSA Crypto from the Secure image and runs wolfPSA in the guest again; saves 23,915 / 2,048 against the `default` algorithm set (35,641 / 3,072 against `extended`) | -23,915 / -2,048 | not measured | `make WT_SECURE_PSA=0 secure-image` |
+| `extended` add-ons | `WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1` together | +9,440 / +13,488 | +9,404 / +13,488 | `make WT_MAX_GUESTS=2 WT_MANIFEST_RUNTIME_CHECK=1 WT_FWU=1 WT_SHA256_FAST=1 secure-image` |
 
 The RAM figures include every stack and band an option adds, the 4 KiB FWU
 stack for `WT_FWU=1` among them. The engine is a separate axis:
@@ -77,7 +76,7 @@ build `extended` only, because their checks assert both guests.
   restart policy, launch verification, the Secure tick and the Secure
   Partition scheduler.
 - Cost: STM32H563 native +2,328 bytes flash and +9,368 bytes RAM, wolfHSM
-  +2,648 and +19,864; STM32L562 native +2,328 and +9,364. Most of the RAM is
+  +2,616 and +19,864; STM32L562 native +2,328 and +9,368. Most of the RAM is
   the IPC message pool, which holds 8 messages with two guests and 4 with one
   (`WT_FFM_MAX_MESSAGES`).
 - Enable: `make WT_MAX_GUESTS=2 secure-image`
@@ -101,7 +100,7 @@ build `extended` only, because their checks assert both guests.
   Anti-rollback enforcement at boot stays in every image.
   `WT_BOOTUPDATE_PROBE=1` needs `WT_FWU=1`.
 - Cost: STM32H563 native +3,348 bytes flash and +4,120 bytes RAM; STM32L562
-  native +3,372 and +4,136. The RAM is almost all the update partition's
+  native +3,344 and +4,120. The RAM is almost all the update partition's
   stack.
 - Enable: `make WT_FWU=1 secure-image`
 - CI: the cross-compile job builds it alone and in the `extended` profile for
@@ -142,7 +141,7 @@ build `extended` only, because their checks assert both guests.
 - SHA-256 runs at boot over each guest image (launch verification), in every
   attestation token and in the PSA hash service, so `1` shortens those paths;
   nothing else changes.
-- Cost: flash only, +384 bytes on the STM32H563 and +416 on the STM32L562
+- Cost: flash only, +416 bytes on the STM32H563 and +384 on the STM32L562
   with the default portable C build, or +1,472 bytes with
   `WT_WOLFCRYPT_ARMASM=1`.
 - Enable: `make WT_SHA256_FAST=1 secure-image`
@@ -155,7 +154,7 @@ build `extended` only, because their checks assert both guests.
 - Default `native`, which runs wolfCrypt directly behind `SERVICE_HSM`.
   `hsm` links the wolfHSM server instead, with server-keystore semantics and
   an external-HSM offload path. The FF-M surface does not change.
-- Cost: STM32H563 +27,876 bytes flash and +38,672 bytes RAM over the native
+- Cost: STM32H563 +28,036 bytes flash and +38,672 bytes RAM over the native
   `WT_SECURE_PSA=0` image, including the wolfHSM server's 10 KiB crypto partition stack and
   24 KiB data band. Part of it is AES block decryption, which the wolfHSM server
   serves to clients and the native engine leaves out. The STM32L562 builds the native engine only; its 256 KiB of SRAM

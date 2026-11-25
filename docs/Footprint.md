@@ -45,25 +45,23 @@ allowed that band on top.
 
 ## Measured sizes
 
-Measured 2026-11-17 on the `WT_SECURE_PSA=0` image, with wolfCrypt built as
+Measured 2026-11-25 on the `WT_SECURE_PSA=0` image, with wolfCrypt built as
 portable C (the default). The `extended` columns turn on the four add-ons the
 `extended` profile sets
 (`WT_MAX_GUESTS=2 WT_FWU=1 WT_MANIFEST_RUNTIME_CHECK=1 WT_SHA256_FAST=1`).
 
 | Port | Engine | Default flash | Default RAM | `extended` flash | `extended` RAM |
 | --- | --- | ---: | ---: | ---: | ---: |
-| STM32H563 | native | 70,432 | 45,260 | 79,840 | 58,748 |
-| STM32H563 | hsm | 98,308 | 83,932 | 108,032 | 107,916 |
-| MIMXRT700 | native | 70,712 | 49,656 | 80,172 | 63,140 |
-| MIMXRT700 | hsm | 98,584 | 88,324 | 108,400 | 112,308 |
-| MCX N947 | native | 69,208 | 45,456 | 78,676 | 58,940 |
-| MCX N947 | hsm | 97,048 | 84,124 | 106,872 | 108,108 |
-| STM32L562 | native | 69,496 | 45,280 | 78,928 | 58,780 |
+| STM32H563 | native | 70,464 | 45,260 | 79,904 | 58,748 |
+| STM32H563 | hsm | 98,500 | 83,932 | 108,224 | 107,916 |
+| MIMXRT700 | native | 70,744 | 49,656 | 80,204 | 63,140 |
+| MIMXRT700 | hsm | 98,744 | 88,324 | 108,560 | 112,308 |
+| MCX N947 | native | 69,240 | 45,456 | 78,740 | 58,940 |
+| MCX N947 | hsm | 97,240 | 84,124 | 107,032 | 108,108 |
+| STM32L562 | native | 69,988 | 45,244 | 79,392 | 58,732 |
 
 The MIMXRT700 RAM includes its 4 KiB RAM code band (the NSC gateway and the
-NOR program code). The STM32L562 figures were measured on the STM32L562 port,
-which is under review and not yet in this tree, merged with these sources
-before the shared port layer landed. That port builds the native engine only.
+NOR program code). The STM32L562 port builds the native engine only.
 Update this table and its date when a change moves an image size.
 
 ## Options that change the size
@@ -76,12 +74,12 @@ the default.
 | `WT_MAX_GUESTS=2` | A second Non-secure guest, the scheduling between two, and an IPC message pool of 8 instead of 4 | +2,328 / +9,368 | Adds SAU, MPU and IRQ reprogramming on every guest switch |
 | `WT_FWU=1` | PSA Firmware Update and its 4 KiB stack | +3,348 / +4,120 | None |
 | `WT_MANIFEST_RUNTIME_CHECK=1` | The boot-time manifest and port-binding validator | +3,316 / 0 | Adds the validator run at boot |
-| `WT_SHA256_FAST=1` | The unrolled SHA-256 transform | +384 / 0 | Faster guest verification at boot, attestation and the PSA hash service |
+| `WT_SHA256_FAST=1` | The unrolled SHA-256 transform | +416 / 0 | Faster guest verification at boot, attestation and the PSA hash service |
 | `WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1` | wolfCrypt's Cortex-M assembly for ECC, AES and SHA-256, and the 9 KiB native crypto stack its P-256 verify needs | +8,956 / +4,096 | Faster ECC, AES and SHA-256 |
-| `WT_ENGINE=hsm` | The wolfHSM server as the crypto engine, with its 10 KiB crypto stack and 24 KiB data band | +27,876 / +38,672 | Adds the wolfHSM request layer to each crypto call |
-| `extended` profile add-ons | The first four together | +9,408 / +13,488 | As above |
+| `WT_ENGINE=hsm` | The wolfHSM server as the crypto engine, with its 10 KiB crypto stack and 24 KiB data band | +28,036 / +38,672 | Adds the wolfHSM request layer to each crypto call |
+| `extended` profile add-ons | The first four together | +9,440 / +13,488 | As above |
 
-With the wolfHSM engine, `WT_MAX_GUESTS=2` costs +2,648 bytes of flash and
+With the wolfHSM engine, `WT_MAX_GUESTS=2` costs +2,616 bytes of flash and
 +19,864 bytes of RAM, because each guest gets its own server stack.
 
 Each partition stack is sized from the high-water mark measured on M33MU

@@ -202,13 +202,13 @@ includes too:
 | --- | --- | ---: |
 | `tiny` | `small` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 87,587 / 47,308 |
 | `small` | `default` with one AEAD, CCM (`WT_AEAD=gcm` swaps it for GCM), and no AES decryption | 91,243 / 47,308 |
-| `default` (default) | P-256 ECDSA (random nonce) and ECDH, AES-GCM, CCM and CTR, SHA-256, HMAC, HKDF | 94,347 / 47,308 |
-| `extended` | The reference guest's set: `default` plus deterministic ECDSA, CBC and ECB, PBKDF2, SP 800-108 counter KDF, TLS 1.2 PRF, CCM* without a tag | 106,137 / 48,332 |
+| `default` (default) | P-256 ECDSA (random nonce) and ECDH, AES-GCM, CCM and CTR, SHA-256, HMAC, HKDF | 94,379 / 47,308 |
+| `extended` | The reference guest's set: `default` plus deterministic ECDSA, CBC and ECB, PBKDF2, SP 800-108 counter KDF, TLS 1.2 PRF, CCM* without a tag | 106,105 / 48,332 |
 
 Every profile but `extended` signs, verifies and agrees keys on wolfPSA's direct
 P-256 path over wolfCrypt's SP code, so `ecc.c` and the multi-precision math
 leave the image; `extended` keeps them for deterministic ECDSA. With
-`WT_AEAD=gcm`, `small` is 92,683 bytes and `tiny` 88,995.
+`WT_AEAD=gcm`, `small` is 92,683 bytes and `tiny` 89,027.
 
 The `tiny` row is the algorithm set alone, `WT_SECURE_PSA_PROFILE=tiny`: the
 attestation key and the vault's keys still use P-256 there.
@@ -386,14 +386,14 @@ wolfBoot and Non-secure guest images are not included.
 
 | Engine and profile | `text` | `data` | `bss` | Flash | Secure RAM |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Native, `default` | 93,955 bytes | 392 bytes | 20,732 bytes | 94,347 bytes | 47,308 bytes |
+| Native, `default` | 93,987 bytes | 392 bytes | 20,732 bytes | 94,379 bytes | 47,308 bytes |
 | Native, `small` | 90,851 bytes | 392 bytes | 20,732 bytes | 91,243 bytes | 47,308 bytes |
 | Native, `default`, `WT_SECURE_PSA_PROFILE=extended` | 105,709 bytes | 396 bytes | 20,732 bytes | 106,105 bytes | 48,332 bytes |
 | Native, `WT_SECURE_PSA=0` | 70,080 bytes | 384 bytes | 18,340 bytes | 70,464 bytes | 45,260 bytes |
 | wolfHSM, default | 98,108 bytes | 392 bytes | 40,648 bytes | 98,500 bytes | 83,932 bytes |
-| wolfHSM over native `WT_SECURE_PSA=0` | 27,900 bytes | 8 bytes | 22,308 bytes | 27,908 bytes | 38,672 bytes |
+| wolfHSM over native `WT_SECURE_PSA=0` | 28,028 bytes | 8 bytes | 22,308 bytes | 28,036 bytes | 38,672 bytes |
 | Native, `extended` | 115,164 bytes | 732 bytes | 31,832 bytes | 115,896 bytes | 63,868 bytes |
-| Native, `extended`, `WT_SECURE_PSA=0` | 79,120 bytes | 720 bytes | 27,392 bytes | 79,840 bytes | 58,748 bytes |
+| Native, `extended`, `WT_SECURE_PSA=0` | 79,184 bytes | 720 bytes | 27,392 bytes | 79,904 bytes | 58,748 bytes |
 | wolfHSM, `extended` | 107,496 bytes | 728 bytes | 66,504 bytes | 108,224 bytes | 107,916 bytes |
 
 ### Stack contribution

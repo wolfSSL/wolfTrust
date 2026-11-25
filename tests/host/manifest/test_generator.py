@@ -387,7 +387,8 @@ class GeneratorTest(unittest.TestCase):
                                (("WT_PROFILE=default",), False)):
             args = subprocess.run(
                 ["make", "-s", "--no-print-directory", "-C", str(ROOT),
-                 "TARGET=stm32h563"] + list(flags) +
+                 "TARGET=stm32h563",
+                 "WT_LAYOUT_CPP=" + os.environ.get("CC", "cc")] + list(flags) +
                 ["print-manifest-gen-args"],
                 check=True, capture_output=True, text=True).stdout
             self.assertEqual(drop in " ".join(args.split()), dropped, flags)

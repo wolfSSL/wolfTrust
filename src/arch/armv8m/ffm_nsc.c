@@ -33,14 +33,12 @@
 int wt_arch_ns_check_read(wt_guest_id_t guest_id,
                           const void* address, size_t size)
 {
-    return wt_cmse_check_ns_ro(address, size) &&
-           wt_cmse_check_in_guest_ns_addr(guest_id, address, size);
+    return wt_cmse_check_guest_buffer(guest_id, address, size, 0);
 }
 
 int wt_arch_ns_check_write(wt_guest_id_t guest_id, void* address, size_t size)
 {
-    return wt_cmse_check_ns_rw(address, size) &&
-           wt_cmse_check_in_guest_ns_ram(guest_id, address, size);
+    return wt_cmse_check_guest_buffer(guest_id, address, size, 1);
 }
 
 int wt_arch_ns_check_writable(const void* address, size_t size)

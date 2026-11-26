@@ -91,9 +91,7 @@ _WC_SRCS := \
     $(WOLFSSL)/wolfcrypt/src/misc.c
 
 _WT_SRCS := \
-    $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_domain.c \
-    $(ROOT)/src/ipc.c \
     $(ROOT)/src/spm_gate.c
 
 _WTS_SRCS := \
@@ -115,9 +113,12 @@ _WTC_OBJS     := $(patsubst %.c,wtc_%.o,$(notdir $(_WTC_SRCS)))
 _TEST_OBJS    := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 _GUEST_OBJS   := $(patsubst %.c,guest_%.o,$(_GUEST_SRCS))
 
+include $(ROOT)/tests/host/support/spm_host.mk
+
 ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WH_OBJS) $(_WH_PORT_OBJS) \
     $(_WC_OBJS) $(_WT_OBJS) $(_WTS_OBJS) $(_WTC_OBJS) $(_TEST_OBJS) \
     $(_GUEST_OBJS))
+ALL_OBJS += $(SPM_HOST_OBJS)
 TEST_BIN := $(BUILD_DIR)/test_wolfhsm_relay
 
 $(BUILD_DIR):

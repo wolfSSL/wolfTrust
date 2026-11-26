@@ -57,9 +57,7 @@ COSE_CFLAGS := $(filter-out -Werror -pedantic,$(CFLAGS))
 # object door, and the attestation partition's signer into SERVICE_HSM's
 # attestation door.
 _WT_SRCS := \
-    $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_domain.c \
-    $(ROOT)/src/ipc.c \
     $(ROOT)/src/spm_gate.c \
     $(ROOT)/src/guest_verify.c \
     $(ROOT)/src/services/vault_service.c \
@@ -121,7 +119,10 @@ _WC_OBJS   := $(patsubst %.c,wc_%.o,$(notdir $(_WC_SRCS)))
 _CO_OBJS   := $(patsubst %.c,co_%.o,$(notdir $(_CO_SRCS)))
 _TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
+include $(ROOT)/tests/host/support/spm_host.mk
+
 ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WH_OBJS) $(_WC_OBJS) $(_CO_OBJS) $(_TEST_OBJS))
+ALL_OBJS += $(SPM_HOST_OBJS)
 TEST_BIN := $(BUILD_DIR)/test_keystore_ipc
 
 .PHONY: all run compilers sanitize valgrind clean

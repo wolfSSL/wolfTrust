@@ -34,7 +34,7 @@ endif
 UNIT_SUITES := domain manifest manifest_ports lifecycle monitor guest_verify rollback sp_recovery \
     fabric_windows periph irq_claim rt700_trng rt700_xspi rt700_lifecycle \
     mcxn947_flash mcxn947_lifecycle mcxn947_rng \
-    ipc ffm spm \
+    spm \
     vnet wolfhsm_loopback wolfhsm_relay tpm_relay pkcs11_relay \
     tpm_client tpm_local_provider pkcs11_client pkcs11_proxy pkcs11_provider \
     crypto_profile asn_codec pkcs11_secure_heap native_wire \
@@ -48,7 +48,7 @@ UNIT_SUITES := domain manifest manifest_ports lifecycle monitor guest_verify rol
     vault_service storage_service ps_service keystore_ipc negatives qcbor_shim \
     fwu_service runtime_verify psa_ffm_client psa_storage_client vnet_relay \
     psa_headers nvm_boot conf_nvm_sync fwu_restore spm_start layout_config \
-    manifest_render port_flash h5_rng fabric_sau ns_entry_scrub
+    manifest_render port_flash h5_rng fabric_sau ns_entry_scrub footprint_classify spm_core
 # A registered port's own suites (tests/host/<soc>_*/) run without a shared edit.
 UNIT_SUITES += $(filter-out $(UNIT_SUITES),$(patsubst %/Makefile,%,$(wildcard \
     $(addsuffix _*/Makefile,$(notdir $(patsubst %/port.json,%,$(wildcard ../../port/*/port.json)))))))

@@ -17,15 +17,15 @@ options. These are local builds, not published reference figures.
 
 | Image | Flash | Secure RAM |
 | --- | ---: | ---: |
-| wolfTrust Secure runtime, native default | 69,496 bytes | 45,280 bytes |
+| wolfTrust Secure runtime, native default | 61,436 bytes | 37,644 bytes |
 | TF-M v2.3.1 `tfm_s`, level 3 | 79,680 bytes | 45,728 bytes |
 | wolfBoot, STM32L5 secure application handoff | 27,216 bytes | 2,104 bytes |
 | TF-M BL2 (MCUboot, EC-P256) | 38,744 bytes | 27,408 bytes |
-| Chain: wolfBoot + wolfTrust | 96,712 bytes | |
+| Chain: wolfBoot + wolfTrust | 88,652 bytes | |
 | Chain: BL2 + TF-M | 118,424 bytes | |
 
-The wolfTrust runtime is 10,184 bytes smaller in flash and 448 bytes smaller
-in Secure RAM; the boot chain is 21,712 bytes smaller in flash. Both RAM
+The wolfTrust runtime is 18,244 bytes smaller in flash and 8,084 bytes smaller
+in Secure RAM; the boot chain is 29,772 bytes smaller in flash. Both RAM
 figures include every partition stack (see Methodology). The bootloader's RAM
 is reused by the runtime, so the RAM figures are not summed. The
 cross-compile workflow fails if any port's lean native default image grows
@@ -44,14 +44,52 @@ feature the default leaves out comes back with one Make variable; see
 The crypto split matches TF-M's: both serve PSA Crypto from a Secure crypto
 partition, which wolfTrust's native default does with `WT_SECURE_PSA=1` (see
 [Crypto Engines](Crypto-Engines.md#psa-crypto-in-the-secure-image-wt_secure_psa1)).
-That default is larger than TF-M. On the STM32H563 the `standard` profile, the
-closest to TF-M's Medium set, is
-103,067 bytes of flash and 48,844 bytes of Secure RAM: 23,387 bytes more flash
-and 3,116 bytes more RAM than the TF-M image above. 12,007 bytes of the flash
-gap are the crypto stack (52,485 against 40,478 for TF-M's Crypto partition
-and Mbed TLS); the rest is the storage and SPM code outside it. The
+That default has more flash than TF-M. On the STM32H563 the `standard`
+profile, the closest to TF-M's Medium set, is 94,583 bytes of flash and 41,244
+bytes of Secure RAM: 14,903 bytes more flash and 4,484 bytes less RAM than the
+TF-M image above. The flash gap is the crypto stack and the non-crypto code
+the split below breaks down. The
 `WT_SECURE_PSA=0` opt-out, which runs wolfPSA in the Non-secure guest instead,
-stays below TF-M, and CI holds it to TF-M's flash and RAM.
+stays below the TF-M image in both flash and RAM.
+
+### Non-crypto split
+
+`tools/footprint/classify.py` splits a non-LTO map by category with one rules
+file per project (`tools/footprint/wolftrust.rules` and `tfm.rules`). Every
+flash byte lands in a category, `fill` or `linker`, so the categories sum to
+`text + data`, and an object no rule matches fails the run. Crypto is the
+crypto library, the crypto partition and its client, key loaders and entropy
+glue on both sides; attestation includes its CBOR and COSE libraries; storage
+includes the flash drivers and NV counters; guest is the Non-secure guest
+management (TF-M's NS agent).
+
+| Category | wolfTrust STM32L562 | wolfTrust STM32H563 | TF-M STM32L562 |
+| --- | ---: | ---: | ---: |
+| SPM | 10,949 | 10,957 | 7,548 |
+| Storage | 17,224 | 17,210 | 13,156 |
+| Attestation | 6,308 | 6,308 | 5,585 |
+| Guest management | 4,808 | 4,800 | 176 |
+| Platform | 3,490 | 4,041 | 9,104 |
+| Runtime, fill, linker | 503 | 539 | 1,689 |
+| **Non-crypto total** | **43,282** | **43,855** | **37,258** |
+| Crypto | 20,954 | 60,469 | 42,422 |
+
+Measured 2026-11-25 with `WT_ENGINE=native WT_ATTEST_COSE=1 WT_LTO=0`. The
+STM32L562 default runs PSA Crypto in the guest, so its crypto row holds only
+what the Secure services use; the STM32H563 serves PSA Crypto from the Secure
+image, as TF-M does.
+
+```sh
+make TARGET=stm32h563 WT_ENGINE=native WT_ATTEST_COSE=1 WT_LTO=0 secure-image
+python3 tools/footprint/classify.py build/wolftrust.map \
+  --rules tools/footprint/wolftrust.rules --elf build/wolftrust.elf --objects
+python3 tools/footprint/classify.py tfm_s.map --rules tools/footprint/tfm.rules \
+  --elf tfm_s.elf
+```
+
+The cross-compile workflow holds each port's non-crypto and SPM flash under
+the ceilings in its `port.json` (`build.noncrypto_max`, `build.spm_max`),
+lowered as size work lands.
 
 ### Methodology
 
@@ -72,14 +110,12 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
   length.
 - Neither figure counts Secure RAM a port leaves free.
 
-- wolfTrust: the STM32L562 port, which is under review and not yet in this
-  tree, merged with these sources before the shared port layer landed and
-  built with its defaults (native engine, LTO, one guest):
-  `make TARGET=stm32l562 secure-image` in
-  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. With `WT_SECURE_PSA=0`, the same
-  defaults give 70,400 bytes of flash and 45,260 bytes of Secure RAM for
-  `TARGET=stm32h563` in this tree; the `WT_SECURE_PSA=1` default gives 109,849
-  and 48,844.
+- wolfTrust: the STM32L562 port built with its defaults (native engine, LTO,
+  one guest, PSA Crypto in the guest): `make TARGET=stm32l562 secure-image` in
+  `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`. The same defaults give 101,361
+  bytes of flash and 41,244 bytes of Secure RAM for `TARGET=stm32h563`, which
+  serves PSA Crypto from the Secure image, or 61,916 and 37,660 with
+  `WT_SECURE_PSA=0`.
 - wolfBoot: `config/examples/stm32l5-tz-wolftrust.config` (ECC256, SHA256,
   `WOLFBOOT_SECURE_APP=1`).
 - TF-M: v2.3.1, platform `stm/stm32l562e_dk`, `TFM_ISOLATION_LEVEL=3`,
@@ -95,7 +131,7 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
 | FF-M client API | 1.0 with the scoped deviations below | Connection-based IPC is implemented | `include/psa/client.h` and `src/client/psa_ffm_client.c` |
 | Secure Partition IPC API | FF-M 1.0 plus a wolfTrust-specific backport of `psa_irq_enable()` from Arm's FF-M 1.1 Extension Beta, Issue 0 | Supported for scheduled IPC partitions; wolfTrust still reports framework version `0x0100` and does not accept 1.1 manifests | `include/psa/service.h`, `include/psa/client.h`, and `src/arch/common/spm_sp_api.c` |
 | Framework and service discovery | 1.0 | Supported | `psa_framework_version` and `psa_version` |
-| Copied input and output vectors | FF-M 1.0 | Supported, with at most four vectors total and a 1024-byte aggregate budget across input bytes and declared output capacity | `include/wolftrust/ffm.h` and `src/ffm.c` |
+| Copied input and output vectors | FF-M 1.0 | Supported, with at most four vectors total and a 1024-byte aggregate budget across input bytes and declared output capacity | `include/wolftrust/spm_core.h` and `src/spm/core.c` |
 | Manifest validation | wolfTrust format 1 | Supported for immutable generated C data | `tools/manifest/generate.py`, `src/manifest.c`, and `manifest/base.json` |
 | PSA Crypto | 1.4 header | Supported through wolfPSA; algorithms depend on the guest profile, or on `WT_SECURE_PSA_PROFILE` when `WT_SECURE_PSA=1` serves it from the Secure image | `lib/wolfPSA/wolfpsa/psa/crypto.h` and both reference guest settings |
 | Internal Trusted Storage | 1.0 | Core set/get/get-info/remove subset with the `WRITE_ONCE` lifecycle deviation below | `include/psa/internal_trusted_storage.h` and `src/services/wolfhsm/wt_hsm_vault.c` |
@@ -114,6 +150,11 @@ Secure RAM = all RAM the Secure image reserves, partition stacks included
 | Only connection-based IPC services are enabled. | Scoped | The production manifest requests only `WT_MANIFEST_FEATURE_IPC`. SFN, stateless services, and memory-mapped I/O vectors are rejected when the manifest is generated, and the runtime refuses SFN partitions at activation. |
 | IPC uses fixed copied buffers. | Scoped safety bound | Calls are limited to four vectors and a 1024-byte transfer budget. Services apply smaller bounds. Applications must chunk larger data. |
 | A Non-secure connect, call, or close cannot remain pending after the scheduler reaches quiescence for that dispatch. | Scoped deviation | An incomplete message becomes a client error. If already claimed, the service retains its message until reply or partition fault; late output is discarded. A late call reply releases the message, but the connection remains in error until the client requests close. If close was already requested, the late reply allows deferred disconnection to proceed. Shipped Non-secure-facing services reply within the dispatch; Secure Partition callers use the begin/finish path when scheduling another partition is required. |
+| Connect and close never take a transfer buffer. | Stronger resource policy | Only a call holds one of the fixed transfers, so pool exhaustion can refuse a call but never a connect or a close. |
+| A call vector the caller cannot access is refused before a transfer is taken. | Implementation detail | The call returns `PSA_ERROR_PROGRAMMER_ERROR` and the connection enters its error state, even when every transfer is busy. |
+| A `PSA_ERROR_PROGRAMMER_ERROR` reply publishes no output, and a faulted server's staged output is discarded. | Stronger isolation policy | The caller receives the status with every output length zero, so a failing or restarted service cannot leak a partly written reply. |
+| A departed client's handles stop resolving as soon as the client is reclaimed. | Implementation detail | A service still holding that client's message finishes it; the reply is discarded and the connection is released afterwards. |
+| Connection and message handles carry a 24-bit generation per slot. | Implementation detail | A stale handle is refused until the same slot has been reused 16,777,216 times; a Secure caller that presents a refused handle is panicked as a programmer error. |
 | Secure services are linked in one image. | Scoped isolation difference | Service writable state is isolated by unprivileged threads and Secure MPU domains, but executable text is shared rather than separately linked. |
 | All shipped service loops run as scheduled coroutines. | Implementation difference | Service code uses the standard Secure Partition API; privileged hardware access goes through identity-pinned SVC gates. |
 | Abnormal Non-secure guest termination reclaims the guest's connections without delivering `PSA_IPC_DISCONNECT` to the affected services. | Scoped deviation | Fault-handler cleanup cannot dispatch a Secure service inline without re-entering the scheduler. Shipped services do not use `psa_set_rhandle()` for per-connection cleanup, but a ported service that depends on disconnect cleanup must account for this behavior. |

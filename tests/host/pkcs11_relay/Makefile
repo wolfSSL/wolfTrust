@@ -23,9 +23,7 @@ CFLAGS := \
 CFLAGS += $(EXTRA_CFLAGS)
 
 _WT_SRCS := \
-    $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_domain.c \
-    $(ROOT)/src/ipc.c \
     $(ROOT)/src/spm_gate.c
 
 _WTS_SRCS := \
@@ -43,7 +41,10 @@ _WTS_OBJS  := $(patsubst %.c,wts_%.o,$(notdir $(_WTS_SRCS)))
 _WTC_OBJS  := $(patsubst %.c,wtc_%.o,$(notdir $(_WTC_SRCS)))
 _TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
+include $(ROOT)/tests/host/support/spm_host.mk
+
 ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WTS_OBJS) $(_WTC_OBJS) $(_TEST_OBJS))
+ALL_OBJS += $(SPM_HOST_OBJS)
 TEST_BIN := $(BUILD_DIR)/test_pkcs11_relay
 RELAY_SRC := $(ROOT)/src/services/msg_relay.c
 

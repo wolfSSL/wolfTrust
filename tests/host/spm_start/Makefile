@@ -35,12 +35,13 @@ else
 GC_FLAGS := -Wl,--gc-sections
 endif
 TEST := $(BUILD_DIR)/test_spm_start
+TEST_NORESTART := $(BUILD_DIR)/test_spm_start_no_restart
 GENERATOR := $(ROOT)/tools/manifest/generate.py
 FIXTURE := $(BUILD_DIR)/manifest.json
 GENERATED := $(BUILD_DIR)/wolftrust_manifest_generated.h
 
 .PHONY: all run sanitize valgrind clean
-all: $(TEST)
+all: $(TEST) $(TEST_NORESTART)
 $(FIXTURE): $(WT_MANIFEST_RENDER_DEPS)
 	mkdir -p $(BUILD_DIR)
 	$(WT_MANIFEST_RENDER) --output $@ $(WT_MANIFEST_TEMPLATE)
@@ -48,14 +49,18 @@ $(GENERATED): $(GENERATOR) $(FIXTURE)
 	python3 $(GENERATOR) $(FIXTURE) $(BUILD_DIR) \
 		--supported-features 0x1 --address-bits 32 --unchecked
 $(TEST): main.c $(ROOT)/src/arch/common/spm_gate_core.c $(GENERATED)
-	$(CC) $(CFLAGS) $(GC_FLAGS) $(EXTRA_LDFLAGS) -o $@ main.c
-run: $(TEST)
+	$(CC) $(CFLAGS) -DWT_SP_RESTART=1 $(GC_FLAGS) $(EXTRA_LDFLAGS) -o $@ main.c
+$(TEST_NORESTART): main.c $(ROOT)/src/arch/common/spm_gate_core.c $(GENERATED)
+	$(CC) $(CFLAGS) -DWT_SP_RESTART=0 $(GC_FLAGS) $(EXTRA_LDFLAGS) -o $@ main.c
+run: $(TEST) $(TEST_NORESTART)
 	$(TEST)
+	$(TEST_NORESTART)
 sanitize:
 	$(MAKE) run CC=clang BUILD_DIR=$(BUILD_DIR)/sanitize \
 		EXTRA_CFLAGS="-fsanitize=address,undefined -fno-omit-frame-pointer" \
 		EXTRA_LDFLAGS="-fsanitize=address,undefined"
-valgrind: $(TEST)
+valgrind: $(TEST) $(TEST_NORESTART)
 	valgrind --error-exitcode=1 --leak-check=full $(TEST)
+	valgrind --error-exitcode=1 --leak-check=full $(TEST_NORESTART)
 clean:
 	rm -rf $(BUILD_DIR)

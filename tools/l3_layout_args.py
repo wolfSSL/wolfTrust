@@ -184,9 +184,30 @@ def guest_vars(v):
     return "\n".join("%s=0x%08X" % pair for pair in pairs)
 
 
+# SPM-private RAM: the MPU cover from the boot handoff (when below .data) to
+# the main stack top, plus a port's RAM code band and its data alias.
+PRIVATE_MACROS = ("WT_BOOT_HANDOFF_ADDRESS", "WT_RAM_S_BASE",
+                  "WT_L3_BANDS_BASE")
+PRIVATE_OPTIONAL = ("WT_RAMFUNC_BASE", "WT_RAMFUNC_SIZE",
+                    "WT_SRAM_CODE_TO_DATA")
+
+
+def private_ranges(v):
+    low = min(v["WT_BOOT_HANDOFF_ADDRESS"], v["WT_RAM_S_BASE"])
+    ranges = [(low, v["WT_L3_BANDS_BASE"] - low)]
+    if "WT_RAMFUNC_BASE" in v and "WT_RAMFUNC_SIZE" in v:
+        ranges.append((v["WT_RAMFUNC_BASE"], v["WT_RAMFUNC_SIZE"]))
+        if "WT_SRAM_CODE_TO_DATA" in v:
+            ranges.append((v["WT_RAMFUNC_BASE"] + v["WT_SRAM_CODE_TO_DATA"],
+                           v["WT_RAMFUNC_SIZE"]))
+    return ranges
+
+
 def stack_args(v):
-    return " ".join("--stack %s=0x%08X:0x%X" % (name, v[base], v[size])
-                    for name, base, size in STACK_MACROS)
+    out = ["--stack %s=0x%08X:0x%X" % (name, v[base], v[size])
+           for name, base, size in STACK_MACROS]
+    out += ["--spm-private 0x%08X:0x%X" % pair for pair in private_ranges(v)]
+    return " ".join(out)
 
 
 def main():
@@ -209,9 +230,11 @@ def main():
 
     if args.stacks:
         macros = sorted(set(name for _, base, size in STACK_MACROS
-                            for name in (base, size)))
-        print(stack_args(evaluate(args.cc, args.memory_map, tuple(macros),
-                                  args.includes, cflags=cflags)))
+                            for name in (base, size)) | set(PRIVATE_MACROS))
+        print(stack_args(evaluate(args.cc, args.memory_map,
+                                  tuple(macros) + PRIVATE_OPTIONAL,
+                                  args.includes, optional=PRIVATE_OPTIONAL,
+                                  cflags=cflags)))
     elif args.link:
         print(link_args(evaluate(args.cc, args.memory_map,
                                  LINK_MACROS + LINK_OPTIONAL, args.includes,

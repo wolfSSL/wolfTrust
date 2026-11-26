@@ -62,10 +62,8 @@ void wt_platform_init(void)
     size_t mpu_count = 0u;
 
     wt_port_boot_init();
-    /* Arm the FF-M NS-window checks before any NS guest can reach the
-     * WolfTrust_FFM_* veneers; the core fails closed until this runs. The
-     * Secure vector table begins at the image base, after any boot header. */
-    wt_ffm_gateway_install();
+    /* The Secure vector table begins at the image base, after any boot
+     * header. */
     WT_SCB_VTOR_S = WT_FLASH_IMAGE_BASE;
     if (wt_port_fabric_init() != 0) {
         wt_platform_panic();

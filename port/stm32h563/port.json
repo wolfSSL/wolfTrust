@@ -13,6 +13,8 @@
   "build": {
     "engines": ["native", "hsm"],
     "attest_cose": 1,
+    "noncrypto_max": 44000,
+    "spm_max": 11100,
     "variants": ["conformance", "vnet", "tpm", "pkcs11"],
     "vectors": ""
   },

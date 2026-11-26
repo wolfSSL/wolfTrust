@@ -1,0 +1,29 @@
+# TF-M v2.3.1 Secure image object categories, matching wolftrust.rules; first match wins.
+crypto       libtfpsacrypto\.a\(
+crypto       libtfm_psa_rot_partition_crypto\.a\(
+crypto       libplatform_crypto_keys\.a\(
+crypto       libplatform_s\.a\(crypto_nv_seed\.o\)
+crypto       libtfm_sprt\.a\(tfm_crypto_api\.o\)
+crypto       (^|/)load_info_tfm_crypto\.o$
+attestation  libtfm_psa_rot_partition_attestation\.a\(
+attestation  libtfm_t_cose_s\.a\(
+attestation  libqcbor\.a\(
+attestation  libplatform_s\.a\((attest_hal|tfm_shared_measurement_data)\.o\)
+attestation  (^|/)load_info_tfm_initial_attestation\.o$
+storage      libtfm_psa_rot_partition_its\.a\(
+storage      libtfm_app_rot_partition_ps\.a\(
+storage      libplatform_s\.a\((tfm_hal_its|tfm_hal_ps|low_level_flash|stm32l5xx_hal_flash|stm32l5xx_hal_flash_ex|flash_otp_nv_counters_backend|nv_counters|otp_flash)\.o\)
+storage      libtfm_sprt\.a\(tfm_its_api\.o\)
+storage      (^|/)load_info_tfm_(internal_trusted|protected)_storage\.o$
+guest        libtfm_spm\.a\((ns_agent_tz_v80m|tfm_spm_ns_ctx)\.o\)
+guest        (^|/)load_info_ns_agent_tz\.o$
+runtime      libgcc\.a\(
+runtime      libtfm_sprt\.a\(crt_[a-z]+\.o\)
+platform     libplatform_s\.a\(
+platform     libtfm_psa_rot_partition_platform\.a\(
+platform     libtfm_sprt\.a\(tfm_platform_api\.o\)
+platform     (^|/)(load_info_tfm_platform|startup_stm32l5xx_s|low_level_rng|tick|faults)\.o$
+spm          libtfm_spm\.a\(
+spm          libtfm_sprt\.a\(
+spm          (^|/)psa_api_veneers_v80m\.o$
+spm          ^linker stubs$

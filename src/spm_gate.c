@@ -20,346 +20,242 @@
 
 #include "wolftrust/spm_gate.h"
 
+#include "wolftrust/spm_core.h"
+
 static int wt_spm_check_buffer(const wt_secure_domain_t* domain,
                                const void* buffer, size_t len, int need_write)
 {
-    if (domain == NULL)
-        return WT_FFM_SUCCESS; /* validation disabled: caller owns the range */
-    if (len == 0U)
-        return WT_FFM_SUCCESS; /* FF-M zero-length transfer: nothing crosses */
-    if (buffer == NULL)
+    if (len == 0U) {
+        return WT_FFM_SUCCESS;
+    }
+    if (buffer == NULL) {
         return WT_FFM_ERROR_BUFFER;
-    if (wt_secure_domain_contains(domain, (uintptr_t)buffer, len, need_write)
-            == 0)
+    }
+    /* NULL domain: the host direct transport, where the caller owns it. */
+    if (domain != NULL && wt_secure_domain_contains(domain, (uintptr_t)buffer,
+            len, need_write) == 0) {
         return WT_FFM_ERROR_BUFFER;
+    }
     return WT_FFM_SUCCESS;
 }
 
-/* A resumed CONNECT/CALL/CLOSE may only harvest a message the acting
- * partition itself created; a forged pending_msg cannot reach another
- * caller's message. */
-static int wt_spm_pending_owned(const wt_ffm_runtime_t* runtime,
-                                const wt_spm_call_t* call)
-{
-    if (call->pending_msg >= WT_FFM_MAX_MESSAGES)
-        return 0;
-    if (runtime->messages[call->pending_msg].allocated == 0U)
-        return 0;
-    return runtime->messages[call->pending_msg].caller ==
-           (psa_client_id_t)call->partition_id;
-}
-
-/* Every SP-supplied vector base must lie inside the acting partition's own
- * domain before the SPM captures or writes it. */
-static int wt_spm_check_sp_vectors(const wt_secure_domain_t* domain,
-                                   const wt_spm_call_t* call)
+/* Every SP vector base must lie in the acting partition's own domain. */
+static int wt_spm_sp_vectors(const wt_secure_domain_t* domain,
+                             const wt_spm_call_t* call, wt_spm_vec_t* vec)
 {
     size_t i;
-    int ret;
+    int ret = WT_FFM_SUCCESS;
 
     if (call->sp_in_len > WT_SPM_SP_IOVEC ||
-            call->sp_out_len > WT_SPM_SP_IOVEC)
+            call->sp_out_len > WT_SPM_SP_IOVEC) {
         return WT_FFM_ERROR_ARGUMENT;
-    for (i = 0U; i < call->sp_in_len; i++) {
-        if (call->sp_in[i].len == 0U)
-            continue;
-        ret = wt_spm_check_buffer(domain, call->sp_in[i].base,
-                                  call->sp_in[i].len, 0);
-        if (ret != WT_FFM_SUCCESS)
-            return ret;
     }
-    for (i = 0U; i < call->sp_out_len; i++) {
-        if (call->sp_out[i].len == 0U)
-            continue;
-        ret = wt_spm_check_buffer(domain, call->sp_out[i].base,
-                                  call->sp_out[i].len, 1);
-        if (ret != WT_FFM_SUCCESS)
-            return ret;
+    for (i = 0U; i < PSA_MAX_IOVEC && ret == WT_FFM_SUCCESS; i++) {
+        vec[i].base = (void*)(uintptr_t)call->sp_in[i].base;
+        vec[i].len = i < call->sp_in_len ? call->sp_in[i].len : 0U;
+        vec[PSA_MAX_IOVEC + i].base = call->sp_out[i].base;
+        vec[PSA_MAX_IOVEC + i].len = i < call->sp_out_len ?
+                                     call->sp_out[i].len : 0U;
+        ret = wt_spm_check_buffer(domain, vec[i].base, vec[i].len, 0);
+        if (ret == WT_FFM_SUCCESS) {
+            ret = wt_spm_check_buffer(domain, vec[PSA_MAX_IOVEC + i].base,
+                                      vec[PSA_MAX_IOVEC + i].len, 1);
+        }
     }
-    return WT_FFM_SUCCESS;
+    return ret;
 }
 
-static int wt_spm_gate_held(wt_ffm_runtime_t* runtime,
-                            const wt_secure_domain_t* caller_domain,
-                            wt_spm_call_t* call)
+/* Starts a client message, or on the resume pass harvests it; returns 1 when
+ * the reply is in, 0 when the caller blocks or the begin pass refused. */
+static int wt_spm_client_op(wt_spm_call_t* call, int32_t kind, int32_t begun)
 {
-    int ret;
+    int done;
 
-    call->ret_status = PSA_ERROR_PROGRAMMER_ERROR;
-    call->ret_size = 0U;
-    call->ret_int = WT_FFM_ERROR_ARGUMENT;
-    call->must_panic = 0U;
+    if (call->pending_valid == 0U) {
+        if (begun < 0 || begun == (int32_t)WT_SPM_NO_SLOT) {
+            return 0;
+        }
+        call->pending_msg = (uint16_t)begun;
+        call->pending_valid = 1U;
+        call->ret_int = WT_FFM_ERROR_NOT_READY;
+        return 0;
+    }
+    done = wt_spm_done((uint8_t)call->pending_msg,
+                       (psa_client_id_t)call->partition_id, kind);
+    if (done <= 0) {
+        call->ret_int = done < 0 ? WT_FFM_ERROR_ARGUMENT :
+                                   WT_FFM_ERROR_NOT_READY;
+        return 0;
+    }
+    call->pending_valid = 0U;
+    call->ret_int = WT_FFM_SUCCESS;
+    return 1;
+}
 
+static void wt_spm_gate_client(const wt_secure_domain_t* domain,
+                               wt_spm_call_t* call)
+{
+    wt_spm_vec_t vec[WT_SPM_VECS];
+    psa_client_id_t caller = (psa_client_id_t)call->partition_id;
+    int32_t begun = 0;
+    size_t i;
+
+    call->ret_int = WT_FFM_SUCCESS;
     switch (call->op) {
-    case WT_SPM_OP_WAIT:
-        ret = wt_spm_check_buffer(caller_domain, call->asserted,
-                                  sizeof(*call->asserted), 1);
-        if (ret == WT_FFM_SUCCESS) {
-            ret = wt_ffm_wait(runtime, call->partition_id, call->signal_mask,
-                              call->asserted);
-            /* A mask with no assignable signal is a PROGRAMMER ERROR (i062);
-             * a poll miss (NOT_READY) stays a legal return. */
-            if (ret == WT_FFM_ERROR_ARGUMENT) {
-                call->must_panic = 1U;
-            }
-        }
-        else {
-            call->must_panic = 1U;
-        }
-        call->ret_int = ret;
-        break;
-    case WT_SPM_OP_GET:
-        ret = wt_spm_check_buffer(caller_domain, call->msg, sizeof(*call->msg),
-                                  1);
-        if (ret == WT_FFM_SUCCESS) {
-            call->ret_status = wt_ffm_get(runtime, call->partition_id,
-                                          call->signal, call->msg);
-            /* psa_get on a multi-bit, non-service, or unasserted signal —
-             * or with no queued message — is a PROGRAMMER ERROR the SPM
-             * must panic the server for (i013-i016). */
-            if (call->ret_status != PSA_SUCCESS) {
-                call->must_panic = 1U;
-            }
-        }
-        else {
-            /* psa_get with an invalid message buffer is a programmer error
-             * the SPM must panic the caller for (FF-M). */
-            call->ret_status = (psa_status_t)ret;
-            call->must_panic = 1U;
-        }
-        call->ret_int = ret;
-        break;
-    case WT_SPM_OP_SET_RHANDLE:
-        call->ret_int = wt_ffm_set_rhandle(runtime, call->partition_id,
-                                           call->msg_handle, call->rhandle);
-        /* psa_set_rhandle on a forged or null message handle must panic
-         * the server (i018/i019). */
-        if (call->ret_int != WT_FFM_SUCCESS) {
-            call->must_panic = 1U;
-        }
-        break;
-    case WT_SPM_OP_READ:
-        /* psa_read on a connect/disconnect message, a forged or null handle,
-         * or an out-of-range vector index must panic the server (i028-i033);
-         * a legal read of an exhausted vector still returns 0 bytes. */
-        ret = wt_ffm_msg_access_check(runtime, call->partition_id,
-                                      call->msg_handle, call->vec_idx);
-        if (ret != WT_FFM_SUCCESS) {
-            call->ret_int = ret;
-            call->must_panic = 1U;
-            break;
-        }
-        ret = wt_spm_check_buffer(caller_domain, call->buffer, call->num_bytes,
-                                  1);
-        if (ret == WT_FFM_SUCCESS) {
-            call->ret_size = wt_ffm_read(runtime, call->partition_id,
-                                         call->msg_handle, call->vec_idx,
-                                         call->buffer, call->num_bytes);
-            call->ret_int = WT_FFM_SUCCESS;
-        } else {
-            /* psa_read into an out-of-domain buffer must panic the caller. */
-            call->ret_int = ret;
-            call->must_panic = 1U;
-        }
-        break;
-    case WT_SPM_OP_SKIP:
-        /* psa_skip misuse panics like psa_read (i034-i039). */
-        ret = wt_ffm_msg_access_check(runtime, call->partition_id,
-                                      call->msg_handle, call->vec_idx);
-        if (ret != WT_FFM_SUCCESS) {
-            call->ret_int = ret;
-            call->must_panic = 1U;
-            break;
-        }
-        call->ret_size = wt_ffm_skip(runtime, call->partition_id,
-                                     call->msg_handle, call->vec_idx,
-                                     call->num_bytes);
-        call->ret_int = WT_FFM_SUCCESS;
-        break;
-    case WT_SPM_OP_WRITE:
-        ret = wt_spm_check_buffer(caller_domain, call->buffer, call->num_bytes,
-                                  0);
-        if (ret != WT_FFM_SUCCESS) {
-            /* psa_write from an out-of-domain buffer must panic the caller. */
-            call->must_panic = 1U;
-        }
-        else {
-            ret = wt_ffm_write(runtime, call->partition_id, call->msg_handle,
-                               call->vec_idx, call->buffer, call->num_bytes);
-            /* psa_write on a bad handle/index/message type, or past the
-             * out-vector's declared capacity, panics (i040-i046). */
-            if (ret != WT_FFM_SUCCESS) {
-                call->must_panic = 1U;
-            }
-        }
-        call->ret_int = ret;
-        break;
-    case WT_SPM_OP_REPLY:
-        call->ret_int = wt_ffm_reply(runtime, call->partition_id,
-                                     call->msg_handle, call->status);
-        /* psa_reply on a forged or null message handle, or a connect reply
-         * outside SUCCESS/REFUSED/BUSY, must panic the server (i020-i023). */
-        if (call->ret_int != WT_FFM_SUCCESS) {
-            call->must_panic = 1U;
-        }
-        break;
-    case WT_SPM_OP_NOTIFY:
-        call->ret_int = wt_ffm_notify(runtime, call->notify_partition);
-        /* psa_notify to a negative or unknown partition id panics (i059/60). */
-        if (call->ret_int != WT_FFM_SUCCESS) {
-            call->must_panic = 1U;
-        }
-        break;
-    case WT_SPM_OP_CLEAR:
-        call->ret_int = wt_ffm_clear(runtime, call->partition_id);
-        /* psa_clear with the doorbell unasserted panics (i061). */
-        if (call->ret_int != WT_FFM_SUCCESS) {
-            call->must_panic = 1U;
-        }
-        break;
-    case WT_SPM_OP_EOI:
-        ret = wt_ffm_eoi(runtime, call->partition_id, call->signal_mask);
-        if (ret != WT_FFM_SUCCESS) {
-            /* psa_eoi with a non-interrupt, unasserted, or multiple-bit signal
-             * is a programmer error the SPM must panic the caller for (FF-M). */
-            call->must_panic = 1U;
-        }
-        else {
-            /* FF-M 4.5.3: psa_eoi re-enables the interrupt. Resolve the
-             * manifest-bound number here; the arch layer performs the
-             * privileged controller unmask on success (ret_version = irq),
-             * mirroring WT_SPM_OP_IRQ_ENABLE. */
-            ret = wt_ffm_irq_lookup(runtime, call->partition_id,
-                                    call->signal_mask, &call->ret_version);
-        }
-        call->ret_int = ret;
-        break;
-    case WT_SPM_OP_IRQ_ENABLE:
-        /* Resolve the manifest-bound interrupt number; the arch layer performs
-         * the privileged controller enable on success (ret_version = irq). */
-        ret = wt_ffm_irq_lookup(runtime, call->partition_id, call->signal_mask,
-                                &call->ret_version);
-        if (ret != WT_FFM_SUCCESS) {
-            /* psa_irq_enable on a signal the partition did not declare as an
-             * interrupt is a programmer error the SPM must panic for (FF-M). */
-            call->must_panic = 1U;
-        }
-        call->ret_int = ret;
-        break;
-    case WT_SPM_OP_VERSION:
-        call->ret_version = wt_ffm_service_version(runtime,
-                                                   call->partition_id,
-                                                   call->sid);
-        call->ret_int = WT_FFM_SUCCESS;
-        break;
-    case WT_SPM_OP_LIFECYCLE:
-        call->ret_version = runtime->lifecycle;
-        call->ret_int = WT_FFM_SUCCESS;
-        break;
     case WT_SPM_OP_CONNECT:
         if (call->pending_valid == 0U) {
-            psa_handle_t handle = wt_ffm_connect_begin(runtime,
-                call->partition_id, call->sid, call->version,
-                &call->pending_msg);
-            if (handle <= 0) {
-                call->ret_handle = handle;
-                call->ret_int = WT_FFM_SUCCESS;
-                /* FF-M: an SPM-level policy refusal (unknown SID, version or
-                 * dependency violation) is a PROGRAMMER ERROR that must panic
-                 * a Secure caller; CONNECTION_BUSY resource exhaustion and
-                 * server-replied refusals stay returnable statuses. */
-                if (handle == (psa_handle_t)PSA_ERROR_CONNECTION_REFUSED ||
-                        handle == (psa_handle_t)PSA_ERROR_NOT_SUPPORTED) {
-                    call->must_panic = 1U;
-                }
-            } else {
-                call->pending_valid = 1U;
-                call->ret_int = WT_FFM_ERROR_NOT_READY;
-            }
-        } else if (wt_spm_pending_owned(runtime, call) == 0) {
-            call->ret_int = WT_FFM_ERROR_ARGUMENT;
-        } else if (!wt_ffm_msg_complete(runtime, call->pending_msg)) {
-            call->ret_int = WT_FFM_ERROR_NOT_READY;
-        } else {
-            call->ret_handle = wt_ffm_connect_finish(runtime,
-                                                     call->pending_msg);
-            call->pending_valid = 0U;
-            call->ret_int = WT_FFM_SUCCESS;
+            begun = wt_spm_connect_begin(caller, call->sid, call->version);
+            call->ret_handle = (psa_handle_t)begun;
+            /* FF-M: an SPM policy refusal panics a Secure caller; BUSY and
+             * a refusal the service replied stay returnable. */
+            call->must_panic = begun == PSA_ERROR_CONNECTION_REFUSED ||
+                               begun == PSA_ERROR_NOT_SUPPORTED;
+        }
+        if (wt_spm_client_op(call, PSA_IPC_CONNECT, begun)) {
+            call->ret_handle = wt_spm_connect_finish(
+                (uint8_t)call->pending_msg);
         }
         break;
     case WT_SPM_OP_CALL:
+        if (wt_spm_sp_vectors(domain, call, vec) != WT_FFM_SUCCESS) {
+            /* Out-of-domain vectors panic a Secure caller (FF-M). */
+            call->ret_status = PSA_ERROR_PROGRAMMER_ERROR;
+            call->must_panic = 1U;
+            break;
+        }
         if (call->pending_valid == 0U) {
-            ret = wt_spm_check_sp_vectors(caller_domain, call);
-            if (ret != WT_FFM_SUCCESS) {
-                /* An SP passing an out-of-domain vector to psa_call is a
-                 * PROGRAMMER ERROR that must panic a Secure caller (FF-M);
-                 * only Non-secure callers may see it as a returned status. */
-                call->ret_status = PSA_ERROR_PROGRAMMER_ERROR;
-                call->ret_int = WT_FFM_SUCCESS;
-                call->must_panic = 1U;
-                break;
+            begun = wt_spm_call_begin(caller, call->msg_handle,
+                                      call->call_type, vec, call->sp_in_len,
+                                      call->sp_out_len);
+            call->ret_status = begun < 0 ? (psa_status_t)begun : PSA_SUCCESS;
+            call->must_panic = begun == PSA_ERROR_PROGRAMMER_ERROR;
+        }
+        if (wt_spm_client_op(call, PSA_IPC_CALL, begun)) {
+            call->ret_status = wt_spm_call_finish((uint8_t)call->pending_msg,
+                                                  vec);
+            for (i = 0U; i < call->sp_out_len; i++) {
+                call->sp_out[i].len = vec[PSA_MAX_IOVEC + i].len;
             }
-            call->ret_status = wt_ffm_call_begin(runtime, call->partition_id,
-                call->msg_handle, call->call_type, call->sp_in,
-                call->sp_in_len, call->sp_out, call->sp_out_len,
-                &call->pending_msg);
-            if (call->ret_status != PSA_SUCCESS) {
-                call->ret_int = WT_FFM_SUCCESS;
-                /* FF-M: an invalid/null handle or an iovec-count violation is
-                 * a PROGRAMMER ERROR that must panic a Secure caller; other
-                 * statuses (BAD_STATE, resource limits) stay returnable. */
-                if (call->ret_status == PSA_ERROR_PROGRAMMER_ERROR) {
-                    call->must_panic = 1U;
-                }
-            } else {
-                call->pending_valid = 1U;
-                call->ret_int = WT_FFM_ERROR_NOT_READY;
-            }
-        } else if (wt_spm_pending_owned(runtime, call) == 0) {
-            call->ret_int = WT_FFM_ERROR_ARGUMENT;
-        } else if (!wt_ffm_msg_complete(runtime, call->pending_msg)) {
-            call->ret_int = WT_FFM_ERROR_NOT_READY;
-        } else {
-            call->ret_status = wt_ffm_call_finish(runtime, call->pending_msg,
-                                                  call->sp_out,
-                                                  call->sp_out_len);
-            call->pending_valid = 0U;
-            call->ret_int = WT_FFM_SUCCESS;
-            /* A server completing a call with PROGRAMMER_ERROR must panic a
-             * Secure client (i027); only NS clients may see the status. */
-            if (call->ret_status == PSA_ERROR_PROGRAMMER_ERROR) {
-                call->must_panic = 1U;
-            }
+            /* A server's PROGRAMMER_ERROR panics a Secure client (i027). */
+            call->must_panic = call->ret_status == PSA_ERROR_PROGRAMMER_ERROR;
         }
         break;
-    case WT_SPM_OP_CLOSE:
+    default:
         if (call->pending_valid == 0U) {
-            ret = wt_ffm_close_begin(runtime, call->partition_id,
-                                     call->msg_handle, &call->pending_msg);
-            if (ret != WT_FFM_SUCCESS) {
-                /* psa_close on an invalid or in-use handle is a PROGRAMMER
-                 * ERROR the SPM must panic a Secure caller for (FF-M). */
-                call->ret_int = ret;
-                call->must_panic = 1U;
-            } else if (call->pending_msg == WT_FFM_QUEUE_NONE) {
-                call->ret_int = WT_FFM_SUCCESS;
-            } else {
-                call->pending_valid = 1U;
-                call->ret_int = WT_FFM_ERROR_NOT_READY;
-            }
-        } else if (wt_spm_pending_owned(runtime, call) == 0) {
-            call->ret_int = WT_FFM_ERROR_ARGUMENT;
-        } else if (!wt_ffm_msg_complete(runtime, call->pending_msg)) {
-            call->ret_int = WT_FFM_ERROR_NOT_READY;
-        } else {
-            call->ret_int = wt_ffm_close_finish(runtime, call->pending_msg);
-            call->pending_valid = 0U;
+            begun = wt_spm_close_begin(caller, call->msg_handle);
+            /* psa_close on a bad or busy handle panics a Secure caller. */
+            call->ret_int = begun < 0 ? (int)begun : WT_FFM_SUCCESS;
+            call->must_panic = begun < 0;
         }
+        if (wt_spm_client_op(call, PSA_IPC_DISCONNECT, begun)) {
+            wt_spm_close_finish((uint8_t)call->pending_msg);
+        }
+        break;
+    }
+}
+
+/* Each FF-M misuse below panics the server (FF-M 1.0 section 4, i013-i062);
+ * an exhausted vector or an empty poll stays a legal return. */
+static int wt_spm_gate_held(const wt_secure_domain_t* domain,
+                            wt_spm_call_t* call)
+{
+    int sp = wt_spm_sp_index(call->partition_id);
+    uint8_t index = (uint8_t)sp;
+    uint32_t irq = 0U;
+    int ret = WT_FFM_ERROR_ARGUMENT;
+
+    call->ret_status = PSA_ERROR_PROGRAMMER_ERROR;
+    call->ret_size = 0U;
+    call->must_panic = 0U;
+    if (call->op == WT_SPM_OP_CONNECT || call->op == WT_SPM_OP_CALL ||
+            call->op == WT_SPM_OP_CLOSE) {
+        wt_spm_gate_client(domain, call);
+        return WT_FFM_SUCCESS;
+    }
+    if (call->op == WT_SPM_OP_VERSION) {
+        call->ret_version = wt_spm_service_version(
+            (psa_client_id_t)call->partition_id, call->sid);
+        call->ret_int = WT_FFM_SUCCESS;
+        return WT_FFM_SUCCESS;
+    }
+    if (call->op == WT_SPM_OP_LIFECYCLE) {
+        call->ret_version = g_wt_spm.lifecycle;
+        call->ret_int = WT_FFM_SUCCESS;
+        return WT_FFM_SUCCESS;
+    }
+    if (sp < 0) {
+        call->ret_int = WT_FFM_ERROR_ARGUMENT;
+        call->must_panic = 1U;
+        return WT_FFM_SUCCESS;
+    }
+    switch (call->op) {
+    case WT_SPM_OP_WAIT:
+        ret = wt_spm_check_buffer(domain, call->asserted,
+                                  sizeof(*call->asserted), 1);
+        if (ret == WT_FFM_SUCCESS) {
+            ret = wt_spm_wait(index, call->signal_mask, call->asserted);
+        }
+        call->must_panic = ret != WT_FFM_SUCCESS &&
+                           ret != WT_FFM_ERROR_NOT_READY;
+        break;
+    case WT_SPM_OP_GET:
+        ret = wt_spm_check_buffer(domain, call->msg, sizeof(*call->msg), 1);
+        call->ret_status = (psa_status_t)ret;
+        if (ret == WT_FFM_SUCCESS) {
+            call->ret_status = wt_spm_get(index, call->signal, call->msg);
+        }
+        call->must_panic = call->ret_status != PSA_SUCCESS;
+        break;
+#if defined(WT_FFM_SP_RHANDLE) && (WT_FFM_SP_RHANDLE == 1)
+    case WT_SPM_OP_SET_RHANDLE:
+        ret = wt_spm_set_rhandle(index, call->msg_handle, call->rhandle);
+        call->must_panic = ret != WT_FFM_SUCCESS;
+        break;
+#endif
+    case WT_SPM_OP_READ:
+#if defined(WT_FFM_SP_SKIP) && (WT_FFM_SP_SKIP == 1)
+    case WT_SPM_OP_SKIP:
+#endif
+    case WT_SPM_OP_WRITE:
+        ret = call->op == WT_SPM_OP_SKIP ? WT_FFM_SUCCESS :
+              wt_spm_check_buffer(domain, call->buffer, call->num_bytes,
+                                  call->op == WT_SPM_OP_READ);
+        if (ret == WT_FFM_SUCCESS) {
+            ret = wt_spm_copy(index, call->msg_handle, call->vec_idx,
+                              call->op == WT_SPM_OP_SKIP ? NULL : call->buffer,
+                              call->num_bytes, call->op == WT_SPM_OP_WRITE,
+                              &call->ret_size);
+        }
+        call->must_panic = ret != WT_FFM_SUCCESS;
+        break;
+    case WT_SPM_OP_REPLY:
+        ret = wt_spm_reply(index, call->msg_handle, call->status);
+        call->must_panic = ret != WT_FFM_SUCCESS;
+        break;
+#if defined(WT_FFM_SP_DOORBELL) && (WT_FFM_SP_DOORBELL == 1)
+    case WT_SPM_OP_NOTIFY:
+        ret = wt_spm_notify(call->notify_partition);
+        call->must_panic = ret != WT_FFM_SUCCESS;
+        break;
+    case WT_SPM_OP_CLEAR:
+        ret = wt_spm_clear(index, PSA_DOORBELL);
+        call->must_panic = ret != WT_FFM_SUCCESS;
+        break;
+#endif
+    case WT_SPM_OP_EOI:
+    case WT_SPM_OP_IRQ_ENABLE:
+        /* The arch layer unmasks interrupt ret_version on success. */
+        ret = wt_spm_irq_of(index, call->signal_mask, &irq);
+        if (ret == WT_FFM_SUCCESS && call->op == WT_SPM_OP_EOI) {
+            ret = wt_spm_clear(index, call->signal_mask);
+        }
+        call->ret_version = irq;
+        call->must_panic = ret != WT_FFM_SUCCESS;
         break;
     default:
         return WT_FFM_ERROR_ARGUMENT;
     }
-
+    call->ret_int = ret;
     return WT_FFM_SUCCESS;
 }
 
@@ -370,25 +266,26 @@ int wt_spm_gate(wt_ffm_runtime_t* runtime,
     wt_spm_call_t held;
     int ret;
 
-    if (runtime == NULL || call == NULL)
+    (void)runtime;
+    if (call == NULL) {
         return WT_FFM_ERROR_ARGUMENT;
-
+    }
     /* The block lives in the caller's memory: read it once, so every check
      * and every use sees the same vectors, handles and resume state. */
     held = *call;
-    ret = wt_spm_gate_held(runtime, caller_domain, &held);
+    ret = wt_spm_gate_held(caller_domain, &held);
     *call = held;
     return ret;
 }
 
 int wt_spm_call_would_block(const wt_spm_call_t* call)
 {
-    if (call == NULL)
+    if (call == NULL || call->ret_int != WT_FFM_ERROR_NOT_READY) {
         return 0;
-    if (call->ret_int != WT_FFM_ERROR_NOT_READY)
-        return 0;
-    if (call->op == WT_SPM_OP_WAIT)
-        return (call->timeout & PSA_BLOCK) != 0U; /* PSA_POLL never blocks */
+    }
+    if (call->op == WT_SPM_OP_WAIT) {
+        return (call->timeout & PSA_BLOCK) != 0U;
+    }
     return call->op == WT_SPM_OP_CONNECT ||
            call->op == WT_SPM_OP_CALL || call->op == WT_SPM_OP_CLOSE;
 }
@@ -398,12 +295,11 @@ int wt_spm_transport_direct(wt_ffm_runtime_t* runtime, wt_spm_call_t* call)
     int status = wt_spm_gate(runtime, NULL, call);
     unsigned int guard = 0U;
 
-    /* Host stand-in for the scheduler wake: an SP-as-client begin parks the
-     * message NOT_READY; dispatch the queued message inline, then harvest
-     * with the finish pass. Bounded so a never-replying service cannot spin. */
+    /* Host stand-in for the scheduler wake: run the partitions the blocked
+     * request queued for, then harvest. Bounded against a silent service. */
     while (status == WT_FFM_SUCCESS && call->pending_valid != 0U &&
             call->ret_int == WT_FFM_ERROR_NOT_READY && guard < 8U) {
-        (void)wt_ffm_dispatch_pending(runtime, call->pending_msg);
+        wt_spm_run();
         status = wt_spm_gate(runtime, NULL, call);
         guard++;
     }

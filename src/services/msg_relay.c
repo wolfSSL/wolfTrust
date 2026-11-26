@@ -57,7 +57,7 @@ void wt_msg_relay_set_client(wt_msg_relay_t* relay, int32_t app_client_id)
 
 void wt_msg_relay_set_transport(wt_msg_relay_t* relay, wt_spm_transport_fn fn)
 {
-    relay->transport = (fn != NULL) ? fn : wt_spm_transport_direct;
+    relay->transport = (fn != NULL) ? fn : WT_SPM_TRANSPORT_DEFAULT;
 }
 
 void wt_msg_relay_set_provider(wt_msg_relay_t* relay,

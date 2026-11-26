@@ -51,12 +51,12 @@ typedef struct wt_msg_relay {
 } wt_msg_relay_t;
 
 #define WT_MSG_RELAY_INIT(mode, request, response, capacity) { \
-    (request), (response), wt_spm_transport_direct, NULL, NULL, \
+    (request), (response), WT_SPM_TRANSPORT_DEFAULT, NULL, NULL, \
     (capacity), 0U, 0U, 0U, 0, (mode), 0U }
 
 /* Bind the SPM-stamped Non-secure caller (guest N is -(N+1)). */
 void wt_msg_relay_set_client(wt_msg_relay_t* relay, int32_t app_client_id);
-/* Direct gate calls on the host, SVC on target; NULL restores direct. */
+/* Direct gate calls on the host, SVC on target; NULL restores the default. */
 void wt_msg_relay_set_transport(wt_msg_relay_t* relay, wt_spm_transport_fn fn);
 void wt_msg_relay_set_provider(wt_msg_relay_t* relay,
                                wt_msg_provider_fn provider, void* context);

@@ -32,27 +32,28 @@
  * transport. arg is the partition id passed to wt_spm_sched_add. */
 typedef void (*wt_spm_sp_entry_fn)(void* arg);
 
-/* Schedule one Secure Partition (P3a): resolve its manifest protection domain,
- * build the unprivileged thread isolation table, create the coroutine on the
- * manifest stack running `entry`, and register the partition's dispatch as
- * wake-and-run. Call after wt_tasklet_init and wt_ffm_boot_init. Fails closed. */
-int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
-                     wt_spm_sp_entry_fn entry, void* arg);
-
 /* Rebuilds a partition's data band after a restart reset it to its link-time
  * image: the same privileged setup boot ran, from SPM-held inputs only.
  * Nonzero fails the restart closed. */
 typedef int (*wt_spm_sp_restore_fn)(int32_t partition_id);
 
-/* Register the restore hook of an already scheduled partition. */
-int wt_spm_sched_set_restore(int32_t partition_id,
-                             wt_spm_sp_restore_fn restore);
+/* Schedule one Secure Partition (P3a): resolve its manifest protection domain,
+ * build the unprivileged thread isolation table, create the coroutine on the
+ * manifest stack running `entry`, and register the partition's dispatch as
+ * wake-and-run. `restore` may be NULL. Call after wt_tasklet_init and
+ * wt_ffm_boot_init. Fails closed. */
+int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                     wt_spm_sp_entry_fn entry, void* arg,
+                     wt_spm_sp_restore_fn restore);
+
 
 /* The composition invariant (WT-FFM-0011): once every partition is scheduled,
  * no composed table may grant write access to memory another partition can
  * reach, or any access to SPM-private RAM. WT_FFM_ERROR_ISOLATION refuses the
  * boot. */
+#if WT_SPM_BOOT_VALIDATE
 int wt_spm_sched_validate(void);
+#endif
 
 /* FF-M start-up: run every scheduled partition that has not yet run until it
  * blocks, and drain SP-to-SP IPC until all are idle, before the NSPE starts.

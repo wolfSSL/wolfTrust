@@ -63,8 +63,9 @@ class GeneratorTest(unittest.TestCase):
              "--address-bits", "32", "--unchecked"] + list(extra),
             check=False, capture_output=True, text=True)
 
-    def compile_generated(self, output, executable):
+    def compile_generated(self, output, executable, extra=()):
         command = shlex.split(os.environ.get("CC", "cc"))
+        command.extend(extra)
         command.extend([
             "-std=c99", "-Wall", "-Wextra", "-Werror", "-pedantic",
             "-I" + str(ROOT / "include"), "-I" + str(output),
@@ -102,7 +103,7 @@ class GeneratorTest(unittest.TestCase):
                 check=False, capture_output=True, text=True)
             self.assertNotEqual(result.returncode, 0)
             for name in ("the platform options", "--ffm-max-partitions",
-                         "--ffm-max-services", "--stack"):
+                         "--ffm-max-services", "--stack", "--spm-private"):
                 self.assertIn(name, result.stderr)
             self.assertFalse((Path(temporary) / "output").exists())
 
@@ -243,6 +244,37 @@ class GeneratorTest(unittest.TestCase):
             self.assertIn("#define SERVICE_BETA_SIGNAL 16U", beta)
             self.assertIn("#define BETA_IRQ_SIGNAL 32U", beta)
             print("PASS: WT-FFM-0004 generated PSA headers")
+
+    def test_spm_tables_flatten_services_dependencies_and_irqs(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            output = Path(temporary) / "output"
+            result = self.run_generator(FIXTURE, output)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            source = (output / "wolftrust_manifest_generated.c").read_text(
+                encoding="utf-8")
+            for line in (
+                    "    { 0x1000U, 1U, 0x10U, 0U, 0U, 1U, 1U },",
+                    "    { 0x2000U, 2U, 0x10U, 1U, 1U, 0U, 0U },",
+                    "    { 1, 0x00000002U, 0x00000038U },",
+                    "    { 2, 0x00000000U, 0x00000038U },",
+                    "    { 21U, 32U, 0U },",
+                    "    { 22U, 32U, 1U },",
+                    "WT_STATIC_ASSERT(2U <= WT_SPM_TRANSFERS,",
+                    "const uint8_t g_wt_spm_service_count = 2U;",
+                    "const uint8_t g_wt_spm_irq_count = 2U;",
+                    "    0x101U > PSA_FRAMEWORK_VERSION ? "
+                    "PSA_FRAMEWORK_VERSION : 0x101U;"):
+                self.assertIn(line, source)
+            executable = Path(temporary) / "generated"
+            result = self.compile_generated(output, executable)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            result = self.compile_generated(output, executable,
+                                            ("-DWT_SPM_TRANSFERS=1U",))
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("2U <= WT_SPM_TRANSFERS", result.stderr)
+            print("PASS: SPM tables carry each service, the dependency bit "
+                  "of every reachable service and every partition IRQ, and "
+                  "a transfer pool shallower than the call chain fails")
 
     def test_excluded_partition_leaves_no_symbols(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -597,43 +629,111 @@ class GeneratorTest(unittest.TestCase):
 
 # Runs the boot-time checks this build-time generator replaces, on a manifest
 # the generator itself would refuse to emit.
+
+    def test_spm_private_overlap_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+
+            def run(name, *ranges):
+                extra = []
+                for item in ranges:
+                    extra += ["--spm-private", item]
+                return self.run_generator(FIXTURE, root / name,
+                                          extra=tuple(extra))
+
+            self.assertEqual(run("clear", "0x20000:0x1000").returncode, 0)
+            guest = run("guest", "0x3000:0x20")
+            self.assertEqual(guest.returncode, 0, guest.stderr)
+            for name, item in (("stack", "0x7800:0x20"),
+                               ("edge", "0x6000:0x1001"),
+                               ("second", "0x20000:0x1000")):
+                extra = (item,) if name != "second" else (item, "0xB000:0x20")
+                result = run(name, *extra)
+                self.assertNotEqual(result.returncode, 0, name)
+                self.assertIn("overlaps SPM-private RAM", result.stderr)
+                self.assertFalse((root / name).exists())
+            for index, item in enumerate(("0x7000", "x:0x20", "0x7000:y",
+                                          "0x7000:0", ":0x20")):
+                result = run("malformed%d" % index, item)
+                self.assertNotEqual(result.returncode, 0, item)
+                self.assertIn("is not BASE:SIZE", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
+            print("PASS: WT-FFM-0011 a Secure Partition resource inside "
+                  "SPM-private RAM stops generation")
+
+    def test_second_restart_clear_band_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["profile_capabilities"][
+                "max_memory_resources_per_domain"] = 4
+            band = {"base": 0xD000, "size": 0x400, "attributes": 0x13,
+                    "share_id": 0}
+            manifest["domains"][1]["memory_resources"].append(band)
+            one = root / "one.json"
+            one.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_generator(one, root / "one-out")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest["domains"][1]["memory_resources"].append(
+                dict(band, base=0xE000))
+            two = root / "two.json"
+            two.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_generator(two, root / "two-out")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("more than one restart-clear data band",
+                          result.stderr)
+            self.assertFalse((root / "two-out").exists())
+            print("PASS: WT-SYS-0008 a Secure Partition with two restart-clear "
+                  "data bands stops generation")
+
+    def test_partition_restart_limit_beyond_16_bits_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["domains"][1]["restart_policy"]["restart_limit"] = 0xFFFF
+            edge = root / "edge.json"
+            edge.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_generator(edge, root / "edge-out")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            manifest["domains"][1]["restart_policy"]["restart_limit"] = 0x10000
+            over = root / "over.json"
+            over.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_generator(over, root / "over-out")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("restart limit exceeds 65535", result.stderr)
+            self.assertFalse((root / "over-out").exists())
+            print("PASS: WT-SYS-0008 a Secure Partition restart limit "
+                  "beyond 16 bits stops generation")
+
+    def test_two_regions_holding_the_stack_are_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            manifest = json.loads(FIXTURE.read_text(encoding="utf-8"))
+            manifest["profile_capabilities"][
+                "max_memory_resources_per_domain"] = 3
+            manifest["domains"][1]["memory_resources"].append(
+                {"base": 0x7800, "size": 0x400, "attributes": 0x03,
+                 "share_id": 0})
+            source = root / "stack.json"
+            source.write_text(json.dumps(manifest), encoding="utf-8")
+            result = self.run_generator(source, root / "output")
+            self.assertNotEqual(result.returncode, 0)
+            self.assertIn("overlap", result.stderr)
+            print("PASS: WT-FFM-0011 exactly one private resource holds a "
+                  "partition's stack")
+
+
 RUNTIME_HARNESS = r"""
 #include "wolftrust_manifest_generated.h"
-#include "wolftrust/ffm.h"
 #include "wolftrust/partition.h"
+#include "spm_tables.h"
 
 #include <stdio.h>
 #include <string.h>
 
-static int check_read(void* context, psa_client_id_t caller,
-                      const void* address, size_t size)
-{
-    (void)context; (void)caller; (void)address; (void)size;
-    return 0;
-}
-
-static int check_write(void* context, psa_client_id_t caller, void* address,
-                       size_t size)
-{
-    (void)context; (void)caller; (void)address; (void)size;
-    return 0;
-}
-
-static int dispatch(void* context, wt_ffm_runtime_t* runtime,
-                    int32_t partition_id)
-{
-    (void)context; (void)runtime; (void)partition_id;
-    return WT_FFM_ERROR_STATE;
-}
-
-static void panic(void* context, int32_t partition_id)
-{
-    (void)context; (void)partition_id;
-}
-
-static const wt_ffm_port_ops_t ops = { check_read, check_write, dispatch,
-                                       panic };
-static wt_ffm_runtime_t runtime;
+static wt_spm_service_t services[WT_SPM_MAX_SERVICES];
+static wt_spm_sp_ipc_t sps[WT_SPM_MAX_SPS];
+static wt_spm_irq_t irqs[WT_SPM_MAX_SERVICES];
 
 int main(void)
 {
@@ -641,10 +741,16 @@ int main(void)
     wt_profile_capabilities_t platform = { TP_CAPS, TP_DOMAINS, TP_MEMORY,
                                            TP_IRQS };
     wt_guest_config_t config;
+    wt_spm_tables_t tables;
     size_t i;
     int binding = 0;
 
     (void)memset(&config, 0, sizeof(config));
+    (void)memset(&tables, 0, sizeof(tables));
+    tables.services = services;
+    tables.sps = sps;
+    tables.irqs = irqs;
+    tables.irq_cap = WT_SPM_MAX_SERVICES;
     config.vector_table = 0x1000U;
     config.memory_region_count = 1U;
     config.port.required_capabilities = TP_PORT;
@@ -660,7 +766,7 @@ int main(void)
     }
     (void)printf("%d %d %d %d\n",
                  wt_manifest_validate(manifest, TP_FEATURES, &platform),
-                 wt_ffm_init(&runtime, manifest, &ops, NULL),
+                 wt_spm_tables_derive(manifest, &tables),
                  wt_partition_validate_profile(&platform, TP_PORT), binding);
     return 0;
 }
@@ -705,13 +811,16 @@ class BuildTimeParityTest(unittest.TestCase):
         cls.objects = []
         work = Path(cls.temporary.name)
         command = shlex.split(os.environ.get("CC", "cc"))
-        for name in ("domain.c", "manifest.c", "partition.c", "ffm.c",
-                     "ipc.c", "ffm_domain.c"):
-            obj = work / (name + ".o")
+        support = ROOT / "tests" / "host" / "support"
+        for source in (ROOT / "src" / "domain.c", ROOT / "src" / "manifest.c",
+                       ROOT / "src" / "partition.c", support / "spm_tables.c",
+                       ROOT / "src" / "ffm_domain.c"):
+            obj = work / (source.stem + ".o")
             subprocess.run(command + ["-std=c99", "-c",
                                       "-DWT_MANIFEST_RUNTIME_CHECK=1",
                                       "-I" + str(ROOT / "include"),
-                                      str(ROOT / "src" / name), "-o", str(obj)],
+                                      "-I" + str(support),
+                                      str(source), "-o", str(obj)],
                            check=True)
             cls.objects.append(str(obj))
         (work / "harness.c").write_text(RUNTIME_HARNESS, encoding="utf-8")
@@ -769,6 +878,7 @@ class BuildTimeParityTest(unittest.TestCase):
                     "-DTP_PORT={}U".format(platform["port_capabilities"]),
                     "-DTP_FEATURES={}U".format(features),
                     "-I" + str(ROOT / "include"), "-I" + str(work),
+                    "-I" + str(ROOT / "tests" / "host" / "support"),
                     str(work / "wolftrust_manifest_generated.c"),
                     str(Path(self.temporary.name) / "harness.c"),
                     "-o", str(executable)] + self.objects
@@ -794,6 +904,13 @@ class BuildTimeParityTest(unittest.TestCase):
                              [0, 0, 0, 0])
             result = self.build_time(manifest, platform, features)
             self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_unbindable_dependency_is_rejected(self):
+        for dependency, message in ((0x3000, "dependency is unresolved"),
+                                    (0x1000, "depends on its own service")):
+            manifest = ffm_fixture()
+            manifest["partitions"][0]["dependencies"] = [dependency]
+            self.assert_parity(manifest, fixture_platform(), 0x5, message)
 
     def test_build_without_ipc_feature_is_rejected(self):
         manifest = ffm_fixture()

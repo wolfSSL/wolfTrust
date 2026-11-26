@@ -25,7 +25,7 @@
  * that derives a partition's private region set from the manifest and the
  * predicate that proves a foreign domain's memory is excluded. */
 
-#include "wolftrust/ffm_domain.h"
+#include "secure_domain_resolve.h"
 
 #include <stdio.h>
 
@@ -130,8 +130,6 @@ static void compose(wt_secure_domain_t* table, uintptr_t band_base,
     table->regions[1].size = band_size;
     table->regions[1].attributes = band_attributes;
     table->region_count = 2U;
-    table->stack_base = 0U;
-    table->stack_size = 0U;
 }
 
 /* The composition invariant: once every partition's table is composed, no

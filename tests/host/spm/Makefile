@@ -24,7 +24,7 @@ BUILD_DIR ?= build
 include $(ROOT)/tests/host/layout.mk
 
 # Built with the default WT_MANIFEST_RUNTIME_CHECK=0: wt_spm_init() must still
-# validate, and only wt_spm_init_generated() binds without it.
+# validate.
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
@@ -45,8 +45,9 @@ PRODUCTION_C := $(PRODUCTION_DIR)/wolftrust_manifest_generated.c
 PRODUCTION_H := $(PRODUCTION_DIR)/wolftrust_manifest_generated.h
 PRODUCTION_TEST := $(BUILD_DIR)/test_production_manifest
 PRODUCTION_SRCS := $(ROOT)/src/domain.c $(ROOT)/src/manifest.c \
-    $(ROOT)/src/spm.c $(ROOT)/src/ffm.c $(ROOT)/src/ipc.c \
+    $(ROOT)/src/spm.c $(ROOT)/src/spm/core.c \
     $(ROOT)/src/ffm_domain.c \
+    $(ROOT)/tests/host/support/secure_domain_resolve.c \
     $(ROOT)/port/common/armv8m/partitions.c \
     $(ROOT)/src/partition.c \
     $(PRODUCTION_C) production_main.c
@@ -84,7 +85,8 @@ $(SPM_TEST): $(SPM_SRCS) $(GENERATED_STAMP) $(GENERATED_H) | $(BUILD_DIR)
 
 $(PRODUCTION_TEST): $(PRODUCTION_SRCS) $(PRODUCTION_STAMP) $(PRODUCTION_H) \
 		| $(BUILD_DIR)
-	$(CC) $(CFLAGS) -I$(PRODUCTION_DIR) $(WT_LAYOUT_CFLAGS) \
+	$(CC) $(CFLAGS) -I$(PRODUCTION_DIR) -I$(ROOT)/tests/host/support \
+		$(WT_LAYOUT_CFLAGS) \
 		$(LDFLAGS) -o $@ $(PRODUCTION_SRCS)
 
 run: $(SPM_TEST) $(PRODUCTION_TEST)

@@ -338,7 +338,7 @@ def validate_platform(manifest, platform):
 
 
 def validate_ffm_runtime(manifest, ffm_limits):
-    """Mirror the activation checks wt_ffm_init makes on every boot."""
+    """Mirror the checks wt_spm_tables_derive makes on a manifest."""
     partitions = manifest["partitions"]
     if ffm_limits.get("ipc_only") and any(
             partition["model"] != 0 for partition in partitions):
@@ -444,6 +444,9 @@ def validate_policy(manifest, supported_features, word_max,
         restart = domain["restart_policy"]
         if restart["action"] not in (0, 1, 2):
             policy_error("restart action is invalid")
+        # The SPM's per-partition row holds the restart limit in 16 bits.
+        if domain_class == 1 and restart["restart_limit"] > 0xFFFF:
+            policy_error("Secure Partition restart limit exceeds 65535")
         if restart["action"] == 1:
             if restart["restart_limit"] == 0 or restart["restart_window_ticks"] == 0:
                 policy_error("domain restart policy is incomplete")
@@ -551,6 +554,15 @@ def validate_policy(manifest, supported_features, word_max,
             policy_error("domain entry point is outside executable memory")
         if not stack_found:
             policy_error("domain stack is outside private writable memory")
+        # The fault scrub keeps one data band beside the stack's resource.
+        if domain_class == 1 and sum(
+                1 for memory in memories
+                if memory["attributes"] & 0x10 and
+                not memory["attributes"] & (0x08 | 0x20) and
+                not (memory["base"] <= domain["stack_base"] and
+                     stack_end <= memory["base"] + memory["size"])) > 1:
+            policy_error("Secure Partition has more than one restart-clear "
+                         "data band")
 
     for index, (owner, first) in enumerate(all_memory):
         for other_owner, second in all_memory[index + 1:]:
@@ -844,6 +856,136 @@ def emit_partition(lines, partition, index):
     return c_struct(fields)
 
 
+PSA_DOORBELL = 0x8
+FEATURES_1_1 = (1 << 1) | (1 << 2) | (1 << 3)
+
+
+SP_REGION_MASK = 0x01 | 0x02 | 0x04 | 0x08 | 0x10 | 0x20
+
+
+def sp_memory_row(domain):
+    """The stack is the last private writable resource holding the declared
+    stack. validate_policy refuses a domain without exactly one such stack
+    or with a second band; unchecked output gets an empty row instead."""
+    empty = {"base": 0, "size": 0}
+    memories = domain["memory_resources"]
+    private = [m for m in memories if m["attributes"] & 0x02 and
+               not m["attributes"] & (0x08 | 0x20)]
+    stack = None
+    for memory in private:
+        if domain["stack_size"] != 0 and (
+                domain["stack_base"] < memory["base"] or
+                domain["stack_base"] + domain["stack_size"] >
+                memory["base"] + memory["size"]):
+            continue
+        stack = memory
+    bands = [m for m in private if m is not stack and m["attributes"] & 0x10]
+    if stack is None or len(bands) > 1 or domain["domain_class"] != 1:
+        return memories, empty, empty, domain["restart_policy"]
+    band = bands[0] if bands else empty
+    restart = domain["restart_policy"]
+    return memories, stack, band, restart
+
+
+def emit_spm_tables(lines, manifest):
+    """Emit the flat constant tables the SPM core reads at run time."""
+    partitions = manifest["partitions"]
+    services = [(index, service) for index, partition in enumerate(partitions)
+                for service in partition["services"]]
+    if len(services) > 32:
+        raise ManifestError("the SPM tables hold at most 32 services")
+    sid_index = {service["sid"]: index
+                 for index, (_, service) in enumerate(services)}
+    service_rows = ["{{ 0x{:x}U, {}U, 0x{:x}U, {}U, {}U, {}U, {}U }}".format(
+        service["sid"],
+        service["version"], service["signal"], owner,
+        service["version_policy"], int(service["nonsecure_clients"]),
+        int(service["connection_based"]))
+        for owner, service in services]
+    sp_rows = []
+    irq_rows = []
+    for index, partition in enumerate(partitions):
+        deps = 0
+        for sid in partition["dependencies"]:
+            # A partition never calls its own services, so the bit is left out.
+            if sid in sid_index and services[sid_index[sid]][0] != index:
+                deps |= 1 << sid_index[sid]
+        signals = PSA_DOORBELL
+        for service in partition["services"]:
+            signals |= service["signal"]
+        for interrupt in partition["interrupts"]:
+            signals |= interrupt["signal"]
+            irq_rows.append("{{ {}U, {}U, {}U }}".format(
+                interrupt["interrupt"], interrupt["signal"], index))
+        sp_rows.append("{{ {}, 0x{:08x}U, 0x{:08x}U }}".format(
+            partition["domain_id"], deps, signals))
+    # A call into p holds one transfer while p's deepest dependency call runs.
+    callees = [{services[sid_index[sid]][0]
+                for sid in partition["dependencies"] if sid in sid_index}
+               - {index} for index, partition in enumerate(partitions)]
+    depth = [1] * len(partitions)
+    for _ in partitions:
+        depth = [1 + max((depth[callee] for callee in callees[index]),
+                         default=0) for index in range(len(partitions))]
+    version = 0x100
+    if (manifest["features"] & FEATURES_1_1) != 0 or any(
+            partition["framework_version"] == 0x101
+            for partition in partitions):
+        version = 0x101
+    lines.extend(("#include \"wolftrust/spm_core.h\"",
+                  "#include \"wolftrust/spm_sp_mem.h\"",
+                  "#include \"wolftrust/static_assert.h\"", "",
+                  "WT_STATIC_ASSERT({}U <= WT_SPM_MAX_SPS,".format(
+                      len(partitions)),
+                  "    \"more partitions than the SPM core tracks\");",
+                  "WT_STATIC_ASSERT({}U <= WT_SPM_TRANSFERS,".format(
+                      max(depth, default=1)),
+                  "    \"a call chain needs more transfers than the SPM "
+                  "core holds\");", ""))
+    domains = {domain["id"]: domain for domain in manifest["domains"]}
+    mem_rows = []
+    for index, partition in enumerate(partitions):
+        memories, stack, band, restart = sp_memory_row(
+            domains.get(partition["domain_id"], {
+                "domain_class": 0, "memory_resources": [], "stack_base": 0,
+                "stack_size": 0, "restart_policy": {
+                    "action": 0, "restart_limit": 0,
+                    "restart_window_ticks": 0}}))
+        lines.append("static const wt_memory_region_t "
+                     "wt_spm_regions_{}[{}] = {{".format(
+                         index, max(len(memories), 1)))
+        lines.extend("    {{ 0x{:x}U, 0x{:x}U, 0x{:x}U }},".format(
+            m["base"], m["size"], m["attributes"] & SP_REGION_MASK)
+            for m in memories or [{"base": 0, "size": 0, "attributes": 0}])
+        lines.extend(("};", ""))
+        mem_rows.append(
+            "{{ .regions = wt_spm_regions_{}, .stack_base = 0x{:x}U, "
+            ".band_base = 0x{:x}U, .stack_size = 0x{:x}U, "
+            ".band_size = 0x{:x}U, .restart_limit = {}U, "
+            ".restart_window_ticks = {}U, .region_count = {}U, "
+            ".restart_action = {}U }}".format(
+                index, stack["base"], band["base"], stack["size"],
+                band["size"], restart["restart_limit"],
+                restart["restart_window_ticks"], len(memories),
+                restart["action"]))
+    for declaration, rows in (
+            ("wt_spm_sp_mem_t g_wt_spm_sp_mems", mem_rows),
+            ("wt_spm_service_t g_wt_spm_services", service_rows),
+            ("wt_spm_sp_ipc_t g_wt_spm_sps", sp_rows),
+            ("wt_spm_irq_t g_wt_spm_irqs", irq_rows)):
+        lines.append("const {}[{}] = {{".format(declaration,
+                                                max(len(rows), 1)))
+        lines.extend("    {},".format(row) for row in rows or ["{ 0 }"])
+        lines.extend(("};", ""))
+    lines.extend((
+        "const uint8_t g_wt_spm_service_count = {}U;".format(len(services)),
+        "const uint8_t g_wt_spm_sp_count = {}U;".format(len(partitions)),
+        "const uint8_t g_wt_spm_irq_count = {}U;".format(len(irq_rows)),
+        "const uint32_t g_wt_spm_framework_version =",
+        "    0x{0:x}U > PSA_FRAMEWORK_VERSION ? PSA_FRAMEWORK_VERSION : "
+        "0x{0:x}U;".format(version), ""))
+
+
 def platform_asserts(manifest, platform):
     """Bind the platform values this manifest was checked against to the
     port's own macros, and repeat the port binding checks for the compiler."""
@@ -942,6 +1084,7 @@ def generate_source(manifest, digest, platform=None, platform_header=None,
         ("partition_count", c_uint(len(partition_values))),
         ("limits", limits),
     ))
+    emit_spm_tables(lines, manifest)
     lines.extend((
         "static const wt_profile_capabilities_t wt_generated_capabilities =",
         capabilities + ";", "",
@@ -952,11 +1095,69 @@ def generate_source(manifest, digest, platform=None, platform_header=None,
     return "\n".join(lines)
 
 
+GUEST_IRQ_WORDS = 8
+
+
+def guest_macros(domain):
+    """The constant guest row the port builds from a Non-secure domain:
+    windows, NS MPU regions and IRQ mask, in manifest order."""
+    prefix = "WT_GEN_GUEST{}".format(domain["id"] - 1)
+    memories = domain["memory_resources"]
+    windows = [m for m in memories if not m["attributes"] & 0x08]
+    devices = [m for m in memories if m["attributes"] & 0x08]
+    executable = [m for m in memories if m["attributes"] & 0x04]
+    if len(devices) > 1 or not executable:
+        policy_error("a guest maps one executable window and at most one "
+                     "console")
+    words = [0] * GUEST_IRQ_WORDS
+    for interrupt in domain["interrupt_resources"]:
+        if interrupt["interrupt"] >= 32 * GUEST_IRQ_WORDS:
+            policy_error("a guest interrupt is outside the IRQ mask")
+        words[interrupt["interrupt"] // 32] |= \
+            1 << (interrupt["interrupt"] % 32)
+    edges = [edge for m in windows if m["attributes"] & 0x02
+             for edge in (m["base"], m["base"] + m["size"])]
+    restart = domain["restart_policy"]
+    device = devices[0] if devices else {"base": 0, "size": 0}
+    values = (
+        ("ENTRY", c_uint(domain["entry_point"])),
+        ("MSP", c_uint(domain["stack_base"] + domain["stack_size"])),
+        ("PRIVILEGE", c_uint(domain["privilege_state"])),
+        ("RESTART_ACTION", c_uint(restart["action"])),
+        ("RESTART", ", ".join(c_uint(restart[name]) for name in (
+            "restart_limit", "restart_window_ticks",
+            "initial_delay_ticks"))),
+        ("LIFECYCLE", c_uint(domain["initial_lifecycle"])),
+        ("LAUNCH_REQUIRED", c_uint(domain["launch_required"])),
+        ("LAUNCH_MIN_VERSION", c_uint(domain["launch_min_version"])),
+        ("WINDOWS", ", ".join("{{ {}U, {}U, {}U, {}U }}".format(
+            m["base"], m["size"], m["attributes"], m["share_id"])
+            for m in windows)),
+        ("WINDOW_COUNT", c_uint(len(windows))),
+        ("REGIONS", ", ".join("{{ {}U, {}U, {}U }}".format(
+            m["base"], m["size"], m["attributes"] & 0x0F)
+            for m in memories)),
+        ("REGION_COUNT", c_uint(len(memories))),
+        ("DEVICE_BASE", c_uint(device["base"])),
+        ("DEVICE_SIZE", c_uint(device["size"])),
+        ("WRITE_EDGES", " | ".join(c_uint(e) for e in edges) or "0U"),
+        ("EXEC_BASE", c_uint(executable[0]["base"])),
+        ("EXEC_SIZE", c_uint(executable[0]["size"])),
+    ) + tuple(("IRQ_WORD{}".format(index), c_uint(word))
+              for index, word in enumerate(words))
+    return ["#define {}_{} {}".format(prefix, name, value)
+            for name, value in values] + [""]
+
+
 def generate_header(manifest):
     lines = [FILE_HEADER.format(name="wolftrust_manifest_generated.h"),
              "#ifndef WOLFTRUST_MANIFEST_GENERATED_H",
              "#define WOLFTRUST_MANIFEST_GENERATED_H", "",
-             "#include \"wolftrust/manifest.h\"", ""]
+             "#include \"wolftrust/manifest.h\"", "",
+             "#define WT_GEN_MANIFEST_FEATURES 0x{:x}U".format(
+                 manifest["features"]),
+             "#define WT_GEN_SP_COUNT {}U".format(
+                 len(manifest["partitions"])), ""]
     symbols = set()
 
     def add_symbol(name):
@@ -998,6 +1199,9 @@ def generate_header(manifest):
             lines.append("#define {}_SIGNAL {}U".format(
                 interrupt_prefix, interrupt["signal"]))
         lines.append("")
+    for domain in manifest["domains"]:
+        if domain["domain_class"] == 2:
+            lines.extend(guest_macros(domain))
     lines.extend((
         "const wt_system_manifest_t* wt_generated_manifest_get(void);", "",
         "#endif", ""))
@@ -1103,6 +1307,31 @@ def exclude_partitions(manifest, names):
                            if domain["id"] not in removed]
 
 
+def check_spm_private(manifest, ranges, word_max):
+    """Each BASE:SIZE is SPM-private RAM the MPU cover protects; no Secure
+    Partition resource may reach into it."""
+    private = []
+    for item in ranges:
+        base, colon, size = item.partition(":")
+        try:
+            value = (int(base, 0), int(size, 0))
+        except ValueError:
+            value = None
+        if not colon or value is None or value[1] == 0:
+            policy_error("--spm-private {!r} is not BASE:SIZE".format(item))
+        policy_range_end(value[0], value[1], word_max, "SPM-private range")
+        private.append(value)
+    for domain in manifest["domains"]:
+        if domain["domain_class"] != 1:
+            continue
+        for memory in domain["memory_resources"]:
+            for base, size in private:
+                if ranges_overlap(memory["base"], memory["size"], base, size):
+                    policy_error("Secure Partition memory 0x{:08X}+0x{:X} "
+                                 "overlaps SPM-private RAM".format(
+                                     memory["base"], memory["size"]))
+
+
 def check_stacks(manifest, stacks):
     """Each NAME=BASE:SIZE names where the linked layout put that partition's
     stack; a manifest that disagrees would confine it to the wrong RAM. With
@@ -1171,6 +1400,9 @@ def main():
     parser.add_argument("--stack", action="append", default=[],
                         metavar="NAME=BASE:SIZE",
                         help="the layout's stack for partition NAME")
+    parser.add_argument("--spm-private", action="append", default=[],
+                        metavar="BASE:SIZE",
+                        help="SPM-private RAM no partition may overlap")
     parser.add_argument("--unchecked", action="store_true",
                         help="allow missing platform, FF-M limit and stack "
                              "inputs (host tests only; a target build "
@@ -1198,7 +1430,8 @@ def main():
             ("the platform options", platform is not None),
             ("--ffm-max-partitions", args.ffm_max_partitions is not None),
             ("--ffm-max-services", args.ffm_max_services is not None),
-            ("--stack", bool(args.stack))) if not given]
+            ("--stack", bool(args.stack)),
+            ("--spm-private", bool(args.spm_private))) if not given]
         if missing:
             parser.error("boot trusts this manifest, so the generator needs "
                          "%s; --unchecked is for host tests only" %
@@ -1224,6 +1457,7 @@ def main():
                         args.supported_framework_version, args.mpu_granule,
                         platform, ffm_limits)
         check_stacks(manifest, args.stack)
+        check_spm_private(manifest, args.spm_private, word_max)
         source = generate_source(manifest, hashlib.sha256(input_bytes).digest(),
                                  platform, args.platform_header,
                                  args.unchecked)

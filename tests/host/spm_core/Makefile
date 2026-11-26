@@ -24,13 +24,16 @@ BUILD_DIR ?= build
 CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
-TEST := $(BUILD_DIR)/test_ipc
-SRCS := $(ROOT)/src/ipc.c main.c
+TEST := $(BUILD_DIR)/test_spm_core
+TEST_RESTART := $(BUILD_DIR)/test_spm_core_restart
+TEST_GUEST := $(BUILD_DIR)/test_spm_core_guest
+TEST_GUESTS := $(BUILD_DIR)/test_spm_core_guests
+SRCS := $(ROOT)/src/spm/core.c main.c
 
 .PHONY: all run compilers compiler-gcc compiler-clang sanitize valgrind \
     run-valgrind clean
 
-all: $(TEST)
+all: $(TEST) $(TEST_RESTART) $(TEST_GUEST) $(TEST_GUESTS)
 
 $(BUILD_DIR):
 	mkdir -p $@
@@ -38,8 +41,20 @@ $(BUILD_DIR):
 $(TEST): $(SRCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRCS)
 
-run: $(TEST)
+$(TEST_RESTART): $(SRCS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -DWT_SP_RESTART=1 $(LDFLAGS) -o $@ $(SRCS)
+
+$(TEST_GUEST): $(SRCS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -DWT_GUEST_RESTART=1 $(LDFLAGS) -o $@ $(SRCS)
+
+$(TEST_GUESTS): $(SRCS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) -DWT_MAX_GUESTS=2 $(LDFLAGS) -o $@ $(SRCS)
+
+run: $(TEST) $(TEST_RESTART) $(TEST_GUEST) $(TEST_GUESTS)
 	$(TEST)
+	$(TEST_RESTART)
+	$(TEST_GUEST)
+	$(TEST_GUESTS)
 
 compiler-gcc:
 	$(MAKE) run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
@@ -57,9 +72,15 @@ sanitize:
 valgrind:
 	$(MAKE) run-valgrind BUILD_DIR=$(BUILD_DIR)/valgrind
 
-run-valgrind: $(TEST)
+run-valgrind: $(TEST) $(TEST_RESTART) $(TEST_GUEST) $(TEST_GUESTS)
 	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
 		$(TEST)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(TEST_RESTART)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(TEST_GUEST)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(TEST_GUESTS)
 
 clean:
 	rm -rf $(BUILD_DIR)

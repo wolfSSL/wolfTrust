@@ -36,10 +36,7 @@ CFLAGS := \
 CFLAGS += $(EXTRA_CFLAGS)
 
 _WT_SRCS := \
-    $(ROOT)/src/ffm.c \
-    $(ROOT)/src/ffm_boot.c \
     $(ROOT)/src/ffm_domain.c \
-    $(ROOT)/src/ipc.c \
     $(ROOT)/src/spm_gate.c \
     $(ROOT)/src/services/hsm_relay_service.c \
     $(ROOT)/src/services/storage_service.c \
@@ -61,7 +58,10 @@ _WT_OBJS     := $(patsubst %.c,wt_%.o,$(notdir $(_WT_SRCS)))
 _CLIENT_OBJS := $(patsubst %.c,cl_%.o,$(notdir $(_CLIENT_SRCS)))
 _TEST_OBJS   := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
+include $(ROOT)/tests/host/support/spm_host.mk
+
 ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_CLIENT_OBJS) $(_TEST_OBJS))
+ALL_OBJS += $(SPM_HOST_OBJS)
 TEST_BIN := $(BUILD_DIR)/test_vnet_relay
 
 .PHONY: all run compilers sanitize valgrind clean

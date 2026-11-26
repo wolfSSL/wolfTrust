@@ -14,7 +14,7 @@ jobs:
   cortex-m33:
     name: cortex_m33_cross_compile
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 45
     container:
       image: ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.15
     steps:
@@ -124,11 +124,10 @@ jobs:
             test "$linked" = "$check" || \
               { echo "WT_MANIFEST_RUNTIME_CHECK=$check linked=$linked" >&2; exit 1; }
           done
-      # TF-M v2.3.1 level 3 tfm_s on the STM32L562E-DK is 79,680 bytes of
-      # flash and 45,728 bytes of RAM, partition stacks included; the
-      # guest-local PSA build, attestation included as in TF-M, must stay below
-      # both (docs/TF-M-Compatibility.md). A port's linked RAM code band is allowed.
-      - name: Check the guest-local PSA footprint against TF-M level 3
+      # The guest-local PSA build, attestation included, stays under a fixed
+      # flash and Secure RAM budget, partition stacks included. A port's
+      # linked RAM code band is allowed on top.
+      - name: Hold the guest-local PSA image under its flash and RAM budget
         run: |
           budget=79680
           for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
@@ -138,9 +137,26 @@ jobs:
               | awk 'NR == 2 { print $1 + $2 }')
             echo "$target guest-local PSA flash: $flash bytes (budget $budget)"
             test "$flash" -le "$budget" || \
-              { echo "FAIL: $target guest-local PSA build exceeds the TF-M level 3 budget" >&2; exit 1; }
+              { echo "FAIL: $target guest-local PSA build exceeds its flash budget" >&2; exit 1; }
             python3 tools/secure_ram.py --base-max 45728 \
               build_budget_$target/wolftrust.map
+          done
+      # Non-crypto flash, split by tools/footprint/classify.py from the
+      # non-LTO map. Each port's port.json holds its non-crypto and SPM
+      # ceilings; lower them as size work lands.
+      - name: Hold the non-crypto and SPM Secure flash under their ceilings
+        run: |
+          for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
+            noncrypto_max=$(python3 tests/target/lib/scenario_matrix.py --port $target \
+              --get build.noncrypto_max)
+            spm_max=$(python3 tests/target/lib/scenario_matrix.py --port $target \
+              --get build.spm_max)
+            make TARGET=$target WT_ENGINE=native WT_ATTEST_COSE=1 WT_LTO=0 secure-image \
+              TOOLPREFIX=arm-none-eabi- BUILD_DIR=build_noncrypto_$target
+            python3 tools/footprint/classify.py build_noncrypto_$target/wolftrust.map \
+              --rules tools/footprint/wolftrust.rules \
+              --elf build_noncrypto_$target/wolftrust.elf --max $noncrypto_max \
+              --category-max spm=$spm_max
           done
       - name: Build every port's full-profile secure image (every engine)
         run: |
@@ -158,9 +174,19 @@ jobs:
             exit 1
           fi
           grep -q 'unsupported WT_MAX_GUESTS' guests.err
+          # The Arm suite calls every trimmable Secure Partition API.
+          for bad in "WT_CONFORMANCE=1 WT_FFM_SP_SKIP=0" "WT_CONFORMANCE=1 WT_FFM_SP_DOORBELL=0 WT_FFM_SP_SKIP=0" "WT_FFM_SP_DOORBELL=2"; do
+            # shellcheck disable=SC2086
+            if make $bad BUILD_DIR=build-trims-bad secure-image \
+                TOOLPREFIX=arm-none-eabi- 2> trims.err; then
+              echo "FAIL: $bad built" >&2
+              exit 1
+            fi
+            grep -q 'WT_FFM_SP_' trims.err
+          done
       - name: Build every add-on alone for every port (every engine)
         run: |
-          for flag in WT_MAX_GUESTS=2 WT_FWU=1 WT_SHA256_FAST=1 WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1; do
+          for flag in WT_MAX_GUESTS=2 WT_FWU=1 WT_SHA256_FAST=1 WT_FFM_FORENSICS=1 WT_SP_RESTART=0 WT_GUEST_RESTART=0 WT_FFM_SP_DOORBELL=0 WT_FFM_SP_RHANDLE=0 WT_FFM_SP_SKIP=0 WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1; do
             for target in $(python3 tests/target/lib/scenario_matrix.py --list-ports); do
               for engine in $(python3 tests/target/lib/scenario_matrix.py --port $target --get build.engines); do
                 dir=build_addon_${target}_${engine}_${flag%%=*}

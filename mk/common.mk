@@ -33,7 +33,7 @@ endif
 # is measured, not guessed.
 WT_CO_STACK_SIZE ?= 10240
 # Secure main (SPM) stack, sized at link and limited by MSPLIM_S at reset.
-WT_SPM_STACK_SIZE ?= 0x1000
+WT_SPM_STACK_SIZE ?= 0xC00
 WT_LTO ?= 1
 ifneq ($(WT_LTO),0)
 ifneq ($(WT_LTO),1)
@@ -112,6 +112,31 @@ WT_HANDLER_IRQ_PROBE ?= 0
 WT_REMEASURE_PROBE ?= 0
 WT_BOOTUPDATE_PROBE ?= 0
 WT_CONFORMANCE ?= 0
+# Fault recovery: restart a faulted Secure Partition, or a faulted guest.
+WT_SP_RESTART ?= 1
+WT_GUEST_RESTART ?= 1
+ifneq ($(words $(WT_SP_RESTART) $(WT_GUEST_RESTART))/$(filter 0 1,$(WT_SP_RESTART))/$(filter 0 1,$(WT_GUEST_RESTART)),2/$(WT_SP_RESTART)/$(WT_GUEST_RESTART))
+$(error WT_SP_RESTART and WT_GUEST_RESTART take 0 or 1)
+endif
+# SWD-readable SPM forensic words no scenario asserts.
+WT_FFM_FORENSICS ?= 0
+ifneq ($(words $(WT_FFM_FORENSICS))/$(filter 0 1,$(WT_FFM_FORENSICS)),1/$(WT_FFM_FORENSICS))
+$(error WT_FFM_FORENSICS takes 0 or 1)
+endif
+# Secure Partition API calls no shipped service makes: psa_notify and
+# psa_clear, psa_set_rhandle, and psa_skip. 0 builds the call out.
+WT_FFM_SP_DOORBELL ?= 1
+WT_FFM_SP_RHANDLE ?= 1
+WT_FFM_SP_SKIP ?= 1
+WT_FFM_SP_TRIMS := $(WT_FFM_SP_DOORBELL) $(WT_FFM_SP_RHANDLE) $(WT_FFM_SP_SKIP)
+ifneq ($(filter-out 0 1,$(WT_FFM_SP_TRIMS))$(words $(WT_FFM_SP_TRIMS)),3)
+$(error WT_FFM_SP_DOORBELL, WT_FFM_SP_RHANDLE and WT_FFM_SP_SKIP take 0 or 1)
+endif
+ifeq ($(WT_CONFORMANCE),1)
+ifneq ($(filter 0,$(WT_FFM_SP_TRIMS)),)
+$(error WT_CONFORMANCE=1 runs the Arm suite, which needs every WT_FFM_SP_* call)
+endif
+endif
 # PSA Firmware Update partition (SERVICE_FWU) and its 4 KiB stack.
 WT_FWU ?= 0
 ifneq ($(words $(WT_FWU))/$(filter 0 1,$(WT_FWU)),1/$(WT_FWU))
@@ -160,13 +185,14 @@ HSM_DEFS_SECURE += -DWT_ENGINE_NATIVE=1 -DWOLFHSM_CFG_NO_CRYPTO
 endif
 
 ifeq ($(WT_ATTEST_COSE),1)
+# Every claim text string is a Secure-flash constant, so encode skips UTF-8.
 SECURE_CFLAGS_COSE := -I$(WOLFCOSE_DIR)/include \
     -DWT_ATTEST_COSE=1 \
     -DWOLFCOSE_LEAN -DWOLFCOSE_ENABLE_EXT_SIGN -DWOLFCOSE_NO_LOCAL_SIGN \
     -DWOLFCOSE_ENABLE_DEPRECATED_ALGS \
     -DWOLFCOSE_NO_SIGN1_VERIFY -DWOLFCOSE_NO_ENCRYPT0 \
     -DWOLFCOSE_NO_MAC0 -DWOLFCOSE_NO_KEY_ENCODE \
-    -DWOLFCOSE_NO_KEY_DECODE \
+    -DWOLFCOSE_NO_KEY_DECODE -DWOLFCOSE_NO_CBOR_ENCODE_UTF8_CHECK \
     -DWOLFCOSE_ENABLE_EAT_PSA \
     -DWOLFCOSE_ENABLE_EAT_PSA_CURRENT \
     -DWOLFCOSE_ENABLE_EAT_PSA_ISSUE \
@@ -321,6 +347,12 @@ ifneq ($(strip \
     $(filter 1 2 3 4,$(WT_SEAL_NEG_PROBE))),)
 SECURE_CFLAGS += -DWT_SP_LAZY_FIRST_ENTRY=1
 endif
+SECURE_CFLAGS += -DWT_SP_RESTART=$(WT_SP_RESTART) \
+    -DWT_GUEST_RESTART=$(WT_GUEST_RESTART) \
+    -DWT_FFM_FORENSICS=$(WT_FFM_FORENSICS) \
+    -DWT_FFM_SP_DOORBELL=$(WT_FFM_SP_DOORBELL) \
+    -DWT_FFM_SP_RHANDLE=$(WT_FFM_SP_RHANDLE) \
+    -DWT_FFM_SP_SKIP=$(WT_FFM_SP_SKIP)
 ifeq ($(WT_FWU),1)
 SECURE_CFLAGS += -DWT_FWU=1
 MANIFEST_EXCLUDE :=
@@ -358,11 +390,9 @@ SECURE_SRCS := \
     $(WOLFHSM_RUNNER_DIR)/runtime.c \
     $(TARGET_PLATFORM_SRC) \
     $(ROOT)/src/domain.c \
-    $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_boot.c \
     $(ROOT)/src/ffm_domain.c \
     $(ROOT)/src/guest_verify.c \
-    $(ROOT)/src/ipc.c \
     $(ROOT)/src/restart_policy.c \
     $(ROOT)/src/rollback.c \
     $(ROOT)/src/sp_recovery.c \
@@ -491,6 +521,8 @@ endif
 WT_SECURE_EXTRA_SRCS := \
     $(ARCH_SRCS) \
     $(ROOT)/src/arch/common/spm_gate_core.c \
+    $(ROOT)/src/arch/common/keystore_ops.c \
+    $(ROOT)/src/arch/common/measure_ops.c \
     $(ROOT)/src/arch/common/spm_sp_api.c \
     $(ROOT)/src/arch/common/ffm_gateway.c \
     $(ROOT)/src/sched/coroutine.c \
@@ -507,7 +539,8 @@ WT_SECURE_EXTRA_SRCS := \
     $(ROOT)/src/services/vault_service.c
 
 ifeq ($(WT_FWU),1)
-WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/fwu_service.c
+WT_SECURE_EXTRA_SRCS += $(ROOT)/src/services/fwu_service.c \
+    $(ROOT)/src/arch/common/fwu_ops.c
 endif
 
 # Engine split: wt_hsm.c drives the wolfHSM server (hsm engine only); the
@@ -680,6 +713,9 @@ WT_IF_WOLFHSM_RAW_OBJS := $(patsubst %.c,$(BUILD_DIR)/$(WT_IF)_wh_raw_%.o,$(notd
 WT_IF_WOLFHSM_OBJS := $(patsubst %.c,$(BUILD_DIR)/$(WT_IF)_wh_%.o,$(notdir $(WT_IF_WOLFHSM_SRCS)))
 WT_IF_NAMESPACE_MAP := $(BUILD_DIR)/$(WT_IF)_wc_symbols.map
 MANIFEST_OBJ := $(BUILD_DIR)/wt_sec_wolftrust_manifest_generated.o
+# The arch-neutral SPM in src/spm/, named sec_spm_<file>.o.
+SPM_CORE_SRCS := $(ROOT)/src/spm/core.c
+SPM_CORE_OBJS := $(patsubst %.c,$(BUILD_DIR)/sec_spm_%.o,$(notdir $(SPM_CORE_SRCS)))
 # Arch sources that live in subdirectories of src/arch/<arch>/ (C or assembly);
 # each gets its own rule below because the pattern rules key on one directory.
 ARCH_TREE_SRCS ?=
@@ -688,6 +724,7 @@ ARCH_TREE_OBJS := $(foreach s,$(ARCH_TREE_SRCS) $(ARCH_ASM_SRCS),$(BUILD_DIR)/wt
 
 ALL_SECURE_OBJS := $(strip \
     $(HSM_SECURE_BASE_OBJS) \
+    $(SPM_CORE_OBJS) \
     $(HSM_WOLFHSM_SEC_OBJS) \
     $(HSM_WOLFCRYPT_SEC_OBJS) \
     $(HSM_WT_EXTRA_OBJS) \
@@ -1751,8 +1788,8 @@ $(MANIFEST_INPUT): $(MANIFEST_OVERLAY) $(WT_MANIFEST_RENDER_DEPS) \
 # The generator checks the manifest against the port's platform limits and the
 # FF-M runtime's compiled limits, read from the headers that size it.
 wt_header_value = $(strip $(shell sed -n -E 's/^.define $(1)[[:space:]]+(0x[0-9A-Fa-f]+|[0-9]+)U.*/\1/p' $(2)))
-WT_FFM_MAX_PARTITIONS_VALUE := $(call wt_header_value,WT_FFM_MAX_PARTITIONS,$(ROOT)/include/wolftrust/ffm.h)
-WT_FFM_MAX_SERVICES_VALUE := $(call wt_header_value,WT_FFM_MAX_SERVICES,$(ROOT)/include/wolftrust/ffm.h)
+WT_FFM_MAX_PARTITIONS_VALUE := $(call wt_header_value,WT_SPM_MAX_SPS,$(ROOT)/include/wolftrust/spm_core.h)
+WT_FFM_MAX_SERVICES_VALUE := $(call wt_header_value,WT_SPM_MAX_SERVICES,$(ROOT)/include/wolftrust/spm_core.h)
 WT_PSA_FRAMEWORK_VERSION_VALUE := $(call wt_header_value,PSA_FRAMEWORK_VERSION,$(ROOT)/include/psa/client.h)
 ifeq ($(words $(WT_FFM_MAX_PARTITIONS_VALUE) $(WT_FFM_MAX_SERVICES_VALUE) $(WT_PSA_FRAMEWORK_VERSION_VALUE)),3)
 else
@@ -1860,6 +1897,12 @@ BUILD_MODE_LINES = \
 		'WT_REMEASURE_PROBE=$(WT_REMEASURE_PROBE)' \
 		'WT_BOOTUPDATE_PROBE=$(WT_BOOTUPDATE_PROBE)' \
 		'WT_FWU=$(WT_FWU)' \
+		'WT_SP_RESTART=$(WT_SP_RESTART)' \
+		'WT_GUEST_RESTART=$(WT_GUEST_RESTART)' \
+		'WT_FFM_FORENSICS=$(WT_FFM_FORENSICS)' \
+		'WT_FFM_SP_DOORBELL=$(WT_FFM_SP_DOORBELL)' \
+		'WT_FFM_SP_RHANDLE=$(WT_FFM_SP_RHANDLE)' \
+		'WT_FFM_SP_SKIP=$(WT_FFM_SP_SKIP)' \
 		'WT_MAX_GUESTS=$(WT_MAX_GUESTS)' \
 		'WT_CO_STACK_SIZE=$(WT_CO_STACK_SIZE)' \
 		'WT_SPM_STACK_SIZE=$(WT_SPM_STACK_SIZE)' \
@@ -1974,17 +2017,20 @@ $(BUILD_DIR)/p11_sec_%.o: $(WOLFPKCS11_DIR)/src/%.c $(WOLFHSM_CFG_H) $(BUILD_MOD
 	$(CC) $(HSM_LIB_CFLAGS) $(WOLFPKCS11_SECURE_CFLAGS) -c -o $@ $<
 endif
 
-$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/$(ARCH)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/$(ARCH)/%.c $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/arch/common/%.c $(MANIFEST_GEN_H) \
 		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sched/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sched/%.c $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
-$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sync/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+$(BUILD_DIR)/wt_sec_%.o: $(ROOT)/src/sync/%.c $(MANIFEST_GEN_H) \
+		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/wt_sec_%.o: $(WOLFHSM_RUNNER_DIR)/%.c $(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
@@ -2045,6 +2091,10 @@ $(foreach s,$(ARCH_TREE_SRCS) $(ARCH_ASM_SRCS),$(eval $(call wt_arch_tree_rule,$
 
 $(BUILD_DIR)/sec_monitor.o: $(ROOT)/src/monitor.c $(MANIFEST_GEN_H) \
 		$(WOLFHSM_CFG_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
+	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
+
+$(SPM_CORE_OBJS): $(BUILD_DIR)/sec_spm_%.o: $(ROOT)/src/spm/%.c \
+		$(MANIFEST_GEN_H) $(BUILD_MODE_STAMP) | $(BUILD_DIR)
 	$(CC) $(SECURE_CFLAGS) -c -o $@ $<
 
 $(BUILD_DIR)/sec_ffm_boot.o: $(ROOT)/src/ffm_boot.c $(MANIFEST_GEN_H) \

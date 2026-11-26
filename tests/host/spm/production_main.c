@@ -18,10 +18,12 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
+#include "wolftrust/spm_core.h"
 #include "wolftrust/spm.h"
 #include "wolftrust/partition.h"
 #include "wolftrust/ffm.h"
-#include "wolftrust/ffm_domain.h"
+#include "wolftrust/spm_sp_mem.h"
+#include "secure_domain_resolve.h"
 #include "wolftrust_manifest_generated.h"
 #include "psa_manifest/sid.h"
 #include "psa_manifest/pid.h"
@@ -30,54 +32,122 @@
 #include <stdio.h>
 #include <string.h>
 
-static int production_ffm_check(void* context, psa_client_id_t caller,
-                                const void* address, size_t size)
+int wt_spm_caller_can_write(psa_client_id_t caller, void* base, size_t len)
 {
-    (void)context;
     (void)caller;
-    (void)address;
-    (void)size;
+    (void)base;
+    (void)len;
     return 0;
 }
 
-static int production_ffm_check_write(void* context, psa_client_id_t caller,
-                                      void* address, size_t size)
+#define SP_PRIVATE_EXCLUDED (WT_MEMORY_ATTR_DEVICE | WT_MEMORY_ATTR_SHARED)
+#define SP_REGION_ATTRS     (WT_MEMORY_ATTR_READ | WT_MEMORY_ATTR_WRITE | \
+    WT_MEMORY_ATTR_EXECUTE | SP_PRIVATE_EXCLUDED | WT_MEMORY_ATTR_RESTART_CLEAR)
+
+static const wt_domain_descriptor_t* find_domain(
+    const wt_system_manifest_t* manifest, wt_domain_id_t id)
 {
-    (void)context;
-    (void)caller;
-    (void)address;
-    (void)size;
+    size_t i;
+
+    for (i = 0U; i < manifest->domain_count; i++) {
+        if (manifest->domains[i].id == id) {
+            return &manifest->domains[i];
+        }
+    }
+    return NULL;
+}
+
+/* 0 when row matches the domain: its regions, the private writable resource
+ * holding the declared stack, the RESTART_CLEAR band beside it, the policy. */
+static int sp_mem_row_matches(const wt_spm_sp_mem_t* row,
+                              const wt_domain_descriptor_t* domain)
+{
+    const wt_memory_resource_t* res = domain->memory_resources;
+    const wt_memory_resource_t* stack = NULL;
+    const wt_memory_resource_t* band = NULL;
+    size_t i;
+
+    if (row->region_count != domain->memory_resource_count) {
+        return 1;
+    }
+    for (i = 0U; i < domain->memory_resource_count; i++) {
+        if (row->regions[i].base != res[i].base ||
+                row->regions[i].size != res[i].size ||
+                row->regions[i].attributes !=
+                    (res[i].attributes & SP_REGION_ATTRS)) {
+            return 1;
+        }
+        if ((res[i].attributes & WT_MEMORY_ATTR_WRITE) != 0U &&
+                (res[i].attributes & SP_PRIVATE_EXCLUDED) == 0U &&
+                domain->stack_base >= res[i].base &&
+                domain->stack_size <= res[i].size &&
+                domain->stack_base - res[i].base <=
+                    res[i].size - domain->stack_size) {
+            stack = &res[i];
+        }
+    }
+    for (i = 0U; i < domain->memory_resource_count; i++) {
+        if (&res[i] != stack &&
+                (res[i].attributes & WT_MEMORY_ATTR_WRITE) != 0U &&
+                (res[i].attributes & SP_PRIVATE_EXCLUDED) == 0U &&
+                (res[i].attributes & WT_MEMORY_ATTR_RESTART_CLEAR) != 0U) {
+            band = &res[i];
+        }
+    }
+    if (stack == NULL || row->stack_base != stack->base ||
+            row->stack_size != stack->size) {
+        return 1;
+    }
+    if (band != NULL ? (row->band_base != band->base ||
+                        row->band_size != band->size) :
+                       (row->band_base != 0U || row->band_size != 0U)) {
+        return 1;
+    }
+    return row->restart_action != (uint8_t)domain->restart_policy.action ||
+           row->restart_limit != domain->restart_policy.restart_limit ||
+           row->restart_window_ticks !=
+               domain->restart_policy.restart_window_ticks;
+}
+
+/* WT-FFM-0011: the generated rows the SPM programs into the MPU are the
+ * ones the descriptive manifest declares, partition by partition. */
+static int check_sp_mem_rows(const wt_system_manifest_t* manifest)
+{
+    const wt_domain_descriptor_t* domain;
+    wt_spm_sp_mem_t corrupt;
+    size_t i;
+
+    for (i = 0U; i < manifest->partition_count; i++) {
+        domain = find_domain(manifest, manifest->partitions[i].domain_id);
+        if (domain == NULL ||
+                sp_mem_row_matches(&g_wt_spm_sp_mems[i], domain) != 0) {
+            (void)fprintf(stderr, "generated memory row %zu does not match "
+                          "the manifest\n", i);
+            return 1;
+        }
+    }
+    domain = find_domain(manifest, manifest->partitions[0].domain_id);
+    corrupt = g_wt_spm_sp_mems[0];
+    corrupt.stack_size += 32U;
+    if (sp_mem_row_matches(&corrupt, domain) == 0) {
+        (void)fprintf(stderr, "a stack size mismatch was accepted\n");
+        return 1;
+    }
+    corrupt = g_wt_spm_sp_mems[0];
+    corrupt.restart_limit++;
+    if (sp_mem_row_matches(&corrupt, domain) == 0) {
+        (void)fprintf(stderr, "a restart limit mismatch was accepted\n");
+        return 1;
+    }
     return 0;
 }
-
-static int production_ffm_dispatch(void* context, wt_ffm_runtime_t* runtime,
-                                   int32_t partition_id)
-{
-    (void)context;
-    (void)runtime;
-    (void)partition_id;
-    return WT_FFM_ERROR_STATE;
-}
-
-static void production_ffm_panic(void* context, int32_t partition_id)
-{
-    (void)context;
-    (void)partition_id;
-}
-
-static const wt_ffm_port_ops_t g_production_ffm_ops = {
-    production_ffm_check,
-    production_ffm_check_write,
-    production_ffm_dispatch,
-    production_ffm_panic
-};
 
 int main(void)
 {
-    wt_ffm_runtime_t ffm_runtime;
     wt_spm_t spm;
     wt_system_manifest_t invalid_manifest;
     wt_domain_descriptor_t invalid_domains[WT_MANIFEST_MAX_PARTITIONS];
+    wt_memory_resource_t invalid_res[WT_MAX_MEMORY_REGIONS];
     wt_profile_capabilities_t limited_platform;
     wt_guest_config_t invalid_config;
     const wt_guest_config_t* configs;
@@ -120,8 +190,8 @@ int main(void)
         return 1;
     }
 
-    if (wt_partitions_bind_manifest(wt_spm_manifest(&spm)) != 0) {
-        (void)fprintf(stderr, "production partition binding rejected\n");
+    if (wt_partitions_check_manifest(wt_spm_manifest(&spm)) != 0) {
+        (void)fprintf(stderr, "production partition rows rejected\n");
         return 1;
     }
 
@@ -153,19 +223,14 @@ int main(void)
         return 1;
     }
 
-    if (wt_ffm_init(&ffm_runtime, wt_spm_manifest(&spm),
-                    &g_production_ffm_ops, NULL) != WT_FFM_SUCCESS) {
-        (void)fprintf(stderr,
-                      "production manifest rejected by FF-M runtime\n");
-        return 1;
-    }
-    if (wt_ffm_service_version(&ffm_runtime, -1,
-                               SERVICE_ATTEST_SID) != SERVICE_ATTEST_VERSION) {
+    wt_spm_core_init();
+    if (wt_spm_service_version(-1, SERVICE_ATTEST_SID) !=
+            SERVICE_ATTEST_VERSION) {
         (void)fprintf(stderr, "SERVICE_ATTEST not registered by SID\n");
         return 1;
     }
-    if (wt_ffm_service_version(&ffm_runtime, -1,
-                               SERVICE_HSM_SID) != SERVICE_HSM_VERSION) {
+    if (wt_spm_service_version(-1, SERVICE_HSM_SID) !=
+            SERVICE_HSM_VERSION) {
         (void)fprintf(stderr, "SERVICE_HSM not registered by SID\n");
         return 1;
     }
@@ -279,43 +344,31 @@ int main(void)
         return 1;
     }
 
-    /* WT-FFM: the restart policy is authoritative. Binding a manifest whose
-     * guest restart_limit differs from the compiled-in default must flow that
-     * value into the runtime config -- proving the SPM reads the manifest, not
-     * a hardcoded copy. */
+    /* The guest rows are fixed from the manifest at build time: a manifest
+     * whose guest policy differs from the rows is refused. */
     (void)memcpy(invalid_domains, wt_spm_manifest(&spm)->domains,
                  domain_count * sizeof(invalid_domains[0]));
     invalid_manifest = *wt_spm_manifest(&spm);
     invalid_manifest.domains = invalid_domains;
     invalid_domains[1].restart_policy.restart_limit = 7U;
-    if (wt_partitions_bind_manifest(&invalid_manifest) != 0) {
-        (void)fprintf(stderr, "authoritative restart policy bind rejected\n");
-        return 1;
-    }
-    configs = wt_partitions_config_table(&config_count);
-    if (config_count == 0U ||
-            configs[0].restart_policy.restart_limit != 7U) {
-        (void)fprintf(stderr, "restart limit not bound from manifest\n");
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
+        (void)fprintf(stderr, "a different restart limit was accepted\n");
         return 1;
     }
 
-    /* WT-FFM: the manifest's initial lifecycle is authoritative -- a guest
-     * domain declared STOPPED binds to a non-runnable runtime state. */
+    invalid_domains[1].restart_policy.restart_limit =
+        wt_spm_manifest(&spm)->domains[1].restart_policy.restart_limit;
     invalid_domains[1].initial_lifecycle = WT_DOMAIN_LIFECYCLE_STOPPED;
-    if (wt_partitions_bind_manifest(&invalid_manifest) != 0) {
-        (void)fprintf(stderr, "authoritative lifecycle bind rejected\n");
-        return 1;
-    }
-    configs = wt_partitions_config_table(&config_count);
-    if (configs[0].initial_state != WT_GUEST_STOPPED) {
-        (void)fprintf(stderr, "initial lifecycle not bound from manifest\n");
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
+        (void)fprintf(stderr, "a different lifecycle was accepted\n");
         return 1;
     }
 
     /* An unsupported restart action still fails closed. */
-    invalid_domains[1].restart_policy.restart_limit = 3U;
+    invalid_domains[1].initial_lifecycle =
+        wt_spm_manifest(&spm)->domains[1].initial_lifecycle;
     invalid_domains[1].restart_policy.action = WT_RESTART_ACTION_NEVER;
-    if (wt_partitions_bind_manifest(&invalid_manifest) == 0) {
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
         (void)fprintf(stderr, "unsupported restart action was accepted\n");
         return 1;
     }
@@ -323,15 +376,53 @@ int main(void)
     /* A guest declared unprivileged misstates how it launches: refused. */
     invalid_domains[1].restart_policy.action = WT_RESTART_ACTION_DOMAIN;
     invalid_domains[1].privilege_state = WT_PRIVILEGE_STATE_UNPRIVILEGED;
-    if (wt_partitions_bind_manifest(&invalid_manifest) == 0) {
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
         (void)fprintf(stderr, "unprivileged guest declaration was accepted\n");
         return 1;
     }
 
-    /* Restore the real, authoritative binding: the guest domains declare
-     * READY, so the bound runtime state is runnable. */
-    if (wt_partitions_bind_manifest(wt_spm_manifest(&spm)) != 0) {
-        (void)fprintf(stderr, "restart policy rebind rejected\n");
+    /* A guest window that differs from the row's constant window: refused. */
+    invalid_domains[1].privilege_state = WT_PRIVILEGE_STATE_PRIVILEGED;
+    if (invalid_domains[1].memory_resource_count == 0U ||
+            invalid_domains[1].memory_resource_count > WT_MAX_MEMORY_REGIONS) {
+        (void)fprintf(stderr, "the guest domain has no resources to vary\n");
+        return 1;
+    }
+    (void)memcpy(invalid_res, invalid_domains[1].memory_resources,
+                 invalid_domains[1].memory_resource_count *
+                 sizeof(invalid_res[0]));
+    invalid_res[0].size += 32U;
+    invalid_domains[1].memory_resources = invalid_res;
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
+        (void)fprintf(stderr, "a different guest window was accepted\n");
+        return 1;
+    }
+
+    /* One resource more than the row declares is refused before the row's
+     * exact-sized arrays are read past their end. */
+    invalid_res[0].size -= 32U;
+    if (invalid_domains[1].memory_resource_count + 1U >=
+            WT_MAX_MEMORY_REGIONS) {
+        (void)fprintf(stderr, "the guest domain has no room to grow\n");
+        return 1;
+    }
+    invalid_res[invalid_domains[1].memory_resource_count] = invalid_res[0];
+    invalid_domains[1].memory_resource_count++;
+    if (wt_partitions_check_manifest(&invalid_manifest) == 0) {
+        (void)fprintf(stderr, "an extra guest resource was accepted\n");
+        return 1;
+    }
+    invalid_domains[1].memory_resource_count--;
+    invalid_domains[1].memory_resources =
+        wt_spm_manifest(&spm)->domains[1].memory_resources;
+
+    if (check_sp_mem_rows(wt_spm_manifest(&spm)) != 0) {
+        return 1;
+    }
+
+    /* The real manifest matches the rows; its guests declare READY. */
+    if (wt_partitions_check_manifest(wt_spm_manifest(&spm)) != 0) {
+        (void)fprintf(stderr, "the real manifest was refused\n");
         return 1;
     }
     configs = wt_partitions_config_table(&config_count);

@@ -28,6 +28,7 @@
  * so this suite isolates the IPC routing: challenge delivery, caller-identity
  * derivation, and token return. */
 
+#include "spm_host.h"
 #include "wolftrust/ffm.h"
 #include "wolftrust/services/attestation_service.h"
 #include "wolftrust/services/initial_attestation.h"
@@ -129,7 +130,7 @@ static void test_panic(void* context, int32_t partition_id)
     (void)partition_id;
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_port_ops = {
     test_check_read,
     test_check_write,
     wt_attestation_service_dispatch,
@@ -162,7 +163,6 @@ static const wt_system_manifest_t g_manifest = {
 
 int main(void)
 {
-    wt_ffm_runtime_t runtime;
     psa_handle_t handle;
     uint8_t token[WT_ATTEST_MAX_TOKEN_SIZE];
     uint8_t public_key[WT_ATTEST_IAK_PUBLIC_KEY_SIZE];
@@ -176,7 +176,7 @@ int main(void)
     psa_outvec short_out = { token, 0U };
     psa_status_t status;
 
-    if (wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL) !=
+    if (wt_spm_host_init(&g_manifest, &g_port_ops, NULL) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "wt_ffm_init failed\n");
         return 1;
@@ -186,13 +186,13 @@ int main(void)
      * restore the same default. On target this becomes the SVC transport. */
     wt_attestation_service_set_transport(wt_spm_transport_direct);
 
-    handle = wt_ffm_connect(&runtime, TEST_NS_CLIENT, TEST_ATTEST_SID, 1U);
+    handle = wt_spm_host_connect(TEST_NS_CLIENT, TEST_ATTEST_SID, 1U);
     if (!PSA_HANDLE_IS_VALID(handle)) {
         (void)fprintf(stderr, "psa_connect(SERVICE_ATTEST) failed\n");
         return 1;
     }
 
-    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+    status = wt_spm_host_call(TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                          &in_vec, 1U, &out_vec, 1U);
     if (status != PSA_SUCCESS) {
         (void)fprintf(stderr, "psa_call(SERVICE_ATTEST) failed st=%d\n",
@@ -207,7 +207,7 @@ int main(void)
 
     /* Mediated token-size query (WT_ATTEST_OP_TOKEN_SIZE): the retired
      * direct veneer's semantics, now through the SPM. */
-    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
+    status = wt_spm_host_call(TEST_NS_CLIENT, handle,
                          WT_ATTEST_OP_TOKEN_SIZE, &size_in, 1U,
                          &size_out, 1U);
     if (status != PSA_SUCCESS || token32 != sizeof(g_stub_token)) {
@@ -218,7 +218,7 @@ int main(void)
     (void)printf("PASS: mediated token-size query\n");
 
     challenge32 = 33u;
-    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
+    status = wt_spm_host_call(TEST_NS_CLIENT, handle,
                          WT_ATTEST_OP_TOKEN_SIZE, &size_in, 1U,
                          &size_out, 1U);
     if (status != PSA_ERROR_INVALID_ARGUMENT) {
@@ -230,7 +230,7 @@ int main(void)
 
     /* Mediated IAK public-key query (WT_ATTEST_OP_PUBLIC_KEY). */
     (void)memset(public_key, 0, sizeof(public_key));
-    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle,
+    status = wt_spm_host_call(TEST_NS_CLIENT, handle,
                          WT_ATTEST_OP_PUBLIC_KEY, NULL, 0U, &key_out, 1U);
     if (status != PSA_SUCCESS ||
             key_out.len != WT_ATTEST_IAK_PUBLIC_KEY_SIZE ||
@@ -247,7 +247,7 @@ int main(void)
      * must_panic, so a hostile guest could restart the attestation partition
      * (SEC review). The partition stays healthy for the next caller. */
     short_out.len = 0U;
-    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+    status = wt_spm_host_call(TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                          &in_vec, 1U, &short_out, 1U);
     if (status != PSA_ERROR_BUFFER_TOO_SMALL) {
         (void)fprintf(stderr, "zero-length token out-vec not refused st=%d\n",
@@ -255,7 +255,7 @@ int main(void)
         return 1;
     }
     short_out.len = sizeof(g_stub_token) - 1U;
-    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+    status = wt_spm_host_call(TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                          &in_vec, 1U, &short_out, 1U);
     if (status != PSA_ERROR_BUFFER_TOO_SMALL) {
         (void)fprintf(stderr, "short token out-vec not refused st=%d\n",
@@ -264,7 +264,7 @@ int main(void)
     }
     out_vec.base = token;
     out_vec.len = sizeof(token);
-    status = wt_ffm_call(&runtime, TEST_NS_CLIENT, handle, PSA_IPC_CALL,
+    status = wt_spm_host_call(TEST_NS_CLIENT, handle, PSA_IPC_CALL,
                          &in_vec, 1U, &out_vec, 1U);
     if (status != PSA_SUCCESS || out_vec.len != sizeof(g_stub_token)) {
         (void)fprintf(stderr,
@@ -274,7 +274,7 @@ int main(void)
     }
     (void)printf("PASS: short attestation out-vec refused without panic\n");
 
-    if (wt_ffm_close(&runtime, TEST_NS_CLIENT, handle) != WT_FFM_SUCCESS) {
+    if (wt_spm_host_close(TEST_NS_CLIENT, handle) != WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "psa_close(SERVICE_ATTEST) failed\n");
         return 1;
     }

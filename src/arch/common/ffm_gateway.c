@@ -18,158 +18,190 @@
  * along with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-/* Architecture-neutral NS-client gateway for the FF-M API: caller identity
- * from the active guest, the single-snapshot NS iovec discipline, and the
- * neutral FF-M entry points. The architecture layer owns the NS entry
- * mechanism (Armv8-M: the cmse_nonsecure_entry veneers) and the NS-range
- * checks (wt_arch_ns_check_*); this file carries no such dependency. */
+/* Architecture-neutral Non-secure client gateway: caller identity from the
+ * active guest, one snapshot of the guest's vectors checked once, then the
+ * core's begin, the partition scheduler, and finish. The arch layer owns the
+ * entry mechanism and the Non-secure range checks (wt_arch_ns_check_*). */
 
 #include "wolftrust/ffm_gateway.h"
 
+#include <string.h>
+
 #include "wolftrust/arch.h"
-#include "wolftrust/ffm_boot.h"
 #include "wolftrust/platform.h"
+#include "wolftrust/spm_core.h"
+#include "wolftrust/spm_gate.h"
+#include "wolftrust/spm_sched.h"
+#include "wolftrust/static_assert.h"
 #include "wolftrust/types.h"
 
-extern volatile uint32_t g_wt_ffm_call_trace;
+WT_STATIC_ASSERT(WT_FFM_VENEER_IOVEC_MAX == PSA_MAX_IOVEC,
+    "the veneer carries every FF-M vector");
 
-void wt_ffm_gateway_install(void)
+#if defined(WT_TARGET_BUILD)
+int wt_spm_caller_can_write(psa_client_id_t caller, void* base, size_t len)
 {
-    wt_ffm_boot_set_memcheck(wt_arch_ns_check_read, wt_arch_ns_check_write);
+    if (caller > 0) {
+        return wt_spm_partition_memory_ok((int32_t)caller, base, len, 1);
+    }
+    return caller < 0 &&
+           wt_arch_ns_check_write((wt_guest_id_t)(-caller - 1), base, len);
 }
+#endif
 
-/* Caller identity and NS-window validation follow the same pattern as the
- * vnet NS veneers. Never trust a guest-supplied VM id. */
-static int wt_ffm_gateway_caller(psa_client_id_t* caller)
+/* Never trust a guest-supplied id: the caller is the guest that is running. */
+static int wt_ffm_gateway_enter(psa_client_id_t* caller)
 {
     uint32_t guest_id = wt_arch_active_guest_id();
 
     if (guest_id >= (uint32_t)WT_MAX_GUESTS) {
         return 0;
     }
+    /* Non-secure exceptions are masked for an entry: a nested one means the
+     * mask failed, and the core is not re-entrant. */
+    if (g_wt_spm.ns_entry_caller != 0) {
+        wt_platform_panic();
+    }
     *caller = -(psa_client_id_t)(guest_id + 1U);
+    g_wt_spm.ns_entry_caller = *caller;
     return 1;
 }
 
-/* The FF-M core is not re-entrant and the port masks Non-secure exceptions
- * for an entry, so a nested entry means that mask failed: stop. */
-static void wt_ffm_gateway_enter(wt_ffm_runtime_t* runtime,
-                                 psa_client_id_t caller)
+static void wt_ffm_gateway_exit(void)
 {
-    if (runtime->ns_entry_caller != 0) {
-        wt_platform_panic();
-    }
-    runtime->ns_entry_caller = caller;
+    g_wt_spm.ns_entry_caller = 0;
 }
 
-static void wt_ffm_gateway_exit(wt_ffm_runtime_t* runtime)
+/* Runs the partitions until the message on slot is answered; a client that
+ * cannot wait leaves it to the service, which still sees it through. */
+static int wt_ffm_gateway_wait(psa_client_id_t caller, int32_t slot,
+                               int32_t kind)
 {
-    runtime->ns_entry_caller = 0;
+    wt_spm_run();
+    if (wt_spm_done((uint8_t)slot, caller, kind) == 1) {
+        return 1;
+    }
+    wt_spm_abandon((uint8_t)slot);
+    return 0;
 }
 
 int32_t wt_ffm_gateway_connect(uint32_t sid, uint32_t version)
 {
-    wt_ffm_runtime_t* runtime = wt_ffm_boot_runtime_mut();
     psa_client_id_t caller;
-    int32_t handle;
+    int32_t ret;
 
-    if (!wt_ffm_gateway_caller(&caller)) {
+    if (!wt_ffm_gateway_enter(&caller)) {
         return (int32_t)PSA_NULL_HANDLE;
     }
-    wt_ffm_gateway_enter(runtime, caller);
-    handle = (int32_t)wt_ffm_connect(runtime, caller, sid, version);
-    wt_ffm_gateway_exit(runtime);
-    return handle;
+    ret = wt_spm_connect_begin(caller, sid, version);
+    if (ret >= 0) {
+        ret = wt_ffm_gateway_wait(caller, ret, PSA_IPC_CONNECT) ?
+              (int32_t)wt_spm_connect_finish((uint8_t)ret) :
+              (int32_t)PSA_ERROR_GENERIC_ERROR;
+    }
+    wt_ffm_gateway_exit();
+    return ret;
 }
 
-static int32_t wt_ffm_gateway_call_in(wt_ffm_runtime_t* runtime,
-                                      psa_client_id_t caller, int32_t handle,
+static int32_t wt_ffm_gateway_call_in(psa_client_id_t caller, int32_t handle,
                                       int32_t type,
                                       wt_ffm_veneer_iovec_t* ns_iovec)
 {
     wt_ffm_veneer_iovec_t iovec;
-    psa_invec in_vec[WT_FFM_VENEER_IOVEC_MAX];
-    psa_outvec out_vec[WT_FFM_VENEER_IOVEC_MAX];
-    int32_t status;
+    wt_spm_vec_t vec[WT_SPM_VECS];
+    wt_guest_id_t guest = (wt_guest_id_t)(-caller - 1);
+    int32_t slot;
+    psa_status_t status;
     uint32_t i;
+    int ok;
 
-    if (ns_iovec == NULL ||
-            !wt_arch_ns_check_writable(ns_iovec, sizeof(*ns_iovec))) {
-        g_wt_ffm_call_trace = (2UL << 28) |
-            ((uint32_t)(uintptr_t)ns_iovec & 0x0FFFFFFFUL);
-        wt_ffm_call_refuse(runtime, caller,
-                           (psa_handle_t)handle);
+    iovec.in_count = 0U;
+    iovec.out_count = 0U;
+    ok = ns_iovec != NULL &&
+         wt_arch_ns_check_writable(ns_iovec, sizeof(*ns_iovec));
+    if (ok) {
+        /* One read: a racing guest write cannot change what is checked. */
+        iovec = *ns_iovec;
+        ok = iovec.in_count <= PSA_MAX_IOVEC &&
+             iovec.out_count <= PSA_MAX_IOVEC;
+    }
+    (void)memset(vec, 0, sizeof(vec));
+    for (i = 0U; ok && i < PSA_MAX_IOVEC; i++) {
+        if (i < iovec.in_count) {
+            vec[i].base = (void*)(uintptr_t)iovec.in[i].base;
+            vec[i].len = iovec.in[i].len;
+        }
+        if (i < iovec.out_count) {
+            vec[PSA_MAX_IOVEC + i].base = iovec.out[i].base;
+            vec[PSA_MAX_IOVEC + i].len = iovec.out[i].len;
+        }
+        ok = (vec[i].len == 0U ||
+              wt_arch_ns_check_read(guest, vec[i].base, vec[i].len)) &&
+             (vec[PSA_MAX_IOVEC + i].len == 0U ||
+              wt_arch_ns_check_write(guest, vec[PSA_MAX_IOVEC + i].base,
+                                     vec[PSA_MAX_IOVEC + i].len));
+    }
+    if (!ok) {
+        /* FF-M: memory the caller cannot access is a PROGRAMMER ERROR. */
+        wt_spm_call_refuse(caller, (psa_handle_t)handle);
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
-    /* Single read into a local copy: the struct's own fields are not
-     * re-read after this, so a racing NS write cannot change the vector
-     * base/length wt_ffm_call validates and copies from. */
-    iovec = *ns_iovec;
-    if (iovec.in_count > WT_FFM_VENEER_IOVEC_MAX ||
-            iovec.out_count > WT_FFM_VENEER_IOVEC_MAX) {
-        wt_ffm_call_refuse(runtime, caller,
-                           (psa_handle_t)handle);
-        return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
+    slot = wt_spm_call_begin(caller, (psa_handle_t)handle, type, vec,
+                             iovec.in_count, iovec.out_count);
+    if (slot < 0) {
+        return slot;
     }
-    for (i = 0U; i < iovec.in_count; i++) {
-        in_vec[i].base = iovec.in[i].base;
-        in_vec[i].len = iovec.in[i].len;
+    if (!wt_ffm_gateway_wait(caller, slot, PSA_IPC_CALL)) {
+        return (int32_t)PSA_ERROR_GENERIC_ERROR;
     }
+    status = wt_spm_call_finish((uint8_t)slot, vec);
     for (i = 0U; i < iovec.out_count; i++) {
-        out_vec[i].base = iovec.out[i].base;
-        out_vec[i].len = iovec.out[i].len;
+        ns_iovec->out[i].len = (uint32_t)vec[PSA_MAX_IOVEC + i].len;
     }
-    status = (int32_t)wt_ffm_call(runtime, caller,
-                                  (psa_handle_t)handle,
-                                  type, in_vec, iovec.in_count,
-                                  out_vec, iovec.out_count);
-    for (i = 0U; i < iovec.out_count; i++) {
-        ns_iovec->out[i].len = (uint32_t)out_vec[i].len;
-    }
-    return status;
+    return (int32_t)status;
 }
 
 int32_t wt_ffm_gateway_call(int32_t handle, int32_t type,
-                          wt_ffm_veneer_iovec_t* ns_iovec)
+                            wt_ffm_veneer_iovec_t* ns_iovec)
 {
-    wt_ffm_runtime_t* runtime = wt_ffm_boot_runtime_mut();
     psa_client_id_t caller;
     int32_t status;
 
-    if (!wt_ffm_gateway_caller(&caller)) {
-        g_wt_ffm_call_trace = 1UL << 28;
+    if (!wt_ffm_gateway_enter(&caller)) {
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
-    wt_ffm_gateway_enter(runtime, caller);
-    status = wt_ffm_gateway_call_in(runtime, caller, handle, type, ns_iovec);
-    wt_ffm_gateway_exit(runtime);
+    status = wt_ffm_gateway_call_in(caller, handle, type, ns_iovec);
+    wt_ffm_gateway_exit();
     return status;
 }
 
 void wt_ffm_gateway_close(int32_t handle)
 {
-    wt_ffm_runtime_t* runtime = wt_ffm_boot_runtime_mut();
     psa_client_id_t caller;
+    int32_t slot;
 
-    if (!wt_ffm_gateway_caller(&caller)) {
+    if (!wt_ffm_gateway_enter(&caller)) {
         return;
     }
-    wt_ffm_gateway_enter(runtime, caller);
-    (void)wt_ffm_close(runtime, caller, (psa_handle_t)handle);
-    wt_ffm_gateway_exit(runtime);
+    slot = wt_spm_close_begin(caller, (psa_handle_t)handle);
+    if (slot >= 0 && slot != (int32_t)WT_SPM_NO_SLOT &&
+            wt_ffm_gateway_wait(caller, slot, PSA_IPC_DISCONNECT)) {
+        wt_spm_close_finish((uint8_t)slot);
+    }
+    wt_ffm_gateway_exit();
 }
 
 uint32_t wt_ffm_gateway_framework_version(void)
 {
-    return wt_ffm_framework_version(wt_ffm_boot_runtime_mut());
+    return g_wt_spm_framework_version;
 }
 
 uint32_t wt_ffm_gateway_service_version(uint32_t sid)
 {
-    psa_client_id_t caller;
+    uint32_t guest_id = wt_arch_active_guest_id();
 
-    if (!wt_ffm_gateway_caller(&caller)) {
+    if (guest_id >= (uint32_t)WT_MAX_GUESTS) {
         return PSA_VERSION_NONE;
     }
-    return wt_ffm_service_version(wt_ffm_boot_runtime_mut(), caller, sid);
+    return wt_spm_service_version(-(psa_client_id_t)(guest_id + 1U), sid);
 }

@@ -148,6 +148,36 @@ static const wt_band_image_t g_wt_bands[] = {
 #endif
 };
 
+/* The main image, then the conformance SP window (empty in production). */
+static const wt_band_image_t g_wt_images[] = {
+    { &_sidata, &_sdata, &_edata, &_sbss, &_ebss, NULL, NULL },
+    { &_siconfdata, &_sconfdata, &_econfdata, &_sconfbss, &_econfbss, NULL,
+      NULL },
+};
+
+/* Partition and coroutine stacks are NOLOAD outside .bss. */
+static uint32_t* const g_wt_stack_ranges[][2] = {
+    { &_wt_part_stacks_base, &_wt_part_stacks_limit },
+    { &_wt_sp_stacks_base, &_wt_sp_stacks_limit },
+    { &_wt_fwu_stack_base, &_wt_fwu_stack_limit },
+#if defined(CONFIG_TPM)
+    { &_wt_tpm_stack_base, &_wt_tpm_stack_limit },
+#endif
+#if defined(CONFIG_PKCS11)
+    { &_wt_pkcs11_stack_base, &_wt_pkcs11_stack_limit },
+#endif
+};
+
+static uint32_t wt_zero_range(uint32_t* base, const uint32_t* limit)
+{
+    uint32_t* dst;
+
+    for (dst = base; dst < limit; ++dst) {
+        *dst = 0u;
+    }
+    return (uint32_t)((uintptr_t)limit - (uintptr_t)base);
+}
+
 static void wt_band_load(const wt_band_image_t* band)
 {
     const uint32_t* src = band->load;
@@ -156,9 +186,7 @@ static void wt_band_load(const wt_band_image_t* band)
     for (dst = band->data; dst < band->data_end; ++dst) {
         *dst = *src++;
     }
-    for (dst = band->bss; dst < band->end; ++dst) {
-        *dst = 0u;
-    }
+    (void)wt_zero_range(band->bss, band->end);
 }
 
 void wt_arch_sp_band_reset(uintptr_t base, size_t size)
@@ -200,78 +228,25 @@ static void wt_reset_main(void)
     extern uint32_t _estack;
     extern uint32_t _sstack;
     const uint32_t* seal = (const uint32_t*)((uintptr_t)&_estack - 8u);
-    uint32_t* src = &_sidata;
-    uint32_t* dst = &_sdata;
     uint32_t msp;
     uint32_t msplim;
     uint32_t zeroed = 0u;
     size_t i;
 
-    while (dst < &_edata) {
-        *dst++ = *src++;
+    for (i = 0u; i < sizeof(g_wt_images) / sizeof(g_wt_images[0]); i++) {
+        wt_band_load(&g_wt_images[i]);
     }
-
-    for (dst = &_sbss; dst < &_ebss; ++dst) {
-        *dst = 0u;
-    }
-
-    /* Conformance SP .data/.bss live in their own MPU-granted window; the main
-     * loops above skip it, so initialize it here. Empty in production builds. */
-    src = &_siconfdata;
-    for (dst = &_sconfdata; dst < &_econfdata; ++dst) {
-        *dst = *src++;
-    }
-    for (dst = &_sconfbss; dst < &_econfbss; ++dst) {
-        *dst = 0u;
-    }
-
-    /* The partition data bands live outside the general .data/.bss window, so
-     * the loops above skip them. */
+    /* Partition bands lie outside .data/.bss; zero each whole band first. */
     for (i = 0u; i < sizeof(g_wt_bands) / sizeof(g_wt_bands[0]); i++) {
-        for (dst = g_wt_bands[i].base; dst < g_wt_bands[i].limit; ++dst) {
-            *dst = 0u;
-        }
+        zeroed += wt_zero_range(g_wt_bands[i].base, g_wt_bands[i].limit);
         wt_band_load(&g_wt_bands[i]);
-        zeroed += (uint32_t)((uintptr_t)g_wt_bands[i].limit -
-                             (uintptr_t)g_wt_bands[i].base);
     }
-
-    /* Partition and coroutine stacks are NOLOAD outside .bss: zero them so no
-     * partition starts on a previous boot's stack contents. */
-    for (dst = &_wt_part_stacks_base; dst < &_wt_part_stacks_limit; ++dst) {
-        *dst = 0u;
+    /* No partition starts on a previous boot's stack contents. */
+    for (i = 0u; i < sizeof(g_wt_stack_ranges) / sizeof(g_wt_stack_ranges[0]);
+            i++) {
+        zeroed += wt_zero_range(g_wt_stack_ranges[i][0],
+                                g_wt_stack_ranges[i][1]);
     }
-    for (dst = &_wt_sp_stacks_base; dst < &_wt_sp_stacks_limit; ++dst) {
-        *dst = 0u;
-    }
-    for (dst = &_wt_fwu_stack_base; dst < &_wt_fwu_stack_limit; ++dst) {
-        *dst = 0u;
-    }
-#if defined(CONFIG_TPM)
-    for (dst = &_wt_tpm_stack_base; dst < &_wt_tpm_stack_limit; ++dst) {
-        *dst = 0u;
-    }
-#endif
-#if defined(CONFIG_PKCS11)
-    for (dst = &_wt_pkcs11_stack_base;
-         dst < &_wt_pkcs11_stack_limit; ++dst) {
-        *dst = 0u;
-    }
-#endif
-    zeroed += (uint32_t)((uintptr_t)&_wt_part_stacks_limit -
-                         (uintptr_t)&_wt_part_stacks_base);
-    zeroed += (uint32_t)((uintptr_t)&_wt_sp_stacks_limit -
-                         (uintptr_t)&_wt_sp_stacks_base);
-    zeroed += (uint32_t)((uintptr_t)&_wt_fwu_stack_limit -
-                         (uintptr_t)&_wt_fwu_stack_base);
-#if defined(CONFIG_TPM)
-    zeroed += (uint32_t)((uintptr_t)&_wt_tpm_stack_limit -
-                         (uintptr_t)&_wt_tpm_stack_base);
-#endif
-#if defined(CONFIG_PKCS11)
-    zeroed += (uint32_t)((uintptr_t)&_wt_pkcs11_stack_limit -
-                         (uintptr_t)&_wt_pkcs11_stack_base);
-#endif
     g_wt_boot_zeroed_bytes = zeroed;
 
 #if defined(WT_SEAL_NEG_PROBE) && (WT_SEAL_NEG_PROBE == 3)

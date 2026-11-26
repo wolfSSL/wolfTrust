@@ -25,6 +25,7 @@
 #include "wolftrust/monitor.h"
 #include "wolftrust/restart_policy.h"
 #include "wolftrust/spm.h"
+#include "wolftrust/static_assert.h"
 #include "wolftrust_manifest_generated.h"
 
 #include <stdbool.h>
@@ -44,7 +45,14 @@ void wt_platform_launch_debug(int code, uint32_t guest);
 #endif
 
 static wt_scheduler_state_t g_scheduler;
+#if WT_MANIFEST_RUNTIME_CHECK
 static wt_spm_t g_spm;
+#else
+/* Without the runtime validator only the generator vouches for features. */
+WT_STATIC_ASSERT((WT_GEN_MANIFEST_FEATURES & WT_MANIFEST_FEATURE_IPC) != 0U &&
+                 (WT_GEN_MANIFEST_FEATURES & ~WT_MANIFEST_FEATURE_IPC) == 0U,
+                 "the manifest needs features the SPM does not provide");
+#endif
 #if defined(WT_MANIFEST_NEG_PROBE) && \
     ((WT_MANIFEST_NEG_PROBE == 1) || (WT_MANIFEST_NEG_PROBE == 2))
 #if !WT_MANIFEST_RUNTIME_CHECK
@@ -244,7 +252,7 @@ static int wt_verify_guest_launch(wt_guest_id_t guest_id)
         g_wt_launch_verified_mask |= (uint32_t)1U << guest_id;
         for (i = 0U; i < wt_guest_measurement_count(); ++i) {
             const wt_guest_measurement_t* entry =
-                wt_guest_measurement_get(i, NULL);
+                wt_guest_measurement_get(i);
 
             if (entry != NULL && entry->guest_id == (uint32_t)guest_id) {
                 recorded = true;
@@ -252,7 +260,7 @@ static int wt_verify_guest_launch(wt_guest_id_t guest_id)
             }
         }
         if (!recorded) {
-            (void)wt_guest_measurement_record(record, config->name);
+            (void)wt_guest_measurement_record(record);
         }
     }
     else {
@@ -434,9 +442,10 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
     }
 
     runtime->last_fault = reason;
+#if defined(WT_SPM_CLIENT_SWEEP)
     /* Quarantined or restarted, the guest will never close its handles. */
-    (void)wt_ffm_fail_client_connections(wt_ffm_boot_runtime_mut(),
-                                         -(psa_client_id_t)(guest_id + 1U));
+    wt_spm_client_gone(-(psa_client_id_t)(guest_id + 1U));
+#endif
 #ifdef CONFIG_VNET
     wt_vnet_service_reset_guest(guest_id);
 #endif
@@ -447,24 +456,24 @@ static void wt_restart_guest(wt_guest_id_t guest_id, wt_fault_reason_t reason)
     if (restart_window != NULL) {
         wt_arch_zero_guest_memory(restart_window->base, restart_window->size);
     }
+#if defined(WT_GUEST_RESTART) && (WT_GUEST_RESTART == 1)
     if (wt_restart_policy_evaluate(config->restart_policy.restart_limit,
                                    config->restart_policy.restart_window_ticks,
                                    g_scheduler.monotonic_ticks,
                                    &runtime->restart_count,
-                                   &runtime->first_restart_tick) ==
+                                   &runtime->first_restart_tick) !=
             WT_RESTART_DECISION_FAULT) {
-        /* FAULTED is terminal until an external policy action resets or
-         * reinitializes the partition. */
-        runtime->state = WT_GUEST_FAULTED;
-        g_wt_quarantine_events++;
+        runtime->state = WT_GUEST_RESTARTING;
+        g_wt_restart_events++;
+        runtime->remaining_delay_ticks =
+            config->restart_policy.initial_delay_ticks;
         return;
     }
-
-    runtime->state = WT_GUEST_RESTARTING;
-    g_wt_restart_events++;
-    runtime->remaining_delay_ticks =
-        config->restart_policy.initial_delay_ticks;
-
+#endif
+    /* FAULTED is terminal until an external policy action resets or
+     * reinitializes the partition. */
+    runtime->state = WT_GUEST_FAULTED;
+    g_wt_quarantine_events++;
 }
 
 static bool wt_all_guests_terminal(void)
@@ -530,7 +539,9 @@ void wt_monitor_init(void)
 {
     size_t count;
     size_t i;
+#if WT_MANIFEST_RUNTIME_CHECK
     int spm_result;
+#endif
     int launch_ret;
 
     wt_platform_init();
@@ -555,19 +566,19 @@ void wt_monitor_init(void)
     spm_result = wt_spm_init(&g_spm, wt_generated_manifest_get(),
                              WT_MANIFEST_FEATURE_IPC,
                              wt_partitions_profile_capabilities());
-#else
-    spm_result = wt_spm_init_generated(&g_spm, WT_MANIFEST_FEATURE_IPC);
 #endif
+#if WT_MANIFEST_RUNTIME_CHECK
     if (spm_result != WT_SPM_VALID) {
         wt_platform_panic();
     }
+#endif
 
     g_scheduler.configs = wt_partitions_config_table(&count);
     g_scheduler.runtime = wt_partitions_runtime_table(&count);
-    if (wt_partitions_bind_manifest(wt_spm_manifest(&g_spm)) != 0) {
+#if WT_MANIFEST_RUNTIME_CHECK
+    if (wt_partitions_check_manifest(wt_spm_manifest(&g_spm)) != 0) {
         wt_platform_panic();
     }
-#if WT_MANIFEST_RUNTIME_CHECK
     for (i = 0; i < count; ++i) {
         if (wt_partition_validate_profile(
                 wt_partitions_profile_capabilities(),
@@ -577,9 +588,7 @@ void wt_monitor_init(void)
         }
     }
 #endif
-    if (wt_ffm_boot_init(wt_spm_manifest(&g_spm)) != WT_FFM_SUCCESS) {
-        wt_platform_panic();
-    }
+    wt_ffm_boot_init();
     g_scheduler.guest_count = count;
     g_scheduler.current_guest = 0U;
     g_scheduler.current_rep = WT_SCHED_REP_NS;
@@ -794,8 +803,9 @@ void wt_monitor_quarantine_guest(wt_guest_id_t guest_id)
         return;
     }
 
-    (void)wt_ffm_fail_client_connections(wt_ffm_boot_runtime_mut(),
-                                         -(psa_client_id_t)(guest_id + 1U));
+#if defined(WT_SPM_CLIENT_SWEEP)
+    wt_spm_client_gone(-(psa_client_id_t)(guest_id + 1U));
+#endif
 #ifdef CONFIG_VNET
     wt_vnet_service_reset_guest(guest_id);
 #endif

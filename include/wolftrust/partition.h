@@ -48,9 +48,11 @@ typedef struct wt_guest_config {
     uintptr_t initial_psp_ns;
     uintptr_t initial_msp_ns;
     wt_irq_mask_t irq_mask;
-    wt_memory_window_t memory_windows[WT_MAX_MEMORY_WINDOWS];
+    /* Constant per-guest arrays sized by the manifest, at most
+     * WT_MAX_MEMORY_WINDOWS and WT_MAX_MEMORY_REGIONS entries. */
+    const wt_memory_window_t* memory_windows;
     size_t memory_window_count;
-    wt_memory_region_t memory_regions[WT_MAX_MEMORY_REGIONS];
+    const wt_memory_region_t* memory_regions;
     size_t memory_region_count;
     wt_restart_policy_t restart_policy;
     uint32_t timeslice_ms;
@@ -84,8 +86,10 @@ typedef enum wt_port_validation_result {
 const wt_guest_config_t* wt_partitions_config_table(size_t* count);
 wt_guest_runtime_t* wt_partitions_runtime_table(size_t* count);
 const wt_profile_capabilities_t* wt_partitions_profile_capabilities(void);
-/* Bind the platform scheduler table to the validated generated manifest. */
-int wt_partitions_bind_manifest(const wt_system_manifest_t* manifest);
+#if WT_MANIFEST_RUNTIME_CHECK || !defined(WT_TARGET_BUILD)
+/* 0 when every constant guest row matches what the manifest declares. */
+int wt_partitions_check_manifest(const wt_system_manifest_t* manifest);
+#endif
 int wt_partition_validate_port_binding(
     const wt_guest_config_t* config,
     const wt_domain_descriptor_t* domain);

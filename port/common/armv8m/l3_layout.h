@@ -92,12 +92,12 @@
 #ifndef WT_SP_VAULT_STACK_SIZE
 #define WT_SP_VAULT_STACK_SIZE   0x00001400u
 #endif
-/* The wolfHSM server runs on the crypto partition's stack (7,608 bytes
+/* The wolfHSM server runs on the crypto partition's stack (4,856 bytes
  * measured); a native-wire verify peaks at 4,416, and mk/layout.mk sizes
- * the Cortex-M assembly's 7,240. */
+ * the Cortex-M assembly's 7,680 on either engine. */
 #ifndef WT_SP_CRYPTO_STACK_SIZE
 #if defined(WT_ENGINE_HSM)
-#define WT_SP_CRYPTO_STACK_SIZE  0x00002800u
+#define WT_SP_CRYPTO_STACK_SIZE  0x00001800u
 #else
 #define WT_SP_CRYPTO_STACK_SIZE  0x00001400u
 #endif

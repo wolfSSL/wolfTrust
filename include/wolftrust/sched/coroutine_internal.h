@@ -24,7 +24,18 @@
 
 #include "wolftrust/sched/coroutine.h"
 
+/* Bootstrap plus one coroutine per generated partition and wolfHSM tasklet. */
+#if defined(WT_TARGET_BUILD) && !defined(WT_CO_MAX)
+#include "wolftrust_manifest_generated.h"
+#if defined(WT_ENGINE_HSM)
+#define WT_CO_MAX (WT_GEN_SP_COUNT + WT_MAX_GUESTS + 1u)
+#else
+#define WT_CO_MAX (WT_GEN_SP_COUNT + 1u)
+#endif
+#endif
+#ifndef WT_CO_MAX
 #define WT_CO_MAX 12u
+#endif
 
 /* Magic sentinel placed at the bottom of the stack to detect overflow.
  * Checked at every switch; mismatch causes wt_platform_panic(). */
@@ -48,9 +59,6 @@ struct wt_co {
 
     wt_co_state_t state;
     uint32_t      id;          /* 0 = bootstrap, 1..N = created order */
-
-    /* Linked-list link for the runqueue (RUNNABLE coroutines, FIFO). */
-    struct wt_co *next_run;
 
     /* Linked-list link for wait queues (used by wt_mutex_t and friends).
      * Owned by whichever wait queue currently holds this coroutine.
@@ -79,6 +87,15 @@ struct wt_co {
      * faults INVPC (H563 silicon). PendSV asm reads this by fixed offset. */
     uint32_t exc_return;
 };
+
+/* Field offsets the switch and fault asm use; coroutine_armv8m.c asserts
+ * them against the struct. */
+#define WT_CO_SP_OFFSET         0
+#define WT_CO_STACK_BASE_OFFSET 4
+#define WT_CO_UNPRIV_OFFSET     36
+#define WT_CO_EXCRET_OFFSET     40
+#define WT_CO_XSTR(x) #x
+#define WT_CO_STR(x)  WT_CO_XSTR(x)
 
 /* Exposed to the ARMv8-M exception-based switch path. */
 extern struct wt_co  g_wt_co_bootstrap;

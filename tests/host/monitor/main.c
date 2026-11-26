@@ -31,6 +31,7 @@ enum { DISPATCHED = 1, HALTED, PANICKED, TIMED_OUT };
 static jmp_buf g_exit;
 static int g_event;
 static wt_guest_config_t g_configs[2];
+static wt_memory_window_t g_windows[1];
 static wt_guest_runtime_t g_runtime[2];
 static int g_contexts[2];
 static int g_failures;
@@ -49,7 +50,6 @@ static bool g_ns_active;
 static bool g_retire_pending;
 static unsigned int g_handler_drops;
 static uint32_t g_enables_applied;
-static wt_ffm_runtime_t g_ffm;
 
 static void check(int ok, const char* name)
 {
@@ -94,7 +94,6 @@ static void setup(size_t count, uint32_t delay)
     g_retire_pending = false;
     g_handler_drops = 0U;
     g_enables_applied = 0U;
-    (void)memset(&g_ffm, 0, sizeof(g_ffm));
     g_handler_slices = 0U;
 }
 
@@ -194,9 +193,9 @@ void wt_platform_log_fault(wt_guest_id_t id, wt_fault_reason_t r,
 { (void)id; (void)r; (void)a; (void)pc; }
 void wt_platform_all_guests_faulted(void) { finish(HALTED); }
 void wt_platform_panic(void) { finish(PANICKED); }
-wt_ffm_runtime_t* wt_ffm_boot_runtime_mut(void) { return &g_ffm; }
-int wt_ffm_fail_client_connections(wt_ffm_runtime_t* r, psa_client_id_t id)
-{ (void)r; (void)id; return 0; }
+#if defined(WT_SPM_CLIENT_SWEEP)
+void wt_spm_client_gone(psa_client_id_t caller) { (void)caller; }
+#endif
 
 void wt_partition_reset_runtime(const wt_guest_config_t* c,
                                 wt_guest_runtime_t* r)
@@ -213,12 +212,10 @@ int wt_guest_verify_image(const void* p, size_t n,
                           const wt_guest_measurement_t* r, uint32_t version)
 { (void)p; (void)n; (void)r; (void)version; return g_verify_result; }
 size_t wt_guest_measurement_count(void) { return 0U; }
-const wt_guest_measurement_t* wt_guest_measurement_get(size_t i,
-                                                       const char** name)
-{ (void)i; (void)name; return NULL; }
-int wt_guest_measurement_record(const wt_guest_measurement_t* r,
-                                const char* name)
-{ (void)r; (void)name; return 0; }
+const wt_guest_measurement_t* wt_guest_measurement_get(size_t i)
+{ (void)i; return NULL; }
+int wt_guest_measurement_record(const wt_guest_measurement_t* r)
+{ (void)r; return 0; }
 
 #ifdef CONFIG_VNET
 /* Bind guest port vm with mac and queue one frame to it from the peer. */
@@ -359,6 +356,14 @@ int main(void)
 {
     int event;
 
+#if !(defined(WT_GUEST_RESTART) && (WT_GUEST_RESTART == 1))
+    setup(1U, 2U);
+    event = fault_current();
+    check(event == HALTED && g_runtime[0].state == WT_GUEST_FAULTED &&
+          g_resets == 0U && g_runtime[0].restart_count == 0U,
+          "without guest restart a faulted guest is quarantined");
+    return g_failures == 0 ? 0 : 1;
+#endif
     setup(1U, 2U);
     event = fault_current();
     check(event == DISPATCHED && g_idle_entries == 1U &&
@@ -427,7 +432,8 @@ int main(void)
     setup(1U, 1U);
     g_configs[0].launch_required = 1U;
     g_configs[0].memory_window_count = 1U;
-    g_configs[0].memory_windows[0].attributes = WT_MEM_ATTR_EXEC;
+    g_windows[0].attributes = WT_MEM_ATTR_EXEC;
+    g_configs[0].memory_windows = g_windows;
     g_verify_result = WT_GUEST_VERIFY_ERROR_DIGEST;
     event = fault_current();
     check(event == HALTED && g_runtime[0].state == WT_GUEST_FAULTED &&

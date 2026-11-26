@@ -25,12 +25,7 @@
 
 #include <string.h>
 
-typedef struct wt_guest_measurement_entry {
-    wt_guest_measurement_t record;
-    char name[WT_GUEST_MEAS_NAME_LEN];
-} wt_guest_measurement_entry_t;
-
-static wt_guest_measurement_entry_t g_measurements[WT_GUEST_MEAS_MAX_RECORDS];
+static const wt_guest_measurement_t* g_measurements[WT_GUEST_MEAS_MAX_RECORDS];
 static size_t g_measurement_count;
 
 static int wt_guest_digest_equal(const uint8_t* a, const uint8_t* b)
@@ -204,30 +199,16 @@ int wt_runtime_verify_should_quarantine(int verify_result)
     return verify_result != WT_GUEST_VERIFY_OK;
 }
 
-int wt_guest_measurement_record(const wt_guest_measurement_t* record,
-                                const char* name)
+int wt_guest_measurement_record(const wt_guest_measurement_t* record)
 {
-    wt_guest_measurement_entry_t* entry;
-    size_t name_length;
-
-    if (record == NULL || name == NULL) {
+    if (record == NULL) {
         return WT_GUEST_VERIFY_ERROR_ARGUMENT;
     }
-
     if (g_measurement_count >= WT_GUEST_MEAS_MAX_RECORDS) {
         return WT_GUEST_VERIFY_ERROR_CAPACITY;
     }
-
-    entry = &g_measurements[g_measurement_count];
-    entry->record = *record;
-    name_length = strlen(name);
-    if (name_length >= sizeof(entry->name)) {
-        name_length = sizeof(entry->name) - 1u;
-    }
-    (void)memcpy(entry->name, name, name_length);
-    entry->name[name_length] = '\0';
+    g_measurements[g_measurement_count] = record;
     g_measurement_count++;
-
     return WT_GUEST_VERIFY_OK;
 }
 
@@ -236,18 +217,9 @@ size_t wt_guest_measurement_count(void)
     return g_measurement_count;
 }
 
-const wt_guest_measurement_t* wt_guest_measurement_get(size_t index,
-                                                       const char** name)
+const wt_guest_measurement_t* wt_guest_measurement_get(size_t index)
 {
-    if (index >= g_measurement_count) {
-        return NULL;
-    }
-
-    if (name != NULL) {
-        *name = g_measurements[index].name;
-    }
-
-    return &g_measurements[index].record;
+    return (index < g_measurement_count) ? g_measurements[index] : NULL;
 }
 
 void wt_guest_measurement_reset(void)

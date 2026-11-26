@@ -48,6 +48,7 @@
 #include "wolfhsm/wh_client_crypto.h"
 #include "wolfhsm/wh_keyid.h"
 
+#include "spm_host.h"
 #include "wolftrust/ffm.h"
 #include "wolftrust/ffm_veneer.h"
 #include "wolftrust/services/hsm_relay.h"
@@ -79,7 +80,7 @@ static void check(int ok, const char* what)
 }
 
 /* ---- in-process FF-M runtime fixture ---- */
-static wt_ffm_runtime_t g_runtime;
+static wt_ffm_runtime_t* g_runtime = &g_wt_spm;
 
 static int test_check_read(void* context, psa_client_id_t caller,
                            const void* address, size_t size)
@@ -110,7 +111,7 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     return wt_hsm_relay_dispatch(NULL, runtime, partition_id);
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_port_ops = {
     test_check_read,
     test_check_write,
     test_dispatch,
@@ -148,13 +149,13 @@ int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version)
     if (g_connect_error != PSA_SUCCESS) {
         return g_connect_error;
     }
-    return (int32_t)wt_ffm_connect(&g_runtime, TEST_NS_CLIENT, sid, version);
+    return (int32_t)wt_spm_host_connect(TEST_NS_CLIENT, sid, version);
 }
 
 void WolfTrust_FFM_Close(int32_t handle)
 {
     g_close_count++;
-    (void)wt_ffm_close(&g_runtime, TEST_NS_CLIENT, handle);
+    (void)wt_spm_host_close(TEST_NS_CLIENT, handle);
 }
 
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
@@ -175,7 +176,7 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
         out[i].base = iv->out[i].base;
         out[i].len = iv->out[i].len;
     }
-    st = wt_ffm_call(&g_runtime, TEST_NS_CLIENT, handle, type,
+    st = wt_spm_host_call(TEST_NS_CLIENT, handle, type,
                      in, iv->in_count, out, iv->out_count);
     for (i = 0u; i < iv->out_count; i++) {
         iv->out[i].len = (uint32_t)out[i].len;
@@ -466,7 +467,7 @@ int main(void)
           "FreeRTOS guest init installs retry after cold-start failure");
 
     /* === FF-M runtime up first: the client transport connects through it. */
-    check(wt_ffm_init(&g_runtime, &g_manifest, &g_port_ops, NULL) ==
+    check(wt_spm_host_init(&g_manifest, &g_port_ops, NULL) ==
               WT_FFM_SUCCESS,
           "in-process FF-M runtime initializes");
 

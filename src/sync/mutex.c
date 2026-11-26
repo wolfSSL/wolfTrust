@@ -49,46 +49,23 @@ void wt_mutex_init(wt_mutex_t *m)
 
 int wt_mutex_acquire(wt_mutex_t *m)
 {
-    wt_co_t *self;
+    /* The bootstrap must not block, and a recursive acquire would deadlock. */
+    wt_co_t *self = wt_co_current();
+    int ret = -1;
 
-    /* Bootstrap context (monitor / interrupt) must not block — doing so
-     * would deadlock the monitor.  Detect by wt_co_current() returning NULL
-     * (which maps to id == 0 in the internal layout). */
-    self = wt_co_current();
-    if (self == NULL)
-        return -1;
-
-    if (m->holder == NULL) {
-        /* Fast path: mutex is free. */
-        m->holder = self;
+    if (self != NULL && m->holder != self) {
+        ret = wt_mutex_acquire_queued(m, self);
+    }
+    if (ret == 1) {
+        /* A latched wake can end the block early; release hands the mutex
+         * over before waking, so wait until this coroutine holds it. */
+        do {
+            wt_co_block();
+        } while (m->holder != self);
         m->acquire_count++;
-        return 0;
+        ret = 0;
     }
-
-    /* Slow path: mutex is held by another coroutine.  Enqueue self and
-     * block.  When wt_co_block returns we have been woken by the releasing
-     * coroutine, which already assigned m->holder = self before calling
-     * wt_co_wake, so no further assignment is needed here. */
-    m->contend_count++;
-
-    self->next_wait = NULL;
-    if (m->wait_head == NULL) {
-        m->wait_head = self;
-        m->wait_tail = self;
-    } else {
-        m->wait_tail->next_wait = self;
-        m->wait_tail = self;
-    }
-
-    /* Re-check on every resume: a latched wake for an unrelated condition
-     * can end the block spuriously, and release() assigns m->holder = self
-     * before waking, so the loop condition is exact. */
-    do {
-        wt_co_block();
-    } while (m->holder != self);
-
-    m->acquire_count++;
-    return 0;
+    return ret;
 }
 
 int wt_mutex_release(wt_mutex_t *m)

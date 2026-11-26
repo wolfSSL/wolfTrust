@@ -19,9 +19,8 @@
  */
 
 /*
- * P5-S4 IAK key-isolation, the attestation beat-TF-M proof. TF-M holds the
- * attestation key in the Crypto partition's own RAM; wolfTrust holds it in
- * the wolfHSM vault and only ever hands out signatures. This suite
+ * IAK key-isolation proof: wolfTrust holds the attestation key in the
+ * wolfHSM vault and only ever hands out signatures. This suite
  * provisions the IAK exactly as production wt_hsm_attest_generate_key does —
  * same wolfHSM server configuration, same keygen message, same
  * SENSITIVE|NONEXPORTABLE|LOCAL|NONMODIFIABLE|NONDESTROYABLE|USAGE_SIGN

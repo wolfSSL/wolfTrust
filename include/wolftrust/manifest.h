@@ -31,6 +31,16 @@
 #define WT_MANIFEST_RUNTIME_CHECK 0
 #endif
 
+/* Boot re-proves the composed tables only where they can differ from the
+ * generator's proof: conformance grants and the composition negative probe. */
+#if WT_MANIFEST_RUNTIME_CHECK || \
+    (defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)) || \
+    (defined(WT_MANIFEST_NEG_PROBE) && (WT_MANIFEST_NEG_PROBE == 3))
+#define WT_SPM_BOOT_VALIDATE 1
+#else
+#define WT_SPM_BOOT_VALIDATE 0
+#endif
+
 #define WT_MANIFEST_FORMAT_VERSION 1U
 #define WT_MANIFEST_DIGEST_SIZE 32U
 #define WT_MANIFEST_NAME_MAX 63U

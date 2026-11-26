@@ -27,6 +27,7 @@
 #include "wolftrust/spm_transport.h"
 
 #include "wolftrust/ffm.h"
+#include "wolftrust/ffm_boot.h"
 #include "wolftrust/ffm_domain.h"
 #include "wolftrust/monitor.h"
 #include "wolftrust/platform.h"
@@ -38,9 +39,6 @@
 #include "wolftrust/services/attestation_service.h"
 #include "wolftrust/services/initial_attestation.h"
 #endif
-#include "wolfhsm/wh_flash.h"
-#include "wolftrust/guest_verify.h"
-#include "wolftrust/services/fwu_service.h"
 #include "wolftrust/services/hsm.h"
 #include "wolftrust/services/hsm_relay.h"
 #if (defined(CONFIG_PKCS11) || defined(CONFIG_TPM)) && \
@@ -58,12 +56,15 @@
 #endif
 #include "wolftrust/sp_recovery.h"
 #include "wolftrust/spm_gate.h"
+#include "wolftrust/spm_ops.h"
+#include "wolftrust/spm_sp_mem.h"
 
 #include <string.h>
 
 /* Generated in every secure build; the ITS entry embeds SERVICE_VAULT_SID as
  * a code constant — the unprivileged loop cannot read SPM RAM at runtime. */
 #include "psa_manifest/pid.h"
+#include "wolftrust_manifest_generated.h"
 #include "psa_manifest/sid.h"
 
 /* Table of scheduled Secure Partitions, each keyed by its coroutine. The SVC
@@ -84,32 +85,33 @@ typedef struct wt_spm_sp {
     int32_t partition_id;
     uint16_t partition_index;
     uint16_t wait_msg;
+    int32_t wait_ipc;
     psa_signal_t wait_mask;
     uint8_t wait_kind;
-    uint8_t in_use;
     /* Graceful fault recovery (WT-SYS-0008 / WT-FFM-0017): re-arm the coroutine
      * in place from its original entry, scrub its private stack, and evaluate
      * the manifest restart budget on each fault. */
     wt_spm_sp_entry_fn entry;
     wt_spm_sp_restore_fn restore;
     void* arg;
-    uintptr_t scrub_base;
-    uint32_t scrub_size;
-    uintptr_t scrub2_base;
-    uint32_t scrub2_size;
     uint32_t restart_count;
     uint32_t first_restart_tick;
     volatile uint8_t fault_pending;
 } wt_spm_sp_t;
 
-static wt_ffm_runtime_t* g_spm_svc_runtime;
-static wt_spm_sp_t g_spm_sp[WT_FFM_MAX_PARTITIONS];
+/* One slot per generated partition; no manifest schedules more. */
+#ifndef WT_SPM_SP_SLOTS
+#define WT_SPM_SP_SLOTS (WT_GEN_SP_COUNT > 0U ? WT_GEN_SP_COUNT : 1U)
+#endif
+static wt_spm_sp_t g_spm_sp[WT_SPM_SP_SLOTS];
 static size_t g_spm_sp_count;
 static uint32_t g_spm_sp_faults;
-static wt_secure_domain_t g_spm_sp_domain;
 
-static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,
-                                       int which);
+#if (defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)) || \
+    (defined(WT_CONF_DIAG_TRAP) && (WT_CONF_DIAG_TRAP != 0))
+#define WT_SPM_SCHED_DIAG 1
+static uint32_t wt_spm_sched_diag_word(int which);
+#endif
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 /* Privileged flash NVM sync, implemented in the port's hsm_flash.c. Declared
@@ -119,37 +121,18 @@ int wt_conf_nvm_flash_sync(uint8_t *buf, uint32_t len, int store);
 void wt_conf_uart_irq_set(int on);
 #endif
 
-#if defined(PARTITION_FWU_ID)
-/* Port flash staging backend (WT-FWU-0002); the SVC dispatcher runs its ops
- * privileged on behalf of the confined FWU partition. */
-extern const wt_fwu_backend_t wt_fwu_flash_backend;
-#endif
 
-/* Port seams the SVC dispatcher runs privileged on behalf of the confined
- * keystore partitions: the shared NVM flash callback set and its context
- * singleton (hsm_flash.c) and the TRNG entropy source (rng_entropy.c). */
-extern const whFlashCb g_wt_hsm_flash_cb;
-void *wt_hsm_flash_context(void);
-int wolftrust_rng_generate_block_direct(unsigned char *output,
-                                        unsigned int sz);
-
-/* Keystore-gate forensics, SWD-readable on target: silent -146 storage
- * failures on silicon are undebuggable from the interleaved console, so latch
- * the last pid-pin rejection and the last flash/lock op result here. */
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
+/* Keystore-gate forensics, SWD-readable on target: the last pid-pin
+ * rejection and the last flash or lock op result. */
 volatile uint32_t g_wt_ks_reject_pid __attribute__((used));
 volatile uint32_t g_wt_ks_reject_count __attribute__((used));
-volatile uint32_t g_wt_ks_last_flash __attribute__((used));
-volatile uint32_t g_wt_ks_last_flash_off __attribute__((used));
-volatile uint32_t g_wt_ks_flash_ops __attribute__((used));
 volatile uint32_t g_wt_ks_last_lock __attribute__((used));
-volatile uint32_t g_wt_ks_dom_reject_count __attribute__((used));
-volatile uint32_t g_wt_ks_dom_reject_subop __attribute__((used));
-volatile uint32_t g_wt_ks_dom_reject_buf __attribute__((used));
-volatile uint32_t g_wt_ks_dom_reject_len __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_count __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_call __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_psp __attribute__((used));
 volatile uint32_t g_wt_svc_entry_rej_why __attribute__((used));
+#endif
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 /* Conformance-only hang tripwires: silent stalls on target are undebuggable,
@@ -169,7 +152,7 @@ static wt_spm_sp_t* wt_spm_slot_for_current(void)
 
     cur = wt_co_current();
     for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].in_use != 0u && g_spm_sp[i].co == cur) {
+        if (g_spm_sp[i].co == cur) {
             return &g_spm_sp[i];
         }
     }
@@ -192,8 +175,22 @@ typedef struct wt_spm_fault_ctx {
 
 static int32_t g_spm_hsm_partition_id = -1;
 
-static const wt_domain_descriptor_t* wt_spm_domain_for(int32_t partition_id);
+/* WT-FFM-0069: a partition's lines stay disabled, cleared, and Secure-routed
+ * until its own psa_irq_enable, at first bring-up and on every restart. */
+static int wt_spm_claim_irqs(uint16_t partition_index)
+{
+    size_t i;
 
+    for (i = 0u; i < g_wt_spm_irq_count; i++) {
+        if (g_wt_spm_irqs[i].sp == partition_index &&
+                wt_arch_secure_irq_claim(g_wt_spm_irqs[i].irq) != 0) {
+            return -1;
+        }
+    }
+    return 0;
+}
+
+#if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)
 static void wt_spm_fault_release(void* ctx)
 {
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
@@ -222,19 +219,15 @@ static void wt_spm_fault_release(void* ctx)
 static void wt_spm_fault_messages(void* ctx)
 {
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
-    const wt_domain_descriptor_t* domain;
     size_t i;
 
-    (void)wt_ffm_partition_restarted(g_spm_svc_runtime,
-                                     c->slot->partition_id,
-                                     PSA_ERROR_COMMUNICATION_FAILURE);
+    (void)wt_spm_sp_restarted((uint8_t)c->slot->partition_index,
+                              PSA_ERROR_COMMUNICATION_FAILURE);
     /* The dead instance's interrupt lines stay masked, with nothing pending,
      * until the new instance enables them itself. */
-    domain = wt_spm_domain_for(c->slot->partition_id);
-    if (domain != NULL) {
-        for (i = 0u; i < domain->interrupt_resource_count; i++) {
-            wt_arch_secure_irq_disable(
-                domain->interrupt_resources[i].interrupt);
+    for (i = 0u; i < g_wt_spm_irq_count; i++) {
+        if (g_wt_spm_irqs[i].sp == c->slot->partition_index) {
+            wt_arch_secure_irq_disable(g_wt_spm_irqs[i].irq);
         }
     }
 }
@@ -242,38 +235,16 @@ static void wt_spm_fault_messages(void* ctx)
 static void wt_spm_fault_scrub(void* ctx)
 {
     wt_spm_fault_ctx_t* c = (wt_spm_fault_ctx_t*)ctx;
+    const wt_spm_sp_mem_t* mem = &g_wt_spm_sp_mems[c->slot->partition_index];
 
-    wt_arch_zero_guest_memory(c->slot->scrub_base, c->slot->scrub_size);
-    /* WT-FFM-0051: the domain's declared RESTART_CLEAR data band returns to
-     * its link-time image, so the restart starts from the C runtime state a
-     * first start has. */
-    if (c->slot->scrub2_size != 0u) {
-        wt_arch_sp_band_reset(c->slot->scrub2_base, c->slot->scrub2_size);
+    wt_arch_zero_guest_memory(mem->stack_base, mem->stack_size);
+    /* WT-FFM-0051: the declared RESTART_CLEAR band returns to its link-time
+     * image, so the restart starts from a first start's C runtime state. */
+    if (mem->band_size != 0u) {
+        wt_arch_sp_band_reset(mem->band_base, mem->band_size);
     }
 }
 
-/* WT-FFM-0069: a partition's lines stay disabled, cleared, and Secure-routed
- * until its own psa_irq_enable, at first bring-up and on every restart. */
-static int wt_spm_claim_irqs(const wt_ffm_runtime_t* runtime,
-                             uint16_t partition_index)
-{
-    const wt_partition_manifest_t* manifest;
-    size_t i;
-
-    if (runtime == NULL || partition_index >= runtime->partition_count) {
-        return -1;
-    }
-    manifest = runtime->partitions[partition_index].manifest;
-    if (manifest == NULL) {
-        return -1;
-    }
-    for (i = 0u; i < manifest->interrupt_count; i++) {
-        if (wt_arch_secure_irq_claim(manifest->interrupts[i].interrupt) != 0) {
-            return -1;
-        }
-    }
-    return 0;
-}
 
 static int wt_spm_fault_restart(void* ctx)
 {
@@ -299,7 +270,7 @@ static int wt_spm_fault_restart(void* ctx)
     slot->arg = (void*)((intptr_t)slot->arg | WT_SP_FAULT_PROBE_RESTARTED);
     arg = slot->arg;
 #endif
-    if (wt_spm_claim_irqs(g_spm_svc_runtime, slot->partition_index) != 0) {
+    if (wt_spm_claim_irqs(slot->partition_index) != 0) {
         return -1;
     }
     if (slot->restore != NULL && slot->restore(slot->partition_id) != 0) {
@@ -327,23 +298,7 @@ static const wt_sp_recovery_ops_t g_spm_fault_ops = {
     wt_spm_fault_release, wt_spm_fault_messages, wt_spm_fault_scrub,
     wt_spm_fault_restart, wt_spm_fault_escalate
 };
-
-static const wt_domain_descriptor_t* wt_spm_domain_for(int32_t partition_id)
-{
-    const wt_system_manifest_t* manifest;
-    size_t i;
-
-    if (g_spm_svc_runtime == NULL || g_spm_svc_runtime->manifest == NULL) {
-        return NULL;
-    }
-    manifest = g_spm_svc_runtime->manifest;
-    for (i = 0u; i < manifest->domain_count; i++) {
-        if (manifest->domains[i].id == (wt_domain_id_t)partition_id) {
-            return &manifest->domains[i];
-        }
-    }
-    return NULL;
-}
+#endif
 
 /* Handler-mode half: identical footprint to the proven guest-tasklet fault
  * path — mark the coroutine dead, unlink it, drop the stale PendSV target —
@@ -358,7 +313,7 @@ int wt_spm_sp_fault(struct wt_co* faulted_co)
     size_t i;
 
     for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].in_use != 0u && g_spm_sp[i].co == faulted_co) {
+        if (g_spm_sp[i].co == faulted_co) {
             slot = &g_spm_sp[i];
             break;
         }
@@ -376,10 +331,12 @@ int wt_spm_sp_fault(struct wt_co* faulted_co)
 
 void wt_spm_recover_faulted(void)
 {
-    const wt_domain_descriptor_t* domain;
+#if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)
+    const wt_spm_sp_mem_t* mem;
     wt_spm_fault_ctx_t ctx;
+    uint32_t ticks = wt_monitor_state()->monotonic_ticks;
+#endif
     wt_spm_sp_t* slot;
-    uint32_t ticks;
     size_t i;
 
     /* Defensive: the faulted partition ran with CONTROL.nPRIV=1 and the fault
@@ -388,24 +345,25 @@ void wt_spm_recover_faulted(void)
      * next NS window. Normally the bit is already clear and this never fires. */
     wt_arch_assert_privileged_thread();
 
-    ticks = wt_monitor_state()->monotonic_ticks;
     for (i = 0u; i < g_spm_sp_count; i++) {
         slot = &g_spm_sp[i];
-        if (slot->in_use == 0u || slot->fault_pending == 0u) {
+        if (slot->fault_pending == 0u) {
             continue;
         }
         slot->fault_pending = 0u;
-        domain = wt_spm_domain_for(slot->partition_id);
-        if (domain == NULL) {
-            continue;  /* stays FAULTED — quarantined by the mark */
-        }
+#if defined(WT_SP_RESTART) && (WT_SP_RESTART == 1)
+        mem = &g_wt_spm_sp_mems[slot->partition_index];
         ctx.slot = slot;
         (void)wt_sp_recovery_run(&g_spm_fault_ops, &ctx,
-                                 domain->restart_policy.action,
-                                 domain->restart_policy.restart_limit,
-                                 domain->restart_policy.restart_window_ticks,
+                                 (wt_restart_action_t)mem->restart_action,
+                                 mem->restart_limit,
+                                 mem->restart_window_ticks,
                                  ticks, &slot->restart_count,
                                  &slot->first_restart_tick);
+#else
+        /* Without partition recovery a fault fails the platform closed. */
+        wt_platform_all_guests_faulted();
+#endif
     }
 }
 
@@ -430,18 +388,17 @@ int wt_spm_dispatch_call(wt_spm_call_t* call, wt_trap_frame_t* frame)
     int status;
 
     slot = wt_spm_slot_for_current();
-    if (g_spm_svc_runtime == NULL || slot == NULL ||
+    if (slot == NULL ||
             wt_secure_domain_contains(&slot->table, (uintptr_t)call,
                                       sizeof(*call), 1) == 0) {
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
         g_wt_svc_entry_rej_count++;
         if (g_wt_svc_entry_rej_call == 0u) {
-            uint32_t psp_now;
-            psp_now = (uint32_t)wt_arch_sp_stack_pointer();
             g_wt_svc_entry_rej_call = (uint32_t)(uintptr_t)call;
-            g_wt_svc_entry_rej_psp = psp_now;
-            g_wt_svc_entry_rej_why = (g_spm_svc_runtime == NULL) ? 1u :
-                                     (slot == NULL) ? 2u : 3u;
+            g_wt_svc_entry_rej_psp = (uint32_t)wt_arch_sp_stack_pointer();
+            g_wt_svc_entry_rej_why = (slot == NULL) ? 2u : 3u;
         }
+#endif
         return WT_FFM_ERROR_ARGUMENT;
     }
 
@@ -517,80 +474,23 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
     }
 #endif
 
-    /* SERVICE_FWU staging (WT-FWU-0002): the confined FWU partition cannot
-     * touch the flash controller, so its backend ops trap here for the
-     * privileged program/erase, pinned to the FWU partition identity. The
-     * conformance manifest schedules no FWU partition, so the op falls
-     * through to the gate's argument rejection there. */
+    /* SERVICE_FWU staging (WT-FWU-0002), pinned to the FWU partition. Without
+     * one the op falls through to the gate's argument rejection. */
 #if defined(PARTITION_FWU_ID)
     if (call->op == WT_SPM_OP_FWU_BACKEND) {
-        int fwu_ret = -1;
-
         if (slot->partition_id != PARTITION_FWU_ID) {
             return WT_FFM_ERROR_ARGUMENT;
         }
-        if (call->call_type == WT_SPM_FWU_BEGIN &&
-                wt_fwu_flash_backend.begin != NULL) {
-            fwu_ret = wt_fwu_flash_backend.begin(NULL);
-        }
-        else if (call->call_type == WT_SPM_FWU_WRITE &&
-                wt_fwu_flash_backend.write != NULL &&
-                wt_secure_domain_contains(&slot->table,
-                    (uintptr_t)call->buffer, call->num_bytes, 0) != 0) {
-            fwu_ret = wt_fwu_flash_backend.write(NULL, call->vec_idx,
-                (const uint8_t*)call->buffer, (uint32_t)call->num_bytes);
-        }
-        else if (call->call_type == WT_SPM_FWU_ARM &&
-                wt_fwu_flash_backend.arm != NULL) {
-            fwu_ret = wt_fwu_flash_backend.arm(NULL,
-                (uint32_t)call->num_bytes, call->version);
-        }
-        else if (call->call_type == WT_SPM_FWU_DISARM &&
-                wt_fwu_flash_backend.disarm != NULL) {
-            fwu_ret = wt_fwu_flash_backend.disarm(NULL);
-        }
-        else if (call->call_type == WT_SPM_FWU_REBOOT) {
-            /* psa_fwu_request_reboot: the granted reset does not return. */
-            wt_platform_system_reset();
-        }
-        else if (call->call_type == WT_SPM_FWU_FLOOR) {
-            uint32_t fwu_floor = 0u;
-
-            if (wt_hsm_rollback_image_floor(&fwu_floor) == 0) {
-                call->ret_version = fwu_floor;
-                fwu_ret = 0;
-            }
-        }
-        else if (call->call_type == WT_SPM_FWU_VERIFY &&
-                wt_fwu_flash_backend.verify != NULL) {
-            uint32_t staged_version = 0u;
-
-            fwu_ret = wt_fwu_flash_backend.verify(NULL,
-                (uint32_t)call->num_bytes, &staged_version);
-            if (fwu_ret == 0) {
-                call->ret_version = staged_version;
-            }
-        }
-        else if (call->call_type == WT_SPM_FWU_ACTIVE) {
-            call->ret_version = wt_hsm_active_image_version();
-            fwu_ret = 0;
-        }
-        call->ret_int = fwu_ret;
+        call->ret_int = wt_spm_fwu_op(&slot->table, call);
         return WT_FFM_SUCCESS;
     }
 #endif /* PARTITION_FWU_ID */
 
-    /* Keystore platform services (WT-FFM-0011): the confined keystore
-     * partitions cannot touch the flash controller, the TRNG, or the
-     * scheduler state the NVM lock needs, so those ops trap here, pinned to
-     * the partition that owns each need: flash and the NVM lock belong to
-     * the vault (the store owner), entropy to the vault and the crypto
-     * partition (the DRBG owners). The flash context is always the vault's
-     * NVM singleton — never a caller-supplied pointer. */
+    /* Keystore platform services (WT-FFM-0011): flash and the NVM lock are
+     * pinned to the vault, entropy to the vault and the crypto partition. */
     if (call->op == WT_SPM_OP_KEYSTORE_FLASH ||
             call->op == WT_SPM_OP_KEYSTORE_ENTROPY ||
             call->op == WT_SPM_OP_KEYSTORE_LOCK) {
-        void* flash_ctx;
         wt_mutex_t* nvm_mutex;
         int ks_ret = -1;
         int pinned;
@@ -608,120 +508,50 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
         }
 #endif
         if (!pinned) {
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
             g_wt_ks_reject_pid = (uint32_t)slot->partition_id;
             g_wt_ks_reject_count++;
+#endif
             return WT_FFM_ERROR_ARGUMENT;
         }
-        if (call->op == WT_SPM_OP_KEYSTORE_FLASH) {
-            flash_ctx = wt_hsm_flash_context();
-            if (call->call_type == WT_SPM_KS_FLASH_READ &&
-                    wt_secure_domain_contains(&slot->table,
-                        (uintptr_t)call->buffer, call->num_bytes, 1) != 0) {
-                ks_ret = g_wt_hsm_flash_cb.Read(flash_ctx, call->vec_idx,
-                    (uint32_t)call->num_bytes, (uint8_t*)call->buffer);
+        if (call->op != WT_SPM_OP_KEYSTORE_LOCK) {
+            call->ret_int = wt_spm_keystore_op(&slot->table, call);
+            return WT_FFM_SUCCESS;
+        }
+        nvm_mutex = (wt_mutex_t*)(void*)wt_hsm_nvm_lock_mutex();
+        if (call->call_type == WT_SPM_KS_LOCK_ACQUIRE) {
+            ks_ret = wt_mutex_acquire_queued(nvm_mutex, wt_co_current());
+            if (ks_ret == 1) {
+                /* Enqueued behind the holder: block on exception return
+                 * and report retry; the release hands the mutex over
+                 * before waking, so the re-issue observes ownership. */
+                slot->wait_kind = WT_SPM_WAIT_LOCK;
+                wt_co_block();
             }
-            else if (call->call_type == WT_SPM_KS_FLASH_PROGRAM &&
-                    wt_secure_domain_contains(&slot->table,
-                        (uintptr_t)call->buffer, call->num_bytes, 0) != 0) {
-                ks_ret = g_wt_hsm_flash_cb.Program(flash_ctx, call->vec_idx,
-                    (uint32_t)call->num_bytes, (const uint8_t*)call->buffer);
-            }
-            else if (call->call_type == WT_SPM_KS_FLASH_ERASE) {
-                ks_ret = g_wt_hsm_flash_cb.Erase(flash_ctx, call->vec_idx,
-                    (uint32_t)call->num_bytes);
-            }
-            else if (call->call_type == WT_SPM_KS_FLASH_VERIFY &&
-                    wt_secure_domain_contains(&slot->table,
-                        (uintptr_t)call->buffer, call->num_bytes, 0) != 0) {
-                ks_ret = g_wt_hsm_flash_cb.Verify(flash_ctx, call->vec_idx,
-                    (uint32_t)call->num_bytes, (const uint8_t*)call->buffer);
-            }
-            else if (call->call_type == WT_SPM_KS_FLASH_BLANKCHECK) {
-                ks_ret = g_wt_hsm_flash_cb.BlankCheck(flash_ctx,
-                    call->vec_idx, (uint32_t)call->num_bytes);
-            }
-            else if (call->call_type == WT_SPM_KS_FLASH_CLEANUP) {
-                ks_ret = g_wt_hsm_flash_cb.Cleanup(flash_ctx);
+            else if (ks_ret == 0) {
+                slot->wait_kind = WT_SPM_WAIT_NONE;
             }
         }
-        else if (call->op == WT_SPM_OP_KEYSTORE_ENTROPY) {
-            if (wt_secure_domain_contains(&slot->table,
-                    (uintptr_t)call->buffer, call->num_bytes, 1) != 0) {
-                ks_ret = wolftrust_rng_generate_block_direct(
-                    (unsigned char*)call->buffer,
-                    (unsigned int)call->num_bytes);
-            }
+        else if (call->call_type == WT_SPM_KS_LOCK_RELEASE) {
+            ks_ret = wt_mutex_release(nvm_mutex);
         }
-        else {
-            nvm_mutex = (wt_mutex_t*)(void*)wt_hsm_nvm_lock_mutex();
-            if (call->call_type == WT_SPM_KS_LOCK_ACQUIRE) {
-                ks_ret = wt_mutex_acquire_queued(nvm_mutex, wt_co_current());
-                if (ks_ret == 1) {
-                    /* Enqueued behind the holder: block on exception return
-                     * and report retry; the release hands the mutex over
-                     * before waking, so the re-issue observes ownership. */
-                    slot->wait_kind = WT_SPM_WAIT_LOCK;
-                    wt_co_block();
-                }
-                else if (ks_ret == 0) {
-                    slot->wait_kind = WT_SPM_WAIT_NONE;
-                }
-            }
-            else if (call->call_type == WT_SPM_KS_LOCK_RELEASE) {
-                ks_ret = wt_mutex_release(nvm_mutex);
-            }
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
+        /* First-wins failure latch (1 means enqueued, not an error). */
+        if (ks_ret != 0 && ks_ret != 1 && g_wt_ks_last_lock == 0u) {
+            g_wt_ks_last_lock = ((uint32_t)call->call_type << 24) |
+                                ((uint32_t)ks_ret & 0x00FFFFFFu);
         }
-        if (call->op == WT_SPM_OP_KEYSTORE_FLASH) {
-            g_wt_ks_flash_ops++;
-            /* ks_ret untouched by the else-if chain = the buffer failed the
-             * caller-domain bounds check (or an unknown sub-op). */
-            if (ks_ret == -1) {
-                g_wt_ks_dom_reject_count++;
-                g_wt_ks_dom_reject_subop = (uint32_t)call->call_type;
-                g_wt_ks_dom_reject_buf = (uint32_t)(uintptr_t)call->buffer;
-                g_wt_ks_dom_reject_len = (uint32_t)call->num_bytes;
-            }
-        }
-        /* First-wins failure latch (lock ret 1 = enqueued, not an error). */
-        if (ks_ret != 0 && ks_ret != 1) {
-            if (call->op == WT_SPM_OP_KEYSTORE_LOCK &&
-                    g_wt_ks_last_lock == 0u) {
-                g_wt_ks_last_lock = ((uint32_t)call->call_type << 24) |
-                                    ((uint32_t)ks_ret & 0x00FFFFFFu);
-            }
-            else if (call->op != WT_SPM_OP_KEYSTORE_LOCK &&
-                    g_wt_ks_last_flash == 0u) {
-                g_wt_ks_last_flash = ((uint32_t)call->call_type << 24) |
-                                     ((uint32_t)ks_ret & 0x00FFFFFFu);
-                g_wt_ks_last_flash_off = call->vec_idx;
-            }
-        }
+#endif
         call->ret_int = ks_ret;
         return WT_FFM_SUCCESS;
     }
 
-    /* Read-only measurement snapshot (WT-FFM-0049/0062): the confined attest
-     * partition embeds the launch-verified guest measurements in its token
-     * but must not reach the monitor's table directly; copy on its behalf. */
+    /* Read-only measurement snapshot (WT-FFM-0049/0062) for the attest SP. */
     if (call->op == WT_SPM_OP_MEASURE_READ) {
-        const wt_guest_measurement_t* rec;
-        int m_ret = 0;
-
         if (slot->partition_id != PARTITION_ATTEST_ID) {
             return WT_FFM_ERROR_ARGUMENT;
         }
-        call->ret_size = wt_guest_measurement_count();
-        if (call->buffer != NULL) {
-            m_ret = -1;
-            rec = wt_guest_measurement_get(call->vec_idx, NULL);
-            if (rec != NULL && call->num_bytes == sizeof(*rec) &&
-                    wt_secure_domain_contains(&slot->table,
-                        (uintptr_t)call->buffer, call->num_bytes, 1) != 0) {
-                (void)memcpy(call->buffer, rec, sizeof(*rec));
-                m_ret = 0;
-            }
-        }
-        call->ret_int = m_ret;
+        call->ret_int = wt_spm_measure_op(&slot->table, call);
         return WT_FFM_SUCCESS;
     }
 
@@ -729,7 +559,7 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
      * field: a partition cannot impersonate another through the gate. */
     call->partition_id = slot->partition_id;
     slot->wait_kind = WT_SPM_WAIT_NONE;
-    status = wt_spm_gate(g_spm_svc_runtime, &slot->table, call);
+    status = wt_spm_gate(&g_wt_spm, &slot->table, call);
     /* psa_irq_enable and psa_eoi: the gate validated the signal against the
      * manifest and resolved its interrupt number; the privileged controller
      * unmask happens here where NVIC access is legal. EOI must re-enable the
@@ -769,12 +599,12 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
                 word_a |= ((uint32_t)wt_co_state(g_spm_sp[i].co) & 0xFu) <<
                           (16u + 4u * i);
             }
-            word_b = (g_spm_svc_runtime->partitions[slot->partition_index].
-                          asserted_signals & 0xFFFFu) << 16;
+            word_b = (g_wt_spm.asserted[slot->partition_index] & 0xFFFFu)
+                     << 16;
             if (g_spm_sp_count > 1u)
                 word_b |= g_spm_sp[1].wait_mask & 0xFFFFu;
             wt_arch_diag_trap(word_a, word_b,
-                wt_spm_sched_diag_word(g_spm_svc_runtime, 2));
+                wt_spm_sched_diag_word(2));
         }
     }
     else {
@@ -792,6 +622,9 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
         } else {
             slot->wait_kind = WT_SPM_WAIT_MSG;
             slot->wait_msg = call->pending_msg;
+            slot->wait_ipc = call->op == WT_SPM_OP_CONNECT ? PSA_IPC_CONNECT :
+                             call->op == WT_SPM_OP_CLOSE ? PSA_IPC_DISCONNECT :
+                             PSA_IPC_CALL;
         }
         wt_co_block();
     }
@@ -800,15 +633,17 @@ static int wt_spm_dispatch_held(wt_spm_sp_t* slot, wt_spm_call_t* call,
 
 /* True when a suspended partition's wake condition holds: its awaited signal
  * set is now asserted, or its pending SP-to-SP message completed. */
-static int wt_spm_slot_ready(const wt_ffm_runtime_t* runtime,
-                             const wt_spm_sp_t* slot)
+static int wt_spm_slot_ready(const wt_spm_sp_t* slot)
 {
     if (slot->wait_kind == WT_SPM_WAIT_SIG) {
-        return (runtime->partitions[slot->partition_index].asserted_signals &
+        return (wt_spm_pending((uint8_t)slot->partition_index) &
                 slot->wait_mask) != 0U;
     }
     if (slot->wait_kind == WT_SPM_WAIT_MSG) {
-        return wt_ffm_msg_complete(runtime, slot->wait_msg);
+        /* A message no longer the partition's wakes it to be refused. */
+        return wt_spm_done((uint8_t)slot->wait_msg,
+                           (psa_client_id_t)slot->partition_id,
+                           slot->wait_ipc) != 0;
     }
     if (slot->wait_kind == WT_SPM_WAIT_LOCK) {
         return 0;
@@ -816,7 +651,7 @@ static int wt_spm_slot_ready(const wt_ffm_runtime_t* runtime,
     /* No recorded wait (the partition has not run since boot): pending
      * signals mean queued work; a spurious wake lands in its psa_wait and
      * re-blocks harmlessly. */
-    return runtime->partitions[slot->partition_index].asserted_signals != 0U;
+    return wt_spm_pending((uint8_t)slot->partition_index) != 0U;
 }
 
 static int wt_spm_run_co(wt_co_t* co)
@@ -832,8 +667,8 @@ static int wt_spm_run_co(wt_co_t* co)
     return WT_FFM_SUCCESS;
 }
 
-static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,
-                                       int which)
+#if defined(WT_SPM_SCHED_DIAG)
+static uint32_t wt_spm_sched_diag_word(int which)
 {
     uint32_t value = 0u;
     size_t i;
@@ -848,19 +683,18 @@ static uint32_t wt_spm_sched_diag_word(const wt_ffm_runtime_t* runtime,
     } else if (which == 1) {
         for (i = 0u; i < g_spm_sp_count && i < 2u; i++) {
             value |= ((uint32_t)g_spm_sp[i + 1u].wait_msg & 0xFFu) << (8u * i);
-            value |= (runtime->partitions[g_spm_sp[i + 1u].partition_index].
-                          asserted_signals & 0xFFu) << (16u + 8u * i);
+            value |= (g_wt_spm.asserted[g_spm_sp[i + 1u].partition_index] &
+                      0xFFu) << (16u + 8u * i);
         }
     } else {
-        for (i = 0u; i < WT_FFM_MAX_MESSAGES; i++) {
-            if (runtime->messages[i].allocated != 0U)
-                value |= 1uL << (16u + i);
-            if (runtime->messages[i].complete != 0U)
-                value |= 1uL << i;
+        /* Two bits per slot: its WT_SPM_MSG_* state. */
+        for (i = 0u; i < WT_SPM_SLOTS; i++) {
+            value |= ((uint32_t)g_wt_spm.slot[i].msg & 0x3u) << (2u * i);
         }
     }
     return value;
 }
+#endif
 
 #if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
 void wt_spm_sched_hang_probe(void)
@@ -870,16 +704,14 @@ void wt_spm_sched_hang_probe(void)
     size_t i;
     int in_flight = 0;
 
-    if (g_spm_svc_runtime == NULL)
-        return;
     if (g_spm_conf_activity != last_activity) {
         last_activity = g_spm_conf_activity;
         idle_ticks = 0u;
         return;
     }
-    for (i = 0u; i < WT_FFM_MAX_MESSAGES; i++) {
-        if (g_spm_svc_runtime->messages[i].allocated != 0U &&
-                g_spm_svc_runtime->messages[i].complete == 0U) {
+    for (i = 0u; i < WT_SPM_SLOTS; i++) {
+        if (g_wt_spm.slot[i].msg == WT_SPM_MSG_QUEUED ||
+                g_wt_spm.slot[i].msg == WT_SPM_MSG_ACTIVE) {
             in_flight = 1;
             break;
         }
@@ -890,25 +722,19 @@ void wt_spm_sched_hang_probe(void)
     }
     if (++idle_ticks > 500u) {
         wt_arch_diag_trap(
-            wt_spm_sched_diag_word(g_spm_svc_runtime, 0),
-            wt_spm_sched_diag_word(g_spm_svc_runtime, 1),
-            wt_spm_sched_diag_word(g_spm_svc_runtime, 2));
+            wt_spm_sched_diag_word(0),
+            wt_spm_sched_diag_word(1),
+            wt_spm_sched_diag_word(2));
     }
 }
 
 void wt_spm_conf_irq(uint32_t irq)
 {
-    int32_t partition_id;
-    psa_signal_t signal;
-
     /* Mask first: a level source (UART TXE) would re-pend forever. The line
      * runs at the lowest priority, so this handler never nests inside the SVC
      * gate and the asserted_signals update cannot race it. */
     wt_arch_secure_irq_disable(irq);
-    if (g_spm_svc_runtime != NULL &&
-            wt_ffm_irq_route(g_spm_svc_runtime, irq, &partition_id,
-                             &signal) == WT_FFM_SUCCESS) {
-        (void)wt_ffm_assert_signal(g_spm_svc_runtime, partition_id, signal);
+    if (wt_spm_irq_assert(irq) >= 0) {
         g_spm_conf_activity++;
     }
 }
@@ -924,57 +750,42 @@ void wt_spm_conf_irq(uint32_t irq)
  * ((branch<<28)|(co state<<24)|partition id low 16); 1 entry-faulted,
  * 2 first run, 3 wake-loop run, 4 pass cap, 5 final not blocked,
  * 6 table reaches SPM RAM, 7 tables overlap, 8 not idle after start. */
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
 volatile uint32_t g_wt_sched_fail;
+#endif
 
 static void wt_spm_sched_note(uint32_t branch, wt_co_t* co, int32_t pid)
 {
+#if defined(WT_FFM_FORENSICS) && (WT_FFM_FORENSICS == 1)
     if ((g_wt_sched_fail >> 28) == 0U) {
         g_wt_sched_fail = (branch << 28) |
             (((uint32_t)wt_co_state(co) & 0xFU) << 24) |
             ((uint32_t)pid & 0xFFFFU);
     }
+#else
+    (void)branch;
+    (void)co;
+    (void)pid;
+#endif
 }
 
-static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
-                                 int32_t partition_id)
+/* Runs every partition whose wake condition holds until none does. */
+static int wt_spm_sched_drain(void)
 {
-    wt_co_t* co = (wt_co_t*)context;
     uint32_t passes = 0u;
     int progressed;
     size_t i;
 
-    (void)partition_id;
-#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
-    g_spm_conf_activity++;
-#endif
-    /* Settle any fault recovery pended by the Secure fault dispatcher before
-     * touching the target: a partition that faulted on an earlier dispatch may
-     * be restartable, in which case this wake finds it BLOCKED and healthy. */
-    wt_spm_recover_faulted();
-    if (co == NULL || wt_co_state(co) == WT_CO_FAULTED) {
-        wt_spm_sched_note(1U, co, partition_id);
-        return WT_FFM_ERROR_STATE;
-    }
-    if (wt_spm_run_co(co) != WT_FFM_SUCCESS) {
-        wt_spm_sched_note(2U, co, partition_id);
-        return WT_FFM_ERROR_STATE;
-    }
-    /* The run above may itself have faulted the partition: recover NOW so the
-     * pinned client's message is force-completed before this dispatch returns
-     * and the restart budget is charged on the spot. */
-    wt_spm_recover_faulted();
     do {
         progressed = 0;
         wt_spm_recover_faulted();
         for (i = 0u; i < g_spm_sp_count; i++) {
             wt_spm_sp_t* slot = &g_spm_sp[i];
-
             wt_co_state_t state = wt_co_state(slot->co);
 
-            if (slot->in_use == 0u ||
-                    (state != WT_CO_RUNNABLE &&
-                     (state != WT_CO_BLOCKED ||
-                      wt_spm_slot_ready(runtime, slot) == 0))) {
+            if (state != WT_CO_RUNNABLE &&
+                    (state != WT_CO_BLOCKED ||
+                     wt_spm_slot_ready(slot) == 0)) {
                 continue;
             }
             if (wt_spm_run_co(slot->co) != WT_FFM_SUCCESS) {
@@ -984,85 +795,87 @@ static int wt_spm_sched_dispatch(void* context, wt_ffm_runtime_t* runtime,
             progressed = 1;
         }
         if (++passes > 1000u) {
-            wt_arch_diag_trap(wt_spm_sched_diag_word(runtime, 0),
-                                   wt_spm_sched_diag_word(runtime, 1),
-                                   wt_spm_sched_diag_word(runtime, 2));
-            wt_spm_sched_note(4U, co, partition_id);
+#if defined(WT_SPM_SCHED_DIAG)
+            wt_arch_diag_trap(wt_spm_sched_diag_word(0),
+                              wt_spm_sched_diag_word(1),
+                              wt_spm_sched_diag_word(2));
+#endif
+            wt_spm_sched_note(4U, NULL, 0);
             return WT_FFM_ERROR_STATE;
         }
     } while (progressed != 0);
-    if (wt_co_state(co) != WT_CO_BLOCKED) {
-        wt_spm_sched_note(5U, co, partition_id);
-        return WT_FFM_ERROR_STATE;
-    }
     return WT_FFM_SUCCESS;
 }
 
-static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
-                                   int32_t partition_id,
-                                   wt_spm_sp_entry_fn entry, void* arg)
+void wt_spm_run(void)
 {
+#if defined(WT_CONFORMANCE) && (WT_CONFORMANCE == 1)
+    g_spm_conf_activity++;
+#endif
+    (void)wt_spm_sched_drain();
+}
+
+/* Runs one partition from where it parked, then drains the rest; the
+ * partition must be back in a wait afterwards. */
+static int wt_spm_sched_drive(wt_co_t* co, int32_t partition_id)
+{
+    int ret;
+
+    /* Settle any fault recovery pended by the Secure fault dispatcher first:
+     * a partition that faulted earlier may be restartable and healthy now. */
+    wt_spm_recover_faulted();
+    if (co == NULL || wt_co_state(co) == WT_CO_FAULTED) {
+        wt_spm_sched_note(1U, co, partition_id);
+        return WT_FFM_ERROR_STATE;
+    }
+    if (wt_spm_run_co(co) != WT_FFM_SUCCESS) {
+        wt_spm_sched_note(2U, co, partition_id);
+        return WT_FFM_ERROR_STATE;
+    }
+    ret = wt_spm_sched_drain();
+    if (ret == WT_FFM_SUCCESS && wt_co_state(co) != WT_CO_BLOCKED) {
+        wt_spm_sched_note(5U, co, partition_id);
+        ret = WT_FFM_ERROR_STATE;
+    }
+    return ret;
+}
+
+int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
+                     wt_spm_sp_entry_fn entry, void* arg,
+                     wt_spm_sp_restore_fn restore)
+{
+    const wt_spm_sp_mem_t* mem;
     wt_spm_sp_t* slot;
-    const wt_memory_region_t* stack_region;
     const wt_periph_t* periph;
     size_t periph_count;
     size_t region_count;
     size_t i;
+    int index;
 
-    if (runtime == NULL || runtime->manifest == NULL || entry == NULL) {
+    (void)runtime;
+    if (entry == NULL) {
         return WT_FFM_ERROR_ARGUMENT;
     }
-    if (g_spm_sp_count >= WT_FFM_MAX_PARTITIONS) {
+    if (g_spm_sp_count >= WT_SPM_SP_SLOTS) {
         return WT_FFM_ERROR_RESOURCE;
     }
-    if (wt_ffm_resolve_secure_domain(runtime->manifest,
-                                     (wt_domain_id_t)partition_id,
-                                     &g_spm_sp_domain) !=
-            WT_SECURE_DOMAIN_OK) {
+    index = wt_spm_sp_index(partition_id);
+    if (index < 0) {
         return WT_FFM_ERROR_STATE;
     }
-
-    /* The SP's execution stack is the manifest domain's PRIVATE writable
-     * resource — a shared band (the keystore) is never a stack; fail closed
-     * if the manifest stops declaring one. When the domain declares its
-     * stack explicitly, only the resource containing that range qualifies,
-     * so adding a second private writable band (the vnet data band) cannot
-     * silently repoint the stack. */
-    stack_region = NULL;
-    for (i = 0u; i < g_spm_sp_domain.region_count; i++) {
-        if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_WRITE) !=
-                0u &&
-                (g_spm_sp_domain.regions[i].attributes &
-                 WT_MEM_ATTR_DEVICE) == 0u &&
-                (g_spm_sp_domain.regions[i].attributes &
-                 WT_MEMORY_ATTR_SHARED) == 0u) {
-            if (g_spm_sp_domain.stack_size != 0u &&
-                    (g_spm_sp_domain.stack_base <
-                         g_spm_sp_domain.regions[i].base ||
-                     g_spm_sp_domain.stack_base +
-                         g_spm_sp_domain.stack_size >
-                         g_spm_sp_domain.regions[i].base +
-                         g_spm_sp_domain.regions[i].size)) {
-                continue;
-            }
-            stack_region = &g_spm_sp_domain.regions[i];
-        }
-    }
-    if (stack_region == NULL) {
-        return WT_FFM_ERROR_STATE;
-    }
+    mem = &g_wt_spm_sp_mems[index];
 
     /* WT-FFM-0068: MMIO maps only as a DEVICE peripheral the port lets a
      * partition own, so no manifest can hand a partition SPM hardware. */
     periph = wt_platform_sp_peripherals(&periph_count);
-    if (wt_periph_sp_domain_ok(periph, periph_count, g_spm_sp_domain.regions,
-                               g_spm_sp_domain.region_count,
+    if (wt_periph_sp_domain_ok(periph, periph_count, mem->regions,
+                               mem->region_count,
                                wt_arch_range_is_mmio) != 1) {
         return WT_FFM_ERROR_RESOURCE;
     }
 
     slot = &g_spm_sp[g_spm_sp_count];
-    slot->table.domain_id = g_spm_sp_domain.domain_id;
+    slot->table.domain_id = (wt_domain_id_t)partition_id;
     /* Thread-domain table: the image windows every partition shares (the port
      * knows where executable code ends), then the domain's non-EXEC resources.
      * Every scheduled SP is confined this way; no wide privileged table exists
@@ -1071,12 +884,10 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
      * grants) — a new fixed region needs a budget re-count. */
     region_count = wt_platform_sp_shared_regions(slot->table.regions,
                                                  WT_MAX_MEMORY_REGIONS);
-    for (i = 0u; i < g_spm_sp_domain.region_count &&
+    for (i = 0u; i < mem->region_count &&
             region_count < WT_MAX_MEMORY_REGIONS; i++) {
-        if ((g_spm_sp_domain.regions[i].attributes & WT_MEM_ATTR_EXEC) ==
-                0u) {
-            slot->table.regions[region_count] =
-                g_spm_sp_domain.regions[i];
+        if ((mem->regions[i].attributes & WT_MEM_ATTR_EXEC) == 0u) {
+            slot->table.regions[region_count] = mem->regions[i];
             region_count++;
         }
     }
@@ -1110,9 +921,8 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
 #endif
     slot->table.region_count = region_count;
 
-    slot->co = wt_co_create_blocked_ex(
-        (uint8_t*)(uintptr_t)stack_region->base, stack_region->size,
-        entry, arg);
+    slot->co = wt_co_create_blocked_ex((uint8_t*)mem->stack_base,
+                                       mem->stack_size, entry, arg);
     if (slot->co == NULL) {
         return WT_FFM_ERROR_RESOURCE;
     }
@@ -1120,74 +930,19 @@ static int wt_spm_sched_add_common(wt_ffm_runtime_t* runtime,
     slot->partition_id = partition_id;
     slot->wait_kind = WT_SPM_WAIT_NONE;
     slot->entry = entry;
-    slot->restore = NULL;
+    slot->restore = restore;
     slot->arg = arg;
-    slot->scrub_base = stack_region->base;
-    slot->scrub_size = stack_region->size;
-    /* Record the domain's private non-stack RESTART_CLEAR band for the fault
-     * scrub; more than one is unsupported, so fail closed rather than leave
-     * a declared band unscrubbed. */
-    slot->scrub2_base = 0u;
-    slot->scrub2_size = 0u;
-    for (i = 0u; i < g_spm_sp_domain.region_count; i++) {
-        const wt_memory_region_t* region = &g_spm_sp_domain.regions[i];
-
-        if (region == stack_region ||
-                (region->attributes & WT_MEMORY_ATTR_RESTART_CLEAR) == 0u ||
-                (region->attributes & WT_MEM_ATTR_WRITE) == 0u ||
-                (region->attributes & WT_MEM_ATTR_DEVICE) != 0u ||
-                (region->attributes & WT_MEMORY_ATTR_SHARED) != 0u) {
-            continue;
-        }
-        if (slot->scrub2_size != 0u) {
-            return WT_FFM_ERROR_STATE;
-        }
-        slot->scrub2_base = region->base;
-        slot->scrub2_size = (uint32_t)region->size;
-    }
     slot->restart_count = 0u;
     slot->first_restart_tick = 0u;
-
-    /* Cache the runtime partition index so the scheduler's signal check does
-     * not rescan per wake. */
-    slot->partition_index = 0u;
-    for (i = 0u; i < runtime->partition_count; i++) {
-        if (runtime->partitions[i].manifest != NULL &&
-                runtime->partitions[i].manifest->domain_id ==
-                    (wt_domain_id_t)partition_id) {
-            slot->partition_index = (uint16_t)i;
-            break;
-        }
-    }
-    if (i >= runtime->partition_count) {
-        return WT_FFM_ERROR_STATE;
-    }
-    if (wt_spm_claim_irqs(runtime, slot->partition_index) != 0) {
+    slot->partition_index = (uint16_t)index;
+    if (wt_spm_claim_irqs(slot->partition_index) != 0) {
         return WT_FFM_ERROR_RESOURCE;
-    }
-
-    /* Transport and compute reach an SP through a dispatch context it builds
-     * on its own stack, so no global-pointer read crosses the partition's MPU
-     * domain. The one-shot MSP trampoline the privileged path installed would
-     * panic on a PSP thread, so it is not used here. */
-    g_spm_svc_runtime = runtime;
-    if (wt_ffm_register_partition(runtime, partition_id,
-                                  wt_spm_sched_dispatch, slot->co) !=
-            WT_FFM_SUCCESS) {
-        return WT_FFM_ERROR_STATE;
     }
 
     /* Publish the slot last: the SVC dispatcher only scans up to
      * g_spm_sp_count, so an SP is never visible half-built. */
-    slot->in_use = 1u;
     g_spm_sp_count++;
     return WT_FFM_SUCCESS;
-}
-
-int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
-                     wt_spm_sp_entry_fn entry, void* arg)
-{
-    return wt_spm_sched_add_common(runtime, partition_id, entry, arg);
 }
 
 #if (defined(WT_BAND_NEG_PROBE) && (WT_BAND_NEG_PROBE != 0)) || \
@@ -1202,11 +957,9 @@ void wt_spm_sched_prime(int32_t partition_id)
     unsigned int run;
 
     for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].in_use != 0u &&
-                g_spm_sp[i].partition_id == partition_id) {
+        if (g_spm_sp[i].partition_id == partition_id) {
             for (run = 0u; run < 3u; run++) {
-                (void)wt_spm_sched_dispatch(g_spm_sp[i].co,
-                                            g_spm_svc_runtime, partition_id);
+                (void)wt_spm_sched_drive(g_spm_sp[i].co, partition_id);
             }
         }
     }
@@ -1220,24 +973,19 @@ int wt_spm_sched_start_all(void)
     uint32_t faults = g_spm_sp_faults;
     size_t i;
 
-    if (g_spm_svc_runtime == NULL) {
-        return WT_FFM_ERROR_STATE;
-    }
     for (i = 0u; ret == WT_FFM_SUCCESS && i < g_spm_sp_count; i++) {
         slot = &g_spm_sp[i];
-        if (slot->in_use != 0u && slot->wait_kind == WT_SPM_WAIT_NONE &&
+        if (slot->wait_kind == WT_SPM_WAIT_NONE &&
                 wt_co_state(slot->co) == WT_CO_BLOCKED) {
-            ret = wt_spm_sched_dispatch(slot->co, g_spm_svc_runtime,
-                                        slot->partition_id);
+            ret = wt_spm_sched_drive(slot->co, slot->partition_id);
         }
     }
     /* Idle means every partition parked in psa_wait; one still blocked on a
      * reply or a lock left start-up IPC undrained. */
     for (i = 0u; ret == WT_FFM_SUCCESS && i < g_spm_sp_count; i++) {
         slot = &g_spm_sp[i];
-        if (slot->in_use != 0u &&
-                (wt_co_state(slot->co) != WT_CO_BLOCKED ||
-                 slot->wait_kind != WT_SPM_WAIT_SIG)) {
+        if (wt_co_state(slot->co) != WT_CO_BLOCKED ||
+                slot->wait_kind != WT_SPM_WAIT_SIG) {
             wt_spm_sched_note(8U, slot->co, slot->partition_id);
             ret = WT_FFM_ERROR_STATE;
         }
@@ -1256,8 +1004,7 @@ int wt_spm_partition_memory_ok(int32_t partition_id, const void* address,
     size_t i;
 
     for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].in_use != 0u &&
-                g_spm_sp[i].partition_id == partition_id) {
+        if (g_spm_sp[i].partition_id == partition_id) {
             return wt_secure_domain_contains(&g_spm_sp[i].table,
                                              (uintptr_t)address, size,
                                              need_write);
@@ -1266,6 +1013,7 @@ int wt_spm_partition_memory_ok(int32_t partition_id, const void* address,
     return 0;
 }
 
+#if WT_SPM_BOOT_VALIDATE
 int wt_spm_sched_validate(void)
 {
     wt_memory_region_t spm_ram[2];
@@ -1304,18 +1052,4 @@ int wt_spm_sched_validate(void)
     }
     return WT_FFM_SUCCESS;
 }
-
-int wt_spm_sched_set_restore(int32_t partition_id,
-                             wt_spm_sp_restore_fn restore)
-{
-    size_t i;
-
-    for (i = 0u; i < g_spm_sp_count; i++) {
-        if (g_spm_sp[i].in_use != 0u &&
-                g_spm_sp[i].partition_id == partition_id) {
-            g_spm_sp[i].restore = restore;
-            return WT_FFM_SUCCESS;
-        }
-    }
-    return WT_FFM_ERROR_STATE;
-}
+#endif

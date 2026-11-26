@@ -51,7 +51,7 @@ static void check(int ok, const char* what)
     }
 }
 
-static void fake_disable(uint32_t word, uint32_t mask)
+void wt_arch_nvic_disable(uint32_t word, uint32_t mask)
 {
     g_touched = 1;
     if (g_disable_stuck == 0) {
@@ -59,13 +59,13 @@ static void fake_disable(uint32_t word, uint32_t mask)
     }
 }
 
-static void fake_clear_pending(uint32_t word, uint32_t mask)
+void wt_arch_nvic_clear_pending(uint32_t word, uint32_t mask)
 {
     g_touched = 1;
     g_ispr[word] &= ~mask;
 }
 
-static void fake_route_secure(uint32_t word, uint32_t mask)
+void wt_arch_nvic_route_secure(uint32_t word, uint32_t mask)
 {
     g_touched = 1;
     if (g_route_stuck == 0) {
@@ -73,28 +73,19 @@ static void fake_route_secure(uint32_t word, uint32_t mask)
     }
 }
 
-static uint32_t fake_enabled(uint32_t word)
+uint32_t wt_arch_nvic_enabled(uint32_t word)
 {
     return g_iser[word];
 }
 
-static uint32_t fake_non_secure(uint32_t word)
+uint32_t wt_arch_nvic_non_secure(uint32_t word)
 {
     return g_itns[word];
 }
 
-static void fake_barrier(void)
+void wt_arch_nvic_barrier(void)
 {
 }
-
-static const wt_nvic_ops_t g_ops = {
-    fake_disable,
-    fake_clear_pending,
-    fake_route_secure,
-    fake_enabled,
-    fake_non_secure,
-    fake_barrier
-};
 
 static void seed_hostile(void)
 {
@@ -119,40 +110,31 @@ static int line_claimed(uint32_t irq)
 
 int main(void)
 {
-    wt_nvic_ops_t partial;
-
     printf("WT-FFM-0069 partition interrupt claim\n");
 
     seed_hostile();
-    check(wt_irq_claim(&g_ops, 63u, WORDS) == 0 && line_claimed(63u),
+    check(wt_irq_claim(63u, WORDS) == 0 && line_claimed(63u),
           "hostile line is disabled, cleared, and Secure-routed at bring-up");
     seed_hostile();
-    check(wt_irq_claim(&g_ops, 63u, WORDS) == 0 && line_claimed(63u),
+    check(wt_irq_claim(63u, WORDS) == 0 && line_claimed(63u),
           "restart claims the line again from a hostile state");
     seed_hostile();
-    check(wt_irq_claim(&g_ops, 63u, SECURE_WORDS) == 0 && line_claimed(63u),
+    check(wt_irq_claim(63u, SECURE_WORDS) == 0 && line_claimed(63u),
           "last line of a 64-entry Secure vector table is claimed");
     seed_hostile();
-    check(wt_irq_claim(&g_ops, 64u, SECURE_WORDS) == -1 && g_touched == 0,
+    check(wt_irq_claim(64u, SECURE_WORDS) == -1 && g_touched == 0,
           "line past the Secure vector table is refused before any write");
     seed_hostile();
-    check(wt_irq_claim(&g_ops, WORDS * 32u, WORDS) == -1 && g_touched == 0,
+    check(wt_irq_claim(WORDS * 32u, WORDS) == -1 && g_touched == 0,
           "line beyond the controller is refused without a register write");
     seed_hostile();
     g_route_stuck = 1;
-    check(wt_irq_claim(&g_ops, 8u, WORDS) == -1,
+    check(wt_irq_claim(8u, WORDS) == -1,
           "routing that does not read back Secure fails the claim");
     seed_hostile();
     g_disable_stuck = 1;
-    check(wt_irq_claim(&g_ops, 8u, WORDS) == -1,
+    check(wt_irq_claim(8u, WORDS) == -1,
           "enable bit that does not clear fails the claim");
-    check(wt_irq_claim(NULL, 8u, WORDS) == -1,
-          "missing controller ops are refused");
-    partial = g_ops;
-    partial.route_secure = NULL;
-    seed_hostile();
-    check(wt_irq_claim(&partial, 8u, WORDS) == -1 && g_touched == 0,
-          "ops with a missing callback are refused before any write");
 
     printf("%d checks, %d failures\n", checks, failures);
     if (failures != 0) {

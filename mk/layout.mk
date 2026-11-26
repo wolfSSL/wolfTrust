@@ -19,9 +19,10 @@ WT_LAYOUT_OPTIONAL_INPUTS := WT_L3_SPM_RAM_SIZE WT_SP_HSM_DATA_SIZE \
     WT_SP_VAULT_DATA_SIZE WT_SP_ATTEST_DATA_SIZE WT_SP_PS_STACK_SIZE \
     WT_SP_ITS_STACK_SIZE WT_SP_VAULT_STACK_SIZE WT_SP_CRYPTO_STACK_SIZE \
     WT_SP_ATTEST_STACK_SIZE WT_SP_FWU_STACK_SIZE_RESERVED
-# The Cortex-M assembly P-256 verify peaks at 7,240 bytes on the native crypto
-# stack. Parsed before mk/arch-armv8m.mk, so only a set WT_WOLFCRYPT_SP_ASM counts.
-ifeq ($(filter 1,$(WT_WOLFCRYPT_SP_ASM))/$(filter hsm,$(WT_ENGINE))$(filter 1,$(WT_ENGINE_HSM)),1/)
+# The Cortex-M assembly P-256 verify peaks at 7,552 (native) and 7,680 bytes
+# (wolfHSM) on the crypto stack. Parsed before mk/arch-armv8m.mk, so only a set
+# WT_WOLFCRYPT_SP_ASM counts.
+ifeq ($(filter 1,$(WT_WOLFCRYPT_SP_ASM)),1)
 WT_SP_CRYPTO_STACK_SIZE ?= 0x00002400u
 endif
 
@@ -63,7 +64,7 @@ WT_LAYOUT_DEFS := \
 WT_SECURE_PSA ?= $(if $(or $(filter hsm,$(WT_ENGINE)),$(filter 1,$(WT_ENGINE_HSM)),\
     $(filter y,$(CONFIG_TPM) $(CONFIG_PKCS11))),0,1)
 # A Secure PSA crypto band holds the wolfPSA pool (2 KB per guest) plus about
-# 1.4 KB of slot tables and service state; its crypto stack peaks at 4,836 B (7,240 B asm).
+# 1.4 KB of slot tables and service state; its crypto stack peaks at 4,836 B (7,552 B asm).
 ifeq ($(WT_SECURE_PSA),1)
 WT_SP_HSM_DATA_SIZE ?= $(shell echo $$(( ($(or $(WT_PSA_POOL_BYTES),\
     $(or $(WT_MAX_GUESTS),1) * 2048) + 2048 + 31) / 32 * 32 )) 2>/dev/null)

@@ -106,7 +106,7 @@ static int nvm_up(void)
 
 int main(void)
 {
-    static const uint8_t secret[] = "beat-tf-m-owner-a-secret";
+    static const uint8_t secret[] = "key-isolation-owner-a-secret";
     const wt_vault_backend_t* store = &wt_hsm_vault_backend;
     uint8_t probe[64];
     size_t got = 0U;

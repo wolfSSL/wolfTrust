@@ -31,7 +31,7 @@ volatile uint32_t g_wt_vnet_dispatch_count;
 
 static vnet_switch_t* g_vnet_sw = NULL;
 static uint32_t (*g_vnet_tick)(void) = NULL;
-static wt_spm_transport_fn g_vnet_transport = wt_spm_transport_direct;
+static wt_spm_transport_fn g_vnet_transport = WT_SPM_TRANSPORT_DEFAULT;
 /* Confined time source: the SVC stamps the scheduler tick into every gate
  * return (ret_tick), so the unprivileged relay ages frames without a tick
  * callback that would dereference monitor state outside its MPU domain. */
@@ -60,7 +60,7 @@ void wt_vnet_relay_set_tick(uint32_t (*tick_fn)(void))
 
 void wt_vnet_relay_set_transport(wt_spm_transport_fn fn)
 {
-    g_vnet_transport = (fn != NULL) ? fn : wt_spm_transport_direct;
+    g_vnet_transport = (fn != NULL) ? fn : WT_SPM_TRANSPORT_DEFAULT;
 }
 
 static uint32_t wt_vnet_relay_now(void)

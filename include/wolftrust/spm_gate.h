@@ -197,6 +197,17 @@ int wt_spm_call_would_block(const wt_spm_call_t* call);
 typedef int (*wt_spm_transport_fn)(wt_ffm_runtime_t* runtime,
                                    wt_spm_call_t* call);
 int wt_spm_transport_direct(wt_ffm_runtime_t* runtime, wt_spm_call_t* call);
+/* A service's transport before it is bound: on target a partition only
+ * ever traps, so the direct transport is never linked there. */
+#if defined(WT_TARGET_BUILD)
+int wt_spm_svc_transport(wt_ffm_runtime_t* runtime, wt_spm_call_t* call);
+#define WT_SPM_TRANSPORT_DEFAULT wt_spm_svc_transport
+#else
+#define WT_SPM_TRANSPORT_DEFAULT wt_spm_transport_direct
+#endif
+/* Runs every ready partition until none can progress: the scheduler on
+ * target, the fixture's bound service loops on the host. */
+void wt_spm_run(void);
 
 /* SP dispatcher front half (cross-partition containment): wait for any
  * signal, absorb a doorbell before it can reach psa_get (a peer's psa_notify

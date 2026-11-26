@@ -55,19 +55,13 @@ const wt_fwu_backend_t wt_fwu_flash_backend = {
 };
 
 int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
-                     wt_spm_sp_entry_fn entry, void* arg)
+                     wt_spm_sp_entry_fn entry, void* arg,
+                     wt_spm_sp_restore_fn restore)
 {
     (void)runtime;
-    (void)partition_id;
     (void)entry;
     (void)arg;
     g_added++;
-    return WT_FFM_SUCCESS;
-}
-
-int wt_spm_sched_set_restore(int32_t partition_id,
-                             wt_spm_sp_restore_fn restore)
-{
     g_restore_id = partition_id;
     g_restore = restore;
     return WT_FFM_SUCCESS;

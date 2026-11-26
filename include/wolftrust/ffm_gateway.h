@@ -26,9 +26,6 @@
 
 #include <stdint.h>
 
-/* The core fails every NS window closed until this runs. */
-void wt_ffm_gateway_install(void);
-
 /* Called by the arch NS entry mechanism with raw NS arguments. */
 int32_t wt_ffm_gateway_connect(uint32_t sid, uint32_t version);
 int32_t wt_ffm_gateway_call(int32_t handle, int32_t type,

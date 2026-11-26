@@ -27,6 +27,7 @@
  * WT-FFM-0047 (ITS reaches the vault only via its dependencies[] grant;
  * direct NS access to the vault stays refused). */
 
+#include "spm_host.h"
 #include "wolftrust/ffm.h"
 #include "wolftrust/services/storage_service.h"
 #include "wolftrust/services/vault_service.h"
@@ -99,7 +100,7 @@ static int test_dispatch(void* context, wt_ffm_runtime_t* runtime,
     return WT_FFM_ERROR_STATE;
 }
 
-static const wt_ffm_port_ops_t g_port_ops = {
+static const wt_spm_host_ops_t g_port_ops = {
     test_check_read,
     test_check_write,
     test_dispatch,
@@ -162,7 +163,7 @@ static psa_status_t its_set(wt_ffm_runtime_t* runtime, int32_t caller,
     (void)memcpy(buffer + sizeof(req), data, len);
     in_vec[0].base = buffer;
     in_vec[0].len = sizeof(req) + len;
-    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_SET,
+    return wt_spm_host_call(caller, handle, WT_ITS_OP_SET,
                        in_vec, 1U, NULL, 0U);
 }
 
@@ -171,11 +172,11 @@ static psa_status_t its_set_large(wt_ffm_runtime_t* runtime, int32_t caller,
                                   psa_handle_t handle, uint64_t uid,
                                   size_t len)
 {
-    static uint8_t buffer[sizeof(wt_its_req_t) + WT_FFM_TRANSFER_BYTES];
+    static uint8_t buffer[sizeof(wt_its_req_t) + WT_SPM_TRANSFER_BYTES];
     wt_its_req_t req;
     psa_invec in_vec[1];
 
-    if (len > WT_FFM_TRANSFER_BYTES - sizeof(req)) {
+    if (len > WT_SPM_TRANSFER_BYTES - sizeof(req)) {
         return PSA_ERROR_INVALID_ARGUMENT;
     }
     (void)memset(&req, 0, sizeof(req));
@@ -184,7 +185,7 @@ static psa_status_t its_set_large(wt_ffm_runtime_t* runtime, int32_t caller,
     (void)memset(buffer + sizeof(req), 0x6B, len);
     in_vec[0].base = buffer;
     in_vec[0].len = sizeof(req) + len;
-    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_SET,
+    return wt_spm_host_call(caller, handle, WT_ITS_OP_SET,
                        in_vec, 1U, NULL, 0U);
 }
 
@@ -205,7 +206,7 @@ static psa_status_t its_get(wt_ffm_runtime_t* runtime, int32_t caller,
     in_vec[0].len = sizeof(req);
     out_vec[0].base = data;
     out_vec[0].len = size;
-    status = wt_ffm_call(runtime, caller, handle, WT_ITS_OP_GET,
+    status = wt_spm_host_call(caller, handle, WT_ITS_OP_GET,
                          in_vec, 1U, out_vec, 1U);
     if (out_len != NULL) {
         *out_len = out_vec[0].len;
@@ -227,7 +228,7 @@ static psa_status_t its_get_info(wt_ffm_runtime_t* runtime, int32_t caller,
     in_vec[0].len = sizeof(req);
     out_vec[0].base = info;
     out_vec[0].len = sizeof(*info);
-    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_GET_INFO,
+    return wt_spm_host_call(caller, handle, WT_ITS_OP_GET_INFO,
                        in_vec, 1U, out_vec, 1U);
 }
 
@@ -241,7 +242,7 @@ static psa_status_t its_remove(wt_ffm_runtime_t* runtime, int32_t caller,
     req.uid = uid;
     in_vec[0].base = &req;
     in_vec[0].len = sizeof(req);
-    return wt_ffm_call(runtime, caller, handle, WT_ITS_OP_REMOVE,
+    return wt_spm_host_call(caller, handle, WT_ITS_OP_REMOVE,
                        in_vec, 1U, NULL, 0U);
 }
 
@@ -257,7 +258,7 @@ int main(void)
     static const whNvmCb nvm_cb[1] = {WH_NVM_FLASH_CB};
     whNvmConfig nvm_cfg;
     whNvmContext nvm_ctx;
-    wt_ffm_runtime_t runtime;
+    wt_ffm_runtime_t* runtime = &g_wt_spm;
     wt_storage_service_ctx_t its_ctx;
     psa_handle_t handle_g0;
     psa_handle_t handle_g1;
@@ -295,12 +296,12 @@ int main(void)
     }
     wt_vault_service_set_backend(&wt_hsm_vault_backend);
 
-    if (wt_ffm_init(&runtime, &g_manifest, &g_port_ops, NULL) !=
+    if (wt_spm_host_init(&g_manifest, &g_port_ops, NULL) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "wt_ffm_init failed\n");
         return 1;
     }
-    if (wt_ffm_register_partition(&runtime, TEST_VAULT_PARTITION,
+    if (wt_spm_host_bind(TEST_VAULT_PARTITION,
                                   wt_vault_service_dispatch, NULL) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "vault register failed\n");
@@ -311,7 +312,7 @@ int main(void)
     its_ctx.vault_sid = TEST_VAULT_SID;
     its_ctx.vault_handle = 0;
     its_ctx.client_flags_mask = WT_VAULT_FLAG_WRITE_ONCE;
-    if (wt_ffm_register_partition(&runtime, TEST_ITS_PARTITION,
+    if (wt_spm_host_bind(TEST_ITS_PARTITION,
                                   wt_storage_service_dispatch, &its_ctx) !=
             WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "ITS register failed\n");
@@ -319,15 +320,15 @@ int main(void)
     }
 
     /* WT-FFM-0047: the vault stays SP-only even with ITS in front of it. */
-    handle_direct = wt_ffm_connect(&runtime, TEST_NS_GUEST0, TEST_VAULT_SID,
+    handle_direct = wt_spm_host_connect(TEST_NS_GUEST0, TEST_VAULT_SID,
                                    1U);
     check(!PSA_HANDLE_IS_VALID(handle_direct),
           "WT-FFM-0047 direct NS access to SERVICE_VAULT still refused");
 
-    handle_g0 = wt_ffm_connect(&runtime, TEST_NS_GUEST0, TEST_ITS_SID, 1U);
+    handle_g0 = wt_spm_host_connect(TEST_NS_GUEST0, TEST_ITS_SID, 1U);
     check(PSA_HANDLE_IS_VALID(handle_g0),
           "NS guest0 connects to SERVICE_ITS");
-    handle_g1 = wt_ffm_connect(&runtime, TEST_NS_GUEST1, TEST_ITS_SID, 1U);
+    handle_g1 = wt_spm_host_connect(TEST_NS_GUEST1, TEST_ITS_SID, 1U);
     check(PSA_HANDLE_IS_VALID(handle_g1),
           "NS guest1 connects to SERVICE_ITS");
     if (!PSA_HANDLE_IS_VALID(handle_g0) || !PSA_HANDLE_IS_VALID(handle_g1)) {
@@ -335,107 +336,107 @@ int main(void)
     }
 
     /* The full chain: NS -> ITS -> (SP-to-SP gate) -> vault -> NVM. */
-    status = its_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL, 0U,
+    status = its_set(runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL, 0U,
                      data_g0, sizeof(data_g0));
     check(status == PSA_SUCCESS,
           "WT-FFM-0047 guest0 its_set reaches the vault through the gate");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = its_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL, 0U,
+    status = its_get(runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL, 0U,
                      buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == sizeof(data_g0) &&
           memcmp(buffer, data_g0, sizeof(data_g0)) == 0,
           "guest0 its_get returns the stored object");
-    status = its_get_info(&runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL,
+    status = its_get_info(runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL,
                           &info);
     check(status == PSA_SUCCESS && info.size == sizeof(data_g0),
           "guest0 its_get_info reports the object size");
 
     /* WT-FFM-0044 at end-client granularity: same uid, different guests. */
-    status = its_get(&runtime, TEST_NS_GUEST1, handle_g1, 0x1111ULL, 0U,
+    status = its_get(runtime, TEST_NS_GUEST1, handle_g1, 0x1111ULL, 0U,
                      buffer, sizeof(buffer), &got);
     check(status == PSA_ERROR_DOES_NOT_EXIST,
           "WT-FFM-0044 guest1 cannot see guest0's uid");
-    status = its_set(&runtime, TEST_NS_GUEST1, handle_g1, 0x1111ULL, 0U,
+    status = its_set(runtime, TEST_NS_GUEST1, handle_g1, 0x1111ULL, 0U,
                      data_g1, sizeof(data_g1));
     check(status == PSA_SUCCESS,
           "WT-FFM-0044 guest1 owns the same uid independently");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = its_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL, 0U,
+    status = its_get(runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL, 0U,
                      buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS &&
           memcmp(buffer, data_g0, sizeof(data_g0)) == 0,
           "WT-FFM-0044 guest0's object unchanged by guest1's set");
 
     /* WT-FFM-0045 through the ITS face. */
-    status = its_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x2222ULL,
+    status = its_set(runtime, TEST_NS_GUEST0, handle_g0, 0x2222ULL,
                      WT_VAULT_FLAG_WRITE_ONCE, data_g0, sizeof(data_g0));
     check(status == PSA_SUCCESS, "guest0 its_set(WRITE_ONCE)");
-    status = its_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x2222ULL, 0U,
+    status = its_set(runtime, TEST_NS_GUEST0, handle_g0, 0x2222ULL, 0U,
                      data_g1, sizeof(data_g1));
     check(status == PSA_ERROR_NOT_PERMITTED,
           "WT-FFM-0045 WRITE_ONCE uid refuses a second its_set");
-    status = its_remove(&runtime, TEST_NS_GUEST0, handle_g0, 0x2222ULL);
+    status = its_remove(runtime, TEST_NS_GUEST0, handle_g0, 0x2222ULL);
     check(status == PSA_ERROR_NOT_PERMITTED,
           "WT-FFM-0045 WRITE_ONCE uid refuses its_remove");
 
     /* Remove lifecycle + offset read. */
-    status = its_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL, 4U,
+    status = its_get(runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL, 4U,
                      buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == sizeof(data_g0) - 4U &&
           memcmp(buffer, data_g0 + 4U, got) == 0,
           "guest0 its_get(offset 4) returns the tail");
-    status = its_remove(&runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL);
+    status = its_remove(runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL);
     check(status == PSA_SUCCESS, "guest0 its_remove");
-    status = its_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL, 0U,
+    status = its_get(runtime, TEST_NS_GUEST0, handle_g0, 0x1111ULL, 0U,
                      buffer, sizeof(buffer), &got);
     check(status == PSA_ERROR_DOES_NOT_EXIST, "removed uid is gone");
 
     /* PSA Storage: uid 0 is invalid for every operation. */
-    status = its_set(&runtime, TEST_NS_GUEST0, handle_g0, 0ULL, 0U,
+    status = its_set(runtime, TEST_NS_GUEST0, handle_g0, 0ULL, 0U,
                      data_g0, sizeof(data_g0));
     check(status == PSA_ERROR_INVALID_ARGUMENT, "its_set(uid 0) rejected");
-    status = its_get(&runtime, TEST_NS_GUEST0, handle_g0, 0ULL, 0U,
+    status = its_get(runtime, TEST_NS_GUEST0, handle_g0, 0ULL, 0U,
                      buffer, sizeof(buffer), &got);
     check(status == PSA_ERROR_INVALID_ARGUMENT, "its_get(uid 0) rejected");
-    status = its_remove(&runtime, TEST_NS_GUEST0, handle_g0, 0ULL);
+    status = its_remove(runtime, TEST_NS_GUEST0, handle_g0, 0ULL);
     check(status == PSA_ERROR_INVALID_ARGUMENT, "its_remove(uid 0) rejected");
 
     /* The vault hop carries its own request header in the same transfer
      * budget: the largest payload that fits is stored, one byte more is an
      * insufficient-storage condition, not an argument error. */
-    status = its_set_large(&runtime, TEST_NS_GUEST0, handle_g0, 0x4444ULL,
-                           WT_FFM_TRANSFER_BYTES - sizeof(wt_vault_req_t));
+    status = its_set_large(runtime, TEST_NS_GUEST0, handle_g0, 0x4444ULL,
+                           WT_SPM_TRANSFER_BYTES - sizeof(wt_vault_req_t));
     check(status == PSA_SUCCESS,
           "its_set of the largest payload the vault hop carries succeeds");
-    status = its_set_large(&runtime, TEST_NS_GUEST0, handle_g0, 0x4445ULL,
-                           WT_FFM_TRANSFER_BYTES - sizeof(wt_vault_req_t) +
+    status = its_set_large(runtime, TEST_NS_GUEST0, handle_g0, 0x4445ULL,
+                           WT_SPM_TRANSFER_BYTES - sizeof(wt_vault_req_t) +
                                1U);
     check(status == PSA_ERROR_INSUFFICIENT_STORAGE,
           "its_set past the vault hop budget reports insufficient storage");
-    status = its_set_large(&runtime, TEST_NS_GUEST0, handle_g0, 0x4446ULL,
-                           WT_FFM_TRANSFER_BYTES - sizeof(wt_its_req_t));
+    status = its_set_large(runtime, TEST_NS_GUEST0, handle_g0, 0x4446ULL,
+                           WT_SPM_TRANSFER_BYTES - sizeof(wt_its_req_t));
     check(status == PSA_ERROR_INSUFFICIENT_STORAGE,
           "its_set of a full transfer reports insufficient storage");
-    (void)its_remove(&runtime, TEST_NS_GUEST0, handle_g0, 0x4444ULL);
+    (void)its_remove(runtime, TEST_NS_GUEST0, handle_g0, 0x4444ULL);
 
     /* A vault restart between requests must not strand the front end. */
-    status = its_set(&runtime, TEST_NS_GUEST0, handle_g0, 0x3333ULL, 0U,
+    status = its_set(runtime, TEST_NS_GUEST0, handle_g0, 0x3333ULL, 0U,
                      data_g0, sizeof(data_g0));
     check(status == PSA_SUCCESS, "guest0 its_set before the vault restart");
-    check(wt_ffm_partition_restarted(&runtime, TEST_VAULT_PARTITION,
+    check(wt_spm_host_restarted(TEST_VAULT_PARTITION,
                                      PSA_ERROR_COMMUNICATION_FAILURE) ==
               WT_FFM_SUCCESS,
           "vault partition restart recorded");
     (void)memset(buffer, 0, sizeof(buffer));
-    status = its_get(&runtime, TEST_NS_GUEST0, handle_g0, 0x3333ULL, 0U,
+    status = its_get(runtime, TEST_NS_GUEST0, handle_g0, 0x3333ULL, 0U,
                      buffer, sizeof(buffer), &got);
     check(status == PSA_SUCCESS && got == sizeof(data_g0) &&
           memcmp(buffer, data_g0, sizeof(data_g0)) == 0,
           "WT-FFM-0026 its_get served after the vault restarted");
     check(g_panics == 0, "no partition panicked across the vault restart");
 
-    if (wt_ffm_close(&runtime, TEST_NS_GUEST0, handle_g0) != WT_FFM_SUCCESS ||
-            wt_ffm_close(&runtime, TEST_NS_GUEST1, handle_g1) !=
+    if (wt_spm_host_close(TEST_NS_GUEST0, handle_g0) != WT_FFM_SUCCESS ||
+            wt_spm_host_close(TEST_NS_GUEST1, handle_g1) !=
                 WT_FFM_SUCCESS) {
         (void)fprintf(stderr, "psa_close(SERVICE_ITS) failed\n");
         return 1;

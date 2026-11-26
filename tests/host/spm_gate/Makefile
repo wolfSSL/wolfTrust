@@ -25,13 +25,19 @@ CFLAGS := -std=c99 -O0 -g -Wall -Wextra -Werror -pedantic \
     -I$(ROOT)/include $(EXTRA_CFLAGS)
 LDFLAGS := $(EXTRA_LDFLAGS)
 TEST := $(BUILD_DIR)/test_spm_gate
-SRCS := $(ROOT)/src/spm_gate.c $(ROOT)/src/ffm.c $(ROOT)/src/ipc.c \
+TEST_TRIMS := $(BUILD_DIR)/test_spm_gate_trims
+include $(ROOT)/tests/host/support/spm_host.mk
+SRCS := $(ROOT)/src/spm_gate.c $(SPM_HOST_SRCS) \
     $(ROOT)/src/ffm_domain.c main.c
 
 .PHONY: all run compilers compiler-gcc compiler-clang sanitize valgrind \
     run-valgrind clean
 
-all: $(TEST)
+TRIMS_SRCS := $(filter-out main.c,$(SRCS)) trims_main.c
+TRIMS_CFLAGS := -DWT_FFM_SP_DOORBELL=0 -DWT_FFM_SP_RHANDLE=0 \
+    -DWT_FFM_SP_SKIP=0
+
+all: $(TEST) $(TEST_TRIMS)
 
 $(BUILD_DIR):
 	mkdir -p $@
@@ -39,8 +45,12 @@ $(BUILD_DIR):
 $(TEST): $(SRCS) | $(BUILD_DIR)
 	$(CC) $(CFLAGS) $(LDFLAGS) -o $@ $(SRCS)
 
-run: $(TEST)
+$(TEST_TRIMS): $(TRIMS_SRCS) | $(BUILD_DIR)
+	$(CC) $(CFLAGS) $(TRIMS_CFLAGS) $(LDFLAGS) -o $@ $(TRIMS_SRCS)
+
+run: $(TEST) $(TEST_TRIMS)
 	$(TEST)
+	$(TEST_TRIMS)
 
 compiler-gcc:
 	$(MAKE) run CC=gcc BUILD_DIR=$(BUILD_DIR)/gcc
@@ -58,9 +68,11 @@ sanitize:
 valgrind:
 	$(MAKE) run-valgrind BUILD_DIR=$(BUILD_DIR)/valgrind
 
-run-valgrind: $(TEST)
+run-valgrind: $(TEST) $(TEST_TRIMS)
 	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
 		$(TEST)
+	valgrind --error-exitcode=1 --leak-check=full --show-leak-kinds=all \
+		$(TEST_TRIMS)
 
 clean:
 	rm -rf $(BUILD_DIR)

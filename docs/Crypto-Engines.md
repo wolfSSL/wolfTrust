@@ -11,8 +11,7 @@ Both builds use the same five CMSE veneers, generated manifest, service IDs,
 SPM-owned caller identity, copied IOVEC rules, isolation bands, storage
 services, attestation service, firmware-update service, and Secure Partition
 recovery path. The STM32H563 manifest requests isolation profile 3 in both
-builds. That value is wolfTrust's validated policy profile, not proof of
-independent TF-M Level 3 code and data isolation.
+builds. That value is wolfTrust's validated policy profile.
 
 ## At a glance
 
@@ -29,8 +28,8 @@ independent TF-M Level 3 code and data isolation.
 
 By default the native engine serves all of PSA Crypto, its keys and its
 operation state from the Secure image
-([`WT_SECURE_PSA=1`](#psa-crypto-in-the-secure-image-wt_secure_psa1)), as
-TF-M's Crypto partition does. `WT_SECURE_PSA=0` is the smaller opt-out: the
+([`WT_SECURE_PSA=1`](#psa-crypto-in-the-secure-image-wt_secure_psa1)).
+`WT_SECURE_PSA=0` is the smaller opt-out: the
 guest runs wolfPSA and wolfCrypt itself, so its volatile keys stay in
 Non-secure memory. The native wire is a separate explicit interface for
 vault-backed key operations. Secure services such as attestation use that vault
@@ -163,7 +162,7 @@ Ownership and lifetime:
 - Persistent keys accept only `PSA_KEY_ID_USER_MIN..PSA_KEY_ID_USER_MAX` and
   are stored as vault objects namespaced by client ID, so two guests can use
   the same key ID. A new image in the same guest slot inherits that slot's
-  persistent keys, as in TF-M. Builtin and vendor key IDs, including the IAK,
+  persistent keys. Builtin and vendor key IDs, including the IAK,
   are not reachable from the Non-secure side.
 
 Transport and memory:
@@ -194,21 +193,18 @@ includes too:
 
 | Profile | Algorithms | STM32H563 Secure flash / RAM |
 | --- | --- | ---: |
-| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, TLS 1.2 PRF | 109,849 / 48,844 |
-| `standard` | `compat` without PBKDF2, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 103,067 / 48,844 |
-| `lean` | `standard` without CCM and AES decryption | 101,403 / 48,844 |
-| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 96,667 / 48,844 |
+| `compat` (default) | The reference guest's set: P-256 ECDSA (deterministic) and ECDH, AES-GCM, CCM, CTR, CBC and ECB, SHA-256, HMAC, HKDF, PBKDF2, TLS 1.2 PRF | 101,361 / 41,244 |
+| `standard` | `compat` without PBKDF2, TLS 1.2 PRF, CBC, ECB and deterministic ECDSA (ECDSA uses a random nonce) | 94,583 / 41,244 |
+| `lean` | `standard` without CCM and AES decryption | 92,919 / 41,244 |
+| `symmetric` | `lean` without ECC in the PSA surface; ECC key imports and generation return `PSA_ERROR_NOT_SUPPORTED` | 88,183 / 41,244 |
 
 RAM is the Secure RAM the image reserves. It is the same for every profile:
 the crypto partition's stack grows from 5 to 6 KiB for wolfPSA's ECDSA, and its
 data band from 1.5 KiB to `WT_PSA_POOL_BYTES` plus 2 KiB. The opt-out,
-`WT_SECURE_PSA=0`, is 70,400 / 45,260 bytes. The PSA
+`WT_SECURE_PSA=0`, is 61,916 / 37,660 bytes. The PSA
 guest drops from 65,384 to 34,600 bytes of flash; it keeps wolfCrypt only for
-the attestation token verifier. For comparison, TF-M v2.3.1 at isolation
-level 3 on the STM32L562 with its Medium crypto set is 79,680 bytes of flash
-and 45,728 bytes of RAM; of that flash, its Crypto partition and Mbed TLS
-are 40,478 bytes, against 55,021 for wolfCrypt, wolfPSA, the service and the
-key glue in `standard`.
+the attestation token verifier. In `standard`, wolfCrypt, wolfPSA, the
+service and the key glue are 55,021 bytes of that flash.
 
 wolfPSA refuses AES or GHASH whose timing depends on the key or the data, so
 the Secure image runs AES on wolfCrypt's touch-lines C core and GHASH on its
@@ -348,7 +344,7 @@ The Secure image and both guest images must use the same engine. See
 
 ## Measured Secure-image cost
 
-These Secure-image measurements were taken on 2026-11-17 with Arm GNU 15.2.1
+These Secure-image measurements were taken on 2026-11-25 with Arm GNU 15.2.1
 in `ghcr.io/wolfssl/wolfboot-ci-m33mu:v1.25`, LTO on, and the repository
 defaults other than the engine, the profile and the output directory:
 
@@ -370,23 +366,23 @@ wolfBoot and Non-secure guest images are not included.
 
 | Engine and profile | `text` | `data` | `bss` | Flash | Secure RAM |
 | --- | ---: | ---: | ---: | ---: | ---: |
-| Native, default (`WT_SECURE_PSA=1`, `compat`) | 109,453 bytes | 396 bytes | 20,732 bytes | 109,849 bytes | 48,844 bytes |
-| Native, `WT_SECURE_PSA=1` `standard` | 102,675 bytes | 392 bytes | 20,732 bytes | 103,067 bytes | 48,844 bytes |
-| Native, `WT_SECURE_PSA=0` | 70,016 bytes | 384 bytes | 18,340 bytes | 70,400 bytes | 45,260 bytes |
-| wolfHSM, default | 97,916 bytes | 392 bytes | 40,648 bytes | 98,308 bytes | 83,932 bytes |
-| wolfHSM over native `WT_SECURE_PSA=0` | 27,900 bytes | 8 bytes | 22,308 bytes | 27,908 bytes | 38,672 bytes |
-| Native, `full` | 118,556 bytes | 732 bytes | 31,832 bytes | 119,288 bytes | 64,380 bytes |
-| Native, `full`, `WT_SECURE_PSA=0` | 79,120 bytes | 720 bytes | 27,392 bytes | 79,840 bytes | 58,748 bytes |
-| wolfHSM, `full` | 107,304 bytes | 728 bytes | 66,504 bytes | 108,032 bytes | 107,916 bytes |
+| Native, default (`WT_SECURE_PSA=1`, `compat`) | 101,301 bytes | 60 bytes | 14,492 bytes | 101,361 bytes | 41,244 bytes |
+| Native, `WT_SECURE_PSA=1` `standard` | 94,527 bytes | 56 bytes | 14,492 bytes | 94,583 bytes | 41,244 bytes |
+| Native, `WT_SECURE_PSA=0` | 61,868 bytes | 48 bytes | 12,100 bytes | 61,916 bytes | 37,660 bytes |
+| wolfHSM, default | 89,764 bytes | 56 bytes | 34,452 bytes | 89,820 bytes | 72,280 bytes |
+| wolfHSM over native `WT_SECURE_PSA=0` | 27,896 bytes | 8 bytes | 22,352 bytes | 27,904 bytes | 34,620 bytes |
+| Native, `full` | 112,880 bytes | 60 bytes | 21,380 bytes | 112,940 bytes | 52,232 bytes |
+| Native, `full`, `WT_SECURE_PSA=0` | 73,444 bytes | 48 bytes | 16,940 bytes | 73,492 bytes | 46,600 bytes |
+| wolfHSM, `full` | 101,628 bytes | 56 bytes | 56,140 bytes | 101,684 bytes | 91,760 bytes |
 
 ### Stack contribution
 
 The wolfHSM engine adds one server tasklet stack slot per guest. The default
 image has one guest and one 10,496-byte slot (10,240-byte stack plus a
-256-byte underflow guard). The rest of the 38,672-byte Secure RAM difference
-is the crypto partition's larger stack (10 KiB instead of 5 KiB, since the
-wolfHSM server peaks at 7,608 bytes on it) and its larger data band (24 KiB
-instead of 1.5 KiB), which holds the server, protocol and per-guest state. With
+256-byte underflow guard). The rest of the 34,620-byte Secure RAM difference
+is the crypto partition's larger stack (6 KiB instead of 5 KiB; the wolfHSM
+server peaked at 4,856 bytes on it in the 2026-11-25 M33MU runs) and its larger
+data band (24 KiB instead of 1.5 KiB), which holds the server, protocol and per-guest state. With
 `WT_MAX_GUESTS=2` (the `full` profile):
 
 ```text

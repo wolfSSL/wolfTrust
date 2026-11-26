@@ -28,7 +28,7 @@
  * reaches the service without any operating-system dependency; a SHA-256
  * submit hook keeps the KAT round trip byte-exact. */
 
-#include "wolftrust/ffm_boot.h"
+#include "spm_host.h"
 #include "wolftrust/spm_sched.h"
 #include "wolftrust/services/hsm_relay.h"
 #include "wolftrust/services/fwu_service.h"
@@ -41,7 +41,7 @@
 /* The advertised public maximum must be deliverable: one marshalled request
  * (header + block) fits the IPC transfer budget exactly at the boundary. */
 WT_STATIC_ASSERT(sizeof(wt_fwu_req_t) + PSA_FWU_MAX_WRITE_SIZE <=
-               WT_FFM_TRANSFER_BYTES,
+               WT_SPM_TRANSFER_BYTES,
                "PSA_FWU_MAX_WRITE_SIZE exceeds the IPC transfer budget");
 #include "psa_manifest/pid.h"
 #include "psa_manifest/sid.h"
@@ -61,16 +61,19 @@ void wt_platform_panic(void)
 }
 
 int wt_spm_sched_add(wt_ffm_runtime_t* runtime, int32_t partition_id,
-                     wt_spm_sp_entry_fn entry, void* arg)
+                     wt_spm_sp_entry_fn entry, void* arg,
+                     wt_spm_sp_restore_fn restore)
 {
-    (void)runtime; (void)partition_id; (void)entry; (void)arg;
+    (void)runtime; (void)partition_id; (void)entry; (void)arg; (void)restore;
     return WT_FFM_SUCCESS;
 }
 
+#if WT_SPM_BOOT_VALIDATE
 int wt_spm_sched_validate(void)
 {
     return WT_FFM_SUCCESS;
 }
+#endif
 
 int wt_spm_sched_start_all(void)
 {
@@ -102,30 +105,39 @@ int wt_spm_ps_start(wt_ffm_runtime_t* runtime, int32_t partition_id)
 }
 
 /* ---- host memcheck standing in for the Armv8-M CMSE checker ---- */
-static int test_ns_check_read(wt_guest_id_t guest_id, const void* address,
-                              size_t size)
+static int g_ns_check_on = 1;
+
+static int test_ns_check_read(void* context, psa_client_id_t caller,
+                              const void* address, size_t size)
 {
-    (void)guest_id;
-    return size == 0U || address != NULL;
+    (void)context;
+    (void)caller;
+    (void)size;
+    return g_ns_check_on && address != NULL;
 }
 
-static int test_ns_check_write(wt_guest_id_t guest_id, void* address,
-                               size_t size)
+static int test_ns_check_write(void* context, psa_client_id_t caller,
+                               void* address, size_t size)
 {
-    (void)guest_id;
-    return size == 0U || address != NULL;
+    (void)context;
+    (void)caller;
+    (void)size;
+    return g_ns_check_on && address != NULL;
 }
+
+static const wt_spm_host_ops_t g_host_ops = {
+    test_ns_check_read, test_ns_check_write, NULL, NULL
+};
 
 /* ---- host stubs for the Armv8-M NS->S veneers: route to the runtime ---- */
 int32_t WolfTrust_FFM_Connect(uint32_t sid, uint32_t version)
 {
-    return (int32_t)wt_ffm_connect(wt_ffm_boot_runtime_mut(),
-                                   TEST_NS_CLIENT, sid, version);
+    return (int32_t)wt_spm_host_connect(TEST_NS_CLIENT, sid, version);
 }
 
 void WolfTrust_FFM_Close(int32_t handle)
 {
-    (void)wt_ffm_close(wt_ffm_boot_runtime_mut(), TEST_NS_CLIENT, handle);
+    (void)wt_spm_host_close(TEST_NS_CLIENT, handle);
 }
 
 int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
@@ -138,7 +150,7 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
 
     if (iv->in_count > WT_FFM_VENEER_IOVEC_MAX ||
             iv->out_count > WT_FFM_VENEER_IOVEC_MAX) {
-        wt_ffm_call_refuse(wt_ffm_boot_runtime_mut(), TEST_NS_CLIENT, handle);
+        wt_spm_call_refuse(TEST_NS_CLIENT, handle);
         return (int32_t)PSA_ERROR_PROGRAMMER_ERROR;
     }
     memset(in, 0, sizeof(in));
@@ -151,7 +163,7 @@ int32_t WolfTrust_FFM_Call(int32_t handle, int32_t type,
         out[i].base = iv->out[i].base;
         out[i].len = iv->out[i].len;
     }
-    st = wt_ffm_call(wt_ffm_boot_runtime_mut(), TEST_NS_CLIENT, handle, type,
+    st = wt_spm_host_call(TEST_NS_CLIENT, handle, type,
                      in, iv->in_count, out, iv->out_count);
     for (i = 0u; i < iv->out_count; i++) {
         iv->out[i].len = (uint32_t)out[i].len;
@@ -320,12 +332,10 @@ int main(void)
     psa_outvec out_vec;
     psa_status_t status;
 
-    check(wt_ffm_boot_init(&g_manifest) == WT_FFM_SUCCESS,
+    check(wt_spm_host_init(&g_manifest, &g_host_ops, NULL) == WT_FFM_SUCCESS,
           "P7-S1 boot core initializes from the manifest");
-    wt_ffm_boot_set_memcheck(test_ns_check_read, test_ns_check_write);
 
-    check(wt_ffm_register_partition(wt_ffm_boot_runtime_mut(),
-                                    PARTITION_HSM_ID,
+    check(wt_spm_host_bind(PARTITION_HSM_ID,
                                     wt_hsm_relay_dispatch,
                                     NULL) == WT_FFM_SUCCESS,
           "relay partition registers as the mediated door");
@@ -365,8 +375,7 @@ int main(void)
     g_fwu_ctx.backend_ctx = &g_fwu_mock;
     g_fwu_ctx.version_floor = 3U;
     g_fwu_ctx.active_version = 4U;
-    check(wt_ffm_register_partition(wt_ffm_boot_runtime_mut(),
-                                    TEST_FWU_PARTITION,
+    check(wt_spm_host_bind(TEST_FWU_PARTITION,
                                     wt_fwu_service_dispatch,
                                     &g_fwu_ctx) == WT_FFM_SUCCESS,
           "WT-FWU-0001 FWU partition registers its dispatch");
@@ -433,7 +442,7 @@ int main(void)
           "WT-FWU-0003 no-manifest candidate cleans back to READY");
 
     /* Clearing the port memcheck seam fails closed. */
-    wt_ffm_boot_set_memcheck(NULL, NULL);
+    g_ns_check_on = 0;
     handle = psa_connect(TEST_HSM_SID, 1U);
     out_vec.base = digest;
     out_vec.len = sizeof(digest);

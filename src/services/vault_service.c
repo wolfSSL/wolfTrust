@@ -210,7 +210,7 @@ static const wt_vault_nvm_backend_t* g_vault_nvm_backend =
     &g_vault_default_nvm_backend;
 static int32_t g_vault_keystore_client;
 static wt_vault_rng_fn g_vault_rng = wt_vault_default_rng;
-static wt_spm_transport_fn g_vault_transport = wt_spm_transport_direct;
+static wt_spm_transport_fn g_vault_transport = WT_SPM_TRANSPORT_DEFAULT;
 
 #if defined(WT_RESTART_NEG_PROBE) && (WT_RESTART_NEG_PROBE != 0)
 #include "wolftrust/spm_transport.h"
@@ -235,7 +235,7 @@ void wt_vault_service_set_rng(wt_vault_rng_fn fn)
 
 void wt_vault_service_set_transport(wt_spm_transport_fn fn)
 {
-    g_vault_transport = (fn != NULL) ? fn : wt_spm_transport_direct;
+    g_vault_transport = (fn != NULL) ? fn : WT_SPM_TRANSPORT_DEFAULT;
 }
 
 void wt_vault_service_set_keystore_client(int32_t partition_id)

@@ -39,9 +39,7 @@ CFLAGS := \
 CFLAGS += $(EXTRA_CFLAGS)
 
 _WT_SRCS := \
-    $(ROOT)/src/ffm.c \
     $(ROOT)/src/ffm_domain.c \
-    $(ROOT)/src/ipc.c \
     $(ROOT)/src/spm_gate.c \
     $(ROOT)/src/services/storage_service.c \
     $(ROOT)/src/services/vault_service.c \
@@ -73,7 +71,10 @@ _WH_OBJS   := $(patsubst %.c,wh_%.o,$(notdir $(_WH_SRCS)))
 _WC_OBJS   := $(patsubst %.c,wc_%.o,$(notdir $(_WC_SRCS)))
 _TEST_OBJS := $(patsubst %.c,%.o,$(notdir $(_TEST_SRCS)))
 
+include $(ROOT)/tests/host/support/spm_host.mk
+
 ALL_OBJS := $(addprefix $(BUILD_DIR)/,$(_WT_OBJS) $(_WH_OBJS) $(_WC_OBJS) $(_TEST_OBJS))
+ALL_OBJS += $(SPM_HOST_OBJS)
 TEST_BIN := $(BUILD_DIR)/test_ps_service
 
 .PHONY: all run compilers sanitize valgrind clean

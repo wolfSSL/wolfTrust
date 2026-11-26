@@ -75,7 +75,7 @@ option is off in the default.
 | `WT_FWU=1` | PSA Firmware Update and its 4 KiB stack | +3,232 / +4,316 | None |
 | `WT_MANIFEST_RUNTIME_CHECK=1` | The boot-time manifest and port-binding validator, with the descriptive manifest it reads | +5,516 / +16 | Adds the validator run at boot |
 | `WT_SHA256_FAST=1` | The unrolled SHA-256 transform | +416 / 0 | Faster guest verification at boot, attestation and the PSA hash service |
-| `WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1` | wolfCrypt's Cortex-M assembly for ECC, AES and SHA-256, and the 9 KiB native crypto stack its P-256 verify needs | +8,936 / +4,096 | Faster ECC, AES and SHA-256 |
+| `WT_WOLFCRYPT_SP_ASM=1 WT_WOLFCRYPT_ARMASM=1` | wolfCrypt's Cortex-M assembly for ECC, AES and SHA-256, and the 9 KiB crypto stack its P-256 verify needs | +8,936 / +4,096 | Faster ECC, AES and SHA-256 |
 | `WT_ENGINE=hsm` | The wolfHSM server as the crypto engine, with its 6 KiB crypto stack and 24 KiB data band | +27,904 / +34,620 | Adds the wolfHSM request layer to each crypto call |
 | `WT_FFM_FORENSICS=1` | The SPM forensic words a debugger reads after a fault | +512 / +104 | None |
 | `full` profile | The first four together | +11,576 / +8,940 | As above |
@@ -119,8 +119,9 @@ bytes (native `vaultrecover`) and the wolfHSM crypto stack at 4,856 bytes
 The Firmware Update stack peaks at 3,108 bytes in the native `full`
 `fwustage` scenario, which stages an update candidate.
 
-With `WT_WOLFCRYPT_SP_ASM=1` the native crypto stack peaks at 7,240 bytes in
-the P-256 verify, which is why that build reserves 9 KiB.
+With `WT_WOLFCRYPT_SP_ASM=1` the P-256 verify peaks at 7,552 bytes on the
+native crypto stack and 7,680 bytes under wolfHSM (`tpm`), which is why that
+build reserves 9 KiB on either engine.
 
 These options also add code but are not part of a production size budget:
 

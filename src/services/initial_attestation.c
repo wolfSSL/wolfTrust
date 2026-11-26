@@ -206,8 +206,12 @@ static int wt_attest_signer_sign(const uint8_t* digest, size_t digestSize,
     int ret;
 
     if (g_attest_hsm_transport == NULL) {
+#if defined(WT_TARGET_BUILD)
+        return WH_ERROR_NOTREADY;
+#else
         return wt_hsm_attest_sign(digest, digestSize, signature,
                                   signatureCapacity, signatureSize);
+#endif
     }
     if (signatureSize == NULL) {
         return WH_ERROR_BADARGS;
@@ -235,8 +239,12 @@ static int wt_attest_signer_public_key(uint8_t* publicKey,
     int ret;
 
     if (g_attest_hsm_transport == NULL) {
+#if defined(WT_TARGET_BUILD)
+        return WH_ERROR_NOTREADY;
+#else
         return wt_hsm_attest_public_key(publicKey, publicKeyCapacity,
                                         publicKeySize);
+#endif
     }
     if (publicKeySize == NULL) {
         return WH_ERROR_BADARGS;

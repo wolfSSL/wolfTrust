@@ -114,7 +114,8 @@ on `full`.
 
 Across 22 scenarios on both engines, the SPM main stack peaked at 2,296
 bytes (native `vaultrecover`) and the wolfHSM crypto stack at 4,856 bytes
-(`tpm`).
+(`tpm`). The STM32L562 and MCX N947 pass `positive`, `restart`, `devcrypto`
+and `confboot` at these sizes on each engine they build.
 
 The Firmware Update stack peaks at 3,108 bytes in the native `full`
 `fwustage` scenario, which stages an update candidate.
